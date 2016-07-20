@@ -8,12 +8,22 @@ import (
 	"github.com/launchdarkly/gcfg"
 	ld "github.com/launchdarkly/go-client"
 	"github.com/streamrail/concurrent-map"
+	"io"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+)
+
+var (
+	Debug   *log.Logger
+	Info    *log.Logger
+	Warning *log.Logger
+	Error   *log.Logger
 )
 
 var VERSION = "DEV"
@@ -44,14 +54,16 @@ func main() {
 
 	flag.Parse()
 
+	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+
 	var c Config
 
-	fmt.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
+	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
 
 	err := gcfg.ReadFileInto(&c, configFile)
 
 	if err != nil {
-		fmt.Println("Failed to read configuration file. Exiting.")
+		Error.Println("Failed to read configuration file. Exiting.")
 		os.Exit(1)
 	}
 
@@ -75,13 +87,13 @@ func main() {
 			_, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
 			if err != nil {
-				fmt.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
 				}
 			} else {
-				fmt.Printf("Initialized LaunchDarkly client for %s\n", envName)
+				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
 				handler := publisher.Handler(envConfig.ApiKey)
 				handlers.Set(envConfig.ApiKey, handler)
@@ -110,7 +122,7 @@ func main() {
 		}
 	}))
 
-	fmt.Printf("Listening on port %d\n", c.Main.Port)
+	Info.Printf("Listening on port %d\n", c.Main.Port)
 
 	http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
 }
@@ -134,4 +146,27 @@ func formatVersion(version string) string {
 		return fmt.Sprintf("%s (build %s)", split[0], split[1])
 	}
 	return version
+}
+
+func initLogging(
+	debugHandle io.Writer,
+	infoHandle io.Writer,
+	warningHandle io.Writer,
+	errorHandle io.Writer) {
+
+	Debug = log.New(debugHandle,
+		"DEBUG: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Info = log.New(infoHandle,
+		"INFO: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Warning = log.New(warningHandle,
+		"WARNING: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Error = log.New(errorHandle,
+		"ERROR: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
 }

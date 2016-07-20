@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	es "github.com/launchdarkly/eventsource"
 	ld "github.com/launchdarkly/go-client"
 	"time"
@@ -104,7 +103,7 @@ func (relay *SSERelayFeatureStore) Replay(channel, id string) (out chan es.Event
 			flags, err := relay.All()
 
 			if err != nil {
-				fmt.Printf("Error getting all flags: %s\n", err.Error())
+				Error.Printf("Error getting all flags: %s\n", err.Error())
 			} else {
 				out <- makePutEvent(flags)
 			}
