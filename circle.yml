@@ -3,7 +3,12 @@ dependencies:
     - rm -rf ~/.go_workspace/src/github.com/launchdarkly/ld-relay
     - mkdir -p ~/.go_workspace/src/github.com/launchdarkly/
     - ln -s ~/ld-relay ~/.go_workspace/src/github.com/launchdarkly/ld-relay
-    - go get github.com/tools/godep
+    - go get gopkg.in/tools/godep.v74 # lock down our version of godep
+    - ln -sf ~/.go_workspace/bin/godep.v74 ~/.go_workspace/bin/godep
+    - go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
+    - go version
+    - godep version
+    - goxc -version  
   override:
     - godep go build
   post:
