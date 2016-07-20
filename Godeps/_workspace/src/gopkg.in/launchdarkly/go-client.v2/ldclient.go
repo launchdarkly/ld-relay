@@ -1,9 +1,12 @@
 package ldclient
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -66,13 +69,8 @@ var DefaultConfig = Config{
 	Offline:       false,
 }
 
-var (
-	ErrNonBooleanValue       = errors.New("Feature flag returned non-boolean value")
-	ErrNonNumericValue       = errors.New("Feature flag returned non-numeric value")
-	ErrInitializationTimeout = errors.New("Timeout encountered waiting for LaunchDarkly client initialization")
-	ErrClientNotInitialized  = errors.New("Toggle called before LaunchDarkly client initialization completed")
-	ErrUnknownFeatureKey     = errors.New("Unknown feature key. Verify that this feature key exists. Returning default value.")
-)
+var ErrInitializationTimeout = errors.New("Timeout encountered waiting for LaunchDarkly client initialization")
+var ErrClientNotInitialized = errors.New("Toggle called before LaunchDarkly client initialization completed")
 
 // Creates a new client instance that connects to LaunchDarkly with the default configuration. In most
 // cases, you should use this method to instantiate your client. The optional duration parameter allows callers to
@@ -91,15 +89,14 @@ func MakeCustomClient(apiKey string, config Config, waitFor time.Duration) (*LDC
 
 	config.BaseUri = strings.TrimRight(config.BaseUri, "/")
 	config.EventsUri = strings.TrimRight(config.EventsUri, "/")
+	if config.PollInterval < (1 * time.Second) {
+		config.PollInterval = 1 * time.Second
+	}
 
 	requestor := newRequestor(apiKey, config)
 
 	if config.FeatureStore == nil {
 		config.FeatureStore = NewInMemoryFeatureStore()
-	}
-
-	if config.PollInterval < (1 * time.Second) {
-		config.PollInterval = 1 * time.Second
 	}
 
 	store = config.FeatureStore
@@ -188,124 +185,79 @@ func (client *LDClient) Flush() {
 	client.eventProcessor.flush()
 }
 
-// Returns a map from feature flag keys to boolean feature flag values for a given user. The
-// map will contain nil for any flags that are off. If the client is offline or has not been initialized,
-// a nil map will be returned. This method will not send analytics events back to LaunchDarkly.
-// The most common use case for this is bootstrapping client-side feature flags from a back-end service.
-func (client *LDClient) AllFlags(user User) (map[string]*bool, error) {
-	if client.IsOffline() {
-		return nil, nil
-	}
-
-	if !client.Initialized() {
-		return nil, ErrClientNotInitialized
-	}
-
-	allFlags, err := client.store.All()
-
-	if err != nil {
-		return nil, err
-	}
-
-	results := make(map[string]*bool)
-
-	for key, _ := range allFlags {
-		value, err := client.evaluate(key, user, nil)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if value != nil {
-			bval, ok := value.(bool)
-
-			if !ok {
-				return nil, ErrNonBooleanValue
-			}
-			results[key] = &bval
-		} else {
-			results[key] = nil
-		}
-	}
-
-	return results, nil
-}
-
 // Returns the value of a boolean feature flag for a given user. Returns defaultVal if
 // there is an error, if the flag doesn't exist, the client hasn't completed initialization,
 // or the feature is turned off.
 func (client *LDClient) Toggle(key string, user User, defaultVal bool) (bool, error) {
-	if client.IsOffline() {
-		return defaultVal, nil
-	}
-
-	value, err := client.evaluate(key, user, defaultVal)
-
-	if err != nil {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
-		return defaultVal, err
-	}
-
-	result, ok := value.(bool)
-
-	if !ok {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
-		return defaultVal, ErrNonBooleanValue
-	}
-
-	client.sendFlagRequestEvent(key, user, value, defaultVal)
-	return result, nil
+	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(bool(true)))
+	result, _ := value.(bool)
+	return result, err
 }
 
 // Returns the value of a feature flag (whose variations are integers) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) IntVariation(key string, user User, defaultVal int) (int, error) {
-	if client.IsOffline() {
-		return defaultVal, nil
-	}
-
-	value, err := client.evaluate(key, user, float64(defaultVal))
-
-	if err != nil {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
-		return defaultVal, err
-	}
-
-	// json numbers are deserialized into float64s
-	result, ok := value.(float64)
-
-	if !ok {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
-		return defaultVal, ErrNonNumericValue
-	}
-
-	client.sendFlagRequestEvent(key, user, value, defaultVal)
-	return int(result), nil
+	value, err := client.variation(key, user, float64(defaultVal), reflect.TypeOf(float64(0)))
+	result, _ := value.(float64)
+	return int(result), err
 }
 
 // Returns the value of a feature flag (whose variations are floats) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) Float64Variation(key string, user User, defaultVal float64) (float64, error) {
+	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(float64(0)))
+	result, _ := value.(float64)
+	return result, err
+}
+
+// Returns the value of a feature flag (whose variations are strings) for the given user.
+// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
+func (client *LDClient) StringVariation(key string, user User, defaultVal string) (string, error) {
+	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(string("string")))
+	result, _ := value.(string)
+	return result, err
+}
+
+// Returns the value of a feature flag (whose variations are JSON) for the given user.
+// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
+func (client *LDClient) JsonVariation(key string, user User, defaultVal json.RawMessage) (json.RawMessage, error) {
 	if client.IsOffline() {
 		return defaultVal, nil
 	}
-
-	value, err := client.evaluate(key, user, defaultVal)
+	value, err := client.Evaluate(key, user, defaultVal)
 
 	if err != nil {
 		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
 		return defaultVal, err
 	}
-
-	result, ok := value.(float64)
-
-	if !ok {
+	valueJsonRawMessage, err := ToJsonRawMessage(value)
+	if err != nil {
 		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
-		return defaultVal, ErrNonNumericValue
+		return defaultVal, err
+	}
+	client.sendFlagRequestEvent(key, user, valueJsonRawMessage, defaultVal)
+	return valueJsonRawMessage, nil
+}
+
+// Generic method for evaluating a feature flag for a given user. The type of the returned interface{}
+// will always be expectedType or the actual defaultValue will be returned.
+func (client *LDClient) variation(key string, user User, defaultVal interface{}, expectedType reflect.Type) (interface{}, error) {
+	if client.IsOffline() {
+		return defaultVal, nil
+	}
+	value, err := client.Evaluate(key, user, defaultVal)
+	if err != nil {
+		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
+		return defaultVal, err
 	}
 
+	valueType := reflect.TypeOf(value)
+	if expectedType != valueType {
+		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal)
+		return defaultVal, fmt.Errorf("Feature flag returned value: %+v of incompatible type: %+v; Expected: %+v", value, valueType, expectedType)
+	}
 	client.sendFlagRequestEvent(key, user, value, defaultVal)
-	return result, nil
+	return value, nil
 }
 
 func (client *LDClient) sendFlagRequestEvent(key string, user User, value, defaultVal interface{}) error {
@@ -316,10 +268,13 @@ func (client *LDClient) sendFlagRequestEvent(key string, user User, value, defau
 	return client.eventProcessor.sendEvent(evt)
 }
 
-func (client *LDClient) evaluate(key string, user User, defaultVal interface{}) (interface{}, error) {
-	var feature Feature
+func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) (interface{}, error) {
+	if user.Key == nil {
+		return defaultVal, fmt.Errorf("User.Key cannot be nil for user: %+v", user)
+	}
+	var feature FeatureFlag
 	var storeErr error
-	var featurePtr *Feature
+	var featurePtr *FeatureFlag
 
 	if !client.Initialized() {
 		return defaultVal, ErrClientNotInitialized
@@ -335,14 +290,32 @@ func (client *LDClient) evaluate(key string, user User, defaultVal interface{}) 
 	if featurePtr != nil {
 		feature = *featurePtr
 	} else {
-		return defaultVal, ErrUnknownFeatureKey
+		return defaultVal, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
 	}
 
-	value, pass := feature.Evaluate(user)
+	if feature.On {
+		evalResult, err := feature.EvaluateExplain(user, client.store)
+		if err != nil {
+			return defaultVal, err
+		}
+		if !client.IsOffline() {
+			for _, event := range evalResult.PrerequisiteRequestEvents {
+				err := client.eventProcessor.sendEvent(event)
+				if err != nil {
+					client.config.Logger.Printf("WARN: Error sending feature request event to LaunchDarkly: %+v", err)
+				}
+			}
+		}
 
-	if pass {
-		return defaultVal, nil
+		if evalResult.Value != nil {
+			return evalResult.Value, nil
+		}
+		// If the value is nil, but the error is not, fall through and use the off variation
 	}
 
-	return value, nil
+	if feature.OffVariation != nil && *feature.OffVariation < len(feature.Variations) {
+		value := feature.Variations[*feature.OffVariation]
+		return value, nil
+	}
+	return defaultVal, nil
 }

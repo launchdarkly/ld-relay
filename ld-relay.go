@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "github.com/launchdarkly/go-client"
 	"github.com/streamrail/concurrent-map"
+	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -104,7 +104,7 @@ func main() {
 	wg.Wait()
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	http.Handle("/features", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {

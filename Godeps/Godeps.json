@@ -32,12 +32,12 @@
 			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
 		},
 		{
-			"ImportPath": "github.com/launchdarkly/go-client",
-			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
-		},
-		{
 			"ImportPath": "github.com/streamrail/concurrent-map",
 			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
+		},
+		{
+			"ImportPath": "gopkg.in/launchdarkly/go-client.v2",
+			"Rev": "87ccaca573a174baca61918550033621a8668759"
 		}
 	]
 }
