@@ -112,9 +112,7 @@ func (relay *SSERelayFeatureStore) Replay(channel, id string) (out chan es.Event
 	return
 }
 
-type putEvent struct {
-	D map[string]*ld.Feature `json:"data"`
-}
+type putEvent map[string]*ld.Feature
 
 type deleteEvent struct {
 	Path    string `json:"path"`
@@ -213,7 +211,5 @@ func makeDeleteEvent(key string, version int) es.Event {
 }
 
 func makePutEvent(flags map[string]*ld.Feature) es.Event {
-	return putEvent{
-		D: flags,
-	}
+	return putEvent(flags)
 }
