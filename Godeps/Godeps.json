@@ -1,24 +1,8 @@
 {
 	"ImportPath": "github.com/launchdarkly/ld-relay",
-	"GoVersion": "go1.4",
+	"GoVersion": "go1.6",
 	"GodepVersion": "v74",
 	"Deps": [
-		{
-			"ImportPath": "code.google.com/p/gcfg",
-			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
-		},
-		{
-			"ImportPath": "code.google.com/p/gcfg/scanner",
-			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
-		},
-		{
-			"ImportPath": "code.google.com/p/gcfg/token",
-			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
-		},
-		{
-			"ImportPath": "code.google.com/p/gcfg/types",
-			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
-		},
 		{
 			"ImportPath": "github.com/facebookgo/httpcontrol",
 			"Rev": "ccde4420e1fee9af5da365cb76075b95683f39a6"
@@ -30,6 +14,22 @@
 		{
 			"ImportPath": "github.com/launchdarkly/eventsource",
 			"Rev": "b803733aaa750b174dbab9a8b36472682ba13d2e"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/gcfg",
+			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/gcfg/scanner",
+			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/gcfg/token",
+			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/gcfg/types",
+			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
 		},
 		{
 			"ImportPath": "github.com/launchdarkly/go-client",

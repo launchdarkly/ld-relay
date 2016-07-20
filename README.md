@@ -6,7 +6,7 @@ What is it?
 
 The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. 
 
-The relay proxy lets a servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
+The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
 
 The relay proxy can be configured to proxy multiple environment streams, even across multiple projects.
 
@@ -15,7 +15,7 @@ Quick setup
 
 1. Copy `ld-relay.conf` to `/etc/ld-relay.conf`, and edit to specify your port and LaunchDarkly API keys for each environment you wish to proxy.
 
-2. If building from source, have `go` 1.4+ and `godep` installed, and run `godep go build`.
+2. If building from source, have `go` 1.6+ and `godep` installed, and run `godep go build`.
 
 3. Run `ld-relay`.
 

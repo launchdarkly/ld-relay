@@ -1,11 +1,11 @@
 package main
 
 import (
-	"code.google.com/p/gcfg"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/gcfg"
 	ld "github.com/launchdarkly/go-client"
 	"github.com/streamrail/concurrent-map"
 	"net/http"
