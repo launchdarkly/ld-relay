@@ -1,0 +1,8 @@
+Package: ld-relay
+Priority: extra
+Maintainer: LaunchDarkly <team@launchdarkly.com>
+Section: devel
+Version: 1.0.0
+Architecture: any
+Description: LaunchDarkly Relay Proxy
+Source: ld-relay

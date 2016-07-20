@@ -1,0 +1,20 @@
+dependencies:
+  pre:
+    - rm -rf ~/.go_workspace/src/github.com/launchdarkly/ld-relay
+    - mkdir -p ~/.go_workspace/src/github.com/launchdarkly/
+    - ln -s ~/ld-relay ~/.go_workspace/src/github.com/launchdarkly/ld-relay
+    - go get github.com/tools/godep
+  override:
+    - godep go build
+  post:
+    - ./scripts/package.sh
+
+test:
+  override:
+    - godep go test
+
+deployment:
+  s3:
+    branch: /.*/
+    commands:
+      - ./scripts/upload_to_s3.sh

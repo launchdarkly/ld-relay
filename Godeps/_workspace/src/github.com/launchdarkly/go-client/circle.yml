@@ -1,0 +1,14 @@
+dependencies:
+  pre:
+    - rm -rf ~/.go_workspace/src/github.com/launchdarkly/go-client
+    - mkdir -p ~/.go_workspace/src/github.com/launchdarkly/
+    - ln -s ~/go-client ~/.go_workspace/src/github.com/launchdarkly/go-client
+    - go get gopkg.in/tools/godep.v74 # lock down our version of godep
+    - go version
+    - godep version
+  override:
+    - godep go build ./...
+
+test:
+  override:
+    - godep go test ./...

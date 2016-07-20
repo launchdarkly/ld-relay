@@ -1,0 +1,43 @@
+{
+	"ImportPath": "github.com/launchdarkly/ld-relay",
+	"GoVersion": "go1.4",
+	"GodepVersion": "v74",
+	"Deps": [
+		{
+			"ImportPath": "code.google.com/p/gcfg",
+			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
+		},
+		{
+			"ImportPath": "code.google.com/p/gcfg/scanner",
+			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
+		},
+		{
+			"ImportPath": "code.google.com/p/gcfg/token",
+			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
+		},
+		{
+			"ImportPath": "code.google.com/p/gcfg/types",
+			"Rev": "c2d3050044d05357eaf6c3547249ba57c5e235cb"
+		},
+		{
+			"ImportPath": "github.com/facebookgo/httpcontrol",
+			"Rev": "ccde4420e1fee9af5da365cb76075b95683f39a6"
+		},
+		{
+			"ImportPath": "github.com/gregjones/httpcache",
+			"Rev": "4fb00a8eec008ffa8ac9ec46a93684dcbb62fc09"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/eventsource",
+			"Rev": "b803733aaa750b174dbab9a8b36472682ba13d2e"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/go-client",
+			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
+		},
+		{
+			"ImportPath": "github.com/streamrail/concurrent-map",
+			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
+		}
+	]
+}
