@@ -12,17 +12,17 @@ import (
 // one backed by an in-memory map, and one backed by Redis.
 // Implementations must be thread-safe.
 type FeatureStore interface {
-	Get(key string) (*Feature, error)
-	All() (map[string]*Feature, error)
-	Init(map[string]*Feature) error
+	Get(key string) (*FeatureFlag, error)
+	All() (map[string]*FeatureFlag, error)
+	Init(map[string]*FeatureFlag) error
 	Delete(key string, version int) error
-	Upsert(key string, f Feature) error
+	Upsert(key string, f FeatureFlag) error
 	Initialized() bool
 }
 
 // A memory based FeatureStore implementation, backed by a lock-striped map.
 type InMemoryFeatureStore struct {
-	features      map[string]*Feature
+	features      map[string]*FeatureFlag
 	isInitialized bool
 	sync.RWMutex
 }
@@ -30,12 +30,12 @@ type InMemoryFeatureStore struct {
 // Creates a new in-memory FeatureStore instance.
 func NewInMemoryFeatureStore() *InMemoryFeatureStore {
 	return &InMemoryFeatureStore{
-		features:      make(map[string]*Feature),
+		features:      make(map[string]*FeatureFlag),
 		isInitialized: false,
 	}
 }
 
-func (store *InMemoryFeatureStore) Get(key string) (*Feature, error) {
+func (store *InMemoryFeatureStore) Get(key string) (*FeatureFlag, error) {
 	store.RLock()
 	defer store.RUnlock()
 	f := store.features[key]
@@ -47,10 +47,10 @@ func (store *InMemoryFeatureStore) Get(key string) (*Feature, error) {
 	}
 }
 
-func (store *InMemoryFeatureStore) All() (map[string]*Feature, error) {
+func (store *InMemoryFeatureStore) All() (map[string]*FeatureFlag, error) {
 	store.RLock()
 	defer store.RUnlock()
-	fs := make(map[string]*Feature)
+	fs := make(map[string]*FeatureFlag)
 
 	for k, v := range store.features {
 		if !v.Deleted {
@@ -69,17 +69,17 @@ func (store *InMemoryFeatureStore) Delete(key string, version int) error {
 		f.Version = version
 		store.features[key] = f
 	} else if f == nil {
-		f = &Feature{Deleted: true, Version: version}
+		f = &FeatureFlag{Deleted: true, Version: version}
 		store.features[key] = f
 	}
 	return nil
 }
 
-func (store *InMemoryFeatureStore) Init(fs map[string]*Feature) error {
+func (store *InMemoryFeatureStore) Init(fs map[string]*FeatureFlag) error {
 	store.Lock()
 	defer store.Unlock()
 
-	store.features = make(map[string]*Feature)
+	store.features = make(map[string]*FeatureFlag)
 
 	for k, v := range fs {
 		store.features[k] = v
@@ -88,7 +88,7 @@ func (store *InMemoryFeatureStore) Init(fs map[string]*Feature) error {
 	return nil
 }
 
-func (store *InMemoryFeatureStore) Upsert(key string, f Feature) error {
+func (store *InMemoryFeatureStore) Upsert(key string, f FeatureFlag) error {
 	store.Lock()
 	defer store.Unlock()
 	old := store.features[key]
