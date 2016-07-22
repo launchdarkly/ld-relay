@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -45,10 +45,13 @@ type Config struct {
 	Environment map[string]*EnvConfig
 }
 
+type StatusEntry struct {
+	Status string `json:"status"`
+}
+
 var configFile string
 
 func main() {
-	var wg sync.WaitGroup
 
 	flag.StringVar(&configFile, "config", "/etc/ld-relay.conf", "configuration file location")
 
@@ -74,17 +77,23 @@ func main() {
 
 	handlers := cmap.New()
 
-	wg.Add(len(c.Environment))
+	clients := cmap.New()
+
+	for envName, _ := range c.Environment {
+		clients.Set(envName, nil)
+	}
+
 	for envName, envConfig := range c.Environment {
 		go func(envName string, envConfig EnvConfig) {
-			defer wg.Done()
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
 			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 
-			_, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
+			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
+
+			clients.Set(envName, client)
 
 			if err != nil {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
@@ -101,7 +110,39 @@ func main() {
 		}(envName, *envConfig)
 	}
 
-	wg.Wait()
+	http.Handle("/status", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		envs := make(map[string]StatusEntry)
+
+		healthy := true
+		for item := range clients.IterBuffered() {
+			if item.Val == nil {
+				envs[item.Key] = StatusEntry{Status: "disconnected"}
+				healthy = false
+			} else {
+				client := item.Val.(*ld.LDClient)
+				if client.Initialized() {
+					envs[item.Key] = StatusEntry{Status: "connected"}
+				} else {
+					envs[item.Key] = StatusEntry{Status: "disconnected"}
+					healthy = false
+				}
+			}
+		}
+
+		resp := make(map[string]interface{})
+
+		resp["environments"] = envs
+		if healthy {
+			resp["status"] = "healthy"
+		} else {
+			resp["status"] = "degraded"
+		}
+
+		data, _ := json.Marshal(resp)
+
+		w.Write(data)
+	}))
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
 	http.Handle("/features", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
