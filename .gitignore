@@ -21,6 +21,8 @@ _testmain.go
 
 ld-relay
 ld-relay.local.conf
+ld-relay.stg.conf
+ld-relay.prod.conf
 
 *.exe
 *.test
