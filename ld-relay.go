@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	ld "github.com/launchdarkly/go-client"
+	ldr "github.com/launchdarkly/go-client/redis"
 	"github.com/streamrail/concurrent-map"
 	"io"
 	"io/ioutil"
@@ -32,6 +33,7 @@ var uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9
 
 type EnvConfig struct {
 	ApiKey string
+	Prefix string
 }
 
 type Config struct {
@@ -41,6 +43,10 @@ type Config struct {
 		BaseUri               string
 		Port                  int
 		HeartbeatIntervalSecs int
+	}
+	Redis struct {
+		Host string
+		Port int
 	}
 	Environment map[string]*EnvConfig
 }
@@ -85,9 +91,16 @@ func main() {
 
 	for envName, envConfig := range c.Environment {
 		go func(envName string, envConfig EnvConfig) {
+			var baseFeatureStore ld.FeatureStore
+			if c.Redis.Host != "" && c.Redis.Port != 0 {
+				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0)
+			} else {
+				baseFeatureStore = ld.NewInMemoryFeatureStore()
+			}
+
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, c.Main.HeartbeatIntervalSecs)
+			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 
