@@ -8,6 +8,14 @@
 			"Rev": "ccde4420e1fee9af5da365cb76075b95683f39a6"
 		},
 		{
+			"ImportPath": "github.com/garyburd/redigo/internal",
+			"Rev": "836b6e58b3358112c8291565d01c35b8764070d7"
+		},
+		{
+			"ImportPath": "github.com/garyburd/redigo/redis",
+			"Rev": "836b6e58b3358112c8291565d01c35b8764070d7"
+		},
+		{
 			"ImportPath": "github.com/gregjones/httpcache",
 			"Rev": "4fb00a8eec008ffa8ac9ec46a93684dcbb62fc09"
 		},
@@ -34,6 +42,14 @@
 		{
 			"ImportPath": "github.com/launchdarkly/go-client",
 			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
+		},
+		{
+			"ImportPath": "github.com/launchdarkly/go-client/redis",
+			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
+		},
+		{
+			"ImportPath": "github.com/patrickmn/go-cache",
+			"Rev": "1881a9bccb818787f68c52bfba648c6cf34c34fa"
 		},
 		{
 			"ImportPath": "github.com/streamrail/concurrent-map",
