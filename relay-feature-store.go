@@ -13,9 +13,9 @@ type SSERelayFeatureStore struct {
 	apiKey    string
 }
 
-func NewSSERelayFeatureStore(apiKey string, publisher *es.Server, heartbeatInterval int) *SSERelayFeatureStore {
+func NewSSERelayFeatureStore(apiKey string, publisher *es.Server, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
-		store:     ld.NewInMemoryFeatureStore(),
+		store:     baseFeatureStore,
 		apiKey:    apiKey,
 		publisher: publisher,
 	}

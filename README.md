@@ -45,3 +45,32 @@ Here's an example configuration file that synchronizes four environments across 
 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
+
+Redis storage and daemon mode
+-----------------------------
+
+You can configure LDR to persist feature flag settings in Redis. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from 
+communicating with LaunchDarkly's servers.
+
+Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. 
+
+To set up LDR in this mode, provide a redis host and port, and supply a Redis key prefix for each environment in your configuration file:
+
+        [redis]
+        host = "localhost"
+        port = 6379
+
+        [main]
+        ...
+
+        [environment "Spree Project Production"]
+        prefix = "ld:spree:production"
+        apiKey = "SPREE_PROD_API_KEY"
+
+        [environment "Spree Project Test"]
+        prefix = "ld:spree:test"
+        apiKey = "SPREE_TEST_API_KEY"
+
+If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
+
+
