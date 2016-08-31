@@ -32,6 +32,7 @@ Here's an example configuration file that synchronizes four environments across 
         streamUri = "https://stream.launchdarkly.com"
         baseUri = "https://app.launchdarkly.com"
         exitOnError = false
+        ignoreConnectionErrors = true
         heartbeatIntervalSecs = 15
 
         [environment "Spree Project Production"]
