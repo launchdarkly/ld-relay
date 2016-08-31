@@ -232,18 +232,35 @@ func (client *LDClient) AllFlags(user User) map[string]interface{} {
 		client.config.Logger.Println("WARN: Unable to fetch flags from feature store. Returning nil map. Error: " + err.Error())
 		return nil
 	}
-
 	for _, flag := range flags {
-		evalResult, err := flag.EvaluateExplain(user, client.store)
-
-		if err != nil {
-			client.config.Logger.Println("WARN: Unable to evaluate flag in AllFlags. Error: " + err.Error())
-		} else {
-			results[flag.Key] = evalResult.Value
-		}
+		result, _ := client.evalFlag(*flag, user)
+		results[flag.Key] =  result
 	}
 
 	return results
+}
+
+func (client *LDClient) evalFlag(flag FeatureFlag, user User) (interface{}, []FeatureRequestEvent) {
+	var prereqEvents []FeatureRequestEvent
+	if flag.On {
+		evalResult, err := flag.EvaluateExplain(user, client.store)
+		prereqEvents = evalResult.PrerequisiteRequestEvents
+
+		if err != nil {
+			return nil, prereqEvents
+		}
+
+		if evalResult.Value != nil {
+			return evalResult.Value, prereqEvents
+		}
+		// If the value is nil, but the error is not, fall through and use the off variation
+	}
+
+	if flag.OffVariation != nil && *flag.OffVariation < len(flag.Variations) {
+		value := flag.Variations[*flag.OffVariation]
+		return value, prereqEvents
+	}
+	return nil, prereqEvents
 }
 
 // Returns the value of a boolean feature flag for a given user. Returns defaultVal if
@@ -336,9 +353,13 @@ func (client *LDClient) sendFlagRequestEvent(key string, user User, value, defau
 }
 
 func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) (interface{}, *int, error) {
-	if user.Key == nil || *user.Key == "" {
-		return defaultVal, nil, fmt.Errorf("User.Key cannot be nil/empty for user: %+v", user)
+	if user.Key == nil {
+		return defaultVal, nil, fmt.Errorf("User.Key cannot be nil for user: %+v", user)
 	}
+	if *user.Key == "" {
+		client.config.Logger.Printf("WARN: User.Key is blank. Flag evaluation will proceed, but the user will not be stored in LaunchDarkly.")
+	}
+
 	var feature FeatureFlag
 	var storeErr error
 	var featurePtr *FeatureFlag
@@ -360,29 +381,17 @@ func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) 
 		return defaultVal, nil, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
 	}
 
-	if feature.On {
-		evalResult, err := feature.EvaluateExplain(user, client.store)
-		if err != nil {
-			return defaultVal, &feature.Version, err
-		}
+	result, prereqEvents := client.evalFlag(feature, user)
 		if !client.IsOffline() {
-			for _, event := range evalResult.PrerequisiteRequestEvents {
+			for _, event := range prereqEvents {
 				err := client.eventProcessor.sendEvent(event)
 				if err != nil {
 					client.config.Logger.Printf("WARN: Error sending feature request event to LaunchDarkly: %+v", err)
 				}
 			}
 		}
-
-		if evalResult.Value != nil {
-			return evalResult.Value, &feature.Version, nil
-		}
-		// If the value is nil, but the error is not, fall through and use the off variation
-	}
-
-	if feature.OffVariation != nil && *feature.OffVariation < len(feature.Variations) {
-		value := feature.Variations[*feature.OffVariation]
-		return value, &feature.Version, nil
+	if result != nil {
+		return result, &feature.Version, nil
 	}
 	return defaultVal, &feature.Version, nil
 }
