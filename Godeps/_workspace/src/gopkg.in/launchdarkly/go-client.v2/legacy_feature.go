@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// Legacy (v1) feature
 type Feature struct {
 	Name         *string      `json:"name"`
 	Key          *string      `json:"key"`
@@ -28,18 +29,12 @@ type TargetRule struct {
 	Values    []interface{} `json:"values"`
 }
 
-type Operator string
-
 type Variation struct {
 	Value      interface{}  `json:"value"`
 	Weight     int          `json:"weight"`
 	Targets    []TargetRule `json:"targets"`
 	UserTarget *TargetRule  `json:"userTarget,omitempty"`
 }
-
-const (
-	long_scale = float32(0xFFFFFFFFFFFFFFF)
-)
 
 func (f Feature) Evaluate(user User) (value interface{}, rulesPassed bool) {
 	value, _, rulesPassed = f.EvaluateExplain(user)

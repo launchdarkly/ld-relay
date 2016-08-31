@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "github.com/launchdarkly/go-client"
-	ldr "github.com/launchdarkly/go-client/redis"
 	"github.com/streamrail/concurrent-map"
+	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -93,9 +92,9 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0, Info)
 			} else {
-				baseFeatureStore = ld.NewInMemoryFeatureStore()
+				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
 
 			clientConfig := ld.DefaultConfig
@@ -158,7 +157,7 @@ func main() {
 	}))
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	http.Handle("/features", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {

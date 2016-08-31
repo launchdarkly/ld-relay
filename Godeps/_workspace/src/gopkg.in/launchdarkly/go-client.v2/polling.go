@@ -26,10 +26,12 @@ func newPollingProcessor(config Config, requestor *requestor) updateProcessor {
 }
 
 func (pp *pollingProcessor) start(ch chan<- bool) {
+	pp.config.Logger.Printf("Starting LaunchDarkly polling processor with interval: %+v", pp.config.PollInterval)
 	go func() {
 		for {
 			select {
 			case <-pp.quit:
+				pp.config.Logger.Printf("Polling Processor closed.")
 				return
 			default:
 				then := time.Now()
@@ -39,6 +41,8 @@ func (pp *pollingProcessor) start(ch chan<- bool) {
 						pp.isInitialized = true
 						ch <- true
 					})
+				} else {
+					pp.config.Logger.Printf("Error when requesting feature updates: %+v", err)
 				}
 				delta := pp.config.PollInterval - time.Since(then)
 
@@ -51,7 +55,7 @@ func (pp *pollingProcessor) start(ch chan<- bool) {
 }
 
 func (pp *pollingProcessor) poll() error {
-	features, cached, err := pp.requestor.makeAllRequest(true)
+	features, cached, err := pp.requestor.requestAllFlags()
 
 	if err != nil {
 		return err
@@ -65,6 +69,7 @@ func (pp *pollingProcessor) poll() error {
 }
 
 func (pp *pollingProcessor) close() {
+	pp.config.Logger.Printf("Closing Polling Processor")
 	pp.quit <- true
 }
 

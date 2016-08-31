@@ -23,15 +23,15 @@ type streamProcessor struct {
 	requestor          *requestor
 	stream             *es.Stream
 	config             Config
-	apiKey             string
+	sdkKey             string
 	setInitializedOnce sync.Once
 	isInitialized      bool
 	sync.RWMutex
 }
 
 type featurePatchData struct {
-	Path string  `json:"path"`
-	Data Feature `json:"data"`
+	Path string      `json:"path"`
+	Data FeatureFlag `json:"data"`
 }
 
 type featureDeleteData struct {
@@ -44,6 +44,7 @@ func (sp *streamProcessor) initialized() bool {
 }
 
 func (sp *streamProcessor) start(ch chan<- bool) {
+	sp.config.Logger.Printf("Starting LaunchDarkly streaming connection")
 	go sp.startOnce(ch)
 	go sp.errors()
 }
@@ -58,12 +59,13 @@ func (sp *streamProcessor) startOnce(ch chan<- bool) {
 		event := <-sp.stream.Events
 		switch event.Event() {
 		case putEvent:
-			var features map[string]*Feature
+			var features map[string]*FeatureFlag
 			if err := json.Unmarshal([]byte(event.Data()), &features); err != nil {
 				sp.config.Logger.Printf("Unexpected error unmarshalling feature json: %+v", err)
 			} else {
 				sp.store.Init(features)
 				sp.setInitializedOnce.Do(func() {
+					sp.config.Logger.Printf("Started LaunchDarkly streaming client")
 					sp.isInitialized = true
 					ch <- true
 				})
@@ -78,18 +80,20 @@ func (sp *streamProcessor) startOnce(ch chan<- bool) {
 			}
 		case indirectPatchEvent:
 			key := event.Data()
-			if feature, err := sp.requestor.makeRequest(key, true); err != nil {
+			if feature, err := sp.requestor.requestFlag(key); err != nil {
 				sp.config.Logger.Printf("Unexpected error requesting feature: %+v", err)
 			} else {
 				sp.store.Upsert(key, *feature)
 			}
 		case indirectPutEvent:
-			if features, _, err := sp.requestor.makeAllRequest(true); err != nil {
+			if features, _, err := sp.requestor.requestAllFlags(); err != nil {
 				sp.config.Logger.Printf("Unexpected error requesting all features: %+v", err)
 			} else {
 				sp.store.Init(features)
 				sp.setInitializedOnce.Do(func() {
+					sp.config.Logger.Printf("Started LaunchDarkly streaming client")
 					sp.isInitialized = true
+					ch <- true
 				})
 			}
 		case deleteEvent:
@@ -106,11 +110,11 @@ func (sp *streamProcessor) startOnce(ch chan<- bool) {
 	}
 }
 
-func newStreamProcessor(apiKey string, config Config, requestor *requestor) updateProcessor {
+func newStreamProcessor(sdkKey string, config Config, requestor *requestor) updateProcessor {
 	sp := &streamProcessor{
 		store:     config.FeatureStore,
 		config:    config,
-		apiKey:    apiKey,
+		sdkKey:    sdkKey,
 		requestor: requestor,
 	}
 
@@ -122,12 +126,13 @@ func (sp *streamProcessor) subscribe() {
 	defer sp.Unlock()
 
 	if sp.stream == nil {
-		req, _ := http.NewRequest("GET", sp.config.StreamUri+"/features", nil)
-		req.Header.Add("Authorization", "api_key "+sp.apiKey)
+		req, _ := http.NewRequest("GET", sp.config.StreamUri+"/flags", nil)
+		req.Header.Add("Authorization", sp.sdkKey)
 		req.Header.Add("User-Agent", "GoClient/"+Version)
+		sp.config.Logger.Printf("Connecting to LaunchDarkly stream using URL: %s", req.URL.String())
 
 		if stream, err := es.SubscribeWithRequest("", req); err != nil {
-			sp.config.Logger.Printf("Error subscribing to stream: %+v", err)
+			sp.config.Logger.Printf("Error subscribing to stream: %+v using URL: %s", err, req.URL.String())
 		} else {
 			sp.stream = stream
 			sp.stream.Logger = sp.config.Logger
