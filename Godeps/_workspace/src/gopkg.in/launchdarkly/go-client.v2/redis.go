@@ -1,11 +1,12 @@
-package redis
+package ldclient
 
 import (
 	"encoding/json"
 	"fmt"
 	r "github.com/garyburd/redigo/redis"
-	ld "github.com/launchdarkly/go-client"
 	"github.com/patrickmn/go-cache"
+	"log"
+	"os"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type RedisFeatureStore struct {
 	pool    *r.Pool
 	cache   *cache.Cache
 	timeout time.Duration
+	logger  *log.Logger
 }
 
 const initKey = "$initialized$"
@@ -47,22 +49,32 @@ func (store *RedisFeatureStore) getConn() r.Conn {
 // connection pool configuration (16 concurrent connections, connection requests block).
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly".
-func NewRedisFeatureStoreFromUrl(url, prefix string, timeout time.Duration) *RedisFeatureStore {
-	return NewRedisFeatureStoreWithPool(newPool(url), prefix, timeout)
+func NewRedisFeatureStoreFromUrl(url, prefix string, timeout time.Duration, logger *log.Logger) *RedisFeatureStore {
+	if logger == nil {
+		logger = defaultLogger()
+	}
+	logger.Printf("RedisFeatureStore: Using url: %s", url)
+	return NewRedisFeatureStoreWithPool(newPool(url), prefix, timeout, logger)
 
 }
 
 // Constructs a new Redis-backed feature store with the specified redigo pool configuration.
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly".
-func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Duration) *RedisFeatureStore {
+func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Duration, logger *log.Logger) *RedisFeatureStore {
 	var c *cache.Cache
+
+	if logger == nil {
+		logger = defaultLogger()
+	}
 
 	if prefix == "" {
 		prefix = "launchdarkly"
 	}
+	logger.Printf("RedisFeatureStore: Using prefix: %s ", prefix)
 
 	if timeout > 0 {
+		logger.Printf("RedisFeatureStore: Using local cache with timeout: %v", timeout)
 		c = cache.New(timeout, 5*time.Minute)
 	}
 
@@ -71,8 +83,8 @@ func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Dura
 		pool:    pool,
 		cache:   c,
 		timeout: timeout,
+		logger:  logger,
 	}
-
 	return &store
 }
 
@@ -80,21 +92,22 @@ func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Dura
 // connection pool configuration (16 concurrent connections, connection requests block).
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly"
-func NewRedisFeatureStore(host string, port int, prefix string, timeout time.Duration) *RedisFeatureStore {
-	return NewRedisFeatureStoreFromUrl(fmt.Sprintf("redis://%s:%d", host, port), prefix, timeout)
+func NewRedisFeatureStore(host string, port int, prefix string, timeout time.Duration, logger *log.Logger) *RedisFeatureStore {
+	return NewRedisFeatureStoreFromUrl(fmt.Sprintf("redis://%s:%d", host, port), prefix, timeout, logger)
 }
 
 func (store *RedisFeatureStore) featuresKey() string {
 	return store.prefix + ":features"
 }
 
-func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
-	var feature ld.Feature
+func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
+	var feature FeatureFlag
 
 	if store.cache != nil {
 		if data, present := store.cache.Get(key); present {
-			if feature, ok := data.(ld.Feature); ok {
+			if feature, ok := data.(FeatureFlag); ok {
 				if feature.Deleted {
+					store.logger.Printf("RedisFeatureStore: WARN: Attempted to get deleted feature flag (from local cache). Key: %s", key)
 					return nil, nil
 				}
 				return &feature, nil
@@ -109,6 +122,7 @@ func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
 
 	if err != nil {
 		if err == r.ErrNil {
+			store.logger.Printf("RedisFeatureStore: WARN: Feature flag not found in store. Key: %s", key)
 			return nil, nil
 		}
 		return nil, err
@@ -119,6 +133,7 @@ func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
 	}
 
 	if feature.Deleted {
+		store.logger.Printf("RedisFeatureStore: WARN: Attempted to get deleted feature flag (from redis). Key: %s", key)
 		return nil, nil
 	}
 
@@ -129,10 +144,9 @@ func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
 	return &feature, nil
 }
 
-func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
-	var feature ld.Feature
+func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 
-	results := make(map[string]*ld.Feature)
+	results := make(map[string]*FeatureFlag)
 
 	c := store.getConn()
 	defer c.Close()
@@ -144,6 +158,7 @@ func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
 	}
 
 	for k, v := range values {
+		var feature FeatureFlag
 		jsonErr := json.Unmarshal([]byte(v), &feature)
 
 		if jsonErr != nil {
@@ -157,7 +172,7 @@ func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
 	return results, nil
 }
 
-func (store *RedisFeatureStore) Init(features map[string]*ld.Feature) error {
+func (store *RedisFeatureStore) Init(features map[string]*FeatureFlag) error {
 	c := store.getConn()
 	defer c.Close()
 
@@ -193,35 +208,24 @@ func (store *RedisFeatureStore) Delete(key string, version int) error {
 	c.Send("WATCH", store.featuresKey())
 	defer c.Send("UNWATCH")
 
-	feature, featureErr := store.Get(key)
+	f, featureErr := store.Get(key)
 
 	if featureErr != nil {
 		return featureErr
 	}
+	if f != nil && f.Version < version {
+		f.Deleted = true
+		f.Version = version
+		return store.put(c, key, *f)
 
-	if feature != nil && feature.Version >= version {
-		return nil
+	} else if f == nil {
+		f = &FeatureFlag{Deleted: true, Version: version}
+		return store.put(c, key, *f)
 	}
-
-	feature.Deleted = true
-	feature.Version = version
-
-	data, jsonErr := json.Marshal(feature)
-
-	if jsonErr != nil {
-		return jsonErr
-	}
-
-	_, err := c.Do("HSET", store.featuresKey(), key, data)
-
-	if err == nil && store.cache != nil {
-		store.cache.Set(key, feature, store.timeout)
-	}
-
-	return err
+	return nil
 }
 
-func (store *RedisFeatureStore) Upsert(key string, f ld.Feature) error {
+func (store *RedisFeatureStore) Upsert(key string, f FeatureFlag) error {
 	c := store.getConn()
 	defer c.Close()
 
@@ -237,7 +241,10 @@ func (store *RedisFeatureStore) Upsert(key string, f ld.Feature) error {
 	if o != nil && o.Version >= f.Version {
 		return nil
 	}
+	return store.put(c, key, f)
+}
 
+func (store *RedisFeatureStore) put(c r.Conn, key string, f FeatureFlag) error {
 	data, jsonErr := json.Marshal(f)
 
 	if jsonErr != nil {
@@ -270,4 +277,8 @@ func (store *RedisFeatureStore) Initialized() bool {
 	}
 
 	return err == nil && init
+}
+
+func defaultLogger() *log.Logger {
+	return log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags)
 }

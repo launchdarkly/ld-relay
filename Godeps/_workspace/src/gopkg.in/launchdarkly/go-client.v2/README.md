@@ -14,9 +14,9 @@ Quick setup
 
         import ld "github.com/launchdarkly/go-client"
 
-2. Create a new LDClient with your API key:
+2. Create a new LDClient with your SDK key:
 
-        ld_client, err := ld.MakeClient("YOUR_API_KEY", time.Second)
+        ld_client := ld.MakeClient("YOUR_SDK_KEY")
 
 Your first feature flag
 -----------------------
@@ -25,7 +25,7 @@ Your first feature flag
 2. In your application code, use the feature's key to check wthether the flag is on for each user:
 
         key := "user@test.com"
-        show_feature := ld_client.Toggle("your.flag.key", ld.User{Key: &key,}, false)
+        show_feature := ld_client.BoolVariation("your.flag.key", ld.User{Key: &key,}, false)
         if (show_feature) {
             # application code to show the feature
         } else {

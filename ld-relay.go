@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "github.com/launchdarkly/go-client"
-	ldr "github.com/launchdarkly/go-client/redis"
 	"github.com/streamrail/concurrent-map"
+	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -38,11 +37,12 @@ type EnvConfig struct {
 
 type Config struct {
 	Main struct {
-		ExitOnError           bool
-		StreamUri             string
-		BaseUri               string
-		Port                  int
-		HeartbeatIntervalSecs int
+		ExitOnError            bool
+		IgnoreConnectionErrors bool
+		StreamUri              string
+		BaseUri                string
+		Port                   int
+		HeartbeatIntervalSecs  int
 	}
 	Redis struct {
 		Host string
@@ -93,9 +93,9 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0, Info)
 			} else {
-				baseFeatureStore = ld.NewInMemoryFeatureStore()
+				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
 
 			clientConfig := ld.DefaultConfig
@@ -108,13 +108,16 @@ func main() {
 
 			clients.Set(envName, client)
 
-			if err != nil {
+			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
 				}
 			} else {
+				if err != nil {
+					Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				}
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
 				handler := publisher.Handler(envConfig.ApiKey)

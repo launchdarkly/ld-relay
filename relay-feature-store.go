@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	es "github.com/launchdarkly/eventsource"
-	ld "github.com/launchdarkly/go-client"
+	ld "gopkg.in/launchdarkly/go-client.v2"
 	"time"
 )
 
@@ -39,15 +39,15 @@ func (relay *SSERelayFeatureStore) heartbeat() {
 	relay.publisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
 }
 
-func (relay *SSERelayFeatureStore) Get(key string) (*ld.Feature, error) {
+func (relay *SSERelayFeatureStore) Get(key string) (*ld.FeatureFlag, error) {
 	return relay.store.Get(key)
 }
 
-func (relay *SSERelayFeatureStore) All() (map[string]*ld.Feature, error) {
+func (relay *SSERelayFeatureStore) All() (map[string]*ld.FeatureFlag, error) {
 	return relay.store.All()
 }
 
-func (relay *SSERelayFeatureStore) Init(flags map[string]*ld.Feature) error {
+func (relay *SSERelayFeatureStore) Init(flags map[string]*ld.FeatureFlag) error {
 	err := relay.store.Init(flags)
 
 	if err != nil {
@@ -70,7 +70,7 @@ func (relay *SSERelayFeatureStore) Delete(key string, version int) error {
 	return nil
 }
 
-func (relay *SSERelayFeatureStore) Upsert(key string, f ld.Feature) error {
+func (relay *SSERelayFeatureStore) Upsert(key string, f ld.FeatureFlag) error {
 	err := relay.store.Upsert(key, f)
 
 	if err != nil {
@@ -112,7 +112,7 @@ func (relay *SSERelayFeatureStore) Replay(channel, id string) (out chan es.Event
 	return
 }
 
-type putEvent map[string]*ld.Feature
+type putEvent map[string]*ld.FeatureFlag
 
 type deleteEvent struct {
 	Path    string `json:"path"`
@@ -120,8 +120,8 @@ type deleteEvent struct {
 }
 
 type upsertEvent struct {
-	Path string     `json:"path"`
-	D    ld.Feature `json:"data"`
+	Path string         `json:"path"`
+	D    ld.FeatureFlag `json:"data"`
 }
 
 type heartbeatEvent string
@@ -196,9 +196,9 @@ func (t deleteEvent) Comment() string {
 	return ""
 }
 
-func makeUpsertEvent(f ld.Feature) es.Event {
+func makeUpsertEvent(f ld.FeatureFlag) es.Event {
 	return upsertEvent{
-		Path: "/" + *f.Key,
+		Path: "/" + f.Key,
 		D:    f,
 	}
 }
@@ -210,6 +210,6 @@ func makeDeleteEvent(key string, version int) es.Event {
 	}
 }
 
-func makePutEvent(flags map[string]*ld.Feature) es.Event {
+func makePutEvent(flags map[string]*ld.FeatureFlag) es.Event {
 	return putEvent(flags)
 }
