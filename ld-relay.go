@@ -37,11 +37,12 @@ type EnvConfig struct {
 
 type Config struct {
 	Main struct {
-		ExitOnError           bool
-		StreamUri             string
-		BaseUri               string
-		Port                  int
-		HeartbeatIntervalSecs int
+		ExitOnError            bool
+		IgnoreConnectionErrors bool
+		StreamUri              string
+		BaseUri                string
+		Port                   int
+		HeartbeatIntervalSecs  int
 	}
 	Redis struct {
 		Host string
@@ -107,13 +108,16 @@ func main() {
 
 			clients.Set(envName, client)
 
-			if err != nil {
+			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
 				}
 			} else {
+				if err != nil {
+					Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				}
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
 				handler := publisher.Handler(envConfig.ApiKey)
