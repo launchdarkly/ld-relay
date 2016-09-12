@@ -41,11 +41,11 @@
 		},
 		{
 			"ImportPath": "github.com/launchdarkly/go-client",
-			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
+			"Rev": "bd134795f1b8071eaffe7781af76656756ae3a66"
 		},
 		{
 			"ImportPath": "github.com/launchdarkly/go-client/redis",
-			"Rev": "e18e45f053a21b6362c6983ac155e0204937ee26"
+			"Rev": "bd134795f1b8071eaffe7781af76656756ae3a66"
 		},
 		{
 			"ImportPath": "github.com/patrickmn/go-cache",

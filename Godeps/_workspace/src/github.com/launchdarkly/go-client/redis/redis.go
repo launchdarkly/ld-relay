@@ -130,8 +130,6 @@ func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
 }
 
 func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
-	var feature ld.Feature
-
 	results := make(map[string]*ld.Feature)
 
 	c := store.getConn()
@@ -144,6 +142,7 @@ func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
 	}
 
 	for k, v := range values {
+		var feature ld.Feature
 		jsonErr := json.Unmarshal([]byte(v), &feature)
 
 		if jsonErr != nil {
