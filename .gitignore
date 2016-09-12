@@ -23,6 +23,7 @@ ld-relay
 ld-relay.local.conf
 ld-relay.stg.conf
 ld-relay.prod.conf
+ld-relay.redis-test.conf
 
 *.exe
 *.test
