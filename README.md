@@ -55,11 +55,13 @@ communicating with LaunchDarkly's servers.
 
 Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. 
 
-To set up LDR in this mode, provide a redis host and port, and supply a Redis key prefix for each environment in your configuration file:
+To set up LDR in this mode, provide a redis host and port, optional database number and password, and supply a Redis key prefix for each environment in your configuration file:
 
         [redis]
         host = "localhost"
         port = 6379
+        db = 0
+        password = "pass"
 
         [main]
         ...
@@ -74,4 +76,16 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
 
 If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
 
+Sentinel support
+----------------
+
+To use [Sentinel](http://redis.io/topics/sentinel), replace the `redis` configuration section with a `sentinel` section:
+
+        [sentinel]
+        master = "masterName"
+        node = "localhost:6379"
+        node = "localhost:6378"
+        db = 0 
+        password = "pass"
+        ...
 
