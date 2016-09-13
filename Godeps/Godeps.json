@@ -2,18 +2,13 @@
 	"ImportPath": "github.com/launchdarkly/ld-relay",
 	"GoVersion": "go1.6",
 	"GodepVersion": "v74",
+	"Packages": [
+		"./..."
+	],
 	"Deps": [
 		{
 			"ImportPath": "github.com/facebookgo/httpcontrol",
 			"Rev": "ccde4420e1fee9af5da365cb76075b95683f39a6"
-		},
-		{
-			"ImportPath": "github.com/garyburd/redigo/internal",
-			"Rev": "836b6e58b3358112c8291565d01c35b8764070d7"
-		},
-		{
-			"ImportPath": "github.com/garyburd/redigo/redis",
-			"Rev": "836b6e58b3358112c8291565d01c35b8764070d7"
 		},
 		{
 			"ImportPath": "github.com/gregjones/httpcache",
@@ -48,8 +43,47 @@
 			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
 		},
 		{
+			"ImportPath": "gopkg.in/bsm/ratelimit.v1",
+			"Rev": "db14e161995a5177acef654cb0dd785e8ee8bc22"
+		},
+		{
 			"ImportPath": "gopkg.in/launchdarkly/go-client.v2",
-			"Rev": "f13769c3e7455cdc7f91d2c9b55dc068431bb775"
+			"Rev": "cc07a21951781bb22c75ead0d9e34b367bf9ac87"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal/consistenthash",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal/errors",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal/hashtag",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal/pool",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
+		},
+		{
+			"ImportPath": "gopkg.in/redis.v4/internal/proto",
+			"Comment": "v4.1.2",
+			"Rev": "0b8675fa4582105c8f54e08d3e0e6ad8f7df0546"
 		}
 	]
 }

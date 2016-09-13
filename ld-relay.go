@@ -9,6 +9,7 @@ import (
 	"github.com/launchdarkly/gcfg"
 	"github.com/streamrail/concurrent-map"
 	ld "gopkg.in/launchdarkly/go-client.v2"
+	"gopkg.in/redis.v4"
 	"io"
 	"io/ioutil"
 	"log"
@@ -35,6 +36,15 @@ type EnvConfig struct {
 	Prefix string
 }
 
+type HostAndPort struct {
+	Host string
+	Port int
+}
+
+func (h HostAndPort) ToAddr() string {
+	return fmt.Sprintf("%s:%d", h.Host, h.Port)
+}
+
 type Config struct {
 	Main struct {
 		ExitOnError            bool
@@ -44,9 +54,16 @@ type Config struct {
 		Port                   int
 		HeartbeatIntervalSecs  int
 	}
-	Redis struct {
-		Host string
-		Port int
+	Sentinel *struct {
+		Master   string
+		Nodes    []string `gcfg:"node"`
+		DB       int      `gcfg:"db"`
+		Password string
+	}
+	Redis *struct {
+		HostAndPort
+		DB       int `gcfg:"db"`
+		Password string
 	}
 	Environment map[string]*EnvConfig
 }
@@ -92,8 +109,33 @@ func main() {
 	for envName, envConfig := range c.Environment {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
-			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0, Info)
+			if c.Redis != nil && c.Redis.Host != "" && c.Redis.Port != 0 {
+				opts := redis.Options{
+					Addr: c.Redis.HostAndPort.ToAddr(),
+					DB:   c.Redis.DB,
+				}
+
+				if c.Redis.Password != "" {
+					opts.Password = c.Redis.Password
+				}
+				baseFeatureStore = ld.NewRedisFeatureStoreWithOptions(&opts, envConfig.Prefix, 0, Info)
+			} else if c.Sentinel != nil {
+				addrs := make([]string, len(c.Sentinel.Nodes))
+
+				for i, n := range c.Sentinel.Nodes {
+					addrs[i] = n
+				}
+
+				failoverOpts := redis.FailoverOptions{
+					MasterName:    c.Sentinel.Master,
+					DB:            c.Sentinel.DB,
+					SentinelAddrs: addrs,
+				}
+
+				if c.Sentinel.Password != "" {
+					failoverOpts.Password = c.Sentinel.Password
+				}
+				baseFeatureStore = ld.NewRedisFeatureStoreWithFailoverOptions(&failoverOpts, envConfig.Prefix, 0, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
