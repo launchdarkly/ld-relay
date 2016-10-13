@@ -161,7 +161,7 @@ func main() {
 	}))
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	http.Handle("/features", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {
