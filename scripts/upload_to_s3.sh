@@ -1,4 +1,5 @@
 #/bin/bash
+set -e
 service=ld-relay
 file=${CIRCLE_ARTIFACTS}/snapshot/${service}_linux_amd64.tar.gz
 sha=`echo ${CIRCLE_SHA1} | cut -c1-6`
