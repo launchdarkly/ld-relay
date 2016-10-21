@@ -1,9 +1,10 @@
 #/bin/bash
 set -e
-ls ${CIRCLE_ARTIFACTS}/
-
+REV=$(git rev-parse HEAD | cut -c1-6)
+VERSION=1.0.0+${REV}
+ls ${CIRCLE_ARTIFACTS}/VERSION
 service=ld-relay
-file=${CIRCLE_ARTIFACTS}/snapshot/${service}_linux_amd64.tar.gz
+file=${CIRCLE_ARTIFACTS}/${VERSION}/${service}_${VERSION}_linux_amd64.tar.gz
 sha=`echo ${CIRCLE_SHA1} | cut -c1-6`
 target=${service}/${service}_${sha}.tar.gz
 bucket=launchdarkly-artifacts
