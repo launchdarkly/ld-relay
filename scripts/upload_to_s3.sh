@@ -1,6 +1,6 @@
 #/bin/bash
 set -e
-ls ${CIRCLE_ARTIFACTS}/snapshot/
+ls ${CIRCLE_ARTIFACTS}/
 
 service=ld-relay
 file=${CIRCLE_ARTIFACTS}/snapshot/${service}_linux_amd64.tar.gz
