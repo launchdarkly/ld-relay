@@ -2,7 +2,7 @@
 set -e
 REV=$(git rev-parse HEAD | cut -c1-6)
 VERSION=1.0.0+${REV}
-ls ${CIRCLE_ARTIFACTS}/VERSION
+ls ${CIRCLE_ARTIFACTS}/${VERSION}
 service=ld-relay
 file=${CIRCLE_ARTIFACTS}/${VERSION}/${service}_${VERSION}_linux_amd64.tar.gz
 sha=`echo ${CIRCLE_SHA1} | cut -c1-6`
