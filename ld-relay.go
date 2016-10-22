@@ -94,7 +94,7 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.Ttl), Info)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.Ttl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
