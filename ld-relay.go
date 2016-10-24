@@ -13,8 +13,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -101,6 +103,7 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
+				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
 				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.Ttl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
@@ -187,9 +190,17 @@ func main() {
 		}
 	}))
 
+	http.Handle("/gc", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		Info.Println("Triggering Garbage Collection!")
+		runtime.GC()
+	}))
+
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
+	if err != nil {
+		Error.Fatalf("Error initializing ld-relay: %s", err.Error())
+	}
 }
 
 func fetchAuthToken(req *http.Request) (string, error) {
