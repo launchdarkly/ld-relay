@@ -41,7 +41,7 @@
 		},
 		{
 			"ImportPath": "github.com/launchdarkly/go-client",
-			"Rev": "42c608dacf2ebe7be6100fd04875695b6f2232e3"
+			"Rev": "969e475587ad2a5ba9d6bdc841c3e012cd613486"
 		},
 		{
 			"ImportPath": "github.com/patrickmn/go-cache",

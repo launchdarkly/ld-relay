@@ -7,21 +7,26 @@ import (
 	"github.com/patrickmn/go-cache"
 	"log"
 	"os"
-	"sync"
 	"time"
+	"reflect"
 )
 
 // A Redis-backed feature store.
 type RedisFeatureStore struct {
-	prefix    string
-	pool      *r.Pool
-	cache     *cache.Cache
-	cacheLock sync.RWMutex
-	timeout   time.Duration
-	logger    *log.Logger
+	prefix  string
+	pool    *r.Pool
+	cache   *cache.Cache
+	timeout time.Duration
+	logger  *log.Logger
 }
 
-const initKey = "$initialized$"
+const (
+	initKey = "$initialized$"
+
+	// stored alongside flag keys.
+	// # is not a valid character for flag keys, so there will never be a collision.
+	allFlagsKey = "#all_flags"
+)
 
 var pool *r.Pool
 
@@ -111,6 +116,9 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 				if feature.Deleted {
 					store.logger.Printf("RedisFeatureStore: WARN: Attempted to get deleted feature flag (from local cache). Key: %s", key)
 					return nil, nil
+				} else {
+					store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %s. Expected FeatureFlag",
+						reflect.TypeOf(feature))
 				}
 				return &feature, nil
 			}
@@ -140,8 +148,6 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 	}
 
 	if store.cache != nil {
-		store.cacheLock.Lock()
-		defer store.cacheLock.Unlock()
 		store.cache.Set(key, feature, store.timeout)
 	}
 
@@ -150,11 +156,18 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 
 func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 
-	results := make(map[string]*FeatureFlag)
-
 	if store.cache != nil {
-		return store.getAllItemsFromLocalCache(), nil
+		if data, present := store.cache.Get(allFlagsKey); present {
+			if features, ok := data.(map[string]*FeatureFlag); ok {
+				return features, nil
+			} else {
+				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %s. Expected map[string]*FeatureFlag",
+					reflect.TypeOf(features))
+			}
+		}
 	}
+
+	results := make(map[string]*FeatureFlag)
 
 	c := store.getConn()
 	defer c.Close()
@@ -177,6 +190,9 @@ func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 			results[k] = &feature
 		}
 	}
+	if store.cache != nil {
+		store.cache.Set(allFlagsKey, results, store.timeout)
+	}
 	return results, nil
 }
 
@@ -191,8 +207,6 @@ func (store *RedisFeatureStore) Init(features map[string]*FeatureFlag) error {
 		store.cache.Flush()
 	}
 
-	store.cacheLock.Lock()
-	defer store.cacheLock.Unlock()
 	for k, v := range features {
 		data, jsonErr := json.Marshal(v)
 
@@ -264,8 +278,7 @@ func (store *RedisFeatureStore) put(c r.Conn, key string, f FeatureFlag) error {
 	_, err := c.Do("HSET", store.featuresKey(), key, data)
 
 	if err == nil && store.cache != nil {
-		store.cacheLock.Lock()
-		defer store.cacheLock.Unlock()
+		store.cache.Delete(allFlagsKey)
 		store.cache.Set(key, f, store.timeout)
 	}
 
@@ -285,8 +298,6 @@ func (store *RedisFeatureStore) Initialized() bool {
 	init, err := r.Bool(c.Do("EXISTS", store.featuresKey()))
 
 	if store.cache != nil && err == nil && init {
-		store.cacheLock.Lock()
-		defer store.cacheLock.Unlock()
 		store.cache.Set(initKey, true, store.timeout)
 	}
 
@@ -295,20 +306,4 @@ func (store *RedisFeatureStore) Initialized() bool {
 
 func defaultLogger() *log.Logger {
 	return log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags)
-}
-
-func (store *RedisFeatureStore) getAllItemsFromLocalCache() map[string]*FeatureFlag {
-	all := make(map[string]*FeatureFlag)
-	items := store.cache.Items()
-	//The call to Items() is safe, but the map we get is not a copy, so we use it under lock
-	store.cacheLock.RLock()
-	defer store.cacheLock.RUnlock()
-	for k, f := range items {
-		if feature, ok := f.Object.(FeatureFlag); ok {
-			if !feature.Deleted {
-				all[k] = &feature
-			}
-		}
-	}
-	return all
 }
