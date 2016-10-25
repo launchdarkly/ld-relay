@@ -40,16 +40,16 @@
 			"Rev": "83c3f001aeeb16851795c3d68ad22f7f83a39538"
 		},
 		{
-			"ImportPath": "github.com/launchdarkly/go-client",
-			"Rev": "a5d29f0fbc25d47cd89018f8385318f1b6354395"
-		},
-		{
 			"ImportPath": "github.com/patrickmn/go-cache",
 			"Rev": "1881a9bccb818787f68c52bfba648c6cf34c34fa"
 		},
 		{
 			"ImportPath": "github.com/streamrail/concurrent-map",
 			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
+		},
+		{
+			"ImportPath": "gopkg.in/launchdarkly/go-client.v2",
+			"Rev": "6a0bf6b9875a79bf8b8861d80ed1a6fd2f103a93"
 		}
 	]
 }
