@@ -73,7 +73,7 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
         prefix = "ld:spree:test"
         apiKey = "SPREE_TEST_API_KEY"
 
-You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `ttl` parameter in your `redis` configuration section to a number (in milliseconds). 
+You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds). 
 
 If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
 

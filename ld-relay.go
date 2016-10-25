@@ -22,10 +22,10 @@ import (
 
 const (
 	defaultRedisLocalTtlMs = 30000
-	VERSION                = "DEV"
 )
 
 var (
+	VERSION           = "DEV"
 	Debug             *log.Logger
 	Info              *log.Logger
 	Warning           *log.Logger
