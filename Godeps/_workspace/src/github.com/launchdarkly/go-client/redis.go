@@ -219,7 +219,9 @@ func (store *RedisFeatureStore) Init(features map[string]*FeatureFlag) error {
 		if store.cache != nil {
 			store.cache.Set(k, v, store.timeout)
 		}
-
+	}
+	if store.cache != nil {
+		store.cache.Set(allFlagsKey, features, store.timeout)
 	}
 	_, err := c.Do("EXEC")
 	return err
