@@ -30,6 +30,8 @@ var VERSION = "DEV"
 
 var uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
 
+const defaultRedisTtlMs = 30000
+
 type EnvConfig struct {
 	ApiKey string
 	Prefix string
@@ -47,6 +49,7 @@ type Config struct {
 	Redis struct {
 		Host string
 		Port int
+		Ttl  *int
 	}
 	Environment map[string]*EnvConfig
 }
@@ -76,6 +79,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if c.Redis.Ttl == nil {
+		redisTtl := defaultRedisTtlMs
+		c.Redis.Ttl = &redisTtl
+	}
+
 	publisher := eventsource.NewServer()
 	publisher.Gzip = true
 	publisher.AllowCORS = true
@@ -93,7 +101,7 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, 0, Info)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.Ttl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
