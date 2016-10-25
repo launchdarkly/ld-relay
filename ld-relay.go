@@ -192,7 +192,7 @@ func main() {
 
 	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
 	if err != nil {
-		Error.Fatalf("Error initializing ld-relay: %s", err.Error())
+		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
 	}
 }
 
