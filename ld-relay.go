@@ -16,23 +16,23 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 )
 
-var (
-	Debug   *log.Logger
-	Info    *log.Logger
-	Warning *log.Logger
-	Error   *log.Logger
+const (
+	defaultRedisLocalTtlMs = 30000
+	VERSION                = "DEV"
 )
 
-var VERSION = "DEV"
-
-var uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-
-const defaultRedisTtlMs = 30000
+var (
+	Debug             *log.Logger
+	Info              *log.Logger
+	Warning           *log.Logger
+	Error             *log.Logger
+	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
+	configFile        string
+)
 
 type EnvConfig struct {
 	ApiKey string
@@ -49,9 +49,9 @@ type Config struct {
 		HeartbeatIntervalSecs  int
 	}
 	Redis struct {
-		Host string
-		Port int
-		Ttl  *int
+		Host     string
+		Port     int
+		LocalTtl *int
 	}
 	Environment map[string]*EnvConfig
 }
@@ -59,8 +59,6 @@ type Config struct {
 type StatusEntry struct {
 	Status string `json:"status"`
 }
-
-var configFile string
 
 func main() {
 
@@ -81,9 +79,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if c.Redis.Ttl == nil {
-		redisTtl := defaultRedisTtlMs
-		c.Redis.Ttl = &redisTtl
+	if c.Redis.LocalTtl == nil {
+		localTtl := defaultRedisLocalTtlMs
+		c.Redis.LocalTtl = &localTtl
 	}
 
 	publisher := eventsource.NewServer()
@@ -104,7 +102,7 @@ func main() {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
 				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.Ttl)*time.Millisecond, Info)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
@@ -188,11 +186,6 @@ func main() {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-	}))
-
-	http.Handle("/gc", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		Info.Println("Triggering Garbage Collection!")
-		runtime.GC()
 	}))
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)

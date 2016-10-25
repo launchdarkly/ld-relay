@@ -60,7 +60,7 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
         [redis]
         host = "localhost"
         port = 6379
-        ttl = 30000
+        localTtl = 30000
 
         [main]
         ...
