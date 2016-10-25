@@ -192,6 +192,9 @@ func main() {
 
 	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
 	if err != nil {
+		if c.Main.ExitOnError {
+			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
+		}
 		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
 	}
 }
