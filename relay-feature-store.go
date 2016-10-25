@@ -3,7 +3,8 @@ package main
 import (
 	"encoding/json"
 	es "github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-client.v2"
+	//ld "gopkg.in/launchdarkly/go-client.v2"
+	ld "github.com/launchdarkly/go-client"
 	"time"
 )
 
