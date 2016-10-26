@@ -49,7 +49,7 @@
 		},
 		{
 			"ImportPath": "gopkg.in/launchdarkly/go-client.v2",
-			"Rev": "f13769c3e7455cdc7f91d2c9b55dc068431bb775"
+			"Rev": "6a0bf6b9875a79bf8b8861d80ed1a6fd2f103a93"
 		}
 	]
 }

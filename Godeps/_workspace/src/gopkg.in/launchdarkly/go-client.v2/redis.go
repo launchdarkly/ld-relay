@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"reflect"
 )
 
 // A Redis-backed feature store.
@@ -19,7 +20,13 @@ type RedisFeatureStore struct {
 	logger  *log.Logger
 }
 
-const initKey = "$initialized$"
+const (
+	initKey = "$initialized$"
+
+	// stored alongside flag keys.
+	// $ is not a valid character for flag keys, so there will never be a collision.
+	allFlagsKey = "$all_flags$"
+)
 
 var pool *r.Pool
 
@@ -111,6 +118,9 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 					return nil, nil
 				}
 				return &feature, nil
+			} else {
+				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected FeatureFlag",
+					reflect.TypeOf(feature))
 			}
 		}
 	}
@@ -146,6 +156,17 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 
 func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 
+	if store.cache != nil {
+		if data, present := store.cache.Get(allFlagsKey); present {
+			if features, ok := data.(map[string]*FeatureFlag); ok {
+				return features, nil
+			} else {
+				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected map[string]*FeatureFlag",
+					reflect.TypeOf(features))
+			}
+		}
+	}
+
 	results := make(map[string]*FeatureFlag)
 
 	c := store.getConn()
@@ -168,6 +189,9 @@ func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 		if !feature.Deleted {
 			results[k] = &feature
 		}
+	}
+	if store.cache != nil {
+		store.cache.Set(allFlagsKey, results, store.timeout)
 	}
 	return results, nil
 }
@@ -195,7 +219,9 @@ func (store *RedisFeatureStore) Init(features map[string]*FeatureFlag) error {
 		if store.cache != nil {
 			store.cache.Set(k, v, store.timeout)
 		}
-
+	}
+	if store.cache != nil {
+		store.cache.Set(allFlagsKey, features, store.timeout)
 	}
 	_, err := c.Do("EXEC")
 	return err
@@ -254,6 +280,7 @@ func (store *RedisFeatureStore) put(c r.Conn, key string, f FeatureFlag) error {
 	_, err := c.Do("HSET", store.featuresKey(), key, data)
 
 	if err == nil && store.cache != nil {
+		store.cache.Delete(allFlagsKey)
 		store.cache.Set(key, f, store.timeout)
 	}
 

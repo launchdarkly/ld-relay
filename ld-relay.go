@@ -13,24 +13,26 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 )
 
-var (
-	Debug   *log.Logger
-	Info    *log.Logger
-	Warning *log.Logger
-	Error   *log.Logger
+const (
+	defaultRedisLocalTtlMs = 30000
 )
 
-var VERSION = "DEV"
-
-var uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-
-const defaultRedisTtlMs = 30000
+var (
+	VERSION           = "DEV"
+	Debug             *log.Logger
+	Info              *log.Logger
+	Warning           *log.Logger
+	Error             *log.Logger
+	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
+	configFile        string
+)
 
 type EnvConfig struct {
 	ApiKey string
@@ -47,9 +49,9 @@ type Config struct {
 		HeartbeatIntervalSecs  int
 	}
 	Redis struct {
-		Host string
-		Port int
-		Ttl  *int
+		Host     string
+		Port     int
+		LocalTtl *int
 	}
 	Environment map[string]*EnvConfig
 }
@@ -57,8 +59,6 @@ type Config struct {
 type StatusEntry struct {
 	Status string `json:"status"`
 }
-
-var configFile string
 
 func main() {
 
@@ -79,9 +79,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if c.Redis.Ttl == nil {
-		redisTtl := defaultRedisTtlMs
-		c.Redis.Ttl = &redisTtl
+	if c.Redis.LocalTtl == nil {
+		localTtl := defaultRedisLocalTtlMs
+		c.Redis.LocalTtl = &localTtl
 	}
 
 	publisher := eventsource.NewServer()
@@ -101,7 +101,8 @@ func main() {
 		go func(envName string, envConfig EnvConfig) {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.Ttl)*time.Millisecond, Info)
+				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
+				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
@@ -189,7 +190,13 @@ func main() {
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
+	if err != nil {
+		if c.Main.ExitOnError {
+			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
+		}
+		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
+	}
 }
 
 func fetchAuthToken(req *http.Request) (string, error) {
