@@ -90,6 +90,7 @@ func (sp *streamProcessor) startOnce(ch chan<- bool) {
 				sp.store.Init(features)
 				sp.setInitializedOnce.Do(func() {
 					sp.isInitialized = true
+					ch <- true
 				})
 			}
 		case deleteEvent:

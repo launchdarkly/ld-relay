@@ -1,4 +1,4 @@
-package redis
+package ldclient
 
 import (
 	"encoding/json"
@@ -17,7 +17,13 @@ type RedisFeatureStore struct {
 	timeout time.Duration
 }
 
-const initKey = "$initialized$"
+const (
+	initKey = "$initialized$"
+
+	// stored alongside flag keys.
+	// $ is not a valid character for flag keys, so there will never be a collision.
+	allFeaturesKey = "$all_features$"
+)
 
 var pool *r.Pool
 
@@ -130,6 +136,15 @@ func (store *RedisFeatureStore) Get(key string) (*ld.Feature, error) {
 }
 
 func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
+
+	if store.cache != nil {
+		if data, present := store.cache.Get(allFeaturesKey); present {
+			if features, ok := data.(map[string]*ld.Feature); ok {
+				return features, nil
+			}
+		}
+	}
+
 	results := make(map[string]*ld.Feature)
 
 	c := store.getConn()
@@ -152,6 +167,9 @@ func (store *RedisFeatureStore) All() (map[string]*ld.Feature, error) {
 		if !feature.Deleted {
 			results[k] = &feature
 		}
+	}
+	if store.cache != nil {
+		store.cache.Set(allFeaturesKey, results, store.timeout)
 	}
 	return results, nil
 }
@@ -179,7 +197,9 @@ func (store *RedisFeatureStore) Init(features map[string]*ld.Feature) error {
 		if store.cache != nil {
 			store.cache.Set(k, v, store.timeout)
 		}
-
+	}
+	if store.cache != nil {
+		store.cache.Set(allFeaturesKey, features, store.timeout)
 	}
 	_, err := c.Do("EXEC")
 	return err
@@ -192,32 +212,21 @@ func (store *RedisFeatureStore) Delete(key string, version int) error {
 	c.Send("WATCH", store.featuresKey())
 	defer c.Send("UNWATCH")
 
-	feature, featureErr := store.Get(key)
+	f, featureErr := store.Get(key)
 
 	if featureErr != nil {
 		return featureErr
 	}
+	if f != nil && f.Version < version {
+		f.Deleted = true
+		f.Version = version
+		return store.put(c, key, *f)
 
-	if feature != nil && feature.Version >= version {
-		return nil
+	} else if f == nil {
+		f = &ld.Feature{Deleted: true, Version: version}
+		return store.put(c, key, *f)
 	}
-
-	feature.Deleted = true
-	feature.Version = version
-
-	data, jsonErr := json.Marshal(feature)
-
-	if jsonErr != nil {
-		return jsonErr
-	}
-
-	_, err := c.Do("HSET", store.featuresKey(), key, data)
-
-	if err == nil && store.cache != nil {
-		store.cache.Set(key, feature, store.timeout)
-	}
-
-	return err
+	return nil
 }
 
 func (store *RedisFeatureStore) Upsert(key string, f ld.Feature) error {
@@ -236,7 +245,10 @@ func (store *RedisFeatureStore) Upsert(key string, f ld.Feature) error {
 	if o != nil && o.Version >= f.Version {
 		return nil
 	}
+	return store.put(c, key, f)
+}
 
+func (store *RedisFeatureStore) put(c r.Conn, key string, f ld.Feature) error {
 	data, jsonErr := json.Marshal(f)
 
 	if jsonErr != nil {
@@ -246,6 +258,7 @@ func (store *RedisFeatureStore) Upsert(key string, f ld.Feature) error {
 	_, err := c.Do("HSET", store.featuresKey(), key, data)
 
 	if err == nil && store.cache != nil {
+		store.cache.Delete(allFeaturesKey)
 		store.cache.Set(key, f, store.timeout)
 	}
 
