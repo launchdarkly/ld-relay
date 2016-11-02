@@ -120,7 +120,7 @@ func (store *RedisFeatureStore) Get(key string) (*FeatureFlag, error) {
 				return &feature, nil
 			} else {
 				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected FeatureFlag",
-					reflect.TypeOf(feature))
+					reflect.TypeOf(data))
 			}
 		}
 	}
@@ -162,7 +162,7 @@ func (store *RedisFeatureStore) All() (map[string]*FeatureFlag, error) {
 				return features, nil
 			} else {
 				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected map[string]*FeatureFlag",
-					reflect.TypeOf(features))
+					reflect.TypeOf(data))
 			}
 		}
 	}
@@ -217,7 +217,7 @@ func (store *RedisFeatureStore) Init(features map[string]*FeatureFlag) error {
 		c.Send("HSET", store.featuresKey(), k, data)
 
 		if store.cache != nil {
-			store.cache.Set(k, v, store.timeout)
+			store.cache.Set(k, *v, store.timeout)
 		}
 	}
 	if store.cache != nil {
