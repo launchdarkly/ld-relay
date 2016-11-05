@@ -5,10 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/gcfg"
-	"github.com/streamrail/concurrent-map"
-	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -18,6 +14,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/gcfg"
+	"github.com/streamrail/concurrent-map"
+	ld "gopkg.in/launchdarkly/go-client.v2"
 )
 
 const (
@@ -85,7 +86,7 @@ func main() {
 	}
 
 	publisher := eventsource.NewServer()
-	publisher.Gzip = true
+	publisher.Gzip = false
 	publisher.AllowCORS = true
 	publisher.ReplayAll = true
 
