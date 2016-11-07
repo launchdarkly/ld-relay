@@ -78,7 +78,7 @@ func main() {
 	}
 
 	publisher := eventsource.NewServer()
-	publisher.Gzip = true
+	publisher.Gzip = false
 	publisher.AllowCORS = true
 	publisher.ReplayAll = true
 

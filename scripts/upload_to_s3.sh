@@ -1,7 +1,7 @@
 #/bin/bash
 set -e
 REV=$(git rev-parse HEAD | cut -c1-6)
-VERSION=1.0.0+b${REV}
+VERSION=1.1.0+b${REV}
 ls ${CIRCLE_ARTIFACTS}/${VERSION}
 service=ld-relay
 file=${CIRCLE_ARTIFACTS}/${VERSION}/${service}_${VERSION}_linux_amd64.tar.gz
