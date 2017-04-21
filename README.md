@@ -13,11 +13,11 @@ The relay proxy can be configured to proxy multiple environment streams, even ac
 Quick setup
 -----------
 
-1. Copy `ld-relay.conf` to `/etc/ld-relay.conf`, and edit to specify your port and LaunchDarkly API keys for each environment you wish to proxy.
+1. Copy `ld-relay.conf` to `/etc/ld-relay.conf` (or elsewhere), and edit to specify your port and LaunchDarkly API keys for each environment you wish to proxy.
 
 2. If building from source, have `go` 1.6+ and `godep` installed, and run `godep go build`.
 
-3. Run `ld-relay`.
+3. Run `ld-relay --config <configDir>/ld-relay.conf`. If the `--config` parameter is not specified, `ld-relay` defaults to `/etc/ld-relay.conf`.
 
 4. Set `stream` to `true` in your application's LaunchDarkly SDK configuration. Set the `streamUri` parameter to the host and port of your relay proxy instance.
 
