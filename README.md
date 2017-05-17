@@ -6,7 +6,7 @@ What is it?
 
 The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. 
 
-The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
+The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`. 
 
 The relay proxy can be configured to proxy multiple environment streams, even across multiple projects.
 
@@ -47,13 +47,27 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
-Redis storage and daemon mode
+Relay proxy mode
+----------------
+
+LDR is typically deployed in relay proxy mode. In this mode, several LDR instances are deployed in a high-availability configuration behind a load balancer. LDR nodes do not need to communicate with each other, and there is no master or cluster. This makes it easy to scale LDR horizontally by deploying more nodes behind the load balancer.
+
+
+![LD Relay with load balancer](relay-lb.png)
+
+
+Redis storage
+-------------
+
+You can configure LDR nodes to persist feature flag settings in Redis. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from communicating with LaunchDarkly's servers.
+
+
+Daemon mode
 -----------------------------
 
-You can configure LDR to persist feature flag settings in Redis. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from 
-communicating with LaunchDarkly's servers.
+Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. This is the preferred way to use LaunchDarkly with PHP (as there's no way to maintain persistent stream connections in PHP).
 
-Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. 
+![LD Relay in daemon mode](relay-daemon.png)
 
 To set up LDR in this mode, provide a redis host and port, and supply a Redis key prefix for each environment in your configuration file:
 
