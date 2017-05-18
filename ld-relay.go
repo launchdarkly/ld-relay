@@ -152,27 +152,31 @@ func main() {
 	}
 
 	http.Handle("/bulk", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == "POST" {
-			apiKey, err := fetchAuthToken(req)
+		if req.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 
-			if err != nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
+		apiKey, err := fetchAuthToken(req)
 
-			if h, ok := eventHandlers.Get(apiKey); ok {
-				handler := h.(http.Handler)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 
-				handler.ServeHTTP(w, req)
-			} else {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
+		if h, ok := eventHandlers.Get(apiKey); ok {
+			handler := h.(http.Handler)
 
+			handler.ServeHTTP(w, req)
 		}
 	}))
 
 	http.Handle("/status", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		envs := make(map[string]StatusEntry)
 
@@ -208,6 +212,11 @@ func main() {
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
 	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {
