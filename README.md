@@ -58,6 +58,8 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
+Your configuration file must include at least one environment.
+
 Relay proxy mode
 ----------------
 
