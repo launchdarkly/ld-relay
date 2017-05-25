@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultRedisLocalTtlMs = 30000
+	defaultPort            = 8030
 )
 
 var (
@@ -83,6 +84,16 @@ func main() {
 	if c.Redis.LocalTtl == nil {
 		localTtl := defaultRedisLocalTtlMs
 		c.Redis.LocalTtl = &localTtl
+	}
+
+	if c.Main.Port == 0 {
+		Info.Printf("No port specified in configuration file. Using default port %d.", defaultPort)
+		c.Main.Port = defaultPort
+	}
+
+	if len(c.Environment) == 0 {
+		Error.Println("You must specify at least one environment in your configuration file. Exiting.")
+		os.Exit(1)
 	}
 
 	publisher := eventsource.NewServer()
