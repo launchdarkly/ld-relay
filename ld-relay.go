@@ -49,6 +49,13 @@ type Config struct {
 		Port                   int
 		HeartbeatIntervalSecs  int
 	}
+	Events struct {
+		EventsUri         string
+		SendEvents        bool
+		FlushIntervalSecs int
+		SamplingInterval  int32
+		Capacity          int
+	}
 	Redis struct {
 		Host     string
 		Port     int
@@ -94,7 +101,9 @@ func main() {
 
 	clients := cmap.New()
 
-	for envName, _ := range c.Environment {
+	eventHandlers := cmap.New()
+
+	for envName := range c.Environment {
 		clients.Set(envName, nil)
 	}
 
@@ -132,11 +141,42 @@ func main() {
 				// create a handler from the publisher for this environment
 				handler := publisher.Handler(envConfig.ApiKey)
 				handlers.Set(envConfig.ApiKey, handler)
+
+				if c.Events.SendEvents {
+					Info.Printf("Proxying events for environment %s", envName)
+					eventHandler := newRelayHandler(envConfig.ApiKey, c)
+					eventHandlers.Set(envConfig.ApiKey, eventHandler)
+				}
 			}
 		}(envName, *envConfig)
 	}
 
+	http.Handle("/bulk", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		apiKey, err := fetchAuthToken(req)
+
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		if h, ok := eventHandlers.Get(apiKey); ok {
+			handler := h.(http.Handler)
+
+			handler.ServeHTTP(w, req)
+		}
+	}))
+
 	http.Handle("/status", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		envs := make(map[string]StatusEntry)
 
@@ -172,6 +212,11 @@ func main() {
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
 	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {
