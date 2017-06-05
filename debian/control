@@ -2,7 +2,7 @@ Package: ld-relay
 Priority: extra
 Maintainer: LaunchDarkly <team@launchdarkly.com>
 Section: devel
-Version: 2.1.0
+Version: 2.2.0
 Architecture: any
 Description: LaunchDarkly Relay Proxy
 Source: ld-relay
