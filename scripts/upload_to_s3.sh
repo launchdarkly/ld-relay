@@ -1,5 +1,9 @@
 #/bin/bash
 set -e
+if [ -z "$bucket" ]; then
+  echo "Missing S3 credentials, skipping upload"
+  exit
+fi
 REV=$(git rev-parse HEAD | cut -c1-6)
 VERSION=2.2.0.${REV}
 ls ${CIRCLE_ARTIFACTS}/${VERSION}

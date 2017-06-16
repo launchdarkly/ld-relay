@@ -1,3 +1,7 @@
+machine:
+  services:
+    - docker
+
 dependencies:
   pre:
     - rm -rf ~/.go_workspace/src/github.com/launchdarkly/ld-relay
@@ -17,9 +21,17 @@ dependencies:
 test:
   override:
     - godep go test
+    - docker build -t ld-relay-build -f Dockerfile-build .
+    - docker run --rm -v `pwd`:/build -t -i -e CGO_ENABLED=0 -e GOOS=linux ld-relay-build godep go build -a -installsuffix cgo -o ldr
+    - docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
 
 deployment:
-  s3:
+  branch:
     branch: /.*/
     commands:
+      - ./scripts/upload_to_dockerhub.sh
       - ./scripts/upload_to_s3.sh
+  tag:
+    tag: /.*/
+    commands:
+      - ./scripts/upload_to_dockerhub.sh
