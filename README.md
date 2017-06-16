@@ -104,6 +104,13 @@ You can also configure an in-memory cache for the relay to use so that connectio
 
 If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
 
+Docker
+-------
+
+You can build a Docker image by running `./scripts/build_docker_image.sh`. The container expects the config file to be mounted at `/config/ld-relay.conf`.
+
+To start a container, run `docker run -it -v /path/to/your/ld-relay.conf:/config/ld-relay.conf ld-relay`
+
 
 Event forwarding
 ---------------
