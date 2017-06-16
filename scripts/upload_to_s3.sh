@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 set -e
 REV=$(git rev-parse HEAD | cut -c1-6)
 VERSION=2.2.0.${REV}
