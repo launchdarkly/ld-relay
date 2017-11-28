@@ -18,6 +18,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	"github.com/streamrail/concurrent-map"
+	_ "github.com/kardianos/minwinsvc"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
 

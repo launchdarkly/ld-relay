@@ -182,3 +182,9 @@ Docker Environment Variables
 
 `EVENTS_SAMPLING_INTERVAL`: This variable is optional.  Defaults to `10000`
 
+Windows
+-------
+
+To register ld-relay as a service, run a command prompt as Administrator
+
+        $ sc create ld-relay DisplayName="LaunchDarkly Relay Proxy" start="auto" binPath="C:\path\to\ld-relay.exe -config C:\path\to\ld-relay.conf"
