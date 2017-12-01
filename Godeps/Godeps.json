@@ -20,6 +20,10 @@
 			"Rev": "4fb00a8eec008ffa8ac9ec46a93684dcbb62fc09"
 		},
 		{
+			"ImportPath": "github.com/kardianos/minwinsvc",
+			"Rev": "cad6b2b879b0970e4245a20ebf1a81a756e2bb70"
+		},
+		{
 			"ImportPath": "github.com/launchdarkly/eventsource",
 			"Rev": "b803733aaa750b174dbab9a8b36472682ba13d2e"
 		},
@@ -46,6 +50,14 @@
 		{
 			"ImportPath": "github.com/streamrail/concurrent-map",
 			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/windows",
+			"Rev": "b76f9891dc1d975623261def70f9b89661f5baab"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/windows/svc",
+			"Rev": "b76f9891dc1d975623261def70f9b89661f5baab"
 		},
 		{
 			"ImportPath": "gopkg.in/launchdarkly/go-client.v2",
