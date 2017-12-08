@@ -130,7 +130,12 @@ We have done extensive load tests on the relay proxy in AWS / EC2. We have also 
 
 HTTPS proxy
 ------------
-Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environmental variable is present then the SDK will proxy all network requests through the URL provided.
+Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+
+How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
+        export HTTPS_PROXY=https://web-proxy.domain.com:8080
+How to set the HTTPS_PROXY environment variable on Windows systems:
+        set HTTPS_PROXY=https://web-proxy.domain.com:8080
 
 Docker
 -------
