@@ -60,6 +60,21 @@ Here's an example configuration file that synchronizes four environments across 
 
 Your configuration file must include at least one environment.
 
+HTTPS proxy
+------------
+Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+
+How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
+```
+export HTTPS_PROXY=https://web-proxy.domain.com:8080
+```
+
+
+How to set the HTTPS_PROXY environment variable on Windows systems:
+```
+set HTTPS_PROXY=https://web-proxy.domain.com:8080
+```
+
 Relay proxy mode
 ----------------
 
