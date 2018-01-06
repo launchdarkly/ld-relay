@@ -62,7 +62,7 @@ Your configuration file must include at least one environment.
 
 HTTPS proxy
 ------------
-Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+Go's standard HTTP library provides built-in support for the use of a HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
 
 How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
 ```
