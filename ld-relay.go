@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	"github.com/streamrail/concurrent-map"
