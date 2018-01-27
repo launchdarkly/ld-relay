@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,10 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	"github.com/streamrail/concurrent-map"
-	_ "github.com/kardianos/minwinsvc"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
 
@@ -38,8 +39,9 @@ var (
 )
 
 type EnvConfig struct {
-	ApiKey string
-	Prefix string
+	ApiKey    *string
+	MobileKey *string
+	Prefix    string
 }
 
 type Config struct {
@@ -68,6 +70,10 @@ type Config struct {
 
 type StatusEntry struct {
 	Status string `json:"status"`
+}
+
+type ErrorJson struct {
+	Message string `json:"message"`
 }
 
 func main() {
@@ -112,6 +118,7 @@ func main() {
 	handlers := cmap.New()
 
 	clients := cmap.New()
+	mobileClients := cmap.New()
 
 	eventHandlers := cmap.New()
 
@@ -131,14 +138,16 @@ func main() {
 
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+			clientConfig.FeatureStore = NewSSERelayFeatureStore(*envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 
-			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
+			client, err := ld.MakeCustomClient(*envConfig.ApiKey, clientConfig, time.Second*10)
 
 			clients.Set(envName, client)
-
+			if *envConfig.MobileKey != "" {
+				mobileClients.Set(*envConfig.MobileKey, client)
+			}
 			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
@@ -151,19 +160,19 @@ func main() {
 				}
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
-				handler := publisher.Handler(envConfig.ApiKey)
-				handlers.Set(envConfig.ApiKey, handler)
+				handler := publisher.Handler(*envConfig.ApiKey)
+				handlers.Set(*envConfig.ApiKey, handler)
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(envConfig.ApiKey, c)
-					eventHandlers.Set(envConfig.ApiKey, eventHandler)
+					eventHandler := newRelayHandler(*envConfig.ApiKey, c)
+					eventHandlers.Set(*envConfig.ApiKey, eventHandler)
 				}
 			}
 		}(envName, *envConfig)
 	}
-
-	http.Handle("/bulk", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	r := mux.NewRouter()
+	r.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -181,9 +190,9 @@ func main() {
 
 			handler.ServeHTTP(w, req)
 		}
-	}))
+	})
 
-	http.Handle("/status", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	r.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -220,10 +229,10 @@ func main() {
 		data, _ := json.Marshal(resp)
 
 		w.Write(data)
-	}))
+	})
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	http.Handle("/flags", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	r.HandleFunc("/flags", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -244,17 +253,112 @@ func main() {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-	}))
+	})
+
+	r.HandleFunc("/msdk/eval/user/{user}", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlagsForMobile(w, req, mobileClients)
+	})
+
+	r.HandleFunc("/msdk/eval/users", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "REPORT" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlagsForMobile(w, req, mobileClients)
+	})
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), nil)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
 	if err != nil {
 		if c.Main.ExitOnError {
 			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
 		}
 		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
 	}
+}
+
+func evaluateAllFeatureFlagsForMobile(w http.ResponseWriter, req *http.Request, mobileClients cmap.ConcurrentMap) {
+	mobKey, err := fetchAuthToken(req)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	var user *ld.User
+	var userDecodeErr error
+	if req.Method == "REPORT" {
+		body, _ := ioutil.ReadAll(req.Body)
+		defer req.Body.Close()
+		userDecodeErr = json.Unmarshal(body, &user)
+	} else {
+		base64User := mux.Vars(req)["user"]
+		user, userDecodeErr = UserV2FromBase64(base64User)
+	}
+	if userDecodeErr != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(ErrorJsonMsg(userDecodeErr.Error()))
+		return
+	}
+
+	if client, ok := mobileClients.Get(mobKey); ok {
+		if ldClient, ok := client.(*ld.LDClient); ok {
+			userMarshal, _ := json.Marshal(ldClient.AllFlags(*user))
+			w.WriteHeader(http.StatusOK)
+			w.Write(userMarshal)
+		}
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+	return
+}
+
+func ErrorJsonMsg(msg string) (j []byte) {
+	j, _ = json.Marshal(ErrorJson{msg})
+	return
+}
+
+// Properly handles both padded and unpadded base64-encoded strings
+func DecodeBase64(base64Str string) ([]byte, error) {
+	return base64.URLEncoding.DecodeString(pad(base64Str))
+}
+
+// Go's base64 decoder doesn't handle unpadded URL-safe
+// encodings, so we pad strings to compensate
+// See https://code.google.com/p/go/issues/detail?id=4237
+func pad(s string) string {
+	if l := len(s) % 4; l != 0 {
+		s += strings.Repeat("=", 4-l)
+	}
+	return s
+}
+
+// Decodes a base64-encoded go-client v2 user.
+// If any decoding/unmarshaling errors occur or
+// the user is missing the 'key' attribute an error is returned.
+func UserV2FromBase64(base64User string) (*ld.User, error) {
+	var user ld.User
+
+	idStr, decodeErr := DecodeBase64(base64User)
+	if decodeErr != nil {
+		// logger.Debug.Printf("Could not decode user part of url path as base64 string: %s with error: %+v", base64User, decodeErr)
+		return nil, errors.New("User part of url path did not decode as valid base64")
+	}
+	jsonErr := json.Unmarshal(idStr, &user)
+
+	if jsonErr != nil {
+		// logger.Debug.Printf("Unable to unmarshal user data from base 64 string: %s with error: %+v", base64User, jsonErr)
+		return nil, errors.New("User part of url path did not decode to valid user as json")
+	}
+
+	if user.Key == nil {
+		return nil, errors.New("User must have a 'key' attribute")
+	}
+	return &user, nil
 }
 
 func fetchAuthToken(req *http.Request) (string, error) {
