@@ -128,6 +128,15 @@ We have done extensive load tests on the relay proxy in AWS / EC2. We have also 
 
 * If using an Elastic Load Balancer in front of the relay proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the relay proxy are cycled. This might happen when you deploy a large number of new servers that connect to the proxy, or upgrade the relay proxy itself.
 
+HTTPS proxy
+------------
+Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+
+How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
+        export HTTPS_PROXY=https://web-proxy.domain.com:8080
+How to set the HTTPS_PROXY environment variable on Windows systems:
+        set HTTPS_PROXY=https://web-proxy.domain.com:8080
+
 Docker
 -------
 
