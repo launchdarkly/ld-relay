@@ -40,7 +40,7 @@ var (
 )
 
 type EnvConfig struct {
-	ApiKey    *string
+	ApiKey    string
 	MobileKey *string
 	Prefix    string
 }
@@ -139,11 +139,11 @@ func main() {
 
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(*envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 
-			client, err := ld.MakeCustomClient(*envConfig.ApiKey, clientConfig, time.Second*10)
+			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
 			clients.Set(envName, client)
 			if *envConfig.MobileKey != "" {
@@ -161,13 +161,13 @@ func main() {
 				}
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
-				handler := publisher.Handler(*envConfig.ApiKey)
-				handlers.Set(*envConfig.ApiKey, handler)
+				handler := publisher.Handler(envConfig.ApiKey)
+				handlers.Set(envConfig.ApiKey, handler)
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(*envConfig.ApiKey, c)
-					eventHandlers.Set(*envConfig.ApiKey, eventHandler)
+					eventHandler := newRelayHandler(envConfig.ApiKey, c)
+					eventHandlers.Set(envConfig.ApiKey, eventHandler)
 				}
 			}
 		}(envName, *envConfig)
@@ -323,36 +323,19 @@ func ErrorJsonMsg(msg string) (j []byte) {
 	return
 }
 
-// Properly handles both padded and unpadded base64-encoded strings
-func DecodeBase64(base64Str string) ([]byte, error) {
-	return base64.URLEncoding.DecodeString(pad(base64Str))
-}
-
-// Go's base64 decoder doesn't handle unpadded URL-safe
-// encodings, so we pad strings to compensate
-// See https://code.google.com/p/go/issues/detail?id=4237
-func pad(s string) string {
-	if l := len(s) % 4; l != 0 {
-		s += strings.Repeat("=", 4-l)
-	}
-	return s
-}
-
 // Decodes a base64-encoded go-client v2 user.
 // If any decoding/unmarshaling errors occur or
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (*ld.User, error) {
 	var user ld.User
 
-	idStr, decodeErr := DecodeBase64(base64User)
+	idStr, decodeErr := base64.URLEncoding.DecodeString(base64User)
 	if decodeErr != nil {
-		// logger.Debug.Printf("Could not decode user part of url path as base64 string: %s with error: %+v", base64User, decodeErr)
 		return nil, errors.New("User part of url path did not decode as valid base64")
 	}
 	jsonErr := json.Unmarshal(idStr, &user)
 
 	if jsonErr != nil {
-		// logger.Debug.Printf("Unable to unmarshal user data from base 64 string: %s with error: %+v", base64User, jsonErr)
 		return nil, errors.New("User part of url path did not decode to valid user as json")
 	}
 

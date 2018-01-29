@@ -4,9 +4,9 @@ LaunchDarkly Relay Proxy
 What is it?
 -----------
 
-The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. 
+The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients.
 
-The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`. 
+The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
 
 The relay proxy can be configured to proxy multiple environment streams, even across multiple projects. It can also be used as a local proxy that forwards events  to `events.launchdarkly.com`.
 
@@ -32,7 +32,7 @@ Quick setup
 
 4. Set `stream` to `true` in your application's LaunchDarkly SDK configuration. Set the `streamUri` parameter to the host and port of your relay proxy instance.
 
-Configuration file format 
+Configuration file format
 -------------------------
 
 You can configure LDR to proxy as many environments as you want, even across different projects. You can also configure LDR to send periodic heartbeats to connected clients. This can be useful if you are load balancing LDR instances behind a proxy that times out HTTP connections (e.g. Elastic Load Balancers).
@@ -58,7 +58,15 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
-Your configuration file must include at least one environment.
+Your configuration file must include at least one environment. You may also optionally configure a mobile SDK key for your environments which will use mobile SDKs:
+
+        [environment "Spree Mobile App Production"]
+        apiKey = "SPREE_MOBILE_PROD_API_KEY"
+        mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
+
+        [environment "Spree Mobile App Test"]
+        apiKey = "SPREE_TEST_API_KEY"
+        mobileKey = "SPREE_TEST_MOBILE_KEY"
 
 Relay proxy mode
 ----------------
@@ -100,7 +108,7 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
         prefix = "ld:spree:test"
         apiKey = "SPREE_TEST_API_KEY"
 
-You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds). 
+You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds).
 
 If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
 

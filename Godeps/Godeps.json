@@ -1,8 +1,13 @@
 {
-	"ImportPath": "github.com/launchdarkly/ld-relay",
+	"ImportPath": "github.com/launchdarkly/ld-relay-private",
 	"GoVersion": "go1.6",
-	"GodepVersion": "v74",
+	"GodepVersion": "v79",
 	"Deps": [
+		{
+			"ImportPath": "github.com/blang/semver",
+			"Comment": "v3.5.1",
+			"Rev": "2ee87856327ba09384cabd113bc6b5d174e9ec0f"
+		},
 		{
 			"ImportPath": "github.com/facebookgo/httpcontrol",
 			"Rev": "ccde4420e1fee9af5da365cb76075b95683f39a6"
@@ -14,6 +19,16 @@
 		{
 			"ImportPath": "github.com/garyburd/redigo/redis",
 			"Rev": "836b6e58b3358112c8291565d01c35b8764070d7"
+		},
+		{
+			"ImportPath": "github.com/gorilla/context",
+			"Comment": "v1.1-7-g08b5f42",
+			"Rev": "08b5f424b9271eedf6f9f0ce86cb9396ed337a42"
+		},
+		{
+			"ImportPath": "github.com/gorilla/mux",
+			"Comment": "v1.6.1-10-gc0091a0",
+			"Rev": "c0091a029979286890368b4c7b301261e448e242"
 		},
 		{
 			"ImportPath": "github.com/gregjones/httpcache",
