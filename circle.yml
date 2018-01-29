@@ -10,7 +10,6 @@ dependencies:
     - go get gopkg.in/tools/godep.v74 # lock down our version of godep
     - ln -sf ~/.go_workspace/bin/godep.v74 ~/.go_workspace/bin/godep
     - go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
-    - go get github.com/gorilla/mux # install mux
     - go version
     - godep version
     - goxc -version
