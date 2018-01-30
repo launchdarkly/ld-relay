@@ -64,6 +64,7 @@ func TestReportFlagEvalSucceeds(t *testing.T) {
 		jsonStr := []byte(`{"user":"key"}`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", mobKey())
+		r.Header.Set("Content-Type", "application/json")
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
 		evaluateAllFeatureFlags(w, r, clients)
@@ -86,6 +87,7 @@ func TestFlagEvalFailsOnInvalidAuthKey(t *testing.T) {
 		jsonStr := []byte(`{"user":"key"}`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee")
+		r.Header.Set("Content-Type", "application/json")
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
 		evaluateAllFeatureFlags(w, r, clients)
@@ -103,6 +105,7 @@ func TestFlagEvalFailsOnInvalidUserJson(t *testing.T) {
 		jsonStr := []byte(`{"user":"key"}1`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", mobKey())
+		r.Header.Set("Content-Type", "application/json")
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
 		evaluateAllFeatureFlags(w, r, clients)
@@ -119,6 +122,7 @@ func TestClientSideFlagEvalSucceeds(t *testing.T) {
 	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
 		clients := cmap.New()
 		clients.Set(envId(), &FakeLDClient{})
+		r.Header.Set("Content-Type", "application/json")
 		evaluateAllFeatureFlagsForClientSide(w, r, clients)
 	})
 	server := httptest.NewServer(r)
@@ -138,11 +142,12 @@ func TestClientSideFlagEvalFailsOnInvalidEnvId(t *testing.T) {
 	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
 		clients := cmap.New()
 		clients.Set(envId(), &FakeLDClient{})
+		r.Header.Set("Content-Type", "application/json")
 		evaluateAllFeatureFlagsForClientSide(w, r, clients)
 	})
 	server := httptest.NewServer(r)
 
 	resp, _ := http.Get(server.URL + "/blah/" + user())
 
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
