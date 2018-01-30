@@ -73,8 +73,12 @@ type StatusEntry struct {
 	Status string `json:"status"`
 }
 
-type ErrorJson struct {
+type errorJson struct {
 	Message string `json:"message"`
+}
+
+type flagReader interface {
+	AllFlags(user ld.User) map[string]interface{}
 }
 
 func main() {
@@ -290,6 +294,17 @@ func evaluateAllFeatureFlagsForMobile(w http.ResponseWriter, req *http.Request, 
 		return
 	}
 
+	if client, ok := mobileClients.Get(mobKey); ok {
+		if ldClient, ok := client.(flagReader); ok {
+			evaluateAllFeatureFlags(w, req, ldClient)
+		}
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+	return
+}
+
+func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request, client flagReader) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -305,21 +320,13 @@ func evaluateAllFeatureFlagsForMobile(w http.ResponseWriter, req *http.Request, 
 		w.Write(ErrorJsonMsg(userDecodeErr.Error()))
 		return
 	}
-
-	if client, ok := mobileClients.Get(mobKey); ok {
-		if ldClient, ok := client.(*ld.LDClient); ok {
-			userMarshal, _ := json.Marshal(ldClient.AllFlags(*user))
-			w.WriteHeader(http.StatusOK)
-			w.Write(userMarshal)
-		}
-	} else {
-		w.WriteHeader(http.StatusUnauthorized)
-	}
-	return
+	result, _ := json.Marshal(client.AllFlags(*user))
+	w.WriteHeader(http.StatusOK)
+	w.Write(result)
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {
-	j, _ = json.Marshal(ErrorJson{msg})
+	j, _ = json.Marshal(errorJson{msg})
 	return
 }
 
