@@ -42,6 +42,7 @@ var (
 type EnvConfig struct {
 	ApiKey    string
 	MobileKey *string
+	EnvId     *string
 	Prefix    string
 }
 
@@ -124,6 +125,7 @@ func main() {
 
 	clients := cmap.New()
 	mobileClients := cmap.New()
+	clientSideClients := cmap.New()
 
 	eventHandlers := cmap.New()
 
@@ -152,6 +154,9 @@ func main() {
 			clients.Set(envName, client)
 			if *envConfig.MobileKey != "" {
 				mobileClients.Set(*envConfig.MobileKey, client)
+			}
+			if *envConfig.EnvId != "" {
+				clientSideClients.Set(*envConfig.EnvId, client)
 			}
 			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
@@ -260,20 +265,54 @@ func main() {
 		}
 	})
 
-	r.HandleFunc("/msdk/eval/user/{user}", func(w http.ResponseWriter, req *http.Request) {
+	r.HandleFunc("/sdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		evaluateAllFeatureFlagsForMobile(w, req, mobileClients)
+		evaluateAllFeatureFlags(w, req, clients)
 	})
 
-	r.HandleFunc("/msdk/eval/users", func(w http.ResponseWriter, req *http.Request) {
+	r.HandleFunc("/sdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "REPORT" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		evaluateAllFeatureFlagsForMobile(w, req, mobileClients)
+		evaluateAllFeatureFlags(w, req, clients)
+	})
+
+	// Client-side evaluation
+	r.HandleFunc("/sdk/eval/{envId}/users/{user}", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlagsForClientSide(w, req, clientSideClients)
+	})
+
+	r.HandleFunc("/sdk/{envId}/eval/user", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "REPORT" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlagsForClientSide(w, req, clientSideClients)
+	})
+
+	// Mobile evaluation
+	r.HandleFunc("/msdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlags(w, req, mobileClients)
+	})
+
+	r.HandleFunc("/msdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "REPORT" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlags(w, req, mobileClients)
 	})
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
@@ -287,24 +326,29 @@ func main() {
 	}
 }
 
-func evaluateAllFeatureFlagsForMobile(w http.ResponseWriter, req *http.Request, mobileClients cmap.ConcurrentMap) {
-	mobKey, err := fetchAuthToken(req)
+func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap) {
+	authKey, err := fetchAuthToken(req)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-
-	if client, ok := mobileClients.Get(mobKey); ok {
-		if ldClient, ok := client.(flagReader); ok {
-			evaluateAllFeatureFlags(w, req, ldClient)
-		}
+	if client, ok := clients.Get(authKey); ok {
+		evaluateAllFeatureFlagsHelper(w, req, client.(flagReader))
 	} else {
 		w.WriteHeader(http.StatusUnauthorized)
 	}
-	return
 }
 
-func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request, client flagReader) {
+func evaluateAllFeatureFlagsForClientSide(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap) {
+	envId := mux.Vars(req)["envId"]
+	if client, ok := clients.Get(envId); ok {
+		evaluateAllFeatureFlagsHelper(w, req, client.(flagReader))
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+}
+
+func evaluateAllFeatureFlagsHelper(w http.ResponseWriter, req *http.Request, client flagReader) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -323,6 +367,7 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request, client fl
 	result, _ := json.Marshal(client.AllFlags(*user))
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
+	return
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {

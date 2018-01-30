@@ -30,17 +30,25 @@ func mobKey() string {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
 }
 
-func TestMobileGetEvalSucceeds(t *testing.T) {
+func envId() string {
+	return "58ffffff"
+}
+
+func user() string {
+	return "/eyJrZXkiOiJ0ZXN0In0="
+}
+
+func TestGetFlagEvalSucceeds(t *testing.T) {
 	r := mux.NewRouter()
-	r.HandleFunc("/msdk/eval/user/{user}", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/{user}", func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Authorization", mobKey())
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlagsForMobile(w, r, clients)
+		evaluateAllFeatureFlags(w, r, clients)
 	})
 	server := httptest.NewServer(r)
 
-	resp, _ := http.Get(server.URL + "/msdk/eval/user/eyJrZXkiOiJ0ZXN0In0=")
+	resp, _ := http.Get(server.URL + user())
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -50,19 +58,19 @@ func TestMobileGetEvalSucceeds(t *testing.T) {
 	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
-func TestMobileReportEvalSucceeds(t *testing.T) {
+func TestReportFlagEvalSucceeds(t *testing.T) {
 	r := mux.NewRouter()
-	r.HandleFunc("/msdk/eval/users", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		jsonStr := []byte(`{"user":"key"}`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", mobKey())
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlagsForMobile(w, r, clients)
+		evaluateAllFeatureFlags(w, r, clients)
 	})
 	server := httptest.NewServer(r)
 
-	resp, _ := http.Get(server.URL + "/msdk/eval/users")
+	resp, _ := http.Get(server.URL)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -72,36 +80,69 @@ func TestMobileReportEvalSucceeds(t *testing.T) {
 	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
-func TestMobileEvalFailsOnInvalidMobileKey(t *testing.T) {
+func TestFlagEvalFailsOnInvalidAuthKey(t *testing.T) {
 	r := mux.NewRouter()
-	r.HandleFunc("/msdk/eval/users", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		jsonStr := []byte(`{"user":"key"}`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee")
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlagsForMobile(w, r, clients)
+		evaluateAllFeatureFlags(w, r, clients)
 	})
 	server := httptest.NewServer(r)
 
-	resp, _ := http.Get(server.URL + "/msdk/eval/users")
+	resp, _ := http.Get(server.URL)
 
-	assert.Equal(t, 401, resp.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestMobileFlagEvalFailsOnInvalidUserJson(t *testing.T) {
+func TestFlagEvalFailsOnInvalidUserJson(t *testing.T) {
 	r := mux.NewRouter()
-	r.HandleFunc("/msdk/eval/users", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		jsonStr := []byte(`{"user":"key"}1`)
 		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
 		r.Header.Set("Authorization", mobKey())
 		clients := cmap.New()
 		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlagsForMobile(w, r, clients)
+		evaluateAllFeatureFlags(w, r, clients)
 	})
 	server := httptest.NewServer(r)
 
-	resp, _ := http.Get(server.URL + "/msdk/eval/users")
+	resp, _ := http.Get(server.URL)
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestClientSideFlagEvalSucceeds(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
+		clients := cmap.New()
+		clients.Set(envId(), &FakeLDClient{})
+		evaluateAllFeatureFlagsForClientSide(w, r, clients)
+	})
+	server := httptest.NewServer(r)
+
+	resp, _ := http.Get(server.URL + "/" + envId() + "/" + user())
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	defer resp.Body.Close()
+	b, _ := ioutil.ReadAll(resp.Body)
+
+	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
+}
+
+func TestClientSideFlagEvalFailsOnInvalidEnvId(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
+		clients := cmap.New()
+		clients.Set(envId(), &FakeLDClient{})
+		evaluateAllFeatureFlagsForClientSide(w, r, clients)
+	})
+	server := httptest.NewServer(r)
+
+	resp, _ := http.Get(server.URL + "/blah/" + user())
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
