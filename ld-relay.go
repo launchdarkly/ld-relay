@@ -352,6 +352,12 @@ func evaluateAllFeatureFlagsHelper(w http.ResponseWriter, req *http.Request, cli
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
+		if req.Header.Get("Content-Type") != "application/json" {
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			w.Write([]byte("Content-Type must be application/json."))
+			return
+		}
+
 		body, _ := ioutil.ReadAll(req.Body)
 		defer req.Body.Close()
 		userDecodeErr = json.Unmarshal(body, &user)
