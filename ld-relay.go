@@ -281,6 +281,23 @@ func main() {
 		evaluateAllFeatureFlags(w, req, clients)
 	})
 
+	// Mobile evaluation
+	r.HandleFunc("/msdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlags(w, req, mobileClients)
+	})
+
+	r.HandleFunc("/msdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "REPORT" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		evaluateAllFeatureFlags(w, req, mobileClients)
+	})
+
 	// Client-side evaluation
 	r.HandleFunc("/sdk/eval/{envId}/users/{user}", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
@@ -298,21 +315,19 @@ func main() {
 		evaluateAllFeatureFlagsForClientSide(w, req, clientSideClients)
 	})
 
-	// Mobile evaluation
-	r.HandleFunc("/msdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+	r.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
+		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+mux.Vars(req)["envId"], nil)
+		ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
+		client := &http.Client{}
+		res, err := client.Do(ldReq)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		evaluateAllFeatureFlags(w, req, mobileClients)
-	})
-
-	r.HandleFunc("/msdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "REPORT" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlags(w, req, mobileClients)
+		defer res.Body.Close()
+		w.WriteHeader(res.StatusCode)
+		bodyBytes, _ := ioutil.ReadAll(res.Body)
+		w.Write(bodyBytes)
 	})
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
@@ -344,7 +359,7 @@ func evaluateAllFeatureFlagsForClientSide(w http.ResponseWriter, req *http.Reque
 	if client, ok := clients.Get(envId); ok {
 		evaluateAllFeatureFlagsHelper(w, req, client.(flagReader))
 	} else {
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
