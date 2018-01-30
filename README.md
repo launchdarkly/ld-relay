@@ -58,16 +58,29 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
-Your configuration file must include at least one environment. You may also optionally configure a mobile SDK key for your environments which will use mobile SDKs:
+Mobile and client-side SDK support
+----------------
 
-        [environment "Spree Mobile App Production"]
-        apiKey = "SPREE_MOBILE_PROD_API_KEY"
-        mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
+LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable proxy support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
 
-        [environment "Spree Mobile App Test"]
-        apiKey = "SPREE_TEST_API_KEY"
-        mobileKey = "SPREE_TEST_MOBILE_KEY"
+        [environment "Spree Project Production"]
+        apiKey = "SPREE_PROD_API_KEY"
+        mobileKey = "SPREE_PROD_MOBILE_KEY"
+        envId = "SPREE_PROD_ENV_ID"
 
+Once a mobile key or environment ID has been configured, you may set the `baseUri` parameter to the host and port of your relay proxy instance in your mobile/client-side SDKs.
+
+Flag evaluation endpoints
+----------------
+
+If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or would like to evaluate feature flags internally without an SDK instance, the relay provides endpoints for evaluating all feature flags for a given user. These endpoints support the GET and REPORT http verbs to pass in users either as base64url encoded path parameters, or in the request body, respectively.
+
+Example cURL requests (default local URI and port):
+
+
+        curl -X GET localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
+
+        curl -X REPORT localhost:8030/sdk/eval/user -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
 Relay proxy mode
 ----------------
 
