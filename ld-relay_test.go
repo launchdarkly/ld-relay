@@ -1,13 +1,12 @@
 package main
 
 import (
-	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/streamrail/concurrent-map"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"bytes"
-	"github.com/gorilla/mux"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io/ioutil"
 	"net/http"

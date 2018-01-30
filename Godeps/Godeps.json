@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/launchdarkly/ld-relay",
+	"ImportPath": "github.com/launchdarkly/ld-relay-private",
 	"GoVersion": "go1.6",
 	"GodepVersion": "v79",
 	"Deps": [
@@ -7,6 +7,11 @@
 			"ImportPath": "github.com/blang/semver",
 			"Comment": "v3.5.1",
 			"Rev": "2ee87856327ba09384cabd113bc6b5d174e9ec0f"
+		},
+		{
+			"ImportPath": "github.com/davecgh/go-spew/spew",
+			"Comment": "v1.1.0-10-gdb69d09",
+			"Rev": "db69d09d2c587e9b9677f991dfcab1fc24d9086e"
 		},
 		{
 			"ImportPath": "github.com/facebookgo/httpcontrol",
@@ -63,8 +68,28 @@
 			"Rev": "1881a9bccb818787f68c52bfba648c6cf34c34fa"
 		},
 		{
+			"ImportPath": "github.com/pmezard/go-difflib/difflib",
+			"Comment": "v1.0.0",
+			"Rev": "792786c7400a136282c1664665ae0a8db921c6c2"
+		},
+		{
 			"ImportPath": "github.com/streamrail/concurrent-map",
 			"Rev": "65a174a3a4188c0b7099acbc6cfa0c53628d3287"
+		},
+		{
+			"ImportPath": "github.com/stretchr/objx",
+			"Comment": "v0.1-19-g8a3f715",
+			"Rev": "8a3f7159479fbc75b30357fbc48f380b7320f08e"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/assert",
+			"Comment": "v1.2.0-4-g87b1dfb",
+			"Rev": "87b1dfb5b2fa649f52695dd9eae19abe404a4308"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/mock",
+			"Comment": "v1.2.0-4-g87b1dfb",
+			"Rev": "87b1dfb5b2fa649f52695dd9eae19abe404a4308"
 		},
 		{
 			"ImportPath": "golang.org/x/sys/windows",
