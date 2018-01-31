@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gregjones/httpcache"
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	"github.com/pquerna/cachecontrol"
 	"github.com/streamrail/concurrent-map"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
@@ -93,8 +93,8 @@ func main() {
 
 	var c Config
 
-	var goalCache *http.Response
-	var goalCacheExpires time.Time
+	cachingTransport := httpcache.NewMemoryCacheTransport()
+	httpClient := cachingTransport.Client()
 
 	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
 
@@ -187,6 +187,7 @@ func main() {
 	}
 
 	r := mux.NewRouter()
+
 	r.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -327,29 +328,12 @@ func main() {
 			return
 		}
 
-		// serve cached response
-		if goalCacheExpires.Before(time.Now()) {
-			w.WriteHeader(goalCache.StatusCode)
-
-			defer goalCache.Body.Close()
-			bodyBytes, _ := ioutil.ReadAll(goalCache.Body)
-			w.Write(bodyBytes)
-			return
-		}
-
 		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+mux.Vars(req)["envId"], nil)
 		ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
-		client := &http.Client{}
-		res, err := client.Do(ldReq)
+		res, err := httpClient.Do(ldReq)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
-		}
-
-		reasons, expires, _ := cachecontrol.CachableResponse(req, res, cachecontrol.Options{})
-		if len(reasons) == 0 {
-			goalCache = res
-			goalCacheExpires = expires
 		}
 
 		defer res.Body.Close()
