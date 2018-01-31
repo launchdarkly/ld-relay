@@ -78,9 +78,9 @@ If you're building an SDK for a language which isn't officially supported by Lau
 Example cURL requests (default local URI and port):
 
 
-        curl -X GET localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
+        curl -X GET -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
 
-        curl -X REPORT localhost:8030/sdk/eval/user -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
+        curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
 Relay proxy mode
 ----------------
 
