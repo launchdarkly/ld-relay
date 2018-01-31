@@ -156,10 +156,10 @@ func main() {
 			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
 			clients.Set(envName, client)
-			if *envConfig.MobileKey != "" {
+			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
 				mobileClients.Set(*envConfig.MobileKey, client)
 			}
-			if *envConfig.EnvId != "" {
+			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
 				clientSideClients.Set(*envConfig.EnvId, client)
 			}
 			if err != nil && !c.Main.IgnoreConnectionErrors {
