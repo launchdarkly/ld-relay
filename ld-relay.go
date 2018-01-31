@@ -20,6 +20,7 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
+	"github.com/pquerna/cachecontrol"
 	"github.com/streamrail/concurrent-map"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
@@ -91,6 +92,9 @@ func main() {
 	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	var c Config
+
+	var goalCache *http.Response
+	var goalCacheExpires time.Time
 
 	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
 
@@ -181,6 +185,7 @@ func main() {
 			}
 		}(envName, *envConfig)
 	}
+
 	r := mux.NewRouter()
 	r.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
@@ -316,6 +321,22 @@ func main() {
 	})
 
 	r.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
+		if clientSideClients.Count() == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("ld-relay is not configured for environment id " + mux.Vars(req)["envId"]))
+			return
+		}
+
+		// serve cached response
+		if goalCacheExpires.Before(time.Now()) {
+			w.WriteHeader(goalCache.StatusCode)
+
+			defer goalCache.Body.Close()
+			bodyBytes, _ := ioutil.ReadAll(goalCache.Body)
+			w.Write(bodyBytes)
+			return
+		}
+
 		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+mux.Vars(req)["envId"], nil)
 		ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
 		client := &http.Client{}
@@ -324,6 +345,13 @@ func main() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+
+		reasons, expires, _ := cachecontrol.CachableResponse(req, res, cachecontrol.Options{})
+		if len(reasons) == 0 {
+			goalCache = res
+			goalCacheExpires = expires
+		}
+
 		defer res.Body.Close()
 		w.WriteHeader(res.StatusCode)
 		bodyBytes, _ := ioutil.ReadAll(res.Body)
