@@ -413,8 +413,7 @@ func ErrorJsonMsg(msg string) (j []byte) {
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (*ld.User, error) {
 	var user ld.User
-
-	idStr, decodeErr := base64.URLEncoding.DecodeString(base64User)
+	idStr, decodeErr := base64.RawURLEncoding.DecodeString(base64User)
 	if decodeErr != nil {
 		return nil, errors.New("User part of url path did not decode as valid base64")
 	}
