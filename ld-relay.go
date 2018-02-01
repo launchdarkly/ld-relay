@@ -85,15 +85,15 @@ type flagReader interface {
 }
 
 type EvalContext interface {
-	getClients() cmap.ConcurrentMap
+	getClient() flagReader
 }
 
 type evalContextImpl struct {
-	clients cmap.ConcurrentMap
+	client flagReader
 }
 
-func (e evalContextImpl) getClients() cmap.ConcurrentMap {
-	return e.clients
+func (e evalContextImpl) getClient() flagReader {
+	return e.client
 }
 
 func main() {
@@ -146,8 +146,8 @@ func main() {
 
 	eventHandlers := cmap.New()
 
-	for envName := range c.Environment {
-		clients.Set(envName, nil)
+	for _, envConfig := range c.Environment {
+		clients.Set(envConfig.ApiKey, nil)
 	}
 
 	for envName, envConfig := range c.Environment {
@@ -168,7 +168,7 @@ func main() {
 
 			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
-			clients.Set(envName, client)
+			clients.Set(envConfig.ApiKey, client)
 			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
 				mobileClients.Set(*envConfig.MobileKey, client)
 			}
@@ -202,11 +202,6 @@ func main() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "POST" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {
@@ -219,14 +214,9 @@ func main() {
 
 			handler.ServeHTTP(w, req)
 		}
-	})
+	}).Methods("POST")
 
 	router.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		envs := make(map[string]StatusEntry)
 
@@ -258,15 +248,10 @@ func main() {
 		data, _ := json.Marshal(resp)
 
 		w.Write(data)
-	})
+	}).Methods("GET")
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
 	router.HandleFunc("/flags", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
 		apiKey, err := fetchAuthToken(req)
 
 		if err != nil {
@@ -282,33 +267,19 @@ func main() {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-	})
-
-	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
-
-	sdkEvalRouter.HandleFunc("/users/{user}", withClients(clients, evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/user", withClients(clients, evaluateAllFeatureFlags)).Methods("REPORT")
-
-	// Mobile evaluation
-	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
-
-	msdkEvalRouter.HandleFunc("/users/{user}", withClients(mobileClients, evaluateAllFeatureFlags)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", withClients(mobileClients, evaluateAllFeatureFlags)).Methods("REPORT")
-
-	// Client-side evaluation
-	clientSideEvalRouter := router.PathPrefix("/sdk/eval/{envId}").Subrouter()
-
-	clientSideEvalRouter.HandleFunc("/users/{user}", withClients(clientSideClients, evaluateAllFeatureFlagsForClientSide)).Methods("GET")
-	clientSideEvalRouter.HandleFunc("/user", withClients(clientSideClients, evaluateAllFeatureFlagsForClientSide)).Methods("REPORT")
+	}).Methods("GET")
 
 	router.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
-		if clientSideClients.Count() == 0 {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		envId, _ := mux.Vars(req)["envId"]
+		client, _ := clientSideClients.Get(envId)
+		if client == nil {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("ld-relay is not configured for environment id " + mux.Vars(req)["envId"]))
+			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
 
-		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+mux.Vars(req)["envId"], nil)
+		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+envId, nil)
 		ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
 		res, err := httpClient.Do(ldReq)
 		if err != nil {
@@ -316,11 +287,33 @@ func main() {
 			return
 		}
 
+		w.Header().Set("Content-Type", res.Header["Content-Type"][0])
+
 		defer res.Body.Close()
+
 		w.WriteHeader(res.StatusCode)
 		bodyBytes, _ := ioutil.ReadAll(res.Body)
 		w.Write(bodyBytes)
-	})
+	}).Methods("GET")
+
+	sdkEvalHandler := muxHandler{clients: clients}
+	msdkEvalHandler := muxHandler{clients: mobileClients}
+	clientSideEvalHandler := muxHandler{clients: clientSideClients}
+
+	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
+
+	sdkEvalRouter.HandleFunc("/users/{user}", sdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/user", sdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("REPORT")
+
+	// Client-side evaluation
+	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideEvalHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideEvalHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("REPORT")
+
+	// Mobile evaluation
+	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
+
+	msdkEvalRouter.HandleFunc("/users/{user}", msdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", msdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
@@ -333,36 +326,45 @@ func main() {
 	}
 }
 
-func withClients(clients cmap.ConcurrentMap, flagEvaluator func(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap)) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := evalContextImpl{clients: clients}
-		r = r.WithContext(context.WithValue(r.Context(), "context", ctx))
+type muxHandler struct {
+	clients cmap.ConcurrentMap
+}
+
+func (m muxHandler) authorizeEval(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		authKey, err := fetchAuthToken(req)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		client, _ := m.clients.Get(authKey)
+		if client == nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		ctx := evalContextImpl{client: client.(flagReader)}
+		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
+		next(w, req)
 	}
 }
 
-func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap) {
-	authKey, err := fetchAuthToken(req)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	if client, ok := clients.Get(authKey); ok {
-		evaluateAllFeatureFlagsHelper(w, req, client.(flagReader))
-	} else {
-		w.WriteHeader(http.StatusUnauthorized)
-	}
-}
-
-func evaluateAllFeatureFlagsForClientSide(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap) {
-	envId := mux.Vars(req)["envId"]
-	if client, ok := clients.Get(envId); ok {
-		evaluateAllFeatureFlagsHelper(w, req, client.(flagReader))
-	} else {
-		w.WriteHeader(http.StatusNotFound)
+func (m muxHandler) findEnvironment(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		envId := mux.Vars(req)["envId"]
+		client, _ := m.clients.Get(envId)
+		if client == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		ctx := evalContextImpl{client: client.(flagReader)}
+		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
+		next(w, req)
 	}
 }
 
-func evaluateAllFeatureFlagsHelper(w http.ResponseWriter, req *http.Request, client flagReader) {
+func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -384,7 +386,11 @@ func evaluateAllFeatureFlagsHelper(w http.ResponseWriter, req *http.Request, cli
 		w.Write(ErrorJsonMsg(userDecodeErr.Error()))
 		return
 	}
+
+	ctx := req.Context().Value("context")
+	client := ctx.(EvalContext).getClient()
 	result, _ := json.Marshal(client.AllFlags(*user))
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
 	return

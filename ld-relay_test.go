@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/streamrail/concurrent-map"
 	"github.com/stretchr/testify/assert"
@@ -25,30 +26,48 @@ func (client *FakeLDClient) AllFlags(user ld.User) map[string]interface{} {
 	return flags
 }
 
-// Returns a mobile key matching the UUID header pattern
-func mobKey() string {
+// Returns a key matching the UUID header pattern
+func key() string {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
-}
-
-func envId() string {
-	return "58ffffff"
 }
 
 func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func TestGetFlagEvalSucceeds(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/{user}", func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Set("Authorization", mobKey())
-		clients := cmap.New()
-		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlags(w, r, clients)
-	})
-	server := httptest.NewServer(r)
+func handler() muxHandler {
+	clients := cmap.New()
+	clients.Set(key(), &FakeLDClient{})
+	return muxHandler{clients: clients}
+}
 
-	resp, _ := http.Get(server.URL + "/" + user())
+func testMethod(verb string, vars map[string]string, headers map[string]string, body string, method func(w http.ResponseWriter, r *http.Request)) *http.Response {
+	router := mux.NewRouter()
+	matcher := ""
+	urlString := ""
+	for k, v := range vars {
+		matcher = matcher + fmt.Sprintf("/{%s}", k)
+		urlString = urlString + fmt.Sprintf("/%s", v)
+	}
+
+	router.HandleFunc(matcher, func(w http.ResponseWriter, r *http.Request) {
+		method(w, r)
+	})
+
+	server := httptest.NewServer(router)
+	req, _ := http.NewRequest(verb, server.URL+urlString, bytes.NewBuffer([]byte(body)))
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := http.Client{}
+	resp, _ := client.Do(req)
+	return resp
+}
+
+func TestGetFlagEvalSucceeds(t *testing.T) {
+	vars := map[string]string{"user": user()}
+	headers := map[string]string{"Authorization": key()}
+	resp := testMethod("GET", vars, headers, "", handler().authorizeEval(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -59,19 +78,9 @@ func TestGetFlagEvalSucceeds(t *testing.T) {
 }
 
 func TestReportFlagEvalSucceeds(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		jsonStr := []byte(`{"user":"key"}`)
-		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
-		r.Header.Set("Authorization", mobKey())
-		r.Header.Set("Content-Type", "application/json")
-		clients := cmap.New()
-		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlags(w, r, clients)
-	})
-	server := httptest.NewServer(r)
-
-	resp, _ := http.Get(server.URL)
+	vars := map[string]string{"user": user()}
+	headers := map[string]string{"Authorization": key(), "Content-Type": "application/json"}
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeEval(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -82,52 +91,24 @@ func TestReportFlagEvalSucceeds(t *testing.T) {
 }
 
 func TestFlagEvalFailsOnInvalidAuthKey(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		jsonStr := []byte(`{"user":"key"}`)
-		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
-		r.Header.Set("Authorization", "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee")
-		r.Header.Set("Content-Type", "application/json")
-		clients := cmap.New()
-		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlags(w, r, clients)
-	})
-	server := httptest.NewServer(r)
-
-	resp, _ := http.Get(server.URL)
+	vars := map[string]string{"user": user()}
+	headers := map[string]string{"Authorization": "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee", "Content-Type": "application/json"}
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeEval(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestFlagEvalFailsOnInvalidUserJson(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		jsonStr := []byte(`{"user":"key"}1`)
-		r, _ = http.NewRequest("REPORT", "", bytes.NewBuffer(jsonStr))
-		r.Header.Set("Authorization", mobKey())
-		r.Header.Set("Content-Type", "application/json")
-		clients := cmap.New()
-		clients.Set(mobKey(), &FakeLDClient{})
-		evaluateAllFeatureFlags(w, r, clients)
-	})
-	server := httptest.NewServer(r)
-
-	resp, _ := http.Get(server.URL)
+	vars := map[string]string{"user": user()}
+	headers := map[string]string{"Authorization": key(), "Content-Type": "application/json"}
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}notjson`, handler().authorizeEval(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestClientSideFlagEvalSucceeds(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
-		clients := cmap.New()
-		clients.Set(envId(), &FakeLDClient{})
-		r.Header.Set("Content-Type", "application/json")
-		evaluateAllFeatureFlagsForClientSide(w, r, clients)
-	})
-	server := httptest.NewServer(r)
-
-	resp, _ := http.Get(server.URL + "/" + envId() + "/" + user())
+	vars := map[string]string{"envId": key(), "user": user()}
+	resp := testMethod("GET", vars, nil, "", handler().findEnvironment(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -138,16 +119,9 @@ func TestClientSideFlagEvalSucceeds(t *testing.T) {
 }
 
 func TestClientSideFlagEvalFailsOnInvalidEnvId(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/{envId}/{user}", func(w http.ResponseWriter, r *http.Request) {
-		clients := cmap.New()
-		clients.Set(envId(), &FakeLDClient{})
-		r.Header.Set("Content-Type", "application/json")
-		evaluateAllFeatureFlagsForClientSide(w, r, clients)
-	})
-	server := httptest.NewServer(r)
-
-	resp, _ := http.Get(server.URL + "/blah/" + user())
+	vars := map[string]string{"envId": "blah", "user": user()}
+	headers := map[string]string{"Content-Type": "application/json"}
+	resp := testMethod("GET", vars, headers, "", handler().findEnvironment(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
