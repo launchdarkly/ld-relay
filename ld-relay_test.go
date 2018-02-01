@@ -35,7 +35,7 @@ func envId() string {
 }
 
 func user() string {
-	return "/eyJrZXkiOiJ0ZXN0In0="
+	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
 func TestGetFlagEvalSucceeds(t *testing.T) {
@@ -48,7 +48,7 @@ func TestGetFlagEvalSucceeds(t *testing.T) {
 	})
 	server := httptest.NewServer(r)
 
-	resp, _ := http.Get(server.URL + user())
+	resp, _ := http.Get(server.URL + "/" + user())
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 

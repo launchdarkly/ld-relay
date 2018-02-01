@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -81,6 +82,18 @@ type errorJson struct {
 
 type flagReader interface {
 	AllFlags(user ld.User) map[string]interface{}
+}
+
+type EvalContext interface {
+	getClients() cmap.ConcurrentMap
+}
+
+type evalContextImpl struct {
+	clients cmap.ConcurrentMap
+}
+
+func (e evalContextImpl) getClients() cmap.ConcurrentMap {
+	return e.clients
 }
 
 func main() {
@@ -186,9 +199,9 @@ func main() {
 		}(envName, *envConfig)
 	}
 
-	r := mux.NewRouter()
+	router := mux.NewRouter()
 
-	r.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
+	router.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -208,7 +221,7 @@ func main() {
 		}
 	})
 
-	r.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
+	router.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -248,7 +261,7 @@ func main() {
 	})
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	r.HandleFunc("/flags", func(w http.ResponseWriter, req *http.Request) {
+	router.HandleFunc("/flags", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -271,57 +284,24 @@ func main() {
 		}
 	})
 
-	r.HandleFunc("/sdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlags(w, req, clients)
-	})
+	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
 
-	r.HandleFunc("/sdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "REPORT" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlags(w, req, clients)
-	})
+	sdkEvalRouter.HandleFunc("/users/{user}", withClients(clients, evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/user", withClients(clients, evaluateAllFeatureFlags)).Methods("REPORT")
 
 	// Mobile evaluation
-	r.HandleFunc("/msdk/eval/users/{user}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlags(w, req, mobileClients)
-	})
+	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
 
-	r.HandleFunc("/msdk/eval/user", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "REPORT" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlags(w, req, mobileClients)
-	})
+	msdkEvalRouter.HandleFunc("/users/{user}", withClients(mobileClients, evaluateAllFeatureFlags)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", withClients(mobileClients, evaluateAllFeatureFlags)).Methods("REPORT")
 
 	// Client-side evaluation
-	r.HandleFunc("/sdk/eval/{envId}/users/{user}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlagsForClientSide(w, req, clientSideClients)
-	})
+	clientSideEvalRouter := router.PathPrefix("/sdk/eval/{envId}").Subrouter()
 
-	r.HandleFunc("/sdk/{envId}/eval/user", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "REPORT" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		evaluateAllFeatureFlagsForClientSide(w, req, clientSideClients)
-	})
+	clientSideEvalRouter.HandleFunc("/users/{user}", withClients(clientSideClients, evaluateAllFeatureFlagsForClientSide)).Methods("GET")
+	clientSideEvalRouter.HandleFunc("/user", withClients(clientSideClients, evaluateAllFeatureFlagsForClientSide)).Methods("REPORT")
 
-	r.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
+	router.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
 		if clientSideClients.Count() == 0 {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + mux.Vars(req)["envId"]))
@@ -344,12 +324,19 @@ func main() {
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), router)
 	if err != nil {
 		if c.Main.ExitOnError {
 			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
 		}
 		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
+	}
+}
+
+func withClients(clients cmap.ConcurrentMap, flagEvaluator func(w http.ResponseWriter, req *http.Request, clients cmap.ConcurrentMap)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := evalContextImpl{clients: clients}
+		r = r.WithContext(context.WithValue(r.Context(), "context", ctx))
 	}
 }
 
@@ -413,10 +400,11 @@ func ErrorJsonMsg(msg string) (j []byte) {
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (*ld.User, error) {
 	var user ld.User
-	idStr, decodeErr := base64.RawURLEncoding.DecodeString(base64User)
+	idStr, decodeErr := base64urlDecode(base64User)
 	if decodeErr != nil {
 		return nil, errors.New("User part of url path did not decode as valid base64")
 	}
+
 	jsonErr := json.Unmarshal(idStr, &user)
 
 	if jsonErr != nil {
@@ -427,6 +415,24 @@ func UserV2FromBase64(base64User string) (*ld.User, error) {
 		return nil, errors.New("User must have a 'key' attribute")
 	}
 	return &user, nil
+}
+
+func base64urlDecode(base64String string) ([]byte, error) {
+	idStr, decodeErr := base64.URLEncoding.DecodeString(base64String)
+
+	if decodeErr != nil {
+		// base64String could be unpadded
+		// see https://github.com/golang/go/issues/4237#issuecomment-267792481
+		idStrRaw, decodeErrRaw := base64.RawURLEncoding.DecodeString(base64String)
+
+		if decodeErrRaw != nil {
+			return nil, errors.New("String did not decode as valid base64")
+		}
+
+		return idStrRaw, nil
+	}
+
+	return idStr, nil
 }
 
 func fetchAuthToken(req *http.Request) (string, error) {
