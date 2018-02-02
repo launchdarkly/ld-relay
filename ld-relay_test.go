@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/streamrail/concurrent-map"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +42,7 @@ func handler() muxHandler {
 
 func testMethod(verb string, vars map[string]string, headers map[string]string, body string, method func(w http.ResponseWriter, r *http.Request)) *httptest.ResponseRecorder {
 	req, _ := http.NewRequest(verb, "", bytes.NewBuffer([]byte(body)))
-	mux.SetURLVars(req, vars)
+	req = mux.SetURLVars(req, vars)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
