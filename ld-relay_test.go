@@ -54,7 +54,7 @@ func testMethod(verb string, vars map[string]string, headers map[string]string, 
 func TestGetFlagEvalSucceeds(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	headers := map[string]string{"Authorization": key()}
-	resp := testMethod("GET", vars, headers, "", handler().authorizeEval(evaluateAllFeatureFlags))
+	resp := testMethod("GET", vars, headers, "", handler().authorizeMethod(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
@@ -66,7 +66,7 @@ func TestGetFlagEvalSucceeds(t *testing.T) {
 func TestReportFlagEvalSucceeds(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	headers := map[string]string{"Authorization": key(), "Content-Type": "application/json"}
-	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeEval(evaluateAllFeatureFlags))
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeMethod(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
@@ -75,10 +75,10 @@ func TestReportFlagEvalSucceeds(t *testing.T) {
 	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
-func TestFlagEvalFailsOnInvalidAuthKey(t *testing.T) {
+func TestAuthorizeMethodFailsOnInvalidAuthKey(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	headers := map[string]string{"Authorization": "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee", "Content-Type": "application/json"}
-	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeEval(evaluateAllFeatureFlags))
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}`, handler().authorizeMethod(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 }
@@ -86,7 +86,7 @@ func TestFlagEvalFailsOnInvalidAuthKey(t *testing.T) {
 func TestFlagEvalFailsOnInvalidUserJson(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	headers := map[string]string{"Authorization": key(), "Content-Type": "application/json"}
-	resp := testMethod("REPORT", vars, headers, `{"user":"key"}notjson`, handler().authorizeEval(evaluateAllFeatureFlags))
+	resp := testMethod("REPORT", vars, headers, `{"user":"key"}notjson`, handler().authorizeMethod(evaluateAllFeatureFlags))
 
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 }
@@ -102,7 +102,7 @@ func TestClientSideFlagEvalSucceeds(t *testing.T) {
 	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
-func TestClientSideFlagEvalFailsOnInvalidEnvId(t *testing.T) {
+func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	vars := map[string]string{"envId": "blah", "user": user()}
 	headers := map[string]string{"Content-Type": "application/json"}
 	resp := testMethod("GET", vars, headers, "", handler().findEnvironment(evaluateAllFeatureFlags))

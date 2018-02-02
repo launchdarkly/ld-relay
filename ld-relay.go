@@ -85,14 +85,14 @@ type flagReader interface {
 }
 
 type EvalContext interface {
-	getClient() flagReader
+	getClient() interface{}
 }
 
 type evalContextImpl struct {
-	client flagReader
+	client interface{}
 }
 
-func (e evalContextImpl) getClient() flagReader {
+func (e evalContextImpl) getClient() interface{} {
 	return e.client
 }
 
@@ -105,9 +105,6 @@ func main() {
 	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	var c Config
-
-	cachingTransport := httpcache.NewMemoryCacheTransport()
-	httpClient := cachingTransport.Client()
 
 	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
 
@@ -201,119 +198,36 @@ func main() {
 
 	router := mux.NewRouter()
 
-	router.HandleFunc("/bulk", func(w http.ResponseWriter, req *http.Request) {
-		apiKey, err := fetchAuthToken(req)
+	bulkEventHandler := muxHandler{clients: eventHandlers}
+	flagsHandler := muxHandler{clients: handlers}
+	clientsHandler := muxHandler{clients: clients}
+	mobileClientsHandler := muxHandler{clients: mobileClients}
+	// Needs base uri for http requests to LaunchDarkly
+	clientSideClientsHandler := muxHandler{clients: clientSideClients, baseUri: c.Main.BaseUri}
 
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+	router.HandleFunc("/bulk", bulkEventHandler.authorizeMethod(serveHandler)).Methods("POST")
 
-		if h, ok := eventHandlers.Get(apiKey); ok {
-			handler := h.(http.Handler)
-
-			handler.ServeHTTP(w, req)
-		}
-	}).Methods("POST")
-
-	router.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		envs := make(map[string]StatusEntry)
-
-		healthy := true
-		for item := range clients.IterBuffered() {
-			if item.Val == nil {
-				envs[item.Key] = StatusEntry{Status: "disconnected"}
-				healthy = false
-			} else {
-				client := item.Val.(*ld.LDClient)
-				if client.Initialized() {
-					envs[item.Key] = StatusEntry{Status: "connected"}
-				} else {
-					envs[item.Key] = StatusEntry{Status: "disconnected"}
-					healthy = false
-				}
-			}
-		}
-
-		resp := make(map[string]interface{})
-
-		resp["environments"] = envs
-		if healthy {
-			resp["status"] = "healthy"
-		} else {
-			resp["status"] = "degraded"
-		}
-
-		data, _ := json.Marshal(resp)
-
-		w.Write(data)
-	}).Methods("GET")
+	router.HandleFunc("/status", clientsHandler.getStatus).Methods("GET")
 
 	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	router.HandleFunc("/flags", func(w http.ResponseWriter, req *http.Request) {
-		apiKey, err := fetchAuthToken(req)
+	router.HandleFunc("/flags", flagsHandler.authorizeMethod(serveHandler)).Methods("GET")
 
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		if h, ok := handlers.Get(apiKey); ok {
-			handler := h.(http.Handler)
-
-			handler.ServeHTTP(w, req)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-	}).Methods("GET")
-
-	router.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		envId, _ := mux.Vars(req)["envId"]
-		client, _ := clientSideClients.Get(envId)
-		if client == nil {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("ld-relay is not configured for environment id " + envId))
-			return
-		}
-
-		ldReq, _ := http.NewRequest("GET", c.Main.BaseUri+"/sdk/goals/"+envId, nil)
-		ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
-		res, err := httpClient.Do(ldReq)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", res.Header["Content-Type"][0])
-
-		defer res.Body.Close()
-
-		w.WriteHeader(res.StatusCode)
-		bodyBytes, _ := ioutil.ReadAll(res.Body)
-		w.Write(bodyBytes)
-	}).Methods("GET")
-
-	sdkEvalHandler := muxHandler{clients: clients}
-	msdkEvalHandler := muxHandler{clients: mobileClients}
-	clientSideEvalHandler := muxHandler{clients: clientSideClients}
+	router.HandleFunc("/sdk/goals/{envId}", clientSideClientsHandler.findEnvironment(clientSideClientsHandler.getGoals)).Methods("GET")
 
 	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
 
-	sdkEvalRouter.HandleFunc("/users/{user}", sdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/user", sdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("REPORT")
+	sdkEvalRouter.HandleFunc("/users/{user}", clientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/user", clientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	// Client-side evaluation
-	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideEvalHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideEvalHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("REPORT")
+	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideClientsHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideClientsHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	// Mobile evaluation
 	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
 
-	msdkEvalRouter.HandleFunc("/users/{user}", msdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", msdkEvalHandler.authorizeEval(evaluateAllFeatureFlags)).Methods("REPORT")
+	msdkEvalRouter.HandleFunc("/users/{user}", mobileClientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", mobileClientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
@@ -327,10 +241,45 @@ func main() {
 }
 
 type muxHandler struct {
-	clients cmap.ConcurrentMap
+	clients cmap.ConcurrentMap // A map containing flagReaders or http.Handlers
+	baseUri string
 }
 
-func (m muxHandler) authorizeEval(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m muxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	envs := make(map[string]StatusEntry)
+
+	healthy := true
+	for item := range m.clients.IterBuffered() {
+		if item.Val == nil {
+			envs[item.Key] = StatusEntry{Status: "disconnected"}
+			healthy = false
+		} else {
+			client := item.Val.(*ld.LDClient)
+			if client.Initialized() {
+				envs[item.Key] = StatusEntry{Status: "connected"}
+			} else {
+				envs[item.Key] = StatusEntry{Status: "disconnected"}
+				healthy = false
+			}
+		}
+	}
+
+	resp := make(map[string]interface{})
+
+	resp["environments"] = envs
+	if healthy {
+		resp["status"] = "healthy"
+	} else {
+		resp["status"] = "degraded"
+	}
+
+	data, _ := json.Marshal(resp)
+
+	w.Write(data)
+}
+
+func (m muxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		authKey, err := fetchAuthToken(req)
 		if err != nil {
@@ -341,9 +290,10 @@ func (m muxHandler) authorizeEval(next func(w http.ResponseWriter, req *http.Req
 		client, _ := m.clients.Get(authKey)
 		if client == nil {
 			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("ld-relay is not configured for the provided key"))
 			return
 		}
-		ctx := evalContextImpl{client: client.(flagReader)}
+		ctx := evalContextImpl{client: client}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
@@ -356,12 +306,43 @@ func (m muxHandler) findEnvironment(next func(w http.ResponseWriter, req *http.R
 		client, _ := m.clients.Get(envId)
 		if client == nil {
 			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
-		ctx := evalContextImpl{client: client.(flagReader)}
+		ctx := evalContextImpl{client: client}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
+}
+
+func (m muxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	envId, _ := mux.Vars(req)["envId"]
+
+	ldReq, _ := http.NewRequest("GET", m.baseUri+"/sdk/goals/"+envId, nil)
+	ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
+
+	cachingTransport := httpcache.NewMemoryCacheTransport()
+	httpClient := cachingTransport.Client()
+	res, err := httpClient.Do(ldReq)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", res.Header["Content-Type"][0])
+
+	defer res.Body.Close()
+
+	w.WriteHeader(res.StatusCode)
+	bodyBytes, _ := ioutil.ReadAll(res.Body)
+	w.Write(bodyBytes)
+}
+
+func serveHandler(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context().Value("context")
+	handler := ctx.(EvalContext).getClient().(http.Handler)
+	handler.ServeHTTP(w, req)
 }
 
 func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
@@ -388,7 +369,7 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := req.Context().Value("context")
-	client := ctx.(EvalContext).getClient()
+	client := ctx.(EvalContext).getClient().(flagReader)
 	result, _ := json.Marshal(client.AllFlags(*user))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
