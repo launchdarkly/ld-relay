@@ -58,17 +58,17 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
-Mobile and client-side SDK support
+Mobile and client-side flag evaluation
 ----------------
 
-LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable proxy support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
+LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable flag evaluation support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
 
         [environment "Spree Project Production"]
         apiKey = "SPREE_PROD_API_KEY"
         mobileKey = "SPREE_PROD_MOBILE_KEY"
         envId = "SPREE_PROD_ENV_ID"
 
-Once a mobile key or environment ID has been configured, you may set the `baseUri` parameter to the host and port of your relay proxy instance in your mobile/client-side SDKs.
+Once a mobile key or environment ID has been configured, you may set the `baseUri` parameter to the host and port of your relay proxy instance in your mobile/client-side SDKs. If you are exposing any of the client-side relay endpoints externally, https should be configured with a TLS termination proxy.
 
 Flag evaluation endpoints
 ----------------
@@ -81,6 +81,7 @@ Example cURL requests (default local URI and port):
         curl -X GET -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
 
         curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
+
 Relay proxy mode
 ----------------
 
