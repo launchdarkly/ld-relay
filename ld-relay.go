@@ -95,18 +95,6 @@ func (c clientContextImpl) getClient() flagReader {
 	return c.client
 }
 
-type HandlerContext interface {
-	getHandler() http.Handler
-}
-
-type handlerContextImpl struct {
-	handler http.Handler
-}
-
-func (h handlerContextImpl) getHandler() http.Handler {
-	return h.handler
-}
-
 func main() {
 
 	flag.StringVar(&configFile, "config", "/etc/ld-relay.conf", "configuration file location")
@@ -208,35 +196,30 @@ func main() {
 
 	router := mux.NewRouter()
 
-	bulkEventHandler := eventsMuxHandler{eventHandlers: eventHandlers}
-	streamHandler := streamMuxHandler{streamHandlers: handlers}
-	clientsHandler := clientMuxHandler{clients: clients}
-	mobileClientsHandler := clientMuxHandler{clients: mobileClients}
+	bulkEventHandler := sdkHandlerMux{handlersByKey: eventHandlers}
+	streamHandler := sdkHandlerMux{handlersByKey: handlers}
+
+	sdkClientMux := clientMux{clientsByKey: clients}
+	mobileClientMux := clientMux{clientsByKey: mobileClients}
 	// Needs base uri for http requests to LaunchDarkly
-	clientSideClientsHandler := clientMuxHandler{clients: clientSideClients, baseUri: c.Main.BaseUri}
+	clientSideMux := clientMux{clientsByKey: clientSideClients, baseUri: c.Main.BaseUri}
 
-	router.HandleFunc("/bulk", bulkEventHandler.authorizeMethod(serveHandler)).Methods("POST")
-
-	router.HandleFunc("/status", clientsHandler.getStatus).Methods("GET")
-
-	router.HandleFunc("/flags", streamHandler.authorizeMethod(serveHandler)).Methods("GET")
-
-	router.HandleFunc("/sdk/goals/{envId}", clientSideClientsHandler.findEnvironment(clientSideClientsHandler.getGoals)).Methods("GET")
+	router.Handle("/bulk", bulkEventHandler).Methods("POST")
+	router.Handle("/flags", streamHandler).Methods("GET")
+	router.HandleFunc("/sdk/goals/{envId}", clientSideMux.selectClientByUrlParam(clientSideMux.getGoals)).Methods("GET")
+	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
 
 	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
-
-	sdkEvalRouter.HandleFunc("/users/{user}", clientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/user", clientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("REPORT")
-
+	sdkEvalRouter.HandleFunc("/users/{user}", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/user", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
 	// Client-side evaluation
-	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideClientsHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideClientsHandler.findEnvironment(evaluateAllFeatureFlags)).Methods("REPORT")
+	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("GET")
+	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	// Mobile evaluation
 	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
-
-	msdkEvalRouter.HandleFunc("/users/{user}", mobileClientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", mobileClientsHandler.authorizeMethod(evaluateAllFeatureFlags)).Methods("REPORT")
+	msdkEvalRouter.HandleFunc("/users/{user}", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
@@ -249,25 +232,21 @@ func main() {
 	}
 }
 
-type clientMuxHandler struct {
-	clients map[string]flagReader
-	baseUri string
+type clientMux struct {
+	clientsByKey map[string]flagReader
+	baseUri      string
 }
 
-type eventsMuxHandler struct {
-	eventHandlers map[string]http.Handler
+type sdkHandlerMux struct {
+	handlersByKey map[string]http.Handler
 }
 
-type streamMuxHandler struct {
-	streamHandlers map[string]http.Handler
-}
-
-func (m clientMuxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
+func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	envs := make(map[string]StatusEntry)
 
 	healthy := true
-	for k, v := range m.clients {
+	for k, v := range m.clientsByKey {
 		if v == nil {
 			envs[k] = StatusEntry{Status: "disconnected"}
 			healthy = false
@@ -296,77 +275,51 @@ func (m clientMuxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m clientMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m clientMux) selectClientByAuthorizationKey(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		client, err := authorizeMethod(m.clients, w, req)
+		authKey, err := fetchAuthToken(req)
 		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		ctx := clientContextImpl{client: client.(flagReader)}
+		client := m.clientsByKey[authKey]
+
+		if client == nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("ld-relay is not configured for the provided key"))
+			return
+		}
+
+		ctx := clientContextImpl{client: client}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
 }
 
-func (m eventsMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		handler, err := authorizeMethod(m.eventHandlers, w, req)
-		if err != nil {
-			return
-		}
-
-		ctx := handlerContextImpl{handler: handler.(http.Handler)}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
-}
-
-func (m streamMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		handler, err := authorizeMethod(m.streamHandlers, w, req)
-		if err != nil {
-			return
-		}
-
-		ctx := handlerContextImpl{handler: handler.(http.Handler)}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
-}
-
-func authorizeMethod(authKeyMap interface{}, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (m sdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	authKey, err := fetchAuthToken(req)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		return nil, errors.New("Unauthorized")
+		return
 	}
 
-	var ctx interface{}
+	handler := m.handlersByKey[authKey]
 
-	switch authKeyMap.(type) {
-	case map[string]flagReader:
-		ctx = authKeyMap.(map[string]flagReader)[authKey]
-	case map[string]http.Handler:
-		ctx = authKeyMap.(map[string]http.Handler)[authKey]
-	default:
-		return nil, errors.New("Unknown error")
-	}
-
-	if ctx == nil {
+	if handler == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("ld-relay is not configured for the provided key"))
-		return nil, errors.New("Unauthorized")
+		return
 	}
 
-	return ctx, nil
+	handler.ServeHTTP(w, req)
 }
 
-func (m clientMuxHandler) findEnvironment(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m clientMux) selectClientByUrlParam(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		envId := mux.Vars(req)["envId"]
-		client := m.clients[envId]
+		client := m.clientsByKey[envId]
 		if client == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + envId))
@@ -378,7 +331,7 @@ func (m clientMuxHandler) findEnvironment(next func(w http.ResponseWriter, req *
 	}
 }
 
-func (m clientMuxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
+func (m clientMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	envId, _ := mux.Vars(req)["envId"]
 
@@ -400,12 +353,6 @@ func (m clientMuxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(res.StatusCode)
 	bodyBytes, _ := ioutil.ReadAll(res.Body)
 	w.Write(bodyBytes)
-}
-
-func serveHandler(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context().Value("context")
-	handler := ctx.(HandlerContext).getHandler()
-	handler.ServeHTTP(w, req)
 }
 
 func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {

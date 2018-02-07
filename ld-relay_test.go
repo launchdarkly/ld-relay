@@ -7,11 +7,12 @@ import (
 
 	"bytes"
 	"context"
-	ld "gopkg.in/launchdarkly/go-client.v2"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	ld "gopkg.in/launchdarkly/go-client.v2"
 )
 
 type FakeLDClient struct {
@@ -34,9 +35,9 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func handler() clientMuxHandler {
+func handler() clientMux {
 	clients := map[string]flagReader{key(): &FakeLDClient{}}
-	return clientMuxHandler{clients: clients}
+	return clientMux{clientsByKey: clients}
 }
 
 func buildRequest(verb string, vars map[string]string, headers map[string]string, body string) *http.Request {
@@ -82,7 +83,7 @@ func TestAuthorizeMethodFailsOnInvalidAuthKey(t *testing.T) {
 	headers := map[string]string{"Authorization": "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee", "Content-Type": "application/json"}
 	req := buildRequest("REPORT", vars, headers, `{"user":"key"}`)
 	resp := httptest.NewRecorder()
-	handler().authorizeMethod(func(http.ResponseWriter, *http.Request) { t.Fail() })(resp, req)
+	handler().selectClientByAuthorizationKey(func(http.ResponseWriter, *http.Request) { t.Fail() })(resp, req)
 
 	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 }
@@ -101,7 +102,7 @@ func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	vars := map[string]string{"envId": "blah", "user": user()}
 	req := buildRequest("GET", vars, nil, "")
 	resp := httptest.NewRecorder()
-	handler().findEnvironment(evaluateAllFeatureFlags)(resp, req)
+	handler().selectClientByUrlParam(evaluateAllFeatureFlags)(resp, req)
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
