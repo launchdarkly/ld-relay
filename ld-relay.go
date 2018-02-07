@@ -22,7 +22,6 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	"github.com/streamrail/concurrent-map"
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
 
@@ -84,16 +83,28 @@ type flagReader interface {
 	AllFlags(user ld.User) map[string]interface{}
 }
 
-type EvalContext interface {
-	getClient() interface{}
+type ClientContext interface {
+	getClient() flagReader
 }
 
-type evalContextImpl struct {
-	client interface{}
+type clientContextImpl struct {
+	client flagReader
 }
 
-func (e evalContextImpl) getClient() interface{} {
-	return e.client
+func (c clientContextImpl) getClient() flagReader {
+	return c.client
+}
+
+type HandlerContext interface {
+	getHandler() http.Handler
+}
+
+type handlerContextImpl struct {
+	handler http.Handler
+}
+
+func (h handlerContextImpl) getHandler() http.Handler {
+	return h.handler
 }
 
 func main() {
@@ -135,16 +146,15 @@ func main() {
 	publisher.AllowCORS = true
 	publisher.ReplayAll = true
 
-	handlers := cmap.New()
+	clients := map[string]flagReader{}
+	mobileClients := map[string]flagReader{}
+	clientSideClients := map[string]flagReader{}
 
-	clients := cmap.New()
-	mobileClients := cmap.New()
-	clientSideClients := cmap.New()
-
-	eventHandlers := cmap.New()
+	handlers := map[string]http.Handler{}
+	eventHandlers := map[string]http.Handler{}
 
 	for _, envConfig := range c.Environment {
-		clients.Set(envConfig.ApiKey, nil)
+		clients[envConfig.ApiKey] = nil
 	}
 
 	for envName, envConfig := range c.Environment {
@@ -165,12 +175,12 @@ func main() {
 
 			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
-			clients.Set(envConfig.ApiKey, client)
+			clients[envConfig.ApiKey] = client
 			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
-				mobileClients.Set(*envConfig.MobileKey, client)
+				mobileClients[*envConfig.MobileKey] = client
 			}
 			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
-				clientSideClients.Set(*envConfig.EnvId, client)
+				clientSideClients[*envConfig.EnvId] = client
 			}
 			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
@@ -185,12 +195,12 @@ func main() {
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
 				handler := publisher.Handler(envConfig.ApiKey)
-				handlers.Set(envConfig.ApiKey, handler)
+				handlers[envConfig.ApiKey] = handler
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
 					eventHandler := newRelayHandler(envConfig.ApiKey, c)
-					eventHandlers.Set(envConfig.ApiKey, eventHandler)
+					eventHandlers[envConfig.ApiKey] = eventHandler
 				}
 			}
 		}(envName, *envConfig)
@@ -198,19 +208,18 @@ func main() {
 
 	router := mux.NewRouter()
 
-	bulkEventHandler := muxHandler{clients: eventHandlers}
-	flagsHandler := muxHandler{clients: handlers}
-	clientsHandler := muxHandler{clients: clients}
-	mobileClientsHandler := muxHandler{clients: mobileClients}
+	bulkEventHandler := eventsMuxHandler{eventHandlers: eventHandlers}
+	streamHandler := streamMuxHandler{streamHandlers: handlers}
+	clientsHandler := clientMuxHandler{clients: clients}
+	mobileClientsHandler := clientMuxHandler{clients: mobileClients}
 	// Needs base uri for http requests to LaunchDarkly
-	clientSideClientsHandler := muxHandler{clients: clientSideClients, baseUri: c.Main.BaseUri}
+	clientSideClientsHandler := clientMuxHandler{clients: clientSideClients, baseUri: c.Main.BaseUri}
 
 	router.HandleFunc("/bulk", bulkEventHandler.authorizeMethod(serveHandler)).Methods("POST")
 
 	router.HandleFunc("/status", clientsHandler.getStatus).Methods("GET")
 
-	// Now make a single handler that dispatches to the appropriate handler based on the Authorization header
-	router.HandleFunc("/flags", flagsHandler.authorizeMethod(serveHandler)).Methods("GET")
+	router.HandleFunc("/flags", streamHandler.authorizeMethod(serveHandler)).Methods("GET")
 
 	router.HandleFunc("/sdk/goals/{envId}", clientSideClientsHandler.findEnvironment(clientSideClientsHandler.getGoals)).Methods("GET")
 
@@ -240,26 +249,34 @@ func main() {
 	}
 }
 
-type muxHandler struct {
-	clients cmap.ConcurrentMap // A map containing flagReaders or http.Handlers
+type clientMuxHandler struct {
+	clients map[string]flagReader
 	baseUri string
 }
 
-func (m muxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
+type eventsMuxHandler struct {
+	eventHandlers map[string]http.Handler
+}
+
+type streamMuxHandler struct {
+	streamHandlers map[string]http.Handler
+}
+
+func (m clientMuxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	envs := make(map[string]StatusEntry)
 
 	healthy := true
-	for item := range m.clients.IterBuffered() {
-		if item.Val == nil {
-			envs[item.Key] = StatusEntry{Status: "disconnected"}
+	for k, v := range m.clients {
+		if v == nil {
+			envs[k] = StatusEntry{Status: "disconnected"}
 			healthy = false
 		} else {
-			client := item.Val.(*ld.LDClient)
+			client := v.(*ld.LDClient)
 			if client.Initialized() {
-				envs[item.Key] = StatusEntry{Status: "connected"}
+				envs[k] = StatusEntry{Status: "connected"}
 			} else {
-				envs[item.Key] = StatusEntry{Status: "disconnected"}
+				envs[k] = StatusEntry{Status: "disconnected"}
 				healthy = false
 			}
 		}
@@ -279,43 +296,89 @@ func (m muxHandler) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m muxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m clientMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		authKey, err := fetchAuthToken(req)
+		client, err := authorizeMethod(m.clients, w, req)
 		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		client, _ := m.clients.Get(authKey)
-		if client == nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("ld-relay is not configured for the provided key"))
-			return
-		}
-		ctx := evalContextImpl{client: client}
+		ctx := clientContextImpl{client: client.(flagReader)}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
 }
 
-func (m muxHandler) findEnvironment(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m eventsMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		handler, err := authorizeMethod(m.eventHandlers, w, req)
+		if err != nil {
+			return
+		}
+
+		ctx := handlerContextImpl{handler: handler.(http.Handler)}
+		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
+		next(w, req)
+	}
+}
+
+func (m streamMuxHandler) authorizeMethod(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		handler, err := authorizeMethod(m.streamHandlers, w, req)
+		if err != nil {
+			return
+		}
+
+		ctx := handlerContextImpl{handler: handler.(http.Handler)}
+		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
+		next(w, req)
+	}
+}
+
+func authorizeMethod(authKeyMap interface{}, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	authKey, err := fetchAuthToken(req)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return nil, errors.New("Unauthorized")
+	}
+
+	var ctx interface{}
+
+	switch authKeyMap.(type) {
+	case map[string]flagReader:
+		ctx = authKeyMap.(map[string]flagReader)[authKey]
+	case map[string]http.Handler:
+		ctx = authKeyMap.(map[string]http.Handler)[authKey]
+	default:
+		return nil, errors.New("Unknown error")
+	}
+
+	if ctx == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("ld-relay is not configured for the provided key"))
+		return nil, errors.New("Unauthorized")
+	}
+
+	return ctx, nil
+}
+
+func (m clientMuxHandler) findEnvironment(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		envId := mux.Vars(req)["envId"]
-		client, _ := m.clients.Get(envId)
+		client := m.clients[envId]
 		if client == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
-		ctx := evalContextImpl{client: client}
+		ctx := clientContextImpl{client: client}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
 }
 
-func (m muxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
+func (m clientMuxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	envId, _ := mux.Vars(req)["envId"]
 
@@ -341,7 +404,7 @@ func (m muxHandler) getGoals(w http.ResponseWriter, req *http.Request) {
 
 func serveHandler(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context().Value("context")
-	handler := ctx.(EvalContext).getClient().(http.Handler)
+	handler := ctx.(HandlerContext).getHandler()
 	handler.ServeHTTP(w, req)
 }
 
@@ -369,7 +432,7 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := req.Context().Value("context")
-	client := ctx.(EvalContext).getClient().(flagReader)
+	client := ctx.(ClientContext).getClient()
 	result, _ := json.Marshal(client.AllFlags(*user))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

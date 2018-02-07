@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/streamrail/concurrent-map"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
@@ -35,10 +34,9 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func handler() muxHandler {
-	clients := cmap.New()
-	clients.Set(key(), &FakeLDClient{})
-	return muxHandler{clients: clients}
+func handler() clientMuxHandler {
+	clients := map[string]flagReader{key(): &FakeLDClient{}}
+	return clientMuxHandler{clients: clients}
 }
 
 func buildRequest(verb string, vars map[string]string, headers map[string]string, body string) *http.Request {
@@ -47,7 +45,7 @@ func buildRequest(verb string, vars map[string]string, headers map[string]string
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	ctx := evalContextImpl{client: &FakeLDClient{}}
+	ctx := clientContextImpl{client: &FakeLDClient{}}
 	req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 	return req
 }
