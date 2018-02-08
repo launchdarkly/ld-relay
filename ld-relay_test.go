@@ -35,9 +35,14 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func handler() clientMux {
-	clients := map[string]flagReader{key(): &FakeLDClient{}}
-	return clientMux{clientsByKey: clients}
+func handler() ClientMux {
+	clients := map[string]FlagReader{key(): &FakeLDClient{}}
+	return ClientMux{clientsByKey: clients}
+}
+
+func clientSideHandler() ClientSideMux {
+	envInfo := map[string]ClientSideInfo{key(): {allowedOrigin: "*", client: &FakeLDClient{}}}
+	return ClientSideMux{infoByKey: envInfo}
 }
 
 func buildRequest(verb string, vars map[string]string, headers map[string]string, body string) *http.Request {
@@ -102,7 +107,7 @@ func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	vars := map[string]string{"envId": "blah", "user": user()}
 	req := buildRequest("GET", vars, nil, "")
 	resp := httptest.NewRecorder()
-	handler().selectClientByUrlParam(evaluateAllFeatureFlags)(resp, req)
+	clientSideHandler().selectClientByUrlParam(evaluateAllFeatureFlags)(resp, req)
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }

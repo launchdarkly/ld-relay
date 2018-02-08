@@ -63,10 +63,14 @@ Mobile and client-side flag evaluation
 
 LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable flag evaluation support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
 
-        [environment "Spree Project Production"]
-        apiKey = "SPREE_PROD_API_KEY"
-        mobileKey = "SPREE_PROD_MOBILE_KEY"
-        envId = "SPREE_PROD_ENV_ID"
+        [environment "Spree Mobile Production"]
+        apiKey = "SPREE_MOBILE_PROD_API_KEY"
+        mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
+
+        [environment "Spree Webapp Production"]
+        apiKey = "SPREE_WEB_PROD_API_KEY"
+        envId = "SPREE_WEB_PROD_ENV_ID"
+        allowedOrigin = "http://example.org"
 
 Once a mobile key or environment ID has been configured, you may set the `baseUri` parameter to the host and port of your relay proxy instance in your mobile/client-side SDKs. If you are exposing any of the client-side relay endpoints externally, https should be configured with a TLS termination proxy.
 

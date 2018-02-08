@@ -28,6 +28,7 @@ import (
 const (
 	defaultRedisLocalTtlMs = 30000
 	defaultPort            = 8030
+	defaultAllowedOrigin   = "*"
 )
 
 var (
@@ -41,10 +42,11 @@ var (
 )
 
 type EnvConfig struct {
-	ApiKey    string
-	MobileKey *string
-	EnvId     *string
-	Prefix    string
+	ApiKey        string
+	MobileKey     *string
+	EnvId         *string
+	Prefix        string
+	AllowedOrigin *string
 }
 
 type Config struct {
@@ -75,23 +77,23 @@ type StatusEntry struct {
 	Status string `json:"status"`
 }
 
-type errorJson struct {
+type ErrorJson struct {
 	Message string `json:"message"`
 }
 
-type flagReader interface {
+type FlagReader interface {
 	AllFlags(user ld.User) map[string]interface{}
 }
 
 type ClientContext interface {
-	getClient() flagReader
+	getClient() FlagReader
 }
 
 type clientContextImpl struct {
-	client flagReader
+	client FlagReader
 }
 
-func (c clientContextImpl) getClient() flagReader {
+func (c clientContextImpl) getClient() FlagReader {
 	return c.client
 }
 
@@ -134,9 +136,9 @@ func main() {
 	publisher.AllowCORS = true
 	publisher.ReplayAll = true
 
-	clients := map[string]flagReader{}
-	mobileClients := map[string]flagReader{}
-	clientSideClients := map[string]flagReader{}
+	clients := map[string]FlagReader{}
+	mobileClients := map[string]FlagReader{}
+	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri}
 
 	handlers := map[string]http.Handler{}
 	eventHandlers := map[string]http.Handler{}
@@ -168,8 +170,13 @@ func main() {
 				mobileClients[*envConfig.MobileKey] = client
 			}
 			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
-				clientSideClients[*envConfig.EnvId] = client
+				allowedOrigin := defaultAllowedOrigin
+				if envConfig.AllowedOrigin != nil && *envConfig.AllowedOrigin != "" {
+					allowedOrigin = *envConfig.AllowedOrigin
+				}
+				clientSideMux.infoByKey[*envConfig.EnvId] = ClientSideInfo{client: client, allowedOrigin: allowedOrigin}
 			}
+
 			if err != nil && !c.Main.IgnoreConnectionErrors {
 				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
@@ -196,13 +203,11 @@ func main() {
 
 	router := mux.NewRouter()
 
-	bulkEventHandler := sdkHandlerMux{handlersByKey: eventHandlers}
-	streamHandler := sdkHandlerMux{handlersByKey: handlers}
+	bulkEventHandler := SdkHandlerMux{handlersByKey: eventHandlers}
+	streamHandler := SdkHandlerMux{handlersByKey: handlers}
 
-	sdkClientMux := clientMux{clientsByKey: clients}
-	mobileClientMux := clientMux{clientsByKey: mobileClients}
-	// Needs base uri for http requests to LaunchDarkly
-	clientSideMux := clientMux{clientsByKey: clientSideClients, baseUri: c.Main.BaseUri}
+	sdkClientMux := ClientMux{clientsByKey: clients}
+	mobileClientMux := ClientMux{clientsByKey: mobileClients}
 
 	router.Handle("/bulk", bulkEventHandler).Methods("POST")
 	router.Handle("/flags", streamHandler).Methods("GET")
@@ -232,16 +237,24 @@ func main() {
 	}
 }
 
-type clientMux struct {
-	clientsByKey map[string]flagReader
-	baseUri      string
+type ClientMux struct {
+	clientsByKey map[string]FlagReader
+}
+type ClientSideMux struct {
+	infoByKey map[string]ClientSideInfo
+	baseUri   string
 }
 
-type sdkHandlerMux struct {
+type ClientSideInfo struct {
+	allowedOrigin string
+	client        FlagReader
+}
+
+type SdkHandlerMux struct {
 	handlersByKey map[string]http.Handler
 }
 
-func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
+func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	envs := make(map[string]StatusEntry)
 
@@ -275,7 +288,7 @@ func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m clientMux) selectClientByAuthorizationKey(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m ClientMux) selectClientByAuthorizationKey(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		authKey, err := fetchAuthToken(req)
 		if err != nil {
@@ -297,7 +310,7 @@ func (m clientMux) selectClientByAuthorizationKey(next func(w http.ResponseWrite
 	}
 }
 
-func (m sdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	authKey, err := fetchAuthToken(req)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -315,23 +328,25 @@ func (m sdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	handler.ServeHTTP(w, req)
 }
 
-func (m clientMux) selectClientByUrlParam(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
+func (m ClientSideMux) selectClientByUrlParam(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		envId := mux.Vars(req)["envId"]
-		client := m.clientsByKey[envId]
-		if client == nil {
+		envInfo := m.infoByKey[envId]
+		if envInfo.client == nil {
+			w.Header().Set("Access-Control-Allow-Origin", defaultAllowedOrigin)
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
-		ctx := clientContextImpl{client: client}
+		w.Header().Set("Access-Control-Allow-Origin", envInfo.allowedOrigin)
+
+		ctx := clientContextImpl{client: envInfo.client}
 		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
 		next(w, req)
 	}
 }
 
-func (m clientMux) getGoals(w http.ResponseWriter, req *http.Request) {
+func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	envId, _ := mux.Vars(req)["envId"]
 
@@ -388,7 +403,7 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {
-	j, _ = json.Marshal(errorJson{msg})
+	j, _ = json.Marshal(ErrorJson{msg})
 	return
 }
 
