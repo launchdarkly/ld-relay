@@ -1,16 +1,16 @@
 package main
 
 import (
-	"github.com/gorilla/mux"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-
 	"bytes"
 	"context"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	ld "gopkg.in/launchdarkly/go-client.v2"
 )
@@ -66,7 +66,7 @@ func TestGetFlagEvalSucceeds(t *testing.T) {
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
+	assert.JSONEq(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
 func TestReportFlagEvalSucceeds(t *testing.T) {
@@ -80,7 +80,7 @@ func TestReportFlagEvalSucceeds(t *testing.T) {
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.Equal(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
+	assert.JSONEq(t, `{"another-flag-key":3,"some-flag-key":true}`, string(b))
 }
 
 func TestAuthorizeMethodFailsOnInvalidAuthKey(t *testing.T) {
