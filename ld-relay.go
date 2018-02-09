@@ -364,6 +364,7 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 
 func ErrorJsonMsg(msg string) (j []byte) {
 	j, _ = json.Marshal(ErrorJson{msg})
+	return
 }
 
 // Decodes a base64-encoded go-client v2 user.
