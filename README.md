@@ -101,6 +101,17 @@ How to set the HTTPS_PROXY environment variable on Windows systems:
 set HTTPS_PROXY=https://web-proxy.domain.com:8080
 ```
 
+
+If your proxy requires authentication then you can prefix the URN with your login information:
+```
+export HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
+```
+or
+```
+set HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
+```
+
+
 Relay proxy mode
 ----------------
 
