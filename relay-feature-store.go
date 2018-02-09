@@ -8,19 +8,29 @@ import (
 )
 
 type SSERelayFeatureStore struct {
-	store     ld.FeatureStore
-	publisher *es.Server
-	apiKey    string
+	store          ld.FeatureStore
+	allPublisher   *es.Server
+	flagsPublisher *es.Server
+	apiKey         string
 }
 
-func NewSSERelayFeatureStore(apiKey string, publisher *es.Server, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
+type allRepository struct {
+	relayStore *SSERelayFeatureStore
+}
+type flagsRepository struct {
+	relayStore *SSERelayFeatureStore
+}
+
+func NewSSERelayFeatureStore(apiKey string, allPublisher *es.Server, flagsPublisher *es.Server, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
-		store:     baseFeatureStore,
-		apiKey:    apiKey,
-		publisher: publisher,
+		store:          baseFeatureStore,
+		apiKey:         apiKey,
+		allPublisher:   allPublisher,
+		flagsPublisher: flagsPublisher,
 	}
 
-	publisher.Register(apiKey, relayStore)
+	allPublisher.Register(apiKey, allRepository{relayStore})
+	flagsPublisher.Register(apiKey, flagsRepository{relayStore})
 
 	if heartbeatInterval > 0 {
 		go func() {
@@ -36,7 +46,8 @@ func NewSSERelayFeatureStore(apiKey string, publisher *es.Server, baseFeatureSto
 }
 
 func (relay *SSERelayFeatureStore) heartbeat() {
-	relay.publisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
+	relay.allPublisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
+	relay.flagsPublisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
 }
 
 func (relay *SSERelayFeatureStore) Get(key string) (*ld.FeatureFlag, error) {
@@ -54,7 +65,7 @@ func (relay *SSERelayFeatureStore) Init(flags map[string]*ld.FeatureFlag) error 
 		return err
 	}
 
-	relay.publisher.Publish([]string{relay.apiKey}, makePutEvent(flags))
+	relay.flagsPublisher.Publish([]string{relay.apiKey}, makePutEvent(flags))
 
 	return nil
 }
@@ -65,7 +76,7 @@ func (relay *SSERelayFeatureStore) Delete(key string, version int) error {
 		return err
 	}
 
-	relay.publisher.Publish([]string{relay.apiKey}, makeDeleteEvent(key, version))
+	relay.flagsPublisher.Publish([]string{relay.apiKey}, makeDeleteEvent(key, version))
 
 	return nil
 }
@@ -84,7 +95,7 @@ func (relay *SSERelayFeatureStore) Upsert(key string, f ld.FeatureFlag) error {
 	}
 
 	if flag != nil {
-		relay.publisher.Publish([]string{relay.apiKey}, makeUpsertEvent(*flag))
+		relay.flagsPublisher.Publish([]string{relay.apiKey}, makeUpsertEvent(*flag))
 	}
 
 	return nil
@@ -95,12 +106,29 @@ func (relay *SSERelayFeatureStore) Initialized() bool {
 }
 
 // Allows the feature store to act as an SSE repository (to send bootstrap events)
-func (relay *SSERelayFeatureStore) Replay(channel, id string) (out chan es.Event) {
+func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {
 		defer close(out)
-		if relay.Initialized() {
-			flags, err := relay.All()
+		if r.relayStore.Initialized() {
+			flags, err := r.relayStore.All()
+
+			if err != nil {
+				Error.Printf("Error getting all flags: %s\n", err.Error())
+			} else {
+				out <- makeFlagsPutEvent(flags)
+			}
+		}
+	}()
+	return
+}
+
+func (r allRepository) Replay(channel, id string) (out chan es.Event) {
+	out = make(chan es.Event)
+	go func() {
+		defer close(out)
+		if r.relayStore.Initialized() {
+			flags, err := r.relayStore.All()
 
 			if err != nil {
 				Error.Printf("Error getting all flags: %s\n", err.Error())
@@ -112,7 +140,8 @@ func (relay *SSERelayFeatureStore) Replay(channel, id string) (out chan es.Event
 	return
 }
 
-type putEvent map[string]*ld.FeatureFlag
+type flagsPutEvent map[string]*ld.FeatureFlag
+type allPutEvent map[string]map[string]interface{}
 
 type deleteEvent struct {
 	Path    string `json:"path"`
@@ -142,21 +171,39 @@ func (h heartbeatEvent) Comment() string {
 	return string(h)
 }
 
-func (t putEvent) Id() string {
+func (t flagsPutEvent) Id() string {
 	return ""
 }
 
-func (t putEvent) Event() string {
+func (t flagsPutEvent) Event() string {
 	return "put"
 }
 
-func (t putEvent) Data() string {
+func (t flagsPutEvent) Data() string {
 	data, _ := json.Marshal(t)
 
 	return string(data)
 }
 
-func (t putEvent) Comment() string {
+func (t flagsPutEvent) Comment() string {
+	return ""
+}
+
+func (t allPutEvent) Id() string {
+	return ""
+}
+
+func (t allPutEvent) Event() string {
+	return "put"
+}
+
+func (t allPutEvent) Data() string {
+	data, _ := json.Marshal(t)
+
+	return string(data)
+}
+
+func (t allPutEvent) Comment() string {
 	return ""
 }
 
@@ -211,5 +258,14 @@ func makeDeleteEvent(key string, version int) es.Event {
 }
 
 func makePutEvent(flags map[string]*ld.FeatureFlag) es.Event {
-	return putEvent(flags)
+	allData := make(map[string]map[string]interface{})
+	for key, flag := range flags {
+		allData["flags"][key] = flag
+	}
+	allData["segments"] = make(map[string]interface{})
+	return allPutEvent(allData)
+}
+
+func makeFlagsPutEvent(flags map[string]*ld.FeatureFlag) es.Event {
+	return flagsPutEvent(flags)
 }
