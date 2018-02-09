@@ -21,7 +21,8 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "gopkg.in/launchdarkly/go-client.v2"
+	ld "gopkg.in/launchdarkly/go-client.v3"
+	ldr "gopkg.in/launchdarkly/go-client.v3/redis"
 )
 
 const (
@@ -156,7 +157,7 @@ func main() {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
 				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
+				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}

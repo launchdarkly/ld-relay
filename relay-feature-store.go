@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	es "github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-client.v2"
+	ld "gopkg.in/launchdarkly/go-client.v3"
 	"time"
 )
 
@@ -54,55 +54,59 @@ func (relay *SSERelayFeatureStore) heartbeat() {
 	relay.flagsPublisher.Publish(relay.keys(), heartbeatEvent("hb"))
 }
 
-func (relay *SSERelayFeatureStore) Get(key string) (*ld.FeatureFlag, error) {
-	return relay.store.Get(key)
+func (relay *SSERelayFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
+	return relay.store.Get(kind, key)
 }
 
-func (relay *SSERelayFeatureStore) All() (map[string]*ld.FeatureFlag, error) {
-	return relay.store.All()
+func (relay *SSERelayFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld.VersionedData, error) {
+	return relay.store.All(kind)
 }
 
-func (relay *SSERelayFeatureStore) Init(flags map[string]*ld.FeatureFlag) error {
-	err := relay.store.Init(flags)
+func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+	err := relay.store.Init(allData)
 
 	if err != nil {
 		return err
 	}
 
-	relay.allPublisher.Publish(relay.keys(), makePutEvent(flags))
-	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(flags))
+	relay.allPublisher.Publish(relay.keys(), makePutEvent(allData[ld.Features], allData[ld.Segments]))
+	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(allData[ld.Features]))
 
 	return nil
 }
 
-func (relay *SSERelayFeatureStore) Delete(key string, version int) error {
-	err := relay.store.Delete(key, version)
+func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
+	err := relay.store.Delete(kind, key, version)
 	if err != nil {
 		return err
 	}
 
-	relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(key, version))
-	relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
+	relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, version))
+	if kind == ld.Features {
+		relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
+	}
 
 	return nil
 }
 
-func (relay *SSERelayFeatureStore) Upsert(key string, f ld.FeatureFlag) error {
-	err := relay.store.Upsert(key, f)
+func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
+	err := relay.store.Upsert(kind, item)
 
 	if err != nil {
 		return err
 	}
 
-	flag, err := relay.store.Get(key)
+	newItem, err := relay.store.Get(kind, item.GetKey())
 
 	if err != nil {
 		return err
 	}
 
-	if flag != nil {
-		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(*flag))
-		relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(*flag))
+	if newItem != nil {
+		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, newItem))
+		if kind == ld.Features {
+			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(newItem))
+		}
 	}
 
 	return nil
@@ -118,7 +122,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	go func() {
 		defer close(out)
 		if r.relayStore.Initialized() {
-			flags, err := r.relayStore.All()
+			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
 				Error.Printf("Error getting all flags: %s\n", err.Error())
@@ -135,20 +139,31 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	go func() {
 		defer close(out)
 		if r.relayStore.Initialized() {
-			flags, err := r.relayStore.All()
+			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
 				Error.Printf("Error getting all flags: %s\n", err.Error())
 			} else {
-				out <- makePutEvent(flags)
+				segments, err := r.relayStore.All(ld.Segments)
+				if err != nil {
+					Error.Printf("Error getting all segments: %s\n", err.Error())
+				} else {
+					out <- makePutEvent(flags, segments)
+				}
 			}
+
 		}
 	}()
 	return
 }
 
-type flagsPutEvent map[string]*ld.FeatureFlag
-type allPutEvent map[string]map[string]interface{}
+var dataKindApiName = map[ld.VersionedDataKind]string{
+	ld.Features: "flags",
+	ld.Segments: "segments",
+}
+
+type flagsPutEvent map[string]ld.VersionedData
+type allPutEvent map[string]map[string]ld.VersionedData
 
 type deleteEvent struct {
 	Path    string `json:"path"`
@@ -156,8 +171,8 @@ type deleteEvent struct {
 }
 
 type upsertEvent struct {
-	Path string         `json:"path"`
-	D    ld.FeatureFlag `json:"data"`
+	Path string           `json:"path"`
+	D    ld.VersionedData `json:"data"`
 }
 
 type heartbeatEvent string
@@ -250,23 +265,23 @@ func (t deleteEvent) Comment() string {
 	return ""
 }
 
-func makeUpsertEvent(f ld.FeatureFlag) es.Event {
+func makeUpsertEvent(kind ld.VersionedDataKind, item ld.VersionedData) es.Event {
 	return upsertEvent{
-		Path: "/" + "flags" + "/" + f.Key,
-		D:    f,
+		Path: "/" + dataKindApiName[kind] + "/" + item.GetKey(),
+		D:    item,
 	}
 }
 
-func makeFlagsUpsertEvent(f ld.FeatureFlag) es.Event {
+func makeFlagsUpsertEvent(item ld.VersionedData) es.Event {
 	return upsertEvent{
-		Path: "/" + f.Key,
-		D:    f,
+		Path: "/" + item.GetKey(),
+		D:    item,
 	}
 }
 
-func makeDeleteEvent(key string, version int) es.Event {
+func makeDeleteEvent(kind ld.VersionedDataKind, key string, version int) es.Event {
 	return deleteEvent{
-		Path:    "/" + "flags" + "/" + key,
+		Path:    "/" + dataKindApiName[kind] + "/" + key,
 		Version: version,
 	}
 }
@@ -278,15 +293,17 @@ func makeFlagsDeleteEvent(key string, version int) es.Event {
 	}
 }
 
-func makePutEvent(flags map[string]*ld.FeatureFlag) es.Event {
-	allData := make(map[string]map[string]interface{})
+func makePutEvent(flags map[string]ld.VersionedData, segments map[string]ld.VersionedData) es.Event {
+	allData := make(map[string]map[string]ld.VersionedData)
 	for key, flag := range flags {
 		allData["flags"][key] = flag
 	}
-	allData["segments"] = make(map[string]interface{})
+	for key, seg := range segments {
+		allData["segments"][key] = seg
+	}
 	return allPutEvent(allData)
 }
 
-func makeFlagsPutEvent(flags map[string]*ld.FeatureFlag) es.Event {
+func makeFlagsPutEvent(flags map[string]ld.VersionedData) es.Event {
 	return flagsPutEvent(flags)
 }

@@ -10,7 +10,8 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -39,7 +40,11 @@ type Cache interface {
 
 // cacheKey returns the cache key for req.
 func cacheKey(req *http.Request) string {
-	return req.URL.String()
+	if req.Method == http.MethodGet {
+		return req.URL.String()
+	} else {
+		return req.Method + " " + req.URL.String()
+	}
 }
 
 // CachedResponse returns the cached http.Response for req if present, and nil
@@ -63,23 +68,23 @@ type MemoryCache struct {
 // Get returns the []byte representation of the response and true if present, false if not
 func (c *MemoryCache) Get(key string) (resp []byte, ok bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	resp, ok = c.items[key]
+	c.mu.RUnlock()
 	return resp, ok
 }
 
 // Set saves response resp to the cache with key
 func (c *MemoryCache) Set(key string, resp []byte) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.items[key] = resp
+	c.mu.Unlock()
 }
 
 // Delete removes key from the cache
 func (c *MemoryCache) Delete(key string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	delete(c.items, key)
+	c.mu.Unlock()
 }
 
 // NewMemoryCache returns a new Cache that will store items in an in-memory map
@@ -132,11 +137,10 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
-	req = cloneRequest(req)
 	cacheKey := cacheKey(req)
-	cacheableMethod := req.Method == "GET" || req.Method == "HEAD"
+	cacheable := (req.Method == "GET" || req.Method == "HEAD") && req.Header.Get("range") == ""
 	var cachedResp *http.Response
-	if cacheableMethod {
+	if cacheable {
 		cachedResp, err = CachedResponse(t.Cache, req)
 	} else {
 		// Need to invalidate an existing value
@@ -148,7 +152,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		transport = http.DefaultTransport
 	}
 
-	if cachedResp != nil && err == nil && cacheableMethod && req.Header.Get("range") == "" {
+	if cacheable && cachedResp != nil && err == nil {
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XFromCache, "1")
 		}
@@ -161,14 +165,22 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			}
 
 			if freshness == stale {
+				var req2 *http.Request
 				// Add validators if caller hasn't already done so
 				etag := cachedResp.Header.Get("etag")
 				if etag != "" && req.Header.Get("etag") == "" {
-					req.Header.Set("if-none-match", etag)
+					req2 = cloneRequest(req)
+					req2.Header.Set("if-none-match", etag)
 				}
 				lastModified := cachedResp.Header.Get("last-modified")
 				if lastModified != "" && req.Header.Get("last-modified") == "" {
-					req.Header.Set("if-modified-since", lastModified)
+					if req2 == nil {
+						req2 = cloneRequest(req)
+					}
+					req2.Header.Set("if-modified-since", lastModified)
+				}
+				if req2 != nil {
+					req = req2
 				}
 			}
 		}
@@ -180,10 +192,12 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			for _, header := range endToEndHeaders {
 				cachedResp.Header[header] = resp.Header[header]
 			}
-			cachedResp.Status = fmt.Sprintf("%d %s", http.StatusOK, http.StatusText(http.StatusOK))
-			cachedResp.StatusCode = http.StatusOK
-
 			resp = cachedResp
+		} else if (err != nil || (cachedResp != nil && resp.StatusCode >= 500)) &&
+			req.Method == "GET" && canStaleOnError(cachedResp.Header, req.Header) {
+			// In case of transport failure and stale-if-error activated, returns cached content
+			// when available
+			return cachedResp, nil
 		} else {
 			if err != nil || resp.StatusCode != http.StatusOK {
 				t.Cache.Delete(cacheKey)
@@ -204,10 +218,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		}
 	}
 
-	reqCacheControl := parseCacheControl(req.Header)
-	respCacheControl := parseCacheControl(resp.Header)
-
-	if canStore(reqCacheControl, respCacheControl) {
+	if cacheable && canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
 		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
 			varyKey = http.CanonicalHeaderKey(varyKey)
 			fakeHeader := "X-Varied-" + varyKey
@@ -216,9 +227,25 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 				resp.Header.Set(fakeHeader, reqValue)
 			}
 		}
-		respBytes, err := httputil.DumpResponse(resp, true)
-		if err == nil {
-			t.Cache.Set(cacheKey, respBytes)
+		switch req.Method {
+		case "GET":
+			// Delay caching until EOF is reached.
+			resp.Body = &cachingReadCloser{
+				R: resp.Body,
+				OnEOF: func(r io.Reader) {
+					resp := *resp
+					resp.Body = ioutil.NopCloser(r)
+					respBytes, err := httputil.DumpResponse(&resp, true)
+					if err == nil {
+						t.Cache.Set(cacheKey, respBytes)
+					}
+				},
+			}
+		default:
+			respBytes, err := httputil.DumpResponse(resp, true)
+			if err == nil {
+				t.Cache.Set(cacheKey, respBytes)
+			}
 		}
 	} else {
 		t.Cache.Delete(cacheKey)
@@ -342,6 +369,50 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	return stale
 }
 
+// Returns true if either the request or the response includes the stale-if-error
+// cache control extension: https://tools.ietf.org/html/rfc5861
+func canStaleOnError(respHeaders, reqHeaders http.Header) bool {
+	respCacheControl := parseCacheControl(respHeaders)
+	reqCacheControl := parseCacheControl(reqHeaders)
+
+	var err error
+	lifetime := time.Duration(-1)
+
+	if staleMaxAge, ok := respCacheControl["stale-if-error"]; ok {
+		if staleMaxAge != "" {
+			lifetime, err = time.ParseDuration(staleMaxAge + "s")
+			if err != nil {
+				return false
+			}
+		} else {
+			return true
+		}
+	}
+	if staleMaxAge, ok := reqCacheControl["stale-if-error"]; ok {
+		if staleMaxAge != "" {
+			lifetime, err = time.ParseDuration(staleMaxAge + "s")
+			if err != nil {
+				return false
+			}
+		} else {
+			return true
+		}
+	}
+
+	if lifetime >= 0 {
+		date, err := Date(respHeaders)
+		if err != nil {
+			return false
+		}
+		currentAge := clock.since(date)
+		if lifetime > currentAge {
+			return true
+		}
+	}
+
+	return false
+}
+
 func getEndToEndHeaders(respHeaders http.Header) []string {
 	// These headers are always hop-by-hop
 	hopByHopHeaders := map[string]struct{}{
@@ -441,6 +512,35 @@ func headerAllCommaSepValues(headers http.Header, name string) []string {
 		vals = append(vals, fields...)
 	}
 	return vals
+}
+
+// cachingReadCloser is a wrapper around ReadCloser R that calls OnEOF
+// handler with a full copy of the content read from R when EOF is
+// reached.
+type cachingReadCloser struct {
+	// Underlying ReadCloser.
+	R io.ReadCloser
+	// OnEOF is called with a copy of the content of R when EOF is reached.
+	OnEOF func(io.Reader)
+
+	buf bytes.Buffer // buf stores a copy of the content of R.
+}
+
+// Read reads the next len(p) bytes from R or until R is drained. The
+// return value n is the number of bytes read. If R has no data to
+// return, err is io.EOF and OnEOF is called with a full copy of what
+// has been read so far.
+func (r *cachingReadCloser) Read(p []byte) (n int, err error) {
+	n, err = r.R.Read(p)
+	r.buf.Write(p[:n])
+	if err == io.EOF {
+		r.OnEOF(bytes.NewReader(r.buf.Bytes()))
+	}
+	return n, err
+}
+
+func (r *cachingReadCloser) Close() error {
+	return r.R.Close()
 }
 
 // NewMemoryCacheTransport returns a new Transport using the in-memory cache implementation
