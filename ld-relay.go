@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gregjones/httpcache"
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
@@ -46,7 +45,7 @@ type EnvConfig struct {
 	MobileKey     *string
 	EnvId         *string
 	Prefix        string
-	AllowedOrigin *string
+	AllowedOrigin *[]string
 }
 
 type Config struct {
@@ -138,7 +137,7 @@ func main() {
 
 	clients := map[string]FlagReader{}
 	mobileClients := map[string]FlagReader{}
-	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri}
+	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, infoByKey: map[string]ClientSideInfo{}}
 
 	handlers := map[string]http.Handler{}
 	eventHandlers := map[string]http.Handler{}
@@ -170,11 +169,11 @@ func main() {
 				mobileClients[*envConfig.MobileKey] = client
 			}
 			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
-				allowedOrigin := defaultAllowedOrigin
-				if envConfig.AllowedOrigin != nil && *envConfig.AllowedOrigin != "" {
-					allowedOrigin = *envConfig.AllowedOrigin
+				var allowedOrigins []string
+				if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
+					allowedOrigins = *envConfig.AllowedOrigin
 				}
-				clientSideMux.infoByKey[*envConfig.EnvId] = ClientSideInfo{client: client, allowedOrigin: allowedOrigin}
+				clientSideMux.infoByKey[*envConfig.EnvId] = ClientSideInfo{client: client, allowedOrigins: allowedOrigins}
 			}
 
 			if err != nil && !c.Main.IgnoreConnectionErrors {
@@ -211,15 +210,28 @@ func main() {
 
 	router.Handle("/bulk", bulkEventHandler).Methods("POST")
 	router.Handle("/flags", streamHandler).Methods("GET")
-	router.HandleFunc("/sdk/goals/{envId}", clientSideMux.selectClientByUrlParam(clientSideMux.getGoals)).Methods("GET")
 	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
 
 	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
 	sdkEvalRouter.HandleFunc("/users/{user}", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
 	sdkEvalRouter.HandleFunc("/user", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
+
 	// Client-side evaluation
-	sdkEvalRouter.HandleFunc("/{envId}/users/{user}", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/{envId}/user", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("REPORT")
+	clientSideEvalRouter := sdkEvalRouter.PathPrefix("/{envId}").Subrouter()
+	clientSideEvalRouter.Use(clientSideMux.corsMiddleware)
+
+	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
+	clientSideEvalRouter.HandleFunc("/user", clientSideMux.optionsHandler("REPORT")).Methods("OPTIONS")
+
+	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("GET")
+	clientSideEvalRouter.HandleFunc("/user", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("REPORT")
+
+	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
+	goalsRouter.Use(clientSideMux.corsMiddleware)
+
+	goalsRouter.HandleFunc("/{envId}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
+
+	goalsRouter.HandleFunc("/{envId}", clientSideMux.selectClientByUrlParam(clientSideMux.getGoals)).Methods("GET")
 
 	// Mobile evaluation
 	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
@@ -239,15 +251,6 @@ func main() {
 
 type ClientMux struct {
 	clientsByKey map[string]FlagReader
-}
-type ClientSideMux struct {
-	infoByKey map[string]ClientSideInfo
-	baseUri   string
-}
-
-type ClientSideInfo struct {
-	allowedOrigin string
-	client        FlagReader
 }
 
 type SdkHandlerMux struct {
@@ -326,48 +329,6 @@ func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	handler.ServeHTTP(w, req)
-}
-
-func (m ClientSideMux) selectClientByUrlParam(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		envId := mux.Vars(req)["envId"]
-		envInfo := m.infoByKey[envId]
-		if envInfo.client == nil {
-			w.Header().Set("Access-Control-Allow-Origin", defaultAllowedOrigin)
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("ld-relay is not configured for environment id " + envId))
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", envInfo.allowedOrigin)
-
-		ctx := clientContextImpl{client: envInfo.client}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
-}
-
-func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	envId, _ := mux.Vars(req)["envId"]
-
-	ldReq, _ := http.NewRequest("GET", m.baseUri+"/sdk/goals/"+envId, nil)
-	ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
-
-	cachingTransport := httpcache.NewMemoryCacheTransport()
-	httpClient := cachingTransport.Client()
-	res, err := httpClient.Do(ldReq)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", res.Header["Content-Type"][0])
-
-	defer res.Body.Close()
-
-	w.WriteHeader(res.StatusCode)
-	bodyBytes, _ := ioutil.ReadAll(res.Body)
-	w.Write(bodyBytes)
 }
 
 func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {

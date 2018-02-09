@@ -40,8 +40,8 @@ func handler() ClientMux {
 	return ClientMux{clientsByKey: clients}
 }
 
-func clientSideHandler() ClientSideMux {
-	envInfo := map[string]ClientSideInfo{key(): {allowedOrigin: "*", client: &FakeLDClient{}}}
+func clientSideHandler(allowedOrigins []string) ClientSideMux {
+	envInfo := map[string]ClientSideInfo{key(): {allowedOrigins: allowedOrigins, client: &FakeLDClient{}}}
 	return ClientSideMux{infoByKey: envInfo}
 }
 
@@ -107,7 +107,59 @@ func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	vars := map[string]string{"envId": "blah", "user": user()}
 	req := buildRequest("GET", vars, nil, "")
 	resp := httptest.NewRecorder()
-	clientSideHandler().selectClientByUrlParam(evaluateAllFeatureFlags)(resp, req)
+	clientSideHandler([]string{}).selectClientByUrlParam(evaluateAllFeatureFlags)(resp, req)
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestOptionsHandlerSetsAllowHeader(t *testing.T) {
+	method := "GET"
+	req := buildRequest(method, nil, nil, "")
+	resp := httptest.NewRecorder()
+	clientSideHandler([]string{}).optionsHandler(method)(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, resp.Header().Get("Allow"), method)
+}
+
+func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
+	req := buildRequest("", nil, nil, "")
+	resp := httptest.NewRecorder()
+	clientSideHandler([]string{}).corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
+		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Methods"), "GET, REPORT")
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type, Content-Length")
+	})).ServeHTTP(resp, req)
+}
+
+func TestCorsMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
+	headers := map[string]string{"Origin": "blah"}
+	req := buildRequest("", nil, headers, "")
+	resp := httptest.NewRecorder()
+
+	clientSideHandler([]string{}).corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
+	})).ServeHTTP(resp, req)
+}
+
+func TestCorsMiddlewareSetsCorrectHeadersForSpecifiedDomain(t *testing.T) {
+	headers := map[string]string{"Origin": "blah"}
+	req := buildRequest("", nil, headers, "")
+	resp := httptest.NewRecorder()
+
+	clientSideHandler([]string{"blah"}).corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
+	})).ServeHTTP(resp, req)
+}
+
+func TestCorsMiddlewareSetsCorrectHeadersForInvalidOrigin(t *testing.T) {
+	headers := map[string]string{"Origin": "blah"}
+	req := buildRequest("", nil, headers, "")
+	resp := httptest.NewRecorder()
+
+	clientSideHandler([]string{"notblah"}).corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
+	})).ServeHTTP(resp, req)
 }
