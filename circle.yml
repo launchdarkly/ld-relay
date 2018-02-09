@@ -9,7 +9,6 @@ dependencies:
     - ln -s ~/ld-relay ~/.go_workspace/src/github.com/launchdarkly/ld-relay
     - go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
     - go version
-    - godep version
     - goxc -version
   override:
     - go build
