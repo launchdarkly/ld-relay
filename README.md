@@ -4,9 +4,9 @@ LaunchDarkly Relay Proxy
 What is it?
 -----------
 
-The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. 
+The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients.
 
-The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`. 
+The relay proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
 
 The relay proxy can be configured to proxy multiple environment streams, even across multiple projects. It can also be used as a local proxy that forwards events  to `events.launchdarkly.com`.
 
@@ -32,7 +32,7 @@ Quick setup
 
 4. Set `stream` to `true` in your application's LaunchDarkly SDK configuration. Set the `streamUri` parameter to the host and port of your relay proxy instance.
 
-Configuration file format 
+Configuration file format
 -------------------------
 
 You can configure LDR to proxy as many environments as you want, even across different projects. You can also configure LDR to send periodic heartbeats to connected clients. This can be useful if you are load balancing LDR instances behind a proxy that times out HTTP connections (e.g. Elastic Load Balancers).
@@ -58,7 +58,33 @@ Here's an example configuration file that synchronizes four environments across 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
 
-Your configuration file must include at least one environment.
+Mobile and client-side flag evaluation
+----------------
+
+LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable flag evaluation support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
+
+        [environment "Spree Mobile Production"]
+        apiKey = "SPREE_MOBILE_PROD_API_KEY"
+        mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
+
+        [environment "Spree Webapp Production"]
+        apiKey = "SPREE_WEB_PROD_API_KEY"
+        envId = "SPREE_WEB_PROD_ENV_ID"
+        allowedOrigin = "http://example.org"
+
+Once a mobile key or environment ID has been configured, you may set the `baseUri` parameter to the host and port of your relay proxy instance in your mobile/client-side SDKs. If you are exposing any of the client-side relay endpoints externally, https should be configured with a TLS termination proxy.
+
+Flag evaluation endpoints
+----------------
+
+If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or would like to evaluate feature flags internally without an SDK instance, the relay provides endpoints for evaluating all feature flags for a given user. These endpoints support the GET and REPORT http verbs to pass in users either as base64url encoded path parameters, or in the request body, respectively.
+
+Example cURL requests (default local URI and port):
+
+
+        curl -X GET -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
+
+        curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
 
 HTTPS proxy
 ------------
@@ -115,7 +141,7 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
         prefix = "ld:spree:test"
         apiKey = "SPREE_TEST_API_KEY"
 
-You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds). 
+You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds).
 
 If you're not using a load balancer in front of LDR, you can configure your SDKs to connect to Redis directly by setting `use_ldd` mode to `true` in your SDK, and connecting to Redis with the same host and port in your SDK configuration.
 
@@ -197,3 +223,9 @@ Docker Environment Variables
 
 `EVENTS_SAMPLING_INTERVAL`: This variable is optional.  Defaults to `10000`
 
+Windows
+-------
+
+To register ld-relay as a service, run a command prompt as Administrator
+
+        $ sc create ld-relay DisplayName="LaunchDarkly Relay Proxy" start="auto" binPath="C:\path\to\ld-relay.exe -config C:\path\to\ld-relay.conf"

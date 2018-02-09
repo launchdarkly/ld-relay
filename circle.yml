@@ -12,7 +12,7 @@ dependencies:
     - go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
     - go version
     - godep version
-    - goxc -version  
+    - goxc -version
   override:
     - godep go build
   post:
