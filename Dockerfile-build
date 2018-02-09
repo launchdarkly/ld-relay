@@ -2,7 +2,6 @@ FROM alpine:3.6
 
 RUN apk --no-cache add \
     go \
-    godep \
     libc-dev \
  && rm -rf /var/cache/apk/*
 
