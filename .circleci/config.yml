@@ -20,6 +20,10 @@ jobs:
       - run: go get -u $COMMON_GO_PACKAGES
       - run: go version
       - run: goxc -version
+
+      - run: gometalinter.v2 --install
+      - run: gometalinter.v2 --disable gocyclo --disable golint --disable goconst --disable errcheck --disable maligned
+
       - run: go build
 
       - run:
