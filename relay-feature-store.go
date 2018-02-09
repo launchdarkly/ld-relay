@@ -294,7 +294,10 @@ func makeFlagsDeleteEvent(key string, version int) es.Event {
 }
 
 func makePutEvent(flags map[string]ld.VersionedData, segments map[string]ld.VersionedData) es.Event {
-	allData := make(map[string]map[string]ld.VersionedData)
+	var allData = map[string]map[string]ld.VersionedData{
+		"flags":    {},
+		"segments": {},
+	}
 	for key, flag := range flags {
 		allData["flags"][key] = flag
 	}
