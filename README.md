@@ -88,7 +88,7 @@ Example cURL requests (default local URI and port):
 
 HTTPS proxy
 ------------
-Go's standard HTTP library provides built-in support for the use of a HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+Go's standard HTTP library provides built-in support for the use of an HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
 
 How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
 ```
