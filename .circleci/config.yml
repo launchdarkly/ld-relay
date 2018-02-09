@@ -11,12 +11,13 @@ jobs:
           COMMON_GO_PACKAGES: >
             gopkg.in/alecthomas/gometalinter.v2
             github.com/jstemmer/go-junit-report
+            github.com/laher/goxc
       - image: redis
 
     steps:
       - checkout
 
-      - run: go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
+      - run: go get -u $COMMON_GO_PACKAGES
       - run: go version
       - run: goxc -version
       - run: go build
