@@ -22,7 +22,7 @@ jobs:
       - run: goxc -version
 
       - run: gometalinter.v2 --install
-      - run: gometalinter.v2 --disable gocyclo --disable golint --disable goconst --disable errcheck --disable maligned
+      - run: gometalinter.v2 --disable gocyclo --disable golint --disable goconst --disable errcheck --disable maligned --disable vetshadow
 
       - run: go build
 

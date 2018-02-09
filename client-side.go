@@ -36,7 +36,7 @@ func (m ClientSideMux) selectClientByUrlParam(next func(w http.ResponseWriter, r
 }
 
 func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
-	envId, _ := mux.Vars(req)["envId"]
+	envId := mux.Vars(req)["envId"]
 
 	ldReq, _ := http.NewRequest("GET", m.baseUri+"/sdk/goals/"+envId, nil)
 	ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
