@@ -1,0 +1,44 @@
+version: 2
+
+jobs:
+  go-test:
+    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay
+
+    docker:
+      - image: circleci/golang:1.9
+        environment:
+          CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          COMMON_GO_PACKAGES: >
+            gopkg.in/alecthomas/gometalinter.v2
+            github.com/jstemmer/go-junit-report
+      - image: redis
+
+    steps:
+      - checkout
+
+      - run: go get github.com/laher/goxc # install goxc. can't use a locked down version yet.
+      - run: go version
+      - run: goxc -version
+      - run: go build
+
+      - run:
+          name: Wait for services to be ready
+          command: dockerize -wait tcp://localhost:6379 -timeout 1m  # redis
+
+      - run: |
+          mkdir -p $CIRCLE_TEST_REPORTS
+          trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+          go test -race -v ./... | tee output.txt
+
+      - store_test_results:
+          path: /tmp/circle-reports
+
+#      - run: docker build -t ld-relay-build -f Dockerfile-build .
+#      - run: docker run --rm -v `pwd`:/build -t -i -e CGO_ENABLED=0 -e GOOS=linux ld-relay-build go build -a -installsuffix cgo -o ldr
+#      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - go-test
