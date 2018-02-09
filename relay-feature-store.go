@@ -45,9 +45,13 @@ func NewSSERelayFeatureStore(apiKey string, allPublisher *es.Server, flagsPublis
 	return relayStore
 }
 
+func (relay *SSERelayFeatureStore) keys() []string {
+	return []string{relay.apiKey}
+}
+
 func (relay *SSERelayFeatureStore) heartbeat() {
-	relay.allPublisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
-	relay.flagsPublisher.Publish([]string{relay.apiKey}, heartbeatEvent("hb"))
+	relay.allPublisher.Publish(relay.keys(), heartbeatEvent("hb"))
+	relay.flagsPublisher.Publish(relay.keys(), heartbeatEvent("hb"))
 }
 
 func (relay *SSERelayFeatureStore) Get(key string) (*ld.FeatureFlag, error) {
@@ -65,7 +69,8 @@ func (relay *SSERelayFeatureStore) Init(flags map[string]*ld.FeatureFlag) error 
 		return err
 	}
 
-	relay.flagsPublisher.Publish([]string{relay.apiKey}, makePutEvent(flags))
+	relay.allPublisher.Publish(relay.keys(), makePutEvent(flags))
+	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(flags))
 
 	return nil
 }
@@ -76,7 +81,8 @@ func (relay *SSERelayFeatureStore) Delete(key string, version int) error {
 		return err
 	}
 
-	relay.flagsPublisher.Publish([]string{relay.apiKey}, makeDeleteEvent(key, version))
+	relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(key, version))
+	relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
 
 	return nil
 }
@@ -95,7 +101,8 @@ func (relay *SSERelayFeatureStore) Upsert(key string, f ld.FeatureFlag) error {
 	}
 
 	if flag != nil {
-		relay.flagsPublisher.Publish([]string{relay.apiKey}, makeUpsertEvent(*flag))
+		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(*flag))
+		relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(*flag))
 	}
 
 	return nil
@@ -245,12 +252,26 @@ func (t deleteEvent) Comment() string {
 
 func makeUpsertEvent(f ld.FeatureFlag) es.Event {
 	return upsertEvent{
+		Path: "/" + "flags" + "/" + f.Key,
+		D:    f,
+	}
+}
+
+func makeFlagsUpsertEvent(f ld.FeatureFlag) es.Event {
+	return upsertEvent{
 		Path: "/" + f.Key,
 		D:    f,
 	}
 }
 
 func makeDeleteEvent(key string, version int) es.Event {
+	return deleteEvent{
+		Path:    "/" + "flags" + "/" + key,
+		Version: version,
+	}
+}
+
+func makeFlagsDeleteEvent(key string, version int) es.Event {
 	return deleteEvent{
 		Path:    "/" + key,
 		Version: version,
