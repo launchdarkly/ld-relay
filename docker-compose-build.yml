@@ -1,0 +1,18 @@
+version: '2'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile-build
+    environment:
+      CGO_ENABLED: 0
+      GOOS: linux
+      GOPATH: /go
+    volumes_from:
+      - build_context
+
+  build_context:
+    image: alpine:3.6
+    volumes:
+      - /go

@@ -12,6 +12,7 @@ jobs:
             gopkg.in/alecthomas/gometalinter.v2
             github.com/jstemmer/go-junit-report
             github.com/laher/goxc
+          DOCKER_COMPOSE: docker-compose -f docker-compose-build.yml
       - image: redis
 
     steps:
@@ -38,10 +39,17 @@ jobs:
       - store_test_results:
           path: /tmp/circle-reports
 
-#      - run: docker build -t ld-relay-build -f Dockerfile-build .
-#      - run: docker run --rm -v `pwd`:/build -t -i -e CGO_ENABLED=0 -e GOOS=linux ld-relay-build go build -a -installsuffix cgo -o ldr
-#      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
+      - run: ${DOCKER_COMPOSE} -p builder up -d
+      - run: docker cp . builder_builder_1:/go/src/github.com/launchdarkly/ld-relay/
+      - run: >
+          ${DOCKER_COMPOSE} -p builder run builder go build -a -installsuffix cgo -o ldr
+      - run: docker cp builder_builder_1:/go/src/github.com/launchdarkly/ld-relay/ldr .
+      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
 
+      - deploy:
+          name: Push docker image
+          command: |
+            ./scripts/upload_to_dockerhub.sh
 workflows:
   version: 2
   test:
