@@ -9,4 +9,6 @@ RUN mkdir -p /go/src/github.com/launchdarkly/ld-relay
 
 WORKDIR /go/src/github.com/launchdarkly/ld-relay
 
+COPY . .
+
 CMD ["/bin/true"]

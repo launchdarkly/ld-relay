@@ -9,10 +9,5 @@ services:
       CGO_ENABLED: 0
       GOOS: linux
       GOPATH: /go
-    volumes_from:
-      - build_context
-
-  build_context:
-    image: alpine:3.6
     volumes:
       - /go

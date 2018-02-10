@@ -41,7 +41,6 @@ jobs:
           path: /tmp/circle-reports
 
       - run: ${DOCKER_COMPOSE} -p builder up -d
-      - run: docker cp . builder_builder_1:/go/src/github.com/launchdarkly/ld-relay/
       - run: >
           ${DOCKER_COMPOSE} -p builder run builder go build -a -installsuffix cgo -o ldr
       - run: docker cp builder_builder_1:/go/src/github.com/launchdarkly/ld-relay/ldr .
