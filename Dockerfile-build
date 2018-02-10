@@ -11,4 +11,10 @@ WORKDIR /go/src/github.com/launchdarkly/ld-relay
 
 COPY . .
 
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOPATH=/go
+
+RUN go build -a -installsuffix cgo -o ldr
+
 CMD ["/bin/true"]

@@ -12,7 +12,6 @@ jobs:
             gopkg.in/alecthomas/gometalinter.v2
             github.com/jstemmer/go-junit-report
             github.com/laher/goxc
-          DOCKER_COMPOSE: docker-compose -f docker-compose-build.yml
       - image: redis
 
     steps:
@@ -40,10 +39,9 @@ jobs:
       - store_test_results:
           path: /tmp/circle-reports
 
-      - run: ${DOCKER_COMPOSE} -p builder up -d
-      - run: >
-          ${DOCKER_COMPOSE} -p builder run builder go build -a -installsuffix cgo -o ldr
-      - run: docker cp builder_builder_1:/go/src/github.com/launchdarkly/ld-relay/ldr .
+      - run: docker build -t builder -f Dockerfile-build .
+      - run: docker run --name builder builder
+      - run: docker cp builder:/go/src/github.com/launchdarkly/ld-relay/ldr .
       - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
 
       - deploy:
