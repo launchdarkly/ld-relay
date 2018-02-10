@@ -5,6 +5,8 @@ RUN apk --no-cache add \
     libc-dev \
  && rm -rf /var/cache/apk/*
 
+RUN mkdir -p /go/src/github.com/launchdarkly/ld-relay
+
 WORKDIR /go/src/github.com/launchdarkly/ld-relay
 
 CMD ["/bin/true"]
