@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/blang/semver"
+  packages = ["."]
+  revision = "2ee87856327ba09384cabd113bc6b5d174e9ec0f"
+  version = "v3.5.1"
+
+[[projects]]
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
@@ -19,13 +25,14 @@
     "internal",
     "redis"
   ]
-  revision = "836b6e58b3358112c8291565d01c35b8764070d7"
+  revision = "d1ed5c67e5794de818ea85e6b522fda02623a484"
+  version = "v1.4.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/gorilla/context"
   packages = ["."]
-  revision = "08b5f424b9271eedf6f9f0ce86cb9396ed337a42"
+  revision = "1ea25387ff6f684839d82767c1733ff4d4d15d0a"
+  version = "v1.1"
 
 [[projects]]
   branch = "master"
@@ -34,9 +41,10 @@
   revision = "c0091a029979286890368b4c7b301261e448e242"
 
 [[projects]]
+  branch = "master"
   name = "github.com/gregjones/httpcache"
   packages = ["."]
-  revision = "4fb00a8eec008ffa8ac9ec46a93684dcbb62fc09"
+  revision = "2bcd89a1743fd4b373f7370ce8ddc14dfbd18229"
 
 [[projects]]
   branch = "master"
@@ -45,10 +53,10 @@
   revision = "cad6b2b879b0970e4245a20ebf1a81a756e2bb70"
 
 [[projects]]
-  branch = "jko/comments"
+  branch = "master"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "b803733aaa750b174dbab9a8b36472682ba13d2e"
+  revision = "a45c212c667804d2687d2780839b04e288e2160d"
 
 [[projects]]
   branch = "v1"
@@ -64,8 +72,8 @@
 [[projects]]
   name = "github.com/patrickmn/go-cache"
   packages = ["."]
-  revision = "1881a9bccb818787f68c52bfba648c6cf34c34fa"
-  version = "v2.0.0"
+  revision = "a3647f8e31d79543b2d0f0ae2fe5c379d72cedc0"
+  version = "v2.1.0"
 
 [[projects]]
   name = "github.com/pmezard/go-difflib"
@@ -74,10 +82,10 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/stretchr/objx"
   packages = ["."]
-  revision = "8a3f7159479fbc75b30357fbc48f380b7320f08e"
+  revision = "facf9a85c22f48d2f52f2380e4efce1768749a89"
+  version = "v0.1"
 
 [[projects]]
   name = "github.com/stretchr/testify"
@@ -85,24 +93,31 @@
     "assert",
     "mock"
   ]
-  revision = "87b1dfb5b2fa649f52695dd9eae19abe404a4308"
+  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
+  version = "v1.2.1"
 
 [[projects]]
+  branch = "master"
   name = "golang.org/x/sys"
   packages = [
     "windows",
     "windows/svc"
   ]
-  revision = "b76f9891dc1d975623261def70f9b89661f5baab"
+  revision = "37707fdb30a5b38865cfb95e5aab41707daec7fd"
 
 [[projects]]
-  name = "gopkg.in/launchdarkly/go-client.v2"
-  packages = ["."]
-  revision = "6a0bf6b9875a79bf8b8861d80ed1a6fd2f103a93"
+  branch = "v3"
+  name = "gopkg.in/launchdarkly/go-client.v3"
+  packages = [
+    ".",
+    "redis"
+  ]
+  revision = "021bd376e9b695a9e0f2cf7c810918e362b61952"
+  source = "git@github.com:launchdarkly/go-client-private.git"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ea906741a2491444227c45ace2df369dcc2812e39131af04b645f22b3df300a1"
+  inputs-digest = "ca6e0e4b9e9a90ad60bd64c8012bc77473362b9939d969049991003c6d8c1bbb"
   solver-name = "gps-cdcl"
   solver-version = 1

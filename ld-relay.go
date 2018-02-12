@@ -21,7 +21,8 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "gopkg.in/launchdarkly/go-client.v2"
+	ld "gopkg.in/launchdarkly/go-client.v3"
+	ldr "gopkg.in/launchdarkly/go-client.v3/redis"
 )
 
 const (
@@ -130,16 +131,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	publisher := eventsource.NewServer()
-	publisher.Gzip = false
-	publisher.AllowCORS = true
-	publisher.ReplayAll = true
+	allPublisher := eventsource.NewServer()
+	allPublisher.Gzip = false
+	allPublisher.AllowCORS = true
+	allPublisher.ReplayAll = true
+	flagsPublisher := eventsource.NewServer()
+	flagsPublisher.Gzip = false
+	flagsPublisher.AllowCORS = true
+	flagsPublisher.ReplayAll = true
 
 	clients := map[string]FlagReader{}
 	mobileClients := map[string]FlagReader{}
 	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, infoByKey: map[string]ClientSideInfo{}}
 
-	handlers := map[string]http.Handler{}
+	allStreamHandlers := map[string]http.Handler{}
+	flagsStreamHandlers := map[string]http.Handler{}
 	eventHandlers := map[string]http.Handler{}
 
 	for _, envConfig := range c.Environment {
@@ -151,14 +157,14 @@ func main() {
 			var baseFeatureStore ld.FeatureStore
 			if c.Redis.Host != "" && c.Redis.Port != 0 {
 				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-				baseFeatureStore = ld.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
+				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
 			} else {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
 
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, publisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 
@@ -188,8 +194,10 @@ func main() {
 				}
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
-				handler := publisher.Handler(envConfig.ApiKey)
-				handlers[envConfig.ApiKey] = handler
+				allHandler := allPublisher.Handler(envConfig.ApiKey)
+				flagsHandler := flagsPublisher.Handler(envConfig.ApiKey)
+				allStreamHandlers[envConfig.ApiKey] = allHandler
+				flagsStreamHandlers[envConfig.ApiKey] = flagsHandler
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
@@ -203,13 +211,15 @@ func main() {
 	router := mux.NewRouter()
 
 	bulkEventHandler := SdkHandlerMux{handlersByKey: eventHandlers}
-	streamHandler := SdkHandlerMux{handlersByKey: handlers}
+	allStreamHandler := SdkHandlerMux{handlersByKey: allStreamHandlers}
+	flagsStreamHandler := SdkHandlerMux{handlersByKey: flagsStreamHandlers}
 
 	sdkClientMux := ClientMux{clientsByKey: clients}
 	mobileClientMux := ClientMux{clientsByKey: mobileClients}
 
 	router.Handle("/bulk", bulkEventHandler).Methods("POST")
-	router.Handle("/flags", streamHandler).Methods("GET")
+	router.Handle("/all", allStreamHandler).Methods("GET")
+	router.Handle("/flags", flagsStreamHandler).Methods("GET")
 	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
 
 	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()

@@ -15,7 +15,6 @@ var (
 		{"id: ", Event.Id},
 		{"event: ", Event.Event},
 		{"data: ", Event.Data},
-		{": ", Event.Comment},
 	}
 )
 

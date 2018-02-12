@@ -15,8 +15,6 @@ type Event interface {
 	Event() string
 	// The payload of the event.
 	Data() string
-	// An optional comment. Return empty string if not required.
-	Comment() string
 }
 
 // If history is required, this interface will allow clients to reply previous events through the server.
@@ -24,4 +22,9 @@ type Event interface {
 type Repository interface {
 	// Gets the Events which should follow on from the specified channel and event id.
 	Replay(channel, id string) chan Event
+}
+
+type Logger interface {
+	Println(...interface{})
+	Printf(string, ...interface{})
 }

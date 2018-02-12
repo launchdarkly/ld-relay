@@ -34,12 +34,17 @@
   name = "github.com/kardianos/minwinsvc"
 
 [[constraint]]
-  branch = "jko/comments"
+  branch = "master"
   name = "github.com/launchdarkly/eventsource"
 
 [[constraint]]
   branch = "v1"
   name = "github.com/launchdarkly/gcfg"
+
+[[constraint]]
+  branch = "v3"
+  name = "gopkg.in/launchdarkly/go-client.v3"
+  source = "git@github.com:launchdarkly/go-client-private.git"
 
 [prune]
   go-tests = true
