@@ -360,7 +360,6 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
-	return
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {
