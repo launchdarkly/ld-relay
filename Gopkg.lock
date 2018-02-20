@@ -113,11 +113,11 @@
     "redis"
   ]
   revision = "021bd376e9b695a9e0f2cf7c810918e362b61952"
-  source = "git@github.com:launchdarkly/go-client-private.git"
+  source = "git@github.com:launchdarkly/go-client.git"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ca6e0e4b9e9a90ad60bd64c8012bc77473362b9939d969049991003c6d8c1bbb"
+  inputs-digest = "bfad726e77104dd5cf2591c15e896dfca72ff0ab98ef7f1ab7f7ad8dd6d3daf5"
   solver-name = "gps-cdcl"
   solver-version = 1

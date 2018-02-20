@@ -44,7 +44,7 @@
 [[constraint]]
   branch = "v3"
   name = "gopkg.in/launchdarkly/go-client.v3"
-  source = "git@github.com:launchdarkly/go-client-private.git"
+  source = "git@github.com:launchdarkly/go-client.git"
 
 [prune]
   go-tests = true
