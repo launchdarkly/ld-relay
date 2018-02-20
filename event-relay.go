@@ -13,13 +13,12 @@ import (
 )
 
 type eventRelay struct {
-	sdkKey    string
-	config    Config
-	eventsUri string
-	mu        *sync.Mutex
-	client    *http.Client
-	closer    chan struct{}
-	queue     []json.RawMessage
+	sdkKey string
+	config Config
+	mu     *sync.Mutex
+	client *http.Client
+	closer chan struct{}
+	queue  []json.RawMessage
 }
 
 var rGen *rand.Rand
@@ -81,11 +80,6 @@ func newEventRelay(sdkKey string, config Config) *eventRelay {
 	}()
 
 	return res
-}
-
-func (er *eventRelay) close() {
-	close(er.closer)
-	er.flush()
 }
 
 func (er *eventRelay) flush() {
