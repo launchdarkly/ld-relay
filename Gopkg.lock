@@ -56,7 +56,7 @@
   branch = "master"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "a45c212c667804d2687d2780839b04e288e2160d"
+  revision = "af6191a22cc731e83e23caed5d5353de70ffbf37"
 
 [[projects]]
   branch = "v1"
