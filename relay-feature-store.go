@@ -50,8 +50,8 @@ func (relay *SSERelayFeatureStore) keys() []string {
 }
 
 func (relay *SSERelayFeatureStore) heartbeat() {
-	relay.allPublisher.Publish(relay.keys(), heartbeatEvent("hb"))
-	relay.flagsPublisher.Publish(relay.keys(), heartbeatEvent("hb"))
+	relay.allPublisher.PublishComment(relay.keys(), "")
+	relay.flagsPublisher.PublishComment(relay.keys(), "")
 }
 
 func (relay *SSERelayFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
@@ -173,24 +173,6 @@ type deleteEvent struct {
 type upsertEvent struct {
 	Path string           `json:"path"`
 	D    ld.VersionedData `json:"data"`
-}
-
-type heartbeatEvent string
-
-func (h heartbeatEvent) Id() string {
-	return ""
-}
-
-func (h heartbeatEvent) Event() string {
-	return ""
-}
-
-func (h heartbeatEvent) Data() string {
-	return ""
-}
-
-func (h heartbeatEvent) Comment() string {
-	return string(h)
 }
 
 func (t flagsPutEvent) Id() string {
