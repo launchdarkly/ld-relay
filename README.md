@@ -168,10 +168,11 @@ Docker
 
 To build the ld-relay container:
 
-        $ docker build -t ld-relay-build -f Dockerfile-build . # create the build container image
-        $ docker run -v $(pwd):/build -t -i -e CGO_ENABLED=0 -e GOOS=linux ld-relay-build godep go build -a -installsuffix cgo -o ldr # create the ldr binary
-        $ docker build -t ld-relay . # build the ld-relay container image
-        $ docker rmi ld-relay-build # remove the build container image that is no longer needed
+        $ docker build -t ld-relay-build -f Dockerfile-build .  # create the build container image
+        $ docker run --name ld-relay-build ld-relay-build  # start the build container
+        $ docker cp ld-relay-build:/go/src/github.com/launchdarkly/ld-relay/ldr .  # get the binary out of the build container
+        $ docker build -t ld-relay .  # build the ld-relay container image
+        $ docker rmi -f ld-relay-build  # remove the build container image that is no longer needed
 
 To run a single environment, without Redis:
 
