@@ -26,7 +26,7 @@ Quick setup
 
 1. Copy `ld-relay.conf` to `/etc/ld-relay.conf` (or elsewhere), and edit to specify your port and LaunchDarkly API keys for each environment you wish to proxy.
 
-2. If building from source, have `go` 1.6+ and `godep` installed, and run `godep go build`.
+2. If building from source, have `go` 1.6+  installed, and run `go build`.
 
 3. Run `ld-relay --config <configDir>/ld-relay.conf`. If the `--config` parameter is not specified, `ld-relay` defaults to `/etc/ld-relay.conf`.
 
