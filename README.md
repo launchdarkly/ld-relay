@@ -42,8 +42,7 @@ Here's an example configuration file that synchronizes four environments across 
         [main]
         streamUri = "https://stream.launchdarkly.com"
         baseUri = "https://app.launchdarkly.com"
-        exitOnError = false
-        ignoreConnectionErrors = true
+        exitOnError = true      // Closes the relay if it fails to retrieve feature flag configurations for all configured environments at initialization time
         heartbeatIntervalSecs = 15
 
         [environment "Spree Project Production"]
@@ -57,6 +56,11 @@ Here's an example configuration file that synchronizes four environments across 
 
         [environment "Shopnify Project Test"]
         apiKey = "SHOPNIFY_TEST_API_KEY"
+
+Status endpoint
+-----------------
+
+The `/status` route may be used to inspect the overall health of the relay, including whether or not all environments have been populated with feature flag configurations.
 
 Mobile and client-side flag evaluation
 ----------------
