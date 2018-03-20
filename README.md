@@ -86,6 +86,32 @@ Example cURL requests (default local URI and port):
 
         curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
 
+HTTPS proxy
+------------
+Go's standard HTTP library provides built-in support for the use of an HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+
+How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
+```
+export HTTPS_PROXY=https://web-proxy.domain.com:8080
+```
+
+
+How to set the HTTPS_PROXY environment variable on Windows systems:
+```
+set HTTPS_PROXY=https://web-proxy.domain.com:8080
+```
+
+
+If your proxy requires authentication then you can prefix the URN with your login information:
+```
+export HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
+```
+or
+```
+set HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
+```
+
+
 Relay proxy mode
 ----------------
 
@@ -153,15 +179,6 @@ We have done extensive load tests on the relay proxy in AWS / EC2. We have also 
 * Networking performance is paramount. Memory and CPU are not as critical. The relay proxy should be deployed on boxes with good networking performance. On EC2, we recommend using an instance with [Moderate to High networking performance](http://www.ec2instances.info/) such as `m4.xlarge`. On an `m4.xlarge` instance, a single relay proxy node can easily manage 20,000 concurrent connections.
 
 * If using an Elastic Load Balancer in front of the relay proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the relay proxy are cycled. This might happen when you deploy a large number of new servers that connect to the proxy, or upgrade the relay proxy itself.
-
-HTTPS proxy
-------------
-Go's standard HTTP library provides a built-in HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
-
-How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
-        export HTTPS_PROXY=https://web-proxy.domain.com:8080
-How to set the HTTPS_PROXY environment variable on Windows systems:
-        set HTTPS_PROXY=https://web-proxy.domain.com:8080
 
 Docker
 -------
