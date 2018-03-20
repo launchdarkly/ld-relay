@@ -42,7 +42,7 @@ Here's an example configuration file that synchronizes four environments across 
         [main]
         streamUri = "https://stream.launchdarkly.com"
         baseUri = "https://app.launchdarkly.com"
-        exitOnError = true      // Closes the relay if it fails to retrieve feature flag configurations for all configured environments at initialization time
+        exitOnError = true      # Closes the relay if it fails to retrieve feature flag configurations for all configured environments at initialization time
         heartbeatIntervalSecs = 15
 
         [environment "Spree Project Production"]
