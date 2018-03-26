@@ -191,8 +191,9 @@ func main() {
 			} else {
 				if err != nil {
 					Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				} else {
+					Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				}
-				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				// create a handler from the publisher for this environment
 				allHandler := allPublisher.Handler(envConfig.ApiKey)
 				flagsHandler := flagsPublisher.Handler(envConfig.ApiKey)
