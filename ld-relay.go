@@ -61,7 +61,6 @@ type Config struct {
 	Events struct {
 		EventsUri         string
 		SendEvents        bool
-		SummarizeEvents   bool
 		FlushIntervalSecs int
 		SamplingInterval  int32
 		Capacity          int

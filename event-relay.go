@@ -14,10 +14,6 @@ import (
 	ld "gopkg.in/launchdarkly/go-client.v3"
 )
 
-type eventRelay interface {
-	enqueue(evts []json.RawMessage)
-}
-
 type eventVerbatimRelay struct {
 	sdkKey string
 	config Config
