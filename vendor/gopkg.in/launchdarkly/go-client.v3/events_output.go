@@ -92,12 +92,12 @@ func (ef eventOutputFormatter) makeOutputEvent(evt interface{}) interface{} {
 			Version:      evt.Version,
 			PrereqOf:     evt.PrereqOf,
 		}
-		if ef.inlineUsers {
+		if ef.inlineUsers || evt.Debug {
 			fe.User = ef.userFilter.scrubUser(evt.User)
 		} else {
 			fe.UserKey = evt.User.Key
 		}
-		if !evt.TrackEvents && evt.DebugEventsUntilDate != nil {
+		if evt.Debug {
 			fe.Kind = FeatureDebugEventKind
 		} else {
 			fe.Kind = FeatureRequestEventKind

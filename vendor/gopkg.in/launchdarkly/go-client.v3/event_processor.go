@@ -207,9 +207,32 @@ func (ed *eventDispatcher) runMainLoop(inputCh <-chan eventDispatcherMessage,
 }
 
 func (ed *eventDispatcher) processEvent(evt Event, buffer *eventBuffer, userKeys *lruCache) {
+
+	// Always record the event in the summarizer.
+	buffer.addToSummary(evt)
+
+	// Decide whether to add the event to the payload. Feature events may be added twice, once for
+	// the event (if tracked) and once for debugging.
+	willAddFullEvent := false
+	var debugEvent Event
+	switch evt := evt.(type) {
+	case FeatureRequestEvent:
+		if ed.shouldSampleEvent() {
+			willAddFullEvent = evt.TrackEvents
+			if ed.shouldDebugEvent(&evt) {
+				de := evt
+				de.Debug = true
+				debugEvent = de
+			}
+		}
+	default:
+		willAddFullEvent = ed.shouldSampleEvent()
+	}
+
 	// For each user we haven't seen before, we add an index event - unless this is already
-	// an identify event for that user.
-	if !ed.config.InlineUsersInEvents {
+	// an identify event for that user. This should be added before the event that referenced
+	// the user, and can be omitted if that event will contain an inline user.
+	if !(willAddFullEvent && ed.config.InlineUsersInEvents) {
 		user := evt.GetBase().User
 		if !noticeUser(userKeys, &user) {
 			if _, ok := evt.(IdentifyEvent); !ok {
@@ -220,17 +243,11 @@ func (ed *eventDispatcher) processEvent(evt Event, buffer *eventBuffer, userKeys
 			}
 		}
 	}
-
-	// Always record the event in the summarizer.
-	buffer.addToSummary(evt)
-
-	if ed.shouldTrackFullEvent(evt) {
-		// Sampling interval applies only to fully-tracked events.
-		if ed.config.SamplingInterval == 0 || rand.Int31n(ed.config.SamplingInterval) == 0 {
-			// Queue the event as-is; we'll transform it into an output event when we're flushing
-			// (to avoid doing that work on our main goroutine).
-			buffer.addEvent(evt)
-		}
+	if willAddFullEvent {
+		buffer.addEvent(evt)
+	}
+	if debugEvent != nil {
+		buffer.addEvent(debugEvent)
 	}
 }
 
@@ -242,29 +259,22 @@ func noticeUser(userKeys *lruCache, user *User) bool {
 	return userKeys.add(*user.Key)
 }
 
-func (ed *eventDispatcher) shouldTrackFullEvent(evt Event) bool {
-	switch evt := evt.(type) {
-	case FeatureRequestEvent:
-		if evt.TrackEvents {
-			return true
-		}
-		if evt.DebugEventsUntilDate != nil {
-			// The "last known past time" comes from the last HTTP response we got from the server.
-			// In case the client's time is set wrong, at least we know that any expiration date
-			// earlier than that point is definitely in the past.  If there's any discrepancy, we
-			// want to err on the side of cutting off event debugging sooner.
-			ed.stateLock.Lock() // This should be done infrequently since it's only for debug events
-			defer ed.stateLock.Unlock()
-			if *evt.DebugEventsUntilDate > ed.lastKnownPastTime &&
-				*evt.DebugEventsUntilDate > now() {
-				return true
-			}
-		}
+func (ed *eventDispatcher) shouldSampleEvent() bool {
+	return ed.config.SamplingInterval == 0 || rand.Int31n(ed.config.SamplingInterval) == 0
+}
+
+func (ed *eventDispatcher) shouldDebugEvent(evt *FeatureRequestEvent) bool {
+	if evt.DebugEventsUntilDate == nil {
 		return false
-	default:
-		// Custom and identify events are always included in full
-		return true
 	}
+	// The "last known past time" comes from the last HTTP response we got from the server.
+	// In case the client's time is set wrong, at least we know that any expiration date
+	// earlier than that point is definitely in the past.  If there's any discrepancy, we
+	// want to err on the side of cutting off event debugging sooner.
+	ed.stateLock.Lock() // This should be done infrequently since it's only for debug events
+	defer ed.stateLock.Unlock()
+	return *evt.DebugEventsUntilDate > ed.lastKnownPastTime &&
+		*evt.DebugEventsUntilDate > now()
 }
 
 // Signal that we would like to do a flush as soon as possible.
