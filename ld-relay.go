@@ -61,6 +61,7 @@ type Config struct {
 	Events struct {
 		EventsUri         string
 		SendEvents        bool
+		SummarizeEvents   bool
 		FlushIntervalSecs int
 		SamplingInterval  int32
 		Capacity          int
@@ -202,7 +203,7 @@ func main() {
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(envConfig.ApiKey, c)
+					eventHandler := newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
 					eventHandlers[envConfig.ApiKey] = eventHandler
 				}
 			}

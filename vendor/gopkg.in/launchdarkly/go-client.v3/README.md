@@ -18,17 +18,17 @@ go get gopkg.in/launchdarkly/go-client.v3
 import ld "gopkg.in/launchdarkly/go-client.v3"
 ```
 
-2. Create a new LDClient with your SDK key:
+3. Create a new LDClient with your SDK key:
 
 ```go
-ld_client, err := ld.MakeClient("YOUR_SDK_KEY")
+ldClient, err := ld.MakeClient("YOUR_SDK_KEY", 5*time.Second)
 if err != nil {
-  log.Fatalf("Error creating launch darkly client: %v", err.Error())
+    log.Fatalf("Error creating launch darkly client: %s", err)
 }
-defer ld_client.Close()
+defer ldClient.Close()
 ```
 
-If you are reusing a global instance you probably want to not  `defer dl_client.Close()` but instead close it when the application exits.
+If you are reusing a global instance you probably want to not  `defer ldClient.Close()` but instead close it when the application exits.
 
 
 HTTPS proxy
@@ -51,15 +51,15 @@ Your first feature flag
 -----------------------
 
 1. Create a new feature flag on your [dashboard](https://app.launchdarkly.com)
-2. In your application code, use the feature's key to check wthether the flag is on for each user:
+2. In your application code, use the feature's key to check whether the flag is on for each user:
 
 ```go
 key := "user@test.com"
-show_feature := ld_client.BoolVariation("your.flag.key", ld.User{Key: &key,}, false)
-if (show_feature) {
-    # application code to show the feature
+showFeature, _ := ldClient.BoolVariation("your.flag.key", ld.User{Key: &key}, false)
+if showFeature {
+    // application code to show the feature
 } else {
-    # the code to run if the feature is off 
+    // the code to run if the feature is off
 }
 ```
 

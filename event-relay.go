@@ -3,16 +3,22 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	ld "gopkg.in/launchdarkly/go-client.v3"
 )
 
-type eventRelay struct {
+type eventRelay interface {
+	enqueue(evts []json.RawMessage)
+}
+
+type eventVerbatimRelay struct {
 	sdkKey string
 	config Config
 	mu     *sync.Mutex
@@ -28,10 +34,20 @@ func init() {
 	rGen = rand.New(s1)
 }
 
-// Create a new handler for serving a specified channel
-func newRelayHandler(sdkKey string, config Config) http.HandlerFunc {
-	er := newEventRelay(sdkKey, config)
+const (
+	eventSchemaHeader          = "X-LaunchDarkly-Event-Schema"
+	summaryEventsSchemaVersion = 3
+)
 
+// Create a new handler for serving a specified channel
+func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) http.HandlerFunc {
+	verbatimRelay := newEventVerbatimRelay(sdkKey, config)
+	var createSummarizingRelay sync.Once
+	var summarizingRelay *eventSummarizingRelay
+	flags, _ := featureStore.All(ld.Features)
+	for _, flag := range flags {
+		fmt.Println("feature: " + flag.GetKey())
+	}
 	return func(w http.ResponseWriter, req *http.Request) {
 		body, bodyErr := ioutil.ReadAll(req.Body)
 
@@ -47,13 +63,25 @@ func newRelayHandler(sdkKey string, config Config) http.HandlerFunc {
 			if err != nil {
 				Error.Printf("Error unmarshaling event post body: %+v", err)
 			}
-			er.enqueue(evts)
+
+			payloadVersion, _ := strconv.Atoi(req.Header.Get(eventSchemaHeader))
+			switch payloadVersion {
+			case summaryEventsSchemaVersion:
+				// New-style events that have already gone through summarization - deliver them as-is
+				verbatimRelay.enqueue(evts)
+			default:
+				// Raw events from an older SDK - run them through our own summarizing event processor
+				createSummarizingRelay.Do(func() {
+					summarizingRelay = newEventSummarizingRelay(sdkKey, config, featureStore)
+				})
+				summarizingRelay.enqueue(evts)
+			}
 		}()
 	}
 }
 
-func newEventRelay(sdkKey string, config Config) *eventRelay {
-	res := &eventRelay{
+func newEventVerbatimRelay(sdkKey string, config Config) *eventVerbatimRelay {
+	res := &eventVerbatimRelay{
 		queue:  make([]json.RawMessage, 0),
 		sdkKey: sdkKey,
 		config: config,
@@ -82,7 +110,7 @@ func newEventRelay(sdkKey string, config Config) *eventRelay {
 	return res
 }
 
-func (er *eventRelay) flush() {
+func (er *eventVerbatimRelay) flush() {
 	uri := er.config.Events.EventsUri + "/bulk"
 	er.mu.Lock()
 	if len(er.queue) == 0 {
@@ -105,6 +133,7 @@ func (er *eventRelay) flush() {
 	req.Header.Add("Authorization", er.sdkKey)
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("User-Agent", "LDRelay/"+VERSION)
+	req.Header.Add(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
 
 	resp, respErr := er.client.Do(req)
 
@@ -125,20 +154,20 @@ func (er *eventRelay) flush() {
 	}
 }
 
-func (er *eventRelay) enqueue(evts []json.RawMessage) error {
+func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if !er.config.Events.SendEvents {
-		return nil
+		return
 	}
 
 	if er.config.Events.SamplingInterval > 0 && rGen.Int31n(er.config.Events.SamplingInterval) != 0 {
-		return nil
+		return
 	}
 
 	if len(er.queue) >= er.config.Events.Capacity {
-		return errors.New("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
+		Warning.Println("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
+	} else {
+		er.queue = append(er.queue, evts...)
 	}
-	er.queue = append(er.queue, evts...)
-	return nil
 }
 
 func checkStatusCode(statusCode int, url string) error {

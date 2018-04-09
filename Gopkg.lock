@@ -106,18 +106,18 @@
   revision = "37707fdb30a5b38865cfb95e5aab41707daec7fd"
 
 [[projects]]
-  branch = "v3"
+  branch = "eb/ldrelay-events"
   name = "gopkg.in/launchdarkly/go-client.v3"
   packages = [
     ".",
     "redis"
   ]
-  revision = "021bd376e9b695a9e0f2cf7c810918e362b61952"
-  source = "git@github.com:launchdarkly/go-client.git"
+  revision = "43d240d0adecaa0756cdde8bde33708e5a51cac0"
+  source = "git@github.com:launchdarkly/go-client-private.git"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "bfad726e77104dd5cf2591c15e896dfca72ff0ab98ef7f1ab7f7ad8dd6d3daf5"
+  inputs-digest = "76d7dd195b3f16c57115c5e505fa999c65e9b2c687e7572928d052ee920ac8b5"
   solver-name = "gps-cdcl"
   solver-version = 1
