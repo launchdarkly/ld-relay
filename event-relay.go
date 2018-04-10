@@ -40,10 +40,6 @@ func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore)
 	verbatimRelay := newEventVerbatimRelay(sdkKey, config)
 	var createSummarizingRelay sync.Once
 	var summarizingRelay *eventSummarizingRelay
-	flags, _ := featureStore.All(ld.Features)
-	for _, flag := range flags {
-		fmt.Println("feature: " + flag.GetKey())
-	}
 	return func(w http.ResponseWriter, req *http.Request) {
 		body, bodyErr := ioutil.ReadAll(req.Body)
 
