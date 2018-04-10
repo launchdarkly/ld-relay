@@ -112,7 +112,7 @@
     ".",
     "redis"
   ]
-  revision = "43d240d0adecaa0756cdde8bde33708e5a51cac0"
+  revision = "68707dfc04bd179505e3bfd909140784a597f932"
   source = "git@github.com:launchdarkly/go-client-private.git"
 
 [solve-meta]
