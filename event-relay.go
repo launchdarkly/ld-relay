@@ -35,40 +35,63 @@ const (
 	summaryEventsSchemaVersion = 3
 )
 
-// Create a new handler for serving a specified channel
-func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) http.HandlerFunc {
-	verbatimRelay := newEventVerbatimRelay(sdkKey, config)
-	var createSummarizingRelay sync.Once
-	var summarizingRelay *eventSummarizingRelay
-	return func(w http.ResponseWriter, req *http.Request) {
-		body, bodyErr := ioutil.ReadAll(req.Body)
+type relayHandler struct {
+	config       Config
+	sdkKey       string
+	featureStore ld.FeatureStore
 
-		if bodyErr != nil {
-			Error.Printf("Error reading event post body: %+v", bodyErr)
+	verbatimRelay    *eventVerbatimRelay
+	summarizingRelay *eventSummarizingRelay
+
+	mu sync.Mutex
+}
+
+func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	body, bodyErr := ioutil.ReadAll(req.Body)
+	if bodyErr != nil {
+		Error.Printf("Error reading event post body: %+v", bodyErr)
+	}
+	var evts []json.RawMessage
+
+	defer req.Body.Close()
+	go func() {
+		if err := recover(); err != nil {
+			Error.Printf("Unexpected panic in event relay : %+v", err)
 		}
-		var evts []json.RawMessage
 
-		defer req.Body.Close()
-		go func() {
-			evts = make([]json.RawMessage, 0)
-			err := json.Unmarshal(body, &evts)
-			if err != nil {
-				Error.Printf("Error unmarshaling event post body: %+v", err)
-			}
+		evts = make([]json.RawMessage, 0)
+		err := json.Unmarshal(body, &evts)
+		if err != nil {
+			Error.Printf("Error unmarshaling event post body: %+v", err)
+		}
 
-			payloadVersion, _ := strconv.Atoi(req.Header.Get(eventSchemaHeader))
-			switch payloadVersion {
-			case summaryEventsSchemaVersion:
-				// New-style events that have already gone through summarization - deliver them as-is
-				verbatimRelay.enqueue(evts)
-			default:
-				// Raw events from an older SDK - run them through our own summarizing event processor
-				createSummarizingRelay.Do(func() {
-					summarizingRelay = newEventSummarizingRelay(sdkKey, config, featureStore)
-				})
-				summarizingRelay.enqueue(evts)
-			}
-		}()
+		payloadVersion, _ := strconv.Atoi(req.Header.Get(eventSchemaHeader))
+		switch payloadVersion {
+		case summaryEventsSchemaVersion:
+			// New-style events that have already gone through summarization - deliver them as-is
+			r.verbatimRelay.enqueue(evts)
+		default:
+			r.getSummarizingRelay().enqueue(evts)
+		}
+	}()
+}
+
+func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.summarizingRelay == nil {
+		r.summarizingRelay = newEventSummarizingRelay(r.sdkKey, r.config, r.featureStore)
+	}
+	return r.summarizingRelay
+}
+
+// Create a new handler for serving a specified channel
+func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *relayHandler {
+	return &relayHandler{
+		sdkKey:        sdkKey,
+		config:        config,
+		featureStore:  featureStore,
+		verbatimRelay: newEventVerbatimRelay(sdkKey, config),
 	}
 }
 
