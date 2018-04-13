@@ -69,11 +69,20 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		switch payloadVersion {
 		case summaryEventsSchemaVersion:
 			// New-style events that have already gone through summarization - deliver them as-is
-			r.verbatimRelay.enqueue(evts)
+			r.getVerbatimRelay().enqueue(evts)
 		default:
 			r.getSummarizingRelay().enqueue(evts)
 		}
 	}()
+}
+
+func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.verbatimRelay == nil {
+		r.verbatimRelay = newEventVerbatimRelay(r.sdkKey, r.config)
+	}
+	return r.verbatimRelay
 }
 
 func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
@@ -88,10 +97,9 @@ func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
 // Create a new handler for serving a specified channel
 func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *relayHandler {
 	return &relayHandler{
-		sdkKey:        sdkKey,
-		config:        config,
-		featureStore:  featureStore,
-		verbatimRelay: newEventVerbatimRelay(sdkKey, config),
+		sdkKey:       sdkKey,
+		config:       config,
+		featureStore: featureStore,
 	}
 }
 
