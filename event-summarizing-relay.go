@@ -42,7 +42,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage) {
 
 func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields map[string]interface{}) (ld.Event, error) {
 	switch fields["kind"] {
-	case "feature":
+	case ld.FeatureRequestEventKind:
 		var e ld.FeatureRequestEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
@@ -74,14 +74,14 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 			return nil, err
 		}
 		return e, nil
-	case "custom":
+	case ld.CustomEventKind:
 		var e ld.CustomEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
 			return nil, err
 		}
 		return e, nil
-	case "identify":
+	case ld.IdentifyEventKind:
 		var e ld.IdentifyEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
