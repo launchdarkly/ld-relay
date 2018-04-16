@@ -23,8 +23,8 @@ func (s *Segment) IsDeleted() bool {
 }
 
 func (s *Segment) Clone() VersionedData {
-	s1 := *s;
-	return &s1;
+	s1 := *s
+	return &s1
 }
 
 type SegmentVersionedDataKind struct{}

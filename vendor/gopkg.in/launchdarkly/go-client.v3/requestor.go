@@ -104,7 +104,7 @@ func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
 	}
 
 	req.Header.Add("Authorization", r.sdkKey)
-	req.Header.Add("User-Agent", "GoClient/"+Version)
+	req.Header.Add("User-Agent", r.config.UserAgent)
 
 	res, resErr := r.httpClient.Do(req)
 

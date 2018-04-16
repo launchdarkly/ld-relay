@@ -17,13 +17,14 @@ import (
 
 // A Redis-backed feature store.
 type RedisFeatureStore struct {
-	prefix    string
-	pool      *r.Pool
-	cache     *cache.Cache
-	timeout   time.Duration
-	logger    ld.Logger
-	inited    bool
-	initCheck sync.Once
+	prefix     string
+	pool       *r.Pool
+	cache      *cache.Cache
+	timeout    time.Duration
+	logger     ld.Logger
+	testTxHook func()
+	inited     bool
+	initCheck  sync.Once
 }
 
 var pool *r.Pool
@@ -107,7 +108,7 @@ func (store *RedisFeatureStore) featuresKey(kind ld.VersionedDataKind) string {
 }
 
 func (store *RedisFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
-	item, err := store.getEvenIfDeleted(kind, key)
+	item, err := store.getEvenIfDeleted(kind, key, true)
 	if err == nil && item == nil {
 		store.logger.Printf("RedisFeatureStore: WARN: Item not found in store. Key: %s", key)
 	}
@@ -202,41 +203,12 @@ func (store *RedisFeatureStore) Init(allData map[ld.VersionedDataKind]map[string
 }
 
 func (store *RedisFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
-	c := store.getConn()
-	defer c.Close()
-
-	c.Send("WATCH", store.featuresKey(kind))
-	defer c.Send("UNWATCH")
-
-	item, err := store.getEvenIfDeleted(kind, key)
-
-	if err != nil {
-		return err
-	}
-	if item == nil || item.GetVersion() < version {
-		deletedItem := kind.MakeDeletedItem(key, version)
-		return store.put(c, kind, key, deletedItem)
-	}
-	return nil
+	deletedItem := kind.MakeDeletedItem(key, version)
+	return store.updateWithVersioning(kind, deletedItem)
 }
 
 func (store *RedisFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
-	c := store.getConn()
-	defer c.Close()
-
-	c.Send("WATCH", store.featuresKey(kind))
-	defer c.Send("UNWATCH")
-
-	o, err := store.getEvenIfDeleted(kind, item.GetKey())
-
-	if err != nil {
-		return err
-	}
-
-	if o != nil && o.GetVersion() >= item.GetVersion() {
-		return nil
-	}
-	return store.put(c, kind, item.GetKey(), item)
+	return store.updateWithVersioning(kind, item)
 }
 
 func cacheKey(kind ld.VersionedDataKind, key string) string {
@@ -247,8 +219,8 @@ func allFlagsCacheKey(kind ld.VersionedDataKind) string {
 	return "all:" + kind.GetNamespace()
 }
 
-func (store *RedisFeatureStore) getEvenIfDeleted(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
-	if store.cache != nil {
+func (store *RedisFeatureStore) getEvenIfDeleted(kind ld.VersionedDataKind, key string, useCache bool) (ld.VersionedData, error) {
+	if useCache && store.cache != nil {
 		if data, present := store.cache.Get(cacheKey(kind, key)); present {
 			if item, ok := data.(ld.VersionedData); ok {
 				return item, nil
@@ -266,7 +238,7 @@ func (store *RedisFeatureStore) getEvenIfDeleted(kind ld.VersionedDataKind, key 
 
 	if err != nil {
 		if err == r.ErrNil {
-			store.logger.Printf("RedisFeatureStore: WARN: Key: %s not found in \"%s\"", key, kind.GetNamespace())
+			store.logger.Printf("RedisFeatureStore: DEBUG: Key: %s not found in \"%s\"", key, kind.GetNamespace())
 			return nil, nil
 		}
 		return nil, err
@@ -293,21 +265,53 @@ func (store *RedisFeatureStore) unmarshalItem(kind ld.VersionedDataKind, jsonStr
 	return nil, fmt.Errorf("Unexpected data type from JSON unmarshal: %T", data)
 }
 
-func (store *RedisFeatureStore) put(c r.Conn, kind ld.VersionedDataKind, key string, item ld.VersionedData) error {
-	data, jsonErr := json.Marshal(item)
+func (store *RedisFeatureStore) updateWithVersioning(kind ld.VersionedDataKind, newItem ld.VersionedData) error {
+	baseKey := store.featuresKey(kind)
+	key := newItem.GetKey()
+	for {
+		c := store.getConn()
+		defer c.Close()
 
-	if jsonErr != nil {
-		return jsonErr
+		c.Do("WATCH", baseKey)
+		defer c.Send("UNWATCH")
+
+		if store.testTxHook != nil { // instrumentation for unit tests
+			store.testTxHook()
+		}
+
+		oldItem, err := store.getEvenIfDeleted(kind, key, false)
+
+		if err != nil {
+			return err
+		}
+
+		if oldItem != nil && oldItem.GetVersion() >= newItem.GetVersion() {
+			return nil
+		}
+
+		data, jsonErr := json.Marshal(newItem)
+		if jsonErr != nil {
+			return jsonErr
+		}
+
+		c.Send("MULTI")
+		err = c.Send("HSET", baseKey, key, data)
+		if err == nil {
+			var result interface{}
+			result, err = c.Do("EXEC")
+			if err == nil {
+				if result == nil {
+					// if exec returned nothing, it means the watch was triggered and we should retry
+					store.logger.Printf("RedisFeatureStore: DEBUG: Concurrent modification detected, retrying")
+					continue
+				} else if store.cache != nil {
+					store.cache.Delete(allFlagsCacheKey(kind))
+					store.cache.Set(cacheKey(kind, key), newItem, store.timeout)
+				}
+			}
+		}
+		return err
 	}
-
-	_, err := c.Do("HSET", store.featuresKey(kind), key, data)
-
-	if err == nil && store.cache != nil {
-		store.cache.Delete(allFlagsCacheKey(kind))
-		store.cache.Set(cacheKey(kind, key), item, store.timeout)
-	}
-
-	return err
 }
 
 func (store *RedisFeatureStore) Initialized() bool {

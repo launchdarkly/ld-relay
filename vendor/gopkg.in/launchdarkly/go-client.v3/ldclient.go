@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "3.0.0"
+const Version = "3.1.0"
 
 // The LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -22,7 +22,7 @@ const Version = "3.0.0"
 type LDClient struct {
 	sdkKey          string
 	config          Config
-	eventProcessor  *eventProcessor
+	eventProcessor  EventProcessor
 	updateProcessor UpdateProcessor
 	store           FeatureStore
 }
@@ -50,7 +50,21 @@ type Config struct {
 	Offline               bool
 	AllAttributesPrivate  bool
 	PrivateAttributeNames []string
-	UpdateProcessor       UpdateProcessor
+	// An object that is responsible for receiving feature flag updates from LaunchDarkly.
+	// If nil, a default implementation will be used depending on the rest of the configuration
+	// (streaming, polling, etc.); a custom implementation can be substituted for testing.
+	UpdateProcessor UpdateProcessor
+	// An object that is responsible for recording or sending analytics events. If nil, a
+	// default implementation will be used; a custom implementation can be substituted for testing.
+	EventProcessor EventProcessor
+	// The number of user keys that the event processor can remember at any one time, so that
+	// duplicate user details will not be sent in analytics events.
+	UserKeysCapacity int
+	// The interval at which the event processor will reset its set of known user keys.
+	UserKeysFlushInterval time.Duration
+	// Set to true if you need to see the full user details in every analytics event.
+	InlineUsersInEvents bool
+	UserAgent           string
 }
 
 // The minimum value for Config.PollInterval. If you specify a smaller interval,
@@ -59,7 +73,7 @@ const MinimumPollInterval = 30 * time.Second
 
 type UpdateProcessor interface {
 	Initialized() bool
-	Close()
+	Close() error
 	Start(closeWhenReady chan<- struct{})
 }
 
@@ -69,19 +83,22 @@ type UpdateProcessor interface {
 //   var config = DefaultConfig
 //   config.Capacity = 2000
 var DefaultConfig = Config{
-	BaseUri:       "https://app.launchdarkly.com",
-	StreamUri:     "https://stream.launchdarkly.com",
-	EventsUri:     "https://events.launchdarkly.com",
-	Capacity:      1000,
-	FlushInterval: 5 * time.Second,
-	PollInterval:  MinimumPollInterval,
-	Logger:        log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags),
-	Timeout:       3000 * time.Millisecond,
-	Stream:        true,
-	FeatureStore:  nil,
-	UseLdd:        false,
-	SendEvents:    true,
-	Offline:       false,
+	BaseUri:               "https://app.launchdarkly.com",
+	StreamUri:             "https://stream.launchdarkly.com",
+	EventsUri:             "https://events.launchdarkly.com",
+	Capacity:              1000,
+	FlushInterval:         5 * time.Second,
+	PollInterval:          MinimumPollInterval,
+	Logger:                log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags),
+	Timeout:               3000 * time.Millisecond,
+	Stream:                true,
+	FeatureStore:          nil,
+	UseLdd:                false,
+	SendEvents:            true,
+	Offline:               false,
+	UserKeysCapacity:      1000,
+	UserKeysFlushInterval: 5 * time.Minute,
+	UserAgent:             "",
 }
 
 var ErrInitializationTimeout = errors.New("Timeout encountered waiting for LaunchDarkly client initialization")
@@ -104,6 +121,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	if config.PollInterval < MinimumPollInterval {
 		config.PollInterval = MinimumPollInterval
 	}
+	config.UserAgent = strings.TrimSpace("GoClient/" + Version + " " + config.UserAgent)
 
 	if config.FeatureStore == nil {
 		config.FeatureStore = NewInMemoryFeatureStore(config.Logger)
@@ -116,15 +134,21 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	}
 
 	if config.Offline {
-		config.Logger.Println("Started Launchdarkly in offline mode")
-		client.config.SendEvents = false
+		config.Logger.Println("Started LaunchDarkly in offline mode")
+		client.eventProcessor = newNullEventProcessor()
 		return &client, nil
 	}
 
-	client.eventProcessor = newEventProcessor(sdkKey, config)
+	if config.EventProcessor != nil {
+		client.eventProcessor = config.EventProcessor
+	} else if config.SendEvents {
+		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, nil)
+	} else {
+		client.eventProcessor = newNullEventProcessor()
+	}
 
 	if config.UseLdd {
-		config.Logger.Println("Started Launchdarkly in LDD mode")
+		config.Logger.Println("Started LaunchDarkly in LDD mode")
 		return &client, nil
 	}
 
@@ -147,7 +171,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 			return &client, nil
 		case <-timeout:
 			if waitFor > 0 {
-				config.Logger.Println("Timeout exceeded when initializing LauncDarkly client.")
+				config.Logger.Println("Timeout exceeded when initializing LaunchDarkly client.")
 				return &client, ErrInitializationTimeout
 			}
 
@@ -165,7 +189,8 @@ func (client *LDClient) Identify(user User) error {
 		client.config.Logger.Printf("WARN: Identify called with empty/nil user key!")
 	}
 	evt := NewIdentifyEvent(user)
-	return client.eventProcessor.sendEvent(evt)
+	client.eventProcessor.SendEvent(evt)
+	return nil
 }
 
 // Tracks that a user has performed an event. Custom data can be attached to the
@@ -178,7 +203,8 @@ func (client *LDClient) Track(key string, user User, data interface{}) error {
 		client.config.Logger.Printf("WARN: Track called with empty/nil user key!")
 	}
 	evt := NewCustomEvent(key, user, data)
-	return client.eventProcessor.sendEvent(evt)
+	client.eventProcessor.SendEvent(evt)
+	return nil
 }
 
 // Returns whether the LaunchDarkly client is in offline mode.
@@ -203,23 +229,21 @@ func (client *LDClient) Initialized() bool {
 
 // Shuts down the LaunchDarkly client. After calling this, the LaunchDarkly client
 // should no longer be used.
-func (client *LDClient) Close() {
+func (client *LDClient) Close() error {
 	client.config.Logger.Println("Closing LaunchDarkly Client")
 	if client.IsOffline() {
-		return
+		return nil
 	}
-	client.eventProcessor.close()
+	client.eventProcessor.Close()
 	if !client.config.UseLdd {
 		client.updateProcessor.Close()
 	}
+	return nil
 }
 
 // Immediately flushes queued events.
 func (client *LDClient) Flush() {
-	if client.IsOffline() {
-		return
-	}
-	client.eventProcessor.flush()
+	client.eventProcessor.Flush()
 }
 
 // Returns a map from feature flag keys to values for
@@ -256,7 +280,7 @@ func (client *LDClient) AllFlags(user User) map[string]interface{} {
 	}
 	for _, item := range items {
 		if flag, ok := item.(*FeatureFlag); ok {
-			result, _ := client.evalFlag(*flag, user)
+			result, _, _ := client.evalFlag(*flag, user)
 			results[flag.Key] = result
 		}
 	}
@@ -264,27 +288,8 @@ func (client *LDClient) AllFlags(user User) map[string]interface{} {
 	return results
 }
 
-func (client *LDClient) evalFlag(flag FeatureFlag, user User) (interface{}, []FeatureRequestEvent) {
-	var prereqEvents []FeatureRequestEvent
-	if flag.On {
-		evalResult, err := flag.EvaluateExplain(user, client.store)
-		prereqEvents = evalResult.PrerequisiteRequestEvents
-
-		if err != nil {
-			return nil, prereqEvents
-		}
-
-		if evalResult.Value != nil {
-			return evalResult.Value, prereqEvents
-		}
-		// If the value is nil, but the error is not, fall through and use the off variation
-	}
-
-	if flag.OffVariation != nil && *flag.OffVariation < len(flag.Variations) {
-		value := flag.Variations[*flag.OffVariation]
-		return value, prereqEvents
-	}
-	return nil, prereqEvents
+func (client *LDClient) evalFlag(flag FeatureFlag, user User) (interface{}, *int, []FeatureRequestEvent) {
+	return flag.Evaluate(user, client.store)
 }
 
 // Returns the value of a boolean feature flag for a given user. Returns defaultVal if
@@ -294,12 +299,6 @@ func (client *LDClient) BoolVariation(key string, user User, defaultVal bool) (b
 	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(bool(true)))
 	result, _ := value.(bool)
 	return result, err
-}
-
-// Deprecated: Use BoolVariation().
-func (client *LDClient) Toggle(key string, user User, defaultVal bool) (bool, error) {
-	client.config.Logger.Println("WARN: Deprecated Toggle() called on LDClient. Use BoolVariation() instead.")
-	return client.BoolVariation(key, user, defaultVal)
 }
 
 // Returns the value of a feature flag (whose variations are integers) for the given user.
@@ -332,18 +331,18 @@ func (client *LDClient) JsonVariation(key string, user User, defaultVal json.Raw
 	if client.IsOffline() {
 		return defaultVal, nil
 	}
-	value, version, err := client.Evaluate(key, user, defaultVal)
+	value, index, flag, err := client.evaluateInternal(key, user, defaultVal)
 
 	if err != nil {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal, version)
+		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
 		return defaultVal, err
 	}
 	valueJsonRawMessage, err := ToJsonRawMessage(value)
 	if err != nil {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal, version)
+		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
 		return defaultVal, err
 	}
-	client.sendFlagRequestEvent(key, user, valueJsonRawMessage, defaultVal, version)
+	client.sendFlagRequestEvent(key, flag, user, index, valueJsonRawMessage, defaultVal)
 	return valueJsonRawMessage, nil
 }
 
@@ -353,32 +352,37 @@ func (client *LDClient) variation(key string, user User, defaultVal interface{},
 	if client.IsOffline() {
 		return defaultVal, nil
 	}
-	value, version, err := client.Evaluate(key, user, defaultVal)
+	value, index, flag, err := client.evaluateInternal(key, user, defaultVal)
 	if err != nil {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal, version)
+		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
 		return defaultVal, err
 	}
 
 	valueType := reflect.TypeOf(value)
 	if expectedType != valueType {
-		client.sendFlagRequestEvent(key, user, defaultVal, defaultVal, version)
+		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
 		return defaultVal, fmt.Errorf("Feature flag returned value: %+v of incompatible type: %+v; Expected: %+v", value, valueType, expectedType)
 	}
-	client.sendFlagRequestEvent(key, user, value, defaultVal, version)
+	client.sendFlagRequestEvent(key, flag, user, index, value, defaultVal)
 	return value, nil
 }
 
-func (client *LDClient) sendFlagRequestEvent(key string, user User, value, defaultVal interface{}, version *int) error {
+func (client *LDClient) sendFlagRequestEvent(key string, flag *FeatureFlag, user User, variation *int, value, defaultVal interface{}) {
 	if client.IsOffline() {
-		return nil
+		return
 	}
-	evt := NewFeatureRequestEvent(key, user, value, defaultVal, version, nil)
-	return client.eventProcessor.sendEvent(evt)
+	evt := NewFeatureRequestEvent(key, flag, user, variation, value, defaultVal, nil)
+	client.eventProcessor.SendEvent(evt)
 }
 
 func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) (interface{}, *int, error) {
+	value, index, _, err := client.evaluateInternal(key, user, defaultVal)
+	return value, index, err
+}
+
+func (client *LDClient) evaluateInternal(key string, user User, defaultVal interface{}) (interface{}, *int, *FeatureFlag, error) {
 	if user.Key == nil {
-		return defaultVal, nil, fmt.Errorf("User.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
+		return defaultVal, nil, nil, fmt.Errorf("User.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
 	}
 	if *user.Key == "" {
 		client.config.Logger.Printf("WARN: User.Key is blank when evaluating flag: %s. Flag evaluation will proceed, but the user will not be stored in LaunchDarkly.", key)
@@ -392,7 +396,7 @@ func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) 
 		if client.store.Initialized() {
 			client.config.Logger.Printf("WARN: Feature flag evaluation called before LaunchDarkly client initialization completed; using last known values from feature store")
 		} else {
-			return defaultVal, nil, ErrClientNotInitialized
+			return defaultVal, nil, nil, ErrClientNotInitialized
 		}
 	}
 
@@ -400,29 +404,24 @@ func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) 
 
 	if storeErr != nil {
 		client.config.Logger.Printf("Encountered error fetching feature from store: %+v", storeErr)
-		return defaultVal, nil, storeErr
+		return defaultVal, nil, nil, storeErr
 	}
 
 	if data != nil {
 		feature, ok = data.(*FeatureFlag)
 		if !ok {
-			return defaultVal, nil, fmt.Errorf("Unexpected data type (%T) found in store for feature key: %s. Returning default value.", data, key)
+			return defaultVal, nil, nil, fmt.Errorf("Unexpected data type (%T) found in store for feature key: %s. Returning default value.", data, key)
 		}
 	} else {
-		return defaultVal, nil, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
+		return defaultVal, nil, nil, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
 	}
 
-	result, prereqEvents := client.evalFlag(*feature, user)
-	if !client.IsOffline() {
-		for _, event := range prereqEvents {
-			err := client.eventProcessor.sendEvent(event)
-			if err != nil {
-				client.config.Logger.Printf("WARN: Error sending feature request event to LaunchDarkly: %+v", err)
-			}
-		}
+	result, index, prereqEvents := client.evalFlag(*feature, user)
+	for _, event := range prereqEvents {
+		client.eventProcessor.SendEvent(event)
 	}
 	if result != nil {
-		return result, &feature.Version, nil
+		return result, index, feature, nil
 	}
-	return defaultVal, &feature.Version, nil
+	return defaultVal, index, feature, nil
 }

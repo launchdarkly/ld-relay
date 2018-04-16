@@ -14,18 +14,20 @@ const (
 )
 
 type FeatureFlag struct {
-	Key           string             `json:"key" bson:"key"`
-	Version       int                `json:"version" bson:"version"`
-	On            bool               `json:"on" bson:"on"`
-	Prerequisites []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
-	Salt          string             `json:"salt" bson:"salt"`
-	Sel           string             `json:"sel" bson:"sel"`
-	Targets       []Target           `json:"targets" bson:"targets"`
-	Rules         []Rule             `json:"rules" bson:"rules"`
-	Fallthrough   VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
-	OffVariation  *int               `json:"offVariation" bson:"offVariation"`
-	Variations    []interface{}      `json:"variations" bson:"variations"`
-	Deleted       bool               `json:"deleted" bson:"deleted"`
+	Key                  string             `json:"key" bson:"key"`
+	Version              int                `json:"version" bson:"version"`
+	On                   bool               `json:"on" bson:"on"`
+	Prerequisites        []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
+	Salt                 string             `json:"salt" bson:"salt"`
+	Sel                  string             `json:"sel" bson:"sel"`
+	Targets              []Target           `json:"targets" bson:"targets"`
+	Rules                []Rule             `json:"rules" bson:"rules"`
+	Fallthrough          VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
+	OffVariation         *int               `json:"offVariation" bson:"offVariation"`
+	Variations           []interface{}      `json:"variations" bson:"variations"`
+	TrackEvents          bool               `json:"trackEvents" bson:"trackEvents"`
+	DebugEventsUntilDate *uint64            `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
+	Deleted              bool               `json:"deleted" bson:"deleted"`
 }
 
 func (f *FeatureFlag) GetKey() string {
@@ -41,8 +43,8 @@ func (f *FeatureFlag) IsDeleted() bool {
 }
 
 func (f *FeatureFlag) Clone() VersionedData {
-	f1 := *f;
-	return &f1;
+	f1 := *f
+	return &f1
 }
 
 type FeatureFlagVersionedDataKind struct{}
@@ -114,7 +116,7 @@ type Prerequisite struct {
 func bucketUser(user User, key, attr, salt string) float32 {
 	uValue, pass := user.valueOf(attr)
 
-	if idHash, ok := uValue.(string); pass || !ok {
+	if idHash, ok := bucketableStringValue(uValue); pass || !ok {
 		return 0
 	} else {
 		if user.Secondary != nil {
@@ -133,10 +135,44 @@ func bucketUser(user User, key, attr, salt string) float32 {
 	}
 }
 
+func bucketableStringValue(uValue interface{}) (string, bool) {
+	if s, ok := uValue.(string); ok {
+		return s, true
+	}
+	if i, ok := uValue.(int); ok {
+		return strconv.Itoa(i), true
+	}
+	return "", false
+}
+
 type EvalResult struct {
 	Value                     interface{}
+	Variation                 *int
 	Explanation               *Explanation
 	PrerequisiteRequestEvents []FeatureRequestEvent //to be sent to LD
+}
+
+func (f FeatureFlag) Evaluate(user User, store FeatureStore) (interface{}, *int, []FeatureRequestEvent) {
+	var prereqEvents []FeatureRequestEvent
+	if f.On {
+		evalResult, err := f.EvaluateExplain(user, store)
+		prereqEvents = evalResult.PrerequisiteRequestEvents
+
+		if err != nil {
+			return nil, nil, prereqEvents
+		}
+
+		if evalResult.Value != nil {
+			return evalResult.Value, evalResult.Variation, prereqEvents
+		}
+		// If the value is nil, but the error is not, fall through and use the off variation
+	}
+
+	if f.OffVariation != nil && *f.OffVariation < len(f.Variations) {
+		value := f.Variations[*f.OffVariation]
+		return value, f.OffVariation, prereqEvents
+	}
+	return nil, nil, prereqEvents
 }
 
 func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult, error) {
@@ -144,16 +180,17 @@ func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult
 		return nil, nil
 	}
 	events := make([]FeatureRequestEvent, 0)
-	value, explanation, err := f.evaluateExplain(user, store, &events)
+	value, index, explanation, err := f.evaluateExplain(user, store, &events)
 
 	return &EvalResult{
 		Value:                     value,
+		Variation:                 index,
 		Explanation:               explanation,
 		PrerequisiteRequestEvents: events,
 	}, err
 }
 
-func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]FeatureRequestEvent) (interface{}, *Explanation, error) {
+func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]FeatureRequestEvent) (interface{}, *int, *Explanation, error) {
 	var failedPrereq *Prerequisite
 	for _, prereq := range f.Prerequisites {
 		data, err := store.Get(Features, prereq.Key)
@@ -163,12 +200,12 @@ func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]Fe
 		}
 		prereqFeatureFlag, _ := data.(*FeatureFlag)
 		if prereqFeatureFlag.On {
-			prereqValue, _, err := prereqFeatureFlag.evaluateExplain(user, store, events)
+			prereqValue, prereqIndex, _, err := prereqFeatureFlag.evaluateExplain(user, store, events)
 			if err != nil {
 				failedPrereq = &prereq
 			}
 
-			*events = append(*events, NewFeatureRequestEvent(prereq.Key, user, prereqValue, nil, &prereqFeatureFlag.Version, &f.Key))
+			*events = append(*events, NewFeatureRequestEvent(prereq.Key, prereqFeatureFlag, user, prereqIndex, prereqValue, nil, &f.Key))
 			variation, verr := prereqFeatureFlag.getVariation(&prereq.Variation)
 			if prereqValue == nil || verr != nil || prereqValue != variation {
 				failedPrereq = &prereq
@@ -184,16 +221,16 @@ func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]Fe
 			Prerequisite: failedPrereq,
 		} //return the last prereq to fail
 
-		return nil, &explanation, nil
+		return nil, nil, &explanation, nil
 	}
 
 	index, explanation := f.evaluateExplainIndex(store, user)
 	variation, verr := f.getVariation(index)
 
 	if verr != nil {
-		return nil, explanation, verr
+		return nil, index, explanation, verr
 	}
-	return variation, explanation, nil
+	return variation, index, explanation, nil
 }
 
 func (f FeatureFlag) getVariation(index *int) (interface{}, error) {
@@ -282,8 +319,9 @@ func (c Clause) matchesUser(store FeatureStore, user User) bool {
 	if c.Op == OperatorSegmentMatch {
 		for _, value := range c.Values {
 			if vStr, ok := value.(string); ok {
-				// TODO do something with the segment lookup error
 				data, _ := store.Get(Segments, vStr)
+				// If segment is not found or the store got an error, data will be nil and we'll just fall through
+				// the next block. Unfortunately we have no access to a logger here so this failure is silent.
 				if segment, ok := data.(*Segment); ok {
 					if matches, _ := segment.ContainsUser(user); matches {
 						return c.maybeNegate(true)

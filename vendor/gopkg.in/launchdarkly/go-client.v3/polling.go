@@ -75,11 +75,12 @@ func (pp *pollingProcessor) poll() error {
 	return nil
 }
 
-func (pp *pollingProcessor) Close() {
+func (pp *pollingProcessor) Close() error {
 	pp.closeOnce.Do(func() {
 		pp.config.Logger.Printf("Closing Polling Processor")
 		close(pp.quit)
 	})
+	return nil
 }
 
 func (pp *pollingProcessor) Initialized() bool {
