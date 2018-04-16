@@ -163,8 +163,9 @@ var dataKindApiName = map[ld.VersionedDataKind]string{
 }
 
 type flagsPutEvent map[string]ld.VersionedData
-type allPutEvent map[string]map[string]ld.VersionedData
-
+type allPutEvent struct {
+	D map[string]map[string]ld.VersionedData `json:"data"`
+}
 type deleteEvent struct {
 	Path    string `json:"path"`
 	Version int    `json:"version"`
@@ -286,7 +287,7 @@ func makePutEvent(flags map[string]ld.VersionedData, segments map[string]ld.Vers
 	for key, seg := range segments {
 		allData["segments"][key] = seg
 	}
-	return allPutEvent(allData)
+	return allPutEvent{D: allData}
 }
 
 func makeFlagsPutEvent(flags map[string]ld.VersionedData) es.Event {
