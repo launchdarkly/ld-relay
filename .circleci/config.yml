@@ -44,15 +44,15 @@ jobs:
       - run: docker cp builder:/go/src/github.com/launchdarkly/ld-relay/ldr .
       - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
 
-      - run: mkdir -p /artifacts
+      - run: mkdir -p /go/src/gopkg.in/launchdarkly/ld-relay/artifacts
       - run:
           name: generate all binaries
           command: ./scripts/package.sh
           environment:
-            CIRCLE_ARTIFACTS: /artifacts
+            CIRCLE_ARTIFACTS: /go/src/gopkg.in/launchdarkly/ld-relay/artifacts
 
       - store_artifacts:
-          path: /artifacts
+          path: /go/src/gopkg.in/launchdarkly/ld-relay/artifacts
       
       - deploy:
           name: Push docker image
