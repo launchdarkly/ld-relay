@@ -4,14 +4,14 @@ package ldclient
 // LaunchDarkly.
 
 // Serializable form of a feature request event. This differs from the event that was
-// passed in to us in that it has a user key instead of a user object, and it only shows
-// the flag value, not the variation index.
+// passed in to us in that it usually has a user key instead of a user object.
 type featureRequestEventOutput struct {
 	Kind         string      `json:"kind"`
 	CreationDate uint64      `json:"creationDate"`
 	Key          string      `json:"key"`
 	UserKey      *string     `json:"userKey,omitempty"`
 	User         *User       `json:"user,omitempty"`
+	Variation    *int        `json:"variation,omitempty"`
 	Value        interface{} `json:"value"`
 	Default      interface{} `json:"default"`
 	Version      *int        `json:"version,omitempty"`
@@ -53,6 +53,19 @@ type summaryEventOutput struct {
 	Features  map[string]flagSummaryData `json:"features"`
 }
 
+type flagSummaryData struct {
+	Default  interface{}       `json:"default"`
+	Counters []flagCounterData `json:"counters"`
+}
+
+type flagCounterData struct {
+	Value     interface{} `json:"value"`
+	Variation *int        `json:"variation,omitempty"`
+	Version   *int        `json:"version,omitempty"`
+	Count     int         `json:"count"`
+	Unknown   *bool       `json:"unknown,omitempty"`
+}
+
 const (
 	FeatureRequestEventKind = "feature"
 	FeatureDebugEventKind   = "debug"
@@ -87,6 +100,7 @@ func (ef eventOutputFormatter) makeOutputEvent(evt interface{}) interface{} {
 		fe := featureRequestEventOutput{
 			CreationDate: evt.BaseEvent.CreationDate,
 			Key:          evt.Key,
+			Variation:    evt.Variation,
 			Value:        evt.Value,
 			Default:      evt.Default,
 			Version:      evt.Version,
@@ -149,6 +163,10 @@ func (ef eventOutputFormatter) makeSummaryEvent(snapshot eventSummary) summaryEv
 		data := flagCounterData{
 			Value: value.flagValue,
 			Count: value.count,
+		}
+		if key.variation != nilVariation {
+			v := key.variation
+			data.Variation = &v
 		}
 		if key.version == 0 {
 			unknown := true

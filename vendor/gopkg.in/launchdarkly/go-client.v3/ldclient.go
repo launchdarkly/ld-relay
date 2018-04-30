@@ -381,10 +381,7 @@ func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) 
 }
 
 func (client *LDClient) evaluateInternal(key string, user User, defaultVal interface{}) (interface{}, *int, *FeatureFlag, error) {
-	if user.Key == nil {
-		return defaultVal, nil, nil, fmt.Errorf("User.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
-	}
-	if *user.Key == "" {
+	if user.Key != nil && *user.Key == "" {
 		client.config.Logger.Printf("WARN: User.Key is blank when evaluating flag: %s. Flag evaluation will proceed, but the user will not be stored in LaunchDarkly.", key)
 	}
 
@@ -414,6 +411,10 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 		}
 	} else {
 		return defaultVal, nil, nil, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
+	}
+
+	if user.Key == nil {
+		return defaultVal, nil, feature, fmt.Errorf("User.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
 	}
 
 	result, index, prereqEvents := client.evalFlag(*feature, user)

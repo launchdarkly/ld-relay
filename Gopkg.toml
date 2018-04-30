@@ -42,7 +42,7 @@
   name = "github.com/launchdarkly/gcfg"
 
 [[constraint]]
-  branch = "eb/ldrelay-events"
+  branch = "v3-summary-events"
   name = "gopkg.in/launchdarkly/go-client.v3"
   source = "git@github.com:launchdarkly/go-client-private.git"
 
