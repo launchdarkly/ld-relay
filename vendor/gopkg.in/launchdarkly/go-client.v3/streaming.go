@@ -190,7 +190,7 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 	for {
 		req, _ := http.NewRequest("GET", sp.config.StreamUri+"/all", nil)
 		req.Header.Add("Authorization", sp.sdkKey)
-		req.Header.Add("User-Agent", "GoClient/"+Version)
+		req.Header.Add("User-Agent", sp.config.UserAgent)
 		sp.config.Logger.Printf("Connecting to LaunchDarkly stream using URL: %s", req.URL.String())
 
 		if stream, err := es.SubscribeWithRequest("", req); err != nil {
@@ -228,11 +228,12 @@ func (sp *streamProcessor) checkUnauthorized(err error) bool {
 	return false
 }
 
-func (sp *streamProcessor) Close() {
+func (sp *streamProcessor) Close() error {
 	sp.closeOnce.Do(func() {
 		sp.config.Logger.Printf("Closing event stream.")
 		// TODO: enable this when we trust stream.Close() never to panic (see https://github.com/donovanhide/eventsource/pull/33)
 		// sp.stream.Close()
 		close(sp.halt)
 	})
+	return nil
 }

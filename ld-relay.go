@@ -202,7 +202,7 @@ func main() {
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(envConfig.ApiKey, c)
+					eventHandler := newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
 					eventHandlers[envConfig.ApiKey] = eventHandler
 				}
 			}
