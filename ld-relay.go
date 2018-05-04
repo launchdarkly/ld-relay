@@ -64,6 +64,7 @@ type Config struct {
 		FlushIntervalSecs int
 		SamplingInterval  int32
 		Capacity          int
+		InlineUsers       bool
 	}
 	Redis struct {
 		Host     string

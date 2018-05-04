@@ -172,8 +172,9 @@ LDR can also be used to forward events to `events.launchdarkly.com`. When enable
         flushIntervalSecs = 5
         samplingInterval = 0
         capacity = 10000
+        inlineUsers = false
 
-This configuration will buffer events for all environments specified in the configuration file. The events will be flushed every `flushIntervalSecs`. To point our SDKs to the relay for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance (or preferably, the host and port of a load balancer fronting your relay instances).
+This configuration will buffer events for all environments specified in the configuration file. The events will be flushed every `flushIntervalSecs`. To point our SDKs to the relay for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance (or preferably, the host and port of a load balancer fronting your relay instances). Setting `inlineUsers` to `true` preserves full user details in every event (the default is to send them only once per user in an `"index"` event).
 
 Performance, scaling, and operations
 ------------
