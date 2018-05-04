@@ -66,12 +66,14 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		payloadVersion, _ := strconv.Atoi(req.Header.Get(eventSchemaHeader))
-		switch payloadVersion {
-		case summaryEventsSchemaVersion:
+		if payloadVersion == 0 {
+			payloadVersion = 1
+		}
+		if payloadVersion >= summaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(evts)
-		default:
-			r.getSummarizingRelay().enqueue(evts)
+		} else {
+			r.getSummarizingRelay().enqueue(evts, payloadVersion)
 		}
 	}()
 }
@@ -142,8 +144,8 @@ func (er *eventVerbatimRelay) flush() {
 	}
 
 	events := er.queue
-	er.mu.Unlock()
 	er.queue = make([]json.RawMessage, 0)
+	er.mu.Unlock()
 
 	payload, _ := json.Marshal(events)
 

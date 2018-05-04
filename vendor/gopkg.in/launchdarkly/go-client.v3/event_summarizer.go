@@ -20,22 +20,14 @@ type counterKey struct {
 	version   int
 }
 
+const (
+	nilVariation = -1
+)
+
 type counterValue struct {
 	count       int
 	flagValue   interface{}
 	flagDefault interface{}
-}
-
-type flagSummaryData struct {
-	Default  interface{}       `json:"default"`
-	Counters []flagCounterData `json:"counters"`
-}
-
-type flagCounterData struct {
-	Value   interface{} `json:"value"`
-	Version *int        `json:"version,omitempty"`
-	Count   int         `json:"count"`
-	Unknown *bool       `json:"unknown,omitempty"`
 }
 
 func newEventSummarizer() eventSummarizer {
@@ -59,6 +51,8 @@ func (s *eventSummarizer) summarizeEvent(evt Event) {
 	key := counterKey{key: fe.Key}
 	if fe.Variation != nil {
 		key.variation = *fe.Variation
+	} else {
+		key.variation = nilVariation
 	}
 	if fe.Version != nil {
 		key.version = *fe.Version
