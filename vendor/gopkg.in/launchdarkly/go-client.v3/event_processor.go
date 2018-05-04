@@ -80,7 +80,7 @@ type syncEventsMessage struct {
 const (
 	maxFlushWorkers    = 5
 	eventSchemaHeader  = "X-LaunchDarkly-Event-Schema"
-	currentEventSchema = "2"
+	currentEventSchema = "3"
 )
 
 func newNullEventProcessor() *nullEventProcessor {
@@ -401,29 +401,40 @@ func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
 		return nil
 	}
 
-	req, reqErr := http.NewRequest("POST", t.eventsURI, bytes.NewReader(jsonPayload))
-	if reqErr != nil {
-		t.logger.Printf("Unexpected error while creating event request: %+v", reqErr)
-		return nil
-	}
+	var resp *http.Response
+	var respErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			t.logger.Printf("Will retry posting events after 1 second")
+			time.Sleep(1 * time.Second)
+		}
+		req, reqErr := http.NewRequest("POST", t.eventsURI, bytes.NewReader(jsonPayload))
+		if reqErr != nil {
+			t.logger.Printf("Unexpected error while creating event request: %+v", reqErr)
+			return nil
+		}
 
-	req.Header.Add("Authorization", t.sdkKey)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("User-Agent", t.userAgent)
-	req.Header.Add(eventSchemaHeader, currentEventSchema)
+		req.Header.Add("Authorization", t.sdkKey)
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("User-Agent", t.userAgent)
+		req.Header.Add(eventSchemaHeader, currentEventSchema)
 
-	resp, respErr := t.client.Do(req)
+		resp, respErr = t.client.Do(req)
 
-	defer func() {
 		if resp != nil && resp.Body != nil {
 			ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
 		}
-	}()
 
-	if respErr != nil {
-		t.logger.Printf("Unexpected error while sending events: %+v", respErr)
-		return nil
+		if respErr != nil {
+			t.logger.Printf("Unexpected error while sending events: %+v", respErr)
+			continue
+		} else if resp.StatusCode >= 500 {
+			t.logger.Printf("Received error status %d when sending events", resp.StatusCode)
+			continue
+		} else {
+			break
+		}
 	}
 	return resp
 }
