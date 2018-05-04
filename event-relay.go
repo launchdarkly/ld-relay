@@ -144,8 +144,8 @@ func (er *eventVerbatimRelay) flush() {
 	}
 
 	events := er.queue
-	er.mu.Unlock()
 	er.queue = make([]json.RawMessage, 0)
+	er.mu.Unlock()
 
 	payload, _ := json.Marshal(events)
 
