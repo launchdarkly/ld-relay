@@ -17,6 +17,7 @@ func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.Feat
 	ldConfig := ld.DefaultConfig
 	ldConfig.EventsUri = config.Events.EventsUri
 	ldConfig.Capacity = config.Events.Capacity
+	ldConfig.InlineUsersInEvents = config.Events.InlineUsers
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
