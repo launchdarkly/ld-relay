@@ -19,3 +19,10 @@ type VersionedDataKind interface {
 	// Return a value of this object type with the specified key and version, and Deleted=true.
 	MakeDeletedItem(key string, version int) VersionedData
 }
+
+// A list of supported VersionedDataKind's. Among other things, this list might
+// be used by feature stores to know what data (namespaces) to expect.
+var VersionedDataKinds = [...]VersionedDataKind{
+	Features,
+	Segments,
+}

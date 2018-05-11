@@ -21,8 +21,8 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "gopkg.in/launchdarkly/go-client.v3"
-	ldr "gopkg.in/launchdarkly/go-client.v3/redis"
+	ld "gopkg.in/launchdarkly/go-client.v4"
+	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 )
 
 const (

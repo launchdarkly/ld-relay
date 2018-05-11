@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	ld "gopkg.in/launchdarkly/go-client.v3"
+	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
 type FakeLDClient struct {

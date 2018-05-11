@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	ld "gopkg.in/launchdarkly/go-client.v3"
+	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
 type eventVerbatimRelay struct {

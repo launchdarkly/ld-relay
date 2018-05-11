@@ -12,7 +12,7 @@ import (
 	r "github.com/garyburd/redigo/redis"
 	"github.com/patrickmn/go-cache"
 
-	ld "gopkg.in/launchdarkly/go-client.v3"
+	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
 // A Redis-backed feature store.
