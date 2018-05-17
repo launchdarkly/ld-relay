@@ -90,16 +90,25 @@ type ldClientContext interface {
 	Initialized() bool
 }
 
+type clientHandlers struct {
+	flagsStreamHandler http.Handler
+	allStreamHandler   http.Handler
+	pingStreamHandler  http.Handler
+	eventsHandler      http.Handler
+}
+
 type clientContext interface {
 	getClient() ldClientContext
 	getStore() ld.FeatureStore
 	getLogger() ld.Logger
+	getHandlers() clientHandlers
 }
 
 type clientContextImpl struct {
-	client ldClientContext
-	store  ld.FeatureStore
-	logger ld.Logger
+	client   ldClientContext
+	store    ld.FeatureStore
+	logger   ld.Logger
+	handlers clientHandlers
 }
 
 type EvalXResult struct {
@@ -120,6 +129,10 @@ func (c *clientContextImpl) getStore() ld.FeatureStore {
 
 func (c *clientContextImpl) getLogger() ld.Logger {
 	return c.logger
+}
+
+func (c *clientContextImpl) getHandlers() clientHandlers {
+	return c.handlers
 }
 
 func main() {
@@ -164,14 +177,14 @@ func main() {
 	flagsPublisher.Gzip = false
 	flagsPublisher.AllowCORS = true
 	flagsPublisher.ReplayAll = true
+	pingPublisher := eventsource.NewServer()
+	pingPublisher.Gzip = false
+	pingPublisher.AllowCORS = true
+	pingPublisher.ReplayAll = true
 
 	clients := map[string]clientContext{}
 	mobileClients := map[string]clientContext{}
 	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*ClientSideContext{}}
-
-	allStreamHandlers := map[string]http.Handler{}
-	flagsStreamHandlers := map[string]http.Handler{}
-	eventHandlers := map[string]http.Handler{}
 
 	for _, envConfig := range c.Environment {
 		clients[envConfig.ApiKey] = nil
@@ -191,7 +204,7 @@ func main() {
 
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
 			clientConfig.Logger = logger
@@ -202,6 +215,11 @@ func main() {
 				client: client,
 				store:  baseFeatureStore,
 				logger: logger,
+				handlers: clientHandlers{
+					allStreamHandler:   allPublisher.Handler(envConfig.ApiKey),
+					flagsStreamHandler: flagsPublisher.Handler(envConfig.ApiKey),
+					pingStreamHandler:  pingPublisher.Handler(envConfig.ApiKey),
+				},
 			}
 
 			clients[envConfig.ApiKey] = clientContext
@@ -229,33 +247,19 @@ func main() {
 				} else {
 					Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 				}
-				// create a handler from the publisher for this environment
-				allHandler := allPublisher.Handler(envConfig.ApiKey)
-				flagsHandler := flagsPublisher.Handler(envConfig.ApiKey)
-				allStreamHandlers[envConfig.ApiKey] = allHandler
-				flagsStreamHandlers[envConfig.ApiKey] = flagsHandler
 
 				if c.Events.SendEvents {
 					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
-					eventHandlers[envConfig.ApiKey] = eventHandler
+					clientContext.handlers.eventsHandler = newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
 				}
 			}
 		}(envName, *envConfig)
 	}
 
-	router := mux.NewRouter()
-
-	bulkEventHandler := SdkHandlerMux{handlersByKey: eventHandlers}
-	allStreamHandler := SdkHandlerMux{handlersByKey: allStreamHandlers}
-	flagsStreamHandler := SdkHandlerMux{handlersByKey: flagsStreamHandlers}
-
 	sdkClientMux := ClientMux{clientContextByKey: clients}
 	mobileClientMux := ClientMux{clientContextByKey: mobileClients}
 
-	router.Handle("/bulk", bulkEventHandler).Methods("POST")
-	router.Handle("/all", allStreamHandler).Methods("GET")
-	router.Handle("/flags", flagsStreamHandler).Methods("GET")
+	router := mux.NewRouter()
 	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
 
 	serverSideSdkRouter := router.PathPrefix("/sdk").Subrouter()
@@ -271,21 +275,20 @@ func main() {
 
 	// Client-side evaluation
 	clientSideSdkRouter := router.PathPrefix("/sdk").Subrouter()
-	clientSideSdkRouter.Use(corsMiddleware)
+	clientSideSdkRouter.Use(corsMiddleware, clientSideMux.selectClientByUrlParam)
 
-	clientSideEvalRouter := clientSideSdkRouter.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideEvalRouter.Use(clientSideMux.selectClientByUrlParam)
-	clientSideEvalRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
-	clientSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
-	clientSideEvalRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
-	clientSideEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+	clientSideSdkEvalRouter := clientSideSdkRouter.PathPrefix("/eval/{envId}").Subrouter()
+	clientSideSdkEvalRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	clientSideSdkEvalRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
 
-	clientSideEvalXRouter := clientSideSdkRouter.PathPrefix("/evalx/{envId}").Subrouter()
-	clientSideEvalXRouter.Use(clientSideMux.selectClientByUrlParam)
-	clientSideEvalXRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
-	clientSideEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
-	clientSideEvalXRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
-	clientSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+	clientSideSdkEvalXRouter := clientSideSdkRouter.PathPrefix("/evalx/{envId}").Subrouter()
+	clientSideSdkEvalXRouter.Use(clientSideMux.selectClientByUrlParam)
+	clientSideSdkEvalXRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	clientSideSdkEvalXRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
 	goalsRouter := clientSideSdkRouter.PathPrefix("/goals/{envId}").Subrouter()
 	goalsRouter.Use(clientSideMux.selectClientByUrlParam)
@@ -304,6 +307,24 @@ func main() {
 	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
 	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
 
+	router.Handle("/mping", mobileClientMux.selectClientByAuthorizationKey(http.HandlerFunc(pingStreamHandler))).Methods("GET")
+
+	router.Handle("/ping/{envId}", clientSideMux.selectClientByUrlParam(http.HandlerFunc(pingStreamHandler))).Methods("GET")
+
+	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
+	clientSideStreamEvalRouter.Use(clientSideMux.selectClientByUrlParam)
+	// For now we implement eval as simply ping
+	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET")
+	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT")
+
+	// TODO: add mobile/client-side events proxy endpoint
+
+	serverSideRouter := router.PathPrefix("").Subrouter()
+	serverSideRouter.Use(sdkClientMux.selectClientByAuthorizationKey)
+	serverSideRouter.HandleFunc("/all", allStreamHandler).Methods("GET")
+	serverSideRouter.HandleFunc("/flags", flagsStreamHandler).Methods("GET")
+	serverSideRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
+
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
 	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), router)
@@ -317,10 +338,6 @@ func main() {
 
 type ClientMux struct {
 	clientContextByKey map[string]clientContext
-}
-
-type SdkHandlerMux struct {
-	handlersByKey map[string]http.Handler
 }
 
 func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
@@ -373,24 +390,6 @@ func (m ClientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 	})
 }
 
-func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	authKey, err := fetchAuthToken(req)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	handler := m.handlersByKey[authKey]
-
-	if handler == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("ld-relay is not configured for the provided key"))
-		return
-	}
-
-	handler.ServeHTTP(w, req)
-}
-
 func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
 	evaluateAllShared(w, req, true)
 }
@@ -422,7 +421,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 		return
 	}
 
-	clientCtx := req.Context().Value("context").(clientContext)
+	clientCtx := getClientContext(req)
 	client := clientCtx.getClient()
 	store := clientCtx.getStore()
 	logger := clientCtx.getLogger()
@@ -478,6 +477,26 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
+}
+
+func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+}
+
+func allStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+}
+
+func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+}
+
+func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {
@@ -578,4 +597,8 @@ func last5(str string) string {
 		return str[len(str)-5:]
 	}
 	return str
+}
+
+func getClientContext(req *http.Request) clientContext {
+	return req.Context().Value("context").(clientContext)
 }
