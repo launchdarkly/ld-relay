@@ -327,10 +327,21 @@ func main() {
 	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET")
 	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT")
 
-	mobileEventsRouter := router.PathPrefix("/mobile/events").Subrouter()
+	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileClientMux.selectClientByAuthorizationKey)
-	mobileEventsRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("/events", bulkEventHandler).Methods("POST")
 	mobileEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST")
+
+	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
+	clientSideBulkEventsRouter.Use(clientSideMux.selectClientByUrlParam, corsMiddleware)
+	clientSideBulkEventsRouter.Handle("", clientSideMux.selectClientByUrlParam(http.HandlerFunc(bulkEventHandler))).Methods("POST")
+	clientSideBulkEventsRouter.Handle("", allowMethodOptionsHandler("POST")).Methods("OPTIONS")
+
+	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
+	clientSideImageEventsRouter.Use(clientSideMux.selectClientByUrlParam, corsMiddleware)
+	clientSideImageEventsRouter.Handle("", clientSideMux.selectClientByUrlParam(http.HandlerFunc(getEventsImage))).Methods("GET")
+	clientSideImageEventsRouter.Handle("", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(sdkClientMux.selectClientByAuthorizationKey)
@@ -422,7 +433,6 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 		}
 
 		body, _ := ioutil.ReadAll(req.Body)
-		defer req.Body.Close()
 		userDecodeErr = json.Unmarshal(body, &user)
 	} else {
 		base64User := mux.Vars(req)["user"]

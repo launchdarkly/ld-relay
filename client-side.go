@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"io/ioutil"
 	"net/http"
+	"net/http/httptest"
 
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
@@ -55,8 +58,6 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", res.Header["Content-Type"][0])
 
-	defer res.Body.Close()
-
 	w.WriteHeader(res.StatusCode)
 	bodyBytes, _ := ioutil.ReadAll(res.Body)
 	w.Write(bodyBytes)
@@ -100,5 +101,39 @@ func setCorsHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", "300")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, REPORT")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-LaunchDarkly-User-Agent")
+	w.Header().Set("Access-Control-Expose-Headers", "Date")
+}
+
+const transparent1PixelImgBase64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7="
+
+var transparent1PixelImg []byte
+
+func init() {
+	transparent1PixelImg, _ = base64.StdEncoding.DecodeString(transparent1PixelImgBase64)
+}
+
+func getEventsImage(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+
+	if clientCtx.getHandlers().eventsHandler == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write(ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		return
+	}
+
+	d := req.URL.Query().Get("d")
+	if d != "" {
+		go func() {
+			nullW := httptest.NewRecorder()
+			events, _ := base64.StdEncoding.DecodeString(d)
+			eventsReq, _ := http.NewRequest("POST", "", bytes.NewBuffer(events))
+			eventsReq.Header.Add("Content-Type", "application/json")
+			eventsReq.Header.Add("X-LaunchDarkly-User-Agent", eventsReq.Header.Get("X-LaunchDarkly-User-Agent"))
+			clientCtx.getHandlers().eventsHandler.ServeHTTP(nullW, eventsReq)
+		}()
+	}
+
+	w.Header().Set("Content-Type", "image/gif")
+	w.Write(transparent1PixelImg)
 }

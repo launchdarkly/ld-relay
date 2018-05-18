@@ -53,7 +53,6 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	var evts []json.RawMessage
 
-	defer req.Body.Close()
 	go func() {
 		if err := recover(); err != nil {
 			Error.Printf("Unexpected panic in event relay : %+v", err)
@@ -76,6 +75,8 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			r.getSummarizingRelay().enqueue(evts, payloadVersion)
 		}
 	}()
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {

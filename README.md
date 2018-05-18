@@ -71,23 +71,26 @@ The table below describes the endpoints proxied by the LD relay.  In this table:
 * *user* is the base64 representation of a user JSON object (e.g. `*"key": "user1"*` => `eyJrZXkiOiAidXNlcjEifQ==`).
 * *clientId* is the 32-hexdigit Client-side ID (e.g. `6488674dc2ea1d6673731ba2`)
 
-Endpoint                           | Method  | Auth Header | Description 
------------------                  |:-------:|:-----------:| -----------
-/sdk/eval/*clientId*/users/*user*  | GET     | n/a         | Returns flag evaluation results for a user
-/sdk/eval/*clientId*/users         | REPORT  | n/a         | Same as above but request body is user json object
-/sdk/evalx/*clientId*/users/*user* | GET     | n/a         | Returns flag evaluation results and additional metadata
-/sdk/evalx/*clientId*/users        | REPORT  | n/a         | Same as above but request body is user json object
-/sdk/goals/*clientId*              | GET     | n/a         | For JS and other client-side SDKs 
-/mobile/events                     | POST    | mobile      | For receiving events from mobile SDKs
-/mobile/events/bulk                | POST    | mobile      | Same as above
-/api/events/bulk                   | POST    | sdk         | For receiving events from server-side SDKs
-/all                               | GET     | sdk         | SSE stream for all data
-/flags                             | GET     | sdk         | Legacy SSE stream for flag data
-/ping                              | GET     | sdk         | SSE endpoint that issues "ping" events when there are flag data updates
-/ping/*clientId*                   | GET     | n/a         | Same as above but with JS and client-side authorization.
-/mping                             | GET     | mobile      | SSE endpoint that issues "ping" events when flags should be re-evaluated
-/eval/*clientId*/*user*            | GET     | n/a         | SSE stream of "ping" and other events for JS and other client-side SDK listeners
-/eval/*clientId*                   | REPORT  | n/a         | Same as above but request body is user json object
+Endpoint                           | Method        | Auth Header | Description 
+-----------------                  |:-------------:|:-----------:| -----------
+/sdk/eval/*clientId*/users/*user*  | GET           | n/a         | Returns flag evaluation results for a user
+/sdk/eval/*clientId*/users         | REPORT        | n/a         | Same as above but request body is user json object
+/sdk/evalx/*clientId*/users/*user* | GET           | n/a         | Returns flag evaluation results and additional metadata
+/sdk/evalx/*clientId*/users        | REPORT        | n/a         | Same as above but request body is user json object
+/sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs 
+/mobile/events                     | POST          | mobile      | For receiving events from mobile SDKs
+/mobile/events/bulk                | POST          | mobile      | Same as above
+/mobile                            | POST          | mobile      | Same as above
+/bulk                              | POST          | sdk         | For receiving events from server-side SDKs
+/events/bulk/*clientId*            | POST, OPTIONS | n/a         | For receiving events from JS and other client-side SDKs
+/a/*clientId*.gif?d=*events*       | GET, OPTIONS  | n/a         | Same as above
+/all                               | GET           | sdk         | SSE stream for all data
+/flags                             | GET           | sdk         | Legacy SSE stream for flag data
+/ping                              | GET           | sdk         | SSE endpoint that issues "ping" events when there are flag data updates
+/ping/*clientId*                   | GET           | n/a         | Same as above but with JS and client-side authorization.
+/mping                             | GET           | mobile      | SSE endpoint that issues "ping" events when flags should be re-evaluated
+/eval/*clientId*/*user*            | GET           | n/a         | SSE stream of "ping" and other events for JS and other client-side SDK listeners
+/eval/*clientId*                   | REPORT        | n/a         | Same as above but request body is user json object
 
 Mobile and client-side flag evaluation
 ----------------
