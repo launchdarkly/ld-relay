@@ -327,7 +327,7 @@ func main() {
 	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET")
 	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT")
 
-	// TODO: add mobile/client-side events proxy endpoint
+	router.Handle("/mobile", mobileClientMux.selectClientByAuthorizationKey(http.HandlerFunc(bulkEventHandler))).Methods("POST")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(sdkClientMux.selectClientByAuthorizationKey)
