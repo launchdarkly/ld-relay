@@ -78,11 +78,12 @@ Endpoint                           | Method  | Auth Header | Description
 /sdk/evalx/*clientId*/users/*user* | GET     | n/a         | Returns flag evaluation results and additional metadata
 /sdk/evalx/*clientId*/users        | REPORT  | n/a         | Same as above but request body is user json object
 /sdk/goals/*clientId*              | GET     | n/a         | For JS and other client-side SDKs 
-/mobile                            | POST    | mobile      | For receiving events from mobile SDKs
+/mobile/events                     | POST    | mobile      | For receiving events from mobile SDKs
+/mobile/events/bulk                | POST    | mobile      | Same as above
 /api/events/bulk                   | POST    | sdk         | For receiving events from server-side SDKs
 /all                               | GET     | sdk         | SSE stream for all data
 /flags                             | GET     | sdk         | Legacy SSE stream for flag data
-/ping                              | GET     | sdk         | SSE endpoint that issues "ping" events when there are flag data updates.
+/ping                              | GET     | sdk         | SSE endpoint that issues "ping" events when there are flag data updates
 /ping/*clientId*                   | GET     | n/a         | Same as above but with JS and client-side authorization.
 /mping                             | GET     | mobile      | SSE endpoint that issues "ping" events when flags should be re-evaluated
 /eval/*clientId*/*user*            | GET     | n/a         | SSE stream of "ping" and other events for JS and other client-side SDK listeners

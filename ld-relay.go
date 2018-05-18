@@ -327,7 +327,10 @@ func main() {
 	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET")
 	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT")
 
-	router.Handle("/mobile", mobileClientMux.selectClientByAuthorizationKey(http.HandlerFunc(bulkEventHandler))).Methods("POST")
+	mobileEventsRouter := router.PathPrefix("/mobile/events").Subrouter()
+	mobileEventsRouter.Use(mobileClientMux.selectClientByAuthorizationKey)
+	mobileEventsRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(sdkClientMux.selectClientByAuthorizationKey)
