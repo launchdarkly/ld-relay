@@ -82,20 +82,44 @@ type ErrorJson struct {
 	Message string `json:"message"`
 }
 
-type FlagReader interface {
-	AllFlags(user ld.User) map[string]interface{}
+type corsContext interface {
+	AllowedOrigins() []string
 }
 
-type ClientContext interface {
-	getClient() FlagReader
+type ldClientContext interface {
+	Initialized() bool
+}
+
+type clientContext interface {
+	getClient() ldClientContext
+	getStore() ld.FeatureStore
+	getLogger() ld.Logger
 }
 
 type clientContextImpl struct {
-	client FlagReader
+	client ldClientContext
+	store  ld.FeatureStore
+	logger ld.Logger
 }
 
-func (c clientContextImpl) getClient() FlagReader {
+type EvalXResult struct {
+	Value                interface{} `json:"value"`
+	Variation            *int        `json:"variation,omitempty"`
+	Version              int         `json:"version"`
+	DebugEventsUntilDate *uint64     `json:"debugEventsUntilDate,omitempty"`
+	TrackEvents          bool        `json:"trackEvents"`
+}
+
+func (c *clientContextImpl) getClient() ldClientContext {
 	return c.client
+}
+
+func (c *clientContextImpl) getStore() ld.FeatureStore {
+	return c.store
+}
+
+func (c *clientContextImpl) getLogger() ld.Logger {
+	return c.logger
 }
 
 func main() {
@@ -141,9 +165,9 @@ func main() {
 	flagsPublisher.AllowCORS = true
 	flagsPublisher.ReplayAll = true
 
-	clients := map[string]FlagReader{}
-	mobileClients := map[string]FlagReader{}
-	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, infoByKey: map[string]ClientSideInfo{}}
+	clients := map[string]clientContext{}
+	mobileClients := map[string]clientContext{}
+	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*ClientSideContext{}}
 
 	allStreamHandlers := map[string]http.Handler{}
 	flagsStreamHandlers := map[string]http.Handler{}
@@ -163,24 +187,34 @@ func main() {
 				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 			}
 
+			logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (ApiKey ending with %s)] ", last5(envConfig.ApiKey)), log.LstdFlags)
+
 			clientConfig := ld.DefaultConfig
 			clientConfig.Stream = true
 			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 			clientConfig.StreamUri = c.Main.StreamUri
 			clientConfig.BaseUri = c.Main.BaseUri
+			clientConfig.Logger = logger
 
 			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
 
-			clients[envConfig.ApiKey] = client
-			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
-				mobileClients[*envConfig.MobileKey] = client
+			clientContext := &clientContextImpl{
+				client: client,
+				store:  baseFeatureStore,
+				logger: logger,
 			}
+
+			clients[envConfig.ApiKey] = clientContext
+			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
+				mobileClients[*envConfig.MobileKey] = clientContext
+			}
+
 			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
 				var allowedOrigins []string
 				if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
 					allowedOrigins = *envConfig.AllowedOrigin
 				}
-				clientSideMux.infoByKey[*envConfig.EnvId] = ClientSideInfo{client: client, allowedOrigins: allowedOrigins}
+				clientSideMux.contextByKey[*envConfig.EnvId] = &ClientSideContext{clientContext: clientContext, allowedOrigins: allowedOrigins}
 			}
 
 			if err != nil && !c.Main.IgnoreConnectionErrors {
@@ -216,39 +250,59 @@ func main() {
 	allStreamHandler := SdkHandlerMux{handlersByKey: allStreamHandlers}
 	flagsStreamHandler := SdkHandlerMux{handlersByKey: flagsStreamHandlers}
 
-	sdkClientMux := ClientMux{clientsByKey: clients}
-	mobileClientMux := ClientMux{clientsByKey: mobileClients}
+	sdkClientMux := ClientMux{clientContextByKey: clients}
+	mobileClientMux := ClientMux{clientContextByKey: mobileClients}
 
 	router.Handle("/bulk", bulkEventHandler).Methods("POST")
 	router.Handle("/all", allStreamHandler).Methods("GET")
 	router.Handle("/flags", flagsStreamHandler).Methods("GET")
 	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
 
-	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
-	sdkEvalRouter.HandleFunc("/users/{user}", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/user", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
+	serverSideSdkRouter := router.PathPrefix("/sdk").Subrouter()
+	serverSideSdkRouter.Use(sdkClientMux.selectClientByAuthorizationKey)
+
+	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval").Subrouter()
+	serverSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	serverSideEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+
+	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx").Subrouter()
+	serverSideEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	serverSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
 	// Client-side evaluation
-	clientSideEvalRouter := sdkEvalRouter.PathPrefix("/{envId}").Subrouter()
-	clientSideEvalRouter.Use(clientSideMux.corsMiddleware)
+	clientSideSdkRouter := router.PathPrefix("/sdk").Subrouter()
+	clientSideSdkRouter.Use(corsMiddleware)
 
-	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
-	clientSideEvalRouter.HandleFunc("/user", clientSideMux.optionsHandler("REPORT")).Methods("OPTIONS")
+	clientSideEvalRouter := clientSideSdkRouter.PathPrefix("/eval/{envId}").Subrouter()
+	clientSideEvalRouter.Use(clientSideMux.selectClientByUrlParam)
+	clientSideEvalRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
+	clientSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	clientSideEvalRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
+	clientSideEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
 
-	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("GET")
-	clientSideEvalRouter.HandleFunc("/user", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("REPORT")
+	clientSideEvalXRouter := clientSideSdkRouter.PathPrefix("/evalx/{envId}").Subrouter()
+	clientSideEvalXRouter.Use(clientSideMux.selectClientByUrlParam)
+	clientSideEvalXRouter.Handle("/users/{user}", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
+	clientSideEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	clientSideEvalXRouter.Handle("/user", allowMethodOptionsHandler("REPORT")).Methods("OPTIONS")
+	clientSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
-	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
-	goalsRouter.Use(clientSideMux.corsMiddleware)
-
-	goalsRouter.HandleFunc("/{envId}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
-
-	goalsRouter.HandleFunc("/{envId}", clientSideMux.selectClientByUrlParam(clientSideMux.getGoals)).Methods("GET")
+	goalsRouter := clientSideSdkRouter.PathPrefix("/goals/{envId}").Subrouter()
+	goalsRouter.Use(clientSideMux.selectClientByUrlParam)
+	goalsRouter.Handle("", allowMethodOptionsHandler("GET")).Methods("OPTIONS")
+	goalsRouter.HandleFunc("", clientSideMux.getGoals).Methods("GET")
 
 	// Mobile evaluation
-	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{user}", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
+	msdkRouter := router.PathPrefix("/msdk").Subrouter()
+	msdkRouter.Use(mobileClientMux.selectClientByAuthorizationKey)
+
+	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx").Subrouter()
+	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+
+	msdkEvalRouter := msdkRouter.PathPrefix("/eval").Subrouter()
+	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
@@ -262,7 +316,7 @@ func main() {
 }
 
 type ClientMux struct {
-	clientsByKey map[string]FlagReader
+	clientContextByKey map[string]clientContext
 }
 
 type SdkHandlerMux struct {
@@ -274,18 +328,13 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	envs := make(map[string]StatusEntry)
 
 	healthy := true
-	for k, v := range m.clientsByKey {
-		if v == nil {
+	for k, clientCtx := range m.clientContextByKey {
+		client := clientCtx.getClient()
+		if client == nil || !client.Initialized() {
 			envs[k] = StatusEntry{Status: "disconnected"}
 			healthy = false
 		} else {
-			client := v.(*ld.LDClient)
-			if client.Initialized() {
-				envs[k] = StatusEntry{Status: "connected"}
-			} else {
-				envs[k] = StatusEntry{Status: "disconnected"}
-				healthy = false
-			}
+			envs[k] = StatusEntry{Status: "connected"}
 		}
 	}
 
@@ -303,26 +352,25 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m ClientMux) selectClientByAuthorizationKey(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
+func (m ClientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authKey, err := fetchAuthToken(req)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		client := m.clientsByKey[authKey]
+		clientCtx := m.clientContextByKey[authKey]
 
-		if client == nil {
+		if clientCtx == nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("ld-relay is not configured for the provided key"))
 			return
 		}
 
-		ctx := clientContextImpl{client: client}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
+		req = req.WithContext(context.WithValue(req.Context(), "context", clientCtx))
+		next.ServeHTTP(w, req)
+	})
 }
 
 func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -343,7 +391,15 @@ func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	handler.ServeHTTP(w, req)
 }
 
+func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
+	evaluateAllShared(w, req, true)
+}
+
 func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
+	evaluateAllShared(w, req, false)
+}
+
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -366,10 +422,60 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx := req.Context().Value("context")
-	client := ctx.(ClientContext).getClient()
-	result, _ := json.Marshal(client.AllFlags(*user))
+	clientCtx := req.Context().Value("context").(clientContext)
+	client := clientCtx.getClient()
+	store := clientCtx.getStore()
+	logger := clientCtx.getLogger()
+
 	w.Header().Set("Content-Type", "application/json")
+
+	if !client.Initialized() {
+		if store.Initialized() {
+			logger.Println("WARN: Called before client initialization; using last known values from feature store")
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			logger.Println("WARN: Called before client initialization. Feature store not available")
+			w.Write(ErrorJsonMsg("Service not initialized"))
+			return
+		}
+	}
+
+	if user.Key == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(ErrorJsonMsg("User must have a 'key' attribute"))
+		return
+	}
+
+	items, err := store.All(ld.Features)
+	if err != nil {
+		logger.Printf("WARN: Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
+		return
+	}
+
+	response := make(map[string]interface{}, len(items))
+	for _, item := range items {
+		if flag, ok := item.(*ld.FeatureFlag); ok {
+			value, variation, _ := flag.Evaluate(*user, store)
+			var result interface{}
+			if valueOnly {
+				result = value
+			} else {
+				result = EvalXResult{
+					Value:                value,
+					Variation:            variation,
+					Version:              flag.Version,
+					TrackEvents:          flag.TrackEvents,
+					DebugEventsUntilDate: flag.DebugEventsUntilDate,
+				}
+			}
+			response[flag.Key] = result
+		}
+	}
+
+	result, _ := json.Marshal(response)
+
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
 }
@@ -377,6 +483,10 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 func ErrorJsonMsg(msg string) (j []byte) {
 	j, _ = json.Marshal(ErrorJson{msg})
 	return
+}
+
+func ErrorJsonMsgf(fmtStr string, args ...interface{}) []byte {
+	return ErrorJsonMsg(fmt.Sprintf(fmtStr, args...))
 }
 
 // Decodes a base64-encoded go-client v2 user.
@@ -461,4 +571,11 @@ func initLogging(
 	Error = log.New(errorHandle,
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
+}
+
+func last5(str string) string {
+	if len(str) >= 5 {
+		return str[len(str)-5:]
+	}
+	return str
 }

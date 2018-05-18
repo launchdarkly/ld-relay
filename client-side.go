@@ -9,30 +9,33 @@ import (
 	"github.com/gregjones/httpcache"
 )
 
-type ClientSideInfo struct {
+type ClientSideContext struct {
 	allowedOrigins []string
-	client         FlagReader
+	clientContext
+}
+
+func (c *ClientSideContext) AllowedOrigins() []string {
+	return c.allowedOrigins
 }
 
 type ClientSideMux struct {
-	infoByKey map[string]ClientSideInfo
-	baseUri   string
+	contextByKey map[string]*ClientSideContext
+	baseUri      string
 }
 
-func (m ClientSideMux) selectClientByUrlParam(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
+func (m ClientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		envId := mux.Vars(req)["envId"]
-		envInfo := m.infoByKey[envId]
-		if envInfo.client == nil {
+		envInfo := m.contextByKey[envId]
+		if envInfo == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
 
-		ctx := clientContextImpl{client: envInfo.client}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
+		req = req.WithContext(context.WithValue(req.Context(), "context", envInfo))
+		next.ServeHTTP(w, req)
+	})
 }
 
 func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
@@ -58,49 +61,36 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.Write(bodyBytes)
 }
 
-func (m ClientSideMux) optionsHandler(method string) http.HandlerFunc {
+func allowMethodOptionsHandler(method string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", method)
 		w.WriteHeader(http.StatusOK)
 	})
 }
 
-func (m ClientSideMux) corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		envId := mux.Vars(r)["envId"]
-		domains := m.infoByKey[envId].allowedOrigins
-		corsMiddlewareByEnvAllowedDomains(domains, r).ServeHTTP(w, r)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func corsMiddlewareByEnvAllowedDomains(domains []string, r *http.Request) http.Handler {
-	if len(domains) != 0 {
-		return corsDomainsMiddleware(domains)
-	}
-	return corsHeadersMiddleware()
-}
-
-func corsHeadersMiddleware() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := defaultAllowedOrigin
-		if r.Header.Get("Origin") != "" {
-			origin = r.Header.Get("Origin")
+		var domains []string
+		if context, ok := r.Context().Value("context").(corsContext); ok {
+			domains = context.AllowedOrigins()
 		}
-		setCorsHeaders(w, origin)
-	})
-}
-
-func corsDomainsMiddleware(domains []string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for _, d := range domains {
-			if r.Header.Get("Origin") == d {
-				setCorsHeaders(w, d)
-				return
+		if len(domains) > 0 {
+			for _, d := range domains {
+				if r.Header.Get("Origin") == d {
+					setCorsHeaders(w, d)
+					return
+				}
 			}
+			// Not a valid origin, set allowed origin to any allowed origin
+			setCorsHeaders(w, domains[0])
+		} else {
+			origin := defaultAllowedOrigin
+			if r.Header.Get("Origin") != "" {
+				origin = r.Header.Get("Origin")
+			}
+			setCorsHeaders(w, origin)
 		}
-		// Not a valid origin, set allowed origin to any allowed origin
-		setCorsHeaders(w, domains[0])
+		next.ServeHTTP(w, r)
 	})
 }
 
