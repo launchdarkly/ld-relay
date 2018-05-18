@@ -33,7 +33,7 @@ const (
 	defaultEventsUri             = "https://events.launchdarkly.com/api/events"
 	defaultBaseUri               = "https://app.launchdarkly.com/"
 	defaultStreamUri             = "https://stream.launchdarkly.com/"
-	defaultHeartbeatIntervalSecs = 15
+	defaultHeartbeatIntervalSecs = 180
 )
 
 var (

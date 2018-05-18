@@ -49,6 +49,7 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	res, err := httpClient.Do(ldReq)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(ErrorJsonMsgf("Error fetching goals: %s", err))
 		return
 	}
 
