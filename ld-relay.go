@@ -26,9 +26,14 @@ import (
 )
 
 const (
-	defaultRedisLocalTtlMs = 30000
-	defaultPort            = 8030
-	defaultAllowedOrigin   = "*"
+	defaultRedisLocalTtlMs       = 30000
+	defaultPort                  = 8030
+	defaultAllowedOrigin         = "*"
+	defaultEventCapacity         = 1000
+	defaultEventsUri             = "https://events.launchdarkly.com/api/events"
+	defaultBaseUri               = "https://app.launchdarkly.com/"
+	defaultStreamUri             = "https://stream.launchdarkly.com/"
+	defaultHeartbeatIntervalSecs = 15
 )
 
 var (
@@ -144,6 +149,11 @@ func main() {
 	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	var c Config
+	c.Events.Capacity = defaultEventCapacity
+	c.Events.EventsUri = defaultEventsUri
+	c.Main.BaseUri = defaultBaseUri
+	c.Main.StreamUri = defaultStreamUri
+	c.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 
 	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
 
@@ -496,6 +506,11 @@ func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 
 func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
+	if clientCtx.getHandlers().eventsHandler == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write(ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		return
+	}
 	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
