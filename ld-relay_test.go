@@ -3,12 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
-
-	"log"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -40,8 +44,8 @@ func handler() ClientMux {
 }
 
 func clientSideHandler(allowedOrigins []string) ClientSideMux {
-	testClientSideContext := &ClientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
-	contexts := map[string]*ClientSideContext{key(): testClientSideContext}
+	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	contexts := map[string]*clientSideContext{key(): testClientSideContext}
 	return ClientSideMux{contextByKey: contexts}
 }
 
@@ -212,16 +216,6 @@ func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
 
-func TestOptionsHandlerSetsAllowHeader(t *testing.T) {
-	method := "GET"
-	req := buildRequest(method, nil, nil, "", nil)
-	resp := httptest.NewRecorder()
-	allowMethodOptionsHandler(method).ServeHTTP(resp, req)
-
-	assert.Equal(t, http.StatusOK, resp.Code)
-	assert.Equal(t, resp.Header().Get("Allow"), method)
-}
-
 func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	req := buildRequest("", nil, nil, "", nil)
 	resp := httptest.NewRecorder()
@@ -229,7 +223,6 @@ func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Methods"), "GET, REPORT")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type, Content-Length, Accept-Encoding, X-LaunchDarkly-User-Agent")
 		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
 	})).ServeHTTP(resp, req)
@@ -266,4 +259,184 @@ func TestCorsMiddlewareSetsCorrectHeadersForInvalidOrigin(t *testing.T) {
 
 	handler().selectClientByAuthorizationKey(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
 
+}
+
+type bodyMatcher func(t *testing.T, body []byte)
+
+func expectBody(expectedBody string) bodyMatcher {
+	return func(t *testing.T, body []byte) {
+		assert.EqualValues(t, expectedBody, body)
+	}
+}
+
+func expectJSONBody(expectedBody string) bodyMatcher {
+	return func(t *testing.T, body []byte) {
+		assert.JSONEq(t, expectedBody, string(body))
+	}
+}
+
+func TestRouter(t *testing.T) {
+	logger := log.New(os.Stderr, "", 0)
+	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+	mobileKey := "mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+
+	okHandler := func(body string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(body))
+			w.WriteHeader(http.StatusOK)
+		})
+	}
+
+	expectedFlagsStream := expectBody("flags")
+	expectedAllStream := expectBody("all")
+	expectedPingStream := expectBody("ping")
+	expectedEventsBody := expectBody("events")
+
+	handlers := clientHandlers{
+		flagsStreamHandler: okHandler("flags"),
+		allStreamHandler:   okHandler("all"),
+		pingStreamHandler:  okHandler("ping"),
+		eventsHandler:      okHandler("events"),
+	}
+
+	store := ld.NewInMemoryFeatureStore(logger)
+	store.Init(nil)
+	zero := 0
+	store.Upsert(ld.Features, &ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}})
+	client := clientContextImpl{client: &FakeLDClient{true}, store: store, logger: logger, handlers: handlers}
+	jsClient := clientSideContext{clientContext: &client}
+	sdkClientMux := ClientMux{clientContextByKey: map[string]clientContext{sdkKey: &client}}
+	mobileClientMux := ClientMux{clientContextByKey: map[string]clientContext{mobileKey: &client}}
+
+	envId := "507f1f77bcf86cd799439011"
+	clientSideMux := ClientSideMux{contextByKey: map[string]*clientSideContext{envId: &jsClient}}
+	user := []byte(`{"key":"me"}`)
+	base64User := base64.StdEncoding.EncodeToString([]byte(user))
+
+	r := relay{
+		sdkClientMux:    sdkClientMux,
+		mobileClientMux: mobileClientMux,
+		clientSideMux:   clientSideMux,
+	}
+	router := r.newRouter()
+
+	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
+	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
+
+	t.Run("routes", func(t *testing.T) {
+		specs := []struct {
+			name           string
+			method         string
+			path           string
+			authHeader     string
+			body           []byte
+			expectedStatus int
+			bodyMatcher    bodyMatcher
+		}{
+			{"status", "GET", "/status", "", nil, http.StatusOK, expectJSONBody(`{"environments":{"sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db":{"status":"connected"}}, "status":"healthy"}`)},
+			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedEvalBody},
+			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedEvalxBody},
+			{"flags stream", "GET", "/flags", sdkKey, nil, http.StatusOK, expectedFlagsStream},
+			{"all stream", "GET", "/all", sdkKey, nil, http.StatusOK, expectedAllStream},
+			{"events bulk", "POST", "/bulk", sdkKey, nil, http.StatusOK, expectedEventsBody},
+			{"mobile events", "POST", "/mobile/events", mobileKey, nil, http.StatusOK, expectedEventsBody},
+			{"mobile events bulk", "POST", "/mobile/events/bulk", mobileKey, nil, http.StatusOK, expectedEventsBody},
+			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedEvalBody},
+			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedEvalxBody},
+			{"mobile get eval", "GET", fmt.Sprintf("/msdk/eval/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
+			{"mobile get evalx", "GET", fmt.Sprintf("/msdk/evalx/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
+			{"mobile ping", "GET", "/mping", mobileKey, nil, http.StatusOK, nil},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				w := httptest.NewRecorder()
+				var bodyBuffer io.Reader
+				if s.body != nil {
+					bodyBuffer = bytes.NewBuffer(s.body)
+				}
+				r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+				r.Header.Set("Content-Type", "application/json")
+				if s.authHeader != "" {
+					r.Header.Set("Authorization", s.authHeader)
+				}
+				router.ServeHTTP(w, r)
+				assert.Equal(t, s.expectedStatus, w.Result().StatusCode)
+				if s.bodyMatcher != nil {
+					body, _ := ioutil.ReadAll(w.Result().Body)
+					s.bodyMatcher(t, body)
+				}
+			})
+		}
+	})
+
+	t.Run("client-side routes", func(t *testing.T) {
+		specs := []struct {
+			name           string
+			method         string
+			path           string
+			body           []byte
+			expectedStatus int
+			bodyMatcher    bodyMatcher
+		}{
+			{"client-side report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedEvalBody},
+			{"client-side report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedEvalxBody},
+			{"client-side get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalBody},
+			{"client-side get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalxBody},
+			{"client-side get ping", "GET", fmt.Sprintf("/ping/%s", envId), nil, http.StatusOK, nil},
+			{"client-side post events", "POST", fmt.Sprintf("/events/bulk/%s", envId), nil, http.StatusOK, nil},
+			{"client-side get events image", "GET", fmt.Sprintf("/a/%s.gif", envId), nil, http.StatusOK, expectBody(string(transparent1PixelImg))},
+			{"client-side get eval stream", "GET", fmt.Sprintf("/eval/%s/%s", envId, base64User), nil, http.StatusOK, expectedPingStream},
+			{"client-side report eval stream", "REPORT", fmt.Sprintf("/eval/%s", envId), user, http.StatusOK, expectedPingStream},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				t.Run("requests", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					var bodyBuffer io.Reader
+					if s.body != nil {
+						bodyBuffer = bytes.NewBuffer(s.body)
+					}
+					request, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+					request.Header.Set("Content-Type", "application/json")
+					router.ServeHTTP(w, request)
+					if assert.Equal(t, s.expectedStatus, w.Result().StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(w.Header().Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+					}
+					if s.bodyMatcher != nil {
+						body, _ := ioutil.ReadAll(w.Result().Body)
+						if s.bodyMatcher != nil {
+							s.bodyMatcher(t, body)
+						}
+					}
+				})
+
+				t.Run("options", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					request, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					request.Header.Set("Content-Type", "application/json")
+					router.ServeHTTP(w, request)
+					assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+					if assert.Equal(t, s.expectedStatus, w.Result().StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(w.Header().Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+					}
+				})
+
+				t.Run("options with host", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					request, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					request.Header.Set("Origin", "my-host.com")
+					request.Header.Set("Content-Type", "application/json")
+					router.ServeHTTP(w, request)
+					if assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(w.Header().Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "my-host.com", w.Header().Get("Access-Control-Allow-Origin"))
+					}
+				})
+			})
+		}
+	})
 }

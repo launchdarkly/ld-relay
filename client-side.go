@@ -12,31 +12,37 @@ import (
 	"github.com/gregjones/httpcache"
 )
 
-type ClientSideContext struct {
+type clientSideContext struct {
 	allowedOrigins []string
 	clientContext
 }
 
-func (c *ClientSideContext) AllowedOrigins() []string {
+func (c *clientSideContext) AllowedOrigins() []string {
 	return c.allowedOrigins
 }
 
 type ClientSideMux struct {
-	contextByKey map[string]*ClientSideContext
+	contextByKey map[string]*clientSideContext
 	baseUri      string
 }
 
 func (m ClientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		envId := mux.Vars(req)["envId"]
-		envInfo := m.contextByKey[envId]
-		if envInfo == nil {
+		clientCtx := m.contextByKey[envId]
+		if clientCtx == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("ld-relay is not configured for environment id " + envId))
 			return
 		}
 
-		req = req.WithContext(context.WithValue(req.Context(), "context", envInfo))
+		if clientCtx.getClient() == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("client was not initialized"))
+			return
+		}
+
+		req = req.WithContext(context.WithValue(req.Context(), "context", clientCtx))
 		next.ServeHTTP(w, req)
 	})
 }
@@ -61,13 +67,6 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(res.StatusCode)
 	bodyBytes, _ := ioutil.ReadAll(res.Body)
 	w.Write(bodyBytes)
-}
-
-func allowMethodOptionsHandler(method string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Allow", method)
-		w.WriteHeader(http.StatusOK)
-	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -100,7 +99,6 @@ func setCorsHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", "300")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, REPORT")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-LaunchDarkly-User-Agent")
 	w.Header().Set("Access-Control-Expose-Headers", "Date")
 }
