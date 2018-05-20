@@ -123,7 +123,6 @@ type relay struct {
 	sdkClientMux    ClientMux
 	mobileClientMux ClientMux
 	clientSideMux   ClientSideMux
-	router          *mux.Router
 }
 
 type EvalXResult struct {
