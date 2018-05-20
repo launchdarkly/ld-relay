@@ -382,10 +382,8 @@ func TestRelay(t *testing.T) {
 	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
 
 	relay := newRelay(config, func(apiKey string, config ld.Config) (ldClientContext, error) {
-		// Swap in our store
-		store := config.FeatureStore.(*SSERelayFeatureStore).store
-		store.Init(nil)
-		store.Upsert(ld.Features, &flag)
+		config.FeatureStore.Init(nil)
+		config.FeatureStore.Upsert(ld.Features, &flag)
 		return &FakeLDClient{true}, nil
 	}).getHandler()
 
