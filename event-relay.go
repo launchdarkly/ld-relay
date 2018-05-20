@@ -35,7 +35,7 @@ const (
 	summaryEventsSchemaVersion = 3
 )
 
-type relayHandler struct {
+type eventRelayHandler struct {
 	config       Config
 	sdkKey       string
 	featureStore ld.FeatureStore
@@ -46,7 +46,7 @@ type relayHandler struct {
 	mu sync.Mutex
 }
 
-func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *eventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
 	if bodyErr != nil {
 		Error.Printf("Error reading event post body: %+v", bodyErr)
@@ -79,7 +79,7 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {
+func (r *eventRelayHandler) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
@@ -88,7 +88,7 @@ func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {
 	return r.verbatimRelay
 }
 
-func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
+func (r *eventRelayHandler) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
@@ -98,8 +98,8 @@ func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
 }
 
 // Create a new handler for serving a specified channel
-func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *relayHandler {
-	return &relayHandler{
+func newEventRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *eventRelayHandler {
+	return &eventRelayHandler{
 		sdkKey:       sdkKey,
 		config:       config,
 		featureStore: featureStore,

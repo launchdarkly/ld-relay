@@ -120,7 +120,9 @@ type relay struct {
 	sdkClientMux    ClientMux
 	mobileClientMux ClientMux
 	clientSideMux   ClientSideMux
+	router          *mux.Router
 }
+
 type EvalXResult struct {
 	Value                interface{} `json:"value"`
 	Variation            *int        `json:"variation,omitempty"`
@@ -184,12 +186,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := newRelay(c)
-	router := r.newRouter()
+	relay := newRelay(c, defaultClientFactory).getHandler()
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), router)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), relay)
 	if err != nil {
 		if c.Main.ExitOnError {
 			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
@@ -198,7 +199,11 @@ func main() {
 	}
 }
 
-func newRelay(c Config) relay {
+func defaultClientFactory(apiKey string, config ld.Config) (ldClientContext, error) {
+	return ld.MakeCustomClient(apiKey, config, time.Second*10)
+}
+
+func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldClientContext, error)) *relay {
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -261,7 +266,7 @@ func newRelay(c Config) relay {
 
 		// Connecting may take time, so do this in parallel
 		go func(envName string, envConfig EnvConfig) {
-			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
+			client, err := clientFactory(envConfig.ApiKey, clientConfig)
 			clientContext.client = client
 
 			if err != nil {
@@ -281,7 +286,7 @@ func newRelay(c Config) relay {
 
 			if c.Events.SendEvents {
 				Info.Printf("Proxying events for environment %s", envName)
-				clientContext.handlers.eventsHandler = newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
+				clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
 			}
 		}(envName, *envConfig)
 	}
@@ -291,10 +296,10 @@ func newRelay(c Config) relay {
 		mobileClientMux: ClientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
 	}
-	return r
+	return &r
 }
 
-func (r *relay) newRouter() *mux.Router {
+func (r *relay) getHandler() http.Handler {
 	router := mux.NewRouter()
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
