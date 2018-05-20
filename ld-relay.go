@@ -15,6 +15,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -104,12 +105,14 @@ type clientHandlers struct {
 
 type clientContext interface {
 	getClient() ldClientContext
+	setClient(ldClientContext)
 	getStore() ld.FeatureStore
 	getLogger() ld.Logger
 	getHandlers() clientHandlers
 }
 
 type clientContextImpl struct {
+	mu       sync.RWMutex
 	client   ldClientContext
 	store    ld.FeatureStore
 	logger   ld.Logger
@@ -132,7 +135,15 @@ type EvalXResult struct {
 }
 
 func (c *clientContextImpl) getClient() ldClientContext {
+	c.mu.RLock()
+	defer c.mu.RLock()
 	return c.client
+}
+
+func (c *clientContextImpl) setClient(client ldClientContext) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client = client
 }
 
 func (c *clientContextImpl) getStore() ld.FeatureStore {
@@ -264,10 +275,15 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{clientContext: clientContext, allowedOrigins: allowedOrigins}
 		}
 
+		if c.Events.SendEvents {
+			Info.Printf("Proxying events for environment %s", envName)
+			clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
+		}
+
 		// Connecting may take time, so do this in parallel
 		go func(envName string, envConfig EnvConfig) {
 			client, err := clientFactory(envConfig.ApiKey, clientConfig)
-			clientContext.client = client
+			clientContext.setClient(client)
 
 			if err != nil {
 				if !c.Main.IgnoreConnectionErrors {
@@ -282,11 +298,6 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 				Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 			} else {
 				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
-			}
-
-			if c.Events.SendEvents {
-				Info.Printf("Proxying events for environment %s", envName)
-				clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
 			}
 		}(envName, *envConfig)
 	}
