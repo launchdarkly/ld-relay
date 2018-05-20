@@ -188,6 +188,9 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 		return
 	}
 
+	er.mu.Lock()
+	defer er.mu.Unlock()
+
 	if len(er.queue) >= er.config.Events.Capacity {
 		Warning.Println("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
 	} else {
