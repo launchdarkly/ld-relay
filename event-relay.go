@@ -51,14 +51,13 @@ func (r *eventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	if bodyErr != nil {
 		Error.Printf("Error reading event post body: %+v", bodyErr)
 	}
-	var evts []json.RawMessage
 
 	go func() {
 		if err := recover(); err != nil {
 			Error.Printf("Unexpected panic in event relay : %+v", err)
 		}
 
-		evts = make([]json.RawMessage, 0)
+		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
 			Error.Printf("Error unmarshaling event post body: %+v", err)
