@@ -35,7 +35,7 @@ const (
 	summaryEventsSchemaVersion = 3
 )
 
-type relayHandler struct {
+type eventRelayHandler struct {
 	config       Config
 	sdkKey       string
 	featureStore ld.FeatureStore
@@ -46,20 +46,18 @@ type relayHandler struct {
 	mu sync.Mutex
 }
 
-func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *eventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
 	if bodyErr != nil {
 		Error.Printf("Error reading event post body: %+v", bodyErr)
 	}
-	var evts []json.RawMessage
 
-	defer req.Body.Close()
 	go func() {
 		if err := recover(); err != nil {
 			Error.Printf("Unexpected panic in event relay : %+v", err)
 		}
 
-		evts = make([]json.RawMessage, 0)
+		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
 			Error.Printf("Error unmarshaling event post body: %+v", err)
@@ -76,9 +74,11 @@ func (r *relayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			r.getSummarizingRelay().enqueue(evts, payloadVersion)
 		}
 	}()
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
-func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {
+func (r *eventRelayHandler) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
@@ -87,7 +87,7 @@ func (r *relayHandler) getVerbatimRelay() *eventVerbatimRelay {
 	return r.verbatimRelay
 }
 
-func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
+func (r *eventRelayHandler) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
@@ -97,8 +97,8 @@ func (r *relayHandler) getSummarizingRelay() *eventSummarizingRelay {
 }
 
 // Create a new handler for serving a specified channel
-func newRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *relayHandler {
-	return &relayHandler{
+func newEventRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *eventRelayHandler {
+	return &eventRelayHandler{
 		sdkKey:       sdkKey,
 		config:       config,
 		featureStore: featureStore,
@@ -187,6 +187,9 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if er.config.Events.SamplingInterval > 0 && rGen.Int31n(er.config.Events.SamplingInterval) != 0 {
 		return
 	}
+
+	er.mu.Lock()
+	defer er.mu.Unlock()
 
 	if len(er.queue) >= er.config.Events.Capacity {
 		Warning.Println("Exceeded event queue capacity. Increase capacity to avoid dropping events.")

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"time"
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
 )
@@ -18,6 +19,7 @@ func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.Feat
 	ldConfig.EventsUri = config.Events.EventsUri
 	ldConfig.Capacity = config.Events.Capacity
 	ldConfig.InlineUsersInEvents = config.Events.InlineUsers
+	ldConfig.FlushInterval = time.Duration(config.Events.FlushIntervalSecs) * time.Second
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,

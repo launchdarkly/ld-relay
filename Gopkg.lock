@@ -38,7 +38,7 @@
   branch = "master"
   name = "github.com/gorilla/mux"
   packages = ["."]
-  revision = "c0091a029979286890368b4c7b301261e448e242"
+  revision = "c85619274f5d55a67491010f883a91f568b3a9b0"
 
 [[projects]]
   branch = "master"
@@ -82,17 +82,8 @@
   version = "v1.0.0"
 
 [[projects]]
-  name = "github.com/stretchr/objx"
-  packages = ["."]
-  revision = "facf9a85c22f48d2f52f2380e4efce1768749a89"
-  version = "v0.1"
-
-[[projects]]
   name = "github.com/stretchr/testify"
-  packages = [
-    "assert",
-    "mock"
-  ]
+  packages = ["assert"]
   revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
   version = "v1.2.1"
 
@@ -118,6 +109,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "fce62e78724332a9f78079b4d50be0687cf7fc8a9fbaaa0b081f9b66c8c23030"
+  inputs-digest = "b9b5218542c2f4f4e31816ba3e84652f537e24935aaf6a90bd83b87509140d6e"
   solver-name = "gps-cdcl"
   solver-version = 1

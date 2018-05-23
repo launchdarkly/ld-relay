@@ -1,18 +1,28 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
-
-	"log"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
@@ -40,8 +50,8 @@ func handler() ClientMux {
 }
 
 func clientSideHandler(allowedOrigins []string) ClientSideMux {
-	testClientSideContext := &ClientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
-	contexts := map[string]*ClientSideContext{key(): testClientSideContext}
+	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	contexts := map[string]*clientSideContext{key(): testClientSideContext}
 	return ClientSideMux{contextByKey: contexts}
 }
 
@@ -212,16 +222,6 @@ func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
 
-func TestOptionsHandlerSetsAllowHeader(t *testing.T) {
-	method := "GET"
-	req := buildRequest(method, nil, nil, "", nil)
-	resp := httptest.NewRecorder()
-	allowMethodOptionsHandler(method).ServeHTTP(resp, req)
-
-	assert.Equal(t, http.StatusOK, resp.Code)
-	assert.Equal(t, resp.Header().Get("Allow"), method)
-}
-
 func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	req := buildRequest("", nil, nil, "", nil)
 	resp := httptest.NewRecorder()
@@ -229,8 +229,8 @@ func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Methods"), "GET, REPORT")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type, Content-Length")
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type, Content-Length, Accept-Encoding, X-LaunchDarkly-User-Agent")
+		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
 	})).ServeHTTP(resp, req)
 }
 
@@ -265,4 +265,406 @@ func TestCorsMiddlewareSetsCorrectHeadersForInvalidOrigin(t *testing.T) {
 
 	handler().selectClientByAuthorizationKey(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
 
+}
+
+type bodyMatcher func(t *testing.T, body []byte)
+
+func expectBody(expectedBody string) bodyMatcher {
+	return func(t *testing.T, body []byte) {
+		assert.EqualValues(t, expectedBody, body)
+	}
+}
+
+func expectJSONBody(expectedBody string) bodyMatcher {
+	return func(t *testing.T, body []byte) {
+		assert.JSONEq(t, expectedBody, string(body))
+	}
+}
+
+type StreamRecorder struct {
+	*bufio.Writer
+	*httptest.ResponseRecorder
+	closer chan bool
+}
+
+func (r StreamRecorder) CloseNotify() <-chan bool {
+	return r.closer
+}
+
+func (r StreamRecorder) Close() {
+	r.closer <- true
+}
+
+func (r StreamRecorder) Write(data []byte) (int, error) {
+	return r.Writer.Write(data)
+}
+
+func (r StreamRecorder) Flush() {
+	r.Writer.Flush()
+}
+
+func NewStreamRecorder() (StreamRecorder, io.Reader) {
+	reader, writer := io.Pipe()
+	recorder := httptest.NewRecorder()
+	return StreamRecorder{
+		ResponseRecorder: recorder,
+		Writer:           bufio.NewWriter(writer),
+		closer:           make(chan bool),
+	}, reader
+}
+
+type publishedEvent struct {
+	url  string
+	data []byte
+}
+
+func makeTestEventBuffer(userKey string) []byte {
+	event := map[string]interface{}{
+		"kind":         "identify",
+		"key":          userKey,
+		"creationDate": 0,
+		"user":         map[string]interface{}{"key": userKey},
+	}
+	data, _ := json.Marshal([]interface{}{event})
+	return data
+}
+
+func TestRelay(t *testing.T) {
+	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+
+	publishedEvents := make(chan publishedEvent)
+
+	expectEventBuffer := func(data []byte) {
+		timeout := time.After(time.Second * 10)
+		select {
+		case event := <-publishedEvents:
+			assert.JSONEq(t, string(data), string(event.data))
+			assert.Equal(t, "/bulk", event.url)
+		case <-timeout:
+			assert.Fail(t, "did not get event within 3 seconds")
+		}
+	}
+
+	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		data, _ := ioutil.ReadAll(req.Body)
+		publishedEvents <- publishedEvent{url: req.URL.String(), data: data}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+	mobileKey := "mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+
+	envId := "507f1f77bcf86cd799439011"
+	user := []byte(`{"key":"me"}`)
+	base64User := base64.StdEncoding.EncodeToString([]byte(user))
+
+	config := Config{
+		Environment: map[string]*EnvConfig{
+			"client-side test": {
+				ApiKey: sdkKey,
+				EnvId:  &envId,
+			},
+			"sdk test": {
+				ApiKey: sdkKey,
+			},
+			"mobile test": {
+				ApiKey:    sdkKey,
+				MobileKey: &mobileKey,
+			},
+		},
+	}
+	config.Events.SendEvents = true
+	config.Events.EventsUri = eventsServer.URL
+	config.Events.FlushIntervalSecs = 1
+	config.Events.Capacity = defaultEventCapacity
+
+	zero := 0
+	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
+
+	relay := newRelay(config, func(apiKey string, config ld.Config) (ldClientContext, error) {
+		config.FeatureStore.Init(nil)
+		config.FeatureStore.Upsert(ld.Features, &flag)
+		return &FakeLDClient{true}, nil
+	}).getHandler()
+
+	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
+	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
+	allFlags := map[string]interface{}{"my-flag": flag}
+	expectedFlagsData, _ := json.Marshal(allFlags)
+	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
+
+	t.Run("sdk and mobile routes", func(t *testing.T) {
+		specs := []struct {
+			name           string
+			method         string
+			path           string
+			authHeader     string
+			body           []byte
+			expectedStatus int
+			bodyMatcher    bodyMatcher
+		}{
+			{"status", "GET", "/status", "", nil, http.StatusOK, expectJSONBody(`{"environments":{"sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db":{"status":"connected"}}, "status":"healthy"}`)},
+			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedEvalBody},
+			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedEvalxBody},
+			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedEvalBody},
+			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedEvalxBody},
+			{"mobile get eval", "GET", fmt.Sprintf("/msdk/eval/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
+			{"mobile get evalx", "GET", fmt.Sprintf("/msdk/evalx/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				w := httptest.NewRecorder()
+				var bodyBuffer io.Reader
+				if s.body != nil {
+					bodyBuffer = bytes.NewBuffer(s.body)
+				}
+				r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+				r.Header.Set("Content-Type", "application/json")
+				if s.authHeader != "" {
+					r.Header.Set("Authorization", s.authHeader)
+				}
+				relay.ServeHTTP(w, r)
+				result := w.Result()
+				assert.Equal(t, s.expectedStatus, result.StatusCode)
+				if s.bodyMatcher != nil {
+					body, _ := ioutil.ReadAll(result.Body)
+					s.bodyMatcher(t, body)
+				}
+			})
+		}
+	})
+
+	t.Run("sdk and mobile streams", func(t *testing.T) {
+		specs := []struct {
+			name          string
+			method        string
+			path          string
+			authHeader    string
+			body          []byte
+			expectedEvent string
+			expectedData  []byte
+		}{
+			{"flags stream", "GET", "/flags", sdkKey, nil, "put", expectedFlagsData},
+			{"all stream", "GET", "/all", sdkKey, nil, "put", expectedAllData},
+			{"mobile ping", "GET", "/mping", mobileKey, nil, "ping", nil},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				w, bodyReader := NewStreamRecorder()
+				bodyBuffer := bytes.NewBuffer(s.body)
+				r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+				r.Header.Set("Content-Type", "application/json")
+				if s.authHeader != "" {
+					r.Header.Set("Authorization", s.authHeader)
+				}
+				wg := sync.WaitGroup{}
+				wg.Add(1)
+				go func() {
+					relay.ServeHTTP(w, r)
+					wg.Done()
+				}()
+				dec := eventsource.NewDecoder(bodyReader)
+				event, err := dec.Decode()
+				if assert.NoError(t, err) {
+					assert.Equal(t, s.expectedEvent, event.Event())
+					if s.expectedData != nil {
+						assert.JSONEq(t, string(s.expectedData), event.Data())
+					}
+				}
+				w.Close()
+				wg.Wait()
+			})
+		}
+	})
+
+	t.Run("client-side routes", func(t *testing.T) {
+		base64Events := base64.StdEncoding.EncodeToString([]byte(`[]`))
+		specs := []struct {
+			name           string
+			method         string
+			path           string
+			body           []byte
+			expectedStatus int
+			bodyMatcher    bodyMatcher
+		}{
+			{"client-side report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedEvalBody},
+			{"client-side report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedEvalxBody},
+			{"client-side get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalBody},
+			{"client-side get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalxBody},
+			{"client-side post events", "POST", fmt.Sprintf("/events/bulk/%s", envId), []byte("[]"), http.StatusAccepted, nil},
+			{"client-side get events image", "GET", fmt.Sprintf("/a/%s.gif?d=%s", envId, base64Events), nil, http.StatusOK, expectBody(string(transparent1PixelImg))},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				t.Run("requests", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					var bodyBuffer io.Reader
+					if s.body != nil {
+						bodyBuffer = bytes.NewBuffer(s.body)
+					}
+					r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+					r.Header.Set("Content-Type", "application/json")
+					relay.ServeHTTP(w, r)
+					result := w.Result()
+					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "*", result.Header.Get("Access-Control-Allow-Origin"))
+					}
+					if s.bodyMatcher != nil {
+						body, _ := ioutil.ReadAll(w.Result().Body)
+						if s.bodyMatcher != nil {
+							s.bodyMatcher(t, body)
+						}
+					}
+				})
+
+				t.Run("options", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					r, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					relay.ServeHTTP(w, r)
+					result := w.Result()
+					if assert.Equal(t, http.StatusOK, result.StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "*", result.Header.Get("Access-Control-Allow-Origin"))
+					}
+				})
+
+				t.Run("options with host", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					r, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					r.Header.Set("Origin", "my-host.com")
+					relay.ServeHTTP(w, r)
+					result := w.Result()
+					if assert.Equal(t, http.StatusOK, result.StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "my-host.com", result.Header.Get("Access-Control-Allow-Origin"))
+					}
+				})
+			})
+		}
+	})
+
+	t.Run("client-side streams", func(t *testing.T) {
+		specs := []struct {
+			name          string
+			method        string
+			path          string
+			body          []byte
+			expectedEvent string
+		}{
+			{"client-side get ping", "GET", fmt.Sprintf("/ping/%s", envId), nil, "ping"},
+			{"client-side get eval stream", "GET", fmt.Sprintf("/eval/%s/%s", envId, base64User), nil, "ping"},
+			{"client-side report eval stream", "REPORT", fmt.Sprintf("/eval/%s", envId), user, "ping"},
+		}
+
+		for _, s := range specs {
+			t.Run(s.name, func(t *testing.T) {
+				t.Run("requests", func(t *testing.T) {
+					w, bodyReader := NewStreamRecorder()
+					bodyBuffer := bytes.NewBuffer(s.body)
+					r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+					r.Header.Set("Content-Type", "application/json")
+					wg := sync.WaitGroup{}
+					wg.Add(1)
+					go func() {
+						relay.ServeHTTP(w, r)
+						wg.Done()
+					}()
+					dec := eventsource.NewDecoder(bodyReader)
+					event, err := dec.Decode()
+					if assert.NoError(t, err) {
+						assert.Equal(t, s.expectedEvent, event.Event())
+					}
+					w.Close()
+					wg.Wait()
+					result := w.Result()
+					assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+					assert.Equal(t, "*", result.Header.Get("Access-Control-Allow-Origin"))
+				})
+
+				t.Run("options", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					r, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					relay.ServeHTTP(w, r)
+					result := w.Result()
+					assert.Equal(t, http.StatusOK, result.StatusCode)
+					assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+					assert.Equal(t, "*", result.Header.Get("Access-Control-Allow-Origin"))
+				})
+
+				t.Run("options with host", func(t *testing.T) {
+					w := httptest.NewRecorder()
+					r, _ := http.NewRequest("OPTIONS", "http://localhost"+s.path, nil)
+					r.Header.Set("Origin", "my-host.com")
+					relay.ServeHTTP(w, r)
+					result := w.Result()
+					if assert.Equal(t, http.StatusOK, result.StatusCode) {
+						assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
+						assert.Equal(t, "my-host.com", result.Header.Get("Access-Control-Allow-Origin"))
+					}
+				})
+			})
+		}
+	})
+
+	t.Run("server-side and mobile events proxies", func(t *testing.T) {
+		specs := []struct {
+			name       string
+			method     string
+			path       string
+			authHeader string
+		}{
+			{"events bulk", "POST", "/bulk", sdkKey},
+			{"mobile events", "POST", "/mobile/events", mobileKey},
+			{"mobile events bulk", "POST", "/mobile/events/bulk", mobileKey},
+		}
+
+		for i, s := range specs {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer(fmt.Sprintf("me%d", i))
+			bodyBuffer := bytes.NewBuffer(body)
+			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Authorization", s.authHeader)
+			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+				expectEventBuffer(body)
+			}
+		}
+	})
+
+	t.Run("client-side events proxies", func(t *testing.T) {
+		t.Run("bulk post", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me-post")
+			bodyBuffer := bytes.NewBuffer(body)
+			r, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost/events/bulk/%s", envId), bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+				expectEventBuffer(body)
+			}
+		})
+
+		t.Run("image", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me-image")
+			base64Body := base64.StdEncoding.EncodeToString(body)
+			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/a/%s.gif?d=%s", envId, base64Body), nil)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusOK, result.StatusCode) {
+				expectEventBuffer(body)
+			}
+		})
+	})
+
+	eventsServer.Close()
 }

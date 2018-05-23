@@ -2,15 +2,23 @@ package main
 
 import (
 	"encoding/json"
+	"time"
+
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
-	"time"
 )
+
+type ESPublisher interface {
+	Publish(channels []string, event es.Event)
+	PublishComment(channels []string, text string)
+	Register(channel string, repo es.Repository)
+}
 
 type SSERelayFeatureStore struct {
 	store          ld.FeatureStore
-	allPublisher   *es.Server
-	flagsPublisher *es.Server
+	allPublisher   ESPublisher
+	flagsPublisher ESPublisher
+	pingPublisher  ESPublisher
 	apiKey         string
 }
 
@@ -20,17 +28,22 @@ type allRepository struct {
 type flagsRepository struct {
 	relayStore *SSERelayFeatureStore
 }
+type pingRepository struct {
+	relayStore *SSERelayFeatureStore
+}
 
-func NewSSERelayFeatureStore(apiKey string, allPublisher *es.Server, flagsPublisher *es.Server, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
+func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPublisher ESPublisher, pingPublisher ESPublisher, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
 		store:          baseFeatureStore,
 		apiKey:         apiKey,
 		allPublisher:   allPublisher,
 		flagsPublisher: flagsPublisher,
+		pingPublisher:  pingPublisher,
 	}
 
 	allPublisher.Register(apiKey, allRepository{relayStore})
 	flagsPublisher.Register(apiKey, flagsRepository{relayStore})
+	pingPublisher.Register(apiKey, pingRepository{relayStore})
 
 	if heartbeatInterval > 0 {
 		go func() {
@@ -52,6 +65,7 @@ func (relay *SSERelayFeatureStore) keys() []string {
 func (relay *SSERelayFeatureStore) heartbeat() {
 	relay.allPublisher.PublishComment(relay.keys(), "")
 	relay.flagsPublisher.PublishComment(relay.keys(), "")
+	relay.pingPublisher.PublishComment(relay.keys(), "")
 }
 
 func (relay *SSERelayFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
@@ -71,6 +85,7 @@ func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[str
 
 	relay.allPublisher.Publish(relay.keys(), makePutEvent(allData[ld.Features], allData[ld.Segments]))
 	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(allData[ld.Features]))
+	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 
 	return nil
 }
@@ -85,6 +100,7 @@ func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string,
 	if kind == ld.Features {
 		relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
 	}
+	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 
 	return nil
 }
@@ -107,6 +123,7 @@ func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.Ver
 		if kind == ld.Features {
 			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(newItem))
 		}
+		relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 	}
 
 	return nil
@@ -157,6 +174,15 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	return
 }
 
+func (r pingRepository) Replay(channel, id string) (out chan es.Event) {
+	out = make(chan es.Event)
+	go func() {
+		defer close(out)
+		out <- makePingEvent()
+	}()
+	return
+}
+
 var dataKindApiName = map[ld.VersionedDataKind]string{
 	ld.Features: "flags",
 	ld.Segments: "segments",
@@ -175,6 +201,8 @@ type upsertEvent struct {
 	Path string           `json:"path"`
 	D    ld.VersionedData `json:"data"`
 }
+
+type pingEvent struct{}
 
 func (t flagsPutEvent) Id() string {
 	return ""
@@ -248,6 +276,22 @@ func (t deleteEvent) Comment() string {
 	return ""
 }
 
+func (t pingEvent) Id() string {
+	return ""
+}
+
+func (t pingEvent) Event() string {
+	return "ping"
+}
+
+func (t pingEvent) Data() string {
+	return ""
+}
+
+func (t pingEvent) Comment() string {
+	return ""
+}
+
 func makeUpsertEvent(kind ld.VersionedDataKind, item ld.VersionedData) es.Event {
 	return upsertEvent{
 		Path: "/" + dataKindApiName[kind] + "/" + item.GetKey(),
@@ -292,4 +336,8 @@ func makePutEvent(flags map[string]ld.VersionedData, segments map[string]ld.Vers
 
 func makeFlagsPutEvent(flags map[string]ld.VersionedData) es.Event {
 	return flagsPutEvent(flags)
+}
+
+func makePingEvent() es.Event {
+	return pingEvent{}
 }
