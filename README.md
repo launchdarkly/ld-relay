@@ -28,7 +28,7 @@ Quick setup
 
 2. Build and install the binary in your $GOPATH:
 ```
-go get -u https://github.com/launchdarkly/ld-relay
+go get -u github.com/launchdarkly/ld-relay
 ```
 
 3. Create LD Relay configuration file. Create a new filed called `ld-relay.conf` containing the text:
@@ -42,7 +42,7 @@ go get -u https://github.com/launchdarkly/ld-relay
 
 4. Run the binary by entering the following command in your terminal:
 ```
-$GOPATH/ld-relay --config ./ld-relay.conf
+$GOPATH/bin/ld-relay --config ./ld-relay.conf
 ```
 
 5. Validate functionality. This can be done two different ways.
