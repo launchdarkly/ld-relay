@@ -249,6 +249,7 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 		clientConfig.StreamUri = c.Main.StreamUri
 		clientConfig.BaseUri = c.Main.BaseUri
 		clientConfig.Logger = logger
+		clientConfig.UserAgent = "LDRelay/" + VERSION
 
 		clientContext := &clientContextImpl{
 			store:  baseFeatureStore,
