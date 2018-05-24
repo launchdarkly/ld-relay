@@ -47,10 +47,14 @@ for environment in $(env | grep LD_ENV_ ); do
 env_name="$(echo "$environment" | sed 's/^LD_ENV_//' | cut -d'=' -f1)"
 env_key="$(eval echo "\$$(echo "$environment" | cut -d'=' -f1)")"
 env_prefix="$(eval echo "\$LD_PREFIX_${env_name}")"
+env_mobile_key="$(eval echo "\$LD_MOBILE_KEY_${env_name}")"
+env_id="$(eval echo "\$LD_CLIENT_SIDE_ID_${env_name}")"
 
 echo "
 [environment \"$env_name\"]
-apiKey = \"$env_key\"" >> /etc/ld-relay.conf
+apiKey = \"$env_key\"
+mobileKey = \"$env_mobile_key\"
+envId = \"$env_id\"" >> /etc/ld-relay.conf
 
 if [ -n "$env_prefix" ]; then
 echo "prefix = \"$env_prefix\"" >> /etc/ld-relay.conf
