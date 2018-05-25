@@ -15,6 +15,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -26,13 +27,18 @@ import (
 )
 
 const (
-	defaultRedisLocalTtlMs = 30000
-	defaultPort            = 8030
-	defaultAllowedOrigin   = "*"
+	defaultRedisLocalTtlMs       = 30000
+	defaultPort                  = 8030
+	defaultAllowedOrigin         = "*"
+	defaultEventCapacity         = 1000
+	defaultEventsUri             = "https://events.launchdarkly.com/api/events"
+	defaultBaseUri               = "https://app.launchdarkly.com/"
+	defaultStreamUri             = "https://stream.launchdarkly.com/"
+	defaultHeartbeatIntervalSecs = 180
 )
 
 var (
-	VERSION           = "DEV"
+	Version           = "4.1.0"
 	Debug             *log.Logger
 	Info              *log.Logger
 	Warning           *log.Logger
@@ -82,20 +88,73 @@ type ErrorJson struct {
 	Message string `json:"message"`
 }
 
-type FlagReader interface {
-	AllFlags(user ld.User) map[string]interface{}
+type corsContext interface {
+	AllowedOrigins() []string
 }
 
-type ClientContext interface {
-	getClient() FlagReader
+type ldClientContext interface {
+	Initialized() bool
+}
+
+type clientHandlers struct {
+	flagsStreamHandler http.Handler
+	allStreamHandler   http.Handler
+	pingStreamHandler  http.Handler
+	eventsHandler      http.Handler
+}
+
+type clientContext interface {
+	getClient() ldClientContext
+	setClient(ldClientContext)
+	getStore() ld.FeatureStore
+	getLogger() ld.Logger
+	getHandlers() clientHandlers
 }
 
 type clientContextImpl struct {
-	client FlagReader
+	mu       sync.RWMutex
+	client   ldClientContext
+	store    ld.FeatureStore
+	logger   ld.Logger
+	handlers clientHandlers
 }
 
-func (c clientContextImpl) getClient() FlagReader {
+type relay struct {
+	sdkClientMux    ClientMux
+	mobileClientMux ClientMux
+	clientSideMux   ClientSideMux
+}
+
+type EvalXResult struct {
+	Value                interface{} `json:"value"`
+	Variation            *int        `json:"variation,omitempty"`
+	Version              int         `json:"version"`
+	DebugEventsUntilDate *uint64     `json:"debugEventsUntilDate,omitempty"`
+	TrackEvents          bool        `json:"trackEvents"`
+}
+
+func (c *clientContextImpl) getClient() ldClientContext {
+	c.mu.RLock()
+	defer c.mu.RLock()
 	return c.client
+}
+
+func (c *clientContextImpl) setClient(client ldClientContext) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client = client
+}
+
+func (c *clientContextImpl) getStore() ld.FeatureStore {
+	return c.store
+}
+
+func (c *clientContextImpl) getLogger() ld.Logger {
+	return c.logger
+}
+
+func (c *clientContextImpl) getHandlers() clientHandlers {
+	return c.handlers
 }
 
 func main() {
@@ -107,8 +166,13 @@ func main() {
 	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	var c Config
+	c.Events.Capacity = defaultEventCapacity
+	c.Events.EventsUri = defaultEventsUri
+	c.Main.BaseUri = defaultBaseUri
+	c.Main.StreamUri = defaultStreamUri
+	c.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 
-	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
+	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(Version), configFile)
 
 	err := gcfg.ReadFileInto(&c, configFile)
 
@@ -132,127 +196,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	allPublisher := eventsource.NewServer()
-	allPublisher.Gzip = false
-	allPublisher.AllowCORS = true
-	allPublisher.ReplayAll = true
-	flagsPublisher := eventsource.NewServer()
-	flagsPublisher.Gzip = false
-	flagsPublisher.AllowCORS = true
-	flagsPublisher.ReplayAll = true
-
-	clients := map[string]FlagReader{}
-	mobileClients := map[string]FlagReader{}
-	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, infoByKey: map[string]ClientSideInfo{}}
-
-	allStreamHandlers := map[string]http.Handler{}
-	flagsStreamHandlers := map[string]http.Handler{}
-	eventHandlers := map[string]http.Handler{}
-
-	for _, envConfig := range c.Environment {
-		clients[envConfig.ApiKey] = nil
-	}
-
-	for envName, envConfig := range c.Environment {
-		go func(envName string, envConfig EnvConfig) {
-			var baseFeatureStore ld.FeatureStore
-			if c.Redis.Host != "" && c.Redis.Port != 0 {
-				Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-				baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
-			} else {
-				baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
-			}
-
-			clientConfig := ld.DefaultConfig
-			clientConfig.Stream = true
-			clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
-			clientConfig.StreamUri = c.Main.StreamUri
-			clientConfig.BaseUri = c.Main.BaseUri
-
-			client, err := ld.MakeCustomClient(envConfig.ApiKey, clientConfig, time.Second*10)
-
-			clients[envConfig.ApiKey] = client
-			if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
-				mobileClients[*envConfig.MobileKey] = client
-			}
-			if envConfig.EnvId != nil && *envConfig.EnvId != "" {
-				var allowedOrigins []string
-				if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
-					allowedOrigins = *envConfig.AllowedOrigin
-				}
-				clientSideMux.infoByKey[*envConfig.EnvId] = ClientSideInfo{client: client, allowedOrigins: allowedOrigins}
-			}
-
-			if err != nil && !c.Main.IgnoreConnectionErrors {
-				Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-
-				if c.Main.ExitOnError {
-					os.Exit(1)
-				}
-			} else {
-				if err != nil {
-					Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-				} else {
-					Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
-				}
-				// create a handler from the publisher for this environment
-				allHandler := allPublisher.Handler(envConfig.ApiKey)
-				flagsHandler := flagsPublisher.Handler(envConfig.ApiKey)
-				allStreamHandlers[envConfig.ApiKey] = allHandler
-				flagsStreamHandlers[envConfig.ApiKey] = flagsHandler
-
-				if c.Events.SendEvents {
-					Info.Printf("Proxying events for environment %s", envName)
-					eventHandler := newRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
-					eventHandlers[envConfig.ApiKey] = eventHandler
-				}
-			}
-		}(envName, *envConfig)
-	}
-
-	router := mux.NewRouter()
-
-	bulkEventHandler := SdkHandlerMux{handlersByKey: eventHandlers}
-	allStreamHandler := SdkHandlerMux{handlersByKey: allStreamHandlers}
-	flagsStreamHandler := SdkHandlerMux{handlersByKey: flagsStreamHandlers}
-
-	sdkClientMux := ClientMux{clientsByKey: clients}
-	mobileClientMux := ClientMux{clientsByKey: mobileClients}
-
-	router.Handle("/bulk", bulkEventHandler).Methods("POST")
-	router.Handle("/all", allStreamHandler).Methods("GET")
-	router.Handle("/flags", flagsStreamHandler).Methods("GET")
-	router.HandleFunc("/status", sdkClientMux.getStatus).Methods("GET")
-
-	sdkEvalRouter := router.PathPrefix("/sdk/eval").Subrouter()
-	sdkEvalRouter.HandleFunc("/users/{user}", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
-	sdkEvalRouter.HandleFunc("/user", sdkClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
-
-	// Client-side evaluation
-	clientSideEvalRouter := sdkEvalRouter.PathPrefix("/{envId}").Subrouter()
-	clientSideEvalRouter.Use(clientSideMux.corsMiddleware)
-
-	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
-	clientSideEvalRouter.HandleFunc("/user", clientSideMux.optionsHandler("REPORT")).Methods("OPTIONS")
-
-	clientSideEvalRouter.HandleFunc("/users/{user}", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("GET")
-	clientSideEvalRouter.HandleFunc("/user", clientSideMux.selectClientByUrlParam(evaluateAllFeatureFlags)).Methods("REPORT")
-
-	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
-	goalsRouter.Use(clientSideMux.corsMiddleware)
-
-	goalsRouter.HandleFunc("/{envId}", clientSideMux.optionsHandler("GET")).Methods("OPTIONS")
-
-	goalsRouter.HandleFunc("/{envId}", clientSideMux.selectClientByUrlParam(clientSideMux.getGoals)).Methods("GET")
-
-	// Mobile evaluation
-	msdkEvalRouter := router.PathPrefix("/msdk/eval").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{user}", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", mobileClientMux.selectClientByAuthorizationKey(evaluateAllFeatureFlags)).Methods("REPORT")
+	relay := newRelay(c, defaultClientFactory).getHandler()
 
 	Info.Printf("Listening on port %d\n", c.Main.Port)
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), router)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), relay)
 	if err != nil {
 		if c.Main.ExitOnError {
 			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
@@ -261,12 +209,189 @@ func main() {
 	}
 }
 
-type ClientMux struct {
-	clientsByKey map[string]FlagReader
+func defaultClientFactory(apiKey string, config ld.Config) (ldClientContext, error) {
+	return ld.MakeCustomClient(apiKey, config, time.Second*10)
 }
 
-type SdkHandlerMux struct {
-	handlersByKey map[string]http.Handler
+func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldClientContext, error)) *relay {
+	allPublisher := eventsource.NewServer()
+	allPublisher.Gzip = false
+	allPublisher.AllowCORS = true
+	allPublisher.ReplayAll = true
+	flagsPublisher := eventsource.NewServer()
+	flagsPublisher.Gzip = false
+	flagsPublisher.AllowCORS = true
+	flagsPublisher.ReplayAll = true
+	pingPublisher := eventsource.NewServer()
+	pingPublisher.Gzip = false
+	pingPublisher.AllowCORS = true
+	pingPublisher.ReplayAll = true
+	clients := map[string]clientContext{}
+	mobileClients := map[string]clientContext{}
+	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
+	for _, envConfig := range c.Environment {
+		clients[envConfig.ApiKey] = nil
+	}
+	for envName, envConfig := range c.Environment {
+		var baseFeatureStore ld.FeatureStore
+		if c.Redis.Host != "" && c.Redis.Port != 0 {
+			Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
+			baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
+		} else {
+			baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
+		}
+
+		logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (ApiKey ending with %s)] ", last5(envConfig.ApiKey)), log.LstdFlags)
+
+		clientConfig := ld.DefaultConfig
+		clientConfig.Stream = true
+		clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+		clientConfig.StreamUri = c.Main.StreamUri
+		clientConfig.BaseUri = c.Main.BaseUri
+		clientConfig.Logger = logger
+		clientConfig.UserAgent = "LDRelay/" + Version
+
+		clientContext := &clientContextImpl{
+			store:  baseFeatureStore,
+			logger: logger,
+			handlers: clientHandlers{
+				allStreamHandler:   allPublisher.Handler(envConfig.ApiKey),
+				flagsStreamHandler: flagsPublisher.Handler(envConfig.ApiKey),
+				pingStreamHandler:  pingPublisher.Handler(envConfig.ApiKey),
+			},
+		}
+
+		clients[envConfig.ApiKey] = clientContext
+
+		if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
+			mobileClients[*envConfig.MobileKey] = clientContext
+		}
+
+		if envConfig.EnvId != nil && *envConfig.EnvId != "" {
+			var allowedOrigins []string
+			if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
+				allowedOrigins = *envConfig.AllowedOrigin
+			}
+			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{clientContext: clientContext, allowedOrigins: allowedOrigins}
+		}
+
+		if c.Events.SendEvents {
+			Info.Printf("Proxying events for environment %s", envName)
+			clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
+		}
+
+		// Connecting may take time, so do this in parallel
+		go func(envName string, envConfig EnvConfig) {
+			client, err := clientFactory(envConfig.ApiKey, clientConfig)
+			clientContext.setClient(client)
+
+			if err != nil {
+				if !c.Main.IgnoreConnectionErrors {
+					Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+
+					if c.Main.ExitOnError {
+						os.Exit(1)
+					}
+					return
+				}
+
+				Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+			} else {
+				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+			}
+		}(envName, *envConfig)
+	}
+
+	r := relay{
+		sdkClientMux:    ClientMux{clientContextByKey: clients},
+		mobileClientMux: ClientMux{clientContextByKey: mobileClients},
+		clientSideMux:   clientSideMux,
+	}
+	return &r
+}
+
+func (r *relay) getHandler() http.Handler {
+	router := mux.NewRouter()
+	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
+
+	// Client-side evaluation
+	clientSideMiddlewareStack := chainMiddleware(corsMiddleware, r.clientSideMux.selectClientByUrlParam)
+
+	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
+	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
+	goalsRouter.HandleFunc("/{envId}", r.clientSideMux.getGoals).Methods("GET")
+
+	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
+	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
+	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT", "OPTIONS")
+
+	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
+	clientSideSdkEvalXRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalXRouter))
+	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT", "OPTIONS")
+
+	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
+	serverSideSdkRouter.Use(r.sdkClientMux.selectClientByAuthorizationKey)
+
+	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
+	serverSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	serverSideEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+
+	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
+	serverSideEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	serverSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+
+	// Mobile evaluation
+	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
+	msdkRouter.Use(r.mobileClientMux.selectClientByAuthorizationKey)
+
+	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
+	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+
+	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
+	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+
+	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(http.HandlerFunc(pingStreamHandler))).Methods("GET")
+
+	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
+	clientSidePingRouter.Use(clientSideMiddlewareStack)
+	clientSidePingRouter.Use(mux.CORSMethodMiddleware(clientSidePingRouter))
+	clientSidePingRouter.HandleFunc("", pingStreamHandler).Methods("GET", "OPTIONS")
+
+	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
+	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter))
+	// For now we implement eval as simply ping
+	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT", "OPTIONS")
+
+	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
+	mobileEventsRouter.Use(r.mobileClientMux.selectClientByAuthorizationKey)
+	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("/events", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST")
+
+	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
+	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
+	clientSideBulkEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST", "OPTIONS")
+
+	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
+	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
+	clientSideImageEventsRouter.HandleFunc("", getEventsImage).Methods("GET", "OPTIONS")
+
+	serverSideRouter := router.PathPrefix("").Subrouter()
+	serverSideRouter.Use(r.sdkClientMux.selectClientByAuthorizationKey)
+	serverSideRouter.HandleFunc("/all", allStreamHandler).Methods("GET")
+	serverSideRouter.HandleFunc("/flags", flagsStreamHandler).Methods("GET")
+	serverSideRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
+
+	return router
+}
+
+type ClientMux struct {
+	clientContextByKey map[string]clientContext
 }
 
 func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
@@ -274,18 +399,13 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	envs := make(map[string]StatusEntry)
 
 	healthy := true
-	for k, v := range m.clientsByKey {
-		if v == nil {
+	for k, clientCtx := range m.clientContextByKey {
+		client := clientCtx.getClient()
+		if client == nil || !client.Initialized() {
 			envs[k] = StatusEntry{Status: "disconnected"}
 			healthy = false
 		} else {
-			client := v.(*ld.LDClient)
-			if client.Initialized() {
-				envs[k] = StatusEntry{Status: "connected"}
-			} else {
-				envs[k] = StatusEntry{Status: "disconnected"}
-				healthy = false
-			}
+			envs[k] = StatusEntry{Status: "connected"}
 		}
 	}
 
@@ -303,47 +423,42 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m ClientMux) selectClientByAuthorizationKey(next func(w http.ResponseWriter, req *http.Request)) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
+func (m ClientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authKey, err := fetchAuthToken(req)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		client := m.clientsByKey[authKey]
+		clientCtx := m.clientContextByKey[authKey]
 
-		if client == nil {
+		if clientCtx == nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("ld-relay is not configured for the provided key"))
 			return
 		}
 
-		ctx := clientContextImpl{client: client}
-		req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
-		next(w, req)
-	}
+		if clientCtx.getClient() == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("client was not initialized"))
+			return
+		}
+
+		req = req.WithContext(context.WithValue(req.Context(), "context", clientCtx))
+		next.ServeHTTP(w, req)
+	})
 }
 
-func (m SdkHandlerMux) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	authKey, err := fetchAuthToken(req)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	handler := m.handlersByKey[authKey]
-
-	if handler == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("ld-relay is not configured for the provided key"))
-		return
-	}
-
-	handler.ServeHTTP(w, req)
+func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
+	evaluateAllShared(w, req, true)
 }
 
 func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
+	evaluateAllShared(w, req, false)
+}
+
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -354,7 +469,6 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 		}
 
 		body, _ := ioutil.ReadAll(req.Body)
-		defer req.Body.Close()
 		userDecodeErr = json.Unmarshal(body, &user)
 	} else {
 		base64User := mux.Vars(req)["user"]
@@ -366,17 +480,96 @@ func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx := req.Context().Value("context")
-	client := ctx.(ClientContext).getClient()
-	result, _ := json.Marshal(client.AllFlags(*user))
+	clientCtx := getClientContext(req)
+	client := clientCtx.getClient()
+	store := clientCtx.getStore()
+	logger := clientCtx.getLogger()
+
 	w.Header().Set("Content-Type", "application/json")
+
+	if !client.Initialized() {
+		if store.Initialized() {
+			logger.Println("WARN: Called before client initialization; using last known values from feature store")
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			logger.Println("WARN: Called before client initialization. Feature store not available")
+			w.Write(ErrorJsonMsg("Service not initialized"))
+			return
+		}
+	}
+
+	if user.Key == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(ErrorJsonMsg("User must have a 'key' attribute"))
+		return
+	}
+
+	items, err := store.All(ld.Features)
+	if err != nil {
+		logger.Printf("WARN: Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
+		return
+	}
+
+	response := make(map[string]interface{}, len(items))
+	for _, item := range items {
+		if flag, ok := item.(*ld.FeatureFlag); ok {
+			value, variation, _ := flag.Evaluate(*user, store)
+			var result interface{}
+			if valueOnly {
+				result = value
+			} else {
+				result = EvalXResult{
+					Value:                value,
+					Variation:            variation,
+					Version:              flag.Version,
+					TrackEvents:          flag.TrackEvents,
+					DebugEventsUntilDate: flag.DebugEventsUntilDate,
+				}
+			}
+			response[flag.Key] = result
+		}
+	}
+
+	result, _ := json.Marshal(response)
+
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
+}
+
+func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+}
+
+func allStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+}
+
+func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+}
+
+func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
+	clientCtx := getClientContext(req)
+	if clientCtx.getHandlers().eventsHandler == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write(ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		return
+	}
+	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
 func ErrorJsonMsg(msg string) (j []byte) {
 	j, _ = json.Marshal(ErrorJson{msg})
 	return
+}
+
+func ErrorJsonMsgf(fmtStr string, args ...interface{}) []byte {
+	return ErrorJsonMsg(fmt.Sprintf(fmtStr, args...))
 }
 
 // Decodes a base64-encoded go-client v2 user.
@@ -461,4 +654,25 @@ func initLogging(
 	Error = log.New(errorHandle,
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
+}
+
+func last5(str string) string {
+	if len(str) >= 5 {
+		return str[len(str)-5:]
+	}
+	return str
+}
+
+func getClientContext(req *http.Request) clientContext {
+	return req.Context().Value("context").(clientContext)
+}
+
+func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		handler := next
+		for i := len(middlewares) - 1; i >= 0; i-- {
+			handler = middlewares[i](handler)
+		}
+		return handler
+	}
 }

@@ -5,9 +5,10 @@ jobs:
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay
 
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.10.1
         environment:
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          CIRCLE_ARTIFACTS: /tmp/circle-artifacts
           COMMON_GO_PACKAGES: >
             gopkg.in/alecthomas/gometalinter.v2
             github.com/jstemmer/go-junit-report
@@ -24,20 +25,46 @@ jobs:
 
       - run: gometalinter.v2 --install
       - run: gometalinter.v2 --disable gocyclo --disable golint --disable goconst --disable errcheck --disable maligned --disable vetshadow
-
       - run: go build
 
       - run:
           name: Wait for services to be ready
           command: dockerize -wait tcp://localhost:6379 -timeout 1m  # redis
 
-      - run: |
-          mkdir -p $CIRCLE_TEST_REPORTS
-          trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-          go test -race -v ./... | tee output.txt
+      - run:
+          name: Set up Code Climate
+          command: |
+            if [ -n "$CC_TEST_REPORTER_ID" ]; then
+              curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+              chmod +x ./cc-test-reporter
+            fi
+
+      - run:
+          name: Running tests
+          command: |
+            mkdir -p $CIRCLE_TEST_REPORTS
+            mkdir -p $CIRCLE_ARTIFACTS
+            trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+            go test -race -cover -covermode=atomic -coverprofile=$CIRCLE_ARTIFACTS/coverage.out -v ./... | tee output.txt
+
+      - run:
+          name: Report to code climate
+          command: |
+            if [ -n "$CC_TEST_REPORTER_ID" ]; then
+              ./cc-test-reporter format-coverage -t gocov --output $CIRCLE_ARTIFACTS/coverage.json $CIRCLE_ARTIFACTS/coverage.out
+              ./cc-test-reporter upload-coverage -i $CIRCLE_ARTIFACTS/coverage.json
+            fi
 
       - store_test_results:
           path: /tmp/circle-reports
+
+      - run:
+          name: Generate coverage report
+          command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.out -o $CIRCLE_ARTIFACTS/coverage.html
+          when: always
+
+      - store_artifacts:
+          path: /tmp/circle-artifacts
 
       - run: docker build -t builder -f Dockerfile-build .
       - run: docker run --name builder builder
