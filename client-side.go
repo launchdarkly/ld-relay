@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
@@ -95,11 +96,21 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+var allowedHeadersList = []string{
+	"Content-Type",
+	"Content-Length",
+	"Accept-Encoding",
+	"X-LaunchDarkly-User-Agent",
+	eventSchemaHeader,
+}
+
+var allowedHeaders = strings.Join(allowedHeadersList, ",")
+
 func setCorsHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", "300")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-LaunchDarkly-User-Agent")
+	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 	w.Header().Set("Access-Control-Expose-Headers", "Date")
 }
 
