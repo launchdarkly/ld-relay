@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	VERSION           = "DEV"
+	Version           = "4.1.0"
 	Debug             *log.Logger
 	Info              *log.Logger
 	Warning           *log.Logger
@@ -172,7 +172,7 @@ func main() {
 	c.Main.StreamUri = defaultStreamUri
 	c.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 
-	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(VERSION), configFile)
+	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(Version), configFile)
 
 	err := gcfg.ReadFileInto(&c, configFile)
 
@@ -249,7 +249,7 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 		clientConfig.StreamUri = c.Main.StreamUri
 		clientConfig.BaseUri = c.Main.BaseUri
 		clientConfig.Logger = logger
-		clientConfig.UserAgent = "LDRelay/" + VERSION
+		clientConfig.UserAgent = "LDRelay/" + Version
 
 		clientContext := &clientContextImpl{
 			store:  baseFeatureStore,

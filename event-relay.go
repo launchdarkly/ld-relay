@@ -157,7 +157,7 @@ func (er *eventVerbatimRelay) flush() {
 
 	req.Header.Add("Authorization", er.sdkKey)
 	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("User-Agent", "LDRelay/"+VERSION)
+	req.Header.Add("User-Agent", "LDRelay/"+Version)
 	req.Header.Add(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
 
 	resp, respErr := er.client.Do(req)
