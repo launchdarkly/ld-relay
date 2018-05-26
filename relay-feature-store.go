@@ -285,7 +285,7 @@ func (t pingEvent) Event() string {
 }
 
 func (t pingEvent) Data() string {
-	return ""
+	return " " // We need something or the data field is not published by eventsource causing the event to be ignored
 }
 
 func (t pingEvent) Comment() string {
