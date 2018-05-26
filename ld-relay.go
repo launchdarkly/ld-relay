@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	Version           = "4.1.0"
+	Version           = "4.1.1"
 	Debug             *log.Logger
 	Info              *log.Logger
 	Warning           *log.Logger
