@@ -37,7 +37,7 @@ go get -u github.com/launchdarkly/ld-relay
     streamUri = "https://stream.launchdarkly.com"
     baseUri = "https://app.launchdarkly.com"
 [environment "<NAME-OF-YOUR-ENVIRONMENT>]
-    apiKey = "<SDK-KEY-FOR-YOUR-ENVIRONMENT>
+    sdkKey = "<SDK-KEY-FOR-YOUR-ENVIRONMENT>
 ```
 
 4. Run the binary by entering the following command in your terminal:
@@ -96,7 +96,7 @@ variable name | type   | default | description
 ## [environment]
 variable name   | type           | description
 --------------- |:--------------:| -----------
-`apiKey`        | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
+`sdkKey`        | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
 `mobileKey`     | Mobile Key     | Mobile key for the environment. Required to proxy mobile SDK functionality
 `envId`         | Client-side ID | Client-side ID for the environment. Required to proxy front-end SDK functionality
 `prefix`        | String         | Required if using a Redis feature store
@@ -111,16 +111,16 @@ Here's an example configuration file that synchronizes four environments across 
     heartbeatIntervalSecs = 15
 
 [environment "Spree Project Production"]
-    apiKey = "SPREE_PROD_API_KEY"
+    sdkKey = "SPREE_PROD_API_KEY"
 
 [environment "Spree Project Test"]
-    apiKey = "SPREE_TEST_API_KEY"
+    sdkKey = "SPREE_TEST_API_KEY"
 
 [environment "Shopnify Project Production"]
-    apiKey = "SHOPNIFY_PROD_API_KEY"
+    sdkKey = "SHOPNIFY_PROD_API_KEY"
 
 [environment "Shopnify Project Test"]
-    apiKey = "SHOPNIFY_TEST_API_KEY"
+    sdkKey = "SHOPNIFY_TEST_API_KEY"
 ```
 
 Mobile and client-side flag evaluation
@@ -128,11 +128,11 @@ Mobile and client-side flag evaluation
 LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable flag evaluation support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
 ```
 [environment "Spree Mobile Production"]
-    apiKey = "SPREE_MOBILE_PROD_API_KEY"
+    sdkKey = "SPREE_MOBILE_PROD_API_KEY"
     mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
 
 [environment "Spree Webapp Production"]
-    apiKey = "SPREE_WEB_PROD_API_KEY"
+    sdkKey = "SPREE_WEB_PROD_API_KEY"
     envId = "SPREE_WEB_PROD_ENV_ID"
     allowedOrigin = "http://example.org"
     allowedOrigin = "http://another_example.net"
@@ -194,11 +194,11 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
 
 [environment "Spree Project Production"]
     prefix = "ld:spree:production"
-    apiKey = "SPREE_PROD_API_KEY"
+    sdkKey = "SPREE_PROD_API_KEY"
 
 [environment "Spree Project Test"]
     prefix = "ld:spree:test"
-    apiKey = "SPREE_TEST_API_KEY"
+    sdkKey = "SPREE_TEST_API_KEY"
 ```
 
 You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds).
@@ -298,24 +298,24 @@ LD_PREFIX_*env_name*         | String         |                                 
 ### Docker examples
 To run a single environment, without Redis:
 ```
-$ docker run --name ld-relay -e LD_ENV_test="sdk-test-apiKey" ld-relay
+$ docker run --name ld-relay -e LD_ENV_test="sdk-test-sdkKey" ld-relay
 ```
 
 To run multiple environments, without Redis:
 ```
-$ docker run --name ld-relay -e LD_ENV_test="sdk-test-apiKey" -e LD_ENV_prod="sdk-prod-apiKey" ld-relay
+$ docker run --name ld-relay -e LD_ENV_test="sdk-test-sdkKey" -e LD_ENV_prod="sdk-prod-sdkKey" ld-relay
 ```
 
 To run a single environment, with Redis:
 ```
 $ docker run --name redis redis:alpine
-$ docker run --name ld-relay --link redis:redis -e USE_REDIS=1 -e LD_ENV_test="sdk-test-apiKey" ld-relay
+$ docker run --name ld-relay --link redis:redis -e USE_REDIS=1 -e LD_ENV_test="sdk-test-sdkKey" ld-relay
 ```
 
 To run multiple environment, with Redis:
 ```
 $ docker run --name redis redis:alpine
-$ docker run --name ld-relay --link redis:redis -e USE_REDIS=1 -e LD_ENV_test="sdk-test-apiKey" -e LD_PREFIX_test="ld:default:test" -e LD_ENV_prod="sdk-prod-apiKey" -e LD_PREFIX_prod="ld:default:prod" ld-relay
+$ docker run --name ld-relay --link redis:redis -e USE_REDIS=1 -e LD_ENV_test="sdk-test-sdkKey" -e LD_PREFIX_test="ld:default:test" -e LD_ENV_prod="sdk-prod-sdkKey" -e LD_PREFIX_prod="ld:default:prod" ld-relay
 ```
 
 
