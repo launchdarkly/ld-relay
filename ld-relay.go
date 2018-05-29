@@ -80,8 +80,11 @@ type Config struct {
 	Environment map[string]*EnvConfig
 }
 
-type StatusEntry struct {
-	Status string `json:"status"`
+type EnvironmentStatus struct {
+	ApiKey    string `json:"apiKey"`
+	EnvId     string `json:"envId,omitempty"`
+	MobileKey string `json:"mobileKey,omitempty"`
+	Status    string `json:"status"`
 }
 
 type ErrorJson struct {
@@ -112,11 +115,15 @@ type clientContext interface {
 }
 
 type clientContextImpl struct {
-	mu       sync.RWMutex
-	client   ldClientContext
-	store    ld.FeatureStore
-	logger   ld.Logger
-	handlers clientHandlers
+	mu        sync.RWMutex
+	client    ldClientContext
+	store     ld.FeatureStore
+	logger    ld.Logger
+	handlers  clientHandlers
+	apiKey    string
+	envId     *string
+	mobileKey *string
+	name      string
 }
 
 type relay struct {
@@ -226,8 +233,8 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 	pingPublisher.Gzip = false
 	pingPublisher.AllowCORS = true
 	pingPublisher.ReplayAll = true
-	clients := map[string]clientContext{}
-	mobileClients := map[string]clientContext{}
+	clients := map[string]*clientContextImpl{}
+	mobileClients := map[string]*clientContextImpl{}
 	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
 	for _, envConfig := range c.Environment {
 		clients[envConfig.ApiKey] = nil
@@ -252,8 +259,12 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 		clientConfig.UserAgent = "LDRelay/" + Version
 
 		clientContext := &clientContextImpl{
-			store:  baseFeatureStore,
-			logger: logger,
+			name:      envName,
+			envId:     envConfig.EnvId,
+			apiKey:    envConfig.ApiKey,
+			mobileKey: envConfig.MobileKey,
+			store:     baseFeatureStore,
+			logger:    logger,
 			handlers: clientHandlers{
 				allStreamHandler:   allPublisher.Handler(envConfig.ApiKey),
 				flagsStreamHandler: flagsPublisher.Handler(envConfig.ApiKey),
@@ -391,22 +402,31 @@ func (r *relay) getHandler() http.Handler {
 }
 
 type ClientMux struct {
-	clientContextByKey map[string]clientContext
+	clientContextByKey map[string]*clientContextImpl
 }
 
 func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	envs := make(map[string]StatusEntry)
+	envs := make(map[string]EnvironmentStatus)
 
 	healthy := true
-	for k, clientCtx := range m.clientContextByKey {
+	for _, clientCtx := range m.clientContextByKey {
+		var status EnvironmentStatus
+		if clientCtx.envId != nil {
+			status.EnvId = *clientCtx.envId
+		}
+		if clientCtx.mobileKey != nil {
+			status.MobileKey = obscureKey(*clientCtx.mobileKey)
+		}
+		status.ApiKey = obscureKey(clientCtx.apiKey)
 		client := clientCtx.getClient()
 		if client == nil || !client.Initialized() {
-			envs[k] = StatusEntry{Status: "disconnected"}
+			status.Status = "disconnected"
 			healthy = false
 		} else {
-			envs[k] = StatusEntry{Status: "connected"}
+			status.Status = "connected"
 		}
+		envs[clientCtx.name] = status
 	}
 
 	resp := make(map[string]interface{})
@@ -675,4 +695,13 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 		}
 		return handler
 	}
+}
+
+var hexdigit = regexp.MustCompile(`[a-fA-F\d]`)
+
+func obscureKey(key string) string {
+	if len(key) > 8 {
+		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
+	}
+	return key
 }

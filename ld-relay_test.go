@@ -45,7 +45,7 @@ func user() string {
 }
 
 func handler() ClientMux {
-	clients := map[string]clientContext{key(): &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	clients := map[string]*clientContextImpl{key(): &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
 	return ClientMux{clientContextByKey: clients}
 }
 
@@ -351,7 +351,9 @@ func TestRelay(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0"
+	sdkKeyClientSide := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"
+	sdkKeyMobile := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"
 	mobileKey := "mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
 
 	envId := "507f1f77bcf86cd799439011"
@@ -360,15 +362,15 @@ func TestRelay(t *testing.T) {
 
 	config := Config{
 		Environment: map[string]*EnvConfig{
-			"client-side test": {
-				ApiKey: sdkKey,
-				EnvId:  &envId,
-			},
 			"sdk test": {
 				ApiKey: sdkKey,
 			},
+			"client-side test": {
+				ApiKey: sdkKeyClientSide,
+				EnvId:  &envId,
+			},
 			"mobile test": {
-				ApiKey:    sdkKey,
+				ApiKey:    sdkKeyMobile,
 				MobileKey: &mobileKey,
 			},
 		},
@@ -408,6 +410,21 @@ func TestRelay(t *testing.T) {
 	expectedFlagsData, _ := json.Marshal(allFlags)
 	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
 
+	t.Run("status", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+		relay.ServeHTTP(w, r)
+		result := w.Result()
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		body, _ := ioutil.ReadAll(result.Body)
+		assert.JSONEq(t, `
+{"environments": {
+	"sdk test": {"apiKey":"sdk-********-****-****-****-*******e42d0","status":"connected"},
+	"client-side test": {"apiKey":"sdk-********-****-****-****-*******e42d1", "envId": "507f1f77bcf86cd799439011", "status":"connected"},
+	"mobile test": {"apiKey":"sdk-********-****-****-****-*******e42d2", "mobileKey":"mob-********-****-****-****-*******e42db", "status":"connected"}
+}, "status":"healthy"}`, string(body))
+	})
+
 	t.Run("sdk and mobile routes", func(t *testing.T) {
 		specs := []struct {
 			name           string
@@ -418,7 +435,6 @@ func TestRelay(t *testing.T) {
 			expectedStatus int
 			bodyMatcher    bodyMatcher
 		}{
-			{"status", "GET", "/status", "", nil, http.StatusOK, expectJSONBody(`{"environments":{"sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42db":{"status":"connected"}}, "status":"healthy"}`)},
 			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedEvalBody},
 			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedEvalxBody},
 			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedEvalBody},
