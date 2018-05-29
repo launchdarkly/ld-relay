@@ -373,6 +373,21 @@ func TestRelay(t *testing.T) {
 			},
 		},
 	}
+
+	fakeApp := mux.NewRouter()
+	fakeApp.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
+		ioutil.ReadAll(req.Body)
+		if mux.Vars(req)["envId"] != envId {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`["got some goals"]`))
+	}).Methods("GET")
+	fakeServer := httptest.NewServer(fakeApp)
+	defer fakeServer.Close()
+
+	config.Main.BaseUri = fakeServer.URL
 	config.Events.SendEvents = true
 	config.Events.EventsUri = eventsServer.URL
 	config.Events.FlushIntervalSecs = 1
@@ -489,12 +504,13 @@ func TestRelay(t *testing.T) {
 			expectedStatus int
 			bodyMatcher    bodyMatcher
 		}{
-			{"client-side report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedEvalBody},
-			{"client-side report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedEvalxBody},
-			{"client-side get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalBody},
-			{"client-side get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalxBody},
-			{"client-side post events", "POST", fmt.Sprintf("/events/bulk/%s", envId), []byte("[]"), http.StatusAccepted, nil},
-			{"client-side get events image", "GET", fmt.Sprintf("/a/%s.gif?d=%s", envId, base64Events), nil, http.StatusOK, expectBody(string(transparent1PixelImg))},
+			{"report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedEvalBody},
+			{"report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedEvalxBody},
+			{"get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalBody},
+			{"get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalxBody},
+			{"post events", "POST", fmt.Sprintf("/events/bulk/%s", envId), []byte("[]"), http.StatusAccepted, nil},
+			{"get events image", "GET", fmt.Sprintf("/a/%s.gif?d=%s", envId, base64Events), nil, http.StatusOK, expectBody(string(transparent1PixelImg))},
+			{"get goals", "GET", fmt.Sprintf("/sdk/goals/%s", envId), nil, http.StatusOK, expectBody(`["got some goals"]`)},
 		}
 
 		for _, s := range specs {

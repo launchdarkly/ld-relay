@@ -319,7 +319,7 @@ func (r *relay) getHandler() http.Handler {
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
 	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
-	goalsRouter.HandleFunc("/{envId}", r.clientSideMux.getGoals).Methods("GET")
+	goalsRouter.HandleFunc("/{envId}", r.clientSideMux.getGoals).Methods("GET", "OPTIONS")
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
 	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
