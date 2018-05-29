@@ -48,7 +48,8 @@ var (
 )
 
 type EnvConfig struct {
-	ApiKey        string
+	SdkKey        string
+	ApiKey        string // deprecated, equivalent to SdkKey
 	MobileKey     *string
 	EnvId         *string
 	Prefix        string
@@ -81,7 +82,7 @@ type Config struct {
 }
 
 type EnvironmentStatus struct {
-	ApiKey    string `json:"apiKey"`
+	SdkKey    string `json:"sdkKey"`
 	EnvId     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
@@ -120,7 +121,7 @@ type clientContextImpl struct {
 	store     ld.FeatureStore
 	logger    ld.Logger
 	handlers  clientHandlers
-	apiKey    string
+	sdkKey    string
 	envId     *string
 	mobileKey *string
 	name      string
@@ -216,11 +217,11 @@ func main() {
 	}
 }
 
-func defaultClientFactory(apiKey string, config ld.Config) (ldClientContext, error) {
-	return ld.MakeCustomClient(apiKey, config, time.Second*10)
+func defaultClientFactory(sdkKey string, config ld.Config) (ldClientContext, error) {
+	return ld.MakeCustomClient(sdkKey, config, time.Second*10)
 }
 
-func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldClientContext, error)) *relay {
+func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldClientContext, error)) *relay {
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -236,8 +237,17 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 	clients := map[string]*clientContextImpl{}
 	mobileClients := map[string]*clientContextImpl{}
 	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
-	for _, envConfig := range c.Environment {
-		clients[envConfig.ApiKey] = nil
+	for key, envConfig := range c.Environment {
+		if envConfig.ApiKey != "" {
+			if envConfig.SdkKey == "" {
+				envConfig.SdkKey = envConfig.ApiKey
+				c.Environment[key] = envConfig
+				Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
+			} else {
+				Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
+			}
+		}
+		clients[envConfig.SdkKey] = nil
 	}
 	for envName, envConfig := range c.Environment {
 		var baseFeatureStore ld.FeatureStore
@@ -248,11 +258,11 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 			baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
 		}
 
-		logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (ApiKey ending with %s)] ", last5(envConfig.ApiKey)), log.LstdFlags)
+		logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
 
 		clientConfig := ld.DefaultConfig
 		clientConfig.Stream = true
-		clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.ApiKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+		clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 		clientConfig.StreamUri = c.Main.StreamUri
 		clientConfig.BaseUri = c.Main.BaseUri
 		clientConfig.Logger = logger
@@ -261,18 +271,18 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 		clientContext := &clientContextImpl{
 			name:      envName,
 			envId:     envConfig.EnvId,
-			apiKey:    envConfig.ApiKey,
+			sdkKey:    envConfig.SdkKey,
 			mobileKey: envConfig.MobileKey,
 			store:     baseFeatureStore,
 			logger:    logger,
 			handlers: clientHandlers{
-				allStreamHandler:   allPublisher.Handler(envConfig.ApiKey),
-				flagsStreamHandler: flagsPublisher.Handler(envConfig.ApiKey),
-				pingStreamHandler:  pingPublisher.Handler(envConfig.ApiKey),
+				allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
+				flagsStreamHandler: flagsPublisher.Handler(envConfig.SdkKey),
+				pingStreamHandler:  pingPublisher.Handler(envConfig.SdkKey),
 			},
 		}
 
-		clients[envConfig.ApiKey] = clientContext
+		clients[envConfig.SdkKey] = clientContext
 
 		if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
 			mobileClients[*envConfig.MobileKey] = clientContext
@@ -288,12 +298,12 @@ func newRelay(c Config, clientFactory func(apiKey string, config ld.Config) (ldC
 
 		if c.Events.SendEvents {
 			Info.Printf("Proxying events for environment %s", envName)
-			clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.ApiKey, c, baseFeatureStore)
+			clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.SdkKey, c, baseFeatureStore)
 		}
 
 		// Connecting may take time, so do this in parallel
 		go func(envName string, envConfig EnvConfig) {
-			client, err := clientFactory(envConfig.ApiKey, clientConfig)
+			client, err := clientFactory(envConfig.SdkKey, clientConfig)
 			clientContext.setClient(client)
 
 			if err != nil {
@@ -418,7 +428,7 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 		if clientCtx.mobileKey != nil {
 			status.MobileKey = obscureKey(*clientCtx.mobileKey)
 		}
-		status.ApiKey = obscureKey(clientCtx.apiKey)
+		status.SdkKey = obscureKey(clientCtx.sdkKey)
 		client := clientCtx.getClient()
 		if client == nil || !client.Initialized() {
 			status.Status = "disconnected"

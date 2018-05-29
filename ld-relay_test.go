@@ -363,14 +363,14 @@ func TestRelay(t *testing.T) {
 	config := Config{
 		Environment: map[string]*EnvConfig{
 			"sdk test": {
-				ApiKey: sdkKey,
+				SdkKey: sdkKey,
 			},
 			"client-side test": {
-				ApiKey: sdkKeyClientSide,
+				SdkKey: sdkKeyClientSide,
 				EnvId:  &envId,
 			},
 			"mobile test": {
-				ApiKey:    sdkKeyMobile,
+				SdkKey:    sdkKeyMobile,
 				MobileKey: &mobileKey,
 			},
 		},
@@ -398,11 +398,13 @@ func TestRelay(t *testing.T) {
 	zero := 0
 	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
 
-	relay := newRelay(config, func(apiKey string, config ld.Config) (ldClientContext, error) {
+	createDummyClient := func(sdkKey string, config ld.Config) (ldClientContext, error) {
 		config.FeatureStore.Init(nil)
 		config.FeatureStore.Upsert(ld.Features, &flag)
 		return &FakeLDClient{true}, nil
-	}).getHandler()
+	}
+
+	relay := newRelay(config, createDummyClient).getHandler()
 
 	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
 	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
@@ -410,19 +412,59 @@ func TestRelay(t *testing.T) {
 	expectedFlagsData, _ := json.Marshal(allFlags)
 	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
 
-	t.Run("status", func(t *testing.T) {
+	getStatus := func(relay http.Handler, t *testing.T) string {
 		w := httptest.NewRecorder()
 		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 		relay.ServeHTTP(w, r)
 		result := w.Result()
 		assert.Equal(t, http.StatusOK, result.StatusCode)
 		body, _ := ioutil.ReadAll(result.Body)
+		return string(body)
+	}
+
+	t.Run("if apiKey is present and sdkKey is absent, sdkKey is set to apiKey", func(t *testing.T) {
+		newConfig := Config{
+			Environment: map[string]*EnvConfig{
+				"test": {
+					ApiKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989",
+				},
+			},
+		}
+
+		relay := newRelay(newConfig, createDummyClient).getHandler()
+		status := getStatus(relay, t)
 		assert.JSONEq(t, `
 {"environments": {
-	"sdk test": {"apiKey":"sdk-********-****-****-****-*******e42d0","status":"connected"},
-	"client-side test": {"apiKey":"sdk-********-****-****-****-*******e42d1", "envId": "507f1f77bcf86cd799439011", "status":"connected"},
-	"mobile test": {"apiKey":"sdk-********-****-****-****-*******e42d2", "mobileKey":"mob-********-****-****-****-*******e42db", "status":"connected"}
-}, "status":"healthy"}`, string(body))
+	"test": {"sdkKey":"sdk-********-****-****-****-*******98989","status":"connected"}
+}, "status":"healthy"}`, status)
+	})
+
+	t.Run("if apiKey and sdkKey are both present, apiKey is ignored", func(t *testing.T) {
+		newConfig := Config{
+			Environment: map[string]*EnvConfig{
+				"test": {
+					ApiKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989",
+					SdkKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0",
+				},
+			},
+		}
+
+		relay := newRelay(newConfig, createDummyClient).getHandler()
+		status := getStatus(relay, t)
+		assert.JSONEq(t, `
+{"environments": {
+	"test": {"sdkKey":"sdk-********-****-****-****-*******e42d0","status":"connected"}
+}, "status":"healthy"}`, status)
+	})
+
+	t.Run("status", func(t *testing.T) {
+		status := getStatus(relay, t)
+		assert.JSONEq(t, `
+{"environments": {
+	"sdk test": {"sdkKey":"sdk-********-****-****-****-*******e42d0","status":"connected"},
+	"client-side test": {"sdkKey":"sdk-********-****-****-****-*******e42d1", "envId": "507f1f77bcf86cd799439011", "status":"connected"},
+	"mobile test": {"sdkKey":"sdk-********-****-****-****-*******e42d2", "mobileKey":"mob-********-****-****-****-*******e42db", "status":"connected"}
+}, "status":"healthy"}`, status)
 	})
 
 	t.Run("sdk and mobile routes", func(t *testing.T) {
