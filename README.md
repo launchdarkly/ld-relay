@@ -169,19 +169,6 @@ You can configure LDR nodes to persist feature flag settings in Redis. This prov
 ```
 
 
-Mobile and client-side flag evaluation
-----------------
-LDR may be optionally configured with a mobile SDK key, and/or an environment ID to enable flag evaluation support for mobile and client-side LaunchDarkly SDKs (Android, iOS, and JavaScript).
-```
-[environment "Spree Mobile Production"]
-    apiKey = "SPREE_MOBILE_PROD_API_KEY"
-    mobileKey = "SPREE_MOBILE_PROD_MOBILE_KEY"
-
-[environment "Spree Webapp Production"]
-    apiKey = "SPREE_WEB_PROD_API_KEY"
-    envId = "SPREE_WEB_PROD_ENV_ID"
-    allowedOrigin = "http://example.org"
-```
 Relay proxy mode
 ----------------
 LDR is typically deployed in relay proxy mode. In this mode, several LDR instances are deployed in a high-availability configuration behind a load balancer. LDR nodes do not need to communicate with each other, and there is no master or cluster. This makes it easy to scale LDR horizontally by deploying more nodes behind the load balancer.
