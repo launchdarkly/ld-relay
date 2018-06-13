@@ -260,9 +260,10 @@ Endpoint                           | Method        | Auth Header | Description
 
 Docker
 -------
-Using docker is not required, but if you perfer using a docker container we provide a docker entrypoint to make this as easy as possible.
 
-To build the ld-relay container:
+Using docker is not required, but if you prefer using a docker container we provide an official docker image on Docker Hub called [launchdarkly/ld-relay](https://hub.docker.com/r/launchdarkly/ld-relay/).
+
+You can also build your own ld-relay docker container using the following instructions:
 ```
 $ docker build -t ld-relay-build -f Dockerfile-build .  # create the build container image
 $ docker run --name ld-relay-build ld-relay-build  # start the build container
