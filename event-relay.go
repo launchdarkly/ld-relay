@@ -48,19 +48,35 @@ type eventRelayHandler struct {
 
 func (r *eventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
+
 	if bodyErr != nil {
 		Error.Printf("Error reading event post body: %+v", bodyErr)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(ErrorJsonMsg("unable to read request body"))
+		return
 	}
 
+	if len(body) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(ErrorJsonMsg("body may not be empty"))
+		return
+	}
+
+	// Always accept the data
+	w.WriteHeader(http.StatusAccepted)
+
 	go func() {
-		if err := recover(); err != nil {
-			Error.Printf("Unexpected panic in event relay : %+v", err)
-		}
+		defer func() {
+			if err := recover(); err != nil {
+				Error.Printf("Unexpected panic in event relay : %+v", err)
+			}
+		}()
 
 		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
 			Error.Printf("Error unmarshaling event post body: %+v", err)
+			return
 		}
 
 		payloadVersion, _ := strconv.Atoi(req.Header.Get(eventSchemaHeader))
@@ -74,8 +90,6 @@ func (r *eventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 			r.getSummarizingRelay().enqueue(evts, payloadVersion)
 		}
 	}()
-
-	w.WriteHeader(http.StatusAccepted)
 }
 
 func (r *eventRelayHandler) getVerbatimRelay() *eventVerbatimRelay {
