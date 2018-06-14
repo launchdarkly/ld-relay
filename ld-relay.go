@@ -47,6 +47,8 @@ var (
 	configFile        string
 )
 
+var userDefinedEndpoints []EndpointHandler = nil; //update this to use endpoints that are not utilized by the api to add extra features to a relay
+
 type EnvConfig struct {
 	SdkKey        string
 	ApiKey        string // deprecated, equivalent to SdkKey
@@ -139,6 +141,11 @@ type EvalXResult struct {
 	Version              int         `json:"version"`
 	DebugEventsUntilDate *uint64     `json:"debugEventsUntilDate,omitempty"`
 	TrackEvents          bool        `json:"trackEvents"`
+}
+
+type EndpointHandler struct {
+	Endpoint string
+	Function func(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *clientContextImpl) getClient() ldClientContext {
@@ -334,6 +341,12 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 func (r *relay) getHandler() http.Handler {
 	router := mux.NewRouter()
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
+
+	if userDefinedEndpoints != nil{
+		for i := 0; i < len(userDefinedEndpoints); i++{
+			router.HandleFunc(userDefinedEndpoints[i].Endpoint, userDefinedEndpoints[i].Function)
+		}
+	}
 
 	// Client-side evaluation
 	clientSideMiddlewareStack := chainMiddleware(corsMiddleware, r.clientSideMux.selectClientByUrlParam)
