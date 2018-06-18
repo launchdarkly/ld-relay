@@ -178,8 +178,8 @@ func (er *eventVerbatimRelay) flush() {
 
 	defer func() {
 		if resp != nil && resp.Body != nil {
-			ioutil.ReadAll(resp.Body)
-			resp.Body.Close()
+			defer resp.Body.Close() // nolint:errcheck
+			_, _ = ioutil.ReadAll(resp.Body)
 		}
 	}()
 
@@ -214,15 +214,15 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 
 func checkStatusCode(statusCode int, url string) error {
 	if statusCode == http.StatusUnauthorized {
-		return fmt.Errorf("Invalid SDK key when accessing URL: %s. Verify that your SDK key is correct.", url)
+		return fmt.Errorf("invalid SDK key when accessing URL: %s. Verify that your SDK key is correct", url)
 	}
 
 	if statusCode == http.StatusNotFound {
-		return fmt.Errorf("Resource not found when accessing URL: %s. Verify that this resource exists.", url)
+		return fmt.Errorf("resource not found when accessing URL: %s. Verify that this resource exists", url)
 	}
 
 	if statusCode/100 != 2 {
-		return fmt.Errorf("Unexpected response code: %d when accessing URL: %s", statusCode, url)
+		return fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, url)
 	}
 	return nil
 }

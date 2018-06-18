@@ -61,7 +61,7 @@ func buildRequest(verb string, vars map[string]string, headers map[string]string
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	req = req.WithContext(context.WithValue(req.Context(), "context", ctx))
+	req = req.WithContext(context.WithValue(req.Context(), contextKey, ctx))
 	return req
 }
 

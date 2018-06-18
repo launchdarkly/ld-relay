@@ -1,0 +1,26 @@
+run:
+  deadline: 120s
+  tests: false
+
+linters:
+  enable-all: true
+  disable:
+    - gocyclo
+    - gofmt
+    - maligned  # don't really care about struct sizes
+  fast: false
+
+linter-settings:
+  gofmt:
+    simplify: false
+
+issues:
+  exclude:
+    # golint exclusions
+    - "(const|func|method|struct field|type|var) .* should be " # golint errors about variable names (don't want to fix them because they're in a public interface)
+    - "G104: Errors unhandled." # Let errcheck handle these
+    - "Error return value of `w.Write` is not checked"
+    - "should have comment or be unexported" # TODO: label everything that is exported when relay becomes a library
+  exclude-use-default: false
+  max-same-issues: 1000
+  max-per-linter: 1000

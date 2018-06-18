@@ -13,6 +13,10 @@ import (
 	"github.com/gregjones/httpcache"
 )
 
+type contextKeyType string
+
+const contextKey contextKeyType = "context"
+
 type clientSideContext struct {
 	allowedOrigins []string
 	clientContext
@@ -43,7 +47,7 @@ func (m ClientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 			return
 		}
 
-		req = req.WithContext(context.WithValue(req.Context(), "context", clientCtx))
+		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
 		next.ServeHTTP(w, req)
 	})
 }
@@ -73,7 +77,7 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
-		if context, ok := r.Context().Value("context").(corsContext); ok {
+		if context, ok := r.Context().Value(contextKey).(corsContext); ok {
 			domains = context.AllowedOrigins()
 		}
 		if len(domains) > 0 {

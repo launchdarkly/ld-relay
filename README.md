@@ -264,11 +264,7 @@ Using docker is not required, but if you perfer using a docker container we prov
 
 To build the ld-relay container:
 ```
-$ docker build -t ld-relay-build -f Dockerfile-build .  # create the build container image
-$ docker run --name ld-relay-build ld-relay-build  # start the build container
-$ docker cp ld-relay-build:/go/src/github.com/launchdarkly/ld-relay/ldr .  # get the binary out of the build container
-$ docker build -t ld-relay .  # build the ld-relay container image
-$ docker rmi -f ld-relay-build  # remove the build container image that is no longer needed
+$ docker build -t ld-relay .
 ```
 
 ### Docker environment variables

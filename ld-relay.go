@@ -475,7 +475,7 @@ func (m ClientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 			return
 		}
 
-		req = req.WithContext(context.WithValue(req.Context(), "context", clientCtx))
+		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
 		next.ServeHTTP(w, req)
 	})
 }
@@ -602,7 +602,7 @@ func ErrorJsonMsgf(fmtStr string, args ...interface{}) []byte {
 	return ErrorJsonMsg(fmt.Sprintf(fmtStr, args...))
 }
 
-// Decodes a base64-encoded go-client v2 user.
+// UserV2FromBase64 decodes a base64-encoded go-client v2 user.
 // If any decoding/unmarshaling errors occur or
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (*ld.User, error) {
@@ -694,7 +694,7 @@ func last5(str string) string {
 }
 
 func getClientContext(req *http.Request) clientContext {
-	return req.Context().Value("context").(clientContext)
+	return req.Context().Value(contextKey).(clientContext)
 }
 
 func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
