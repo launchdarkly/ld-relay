@@ -1,19 +1,23 @@
-package main
+package store
 
 import (
 	"encoding/json"
 	"time"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
+// ESPublisher defines an interface for publishing events to eventsource
 type ESPublisher interface {
 	Publish(channels []string, event es.Event)
 	PublishComment(channels []string, text string)
 	Register(channel string, repo es.Repository)
 }
 
+// SSERelayFeatureStore is a feature store that relays updates to eventsource
 type SSERelayFeatureStore struct {
 	store          ld.FeatureStore
 	allPublisher   ESPublisher
@@ -32,6 +36,7 @@ type pingRepository struct {
 	relayStore *SSERelayFeatureStore
 }
 
+// NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
 func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPublisher ESPublisher, pingPublisher ESPublisher, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
 		store:          baseFeatureStore,
@@ -41,9 +46,9 @@ func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPubli
 		pingPublisher:  pingPublisher,
 	}
 
-	allPublisher.Register(apiKey, allRepository{relayStore})
-	flagsPublisher.Register(apiKey, flagsRepository{relayStore})
-	pingPublisher.Register(apiKey, pingRepository{relayStore})
+	allPublisher.Register(apiKey, allRepository{relayStore: relayStore})
+	flagsPublisher.Register(apiKey, flagsRepository{relayStore: relayStore})
+	pingPublisher.Register(apiKey, pingRepository{relayStore: relayStore})
 
 	if heartbeatInterval > 0 {
 		go func() {
@@ -68,14 +73,17 @@ func (relay *SSERelayFeatureStore) heartbeat() {
 	relay.pingPublisher.PublishComment(relay.keys(), "")
 }
 
+// Get returns a single item from the feature store
 func (relay *SSERelayFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
 	return relay.store.Get(kind, key)
 }
 
+// All returns all items in the feature store
 func (relay *SSERelayFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld.VersionedData, error) {
 	return relay.store.All(kind)
 }
 
+// Init initializes the feature store
 func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
 	err := relay.store.Init(allData)
 
@@ -90,6 +98,7 @@ func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[str
 	return nil
 }
 
+// Delete marks a single item as deleted in the feature store
 func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
 	err := relay.store.Delete(kind, key, version)
 	if err != nil {
@@ -105,6 +114,7 @@ func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string,
 	return nil
 }
 
+// Upsert inserts or updates a single item in the feature store
 func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
 	err := relay.store.Upsert(kind, item)
 
@@ -129,11 +139,12 @@ func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.Ver
 	return nil
 }
 
+// Initialized returns true after the feature store has been initialized the first time
 func (relay *SSERelayFeatureStore) Initialized() bool {
 	return relay.store.Initialized()
 }
 
-// Allows the feature store to act as an SSE repository (to send bootstrap events)
+// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
 func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {
@@ -142,7 +153,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
-				Error.Printf("Error getting all flags: %s\n", err.Error())
+				logging.Error.Printf("Error getting all flags: %s\n", err.Error())
 			} else {
 				out <- makeFlagsPutEvent(flags)
 			}
@@ -151,6 +162,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	return
 }
 
+// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
 func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {
@@ -159,11 +171,11 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
-				Error.Printf("Error getting all flags: %s\n", err.Error())
+				logging.Error.Printf("Error getting all flags: %s\n", err.Error())
 			} else {
 				segments, err := r.relayStore.All(ld.Segments)
 				if err != nil {
-					Error.Printf("Error getting all segments: %s\n", err.Error())
+					logging.Error.Printf("Error getting all segments: %s\n", err.Error())
 				} else {
 					out <- makePutEvent(flags, segments)
 				}
@@ -174,6 +186,7 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	return
 }
 
+// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
 func (r pingRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {

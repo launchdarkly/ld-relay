@@ -1,29 +1,31 @@
-package main
+package relay
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
-	_ "github.com/kardianos/minwinsvc"
+
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-client.v4"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
+
+	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/ld-relay.v5/store"
+	"gopkg.in/launchdarkly/ld-relay.v5/util"
+	"gopkg.in/launchdarkly/ld-relay.v5/version"
 )
 
 const (
@@ -38,15 +40,10 @@ const (
 )
 
 var (
-	Version           = "5.0.0"
-	Debug             *log.Logger
-	Info              *log.Logger
-	Warning           *log.Logger
-	Error             *log.Logger
 	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-	configFile        string
 )
 
+// EnvConfig describes an environment to be relayed
 type EnvConfig struct {
 	SdkKey        string
 	ApiKey        string // deprecated, equivalent to SdkKey
@@ -56,6 +53,7 @@ type EnvConfig struct {
 	AllowedOrigin *[]string
 }
 
+// Config describes the configuration for a relay instance
 type Config struct {
 	Main struct {
 		ExitOnError            bool
@@ -65,38 +63,51 @@ type Config struct {
 		Port                   int
 		HeartbeatIntervalSecs  int
 	}
-	Events struct {
-		EventsUri         string
-		SendEvents        bool
-		FlushIntervalSecs int
-		SamplingInterval  int32
-		Capacity          int
-		InlineUsers       bool
-	}
-	Redis struct {
+	Events events.Config
+	Redis  struct {
 		Host     string
 		Port     int
-		LocalTtl *int
+		LocalTtl int
 	}
 	Environment map[string]*EnvConfig
 }
 
-type EnvironmentStatus struct {
+type environmentStatus struct {
 	SdkKey    string `json:"sdkKey"`
 	EnvId     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
 }
 
-type ErrorJson struct {
-	Message string `json:"message"`
+var DefaultConfig = Config{
+	Events: events.Config{
+		Capacity:  defaultEventCapacity,
+		EventsUri: defaultEventsUri,
+	},
+}
+
+func init() {
+	DefaultConfig.Main.BaseUri = defaultBaseUri
+	DefaultConfig.Main.StreamUri = defaultStreamUri
+	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
+	DefaultConfig.Main.Port = defaultPort
+	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
+}
+
+// LoadConfigFile reads a config file into a Config struct
+func LoadConfigFile(c *Config, path string) error {
+	if err := gcfg.ReadFileInto(&c, path); err != nil {
+		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
+	}
+	return nil
 }
 
 type corsContext interface {
 	AllowedOrigins() []string
 }
 
-type ldClientContext interface {
+// LdClientContext defines a minimal interface for a LaunchDarkly client
+type LdClientContext interface {
 	Initialized() bool
 }
 
@@ -108,8 +119,8 @@ type clientHandlers struct {
 }
 
 type clientContext interface {
-	getClient() ldClientContext
-	setClient(ldClientContext)
+	getClient() LdClientContext
+	setClient(LdClientContext)
 	getStore() ld.FeatureStore
 	getLogger() ld.Logger
 	getHandlers() clientHandlers
@@ -117,7 +128,7 @@ type clientContext interface {
 
 type clientContextImpl struct {
 	mu        sync.RWMutex
-	client    ldClientContext
+	client    LdClientContext
 	store     ld.FeatureStore
 	logger    ld.Logger
 	handlers  clientHandlers
@@ -127,13 +138,15 @@ type clientContextImpl struct {
 	name      string
 }
 
-type relay struct {
-	sdkClientMux    ClientMux
-	mobileClientMux ClientMux
-	clientSideMux   ClientSideMux
+// Relay relays endpoints to and from the LaunchDarkly service
+type Relay struct {
+	http.Handler
+	sdkClientMux    clientMux
+	mobileClientMux clientMux
+	clientSideMux   clientSideMux
 }
 
-type EvalXResult struct {
+type evalXResult struct {
 	Value                interface{} `json:"value"`
 	Variation            *int        `json:"variation,omitempty"`
 	Version              int         `json:"version"`
@@ -141,13 +154,13 @@ type EvalXResult struct {
 	TrackEvents          bool        `json:"trackEvents"`
 }
 
-func (c *clientContextImpl) getClient() ldClientContext {
+func (c *clientContextImpl) getClient() LdClientContext {
 	c.mu.RLock()
 	defer c.mu.RLock()
 	return c.client
 }
 
-func (c *clientContextImpl) setClient(client ldClientContext) {
+func (c *clientContextImpl) setClient(client LdClientContext) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.client = client
@@ -165,63 +178,13 @@ func (c *clientContextImpl) getHandlers() clientHandlers {
 	return c.handlers
 }
 
-func main() {
-
-	flag.StringVar(&configFile, "config", "/etc/ld-relay.conf", "configuration file location")
-
-	flag.Parse()
-
-	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
-
-	var c Config
-	c.Events.Capacity = defaultEventCapacity
-	c.Events.EventsUri = defaultEventsUri
-	c.Main.BaseUri = defaultBaseUri
-	c.Main.StreamUri = defaultStreamUri
-	c.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
-
-	Info.Printf("Starting LaunchDarkly relay version %s with configuration file %s\n", formatVersion(Version), configFile)
-
-	err := gcfg.ReadFileInto(&c, configFile)
-
-	if err != nil {
-		Error.Println("Failed to read configuration file. Exiting.")
-		os.Exit(1)
-	}
-
-	if c.Redis.LocalTtl == nil {
-		localTtl := defaultRedisLocalTtlMs
-		c.Redis.LocalTtl = &localTtl
-	}
-
-	if c.Main.Port == 0 {
-		Info.Printf("No port specified in configuration file. Using default port %d.", defaultPort)
-		c.Main.Port = defaultPort
-	}
-
-	if len(c.Environment) == 0 {
-		Error.Println("You must specify at least one environment in your configuration file. Exiting.")
-		os.Exit(1)
-	}
-
-	relay := newRelay(c, defaultClientFactory).getHandler()
-
-	Info.Printf("Listening on port %d\n", c.Main.Port)
-
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), relay)
-	if err != nil {
-		if c.Main.ExitOnError {
-			Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
-		}
-		Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err.Error())
-	}
-}
-
-func defaultClientFactory(sdkKey string, config ld.Config) (ldClientContext, error) {
+// DefaultClientFactory creates a default client for connecting to the LaunchDarkly stream
+func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, error) {
 	return ld.MakeCustomClient(sdkKey, config, time.Second*10)
 }
 
-func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldClientContext, error)) *relay {
+// NewRelay creates a new relay given a configuration and a method to create a client
+func NewRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (LdClientContext, error)) (*Relay, error) {
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -236,15 +199,20 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 	pingPublisher.ReplayAll = true
 	clients := map[string]*clientContextImpl{}
 	mobileClients := map[string]*clientContextImpl{}
-	clientSideMux := ClientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
+	clientSideMux := clientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
+
+	if len(c.Environment) == 0 {
+		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
+	}
+
 	for key, envConfig := range c.Environment {
 		if envConfig.ApiKey != "" {
 			if envConfig.SdkKey == "" {
 				envConfig.SdkKey = envConfig.ApiKey
 				c.Environment[key] = envConfig
-				Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
+				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
 			} else {
-				Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
+				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
 			}
 		}
 		clients[envConfig.SdkKey] = nil
@@ -252,21 +220,21 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 	for envName, envConfig := range c.Environment {
 		var baseFeatureStore ld.FeatureStore
 		if c.Redis.Host != "" && c.Redis.Port != 0 {
-			Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-			baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(*c.Redis.LocalTtl)*time.Millisecond, Info)
+			logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
+			baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
 		} else {
-			baseFeatureStore = ld.NewInMemoryFeatureStore(Info)
+			baseFeatureStore = ld.NewInMemoryFeatureStore(logging.Info)
 		}
 
 		logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
 
 		clientConfig := ld.DefaultConfig
 		clientConfig.Stream = true
-		clientConfig.FeatureStore = NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+		clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 		clientConfig.StreamUri = c.Main.StreamUri
 		clientConfig.BaseUri = c.Main.BaseUri
 		clientConfig.Logger = logger
-		clientConfig.UserAgent = "LDRelay/" + Version
+		clientConfig.UserAgent = "LDRelay/" + version.Version
 
 		clientContext := &clientContextImpl{
 			name:      envName,
@@ -297,8 +265,8 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 		}
 
 		if c.Events.SendEvents {
-			Info.Printf("Proxying events for environment %s", envName)
-			clientContext.handlers.eventsHandler = newEventRelayHandler(envConfig.SdkKey, c, baseFeatureStore)
+			logging.Info.Printf("Proxying events for environment %s", envName)
+			clientContext.handlers.eventsHandler = events.NewEventRelayHandler(envConfig.SdkKey, c.Events, baseFeatureStore)
 		}
 
 		// Connecting may take time, so do this in parallel
@@ -308,7 +276,7 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 
 			if err != nil {
 				if !c.Main.IgnoreConnectionErrors {
-					Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+					logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 					if c.Main.ExitOnError {
 						os.Exit(1)
@@ -316,22 +284,23 @@ func newRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (ldC
 					return
 				}
 
-				Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				logging.Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 			} else {
-				Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+				logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 			}
 		}(envName, *envConfig)
 	}
 
-	r := relay{
-		sdkClientMux:    ClientMux{clientContextByKey: clients},
-		mobileClientMux: ClientMux{clientContextByKey: mobileClients},
+	r := Relay{
+		sdkClientMux:    clientMux{clientContextByKey: clients},
+		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
 	}
-	return &r
+	r.Handler = r.makeHandler()
+	return &r, nil
 }
 
-func (r *relay) getHandler() http.Handler {
+func (r *Relay) makeHandler() http.Handler {
 	router := mux.NewRouter()
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
@@ -411,17 +380,17 @@ func (r *relay) getHandler() http.Handler {
 	return router
 }
 
-type ClientMux struct {
+type clientMux struct {
 	clientContextByKey map[string]*clientContextImpl
 }
 
-func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
+func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	envs := make(map[string]EnvironmentStatus)
+	envs := make(map[string]environmentStatus)
 
 	healthy := true
 	for _, clientCtx := range m.clientContextByKey {
-		var status EnvironmentStatus
+		var status environmentStatus
 		if clientCtx.envId != nil {
 			status.EnvId = *clientCtx.envId
 		}
@@ -453,7 +422,7 @@ func (m ClientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m ClientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
+func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authKey, err := fetchAuthToken(req)
 		if err != nil {
@@ -506,7 +475,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 	}
 	if userDecodeErr != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(ErrorJsonMsg(userDecodeErr.Error()))
+		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
 		return
 	}
 
@@ -523,14 +492,14 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			logger.Println("WARN: Called before client initialization. Feature store not available")
-			w.Write(ErrorJsonMsg("Service not initialized"))
+			w.Write(util.ErrorJsonMsg("Service not initialized"))
 			return
 		}
 	}
 
 	if user.Key == nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(ErrorJsonMsg("User must have a 'key' attribute"))
+		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
 		return
 	}
 
@@ -538,7 +507,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 	if err != nil {
 		logger.Printf("WARN: Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
+		w.Write(util.ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
 		return
 	}
 
@@ -550,7 +519,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 			if valueOnly {
 				result = value
 			} else {
-				result = EvalXResult{
+				result = evalXResult{
 					Value:                value,
 					Variation:            variation,
 					Version:              flag.Version,
@@ -587,19 +556,10 @@ func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
 	if clientCtx.getHandlers().eventsHandler == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write(ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
 		return
 	}
 	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
-}
-
-func ErrorJsonMsg(msg string) (j []byte) {
-	j, _ = json.Marshal(ErrorJson{msg})
-	return
-}
-
-func ErrorJsonMsgf(fmtStr string, args ...interface{}) []byte {
-	return ErrorJsonMsg(fmt.Sprintf(fmtStr, args...))
 }
 
 // UserV2FromBase64 decodes a base64-encoded go-client v2 user.
@@ -652,38 +612,6 @@ func fetchAuthToken(req *http.Request) (string, error) {
 	}
 
 	return "", errors.New("No valid token found")
-}
-
-func formatVersion(version string) string {
-	split := strings.Split(version, "+")
-
-	if len(split) == 2 {
-		return fmt.Sprintf("%s (build %s)", split[0], split[1])
-	}
-	return version
-}
-
-func initLogging(
-	debugHandle io.Writer,
-	infoHandle io.Writer,
-	warningHandle io.Writer,
-	errorHandle io.Writer) {
-
-	Debug = log.New(debugHandle,
-		"DEBUG: ",
-		log.Ldate|log.Ltime|log.Lshortfile)
-
-	Info = log.New(infoHandle,
-		"INFO: ",
-		log.Ldate|log.Ltime|log.Lshortfile)
-
-	Warning = log.New(warningHandle,
-		"WARNING: ",
-		log.Ldate|log.Ltime|log.Lshortfile)
-
-	Error = log.New(errorHandle,
-		"ERROR: ",
-		log.Ldate|log.Ltime|log.Lshortfile)
 }
 
 func last5(str string) string {

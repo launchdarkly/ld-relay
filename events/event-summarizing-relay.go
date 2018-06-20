@@ -1,4 +1,4 @@
-package main
+package events
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"time"
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
+
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 type eventSummarizingRelay struct {
@@ -16,10 +18,10 @@ type eventSummarizingRelay struct {
 
 func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
-	ldConfig.EventsUri = config.Events.EventsUri
-	ldConfig.Capacity = config.Events.Capacity
-	ldConfig.InlineUsersInEvents = config.Events.InlineUsers
-	ldConfig.FlushInterval = time.Duration(config.Events.FlushIntervalSecs) * time.Second
+	ldConfig.EventsUri = config.EventsUri
+	ldConfig.Capacity = config.Capacity
+	ldConfig.InlineUsersInEvents = config.InlineUsers
+	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
@@ -34,7 +36,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 		if err == nil {
 			evt, err := er.translateEvent(rawEvent, fields, schemaVersion)
 			if err != nil {
-				Error.Printf("Error in event processing, event was discarded: %+v", err)
+				logging.Error.Printf("Error in event processing, event was discarded: %+v", err)
 			}
 			if evt != nil {
 				er.eventProcessor.SendEvent(evt)

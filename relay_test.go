@@ -1,4 +1,4 @@
-package main
+package relay
 
 import (
 	"bufio"
@@ -24,6 +24,9 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
+
+	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 type FakeLDClient struct{ initialized bool }
@@ -44,15 +47,15 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func handler() ClientMux {
-	clients := map[string]*clientContextImpl{key(): &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
-	return ClientMux{clientContextByKey: clients}
+func handler() clientMux {
+	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	return clientMux{clientContextByKey: clients}
 }
 
-func clientSideHandler(allowedOrigins []string) ClientSideMux {
+func clientSideHandler(allowedOrigins []string) clientSideMux {
 	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
 	contexts := map[string]*clientSideContext{key(): testClientSideContext}
-	return ClientSideMux{contextByKey: contexts}
+	return clientSideMux{contextByKey: contexts}
 }
 
 func buildRequest(verb string, vars map[string]string, headers map[string]string, body string, ctx interface{}) *http.Request {
@@ -229,7 +232,7 @@ func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,"+eventSchemaHeader)
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,"+events.EventSchemaHeader)
 		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
 	})).ServeHTTP(resp, req)
 }
@@ -330,7 +333,7 @@ func makeTestEventBuffer(userKey string) []byte {
 }
 
 func TestRelay(t *testing.T) {
-	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+	logging.InitLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	publishedEvents := make(chan publishedEvent)
 
@@ -398,13 +401,13 @@ func TestRelay(t *testing.T) {
 	zero := 0
 	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
 
-	createDummyClient := func(sdkKey string, config ld.Config) (ldClientContext, error) {
+	createDummyClient := func(sdkKey string, config ld.Config) (LdClientContext, error) {
 		config.FeatureStore.Init(nil)
 		config.FeatureStore.Upsert(ld.Features, &flag)
 		return &FakeLDClient{true}, nil
 	}
 
-	relay := newRelay(config, createDummyClient).getHandler()
+	relay, _ := NewRelay(config, createDummyClient)
 
 	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
 	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
@@ -431,7 +434,7 @@ func TestRelay(t *testing.T) {
 			},
 		}
 
-		relay := newRelay(newConfig, createDummyClient).getHandler()
+		relay, _ := NewRelay(newConfig, createDummyClient)
 		status := getStatus(relay, t)
 		assert.JSONEq(t, `
 {"environments": {
@@ -449,7 +452,7 @@ func TestRelay(t *testing.T) {
 			},
 		}
 
-		relay := newRelay(newConfig, createDummyClient).getHandler()
+		relay, _ := NewRelay(newConfig, createDummyClient)
 		status := getStatus(relay, t)
 		assert.JSONEq(t, `
 {"environments": {
@@ -703,7 +706,7 @@ func TestRelay(t *testing.T) {
 			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("Authorization", s.authHeader)
-			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
@@ -719,7 +722,7 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost/events/bulk/%s", envId), bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {

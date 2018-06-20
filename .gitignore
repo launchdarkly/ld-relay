@@ -31,3 +31,5 @@ ld-relay.prod.conf
 
 pkg
 _out
+
+/bin/

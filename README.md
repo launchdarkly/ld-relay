@@ -28,7 +28,7 @@ Quick setup
 
 2. Build and install the binary in your $GOPATH:
 ```
-go get -u github.com/launchdarkly/ld-relay
+go get -u gopkg.in/launchdarkly/ld-relay.v5/...
 ```
 
 3. Create LD Relay configuration file. Create a new filed called `ld-relay.conf` containing the text:
@@ -322,3 +322,24 @@ To register ld-relay as a service, run a command prompt as Administrator
 $ sc create ld-relay DisplayName="LaunchDarkly Relay Proxy" start="auto" binPath="C:\path\to\ld-relay.exe -config C:\path\to\ld-relay.conf"
 ```
 
+
+Integrating LD Relay into your own application
+----------------------------------------------
+
+
+You can also use relay to handle endpoints in your own application if you don't want to use the default `ld-relay` application.  Below is an
+example using [Gorilla](https://github.com/gorilla/mux) of how you might instantiate a relay inside your web server beneath a path called "/relay":
+
+```go
+router := mux.NewRouter()
+configFileName := "path/to/my-config-file"
+cfg := relay.DefaultConfig
+if err := relay.LoadConfigFile(&cfg, configFileName); err != nil {
+  log.Fatalf("Error loading config file: %s", err)
+}
+r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
+if err != nil {
+  log.Fatalf("Error creating relay: %s", err)
+}
+router.PathPrefix("/relay").Handler(r)
+```
