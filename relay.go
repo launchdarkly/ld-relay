@@ -96,7 +96,7 @@ func init() {
 
 // LoadConfigFile reads a config file into a Config struct
 func LoadConfigFile(c *Config, path string) error {
-	if err := gcfg.ReadFileInto(&c, path); err != nil {
+	if err := gcfg.ReadFileInto(c, path); err != nil {
 		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
 	}
 	return nil
@@ -408,13 +408,21 @@ func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 		envs[clientCtx.name] = status
 	}
 
-	resp := make(map[string]interface{})
+	resp := struct {
+		Environments  map[string]environmentStatus `json:"environments"`
+		Status        string                       `json:"status"`
+		Version       string                       `json:"version"`
+		ClientVersion string                       `json:"clientVersion"`
+	}{
+		Environments:  envs,
+		Version:       version.Version,
+		ClientVersion: ld.Version,
+	}
 
-	resp["environments"] = envs
 	if healthy {
-		resp["status"] = "healthy"
+		resp.Status = "healthy"
 	} else {
-		resp["status"] = "degraded"
+		resp.Status = "degraded"
 	}
 
 	data, _ := json.Marshal(resp)
