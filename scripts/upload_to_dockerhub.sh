@@ -23,7 +23,7 @@ echo "build@example.com" | docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWO
 docker tag "ld-relay:$CIRCLE_BUILD_NUM" "$DOCKER_REPO:$TAG"
 docker push "$DOCKER_REPO:$TAG"
 
-if [ "$TAG" = "master" ]; then
+if [ "$TAG" = "v5" ]; then
   # tag the master branch as latest
   docker tag "$DOCKER_REPO:$TAG" "$DOCKER_REPO:latest" 
   docker push "$DOCKER_REPO:latest"
