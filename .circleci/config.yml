@@ -8,7 +8,6 @@ experimental:
 
 defaults:
   environment: &environment
-    GOLANGCI_LINT_VERSION: v1.6.1
     CIRCLE_TEST_REPORTS: /tmp/circle-reports
     CIRCLE_ARTIFACTS: /tmp/circle-artifacts
     COMMON_GO_PACKAGES: >
@@ -18,15 +17,13 @@ defaults:
       gopkg.in/alecthomas/gometalinter.v2
 
   build_steps: &build_steps
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay
+    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
-      - run: gometalinter.v2 --install
-      - run: curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $GOLANGCI_LINT_VERSION
-      - run: gometalinter.v2
-      - run: ./bin/golangci-lint run ./...
       - run: dep ensure -dry-run
+      - run: make init
+      - run: make lint
       - run:
           name: Set up Code Climate test-reporter
           command: |
@@ -42,7 +39,7 @@ defaults:
               go_cover_args="-covermode=atomic -coverpkg=./... -coverprofile /tmp/circle-artifacts/coverage.txt"
             fi
             go test -race $go_cover_args -v . | tee >(richgo testfilter) > $CIRCLE_ARTIFACTS/report.txt
-            if [ -z "$DISABLE_COVERAGE" ]; then
+            if [[ -z "$DISABLE_COVERAGE" && -n "$CC_TEST_REPORTER_ID" ]]; then
               ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
               ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
             fi
@@ -90,22 +87,22 @@ jobs:
     docker:
       - <<: *release_docker_image
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay
+    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
       - checkout
-      - setup_remote_docker  # start docker engine
-      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
 
+      # Generate and upload binaries
       - run: mkdir -p $CIRCLE_ARTIFACTS
-
       - run: go get -u github.com/laher/goxc
       - run:
           name: generate all binaries
           command: ./scripts/package.sh
-
       - store_artifacts:
           path: /tmp/circle-artifacts
 
+      # Upload docker changes
+      - setup_remote_docker  # start docker engine
+      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
       - deploy:
           name: Push docker image
           command: |

@@ -1,4 +1,4 @@
-package main
+package relay
 
 import (
 	"bufio"
@@ -24,6 +24,9 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
+
+	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 type FakeLDClient struct{ initialized bool }
@@ -44,15 +47,15 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func handler() ClientMux {
-	clients := map[string]*clientContextImpl{key(): &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
-	return ClientMux{clientContextByKey: clients}
+func handler() clientMux {
+	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	return clientMux{clientContextByKey: clients}
 }
 
-func clientSideHandler(allowedOrigins []string) ClientSideMux {
+func clientSideHandler(allowedOrigins []string) clientSideMux {
 	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
 	contexts := map[string]*clientSideContext{key(): testClientSideContext}
-	return ClientSideMux{contextByKey: contexts}
+	return clientSideMux{contextByKey: contexts}
 }
 
 func buildRequest(verb string, vars map[string]string, headers map[string]string, body string, ctx interface{}) *http.Request {
@@ -229,7 +232,7 @@ func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,"+eventSchemaHeader)
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,"+events.EventSchemaHeader)
 		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
 	})).ServeHTTP(resp, req)
 }
@@ -330,7 +333,7 @@ func makeTestEventBuffer(userKey string) []byte {
 }
 
 func TestRelay(t *testing.T) {
-	initLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+	logging.InitLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
 	publishedEvents := make(chan publishedEvent)
 
@@ -398,13 +401,13 @@ func TestRelay(t *testing.T) {
 	zero := 0
 	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
 
-	createDummyClient := func(sdkKey string, config ld.Config) (ldClientContext, error) {
+	createDummyClient := func(sdkKey string, config ld.Config) (LdClientContext, error) {
 		config.FeatureStore.Init(nil)
 		config.FeatureStore.Upsert(ld.Features, &flag)
 		return &FakeLDClient{true}, nil
 	}
 
-	relay := newRelay(config, createDummyClient).getHandler()
+	relay, _ := NewRelay(config, createDummyClient)
 
 	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
 	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
@@ -412,14 +415,16 @@ func TestRelay(t *testing.T) {
 	expectedFlagsData, _ := json.Marshal(allFlags)
 	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
 
-	getStatus := func(relay http.Handler, t *testing.T) string {
+	getStatus := func(relay http.Handler, t *testing.T) map[string]interface{} {
 		w := httptest.NewRecorder()
 		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 		relay.ServeHTTP(w, r)
 		result := w.Result()
 		assert.Equal(t, http.StatusOK, result.StatusCode)
 		body, _ := ioutil.ReadAll(result.Body)
-		return string(body)
+		status := make(map[string]interface{})
+		json.Unmarshal(body, &status)
+		return status
 	}
 
 	t.Run("if apiKey is present and sdkKey is absent, sdkKey is set to apiKey", func(t *testing.T) {
@@ -431,12 +436,9 @@ func TestRelay(t *testing.T) {
 			},
 		}
 
-		relay := newRelay(newConfig, createDummyClient).getHandler()
+		relay, _ := NewRelay(newConfig, createDummyClient)
 		status := getStatus(relay, t)
-		assert.JSONEq(t, `
-{"environments": {
-	"test": {"sdkKey":"sdk-********-****-****-****-*******98989","status":"connected"}
-}, "status":"healthy"}`, status)
+		assert.Equal(t, "sdk-********-****-****-****-*******98989", jsonFind(status, "environments", "test", "sdkKey"))
 	})
 
 	t.Run("if apiKey and sdkKey are both present, apiKey is ignored", func(t *testing.T) {
@@ -449,22 +451,28 @@ func TestRelay(t *testing.T) {
 			},
 		}
 
-		relay := newRelay(newConfig, createDummyClient).getHandler()
+		relay, _ := NewRelay(newConfig, createDummyClient)
 		status := getStatus(relay, t)
-		assert.JSONEq(t, `
-{"environments": {
-	"test": {"sdkKey":"sdk-********-****-****-****-*******e42d0","status":"connected"}
-}, "status":"healthy"}`, status)
+		assert.Equal(t, "sdk-********-****-****-****-*******e42d0", jsonFind(status, "environments", "test", "sdkKey"))
 	})
 
 	t.Run("status", func(t *testing.T) {
 		status := getStatus(relay, t)
-		assert.JSONEq(t, `
-{"environments": {
-	"sdk test": {"sdkKey":"sdk-********-****-****-****-*******e42d0","status":"connected"},
-	"client-side test": {"sdkKey":"sdk-********-****-****-****-*******e42d1", "envId": "507f1f77bcf86cd799439011", "status":"connected"},
-	"mobile test": {"sdkKey":"sdk-********-****-****-****-*******e42d2", "mobileKey":"mob-********-****-****-****-*******e42db", "status":"connected"}
-}, "status":"healthy"}`, status)
+		assert.Equal(t, "sdk-********-****-****-****-*******e42d0", jsonFind(status, "environments", "sdk test", "sdkKey"))
+		assert.Equal(t, "connected", jsonFind(status, "environments", "sdk test", "status"))
+		assert.Equal(t, "sdk-********-****-****-****-*******e42d1", jsonFind(status, "environments", "client-side test", "sdkKey"))
+		assert.Equal(t, "507f1f77bcf86cd799439011", jsonFind(status, "environments", "client-side test", "envId"))
+		assert.Equal(t, "connected", jsonFind(status, "environments", "client-side test", "status"))
+		assert.Equal(t, "sdk-********-****-****-****-*******e42d2", jsonFind(status, "environments", "mobile test", "sdkKey"))
+		assert.Equal(t, "mob-********-****-****-****-*******e42db", jsonFind(status, "environments", "mobile test", "mobileKey"))
+		assert.Equal(t, "connected", jsonFind(status, "environments", "mobile test", "status"))
+		assert.Equal(t, "healthy", jsonFind(status, "status"))
+		if assert.NotNil(t, jsonFind(status, "version")) {
+			assert.NotEmpty(t, jsonFind(status, "version"))
+		}
+		if assert.NotNil(t, jsonFind(status, "clientVersion")) {
+			assert.NotEmpty(t, jsonFind(status, "clientVersion"))
+		}
 	})
 
 	t.Run("sdk and mobile routes", func(t *testing.T) {
@@ -703,7 +711,7 @@ func TestRelay(t *testing.T) {
 			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("Authorization", s.authHeader)
-			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
@@ -719,7 +727,7 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost/events/bulk/%s", envId), bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set(eventSchemaHeader, strconv.Itoa(summaryEventsSchemaVersion))
+			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
@@ -741,4 +749,17 @@ func TestRelay(t *testing.T) {
 	})
 
 	eventsServer.Close()
+}
+
+// jsonFind returns the nested entity at a path in a json obj
+func jsonFind(obj map[string]interface{}, paths ...string) interface{} {
+	var value interface{} = obj
+	for _, p := range paths {
+		if v, ok := value.(map[string]interface{}); !ok {
+			return nil
+		} else {
+			value = v[p]
+		}
+	}
+	return value
 }

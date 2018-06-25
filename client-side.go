@@ -1,4 +1,4 @@
-package main
+package relay
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
+	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/util"
 )
 
 type contextKeyType string
@@ -26,12 +28,12 @@ func (c *clientSideContext) AllowedOrigins() []string {
 	return c.allowedOrigins
 }
 
-type ClientSideMux struct {
+type clientSideMux struct {
 	contextByKey map[string]*clientSideContext
 	baseUri      string
 }
 
-func (m ClientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
+func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		envId := mux.Vars(req)["envId"]
 		clientCtx := m.contextByKey[envId]
@@ -52,7 +54,7 @@ func (m ClientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 	})
 }
 
-func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
+func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	envId := mux.Vars(req)["envId"]
 
 	ldReq, _ := http.NewRequest("GET", m.baseUri+"/sdk/goals/"+envId, nil)
@@ -63,7 +65,7 @@ func (m ClientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	res, err := httpClient.Do(ldReq)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(ErrorJsonMsgf("Error fetching goals: %s", err))
+		w.Write(util.ErrorJsonMsgf("Error fetching goals: %s", err))
 		return
 	}
 
@@ -105,7 +107,7 @@ var allowedHeadersList = []string{
 	"Content-Length",
 	"Accept-Encoding",
 	"X-LaunchDarkly-User-Agent",
-	eventSchemaHeader,
+	events.EventSchemaHeader,
 }
 
 var allowedHeaders = strings.Join(allowedHeadersList, ",")
@@ -131,7 +133,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 
 	if clientCtx.getHandlers().eventsHandler == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write(ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
 		return
 	}
 
