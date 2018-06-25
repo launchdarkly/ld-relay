@@ -39,7 +39,7 @@ defaults:
               go_cover_args="-covermode=atomic -coverpkg=./... -coverprofile /tmp/circle-artifacts/coverage.txt"
             fi
             go test -race $go_cover_args -v . | tee >(richgo testfilter) > $CIRCLE_ARTIFACTS/report.txt
-            if [ -z "$DISABLE_COVERAGE" ]; then
+            if [[ -z "$DISABLE_COVERAGE" && -n "$CC_TEST_REPORTER_ID" ]]; then
               ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
               ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
             fi
