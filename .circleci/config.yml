@@ -11,7 +11,6 @@ defaults:
     CIRCLE_TEST_REPORTS: /tmp/circle-reports
     CIRCLE_ARTIFACTS: /tmp/circle-artifacts
     COMMON_GO_PACKAGES: >
-      github.com/golang/dep/cmd/dep
       github.com/jstemmer/go-junit-report
       github.com/kyoh86/richgo
       gopkg.in/alecthomas/gometalinter.v2
@@ -21,6 +20,7 @@ defaults:
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
+      - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
       - run: make init
       - run: make lint
