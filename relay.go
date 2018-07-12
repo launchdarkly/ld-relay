@@ -67,6 +67,7 @@ type Config struct {
 	Redis  struct {
 		Host     string
 		Port     int
+		Url      string
 		LocalTtl int
 	}
 	Environment map[string]*EnvConfig
@@ -219,7 +220,13 @@ func NewRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (LdC
 	}
 	for envName, envConfig := range c.Environment {
 		var baseFeatureStore ld.FeatureStore
-		if c.Redis.Host != "" && c.Redis.Port != 0 {
+		if c.Redis.Url != "" {
+			if c.Redis.Url != "" {
+				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+			}
+			logging.Info.Printf("Using Redis Feature Store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
+			baseFeatureStore = ldr.NewRedisFeatureStoreFromUrl(c.Redis.Url, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
+		} else if c.Redis.Host != "" && c.Redis.Port != 0 {
 			logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
 			baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
 		} else {

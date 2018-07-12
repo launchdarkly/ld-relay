@@ -89,8 +89,9 @@ variable name       | type    | default                           | description
 ## [redis]
 variable name | type   | default | description
 ------------- |:------:|:-------:| -----------
-`host`        | URI    |         | URI of the Redis database
+`host`        | string |         | Hostname of the Redis database
 `port`        | Number |         | Port of the Redis database
+`url`         | string |         | URL of the Redis database (overrides `host` & `port`)
 `localTtl`    | Number | `30000` | Specifies the TTL for records added to the Redis database
 
 ## [environment]
