@@ -33,7 +33,7 @@ If you are reusing a global instance you probably want to not  `defer ldClient.C
 
 HTTPS proxy
 ------------
-Go's standard HTTP library provides built-in support for the use of a HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
+Go's standard HTTP library provides built-in support for the use of an HTTPS proxy. If the HTTPS_PROXY environment variable is present then the SDK will proxy all network requests through the URL provided.
 
 How to set the HTTPS_PROXY environment variable on Mac/Linux systems:
 ```
@@ -44,6 +44,16 @@ export HTTPS_PROXY=https://web-proxy.domain.com:8080
 How to set the HTTPS_PROXY environment variable on Windows systems:
 ```
 set HTTPS_PROXY=https://web-proxy.domain.com:8080
+```
+
+
+If your proxy requires authentication then you can prefix the URN with your login information:
+```
+export HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
+```
+or
+```
+set HTTPS_PROXY=http://user:pass@web-proxy.domain.com:8080
 ```
 
 

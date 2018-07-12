@@ -15,8 +15,8 @@ import (
 	ld "gopkg.in/launchdarkly/go-client.v4"
 )
 
-// A Redis-backed feature store.
-type RedisFeatureStore struct {
+// RedisFeatureStore is a Redis-backed feature store implementation.
+type RedisFeatureStore struct { // nolint:golint // package name in type name
 	prefix     string
 	pool       *r.Pool
 	cache      *cache.Cache
@@ -51,7 +51,7 @@ func (store *RedisFeatureStore) getConn() r.Conn {
 	return store.pool.Get()
 }
 
-// Constructs a new Redis-backed feature store connecting to the specified URL with a default
+// NewRedisFeatureStoreFromUrl constructs a new Redis-backed feature store connecting to the specified URL with a default
 // connection pool configuration (16 concurrent connections, connection requests block).
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly".
@@ -64,7 +64,7 @@ func NewRedisFeatureStoreFromUrl(url, prefix string, timeout time.Duration, logg
 
 }
 
-// Constructs a new Redis-backed feature store with the specified redigo pool configuration.
+// NewRedisFeatureStoreWithPool constructs a new Redis-backed feature store with the specified redigo pool configuration.
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly".
 func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Duration, logger ld.Logger) *RedisFeatureStore {
@@ -95,7 +95,7 @@ func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Dura
 	return &store
 }
 
-// Constructs a new Redis-backed feature store connecting to the specified host and port with a default
+// NewRedisFeatureStore constructs a new Redis-backed feature store connecting to the specified host and port with a default
 // connection pool configuration (16 concurrent connections, connection requests block).
 // Attaches a prefix string to all keys to namespace LaunchDarkly-specific keys. If the
 // specified prefix is the empty string, it defaults to "launchdarkly"
@@ -107,6 +107,7 @@ func (store *RedisFeatureStore) featuresKey(kind ld.VersionedDataKind) string {
 	return store.prefix + ":" + kind.GetNamespace()
 }
 
+// Get returns an individual object of a given type from the store
 func (store *RedisFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
 	item, err := store.getEvenIfDeleted(kind, key, true)
 	if err == nil && item == nil {
@@ -120,23 +121,23 @@ func (store *RedisFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.V
 	return item, err
 }
 
+// All returns all the objects of a given kind from the store
 func (store *RedisFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld.VersionedData, error) {
 
 	if store.cache != nil {
 		if data, present := store.cache.Get(allFlagsCacheKey(kind)); present {
-			if items, ok := data.(map[string]ld.VersionedData); ok {
+			items, ok := data.(map[string]ld.VersionedData)
+			if ok {
 				return items, nil
-			} else {
-				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %T. Expected map[string]ld.VersionedData",
-					data)
 			}
+			store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %T. Expected map[string]ld.VersionedData", data)
 		}
 	}
 
 	results := make(map[string]ld.VersionedData)
 
 	c := store.getConn()
-	defer c.Close()
+	defer c.Close() // nolint:errcheck
 
 	values, err := r.StringMap(c.Do("HGETALL", store.featuresKey(kind)))
 
@@ -161,11 +162,12 @@ func (store *RedisFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld.Ve
 	return results, nil
 }
 
+// Init populates the store with a complete set of versioned data
 func (store *RedisFeatureStore) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
 	c := store.getConn()
-	defer c.Close()
+	defer c.Close() // nolint:errcheck
 
-	c.Send("MULTI")
+	_ = c.Send("MULTI")
 
 	if store.cache != nil {
 		store.cache.Flush()
@@ -174,7 +176,7 @@ func (store *RedisFeatureStore) Init(allData map[ld.VersionedDataKind]map[string
 	for kind, items := range allData {
 		baseKey := store.featuresKey(kind)
 
-		c.Send("DEL", baseKey)
+		_ = c.Send("DEL", baseKey)
 
 		for k, v := range items {
 			data, jsonErr := json.Marshal(v)
@@ -183,7 +185,7 @@ func (store *RedisFeatureStore) Init(allData map[ld.VersionedDataKind]map[string
 				return jsonErr
 			}
 
-			c.Send("HSET", baseKey, k, data)
+			_ = c.Send("HSET", baseKey, k, data)
 
 			if store.cache != nil {
 				store.cache.Set(cacheKey(kind, k), v, store.timeout)
@@ -202,11 +204,13 @@ func (store *RedisFeatureStore) Init(allData map[ld.VersionedDataKind]map[string
 	return err
 }
 
+// Delete removes an item of a given kind from the store
 func (store *RedisFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
 	deletedItem := kind.MakeDeletedItem(key, version)
 	return store.updateWithVersioning(kind, deletedItem)
 }
 
+// Upsert inserts or replaces an item in the store unless there it already contains an item with an equal or larger version
 func (store *RedisFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
 	return store.updateWithVersioning(kind, item)
 }
@@ -222,17 +226,16 @@ func allFlagsCacheKey(kind ld.VersionedDataKind) string {
 func (store *RedisFeatureStore) getEvenIfDeleted(kind ld.VersionedDataKind, key string, useCache bool) (ld.VersionedData, error) {
 	if useCache && store.cache != nil {
 		if data, present := store.cache.Get(cacheKey(kind, key)); present {
-			if item, ok := data.(ld.VersionedData); ok {
+			item, ok := data.(ld.VersionedData)
+			if ok {
 				return item, nil
-			} else {
-				store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected ld.VersionedData",
-					reflect.TypeOf(data))
 			}
+			store.logger.Printf("ERROR: RedisFeatureStore's in-memory cache returned an unexpected type: %v. Expected ld.VersionedData", reflect.TypeOf(data))
 		}
 	}
 
 	c := store.getConn()
-	defer c.Close()
+	defer c.Close() // nolint:errcheck
 
 	jsonStr, err := r.String(c.Do("HGET", store.featuresKey(kind), key))
 
@@ -262,18 +265,23 @@ func (store *RedisFeatureStore) unmarshalItem(kind ld.VersionedDataKind, jsonStr
 	if item, ok := data.(ld.VersionedData); ok {
 		return item, nil
 	}
-	return nil, fmt.Errorf("Unexpected data type from JSON unmarshal: %T", data)
+	return nil, fmt.Errorf("unexpected data type from JSON unmarshal: %T", data)
 }
 
 func (store *RedisFeatureStore) updateWithVersioning(kind ld.VersionedDataKind, newItem ld.VersionedData) error {
 	baseKey := store.featuresKey(kind)
 	key := newItem.GetKey()
 	for {
+		// We accept that we can acquire multiple connections here and defer inside loop but we don't expect many
 		c := store.getConn()
-		defer c.Close()
+		defer c.Close() // nolint:errcheck
 
-		c.Do("WATCH", baseKey)
-		defer c.Send("UNWATCH")
+		_, err := c.Do("WATCH", baseKey)
+		if err != nil {
+			return err
+		}
+
+		defer c.Send("UNWATCH") // nolint:errcheck // this should always succeed
 
 		if store.testTxHook != nil { // instrumentation for unit tests
 			store.testTxHook()
@@ -294,7 +302,7 @@ func (store *RedisFeatureStore) updateWithVersioning(kind ld.VersionedDataKind, 
 			return jsonErr
 		}
 
-		c.Send("MULTI")
+		_ = c.Send("MULTI")
 		err = c.Send("HSET", baseKey, key, data)
 		if err == nil {
 			var result interface{}
@@ -314,12 +322,12 @@ func (store *RedisFeatureStore) updateWithVersioning(kind ld.VersionedDataKind, 
 	}
 }
 
+// Initialized returns whether redis contains an entry for this environment
 func (store *RedisFeatureStore) Initialized() bool {
 	store.initCheck.Do(func() {
 		c := store.getConn()
-		defer c.Close()
-		inited, _ := r.Bool(c.Do("EXISTS", store.featuresKey(ld.Features)))
-		store.inited = inited
+		defer c.Close() // nolint:errcheck
+		store.inited, _ = r.Bool(c.Do("EXISTS", store.featuresKey(ld.Features)))
 	})
 	return store.inited
 }

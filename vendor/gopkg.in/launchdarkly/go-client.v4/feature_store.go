@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// A data structure that maintains the live collection of features and related objects.
+// FeatureStore is an interface describing a structure that maintains the live collection of features and related objects.
 // It is used by LaunchDarkly when streaming mode is enabled, and stores data returned
 // by the streaming API. Custom FeatureStore implementations can be passed to the
 // LaunchDarkly client via a custom Config object. LaunchDarkly provides two FeatureStore
@@ -21,7 +21,7 @@ type FeatureStore interface {
 	Initialized() bool
 }
 
-// A memory based FeatureStore implementation, backed by a lock-striped map.
+// InMemoryFeatureStore is a memory based FeatureStore implementation, backed by a lock-striped map.
 type InMemoryFeatureStore struct {
 	allData       map[VersionedDataKind]map[string]VersionedData
 	isInitialized bool
@@ -29,7 +29,7 @@ type InMemoryFeatureStore struct {
 	logger Logger
 }
 
-// Creates a new in-memory FeatureStore instance.
+// NewInMemoryFeatureStore creates a new in-memory FeatureStore instance.
 func NewInMemoryFeatureStore(logger Logger) *InMemoryFeatureStore {
 	if logger == nil {
 		logger = log.New(os.Stderr, "[LaunchDarkly InMemoryFeatureStore]", log.LstdFlags)
@@ -41,6 +41,7 @@ func NewInMemoryFeatureStore(logger Logger) *InMemoryFeatureStore {
 	}
 }
 
+// Get returns an individual object of a given type from the store
 func (store *InMemoryFeatureStore) Get(kind VersionedDataKind, key string) (VersionedData, error) {
 	store.RLock()
 	defer store.RUnlock()
@@ -50,16 +51,17 @@ func (store *InMemoryFeatureStore) Get(kind VersionedDataKind, key string) (Vers
 	item := store.allData[kind][key]
 
 	if item == nil {
-		store.logger.Printf("WARN: Key: %s not found in \"%s\".", key, kind.GetNamespace())
+		store.logger.Printf("WARN: Key: %s not found in \"%s\".", key, kind)
 		return nil, nil
 	} else if item.IsDeleted() {
-		store.logger.Printf("WARN: Attempted to get deleted item in \"%s\". Key: %s", kind.GetNamespace(), key)
+		store.logger.Printf("WARN: Attempted to get deleted item in \"%s\". Key: %s", kind, key)
 		return nil, nil
 	} else {
 		return item, nil
 	}
 }
 
+// All returns all the objects of a given kind from the store
 func (store *InMemoryFeatureStore) All(kind VersionedDataKind) (map[string]VersionedData, error) {
 	store.RLock()
 	defer store.RUnlock()
@@ -73,6 +75,7 @@ func (store *InMemoryFeatureStore) All(kind VersionedDataKind) (map[string]Versi
 	return ret, nil
 }
 
+// Delete removes an item of a given kind from the store
 func (store *InMemoryFeatureStore) Delete(kind VersionedDataKind, key string, version int) error {
 	store.Lock()
 	defer store.Unlock()
@@ -88,6 +91,7 @@ func (store *InMemoryFeatureStore) Delete(kind VersionedDataKind, key string, ve
 	return nil
 }
 
+// Init populates the store with a complete set of versioned data
 func (store *InMemoryFeatureStore) Init(allData map[VersionedDataKind]map[string]VersionedData) error {
 	store.Lock()
 	defer store.Unlock()
@@ -106,6 +110,7 @@ func (store *InMemoryFeatureStore) Init(allData map[VersionedDataKind]map[string
 	return nil
 }
 
+// Upsert inserts or replaces an item in the store unless there it already contains an item with an equal or larger version
 func (store *InMemoryFeatureStore) Upsert(kind VersionedDataKind, item VersionedData) error {
 	store.Lock()
 	defer store.Unlock()
@@ -121,6 +126,7 @@ func (store *InMemoryFeatureStore) Upsert(kind VersionedDataKind, item Versioned
 	return nil
 }
 
+// Initialized returns whether the store has been initialized with data
 func (store *InMemoryFeatureStore) Initialized() bool {
 	store.RLock()
 	defer store.RUnlock()

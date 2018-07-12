@@ -2,6 +2,7 @@ package ldclient
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/gregjones/httpcache"
 )
 
+// SDK endpoints
 const (
 	LatestFlagsPath    = "/sdk/latest-flags"
 	LatestSegmentsPath = "/sdk/latest-segments"
@@ -64,60 +66,48 @@ func (r *requestor) requestAll() (allData, bool, error) {
 	return data, cached, nil
 }
 
-func (r *requestor) requestFlag(key string) (*FeatureFlag, error) {
-	var feature FeatureFlag
-	resource := LatestFlagsPath + "/" + key
+func (r *requestor) requestResource(kind VersionedDataKind, key string) (VersionedData, error) {
+	var resource string
+	switch kind {
+	case SegmentVersionedDataKind{}:
+		resource = LatestSegmentsPath + "/" + key
+	case FeatureFlagVersionedDataKind{}:
+		resource = LatestFlagsPath + "/" + key
+	default:
+		return nil, fmt.Errorf("unexpected item type: %s", kind)
+	}
 	body, _, err := r.makeRequest(resource)
 	if err != nil {
 		return nil, err
 	}
-
-	jsonErr := json.Unmarshal(body, &feature)
-
-	if jsonErr != nil {
-		return nil, jsonErr
-	}
-	return &feature, nil
-}
-
-func (r *requestor) requestSegment(key string) (*Segment, error) {
-	var segment Segment
-	resource := LatestSegmentsPath + "/" + key
-	body, _, err := r.makeRequest(resource)
+	item := kind.GetDefaultItem().(VersionedData)
+	err = json.Unmarshal(body, item)
 	if err != nil {
 		return nil, err
 	}
-
-	jsonErr := json.Unmarshal(body, &segment)
-
-	if jsonErr != nil {
-		return nil, jsonErr
-	}
-	return &segment, nil
+	return item, nil
 }
 
 func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
 	req, reqErr := http.NewRequest("GET", r.config.BaseUri+resource, nil)
-	url := req.URL.String()
 	if reqErr != nil {
 		return nil, false, reqErr
 	}
+	url := req.URL.String()
 
 	req.Header.Add("Authorization", r.sdkKey)
 	req.Header.Add("User-Agent", r.config.UserAgent)
 
 	res, resErr := r.httpClient.Do(req)
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			ioutil.ReadAll(res.Body)
-			res.Body.Close()
-		}
-	}()
-
 	if resErr != nil {
 		return nil, false, resErr
 	}
+
+	defer func() {
+		_, _ = ioutil.ReadAll(res.Body)
+		_ = res.Body.Close()
+	}()
 
 	err := checkStatusCode(res.StatusCode, url)
 	if err != nil {

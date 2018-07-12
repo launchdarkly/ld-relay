@@ -1,26 +1,26 @@
 package ldclient
 
-// Common interface for string-keyed, versioned objects such as feature flags.
+// VersionedData is a common interface for string-keyed, versioned objects such as feature flags.
 type VersionedData interface {
-	// Return the string key for this object.
+	// GetKey returns the string key for this object.
 	GetKey() string
-	// Return the version number for this object.
+	// GetVersion returns the version number for this object.
 	GetVersion() int
-	// Return whether or not this object has been deleted.
+	// IsDeleted returns whether or not this object has been deleted.
 	IsDeleted() bool
 }
 
-// Data structure that describes a kind of VersionedData objects that may exist in a store.
+// VersionedDataKind describes a kind of VersionedData objects that may exist in a store.
 type VersionedDataKind interface {
-	// Return a short string that serves as the unique name for the collection of these objects, e.g. "features".
+	// GetNamespace returns a short string that serves as the unique name for the collection of these objects, e.g. "features".
 	GetNamespace() string
-	// Return a pointer to a newly created null value of this object type. This is used for JSON unmarshalling.
+	// GetDefaultItem return a pointer to a newly created null value of this object type. This is used for JSON unmarshalling.
 	GetDefaultItem() interface{}
-	// Return a value of this object type with the specified key and version, and Deleted=true.
+	// MakeDeletedItem returns a value of this object type with the specified key and version, and Deleted=true.
 	MakeDeletedItem(key string, version int) VersionedData
 }
 
-// A list of supported VersionedDataKind's. Among other things, this list might
+// VersionedDataKinds is a list of supported VersionedDataKind's. Among other things, this list might
 // be used by feature stores to know what data (namespaces) to expect.
 var VersionedDataKinds = [...]VersionedDataKind{
 	Features,

@@ -53,10 +53,10 @@
   revision = "cad6b2b879b0970e4245a20ebf1a81a756e2bb70"
 
 [[projects]]
-  branch = "master"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "af6191a22cc731e83e23caed5d5353de70ffbf37"
+  revision = "5e2c13ba9523c8b5f5e33aee7ef3fb1c855f52cd"
+  version = "1.0.0"
 
 [[projects]]
   branch = "v1"
@@ -76,6 +76,12 @@
   version = "v2.1.0"
 
 [[projects]]
+  name = "github.com/pborman/uuid"
+  packages = ["."]
+  revision = "e790cca94e6cc75c7064b1332e63811d4aae1a53"
+  version = "v1.1"
+
+[[projects]]
   name = "github.com/pmezard/go-difflib"
   packages = ["difflib"]
   revision = "792786c7400a136282c1664665ae0a8db921c6c2"
@@ -86,6 +92,18 @@
   packages = ["assert"]
   revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
   version = "v1.2.1"
+
+[[projects]]
+  name = "go.opencensus.io"
+  packages = [
+    "internal/tagencoding",
+    "stats",
+    "stats/internal",
+    "stats/view",
+    "tag"
+  ]
+  revision = "e262766cd0d230a1bb7c37281e345e465f19b41b"
+  version = "v0.14.0"
 
 [[projects]]
   branch = "master"
@@ -102,13 +120,13 @@
     ".",
     "redis"
   ]
-  revision = "0d5b77e148a854e4b69347ca8b21a1baabab8677"
+  revision = "93524bc812c6a203432c1145cbde0d9f61b31955"
   source = "git@github.com:launchdarkly/go-client.git"
-  version = "4.0.0"
+  version = "4.2.1"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b9b5218542c2f4f4e31816ba3e84652f537e24935aaf6a90bd83b87509140d6e"
+  inputs-digest = "0d84e18acf9ca4584d31b37d0fea28b8436ce31512f57f94f6391a609f49ee50"
   solver-name = "gps-cdcl"
   solver-version = 1

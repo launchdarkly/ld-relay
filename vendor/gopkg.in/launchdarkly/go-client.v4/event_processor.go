@@ -12,13 +12,13 @@ import (
 
 // EventProcessor defines the interface for dispatching analytics events.
 type EventProcessor interface {
-	// Records an event asynchronously.
+	// SendEvent records an event asynchronously.
 	SendEvent(Event)
-	// Specifies that any buffered events should be sent as soon as possible, rather than waiting
+	// Flush specifies that any buffered events should be sent as soon as possible, rather than waiting
 	// for the next flush interval. This method is asynchronous, so events still may not be sent
 	// until a later time.
 	Flush()
-	// Shuts down all event processor activity, after first ensuring that all events have been
+	// Close shuts down all event processor activity, after first ensuring that all events have been
 	// delivered. Subsequent calls to SendEvent() or Flush() will be ignored.
 	Close() error
 }
@@ -98,7 +98,7 @@ func (n *nullEventProcessor) Close() error {
 // NewDefaultEventProcessor creates an instance of the default implementation of analytics event processing.
 // This is normally only used internally; it is public because the Go SDK code is reused by other LaunchDarkly
 // components.
-func NewDefaultEventProcessor(sdkKey string, config Config, client *http.Client) *defaultEventProcessor {
+func NewDefaultEventProcessor(sdkKey string, config Config, client *http.Client) EventProcessor {
 	if client == nil {
 		client = &http.Client{}
 	}
@@ -125,13 +125,6 @@ func (ep *defaultEventProcessor) Close() error {
 		<-m.replyCh
 	})
 	return nil
-}
-
-// used only for testing - ensures that all pending messages and flushes have completed
-func (ep *defaultEventProcessor) waitUntilInactive() {
-	m := syncEventsMessage{replyCh: make(chan struct{})}
-	ep.inputCh <- m
-	<-m.replyCh // Now we know that all events prior to this call have been processed
 }
 
 func startEventDispatcher(sdkKey string, config Config, client *http.Client,
@@ -313,9 +306,8 @@ func (ed *eventDispatcher) isDisabled() bool {
 func (ed *eventDispatcher) handleResponse(resp *http.Response) {
 	err := checkStatusCode(resp.StatusCode, resp.Request.URL.String())
 	if err != nil {
-		ed.config.Logger.Printf("Unexpected status code when sending events: %+v", err)
-		if err != nil && err.Code == 401 {
-			ed.config.Logger.Printf("Received 401 error, no further events will be posted since SDK key is invalid")
+		ed.config.Logger.Println(httpErrorMessage(err.Code, "posting events", "some events were dropped"))
+		if err != nil && !isHTTPErrorRecoverable(err.Code) {
 			ed.stateLock.Lock()
 			defer ed.stateLock.Unlock()
 			ed.disabled = true
@@ -422,14 +414,14 @@ func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
 		resp, respErr = t.client.Do(req)
 
 		if resp != nil && resp.Body != nil {
-			ioutil.ReadAll(resp.Body)
-			resp.Body.Close()
+			_, _ = ioutil.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 		}
 
 		if respErr != nil {
 			t.logger.Printf("Unexpected error while sending events: %+v", respErr)
 			continue
-		} else if resp.StatusCode >= 500 {
+		} else if resp.StatusCode >= 400 && isHTTPErrorRecoverable(resp.StatusCode) {
 			t.logger.Printf("Received error status %d when sending events", resp.StatusCode)
 			continue
 		} else {

@@ -35,10 +35,10 @@
   revision = "2bcd89a1743fd4b373f7370ce8ddc14dfbd18229"
 
 [[projects]]
-  branch = "master"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "a45c212c667804d2687d2780839b04e288e2160d"
+  revision = "5e2c13ba9523c8b5f5e33aee7ef3fb1c855f52cd"
+  version = "1.0.0"
 
 [[projects]]
   name = "github.com/patrickmn/go-cache"
@@ -61,6 +61,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "d520e641e6ac99c03a70297eeb94624520c24eaf91fe52cfa264300187f8a511"
+  inputs-digest = "fe5787e27adde0e634f9078953e3b9c619e29042b5291e5ddf8f2d69444a5a76"
   solver-name = "gps-cdcl"
   solver-version = 1

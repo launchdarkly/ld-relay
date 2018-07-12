@@ -7,6 +7,7 @@ import (
 	"github.com/blang/semver"
 )
 
+// List of available operators
 const (
 	OperatorIn                 Operator = "in"
 	OperatorEndsWith           Operator = "endsWith"
@@ -27,8 +28,10 @@ const (
 
 type opFn (func(interface{}, interface{}) bool)
 
+// Operator describes an operator for a clause
 type Operator string
 
+// OpsList is the list of available operators
 var OpsList = []Operator{
 	OperatorIn,
 	OperatorEndsWith,
@@ -49,6 +52,7 @@ var OpsList = []Operator{
 
 var versionNumericComponentsRegex = regexp.MustCompile(`^\d+(\.\d+)?(\.\d+)?`)
 
+// Name returns the string name for an operator
 func (op Operator) Name() string {
 	return string(op)
 }
@@ -74,9 +78,8 @@ var allOps = map[Operator]opFn{
 func operatorFn(operator Operator) opFn {
 	if op, ok := allOps[operator]; ok {
 		return op
-	} else {
-		return operatorNoneFn
 	}
+	return operatorNoneFn
 }
 
 func operatorInFn(uValue interface{}, cValue interface{}) bool {
@@ -113,9 +116,8 @@ func operatorMatchesFn(uValue interface{}, cValue interface{}) bool {
 	return stringOperator(uValue, cValue, func(u string, c string) bool {
 		if matched, err := regexp.MatchString(c, u); err == nil {
 			return matched
-		} else {
-			return false
 		}
+		return false
 	})
 }
 

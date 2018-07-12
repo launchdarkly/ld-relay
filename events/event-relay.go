@@ -1,9 +1,7 @@
 package events
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -15,7 +13,6 @@ import (
 
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 	"gopkg.in/launchdarkly/ld-relay.v5/util"
-	"gopkg.in/launchdarkly/ld-relay.v5/version"
 )
 
 // EventRelay configuration
@@ -29,12 +26,8 @@ type Config struct {
 }
 
 type eventVerbatimRelay struct {
-	sdkKey string
-	config Config
-	mu     *sync.Mutex
-	client *http.Client
-	closer chan struct{}
-	queue  []json.RawMessage
+	config    Config
+	publisher EventPublisher
 }
 
 var rGen *rand.Rand
@@ -138,77 +131,18 @@ func NewEventRelayHandler(sdkKey string, config Config, featureStore ld.FeatureS
 }
 
 func newEventVerbatimRelay(sdkKey string, config Config) *eventVerbatimRelay {
+	publisher, _ := NewHttpEventPublisher(sdkKey,
+		OptionCapacity(config.Capacity),
+		OptionUri(config.EventsUri),
+		OptionFlushInterval(time.Duration(config.FlushIntervalSecs)*time.Second),
+	)
+
 	res := &eventVerbatimRelay{
-		queue:  make([]json.RawMessage, 0),
-		sdkKey: sdkKey,
-		config: config,
-		client: &http.Client{},
-		closer: make(chan struct{}),
-		mu:     &sync.Mutex{},
+		config:    config,
+		publisher: publisher,
 	}
-
-	go func() {
-		if err := recover(); err != nil {
-			logging.Error.Printf("Unexpected panic in event relay : %+v", err)
-		}
-
-		ticker := time.NewTicker(time.Duration(config.FlushIntervalSecs) * time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				res.flush()
-			case <-res.closer:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
 
 	return res
-}
-
-func (er *eventVerbatimRelay) flush() {
-	uri := er.config.EventsUri + "/bulk"
-	er.mu.Lock()
-	if len(er.queue) == 0 {
-		er.mu.Unlock()
-		return
-	}
-
-	events := er.queue
-	er.queue = make([]json.RawMessage, 0)
-	er.mu.Unlock()
-
-	payload, _ := json.Marshal(events)
-
-	req, reqErr := http.NewRequest("POST", uri, bytes.NewReader(payload))
-
-	if reqErr != nil {
-		logging.Error.Printf("Unexpected error while creating event request: %+v", reqErr)
-	}
-
-	req.Header.Add("Authorization", er.sdkKey)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("User-Agent", "LDRelay/"+version.Version)
-	req.Header.Add(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))
-
-	resp, respErr := er.client.Do(req)
-
-	defer func() {
-		if resp != nil && resp.Body != nil {
-			defer resp.Body.Close() // nolint:errcheck
-			_, _ = ioutil.ReadAll(resp.Body)
-		}
-	}()
-
-	if respErr != nil {
-		logging.Error.Printf("Unexpected error while sending events: %+v", respErr)
-		return
-	}
-	err := checkStatusCode(resp.StatusCode, uri)
-	if err != nil {
-		logging.Error.Printf("Unexpected status code when sending events: %+v", respErr)
-	}
 }
 
 func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
@@ -220,27 +154,5 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 		return
 	}
 
-	er.mu.Lock()
-	defer er.mu.Unlock()
-
-	if len(er.queue) >= er.config.Capacity {
-		logging.Warning.Println("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
-	} else {
-		er.queue = append(er.queue, evts...)
-	}
-}
-
-func checkStatusCode(statusCode int, url string) error {
-	if statusCode == http.StatusUnauthorized {
-		return fmt.Errorf("invalid SDK key when accessing URL: %s. Verify that your SDK key is correct", url)
-	}
-
-	if statusCode == http.StatusNotFound {
-		return fmt.Errorf("resource not found when accessing URL: %s. Verify that this resource exists", url)
-	}
-
-	if statusCode/100 != 2 {
-		return fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, url)
-	}
-	return nil
+	er.publisher.PublishRaw(evts...)
 }
