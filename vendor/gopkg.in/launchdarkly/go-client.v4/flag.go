@@ -10,13 +10,17 @@ import (
 )
 
 const (
-	long_scale = float32(0xFFFFFFFFFFFFFFF)
+	longScale = float32(0xFFFFFFFFFFFFFFF)
+	userKey   = "key"
 )
 
+// FeatureFlag describes an individual feature flag
 type FeatureFlag struct {
 	Key                  string             `json:"key" bson:"key"`
 	Version              int                `json:"version" bson:"version"`
 	On                   bool               `json:"on" bson:"on"`
+	TrackEvents          bool               `json:"trackEvents" bson:"trackEvents"`
+	Deleted              bool               `json:"deleted" bson:"deleted"`
 	Prerequisites        []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
 	Salt                 string             `json:"salt" bson:"salt"`
 	Sel                  string             `json:"sel" bson:"sel"`
@@ -25,63 +29,77 @@ type FeatureFlag struct {
 	Fallthrough          VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
 	OffVariation         *int               `json:"offVariation" bson:"offVariation"`
 	Variations           []interface{}      `json:"variations" bson:"variations"`
-	TrackEvents          bool               `json:"trackEvents" bson:"trackEvents"`
 	DebugEventsUntilDate *uint64            `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
-	Deleted              bool               `json:"deleted" bson:"deleted"`
 }
 
+// GetKey returns the string key for the feature flag
 func (f *FeatureFlag) GetKey() string {
 	return f.Key
 }
 
+// GetVersion returns the version of a flag
 func (f *FeatureFlag) GetVersion() int {
 	return f.Version
 }
 
+// IsDeleted returns whether a flag has been deleted
 func (f *FeatureFlag) IsDeleted() bool {
 	return f.Deleted
 }
 
+// Clone returns a copy of a flag
 func (f *FeatureFlag) Clone() VersionedData {
 	f1 := *f
 	return &f1
 }
 
+// FeatureFlagVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for flags
 type FeatureFlagVersionedDataKind struct{}
 
+// GetNamespace returns the a unique namespace identifier for feature flag objects
 func (fk FeatureFlagVersionedDataKind) GetNamespace() string {
 	return "features"
 }
 
+// String returns the namespace
+func (fk FeatureFlagVersionedDataKind) String() string {
+	return fk.GetNamespace()
+}
+
+// GetDefaultItem returns a default feature flag representation
 func (fk FeatureFlagVersionedDataKind) GetDefaultItem() interface{} {
 	return &FeatureFlag{}
 }
 
+// MakeDeletedItem returns representation of a deleted flag
 func (fk FeatureFlagVersionedDataKind) MakeDeletedItem(key string, version int) VersionedData {
 	return &FeatureFlag{Key: key, Version: version, Deleted: true}
 }
 
+// Features is convenience variable to access an instance of FeatureFlagVersionedDataKind
 var Features FeatureFlagVersionedDataKind
 
-// Expresses a set of AND-ed matching conditions for a user, along with either a fixed
+// Rule xpresses a set of AND-ed matching conditions for a user, along with either a fixed
 // variation or a set of rollout percentages
 type Rule struct {
 	VariationOrRollout `bson:",inline"`
 	Clauses            []Clause `json:"clauses" bson:"clauses"`
 }
 
-// Contains either the fixed variation or percent rollout to serve.
+// VariationOrRollout contains either the fixed variation or percent rollout to serve.
 // Invariant: one of the variation or rollout must be non-nil.
 type VariationOrRollout struct {
 	Variation *int     `json:"variation,omitempty" bson:"variation,omitempty"`
 	Rollout   *Rollout `json:"rollout,omitempty" bson:"rollout,omitempty"`
 }
 
+// Rollout describes how users will be bucketed into variations during a percentage rollout
 type Rollout struct {
 	Variations []WeightedVariation `json:"variations" bson:"variations"`
 	BucketBy   *string             `json:"bucketBy,omitempty" bson:"bucketBy,omitempty"`
 }
 
+// Clause describes an individual cluuse within a targeting rule
 type Clause struct {
 	Attribute string        `json:"attribute" bson:"attribute"`
 	Op        Operator      `json:"op" bson:"op"`
@@ -89,17 +107,19 @@ type Clause struct {
 	Negate    bool          `json:"negate" bson:"negate"`
 }
 
+// WeightedVariation describes a fraction of users who will receive a specific variation
 type WeightedVariation struct {
 	Variation int `json:"variation" bson:"variation"`
 	Weight    int `json:"weight" bson:"weight"` // Ranges from 0 to 100000
 }
 
+// Target describes a set of users who will receive a specific variation
 type Target struct {
 	Values    []string `json:"values" bson:"values"`
 	Variation int      `json:"variation" bson:"variation"`
 }
 
-// An explanation is one of: target, rule, prerequisite that wasn't met, or fallthrough rollout/variation
+// Explanation is one of: target, rule, prerequisite that wasn't met, or fallthrough rollout/variation
 type Explanation struct {
 	Kind                string `json:"kind" bson:"kind"`
 	*Target             `json:"target,omitempty"`
@@ -108,6 +128,7 @@ type Explanation struct {
 	*VariationOrRollout `json:"fallthrough,omitempty"`
 }
 
+// Prerequisite describes a requirement that another feature flag return a specific variation
 type Prerequisite struct {
 	Key       string `json:"key"`
 	Variation int    `json:"variation"`
@@ -116,23 +137,24 @@ type Prerequisite struct {
 func bucketUser(user User, key, attr, salt string) float32 {
 	uValue, pass := user.valueOf(attr)
 
-	if idHash, ok := bucketableStringValue(uValue); pass || !ok {
+	idHash, ok := bucketableStringValue(uValue)
+	if pass || !ok {
 		return 0
-	} else {
-		if user.Secondary != nil {
-			idHash = idHash + "." + *user.Secondary
-		}
-
-		h := sha1.New()
-		io.WriteString(h, key+"."+salt+"."+idHash)
-		hash := hex.EncodeToString(h.Sum(nil))[:15]
-
-		intVal, _ := strconv.ParseInt(hash, 16, 64)
-
-		bucket := float32(intVal) / long_scale
-
-		return bucket
 	}
+
+	if user.Secondary != nil {
+		idHash = idHash + "." + *user.Secondary
+	}
+
+	h := sha1.New()
+	_, _ = io.WriteString(h, key+"."+salt+"."+idHash)
+	hash := hex.EncodeToString(h.Sum(nil))[:15]
+
+	intVal, _ := strconv.ParseInt(hash, 16, 64)
+
+	bucket := float32(intVal) / longScale
+
+	return bucket
 }
 
 func bucketableStringValue(uValue interface{}) (string, bool) {
@@ -145,6 +167,8 @@ func bucketableStringValue(uValue interface{}) (string, bool) {
 	return "", false
 }
 
+// EvalResult describes the value and variation index that are the result of flag evaluation.
+// It also includes a list of any prerequisite flags that were evaluated to generate the evaluation.
 type EvalResult struct {
 	Value                     interface{}
 	Variation                 *int
@@ -152,6 +176,8 @@ type EvalResult struct {
 	PrerequisiteRequestEvents []FeatureRequestEvent //to be sent to LD
 }
 
+// Evaluate returns the variation selected for a user.
+// It also contains a list of events generated during evaluation.
 func (f FeatureFlag) Evaluate(user User, store FeatureStore) (interface{}, *int, []FeatureRequestEvent) {
 	var prereqEvents []FeatureRequestEvent
 	if f.On {
@@ -175,6 +201,8 @@ func (f FeatureFlag) Evaluate(user User, store FeatureStore) (interface{}, *int,
 	return nil, nil, prereqEvents
 }
 
+// EvaluateExplain returns the variation selected for a user along with a detailed explanation of which rule
+// resulted in the selected variation.
 func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult, error) {
 	if user.Key == nil {
 		return nil, nil
@@ -200,8 +228,8 @@ func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]Fe
 		}
 		prereqFeatureFlag, _ := data.(*FeatureFlag)
 		if prereqFeatureFlag.On {
-			prereqValue, prereqIndex, _, err := prereqFeatureFlag.evaluateExplain(user, store, events)
-			if err != nil {
+			prereqValue, prereqIndex, _, prereqErr := prereqFeatureFlag.evaluateExplain(user, store, events)
+			if prereqErr != nil {
 				failedPrereq = &prereq
 			}
 
@@ -239,9 +267,8 @@ func (f FeatureFlag) getVariation(index *int) (interface{}, error) {
 	}
 	if index == nil || *index >= len(f.Variations) {
 		return nil, errors.New("Invalid variation index")
-	} else {
-		return f.Variations[*index], nil
 	}
+	return f.Variations[*index], nil
 }
 
 func (f FeatureFlag) evaluateExplainIndex(store FeatureStore, user User) (*int, *Explanation) {
@@ -262,10 +289,9 @@ func (f FeatureFlag) evaluateExplainIndex(store FeatureStore, user User) (*int, 
 
 			if variation == nil {
 				return nil, nil
-			} else {
-				explanation := Explanation{Kind: "rule", Rule: &rule}
-				return variation, &explanation
 			}
+			explanation := Explanation{Kind: "rule", Rule: &rule}
+			return variation, &explanation
 		}
 	}
 
@@ -273,10 +299,9 @@ func (f FeatureFlag) evaluateExplainIndex(store FeatureStore, user User) (*int, 
 
 	if variation == nil {
 		return nil, nil
-	} else {
-		explanation := Explanation{Kind: "fallthrough", VariationOrRollout: &f.Fallthrough}
-		return variation, &explanation
 	}
+	explanation := Explanation{Kind: "fallthrough", VariationOrRollout: &f.Fallthrough}
+	return variation, &explanation
 }
 
 func (r Rule) matchesUser(store FeatureStore, user User) bool {
@@ -322,7 +347,7 @@ func (c Clause) matchesUser(store FeatureStore, user User) bool {
 				data, _ := store.Get(Segments, vStr)
 				// If segment is not found or the store got an error, data will be nil and we'll just fall through
 				// the next block. Unfortunately we have no access to a logger here so this failure is silent.
-				if segment, ok := data.(*Segment); ok {
+				if segment, segmentOk := data.(*Segment); segmentOk {
 					if matches, _ := segment.ContainsUser(user); matches {
 						return c.maybeNegate(true)
 					}
@@ -338,9 +363,8 @@ func (c Clause) matchesUser(store FeatureStore, user User) bool {
 func (c Clause) maybeNegate(b bool) bool {
 	if c.Negate {
 		return !b
-	} else {
-		return b
 	}
+	return b
 }
 
 func matchAny(fn opFn, value interface{}, values []interface{}) bool {
@@ -355,21 +379,25 @@ func matchAny(fn opFn, value interface{}, values []interface{}) bool {
 func (r VariationOrRollout) variationIndexForUser(user User, key, salt string) *int {
 	if r.Variation != nil {
 		return r.Variation
-	} else if r.Rollout != nil {
-		bucketBy := "key"
-		if r.Rollout.BucketBy != nil {
-			bucketBy = *r.Rollout.BucketBy
-		}
+	}
+	if r.Rollout == nil {
+		return nil
+	}
 
-		var bucket = bucketUser(user, key, bucketBy, salt)
-		var sum float32 = 0.0
+	bucketBy := userKey
+	if r.Rollout.BucketBy != nil {
+		bucketBy = *r.Rollout.BucketBy
+	}
 
-		for _, wv := range r.Rollout.Variations {
-			sum += float32(wv.Weight) / 100000.0
-			if bucket < sum {
-				return &wv.Variation
-			}
+	var bucket = bucketUser(user, key, bucketBy, salt)
+	var sum float32
+
+	for _, wv := range r.Rollout.Variations {
+		sum += float32(wv.Weight) / 100000.0
+		if bucket < sum {
+			return &wv.Variation
 		}
 	}
+
 	return nil
 }

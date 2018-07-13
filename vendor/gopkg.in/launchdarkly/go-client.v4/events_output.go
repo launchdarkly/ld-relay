@@ -66,6 +66,7 @@ type flagCounterData struct {
 	Unknown   *bool       `json:"unknown,omitempty"`
 }
 
+// Event types
 const (
 	FeatureRequestEventKind = "feature"
 	FeatureDebugEventKind   = "debug"

@@ -14,9 +14,10 @@ import (
 	"time"
 )
 
-const Version = "4.0.0"
+// Version is the client version
+const Version = "4.2.1"
 
-// The LaunchDarkly client. Client instances are thread-safe.
+// LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
 // of their application.
 type LDClient struct {
@@ -27,28 +28,31 @@ type LDClient struct {
 	store           FeatureStore
 }
 
+// Logger is a generic logger interface
 type Logger interface {
 	Println(...interface{})
 	Printf(string, ...interface{})
 }
 
-// Exposes advanced configuration options for the LaunchDarkly client.
+// Config exposes advanced configuration options for the LaunchDarkly client.
 type Config struct {
-	BaseUri               string
-	StreamUri             string
-	EventsUri             string
-	Capacity              int
-	FlushInterval         time.Duration
-	SamplingInterval      int32
-	PollInterval          time.Duration
-	Logger                Logger
-	Timeout               time.Duration
-	Stream                bool
-	FeatureStore          FeatureStore
-	UseLdd                bool
-	SendEvents            bool
-	Offline               bool
-	AllAttributesPrivate  bool
+	BaseUri              string
+	StreamUri            string
+	EventsUri            string
+	Capacity             int
+	FlushInterval        time.Duration
+	SamplingInterval     int32
+	PollInterval         time.Duration
+	Logger               Logger
+	Timeout              time.Duration
+	FeatureStore         FeatureStore
+	Stream               bool
+	UseLdd               bool
+	SendEvents           bool
+	Offline              bool
+	AllAttributesPrivate bool
+	// Set to true if you need to see the full user details in every analytics event.
+	InlineUsersInEvents   bool
 	PrivateAttributeNames []string
 	// An object that is responsible for receiving feature flag updates from LaunchDarkly.
 	// If nil, a default implementation will be used depending on the rest of the configuration
@@ -62,22 +66,21 @@ type Config struct {
 	UserKeysCapacity int
 	// The interval at which the event processor will reset its set of known user keys.
 	UserKeysFlushInterval time.Duration
-	// Set to true if you need to see the full user details in every analytics event.
-	InlineUsersInEvents bool
-	UserAgent           string
+	UserAgent             string
 }
 
-// The minimum value for Config.PollInterval. If you specify a smaller interval,
+// MinimumPollInterval describes the minimum value for Config.PollInterval. If you specify a smaller interval,
 // the minimum will be used instead.
 const MinimumPollInterval = 30 * time.Second
 
+// UpdateProcessor describes the interface for an update processor
 type UpdateProcessor interface {
 	Initialized() bool
 	Close() error
 	Start(closeWhenReady chan<- struct{})
 }
 
-// Provides the default configuration options for the LaunchDarkly client.
+// DefaultConfig provides the default configuration options for the LaunchDarkly client.
 // The easiest way to create a custom configuration is to start with the
 // default config, and set the custom options from there. For example:
 //   var config = DefaultConfig
@@ -101,17 +104,21 @@ var DefaultConfig = Config{
 	UserAgent:             "",
 }
 
-var ErrInitializationTimeout = errors.New("Timeout encountered waiting for LaunchDarkly client initialization")
-var ErrClientNotInitialized = errors.New("Feature flag evaluation called before LaunchDarkly client initialization completed")
+// Initialization errors
+var (
+	ErrInitializationTimeout = errors.New("timeout encountered waiting for LaunchDarkly client initialization")
+	ErrInitializationFailed  = errors.New("LaunchDarkly client initialization failed")
+	ErrClientNotInitialized  = errors.New("feature flag evaluation called before LaunchDarkly client initialization completed")
+)
 
-// Creates a new client instance that connects to LaunchDarkly with the default configuration. In most
+// MakeClient creates a new client instance that connects to LaunchDarkly with the default configuration. In most
 // cases, you should use this method to instantiate your client. The optional duration parameter allows callers to
 // block until the client has connected to LaunchDarkly and is properly initialized.
 func MakeClient(sdkKey string, waitFor time.Duration) (*LDClient, error) {
 	return MakeCustomClient(sdkKey, DefaultConfig, waitFor)
 }
 
-// Creates a new client instance that connects to LaunchDarkly with a custom configuration. The optional duration parameter allows callers to
+// MakeCustomClient creates a new client instance that connects to LaunchDarkly with a custom configuration. The optional duration parameter allows callers to
 // block until the client has connected to LaunchDarkly and is properly initialized.
 func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDClient, error) {
 	closeWhenReady := make(chan struct{})
@@ -167,6 +174,10 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	for {
 		select {
 		case <-closeWhenReady:
+			if !client.updateProcessor.Initialized() {
+				return &client, ErrInitializationFailed
+			}
+
 			config.Logger.Println("Successfully initialized LaunchDarkly client!")
 			return &client, nil
 		case <-timeout:
@@ -181,6 +192,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	}
 }
 
+// Identify reports details about a a user.
 func (client *LDClient) Identify(user User) error {
 	if client.IsOffline() {
 		return nil
@@ -193,7 +205,7 @@ func (client *LDClient) Identify(user User) error {
 	return nil
 }
 
-// Tracks that a user has performed an event. Custom data can be attached to the
+// Track reports that a user has performed an event. Custom data can be attached to the
 // event, and is serialized to JSON using the encoding/json package (http://golang.org/pkg/encoding/json/).
 func (client *LDClient) Track(key string, user User, data interface{}) error {
 	if client.IsOffline() {
@@ -207,46 +219,48 @@ func (client *LDClient) Track(key string, user User, data interface{}) error {
 	return nil
 }
 
-// Returns whether the LaunchDarkly client is in offline mode.
+// IsOffline returns whether the LaunchDarkly client is in offline mode.
 func (client *LDClient) IsOffline() bool {
 	return client.config.Offline
 }
 
+// SecureModeHash generates the secure mode hash value for a user
+// See https://github.com/launchdarkly/js-client#secure-mode
 func (client *LDClient) SecureModeHash(user User) string {
 	if user.Key == nil {
 		return ""
 	}
 	key := []byte(client.sdkKey)
 	h := hmac.New(sha256.New, key)
-	h.Write([]byte(*user.Key))
+	_, _ = h.Write([]byte(*user.Key))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Returns whether the LaunchDarkly client is initialized.
+// Initialized returns whether the LaunchDarkly client is initialized.
 func (client *LDClient) Initialized() bool {
 	return client.IsOffline() || client.config.UseLdd || client.updateProcessor.Initialized()
 }
 
-// Shuts down the LaunchDarkly client. After calling this, the LaunchDarkly client
+// Close shuts down the LaunchDarkly client. After calling this, the LaunchDarkly client
 // should no longer be used.
 func (client *LDClient) Close() error {
 	client.config.Logger.Println("Closing LaunchDarkly Client")
 	if client.IsOffline() {
 		return nil
 	}
-	client.eventProcessor.Close()
+	_ = client.eventProcessor.Close()
 	if !client.config.UseLdd {
-		client.updateProcessor.Close()
+		_ = client.updateProcessor.Close()
 	}
 	return nil
 }
 
-// Immediately flushes queued events.
+// Flush immediately flushes queued events.
 func (client *LDClient) Flush() {
 	client.eventProcessor.Flush()
 }
 
-// Returns a map from feature flag keys to values for
+// AllFlags returns a map from feature flag keys to values for
 // a given user. If the result of the flag's evaluation would
 // result in the default value, `nil` will be returned. This method
 // does not send analytics events back to LaunchDarkly
@@ -292,16 +306,16 @@ func (client *LDClient) evalFlag(flag FeatureFlag, user User) (interface{}, *int
 	return flag.Evaluate(user, client.store)
 }
 
-// Returns the value of a boolean feature flag for a given user. Returns defaultVal if
+// BoolVariation returns the value of a boolean feature flag for a given user. Returns defaultVal if
 // there is an error, if the flag doesn't exist, the client hasn't completed initialization,
 // or the feature is turned off.
 func (client *LDClient) BoolVariation(key string, user User, defaultVal bool) (bool, error) {
-	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(bool(true)))
+	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(true))
 	result, _ := value.(bool)
 	return result, err
 }
 
-// Returns the value of a feature flag (whose variations are integers) for the given user.
+// IntVariation eturns the value of a feature flag (whose variations are integers) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) IntVariation(key string, user User, defaultVal int) (int, error) {
 	value, err := client.variation(key, user, float64(defaultVal), reflect.TypeOf(float64(0)))
@@ -309,7 +323,7 @@ func (client *LDClient) IntVariation(key string, user User, defaultVal int) (int
 	return int(result), err
 }
 
-// Returns the value of a feature flag (whose variations are floats) for the given user.
+// Float64Variation eturns the value of a feature flag (whose variations are floats) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) Float64Variation(key string, user User, defaultVal float64) (float64, error) {
 	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(float64(0)))
@@ -317,7 +331,7 @@ func (client *LDClient) Float64Variation(key string, user User, defaultVal float
 	return result, err
 }
 
-// Returns the value of a feature flag (whose variations are strings) for the given user.
+// StringVariation eturns the value of a feature flag (whose variations are strings) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) StringVariation(key string, user User, defaultVal string) (string, error) {
 	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(string("string")))
@@ -325,7 +339,7 @@ func (client *LDClient) StringVariation(key string, user User, defaultVal string
 	return result, err
 }
 
-// Returns the value of a feature flag (whose variations are JSON) for the given user.
+// JsonVariation eturns the value of a feature flag (whose variations are JSON) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) JsonVariation(key string, user User, defaultVal json.RawMessage) (json.RawMessage, error) {
 	if client.IsOffline() {
@@ -375,6 +389,7 @@ func (client *LDClient) sendFlagRequestEvent(key string, flag *FeatureFlag, user
 	client.eventProcessor.SendEvent(evt)
 }
 
+// Evaluate returns the value of a feature for a specified user
 func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) (interface{}, *int, error) {
 	value, index, _, err := client.evaluateInternal(key, user, defaultVal)
 	return value, index, err
@@ -407,14 +422,14 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 	if data != nil {
 		feature, ok = data.(*FeatureFlag)
 		if !ok {
-			return defaultVal, nil, nil, fmt.Errorf("Unexpected data type (%T) found in store for feature key: %s. Returning default value.", data, key)
+			return defaultVal, nil, nil, fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key)
 		}
 	} else {
-		return defaultVal, nil, nil, fmt.Errorf("Unknown feature key: %s Verify that this feature key exists. Returning default value.", key)
+		return defaultVal, nil, nil, fmt.Errorf("unknown feature key: %s Verify that this feature key exists. Returning default value", key)
 	}
 
 	if user.Key == nil {
-		return defaultVal, nil, feature, fmt.Errorf("User.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
+		return defaultVal, nil, feature, fmt.Errorf("user.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
 	}
 
 	result, index, prereqEvents := client.evalFlag(*feature, user)

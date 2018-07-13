@@ -38,8 +38,8 @@
   name = "github.com/gregjones/httpcache"
 
 [[constraint]]
-  branch = "master"
   name = "github.com/launchdarkly/eventsource"
+  version = "1.0.0"
 
 [[constraint]]
   name = "github.com/patrickmn/go-cache"

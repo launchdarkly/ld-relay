@@ -8,16 +8,18 @@ import (
 	"time"
 )
 
+// HttpStatusError describes an http error
 type HttpStatusError struct {
 	Message string
 	Code    int
 }
 
+// Error returns a the error message for an http status error
 func (e HttpStatusError) Error() string {
 	return e.Message
 }
 
-// Converts any of the following into a pointer to a time.Time value:
+// ParseTime converts any of the following into a pointer to a time.Time value:
 //   RFC3339/ISO8601 timestamp (example: 2016-04-16T17:09:12.759-07:00)
 //   Unix epoch milliseconds as string
 //   Unix milliseconds as number
@@ -50,7 +52,7 @@ func ParseTime(input interface{}) *time.Time {
 	return nil
 }
 
-// Parses numeric value as float64 from a string or another numeric type.
+// ParseFloat64 parses a numeric value as float64 from a string or another numeric type.
 // Returns nil pointer if input is nil or unparsable.
 func ParseFloat64(input interface{}) *float64 {
 	if input == nil {
@@ -73,12 +75,12 @@ func ParseFloat64(input interface{}) *float64 {
 	return nil
 }
 
-// Convert a Unix epoch milliseconds float64 value to the equivalent time.Time value with UTC location
+// unixMillisToUtcTime converts a Unix epoch milliseconds float64 value to the equivalent time.Time value with UTC location
 func unixMillisToUtcTime(unixMillis float64) time.Time {
 	return time.Unix(0, int64(unixMillis)*int64(time.Millisecond)).UTC()
 }
 
-// Converts input to a *json.RawMessage if possible.
+// ToJsonRawMessage converts input to a *json.RawMessage if possible.
 func ToJsonRawMessage(input interface{}) (json.RawMessage, error) {
 	if input == nil {
 		return nil, nil
@@ -121,6 +123,7 @@ func checkStatusCode(statusCode int, url string) *HttpStatusError {
 	return nil
 }
 
+// MakeAllVersionedDataMap returns a map of version objects grouped by namespace that can be used to initialize a feature store
 func MakeAllVersionedDataMap(
 	features map[string]*FeatureFlag,
 	segments map[string]*Segment) map[VersionedDataKind]map[string]VersionedData {
@@ -135,4 +138,32 @@ func MakeAllVersionedDataMap(
 		allData[Segments][k] = v
 	}
 	return allData
+}
+
+// Tests whether an HTTP error status represents a condition that might resolve on its own if we retry.
+func isHTTPErrorRecoverable(statusCode int) bool {
+	if statusCode >= 400 && statusCode < 500 {
+		switch statusCode {
+		case 408: // request timeout
+			return true
+		case 429: // too many requests
+			return true
+		default:
+			return false // all other 4xx errors are unrecoverable
+		}
+	}
+	return true
+}
+
+func httpErrorMessage(statusCode int, context string, recoverableMessage string) string {
+	statusDesc := ""
+	if statusCode == 401 {
+		statusDesc = " (invalid SDK key)"
+	}
+	resultMessage := recoverableMessage
+	if !isHTTPErrorRecoverable(statusCode) {
+		resultMessage = "giving up permanently"
+	}
+	return fmt.Sprintf("Received HTTP error %d%s for %s - %s",
+		statusCode, statusDesc, context, resultMessage)
 }

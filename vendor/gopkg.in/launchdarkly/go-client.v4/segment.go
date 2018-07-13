@@ -1,5 +1,6 @@
 package ldclient
 
+// Segment describes a group of users
 type Segment struct {
 	Key      string        `json:"key" bson:"key"`
 	Included []string      `json:"included" bson:"included"`
@@ -10,50 +11,67 @@ type Segment struct {
 	Deleted  bool          `json:"deleted" bson:"deleted"`
 }
 
+// GetKey returns the unique key describing a segment
 func (s *Segment) GetKey() string {
 	return s.Key
 }
 
+// GetVersion returns the version of the segment
 func (s *Segment) GetVersion() int {
 	return s.Version
 }
 
+// IsDeleted returns whether a flag has been deleted
 func (s *Segment) IsDeleted() bool {
 	return s.Deleted
 }
 
+// Clone returns a copy of a segment
 func (s *Segment) Clone() VersionedData {
 	s1 := *s
 	return &s1
 }
 
+// SegmentVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for segments
 type SegmentVersionedDataKind struct{}
 
+// GetNamespace returns the a unique namespace identifier for feature flag objects
 func (sk SegmentVersionedDataKind) GetNamespace() string {
 	return "segments"
 }
 
+// String returns the namespace
+func (sk SegmentVersionedDataKind) String() string {
+	return sk.GetNamespace()
+}
+
+// GetDefaultItem returns a default segment representation
 func (sk SegmentVersionedDataKind) GetDefaultItem() interface{} {
 	return &Segment{}
 }
 
+// MakeDeletedItem returns representation of a deleted segment
 func (sk SegmentVersionedDataKind) MakeDeletedItem(key string, version int) VersionedData {
 	return &Segment{Key: key, Version: version, Deleted: true}
 }
 
+// Segments is convenience variable to access an instance of SegmentVersionedDataKind
 var Segments SegmentVersionedDataKind
 
+// SegmentRule describes a set of clauses that
 type SegmentRule struct {
 	Clauses  []Clause `json:"clauses" bson:"clauses"`
 	Weight   *int     `json:"weight,omitempty" bson:"weight,omitempty"`
 	BucketBy *string  `json:"bucketBy,omitempty" bson:"bucketBy,omitempty"`
 }
 
+// SegmentExplanation describes a rule that determines whether a user was included in or excluded from a segment
 type SegmentExplanation struct {
 	Kind        string
 	MatchedRule *SegmentRule
 }
 
+// ContainsUser returns whether a user belongs to the segment
 func (s Segment) ContainsUser(user User) (bool, *SegmentExplanation) {
 	if user.Key == nil {
 		return false, nil
@@ -84,6 +102,7 @@ func (s Segment) ContainsUser(user User) (bool, *SegmentExplanation) {
 	return false, nil
 }
 
+// MatchesUser returns whether a rule applies to a user
 func (r SegmentRule) MatchesUser(user User, key, salt string) bool {
 	for _, clause := range r.Clauses {
 		if !clause.matchesUserNoSegments(user) {

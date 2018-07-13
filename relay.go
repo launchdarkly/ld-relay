@@ -21,8 +21,16 @@ import (
 	ld "gopkg.in/launchdarkly/go-client.v4"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
+	"crypto/tls"
+
+	"net/http/httputil"
+
+	"net/url"
+
+	"github.com/gregjones/httpcache"
 	"gopkg.in/launchdarkly/ld-relay.v5/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/ld-relay.v5/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/store"
 	"gopkg.in/launchdarkly/ld-relay.v5/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/version"
@@ -33,10 +41,12 @@ const (
 	defaultPort                  = 8030
 	defaultAllowedOrigin         = "*"
 	defaultEventCapacity         = 1000
-	defaultEventsUri             = "https://events.launchdarkly.com/api/events"
+	defaultEventsUri             = "https://events.launchdarkly.com"
 	defaultBaseUri               = "https://app.launchdarkly.com/"
 	defaultStreamUri             = "https://stream.launchdarkly.com/"
 	defaultHeartbeatIntervalSecs = 180
+
+	userAgentHeader = "user-agent"
 )
 
 var (
@@ -45,12 +55,13 @@ var (
 
 // EnvConfig describes an environment to be relayed
 type EnvConfig struct {
-	SdkKey        string
-	ApiKey        string // deprecated, equivalent to SdkKey
-	MobileKey     *string
-	EnvId         *string
-	Prefix        string
-	AllowedOrigin *[]string
+	SdkKey             string
+	ApiKey             string // deprecated, equivalent to SdkKey
+	MobileKey          *string
+	EnvId              *string
+	Prefix             string
+	AllowedOrigin      *[]string
+	InsecureSkipVerify bool
 }
 
 // Config describes the configuration for a relay instance
@@ -67,6 +78,7 @@ type Config struct {
 	Redis  struct {
 		Host     string
 		Port     int
+		Url      string
 		LocalTtl int
 	}
 	Environment map[string]*EnvConfig
@@ -99,6 +111,19 @@ func LoadConfigFile(c *Config, path string) error {
 	if err := gcfg.ReadFileInto(c, path); err != nil {
 		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
 	}
+
+	for envName, envConfig := range c.Environment {
+		if envConfig.ApiKey != "" {
+			if envConfig.SdkKey == "" {
+				envConfig.SdkKey = envConfig.ApiKey
+				c.Environment[envName] = envConfig
+				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
+			} else {
+				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -124,18 +149,20 @@ type clientContext interface {
 	getStore() ld.FeatureStore
 	getLogger() ld.Logger
 	getHandlers() clientHandlers
+	getMetricsCtx() context.Context
 }
 
 type clientContextImpl struct {
-	mu        sync.RWMutex
-	client    LdClientContext
-	store     ld.FeatureStore
-	logger    ld.Logger
-	handlers  clientHandlers
-	sdkKey    string
-	envId     *string
-	mobileKey *string
-	name      string
+	mu         sync.RWMutex
+	client     LdClientContext
+	store      ld.FeatureStore
+	logger     ld.Logger
+	handlers   clientHandlers
+	sdkKey     string
+	envId      *string
+	mobileKey  *string
+	name       string
+	metricsCtx context.Context
 }
 
 // Relay relays endpoints to and from the LaunchDarkly service
@@ -178,13 +205,19 @@ func (c *clientContextImpl) getHandlers() clientHandlers {
 	return c.handlers
 }
 
+func (c *clientContextImpl) getMetricsCtx() context.Context {
+	return c.metricsCtx
+}
+
+type clientFactoryFunc func(sdkKey string, config ld.Config) (LdClientContext, error)
+
 // DefaultClientFactory creates a default client for connecting to the LaunchDarkly stream
 func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, error) {
 	return ld.MakeCustomClient(sdkKey, config, time.Second*10)
 }
 
 // NewRelay creates a new relay given a configuration and a method to create a client
-func NewRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (LdClientContext, error)) (*Relay, error) {
+func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -199,59 +232,26 @@ func NewRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (LdC
 	pingPublisher.ReplayAll = true
 	clients := map[string]*clientContextImpl{}
 	mobileClients := map[string]*clientContextImpl{}
-	clientSideMux := clientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
+
+	clientSideMux := clientSideMux{
+		contextByKey: map[string]*clientSideContext{},
+	}
 
 	if len(c.Environment) == 0 {
 		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
 	}
 
-	for key, envConfig := range c.Environment {
-		if envConfig.ApiKey != "" {
-			if envConfig.SdkKey == "" {
-				envConfig.SdkKey = envConfig.ApiKey
-				c.Environment[key] = envConfig
-				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
-			} else {
-				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
-			}
-		}
-		clients[envConfig.SdkKey] = nil
+	baseUrl, err := url.Parse(c.Main.BaseUri)
+	if err != nil {
+		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
+
 	for envName, envConfig := range c.Environment {
-		var baseFeatureStore ld.FeatureStore
-		if c.Redis.Host != "" && c.Redis.Port != 0 {
-			logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-			baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
-		} else {
-			baseFeatureStore = ld.NewInMemoryFeatureStore(logging.Info)
+		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, allPublisher, flagsPublisher, pingPublisher)
+		if err != nil {
+			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
-
-		logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
-
-		clientConfig := ld.DefaultConfig
-		clientConfig.Stream = true
-		clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
-		clientConfig.StreamUri = c.Main.StreamUri
-		clientConfig.BaseUri = c.Main.BaseUri
-		clientConfig.Logger = logger
-		clientConfig.UserAgent = "LDRelay/" + version.Version
-
-		clientContext := &clientContextImpl{
-			name:      envName,
-			envId:     envConfig.EnvId,
-			sdkKey:    envConfig.SdkKey,
-			mobileKey: envConfig.MobileKey,
-			store:     baseFeatureStore,
-			logger:    logger,
-			handlers: clientHandlers{
-				allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
-				flagsStreamHandler: flagsPublisher.Handler(envConfig.SdkKey),
-				pingStreamHandler:  pingPublisher.Handler(envConfig.SdkKey),
-			},
-		}
-
 		clients[envConfig.SdkKey] = clientContext
-
 		if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
 			mobileClients[*envConfig.MobileKey] = clientContext
 		}
@@ -261,34 +261,28 @@ func NewRelay(c Config, clientFactory func(sdkKey string, config ld.Config) (LdC
 			if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
 				allowedOrigins = *envConfig.AllowedOrigin
 			}
-			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{clientContext: clientContext, allowedOrigins: allowedOrigins}
-		}
-
-		if c.Events.SendEvents {
-			logging.Info.Printf("Proxying events for environment %s", envName)
-			clientContext.handlers.eventsHandler = events.NewEventRelayHandler(envConfig.SdkKey, c.Events, baseFeatureStore)
-		}
-
-		// Connecting may take time, so do this in parallel
-		go func(envName string, envConfig EnvConfig) {
-			client, err := clientFactory(envConfig.SdkKey, clientConfig)
-			clientContext.setClient(client)
-
-			if err != nil {
-				if !c.Main.IgnoreConnectionErrors {
-					logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-
-					if c.Main.ExitOnError {
-						os.Exit(1)
-					}
-					return
-				}
-
-				logging.Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-			} else {
-				logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+			cachingTransport := httpcache.NewMemoryCacheTransport()
+			if envConfig.InsecureSkipVerify {
+				transport := &(*http.DefaultTransport.(*http.Transport))
+				transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: envConfig.InsecureSkipVerify} // nolint:gas // allow this because the user has to explicitly enable it
+				cachingTransport.Transport = transport
 			}
-		}(envName, *envConfig)
+
+			proxy := &httputil.ReverseProxy{
+				Director: func(r *http.Request) {
+					url := r.URL
+					url.Scheme = baseUrl.Scheme
+					url.Host = baseUrl.Host
+				},
+				Transport: cachingTransport,
+			}
+
+			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{
+				clientContext:  clientContext,
+				proxy:          proxy,
+				allowedOrigins: allowedOrigins,
+			}
+		}
 	}
 
 	r := Relay{
@@ -344,18 +338,18 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
-	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(http.HandlerFunc(pingStreamHandler))).Methods("GET")
+	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
 	clientSidePingRouter.Use(clientSideMiddlewareStack)
 	clientSidePingRouter.Use(mux.CORSMethodMiddleware(clientSidePingRouter))
-	clientSidePingRouter.HandleFunc("", pingStreamHandler).Methods("GET", "OPTIONS")
+	clientSidePingRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
 	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter))
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.HandleFunc("/{user}", pingStreamHandler).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.HandleFunc("", pingStreamHandler).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.HandleFunc("/{user}", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(r.mobileClientMux.selectClientByAuthorizationKey)
@@ -373,11 +367,91 @@ func (r *Relay) makeHandler() http.Handler {
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(r.sdkClientMux.selectClientByAuthorizationKey)
-	serverSideRouter.HandleFunc("/all", allStreamHandler).Methods("GET")
-	serverSideRouter.HandleFunc("/flags", flagsStreamHandler).Methods("GET")
+	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
+	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
 
 	return router
+}
+
+func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+	var baseFeatureStore ld.FeatureStore
+	if c.Redis.Url != "" {
+		if c.Redis.Host != "" {
+			logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+		}
+		logging.Info.Printf("Using Redis Feature Store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
+		baseFeatureStore = ldr.NewRedisFeatureStoreFromUrl(c.Redis.Url, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
+	} else if c.Redis.Host != "" && c.Redis.Port != 0 {
+		logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
+		baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
+	} else {
+		baseFeatureStore = ld.NewInMemoryFeatureStore(logging.Info)
+	}
+	logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
+
+	clientConfig := ld.DefaultConfig
+	clientConfig.Stream = true
+	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
+	clientConfig.StreamUri = c.Main.StreamUri
+	clientConfig.BaseUri = c.Main.BaseUri
+	clientConfig.Logger = logger
+	clientConfig.UserAgent = "LDRelay/" + version.Version
+
+	var eventsHandler http.Handler
+	if c.Events.SendEvents {
+		logging.Info.Printf("Proxying events for environment %s", envName)
+		eventsHandler = events.NewEventRelayHandler(envConfig.SdkKey, c.Events, baseFeatureStore)
+	}
+
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
+	if err != nil {
+		return nil, fmt.Errorf("unable to create publisher: %s", err)
+	}
+
+	m, err := metrics.NewMetricsProcessor(eventsPublisher)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create metrics processor: %s", err)
+	}
+
+	clientContext := &clientContextImpl{
+		name:       envName,
+		envId:      envConfig.EnvId,
+		sdkKey:     envConfig.SdkKey,
+		mobileKey:  envConfig.MobileKey,
+		store:      baseFeatureStore,
+		logger:     logger,
+		metricsCtx: m.OpenCensusCtx,
+		handlers: clientHandlers{
+			eventsHandler:      eventsHandler,
+			allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
+			flagsStreamHandler: flagsPublisher.Handler(envConfig.SdkKey),
+			pingStreamHandler:  pingPublisher.Handler(envConfig.SdkKey),
+		},
+	}
+
+	// Connecting may take time, so do this in parallel
+	go func(envName string, envConfig EnvConfig) {
+		client, err := clientFactory(envConfig.SdkKey, clientConfig)
+		clientContext.setClient(client)
+
+		if err != nil {
+			if !c.Main.IgnoreConnectionErrors {
+				logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+
+				if c.Main.ExitOnError {
+					os.Exit(1)
+				}
+				return
+			}
+
+			logging.Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+		} else {
+			logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+		}
+	}(envName, *envConfig)
+
+	return clientContext, nil
 }
 
 type clientMux struct {
@@ -568,6 +642,38 @@ func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
+}
+
+func withGauge(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		metricsCtx := getClientContext(req).getMetricsCtx()
+		userAgent := req.Header.Get(userAgentHeader)
+		metrics.WithGauge(metricsCtx, userAgent, func() {
+			handler.ServeHTTP(w, req)
+		}, measures...)
+	}
+}
+
+func withCount(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		metricsCtx := getClientContext(req).getMetricsCtx()
+		userAgent := req.Header.Get(userAgentHeader)
+		metrics.WithCount(metricsCtx, userAgent, func() {
+			handler.ServeHTTP(w, req)
+		}, measures...)
+	}
+}
+
+func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
+	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
+}
+
+func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
+	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewMobileConns)
+}
+
+func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
+	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
 // UserV2FromBase64 decodes a base64-encoded go-client v2 user.

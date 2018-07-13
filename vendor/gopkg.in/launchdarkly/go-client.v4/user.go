@@ -38,7 +38,7 @@ type User struct {
 	PrivateAttributeNames []string `json:"-" bson:"-"`
 }
 
-// The Derived attribute map is for internal use by LaunchDarkly only. Derived attributes
+// DerivedAttribute is an entry in a Derived attribute map and is for internal use by LaunchDarkly only. Derived attributes
 // sent to LaunchDarkly are ignored.
 type DerivedAttribute struct {
 	Value       interface{} `json:"value" bson:"value"`

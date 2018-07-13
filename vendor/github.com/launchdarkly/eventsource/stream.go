@@ -1,11 +1,11 @@
 package eventsource
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -13,7 +13,7 @@ import (
 // It will try and reconnect if the connection is lost, respecting both
 // received retry delays and event id's.
 type Stream struct {
-	c           http.Client
+	c           *http.Client
 	req         *http.Request
 	lastEventId string
 	retry       time.Duration
@@ -25,7 +25,11 @@ type Stream struct {
 	// even if that involves reconnecting to the server.
 	Errors chan error
 	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger Logger
+	Logger      Logger // Set with SetLogger if you want your code to be thread-safe
+	closer      chan struct{}
+	closeOnce   sync.Once
+	mu          sync.RWMutex
+	connections int
 }
 
 type SubscriptionError struct {
@@ -49,15 +53,27 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 
 // SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
 // to be specified, authentication to be configured, etc.
-func SubscribeWithRequest(lastEventId string, req *http.Request) (*Stream, error) {
+func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, error) {
+	return SubscribeWith(lastEventId, http.DefaultClient, request)
+}
+
+// SubscribeWith takes a http client and request providing customization over both headers and
+// control over the http client settings (timeouts, tls, etc)
+// If request.Body is set, then request.GetBody should also be set so that we can reissue the request
+func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+	// override checkRedirect to include headers before go1.8
+	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
+	setCheckRedirect(client)
+
 	stream := &Stream{
-		req:         req,
+		c:           client,
+		req:         request,
 		lastEventId: lastEventId,
-		retry:       (time.Millisecond * 3000),
+		retry:       time.Millisecond * 3000,
 		Events:      make(chan Event),
 		Errors:      make(chan error),
+		closer:      make(chan struct{}),
 	}
-	stream.c.CheckRedirect = checkRedirect
 
 	r, err := stream.connect()
 	if err != nil {
@@ -67,18 +83,11 @@ func SubscribeWithRequest(lastEventId string, req *http.Request) (*Stream, error
 	return stream, nil
 }
 
-// Go's http package doesn't copy headers across when it encounters
-// redirects so we need to do that manually.
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("stopped after 10 redirects")
-	}
-	for k, vv := range via[0].Header {
-		for _, v := range vv {
-			req.Header.Add(k, v)
-		}
-	}
-	return nil
+// Close will close the stream. It is safe for concurrent access and can be called multiple times.
+func (stream *Stream) Close() {
+	stream.closeOnce.Do(func() {
+		close(stream.closer)
+	})
 }
 
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
@@ -88,9 +97,19 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	if len(stream.lastEventId) > 0 {
 		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
 	}
-	if resp, err = stream.c.Do(stream.req); err != nil {
+	req := *stream.req
+
+	// All but the initial connection will need to regenerate the body
+	if stream.connections > 0 && req.GetBody != nil {
+		if req.Body, err = req.GetBody(); err != nil {
+			return
+		}
+	}
+
+	if resp, err = stream.c.Do(&req); err != nil {
 		return
 	}
+	stream.connections++
 	if resp.StatusCode != 200 {
 		message, _ := ioutil.ReadAll(resp.Body)
 		err = SubscriptionError{
@@ -103,41 +122,112 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
-	defer r.Close()
-	dec := NewDecoder(r)
-	for {
-		ev, err := dec.Decode()
+	retryChan := make(chan struct{}, 1)
 
-		if err != nil {
-			stream.Errors <- err
-			// respond to all errors by reconnecting and trying again
-			break
+	scheduleRetry := func(backoff *time.Duration) {
+		logger := stream.getLogger()
+		if logger != nil {
+			logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
 		}
-		pub := ev.(*publication)
-		if pub.Retry() > 0 {
-			stream.retry = time.Duration(pub.Retry()) * time.Millisecond
-		}
-		if len(pub.Id()) > 0 {
-			stream.lastEventId = pub.Id()
-		}
-		stream.Events <- ev
+		time.AfterFunc(*backoff, func() {
+			retryChan <- struct{}{}
+		})
+		*backoff *= 2
 	}
-	backoff := stream.retry
+
+NewStream:
 	for {
-		time.Sleep(backoff)
-		if stream.Logger != nil {
-			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
+		backoff := stream.getRetry()
+		events := make(chan Event)
+		errs := make(chan error)
+
+		if r != nil {
+			dec := NewDecoder(r)
+			go func() {
+				for {
+					ev, err := dec.Decode()
+
+					if err != nil {
+						errs <- err
+						close(errs)
+						close(events)
+						return
+					}
+					events <- ev
+				}
+			}()
 		}
 
-		// NOTE: because of the defer we're opening the new connection
-		// before closing the old one. Shouldn't be a problem in practice,
-		// but something to be aware of.
-		next, err := stream.connect()
-		if err == nil {
-			go stream.stream(next)
-			break
+		for {
+			select {
+			case err := <-errs:
+				stream.Errors <- err
+				r.Close()
+				r = nil
+				scheduleRetry(&backoff)
+				continue NewStream
+			case ev := <-events:
+				pub := ev.(*publication)
+				if pub.Retry() > 0 {
+					backoff = time.Duration(pub.Retry()) * time.Millisecond
+				}
+				if len(pub.Id()) > 0 {
+					stream.lastEventId = pub.Id()
+				}
+				stream.Events <- ev
+			case <-stream.closer:
+				if r != nil {
+					r.Close()
+					// allow the decoding goroutine to terminate
+					for {
+						if _, ok := <-errs; !ok {
+							break
+						}
+					}
+					for {
+						if _, ok := <-events; !ok {
+							break
+						}
+					}
+				}
+				break NewStream
+			case <-retryChan:
+				var err error
+				r, err = stream.connect()
+				if err != nil {
+					stream.Errors <- err
+					scheduleRetry(&backoff)
+				}
+				continue NewStream
+			}
 		}
-		stream.Errors <- err
-		backoff *= 2
 	}
+
+	close(stream.Errors)
+	close(stream.Events)
+}
+
+func (stream *Stream) setRetry(retry time.Duration) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.retry = retry
+}
+
+func (stream *Stream) getRetry() time.Duration {
+	stream.mu.RLock()
+	defer stream.mu.RUnlock()
+	return stream.retry
+}
+
+// SetLogger sets the Logger field in a thread-safe manner.
+func (stream *Stream) SetLogger(logger Logger) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.Logger = logger
+}
+
+func (stream *Stream) getLogger() Logger {
+	stream.mu.RLock()
+	defer stream.mu.RUnlock()
+	return stream.Logger
 }

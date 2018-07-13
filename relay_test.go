@@ -427,35 +427,6 @@ func TestRelay(t *testing.T) {
 		return status
 	}
 
-	t.Run("if apiKey is present and sdkKey is absent, sdkKey is set to apiKey", func(t *testing.T) {
-		newConfig := Config{
-			Environment: map[string]*EnvConfig{
-				"test": {
-					ApiKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989",
-				},
-			},
-		}
-
-		relay, _ := NewRelay(newConfig, createDummyClient)
-		status := getStatus(relay, t)
-		assert.Equal(t, "sdk-********-****-****-****-*******98989", jsonFind(status, "environments", "test", "sdkKey"))
-	})
-
-	t.Run("if apiKey and sdkKey are both present, apiKey is ignored", func(t *testing.T) {
-		newConfig := Config{
-			Environment: map[string]*EnvConfig{
-				"test": {
-					ApiKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989",
-					SdkKey: "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0",
-				},
-			},
-		}
-
-		relay, _ := NewRelay(newConfig, createDummyClient)
-		status := getStatus(relay, t)
-		assert.Equal(t, "sdk-********-****-****-****-*******e42d0", jsonFind(status, "environments", "test", "sdkKey"))
-	})
-
 	t.Run("status", func(t *testing.T) {
 		status := getStatus(relay, t)
 		assert.Equal(t, "sdk-********-****-****-****-*******e42d0", jsonFind(status, "environments", "sdk test", "sdkKey"))
@@ -749,6 +720,36 @@ func TestRelay(t *testing.T) {
 	})
 
 	eventsServer.Close()
+}
+
+func TestLoadConfig(t *testing.T) {
+	tmpfile, err := ioutil.TempFile("", "relay-load-config")
+	defer os.Remove(tmpfile.Name()) // clean up
+
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	tmpfile.WriteString(`
+[environment "test api key"]
+ApiKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
+
+[environment "test api and sdk key"]
+ApiKey = "abc"
+SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
+`)
+	tmpfile.Close()
+
+	var c Config
+	err = LoadConfigFile(&c, tmpfile.Name())
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api key"].SdkKey,
+		"expected api key to be used as sdk key when api key is set")
+	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api and sdk key"].SdkKey,
+		"expected sdk key to be used as sdk key when both api key and sdk key are set")
 }
 
 // jsonFind returns the nested entity at a path in a json obj
