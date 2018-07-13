@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -380,16 +381,18 @@ func TestRelay(t *testing.T) {
 	}
 
 	fakeApp := mux.NewRouter()
+	fakeServer := httptest.NewServer(fakeApp)
+	fakeServerURL, _ := url.Parse(fakeServer.URL)
 	fakeApp.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
 		ioutil.ReadAll(req.Body)
 		if mux.Vars(req)["envId"] != envId {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		assert.Equal(t, fakeServerURL.Hostname(), req.Host)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`["got some goals"]`))
 	}).Methods("GET")
-	fakeServer := httptest.NewServer(fakeApp)
 	defer fakeServer.Close()
 
 	config.Main.BaseUri = fakeServer.URL

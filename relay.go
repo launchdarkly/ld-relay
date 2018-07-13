@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,25 +10,22 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-client.v4"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
-	"crypto/tls"
-
-	"net/http/httputil"
-
-	"net/url"
-
-	"github.com/gregjones/httpcache"
 	"gopkg.in/launchdarkly/ld-relay.v5/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 	"gopkg.in/launchdarkly/ld-relay.v5/metrics"
@@ -273,6 +271,16 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 					url := r.URL
 					url.Scheme = baseUrl.Scheme
 					url.Host = baseUrl.Host
+					r.Host = baseUrl.Hostname()
+				},
+				ModifyResponse: func(r *http.Response) error {
+					// Leave access control to our own cors middleware
+					for h := range r.Header {
+						if strings.HasPrefix(strings.ToLower(h), "access-control") {
+							r.Header.Del(h)
+						}
+					}
+					return nil
 				},
 				Transport: cachingTransport,
 			}
