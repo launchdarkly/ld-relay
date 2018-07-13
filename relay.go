@@ -21,6 +21,13 @@ import (
 	ld "gopkg.in/launchdarkly/go-client.v4"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
+	"crypto/tls"
+
+	"net/http/httputil"
+
+	"net/url"
+
+	"github.com/gregjones/httpcache"
 	"gopkg.in/launchdarkly/ld-relay.v5/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 	"gopkg.in/launchdarkly/ld-relay.v5/metrics"
@@ -48,12 +55,13 @@ var (
 
 // EnvConfig describes an environment to be relayed
 type EnvConfig struct {
-	SdkKey        string
-	ApiKey        string // deprecated, equivalent to SdkKey
-	MobileKey     *string
-	EnvId         *string
-	Prefix        string
-	AllowedOrigin *[]string
+	SdkKey             string
+	ApiKey             string // deprecated, equivalent to SdkKey
+	MobileKey          *string
+	EnvId              *string
+	Prefix             string
+	AllowedOrigin      *[]string
+	InsecureSkipVerify bool
 }
 
 // Config describes the configuration for a relay instance
@@ -224,10 +232,18 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	pingPublisher.ReplayAll = true
 	clients := map[string]*clientContextImpl{}
 	mobileClients := map[string]*clientContextImpl{}
-	clientSideMux := clientSideMux{baseUri: c.Main.BaseUri, contextByKey: map[string]*clientSideContext{}}
+
+	clientSideMux := clientSideMux{
+		contextByKey: map[string]*clientSideContext{},
+	}
 
 	if len(c.Environment) == 0 {
 		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
+	}
+
+	baseUrl, err := url.Parse(c.Main.BaseUri)
+	if err != nil {
+		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
 	for envName, envConfig := range c.Environment {
@@ -245,7 +261,27 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 			if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
 				allowedOrigins = *envConfig.AllowedOrigin
 			}
-			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{clientContext: clientContext, allowedOrigins: allowedOrigins}
+			cachingTransport := httpcache.NewMemoryCacheTransport()
+			if envConfig.InsecureSkipVerify {
+				transport := &(*http.DefaultTransport.(*http.Transport))
+				transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: envConfig.InsecureSkipVerify} // nolint:gas // allow this because the user has to explicitly enable it
+				cachingTransport.Transport = transport
+			}
+
+			proxy := &httputil.ReverseProxy{
+				Director: func(r *http.Request) {
+					url := r.URL
+					url.Scheme = baseUrl.Scheme
+					url.Host = baseUrl.Host
+				},
+				Transport: cachingTransport,
+			}
+
+			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{
+				clientContext:  clientContext,
+				proxy:          proxy,
+				allowedOrigins: allowedOrigins,
+			}
 		}
 	}
 

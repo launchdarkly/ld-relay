@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 
+	"net/http/httputil"
+
 	"github.com/gorilla/mux"
-	"github.com/gregjones/httpcache"
 	"gopkg.in/launchdarkly/ld-relay.v5/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/util"
 )
@@ -20,8 +20,9 @@ type contextKeyType string
 const contextKey contextKeyType = "context"
 
 type clientSideContext struct {
-	allowedOrigins []string
 	clientContext
+	allowedOrigins []string
+	proxy          *httputil.ReverseProxy
 }
 
 func (c *clientSideContext) AllowedOrigins() []string {
@@ -30,7 +31,6 @@ func (c *clientSideContext) AllowedOrigins() []string {
 
 type clientSideMux struct {
 	contextByKey map[string]*clientSideContext
-	baseUri      string
 }
 
 func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
@@ -55,25 +55,8 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 }
 
 func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
-	envId := mux.Vars(req)["envId"]
-
-	ldReq, _ := http.NewRequest("GET", m.baseUri+"/sdk/goals/"+envId, nil)
-	ldReq.Header.Set("Authorization", req.Header.Get("Authorization"))
-
-	cachingTransport := httpcache.NewMemoryCacheTransport()
-	httpClient := cachingTransport.Client()
-	res, err := httpClient.Do(ldReq)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(util.ErrorJsonMsgf("Error fetching goals: %s", err))
-		return
-	}
-
-	w.Header().Set("Content-Type", res.Header["Content-Type"][0])
-
-	w.WriteHeader(res.StatusCode)
-	bodyBytes, _ := ioutil.ReadAll(res.Body)
-	w.Write(bodyBytes)
+	clientCtx := getClientContext(req).(*clientSideContext)
+	clientCtx.proxy.ServeHTTP(w, req)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
