@@ -113,8 +113,13 @@ workflows:
   test:
     jobs:
       - go-test
-      # - go-test-1.8  # Disable until CircleCI restores go 1.8
+      - go-test-1.8
       - go-test-1.9
       - publish:
+          filters:
+            tags:
+              only: /\d+\.\d+\.\d+/
+            branches:
+              only: /v\d+/
           requires:
             - go-test
