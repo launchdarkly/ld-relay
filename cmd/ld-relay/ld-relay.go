@@ -34,7 +34,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	logging.Info.Printf("Listening on port %d\n", c.Main.Port)
+	if err := relay.InitializeMetrics(c.MetricsConfig); err != nil {
+		logging.Error.Printf("Error initializing metrics: %s", err)
+	}
 
 	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
 	if err != nil {
@@ -42,6 +44,8 @@ func main() {
 			logging.Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+	} else {
+		logging.Info.Printf("Listening on port %d\n", c.Main.Port)
 	}
 }
 
