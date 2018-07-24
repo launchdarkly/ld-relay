@@ -15,7 +15,6 @@ import (
 )
 
 func TestOpenCensusEventsExporter(t *testing.T) {
-	t.Parallel()
 	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *OpenCensusEventsExporter)) {
 		relayId := uuid.New()
 		exporter := newOpenCensusEventsExporter(relayId, publisher, time.Millisecond)
