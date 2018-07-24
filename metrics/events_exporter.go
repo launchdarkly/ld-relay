@@ -18,7 +18,7 @@ type currentConnectionsMetric struct {
 type newConnectionsMetric struct {
 	UserAgent        string `json:"userAgent"`
 	PlatformCategory string `json:"platformCategory"`
-	Count            int64  `json:"current"`
+	Count            int64  `json:"count"`
 }
 
 const RelayMetricsKind = "relayMetrics"
