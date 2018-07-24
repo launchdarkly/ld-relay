@@ -33,7 +33,6 @@ func init() {
 }
 
 func TestConnectionMetrics(t *testing.T) {
-	t.Parallel()
 	specs := []struct {
 		expected         interface{}
 		platformCategory string
@@ -97,7 +96,6 @@ func TestConnectionMetrics(t *testing.T) {
 }
 
 func TestNewConnectionMetrics(t *testing.T) {
-	t.Parallel()
 	specs := []struct {
 		expected         interface{}
 		platformCategory string
