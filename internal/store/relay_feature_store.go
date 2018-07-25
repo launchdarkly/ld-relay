@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/logging"
 
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"

@@ -11,7 +11,7 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 )
 
 func TestOpenCensusEventsExporter(t *testing.T) {

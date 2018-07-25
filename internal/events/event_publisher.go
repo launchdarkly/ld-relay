@@ -14,7 +14,7 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/version"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 )
 
 const (
