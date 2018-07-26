@@ -121,6 +121,7 @@ type DatadogOptions struct {
 	Prefix    string
 	TraceAddr *string
 	StatsAddr *string
+	Tags      []string
 }
 
 func (d DatadogOptions) getType() ExporterType {
