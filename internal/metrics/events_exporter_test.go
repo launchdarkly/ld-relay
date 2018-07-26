@@ -5,33 +5,47 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pborman/uuid"
-	"github.com/stretchr/testify/assert"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
+	"go.opencensus.io/trace"
+
+	"github.com/pborman/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 )
+
+const testReportingPeriod = time.Millisecond
+
+func init() {
+	view.SetReportingPeriod(testReportingPeriod)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+}
 
 func TestOpenCensusEventsExporter(t *testing.T) {
 	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *OpenCensusEventsExporter)) {
 		relayId := uuid.New()
 		exporter := newOpenCensusEventsExporter(relayId, publisher, time.Millisecond)
 		view.RegisterExporter(exporter)
-		defer view.UnregisterExporter(exporter)
+		defer func() {
+			view.UnregisterExporter(exporter)
+			// Wait for any views to drain
+			time.Sleep(testReportingPeriod)
+		}()
 		ctx, err := tag.New(
 			context.Background(),
 			tag.Insert(relayIdTagKey, relayId),
 			tag.Insert(platformCategoryTagKey, "gameConsole"),
 			tag.Insert(userAgentTagKey, "my-agent"))
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		metricView := &view.View{
 			Measure:     connMeasure,
 			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{relayIdTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
-		assert.NoError(t, view.Register(metricView))
+		require.NoError(t, view.Register(metricView))
 		defer view.Unregister(metricView)
 		f(ctx, exporter)
 	}
@@ -46,14 +60,11 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			case event = <-publisher.events:
 				break
 			case <-time.After(time.Second):
-				assert.Fail(t, "timed out")
-				return
+				require.Fail(t, "timed out")
 			}
-			if !assert.IsType(t, RelayMetricsEvent{}, event) {
-				return
-			}
+			require.IsType(t, RelayMetricsEvent{}, event)
 			metricsEvent := event.(RelayMetricsEvent)
-			assert.Equal(t, RelayMetricsKind, metricsEvent.Kind)
+			require.Equal(t, RelayMetricsKind, metricsEvent.Kind)
 			assert.True(t, metricsEvent.StartDate >= start/int64(time.Millisecond))
 			assert.True(t, metricsEvent.StartDate <= metricsEvent.StopDate)
 			assert.True(t, metricsEvent.StopDate <= nowInUnixMillis())
@@ -75,9 +86,8 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			stats.Record(ctx, BrowserConns.measure.M(0))
 			select {
 			case event := <-publisher.events:
-				assert.Fail(t, "expected no events", "got one: %+v", event)
-			case <-time.After(time.Second):
-				return
+				require.Fail(t, "expected no events", "got one: %+v", event)
+			case <-time.After(time.Millisecond * 10):
 			}
 		})
 	})
@@ -87,18 +97,17 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
 			time.Sleep(time.Millisecond * 10)
 			startTime := nowInUnixMillis()
+			// Wait an extra moment to let any export operation that has already started complete
+			time.Sleep(time.Millisecond * 1)
 			stats.Record(ctx, BrowserConns.measure.M(1))
 			var event interface{}
 			select {
 			case event = <-publisher.events:
 				break
 			case <-time.After(time.Second):
-				assert.Fail(t, "timed out")
-				return
+				require.Fail(t, "timed out")
 			}
-			if !assert.IsType(t, RelayMetricsEvent{}, event) {
-				return
-			}
+			require.IsType(t, RelayMetricsEvent{}, event)
 			metricsEvent := event.(RelayMetricsEvent)
 			assert.True(t, metricsEvent.StartDate >= startTime)
 		})
@@ -115,10 +124,9 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 				select {
 				case event := <-publisher.events:
 					metricsEvent := event.(RelayMetricsEvent)
-					if assert.Equal(t, RelayMetricsKind, metricsEvent.Kind) {
-						expectedRelayId, _ := tag.FromContext(ctx).Value(relayIdTagKey)
-						assert.Equal(t, expectedRelayId, metricsEvent.RelayId)
-					}
+					require.Equal(t, RelayMetricsKind, metricsEvent.Kind)
+					expectedRelayId, _ := tag.FromContext(ctx).Value(relayIdTagKey)
+					assert.Equal(t, expectedRelayId, metricsEvent.RelayId)
 				case <-timeout:
 					return
 				}

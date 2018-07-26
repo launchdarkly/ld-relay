@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -33,11 +34,6 @@ func (p *testEventsPublisher) Publish(events ...interface{}) {
 }
 func (p *testEventsPublisher) PublishRaw(events ...json.RawMessage) {}
 func (p *testEventsPublisher) Flush()                               {}
-
-func init() {
-	view.SetReportingPeriod(time.Millisecond)
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
-}
 
 type args struct {
 	value     float64
