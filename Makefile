@@ -27,7 +27,7 @@ publish:
 	$(RELEASE_CMD)
 
 release:
-	$(RELEASE_CMD) --skip-publish
+	$(RELEASE_CMD) --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
