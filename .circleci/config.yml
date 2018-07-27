@@ -107,7 +107,13 @@ jobs:
       - checkout
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get install rpm
-      - run: make release
+      - run:
+          name: Releasing and publishing
+          command: |
+            make release
+            if [ "$CIRCLE_PROJECT_REPONAME" = "ld-relay" ]; then
+                make publish
+            fi
       - store_artifacts:
           path: dist/
 

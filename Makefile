@@ -21,11 +21,16 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "comm $(COMM_OPTIONS) -13 $$2 $$5"' g
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
+RELEASE_CMD=curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+
+publish:
+	$(RELEASE_CMD)
+
 release:
-	curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+	$(RELEASE_CMD) --skip-publish
 
 test-release:
-	curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES) --skip-publish --skip-validate
+	$(RELEASE_CMD) --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
@@ -35,4 +40,4 @@ test-centos test-debian test-docker: test-release
 
 test-all: test-centos test-debian test-docker
 
-.PHONY: docker init lint release test test-release test-centos test-debian test-docker test-all
+.PHONY: docker init lint publish release test test-release test-centos test-debian test-docker test-all
