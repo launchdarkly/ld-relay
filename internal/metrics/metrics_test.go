@@ -11,6 +11,7 @@ import (
 	"go.opencensus.io/trace"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -41,8 +42,20 @@ type args struct {
 	platform  string
 	relayId   string
 	userAgent string
-	method    string
-	route     string
+}
+
+func (a args) getExpectedTags() []tag.Tag {
+	return []tag.Tag{tag.Tag{Key: platformCategoryTagKey, Value: a.platform}, tag.Tag{Key: relayIdTagKey, Value: a.relayId}, tag.Tag{Key: userAgentTagKey, Value: a.userAgent}}
+}
+
+type routeArgs struct {
+	args
+	method string
+	route  string
+}
+
+func (a routeArgs) getExpectedTags() []tag.Tag {
+	return append(a.args.getExpectedTags(), tag.Tag{Key: routeTagKey, Value: a.route}, tag.Tag{Key: methodTagKey, Value: a.method})
 }
 
 func TestConnectionMetrics(t *testing.T) {
@@ -60,7 +73,13 @@ func TestConnectionMetrics(t *testing.T) {
 		}
 		defer p.Close()
 		WithGauge(p.OpenCensusCtx, userAgentValue, func() {
-			equalCheck(t, tt, "connections")
+			expectedTags := tt.getExpectedTags()
+			rows, err := view.RetrieveData("connections")
+			require.NoError(t, err)
+			matchingRows := findRowsWithTags(rows, expectedTags)
+			require.Len(t, matchingRows, 1)
+			assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
+			assert.Equal(t, tt.value, float64((*matchingRows[0]).Data.(*view.SumData).Value))
 		}, tt.measure)
 
 	}
@@ -81,7 +100,13 @@ func TestNewConnectionMetrics(t *testing.T) {
 		}
 		defer p.Close()
 		WithCount(p.OpenCensusCtx, userAgentValue, func() {
-			equalCheck(t, tt, "newconnections")
+			expectedTags := tt.getExpectedTags()
+			rows, err := view.RetrieveData("newconnections")
+			require.NoError(t, err)
+			matchingRows := findRowsWithTags(rows, expectedTags)
+			require.Len(t, matchingRows, 1)
+			assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
+			assert.Equal(t, float64((*matchingRows[0]).Data.(*view.SumData).Value), tt.value)
 		}, tt.measure)
 	}
 }
@@ -123,36 +148,39 @@ func TestWithRouteCount(t *testing.T) {
 	defer trace.UnregisterExporter(exporter)
 	defer view.Unregister(&view.View{Name: "requests"})
 
-	expected := args{value: 1, platform: server, measure: NewServerConns, userAgent: userAgentValue, method: "GET", route: "someRoute"}
+	expected := routeArgs{args: args{value: 1, platform: server, measure: NewServerConns, relayId: metricsRelayId, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
 
-	WithRouteCount(context.Background(), userAgentValue, "someRoute", "GET", func() {
-		routeEqualCheck(t, expected, "requests")
+	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
+		expectedTags := expected.getExpectedTags()
+		rows, err := view.RetrieveData("requests")
+		require.NoError(t, err)
+		matchingRows := findRowsWithTags(rows, expectedTags)
+		require.Len(t, matchingRows, 1)
+		assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
+		assert.Equal(t, int64(expected.value), int64((*matchingRows[0]).Data.(*view.CountData).Value))
 	}, ServerRequests)
 	assert.NotEmpty(t, exporter.spans)
 }
 
-func routeEqualCheck(t *testing.T, expected args, viewName string) {
-	expectedRow := &view.Row{Tags: []tag.Tag{tag.Tag{Key: methodTagKey, Value: expected.method}, tag.Tag{Key: platformCategoryTagKey, Value: expected.platform}, tag.Tag{Key: routeTagKey, Value: expected.route}, tag.Tag{Key: userAgentTagKey, Value: expected.userAgent}}, Data: &view.CountData{Value: int64(expected.value)}}
-	rowEqualCheck(t, expectedRow, viewName)
-}
-
-func equalCheck(t *testing.T, expected args, viewName string) {
-	expectedRow := &view.Row{Tags: []tag.Tag{tag.Tag{Key: platformCategoryTagKey, Value: expected.platform}, tag.Tag{Key: relayIdTagKey, Value: expected.relayId}, tag.Tag{Key: userAgentTagKey, Value: expected.userAgent}}, Data: &view.SumData{Value: expected.value}}
-	rowEqualCheck(t, expectedRow, viewName)
-}
-
-func rowEqualCheck(t *testing.T, expected *view.Row, viewName string) {
-	rows, _ := view.RetrieveData(viewName)
-
-	found := false
-EqualCheck:
+func findRowsWithTags(rows []*view.Row, expectedTags []tag.Tag) (matches []*view.Row) {
+RowLoop:
 	for _, row := range rows {
-		if expected.Equal(row) {
-			found = true
-			break EqualCheck
+		for _, tag := range expectedTags {
+			if !contains(row.Tags, tag) {
+				continue RowLoop
+			}
+		}
+		matches = append(matches, row)
+	}
+	return matches
+}
+
+func contains(tags []tag.Tag, tag tag.Tag) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
 		}
 	}
-	if !assert.True(t, found) {
-		t.Logf("%+v does not contain\n%+v", rows, expected)
-	}
+	return false
 }
