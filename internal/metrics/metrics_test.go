@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -79,6 +78,7 @@ func TestConnectionMetrics(t *testing.T) {
 			require.NoError(t, err)
 			matchingRows := findRowsWithTags(rows, expectedTags)
 			require.Len(t, matchingRows, 1)
+			assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
 			assert.Equal(t, tt.value, float64((*matchingRows[0]).Data.(*view.SumData).Value))
 		}, tt.measure)
 
@@ -105,6 +105,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 			require.NoError(t, err)
 			matchingRows := findRowsWithTags(rows, expectedTags)
 			require.Len(t, matchingRows, 1)
+			assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
 			assert.Equal(t, float64((*matchingRows[0]).Data.(*view.SumData).Value), tt.value)
 		}, tt.measure)
 	}
@@ -152,11 +153,11 @@ func TestWithRouteCount(t *testing.T) {
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
 		expectedTags := expected.getExpectedTags()
-		fmt.Println(expectedTags)
 		rows, err := view.RetrieveData("requests")
 		require.NoError(t, err)
 		matchingRows := findRowsWithTags(rows, expectedTags)
 		require.Len(t, matchingRows, 1)
+		assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
 		assert.Equal(t, int64(expected.value), int64((*matchingRows[0]).Data.(*view.CountData).Value))
 	}, ServerRequests)
 	assert.NotEmpty(t, exporter.spans)
@@ -165,11 +166,8 @@ func TestWithRouteCount(t *testing.T) {
 func findRowsWithTags(rows []*view.Row, expectedTags []tag.Tag) (matches []*view.Row) {
 RowLoop:
 	for _, row := range rows {
-		if len(row.Tags) != len(expectedTags) {
-			continue RowLoop
-		}
-		for _, tag := range row.Tags {
-			if !contains(expectedTags, tag) {
+		for _, tag := range expectedTags {
+			if !contains(row.Tags, tag) {
 				continue RowLoop
 			}
 		}
