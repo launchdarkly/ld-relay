@@ -77,9 +77,6 @@ var (
 	privateConnView    *view.View
 	privateNewConnView *view.View
 
-	publicViews  []*view.View
-	privateViews []*view.View
-
 	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &browserTags}
 	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &mobileTags}
 	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &serverTags}
@@ -124,8 +121,14 @@ func init() {
 		Aggregation: view.Sum(),
 		TagKeys:     privateTags,
 	}
-	publicViews = []*view.View{publicConnView, publicNewConnView, requestView}
-	privateViews = []*view.View{privateConnView, privateNewConnView}
+}
+
+func getPublicViews() []*view.View {
+	return []*view.View{publicConnView, publicNewConnView, requestView}
+}
+
+func getPrivateViews() []*view.View {
+	return []*view.View{privateConnView, privateNewConnView}
 }
 
 type Processor struct {
@@ -201,7 +204,7 @@ func RegisterExporters(options []ExporterOptions) (registrationErr error) {
 			}
 		}
 
-		err := view.Register(publicViews...)
+		err := view.Register(getPublicViews()...)
 		if err != nil {
 			registrationErr = fmt.Errorf("Error registering metrics views")
 		}
@@ -211,7 +214,7 @@ func RegisterExporters(options []ExporterOptions) (registrationErr error) {
 
 func registerPrivateViews() (err error) {
 	registerPrivateViewsOnce.Do(func() {
-		err = view.Register(privateViews...)
+		err = view.Register(getPrivateViews()...)
 		if err != nil {
 			err = fmt.Errorf("Error registering metrics views")
 		}
