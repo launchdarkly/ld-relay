@@ -13,7 +13,6 @@ defaults:
     COMMON_GO_PACKAGES: >
       github.com/jstemmer/go-junit-report
       github.com/kyoh86/richgo
-      gopkg.in/alecthomas/gometalinter.v2
 
   build_steps: &build_steps
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
@@ -83,6 +82,22 @@ jobs:
 
     <<: *build_steps
 
+  test-publish:
+    docker:
+      - <<: *release_docker_image
+
+    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
+    steps:
+      - checkout
+      - setup_remote_docker  # start docker engine
+      - run: sudo apt-get install rpm
+      - run: make release
+      - run: make test-debian
+      - run: make test-centos
+      - run: make test-docker
+      - store_artifacts:
+          path: dist/
+
   publish:
     docker:
       - <<: *release_docker_image
@@ -90,23 +105,17 @@ jobs:
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
       - checkout
-
-      # Generate and upload binaries
-      - run: mkdir -p $CIRCLE_ARTIFACTS
-      - run: go get -u github.com/laher/goxc
-      - run:
-          name: generate all binaries
-          command: ./scripts/package.sh
-      - store_artifacts:
-          path: /tmp/circle-artifacts
-
-      # Upload docker changes
       - setup_remote_docker  # start docker engine
-      - run: docker build -t "ld-relay:$CIRCLE_BUILD_NUM" .
-      - deploy:
-          name: Push docker image
+      - run: sudo apt-get install rpm
+      - run:
+          name: Releasing and publishing
           command: |
-            ./scripts/upload_to_dockerhub.sh
+            make release
+            if [ "$CIRCLE_PROJECT_REPONAME" = "ld-relay" ]; then
+                make publish
+            fi
+      - store_artifacts:
+          path: dist/
 
 workflows:
   version: 2
@@ -115,10 +124,11 @@ workflows:
       - go-test
       - go-test-1.8
       - go-test-1.9
+      - test-publish
       - publish:
           filters:
             tags:
-              only: /\d+\.\d+\.\d+/
+              only: /\d+\.\d+\.\d+(-.*)?/
             branches:
               only: /v\d+/
           requires:

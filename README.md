@@ -110,6 +110,7 @@ variable name | type    | description
 `enabled`     | Boolean | If true, enabled exporting to Datadog.
 `statsAddr`   | URI     | URI of the DogStatsD agent. If not provided, stats will not be collected. Example: `localhost:8125`
 `traceAddr`   | URI     | URI of the Datadog trace agent. If not provided, traces will not be collected. Example: `localhost:8126`
+`tag`         | string  | A tag to be applied to all metrics sent to datadog. This variable can be provided multiple times. Must be of the form `key:value`. Example: `instance:blue-jaguar`
 `prefix`      | string  | The metrics prefix to be used by Datadog.
 
 ## [stackdriver]

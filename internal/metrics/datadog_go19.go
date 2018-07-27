@@ -1,4 +1,4 @@
-// +build !go1.10
+// +build !go1.10 386
 
 package metrics
 

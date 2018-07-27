@@ -71,6 +71,7 @@ type ExporterConfig interface {
 type DatadogConfig struct {
 	TraceAddr *string
 	StatsAddr *string
+	Tag       []string
 	CommonMetricsConfig
 }
 
@@ -78,6 +79,7 @@ func (c DatadogConfig) toOptions() metrics.ExporterOptions {
 	return metrics.DatadogOptions{
 		TraceAddr: c.TraceAddr,
 		StatsAddr: c.StatsAddr,
+		Tags:      c.Tag,
 		Prefix:    c.getPrefix(),
 	}
 }
