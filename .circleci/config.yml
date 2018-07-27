@@ -91,7 +91,7 @@ jobs:
       - checkout
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get install rpm
-      - run: make test-release
+      - run: make release
       - run: make test-debian
       - run: make test-centos
       - run: make test-docker

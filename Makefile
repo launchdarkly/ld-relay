@@ -29,15 +29,12 @@ publish:
 release:
 	$(RELEASE_CMD) --skip-publish
 
-test-release:
-	$(RELEASE_CMD) --skip-publish --skip-validate
-
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
-test-centos test-debian test-docker: test-release
+test-centos test-debian test-docker: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
 test-all: test-centos test-debian test-docker
 
-.PHONY: docker init lint publish release test test-release test-centos test-debian test-docker test-all
+.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all
