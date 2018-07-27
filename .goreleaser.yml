@@ -1,0 +1,59 @@
+project_name: ld-relay
+
+builds:
+- env:
+  - CGO_ENABLED=0
+  main: ./cmd/ld-relay/
+  binary: ld-relay
+  # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}`.
+  ldflags:
+  - -s -w -X version.Version={{.Version}}
+
+git:
+  short_hash: true
+
+nfpm:
+  name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .Commit }}_{{ .Arch }}"
+
+  homepage: https://launchdarkly.com/
+  maintainer: LaunchDarkly <team@launchdarkly.com>
+  description: LaunchDarkly Stream Relay Proxy
+  license: Apache 2.0
+  vendor: Catamorphic Co.
+
+  formats:
+  - deb
+  - rpm
+
+  replacements:
+    386: i386
+
+  config_files:
+    "linux/etc/ld-relay.conf": "/etc/ld-relay.conf"
+
+  overrides:
+    deb:
+      dependencies:
+      - upstart
+      files:
+        "linux/etc/init/ld-relay.conf": "/etc/init/ld-relay.conf"
+    rpm:
+      dependencies:
+      - systemd
+      files:
+        "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
+
+dockers:
+  - image: launchdarkly/ld-relay
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.goreleaser
+    skip_push: false
+    tag_templates:
+    - "{{ .Tag }}"
+    - "v{{ .Major }}"
+    - latest
+    # If your Dockerfile copies files other than the binary itself,
+    # you should list them here as well.
+    extra_files:
+    - docker-entrypoint.sh
