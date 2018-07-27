@@ -43,15 +43,20 @@ type args struct {
 	platform  string
 	relayId   string
 	userAgent string
-	method    string
-	route     string
 }
 
 func (a args) getExpectedTags() []tag.Tag {
-	if a.method == "" && a.route == "" {
-		return []tag.Tag{tag.Tag{Key: platformCategoryTagKey, Value: a.platform}, tag.Tag{Key: relayIdTagKey, Value: a.relayId}, tag.Tag{Key: userAgentTagKey, Value: a.userAgent}}
-	}
-	return []tag.Tag{tag.Tag{Key: methodTagKey, Value: a.method}, tag.Tag{Key: platformCategoryTagKey, Value: a.platform}, tag.Tag{Key: routeTagKey, Value: a.route}, tag.Tag{Key: userAgentTagKey, Value: a.userAgent}}
+	return []tag.Tag{tag.Tag{Key: platformCategoryTagKey, Value: a.platform}, tag.Tag{Key: relayIdTagKey, Value: a.relayId}, tag.Tag{Key: userAgentTagKey, Value: a.userAgent}}
+}
+
+type routeArgs struct {
+	args
+	method string
+	route  string
+}
+
+func (a routeArgs) getExpectedTags() []tag.Tag {
+	return append(a.args.getExpectedTags(), tag.Tag{Key: routeTagKey, Value: a.route}, tag.Tag{Key: methodTagKey, Value: a.method})
 }
 
 func TestConnectionMetrics(t *testing.T) {
@@ -70,10 +75,11 @@ func TestConnectionMetrics(t *testing.T) {
 		defer p.Close()
 		WithGauge(p.OpenCensusCtx, userAgentValue, func() {
 			expectedTags := tt.getExpectedTags()
-			rows, _ := view.RetrieveData("connections")
+			rows, err := view.RetrieveData("connections")
+			require.NoError(t, err)
 			matchingRows := findRowsWithTags(rows, expectedTags)
 			require.Len(t, matchingRows, 1)
-			assert.Equal(t, float64((*matchingRows[0]).Data.(*view.SumData).Value), tt.value)
+			assert.Equal(t, tt.value, float64((*matchingRows[0]).Data.(*view.SumData).Value))
 		}, tt.measure)
 
 	}
@@ -95,7 +101,8 @@ func TestNewConnectionMetrics(t *testing.T) {
 		defer p.Close()
 		WithCount(p.OpenCensusCtx, userAgentValue, func() {
 			expectedTags := tt.getExpectedTags()
-			rows, _ := view.RetrieveData("newconnections")
+			rows, err := view.RetrieveData("newconnections")
+			require.NoError(t, err)
 			matchingRows := findRowsWithTags(rows, expectedTags)
 			require.Len(t, matchingRows, 1)
 			assert.Equal(t, float64((*matchingRows[0]).Data.(*view.SumData).Value), tt.value)
@@ -140,29 +147,42 @@ func TestWithRouteCount(t *testing.T) {
 	defer trace.UnregisterExporter(exporter)
 	defer view.Unregister(&view.View{Name: "requests"})
 
-	expected := args{value: 1, platform: server, measure: NewServerConns, userAgent: userAgentValue, method: "GET", route: "someRoute"}
+	expected := routeArgs{args: args{value: 1, platform: server, measure: NewServerConns, relayId: metricsRelayId, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
 
-	WithRouteCount(context.Background(), userAgentValue, "someRoute", "GET", func() {
+	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
 		expectedTags := expected.getExpectedTags()
-		rows, _ := view.RetrieveData("requests")
+		fmt.Println(expectedTags)
+		rows, err := view.RetrieveData("requests")
+		require.NoError(t, err)
 		matchingRows := findRowsWithTags(rows, expectedTags)
 		require.Len(t, matchingRows, 1)
-		assert.Equal(t, int64((*matchingRows[0]).Data.(*view.CountData).Value), int64(expected.value))
+		assert.Equal(t, int64(expected.value), int64((*matchingRows[0]).Data.(*view.CountData).Value))
 	}, ServerRequests)
 	assert.NotEmpty(t, exporter.spans)
 }
 
-func findRowsWithTags(rows []*view.Row, tags []tag.Tag) (matches []*view.Row) {
-	fmt.Println(rows)
-	fmt.Println(tags)
+func findRowsWithTags(rows []*view.Row, expectedTags []tag.Tag) (matches []*view.Row) {
 RowLoop:
 	for _, row := range rows {
-		for i := range row.Tags {
-			if row.Tags[i] != tags[i] {
+		if len(row.Tags) != len(expectedTags) {
+			continue RowLoop
+		}
+		for _, tag := range row.Tags {
+			if !contains(expectedTags, tag) {
 				continue RowLoop
 			}
 		}
 		matches = append(matches, row)
 	}
 	return matches
+}
+
+func contains(tags []tag.Tag, tag tag.Tag) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
