@@ -7,7 +7,7 @@ builds:
   binary: ld-relay
   # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}`.
   ldflags:
-  - -s -w -X version.Version={{.Version}}
+  - -s -w -X internal.version.Version={{.Version}}
 
 git:
   short_hash: true

@@ -8,8 +8,8 @@ VERSION=$1
 
 #Update version in version/version.go
 VERSION_GO_TEMP=./version.go.tmp
-sed "s/const Version =.*/const Version = \"${VERSION}\"/g"  version/version.go > ${VERSION_GO_TEMP}
-mv ${VERSION_GO_TEMP} version/version.go
+sed "s/const Version =.*/const Version = \"${VERSION}\"/g"  internal/version/version.go > ${VERSION_GO_TEMP}
+mv ${VERSION_GO_TEMP} internal/version/version.go
 
 echo "Done with relay release"
 
