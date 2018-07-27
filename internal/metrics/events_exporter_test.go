@@ -54,7 +54,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		start := nowInUnixMillis()
 		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
-			stats.Record(ctx, BrowserConns.measure.M(1))
+			stats.Record(ctx, connMeasure.M(1))
 			var event interface{}
 			select {
 			case event = <-publisher.events:
@@ -83,7 +83,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 	t.Run("empty metrics generate no events", func(*testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
-			stats.Record(ctx, BrowserConns.measure.M(0))
+			stats.Record(ctx, connMeasure.M(0))
 			select {
 			case event := <-publisher.events:
 				require.Fail(t, "expected no events", "got one: %+v", event)
@@ -99,7 +99,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			startTime := nowInUnixMillis()
 			// Wait an extra moment to let any export operation that has already started complete
 			time.Sleep(time.Millisecond * 1)
-			stats.Record(ctx, BrowserConns.measure.M(1))
+			stats.Record(ctx, connMeasure.M(1))
 			var event interface{}
 			select {
 			case event = <-publisher.events:
@@ -117,8 +117,8 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
 			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIdTagKey, uuid.New()))
-			stats.Record(ctxForDifferentRelay, BrowserConns.measure.M(1))
-			stats.Record(ctx, BrowserConns.measure.M(1))
+			stats.Record(ctxForDifferentRelay, connMeasure.M(1))
+			stats.Record(ctx, connMeasure.M(1))
 			timeout := time.After(time.Second)
 			for {
 				select {

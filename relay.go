@@ -746,23 +746,23 @@ func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
-func withGauge(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := req.Header.Get(userAgentHeader)
 		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
-		}, measures...)
+		}, measure)
 	}
 }
 
-func withCount(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := req.Header.Get(userAgentHeader)
 		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
-		}, measures...)
+		}, measure)
 	}
 }
 
@@ -771,21 +771,21 @@ func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
 }
 
 func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewMobileConns)
+	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
 }
 
 func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
 	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
-func requestCountMiddleware(measures ...metrics.Measure) mux.MiddlewareFunc {
+func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := getClientContext(req)
 			userAgent := req.Header.Get(userAgentHeader)
 			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, req.URL.EscapedPath(), req.Method, func() {
 				next.ServeHTTP(w, req)
-			}, measures...)
+			}, measure)
 		})
 	}
 }
