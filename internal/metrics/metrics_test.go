@@ -38,10 +38,6 @@ func (t TestOptions) getType() ExporterType {
 	return testExporterType
 }
 
-func TestExporterRegisterersAreInited(t *testing.T) {
-	assert.Equal(t, 3, len(exporters))
-}
-
 type testEventsPublisher struct {
 	events chan interface{}
 }
