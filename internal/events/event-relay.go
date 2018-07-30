@@ -11,8 +11,8 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/logging"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 // EventRelay configuration

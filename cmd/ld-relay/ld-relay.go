@@ -12,8 +12,8 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 
 	"gopkg.in/launchdarkly/ld-relay.v5"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/logging"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 func main() {
