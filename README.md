@@ -106,7 +106,7 @@ variable name        | type           | description
 
 ## [datadog]
 variable name | type    | description
---------------|:--- --: | -----------
+--------------|:-------:| -----------
 `enabled`     | Boolean | If true, enabled exporting to Datadog.
 `statsAddr`   | URI     | URI of the DogStatsD agent. If not provided, stats will not be collected. Example: `localhost:8125`
 `traceAddr`   | URI     | URI of the Datadog trace agent. If not provided, traces will not be collected. Example: `localhost:8126`
@@ -115,17 +115,18 @@ variable name | type    | description
 
 ## [stackdriver]
 variable name | type    | description
---------------|:--- --: | -----------
+--------------|:------: | -----------
 `enabled`     | Boolean | If true, enabled exporting metrics and traces to Stackdriver.
 `projectID`   | string  | Google cloud project ID.
 `prefix`      | string  | The metrics prefix to be used by Stackdriver.
 
 ## [prometheus]
 variable name | type    | description
---------------|:--- --: | -----------
+--------------|:------: | -----------
 `enabled`     | Boolean | If true, enabled exporting traces to Prometheus.
 `port`        | Number  | The port that ld-relay will listen to `/metrics` on.
 `prefix`      | string  | The metrics prefix to be used by Prometheus.
+
 ```
 [main]
     streamUri = "https://stream.launchdarkly.com"
