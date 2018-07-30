@@ -2,7 +2,7 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [5.3.0] - 2017-07-30
+## [5.3.0] - 2018-07-30
 
 ### Added
 
