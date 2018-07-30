@@ -115,14 +115,14 @@ func (e *OpenCensusEventsExporter) updateValue(name string, platformCategory str
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch name {
-	case connMeasure.Name():
+	case privateConnMeasure.Name():
 		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
 		if value == 0 {
 			delete(e.currentConnections, key)
 		} else {
 			e.currentConnections[key] = value
 		}
-	case newConnMeasure.Name():
+	case privateNewConnMeasure.Name():
 		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
 		if value == 0 {
 			delete(e.newConnections, key)
