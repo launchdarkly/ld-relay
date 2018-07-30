@@ -112,6 +112,7 @@ jobs:
           command: |
             make release
             if [ "$CIRCLE_PROJECT_REPONAME" = "ld-relay" ]; then
+                docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
                 make publish
             fi
       - store_artifacts:
