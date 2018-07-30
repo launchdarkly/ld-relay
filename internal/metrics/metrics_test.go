@@ -90,7 +90,7 @@ func TestConnectionMetrics(t *testing.T) {
 				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 				WithGauge(ctx, userAgentValue, func() {
 					expectedTags := tt.getExpectedTags()
-					rows, err := view.RetrieveData("connections")
+					rows, err := view.RetrieveData(publicConnView.Name)
 					require.NoError(t, err)
 					matchingRows := findRowsWithTags(rows, expectedTags)
 					require.Len(t, matchingRows, 1)
@@ -110,7 +110,7 @@ func TestConnectionMetrics(t *testing.T) {
 				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 				WithGauge(ctx, userAgentValue, func() {
 					expectedTags := ptt.getExpectedTags()
-					rows, err := view.RetrieveData("_connections")
+					rows, err := view.RetrieveData(privateConnView.Name)
 					require.NoError(t, err)
 					matchingRows := findRowsWithTags(rows, expectedTags)
 					require.Len(t, matchingRows, 1)
@@ -137,7 +137,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 				WithCount(ctx, userAgentValue, func() {
 					expectedTags := tt.getExpectedTags()
-					rows, err := view.RetrieveData("newconnections")
+					rows, err := view.RetrieveData(publicNewConnView.Name)
 					require.NoError(t, err)
 					matchingRows := findRowsWithTags(rows, expectedTags)
 					require.Len(t, matchingRows, 1)
@@ -157,7 +157,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 				WithCount(ctx, userAgentValue, func() {
 					expectedTags := ptt.getExpectedTags()
-					rows, err := view.RetrieveData("_newconnections")
+					rows, err := view.RetrieveData(privateNewConnView.Name)
 					require.NoError(t, err)
 					matchingRows := findRowsWithTags(rows, expectedTags)
 					require.Len(t, matchingRows, 1)
@@ -197,7 +197,7 @@ func TestWithRouteCount(t *testing.T) {
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
 	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
 		expectedTags := getExpectedTags(expected)
-		rows, err := view.RetrieveData("requests")
+		rows, err := view.RetrieveData(requestView.Name)
 		require.NoError(t, err)
 		matchingRows := findRowsWithTags(rows, expectedTags)
 		require.Len(t, matchingRows, 1)
