@@ -57,8 +57,8 @@ var (
 	envNameTagKey, _          = tag.NewKey("env")
 
 	// For internal event exporter
-	privateConnMeasure    = stats.Int64("_connections", "current number of connections", stats.UnitDimensionless)
-	privateNewConnMeasure = stats.Int64("_newconnections", "total number of connections", stats.UnitDimensionless)
+	privateConnMeasure    = stats.Int64("internal_connections", "current number of connections", stats.UnitDimensionless)
+	privateNewConnMeasure = stats.Int64("internal_newconnections", "total number of connections", stats.UnitDimensionless)
 
 	connMeasure    = stats.Int64("connections", "current number of connections", stats.UnitDimensionless)
 	newConnMeasure = stats.Int64("newconnections", "total number of connections", stats.UnitDimensionless)
@@ -68,7 +68,7 @@ var (
 	mobileTags  []tag.Mutator
 	serverTags  []tag.Mutator
 
-	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, envNameTagKey, routeTagKey, methodTagKey}
+	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, envNameTagKey}
 	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, relayIdTagKey, envNameTagKey}
 
 	publicConnView     *view.View
@@ -109,7 +109,7 @@ func init() {
 	requestView = &view.View{
 		Measure:     requestMeasure,
 		Aggregation: view.Count(),
-		TagKeys:     publicTags,
+		TagKeys:     append(publicTags, routeTagKey, methodTagKey),
 	}
 	privateConnView = &view.View{
 		Measure:     privateConnMeasure,
