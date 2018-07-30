@@ -2,6 +2,17 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.3.0] - 2017-07-30
+
+### Added
+
+- The Relay now supports exporting metrics and traces to Datadog, Prometheus, and Stackdriver. See the README for configuration instructions.
+
+### Changed
+
+- Packages intended for internal relay use are now marked as internal and no longer accessible exsternally.
+- The package is now released using [goreleaser](https://goreleaser.com/).
+
 ## [5.2.0] - 2018-07-13
 
 ### Added
