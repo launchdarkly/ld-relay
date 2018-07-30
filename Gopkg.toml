@@ -34,10 +34,6 @@
   name = "github.com/kardianos/minwinsvc"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/launchdarkly/eventsource"
-
-[[constraint]]
   branch = "v1"
   name = "github.com/launchdarkly/gcfg"
 

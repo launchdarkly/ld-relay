@@ -1,0 +1,35 @@
+version: "2"
+
+services:
+  relay-debian:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian-test
+    privileged: true
+    volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:ro
+
+  relay-centos:
+    build:
+      context: .
+      dockerfile: Dockerfile.centos-test
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+
+  relay-docker:
+    image: launchdarkly/ld-relay
+    environment:
+      LD_ENV_test: sdk-test-sdkKey
+
+  test-centos:
+    image: circleci/golang:1.10.3
+    command: bash -c "dockerize -wait http://relay-centos:8030/status -timeout 5s; curl http://relay-centos:8030/status"
+
+  test-debian:
+    image: circleci/golang:1.10.3
+    command: bash -c "dockerize -wait http://relay-debian:8030/status -timeout 5s; curl http://relay-debian:8030/status"
+
+  test-docker:
+    image: circleci/golang:1.10.3
+    command: bash -c "dockerize -wait http://relay-docker:8030/status -timeout 5s; curl http://relay-docker:8030/status"

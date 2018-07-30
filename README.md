@@ -64,7 +64,7 @@ Configuration file format
 -------------------------
 LD Relay uses INI-style configuration files. You can read more about the syntax [here](https://git-scm.com/docs/git-config#_syntax).
 
-There are four section types; Main, Events, Redis, and Environments
+There are four primary section types: Main, Events, Redis, and Environments. In addition to the main section types, there are three supported sections for configuring exporters for exporting metrics and route traces: Datadog, Stackdriver, and Prometheus.
 
 ## [main]
 variable name            | type    | default                           | description
@@ -73,7 +73,7 @@ variable name            | type    | default                           | descrip
 `baseUri`                | URI     | `https://app.launchdarkly.com`    | Required. URI from which the relay will poll for some information
 `exitOnError`            | Boolean | `false`                           | Close the relay if it encounters any error during initialization
 `ignoreConnectionErrors` | Boolean | `false`                           | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
-`port`                   | Number  | `8030`                            | Port the LD Relay should listen on 
+`port`                   | Number  | `8030`                            | Port the LD Relay should listen on
 `heartbeatIntervalSecs`  | Number  | `0`                               | If > 0, sends heartbeats to connected clients at this interval
 
 ## [events]
@@ -95,15 +95,38 @@ variable name | type   | default | description
 `localTtl`    | Number | `30000` | Specifies the TTL for records added to the Redis database
 
 ## [environment]
-variable name   | type           | description
---------------- |:--------------:| -----------
-`sdkKey`        | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
-`mobileKey`     | Mobile Key     | Mobile key for the environment. Required to proxy mobile SDK functionality
-`envId`         | Client-side ID | Client-side ID for the environment. Required to proxy front-end SDK functionality
-`prefix`        | String         | Required if using a Redis feature store
-`allowedOrigin` | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
+variable name        | type           | description
+---------------------|:--------------:| -----------
+`sdkKey`             | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
+`mobileKey`          | Mobile Key     | Mobile key for the environment. Required to proxy mobile SDK functionality
+`envId`              | Client-side ID | Client-side ID for the environment. Required to proxy front-end SDK functionality
+`prefix`             | String         | Required if using a Redis feature store
+`allowedOrigin`      | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
+`insecureSkipVerify` | Boolean        | If true, TLS accepts any certificate presented by the server and any host name in that certificate.
 
-Here's an example configuration file that synchronizes four environments across two different projects (called Spree and Shopnify), and sends heartbeats every 15 seconds:
+## [datadog]
+variable name | type    | description
+--------------|:-------:| -----------
+`enabled`     | Boolean | If true, enabled exporting to Datadog.
+`statsAddr`   | URI     | URI of the DogStatsD agent. If not provided, stats will not be collected. Example: `localhost:8125`
+`traceAddr`   | URI     | URI of the Datadog trace agent. If not provided, traces will not be collected. Example: `localhost:8126`
+`tag`         | string  | A tag to be applied to all metrics sent to datadog. This variable can be provided multiple times. Must be of the form `key:value`. Example: `instance:blue-jaguar`
+`prefix`      | string  | The metrics prefix to be used by Datadog.
+
+## [stackdriver]
+variable name | type    | description
+--------------|:------: | -----------
+`enabled`     | Boolean | If true, enabled exporting metrics and traces to Stackdriver.
+`projectID`   | string  | Google cloud project ID.
+`prefix`      | string  | The metrics prefix to be used by Stackdriver.
+
+## [prometheus]
+variable name | type    | description
+--------------|:------: | -----------
+`enabled`     | Boolean | If true, enabled exporting traces to Prometheus.
+`port`        | Number  | The port that ld-relay will listen to `/metrics` on.
+`prefix`      | string  | The metrics prefix to be used by Prometheus.
+
 ```
 [main]
     streamUri = "https://stream.launchdarkly.com"
@@ -237,13 +260,13 @@ The table below describes the endpoints proxied by the LD relay.  In this table:
 * *user* is the base64 representation of a user JSON object (e.g. `*"key": "user1"*` => `eyJrZXkiOiAidXNlcjEifQ==`).
 * *clientId* is the 32-hexdigit Client-side ID (e.g. `6488674dc2ea1d6673731ba2`)
 
-Endpoint                           | Method        | Auth Header | Description 
+Endpoint                           | Method        | Auth Header | Description
 -----------------                  |:-------------:|:-----------:| -----------
 /sdk/eval/*clientId*/users/*user*  | GET           | n/a         | Returns flag evaluation results for a user
 /sdk/eval/*clientId*/users         | REPORT        | n/a         | Same as above but request body is user json object
 /sdk/evalx/*clientId*/users/*user* | GET           | n/a         | Returns flag evaluation results and additional metadata
 /sdk/evalx/*clientId*/users        | REPORT        | n/a         | Same as above but request body is user json object
-/sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs 
+/sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs
 /mobile/events                     | POST          | mobile      | For receiving events from mobile SDKs
 /mobile/events/bulk                | POST          | mobile      | Same as above
 /mobile                            | POST          | mobile      | Same as above
@@ -258,6 +281,25 @@ Endpoint                           | Method        | Auth Header | Description
 /eval/*clientId*/*user*            | GET           | n/a         | SSE stream of "ping" and other events for JS and other client-side SDK listeners
 /eval/*clientId*                   | REPORT        | n/a         | Same as above but request body is user json object
 
+Exporting metrics and traces
+-------
+The relay may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See the [configuration section](https://github.com/launchdarkly/ld-relay#configuration-file-format) for configuration instructions.
+
+The following metrics are supported:
+
+- `connections`: The number of current proxied streaming connections.
+- `newconnections`: The number of streaming connections created.
+- `requests`: Number of requests received.
+
+Metrics can be filtered by the following tags:
+
+- `platformCategoryTagKey`: The platform a metric was generated by (e.g. server, browser, or client-side).
+- `env`: The name of the LaunchDarkly environment.
+- `route`: The request route.
+- `method`: The http method used for the request.
+- `userAgent`: The user agent used to make the request, typically a LaunchDarkly SDK version. Example: "Node/3.4.0"
+
+**Note:** Traces for stream connections will trace until the connection is closed.
 
 Docker
 -------

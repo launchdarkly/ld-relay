@@ -26,12 +26,12 @@ import (
 	ld "gopkg.in/launchdarkly/go-client.v4"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
-	"gopkg.in/launchdarkly/ld-relay.v5/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v5/store"
-	"gopkg.in/launchdarkly/ld-relay.v5/util"
-	"gopkg.in/launchdarkly/ld-relay.v5/version"
 )
 
 const (
@@ -43,6 +43,7 @@ const (
 	defaultBaseUri               = "https://app.launchdarkly.com/"
 	defaultStreamUri             = "https://stream.launchdarkly.com/"
 	defaultHeartbeatIntervalSecs = 180
+	defaultMetricsPrefix         = "launchdarkly_relay"
 
 	userAgentHeader = "user-agent"
 )
@@ -60,6 +61,67 @@ type EnvConfig struct {
 	Prefix             string
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
+}
+
+type ExporterConfig interface {
+	toOptions() metrics.ExporterOptions
+	enabled() bool
+}
+
+type DatadogConfig struct {
+	TraceAddr *string
+	StatsAddr *string
+	Tag       []string
+	CommonMetricsConfig
+}
+
+func (c DatadogConfig) toOptions() metrics.ExporterOptions {
+	return metrics.DatadogOptions{
+		TraceAddr: c.TraceAddr,
+		StatsAddr: c.StatsAddr,
+		Tags:      c.Tag,
+		Prefix:    c.getPrefix(),
+	}
+}
+
+type StackdriverConfig struct {
+	ProjectID string
+	CommonMetricsConfig
+}
+
+func (c StackdriverConfig) toOptions() metrics.ExporterOptions {
+	return metrics.StackdriverOptions{
+		ProjectID: c.ProjectID,
+		Prefix:    c.getPrefix(),
+	}
+}
+
+type PrometheusConfig struct {
+	Port int
+	CommonMetricsConfig
+}
+
+func (c PrometheusConfig) toOptions() (options metrics.ExporterOptions) {
+	return metrics.PrometheusOptions{
+		Port:   c.Port,
+		Prefix: c.getPrefix(),
+	}
+}
+
+type CommonMetricsConfig struct {
+	Enabled bool
+	Prefix  string
+}
+
+func (c CommonMetricsConfig) getPrefix() string {
+	prefix := c.Prefix
+	if prefix == "" {
+		return defaultMetricsPrefix
+	}
+	return prefix
+}
+func (c CommonMetricsConfig) enabled() bool {
+	return c.Enabled
 }
 
 // Config describes the configuration for a relay instance
@@ -80,6 +142,28 @@ type Config struct {
 		LocalTtl int
 	}
 	Environment map[string]*EnvConfig
+	MetricsConfig
+}
+
+type MetricsConfig struct {
+	Datadog     DatadogConfig
+	Stackdriver StackdriverConfig
+	Prometheus  PrometheusConfig
+}
+
+func (c MetricsConfig) toOptions() (options []metrics.ExporterOptions) {
+	exporterConfigs := []ExporterConfig{c.Datadog, c.Stackdriver, c.Prometheus}
+	for _, e := range exporterConfigs {
+		if e.enabled() {
+			options = append(options, e.toOptions())
+		}
+	}
+	return options
+}
+
+// InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
+func InitializeMetrics(c MetricsConfig) error {
+	return metrics.RegisterExporters(c.toOptions())
 }
 
 type environmentStatus struct {
@@ -307,7 +391,10 @@ func (r *Relay) makeHandler() http.Handler {
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
 	// Client-side evaluation
-	clientSideMiddlewareStack := chainMiddleware(corsMiddleware, r.clientSideMux.selectClientByUrlParam)
+	clientSideMiddlewareStack := chainMiddleware(
+		corsMiddleware,
+		r.clientSideMux.selectClientByUrlParam,
+		requestCountMiddleware(metrics.BrowserRequests))
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
 	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
@@ -323,8 +410,12 @@ func (r *Relay) makeHandler() http.Handler {
 	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT", "OPTIONS")
 
+	serverSideMiddlewareStack := chainMiddleware(
+		r.sdkClientMux.selectClientByAuthorizationKey,
+		requestCountMiddleware(metrics.ServerRequests))
+
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
-	serverSideSdkRouter.Use(r.sdkClientMux.selectClientByAuthorizationKey)
+	serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
 	serverSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
@@ -335,8 +426,12 @@ func (r *Relay) makeHandler() http.Handler {
 	serverSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
 	// Mobile evaluation
+	mobileMiddlewareStack := chainMiddleware(
+		r.mobileClientMux.selectClientByAuthorizationKey,
+		requestCountMiddleware(metrics.MobileRequests))
+
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
-	msdkRouter.Use(r.mobileClientMux.selectClientByAuthorizationKey)
+	msdkRouter.Use(mobileMiddlewareStack)
 
 	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
 	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
@@ -349,8 +444,7 @@ func (r *Relay) makeHandler() http.Handler {
 	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(clientSideMiddlewareStack)
-	clientSidePingRouter.Use(mux.CORSMethodMiddleware(clientSidePingRouter))
+	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter))
 	clientSidePingRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
@@ -360,7 +454,7 @@ func (r *Relay) makeHandler() http.Handler {
 	clientSideStreamEvalRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
-	mobileEventsRouter.Use(r.mobileClientMux.selectClientByAuthorizationKey)
+	mobileEventsRouter.Use(mobileMiddlewareStack)
 	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler).Methods("POST")
 	mobileEventsRouter.HandleFunc("/events", bulkEventHandler).Methods("POST")
 	mobileEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST")
@@ -374,7 +468,7 @@ func (r *Relay) makeHandler() http.Handler {
 	clientSideImageEventsRouter.HandleFunc("", getEventsImage).Methods("GET", "OPTIONS")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
-	serverSideRouter.Use(r.sdkClientMux.selectClientByAuthorizationKey)
+	serverSideRouter.Use(serverSideMiddlewareStack)
 	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
@@ -417,7 +511,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}
 
-	m, err := metrics.NewMetricsProcessor(eventsPublisher)
+	m, err := metrics.NewMetricsProcessor(eventsPublisher, metrics.OptionEnvName(envName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create metrics processor: %s", err)
 	}
@@ -652,23 +746,23 @@ func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
-func withGauge(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		metricsCtx := getClientContext(req).getMetricsCtx()
+		ctx := getClientContext(req)
 		userAgent := req.Header.Get(userAgentHeader)
-		metrics.WithGauge(metricsCtx, userAgent, func() {
+		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
-		}, measures...)
+		}, measure)
 	}
 }
 
-func withCount(handler http.HandlerFunc, measures ...metrics.Measure) http.HandlerFunc {
+func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		metricsCtx := getClientContext(req).getMetricsCtx()
+		ctx := getClientContext(req)
 		userAgent := req.Header.Get(userAgentHeader)
-		metrics.WithCount(metricsCtx, userAgent, func() {
+		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
-		}, measures...)
+		}, measure)
 	}
 }
 
@@ -677,11 +771,23 @@ func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
 }
 
 func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewMobileConns)
+	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
 }
 
 func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
 	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
+}
+
+func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := getClientContext(req)
+			userAgent := req.Header.Get(userAgentHeader)
+			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, req.URL.EscapedPath(), req.Method, func() {
+				next.ServeHTTP(w, req)
+			}, measure)
+		})
+	}
 }
 
 // UserV2FromBase64 decodes a base64-encoded go-client v2 user.

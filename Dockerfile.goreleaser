@@ -1,0 +1,16 @@
+FROM alpine:3.7
+
+RUN apk add --no-cache \
+    curl \
+    ca-certificates \
+ && update-ca-certificates \
+ && rm -rf /var/cache/apk/*
+
+COPY ld-relay /usr/bin/ldr
+
+COPY docker-entrypoint.sh /usr/bin/
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+
+EXPOSE 8030
+CMD ["ldr"]

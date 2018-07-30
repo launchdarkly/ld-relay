@@ -1,0 +1,9 @@
+[Unit]
+Description=LaunchDarkly Relay Proxy
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/ld-relay
+
+[Install]
+WantedBy=multi-user.target
