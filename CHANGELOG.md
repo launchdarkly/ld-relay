@@ -2,7 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [5.3.0] - 2017-07-30
+## [5.3.1] - 2018-02-03
+
+### Fixed
+
+- Route metrics are now tagged correctly with the route name.
+- Datadog exporter now works with 32-bit builds.
+
+
+## [5.3.0] - 2018-07-30
 
 ### Added
 
