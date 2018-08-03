@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/tinylib/msgp/msgp"
 )
@@ -39,7 +40,7 @@ type ddSpan struct {
 
 // maxLength indicates the maximum number of items supported in a msgpack-encoded array.
 // See: https://github.com/msgpack/msgpack/blob/master/spec.md#array-format-family
-const maxLength = 1<<32 - 1
+const maxLength = uint(math.MaxUint32)
 
 // errOverflow is returned when maxLength is exceeded.
 var errOverflow = fmt.Errorf("maximum msgpack array length (%d) exceeded", maxLength)
@@ -73,7 +74,7 @@ func (p *payload) size() int {
 
 // add adds the given span to the payload.
 func (p *payload) add(span *ddSpan) error {
-	if len(p.traces) >= maxLength {
+	if uint(len(p.traces)) >= maxLength {
 		return errOverflow
 	}
 	id := span.TraceID
@@ -112,7 +113,7 @@ type packedSpans struct {
 
 // add adds the given span to the trace.
 func (s *packedSpans) add(span *ddSpan) error {
-	if s.count >= maxLength {
+	if uint(s.count) >= maxLength {
 		return errOverflow
 	}
 	if err := msgp.Encode(&s.buf, span); err != nil {
@@ -157,10 +158,10 @@ func arrayHeader(out *[8]byte, n uint64) (off int) {
 	switch {
 	case n <= 15:
 		out[off] = msgpackArrayFix + byte(n)
-	case n <= 1<<16-1:
+	case n <= math.MaxUint16:
 		binary.BigEndian.PutUint64(out[:], n) // writes 2 bytes
 		out[off] = msgpackArray16
-	case n <= 1<<32-1:
+	case n <= math.MaxUint32:
 		fallthrough
 	default:
 		binary.BigEndian.PutUint64(out[:], n) // writes 4 bytes
@@ -176,9 +177,9 @@ func arrayHeaderSize(n uint64) int {
 		return 0
 	case n <= 15:
 		return 1
-	case n <= 1<<16-1:
+	case n <= math.MaxUint16:
 		return 3
-	case n <= 1<<32-1:
+	case n <= math.MaxUint32:
 		fallthrough
 	default:
 		return 5

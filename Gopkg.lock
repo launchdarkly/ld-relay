@@ -28,7 +28,7 @@
   branch = "master"
   name = "github.com/DataDog/opencensus-go-exporter-datadog"
   packages = ["."]
-  revision = "103e096f98c8a0cb53136dc1e295923f61d3b14b"
+  revision = "dbb3980bd763bbc52ff3cc211c6f8f7b354ad2d9"
 
 [[projects]]
   branch = "master"
@@ -394,6 +394,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0847d6310be09910eb37d8da71135b0630258049bffa4f61b6f1151fc0cddf8b"
+  inputs-digest = "e20a6178348a3216bc6bbbe91133b4c372b50a0f392921cc4cd90f699be99898"
   solver-name = "gps-cdcl"
   solver-version = 1

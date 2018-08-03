@@ -783,7 +783,9 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := getClientContext(req)
 			userAgent := req.Header.Get(userAgentHeader)
-			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, req.URL.EscapedPath(), req.Method, func() {
+			// Ignoring internal routing error that would have been ignored anyway
+			route, _ := mux.CurrentRoute(req).GetPathTemplate()
+			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})
