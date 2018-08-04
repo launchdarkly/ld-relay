@@ -131,11 +131,16 @@ func NewEventRelayHandler(sdkKey string, config Config, featureStore ld.FeatureS
 }
 
 func newEventVerbatimRelay(sdkKey string, config Config) *eventVerbatimRelay {
-	publisher, _ := NewHttpEventPublisher(sdkKey,
+	opts := []OptionType{
 		OptionCapacity(config.Capacity),
 		OptionUri(config.EventsUri),
-		OptionFlushInterval(time.Duration(config.FlushIntervalSecs)*time.Second),
-	)
+	}
+
+	if config.FlushIntervalSecs > 0 {
+		opts = append(opts, OptionFlushInterval(time.Duration(config.FlushIntervalSecs)*time.Second))
+	}
+
+	publisher, _ := NewHttpEventPublisher(sdkKey, opts...)
 
 	res := &eventVerbatimRelay{
 		config:    config,

@@ -44,6 +44,7 @@ const (
 	defaultStreamUri             = "https://stream.launchdarkly.com/"
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
+	defaultFlushIntervalSecs     = 5
 
 	userAgentHeader = "user-agent"
 )
@@ -186,6 +187,7 @@ func init() {
 	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 	DefaultConfig.Main.Port = defaultPort
 	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
+	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
 }
 
 // LoadConfigFile reads a config file into a Config struct
