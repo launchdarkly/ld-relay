@@ -278,6 +278,8 @@ Endpoint                           | Method        | Auth Header | Description
 /ping                              | GET           | sdk         | SSE endpoint that issues "ping" events when there are flag data updates
 /ping/*clientId*                   | GET           | n/a         | Same as above but with JS and client-side authorization.
 /mping                             | GET           | mobile      | SSE endpoint that issues "ping" events when flags should be re-evaluated
+/meval/*user*                      | GET           | mobile      | SSE stream of "ping" and other events for mobile clients
+/meval                             | REPORT        | mobile      | Same as above but request body is user json object
 /eval/*clientId*/*user*            | GET           | n/a         | SSE stream of "ping" and other events for JS and other client-side SDK listeners
 /eval/*clientId*                   | REPORT        | n/a         | Same as above but request body is user json object
 

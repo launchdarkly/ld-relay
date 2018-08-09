@@ -44,6 +44,7 @@ const (
 	defaultStreamUri             = "https://stream.launchdarkly.com/"
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
+	defaultFlushIntervalSecs     = 5
 
 	userAgentHeader = "user-agent"
 )
@@ -186,6 +187,7 @@ func init() {
 	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 	DefaultConfig.Main.Port = defaultPort
 	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
+	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
 }
 
 // LoadConfigFile reads a config file into a Config struct
@@ -440,6 +442,11 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
 	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+
+	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
+	mobileStreamRouter.Use(mobileMiddlewareStack)
+	mobileStreamRouter.HandleFunc("", countMobileConns(pingStreamHandler)).Methods("REPORT")
+	mobileStreamRouter.HandleFunc("/{user}", countMobileConns(pingStreamHandler)).Methods("GET")
 
 	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
 

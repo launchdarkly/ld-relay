@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.4.0] - 2018-08-09
+
+### Added
+- The Relay now supports the streaming endpoint used by current mobile SDKs. It does not fully proxy the stream, but will send an event causing mobile SDKs to re-request their flags when flags have changed.
+
 ## [5.3.1] - 2018-02-03
 
 ### Fixed

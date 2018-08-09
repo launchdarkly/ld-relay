@@ -154,7 +154,9 @@ func NewHttpEventPublisher(sdkKey string, options ...OptionType) (*HttpEventPubl
 		}
 		switch o := o.(type) {
 		case OptionFlushInterval:
-			flushInterval = time.Duration(o)
+			if o > 0 {
+				flushInterval = time.Duration(o)
+			}
 		}
 	}
 
