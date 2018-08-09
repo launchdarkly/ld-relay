@@ -503,6 +503,8 @@ func TestRelay(t *testing.T) {
 			{"flags stream", "GET", "/flags", sdkKey, nil, "put", expectedFlagsData},
 			{"all stream", "GET", "/all", sdkKey, nil, "put", expectedAllData},
 			{"mobile ping", "GET", "/mping", mobileKey, nil, "ping", nil},
+			{"mobile stream GET", "GET", "/meval/" + base64User, mobileKey, nil, "ping", nil},
+			{"mobile stream REPORT", "REPORT", "/meval", mobileKey, user, "ping", nil},
 		}
 
 		for _, s := range specs {

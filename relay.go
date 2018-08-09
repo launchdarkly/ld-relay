@@ -443,6 +443,11 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
 
+	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
+	mobileStreamRouter.Use(mobileMiddlewareStack)
+	mobileStreamRouter.HandleFunc("", countMobileConns(pingStreamHandler)).Methods("REPORT")
+	mobileStreamRouter.HandleFunc("/{user}", countMobileConns(pingStreamHandler)).Methods("GET")
+
 	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
