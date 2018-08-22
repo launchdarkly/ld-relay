@@ -757,6 +757,20 @@ SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
 		"expected sdk key to be used as sdk key when both api key and sdk key are set")
 }
 
+func TestGetUserAgent(t *testing.T) {
+	t.Run("X-LaunchDarkly-User-Agent takes precedence", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header.Set(ldUserAgentHeader, "my-agent")
+		req.Header.Set(userAgentHeader, "something-else")
+		assert.Equal(t, "my-agent", getUserAgent(req))
+	})
+	t.Run("User-Agent is the fallback", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header.Set(userAgentHeader, "my-agent")
+		assert.Equal(t, "my-agent", getUserAgent(req))
+	})
+}
+
 // jsonFind returns the nested entity at a path in a json obj
 func jsonFind(obj map[string]interface{}, paths ...string) interface{} {
 	var value interface{} = obj
