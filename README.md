@@ -253,7 +253,7 @@ We have done extensive load tests on the relay proxy in AWS / EC2. We have also 
 
 Health check
 ------------
-The relay has an additional `status` endpoint which provides the current status of all of the relays streaming connections. This can obtained by using access `/status` with a get request.
+The relay has an additional `status` endpoint which provides the current status of all of the relay's streaming connections. This can obtained by using access `/status` with a get request.
 
 Proxied endpoints
 -------------------
