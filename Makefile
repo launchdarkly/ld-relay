@@ -11,12 +11,8 @@ lint:
 init:
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $(GOLANGCI_VERSION)
 
-ifneq ($(shell uname -s),Darwin)  # Mac OS X
-COMM_OPTIONS=--nocheck-order
-endif
-
 # Get the lines added to the most recent changelog update (minus the first 2 lines)
-RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "comm $(COMM_OPTIONS) -13 $$2 $$5"' git log --ext-diff -1 --pretty= -p CHANGELOG.md | tail -n +3)
+RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$2 $$5" || true' git log --ext-diff -1 --pretty= -p CHANGELOG.md)
 
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
