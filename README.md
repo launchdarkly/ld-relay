@@ -251,6 +251,9 @@ We have done extensive load tests on the relay proxy in AWS / EC2. We have also 
 
 * If using an Elastic Load Balancer in front of the relay proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the relay proxy are cycled. This might happen when you deploy a large number of new servers that connect to the proxy, or upgrade the relay proxy itself.
 
+Health check
+------------
+The relay has an additional `status` endpoint which provides the current status of all of the relays streaming connections. This can obtained by using access `/status` with a get request.
 
 Proxied endpoints
 -------------------
