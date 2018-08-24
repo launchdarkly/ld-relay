@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.4.1] - 2018-08-24
+
+### Fixed
+- Strip trailing slash that was breaking default urls for polling and streaming.
+- If set X-LaunchDarkly-User-Agent will be used instead of the User-Agent header for metrics.
+- Documentation improvements.
+
 ## [5.4.0] - 2018-08-09
 
 ### Added
