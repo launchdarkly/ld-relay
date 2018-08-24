@@ -36,8 +36,8 @@ go get -u gopkg.in/launchdarkly/ld-relay.v5/...
 [main]
     streamUri = "https://stream.launchdarkly.com"
     baseUri = "https://app.launchdarkly.com"
-[environment "<NAME-OF-YOUR-ENVIRONMENT>]
-    sdkKey = "<SDK-KEY-FOR-YOUR-ENVIRONMENT>
+[environment "<NAME-OF-YOUR-ENVIRONMENT>"]
+    sdkKey = "<SDK-KEY-FOR-YOUR-ENVIRONMENT>"
 ```
 
 4. Run the binary by entering the following command in your terminal:
@@ -81,9 +81,9 @@ variable name       | type    | default                           | description
 ------------------- |:-------:|:---------------------------------:| ---------------------------------------------------------
 `eventsUri`         | URI     | `https://events.launchdarkly.com` | Required to proxy back-end analytic events.
 `sendEvents`        | Boolean | `false`                           | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly
-`flushIntervalSecs` | Number  | `0`                               | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush_interval and / or increasing capacity to meet your needs.
+`flushIntervalSecs` | Number  | `5`                               | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush_interval and / or increasing capacity to meet your needs.
 `samplingInterval`  | Number  | `0`                               | Sends every one out of every `samplingInterval` events
-`capacity`          | Number  | `0`                               | Maximum number of events in queue before events are automatically flushed
+`capacity`          | Number  | `1000`                               | Maximum number of events in queue before events are automatically flushed
 `inlineUsers`       | Boolean | `false`                           | When enabled, all non-private user attriutes will be sent in events. Otherwise, only the user's key is sent in events
 
 ## [redis]
@@ -175,7 +175,7 @@ LDR can also be used to forward events to `events.launchdarkly.com`. When enable
     sendEvents = true
     flushIntervalSecs = 5
     samplingInterval = 0
-    capacity = 10000
+    capacity = 1000
     inlineUsers = false
 ```
 
