@@ -40,8 +40,8 @@ const (
 	defaultAllowedOrigin         = "*"
 	defaultEventCapacity         = 1000
 	defaultEventsUri             = "https://events.launchdarkly.com"
-	defaultBaseUri               = "https://app.launchdarkly.com/"
-	defaultStreamUri             = "https://stream.launchdarkly.com/"
+	defaultBaseUri               = "https://app.launchdarkly.com"
+	defaultStreamUri             = "https://stream.launchdarkly.com"
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
 	defaultFlushIntervalSecs     = 5
