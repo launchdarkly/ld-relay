@@ -40,13 +40,14 @@ const (
 	defaultAllowedOrigin         = "*"
 	defaultEventCapacity         = 1000
 	defaultEventsUri             = "https://events.launchdarkly.com"
-	defaultBaseUri               = "https://app.launchdarkly.com/"
-	defaultStreamUri             = "https://stream.launchdarkly.com/"
+	defaultBaseUri               = "https://app.launchdarkly.com"
+	defaultStreamUri             = "https://stream.launchdarkly.com"
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
 	defaultFlushIntervalSecs     = 5
 
-	userAgentHeader = "user-agent"
+	userAgentHeader   = "user-agent"
+	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
 
 var (
@@ -756,7 +757,7 @@ func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
 func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
-		userAgent := req.Header.Get(userAgentHeader)
+		userAgent := getUserAgent(req)
 		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
@@ -766,7 +767,7 @@ func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFu
 func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
-		userAgent := req.Header.Get(userAgentHeader)
+		userAgent := getUserAgent(req)
 		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
@@ -789,7 +790,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := getClientContext(req)
-			userAgent := req.Header.Get(userAgentHeader)
+			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
 			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, route, req.Method, func() {
@@ -879,4 +880,12 @@ func obscureKey(key string) string {
 		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
 	}
 	return key
+}
+
+// getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
+func getUserAgent(req *http.Request) string {
+	if agent := req.Header.Get(ldUserAgentHeader); agent != "" {
+		return agent
+	}
+	return req.Header.Get(userAgentHeader)
 }
