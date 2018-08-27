@@ -706,14 +706,14 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.(*ld.FeatureFlag); ok {
-			value, variation, _ := flag.Evaluate(*user, store)
+			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}
 			if valueOnly {
-				result = value
+				result = detail.Value
 			} else {
 				result = evalXResult{
-					Value:                value,
-					Variation:            variation,
+					Value:                detail.Value,
+					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
 					TrackEvents:          flag.TrackEvents,
 					DebugEventsUntilDate: flag.DebugEventsUntilDate,
