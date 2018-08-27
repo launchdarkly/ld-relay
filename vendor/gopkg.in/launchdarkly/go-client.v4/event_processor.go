@@ -304,10 +304,9 @@ func (ed *eventDispatcher) isDisabled() bool {
 }
 
 func (ed *eventDispatcher) handleResponse(resp *http.Response) {
-	err := checkStatusCode(resp.StatusCode, resp.Request.URL.String())
-	if err != nil {
-		ed.config.Logger.Println(httpErrorMessage(err.Code, "posting events", "some events were dropped"))
-		if err != nil && !isHTTPErrorRecoverable(err.Code) {
+	if err := checkForHttpError(resp.StatusCode, resp.Request.URL.String()); err != nil {
+		ed.config.Logger.Println(httpErrorMessage(resp.StatusCode, "posting events", "some events were dropped"))
+		if !isHTTPErrorRecoverable(resp.StatusCode) {
 			ed.stateLock.Lock()
 			defer ed.stateLock.Unlock()
 			ed.disabled = true

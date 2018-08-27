@@ -2,6 +2,12 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.2.2] - 2018-08-03
+### Fixed:
+- Fixed a bug that caused a panic if an I/O error occurred while reading the response body for a polling request.
+- Fixed a bug that caused a panic if a prerequisite feature flag evaluated to a non-scalar value (array or map/hash).
+- Receiving an HTTP 400 error from LaunchDarkly should not make the client give up on sending any more requests to LaunchDarkly (unlike a 401 or 403).
+
 ## [4.2.1] - 2018-06-27
 ### Fixed:
 - Polling processor regressed to polling only once in release 4.1.0.  This has been fixed.

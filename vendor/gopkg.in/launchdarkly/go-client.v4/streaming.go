@@ -182,9 +182,7 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 				if sp.checkIfPermanentFailure(err) {
 					sp.closeOnce.Do(func() {
 						sp.config.Logger.Printf("Closing event stream.")
-						// TODO: enable this when we trust stream.Close() never to panic (see https://github.com/donovanhide/eventsource/pull/33)
-						// Until we're able to Close it explicitly here, we won't be able to stop it from trying to reconnect after a 401 error.
-						// sp.stream.Close()
+						sp.stream.Close()
 					})
 					return
 				}

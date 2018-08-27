@@ -82,6 +82,7 @@ var Features FeatureFlagVersionedDataKind
 // Rule xpresses a set of AND-ed matching conditions for a user, along with either a fixed
 // variation or a set of rollout percentages
 type Rule struct {
+	Id                 string `json:"id,omitempty" bson:"id,omitempty"`
 	VariationOrRollout `bson:",inline"`
 	Clauses            []Clause `json:"clauses" bson:"clauses"`
 }
@@ -234,8 +235,7 @@ func (f FeatureFlag) evaluateExplain(user User, store FeatureStore, events *[]Fe
 			}
 
 			*events = append(*events, NewFeatureRequestEvent(prereq.Key, prereqFeatureFlag, user, prereqIndex, prereqValue, nil, &f.Key))
-			variation, verr := prereqFeatureFlag.getVariation(&prereq.Variation)
-			if prereqValue == nil || verr != nil || prereqValue != variation {
+			if prereqIndex == nil || *prereqIndex != prereq.Variation {
 				failedPrereq = &prereq
 			}
 		} else {

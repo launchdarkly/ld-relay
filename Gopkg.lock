@@ -387,9 +387,9 @@
     ".",
     "redis"
   ]
-  revision = "93524bc812c6a203432c1145cbde0d9f61b31955"
+  revision = "5ef0f1595ea12a33758f758631f8f4ceb5bc6e2e"
   source = "git@github.com:launchdarkly/go-client.git"
-  version = "4.2.1"
+  version = "4.2.2"
 
 [solve-meta]
   analyzer-name = "dep"
