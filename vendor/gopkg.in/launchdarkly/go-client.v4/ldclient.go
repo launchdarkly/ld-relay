@@ -15,7 +15,7 @@ import (
 )
 
 // Version is the client version
-const Version = "4.2.2"
+const Version = "4.3.0"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -264,138 +264,208 @@ func (client *LDClient) Flush() {
 // a given user. If the result of the flag's evaluation would
 // result in the default value, `nil` will be returned. This method
 // does not send analytics events back to LaunchDarkly
+//
+// Deprecated: Use AllFlagsState instead. Current versions of the client-side SDK
+// will not generate analytics events correctly if you pass the result of AllFlags.
 func (client *LDClient) AllFlags(user User) map[string]interface{} {
-	if client.IsOffline() {
-		client.config.Logger.Println("WARN: Called AllFlags in offline mode. Returning nil map")
-		return nil
-	}
-
-	if !client.Initialized() {
-		if client.store.Initialized() {
-			client.config.Logger.Println("WARN: Called AllFlags before client initialization; using last known values from feature store")
-		} else {
-			client.config.Logger.Println("WARN: Called AllFlags before client initialization. Feature store not available; returning nil map")
-			return nil
-		}
-	}
-
-	if user.Key == nil {
-		client.config.Logger.Println("WARN: Called AllFlags with nil user key. Returning nil map")
-		return nil
-	}
-
-	results := make(map[string]interface{})
-
-	items, err := client.store.All(Features)
-
-	if err != nil {
-		client.config.Logger.Println("WARN: Unable to fetch flags from feature store. Returning nil map. Error: " + err.Error())
-		return nil
-	}
-	for _, item := range items {
-		if flag, ok := item.(*FeatureFlag); ok {
-			result, _, _ := client.evalFlag(*flag, user)
-			results[flag.Key] = result
-		}
-	}
-
-	return results
+	state := client.AllFlagsState(user)
+	return state.ToValuesMap()
 }
 
-func (client *LDClient) evalFlag(flag FeatureFlag, user User) (interface{}, *int, []FeatureRequestEvent) {
-	return flag.Evaluate(user, client.store)
+// AllFlagsState returns an object that encapsulates the state of all feature flags for a
+// given user, including the flag values and also metadata that can be used on the front end.
+// You may pass ClientSideOnly as an optional parameter to filter the set of flags.
+//
+// The most common use case for this method is to bootstrap a set of client-side feature flags
+// from a back-end service.
+func (client *LDClient) AllFlagsState(user User, options ...FlagsStateOption) FeatureFlagsState {
+	valid := true
+	if client.IsOffline() {
+		client.config.Logger.Println("WARN: Called AllFlagsState in offline mode. Returning empty state")
+		valid = false
+	} else if user.Key == nil {
+		client.config.Logger.Println("WARN: Called AllFlagsState with nil user key. Returning empty state")
+		valid = false
+	} else if !client.Initialized() {
+		if client.store.Initialized() {
+			client.config.Logger.Println("WARN: Called AllFlagsState before client initialization; using last known values from feature store")
+		} else {
+			client.config.Logger.Println("WARN: Called AllFlagsState before client initialization. Feature store not available; returning empty state")
+			valid = false
+		}
+	}
+
+	if !valid {
+		return FeatureFlagsState{valid: false}
+	}
+
+	items, err := client.store.All(Features)
+	if err != nil {
+		client.config.Logger.Println("WARN: Unable to fetch flags from feature store. Returning empty state. Error: " + err.Error())
+		return FeatureFlagsState{valid: false}
+	}
+
+	state := newFeatureFlagsState()
+	clientSideOnly := hasFlagsStateOption(options, ClientSideOnly)
+	withReasons := hasFlagsStateOption(options, WithReasons)
+	for _, item := range items {
+		if flag, ok := item.(*FeatureFlag); ok {
+			if clientSideOnly && !flag.ClientSide {
+				continue
+			}
+			result, _ := flag.EvaluateDetail(user, client.store, false)
+			var reason EvaluationReason
+			if withReasons {
+				reason = result.Reason
+			}
+			state.addFlag(flag, result.Value, result.VariationIndex, reason)
+		}
+	}
+
+	return state
 }
 
 // BoolVariation returns the value of a boolean feature flag for a given user. Returns defaultVal if
 // there is an error, if the flag doesn't exist, the client hasn't completed initialization,
-// or the feature is turned off.
+// or the feature is turned off and has no off variation.
 func (client *LDClient) BoolVariation(key string, user User, defaultVal bool) (bool, error) {
-	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(true))
-	result, _ := value.(bool)
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(true), false)
+	result, _ := detail.Value.(bool)
 	return result, err
 }
 
-// IntVariation eturns the value of a feature flag (whose variations are integers) for the given user.
-// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
+// BoolVariationDetail is the same as BoolVariation, but also returns further information about how
+// the value was calculated. The "reason" data will also be included in analytics events.
+func (client *LDClient) BoolVariationDetail(key string, user User, defaultVal bool) (bool, EvaluationDetail, error) {
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(true), true)
+	result, _ := detail.Value.(bool)
+	return result, detail, err
+}
+
+// IntVariation returns the value of a feature flag (whose variations are integers) for the given user.
+// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off and
+// has no off variation.
 func (client *LDClient) IntVariation(key string, user User, defaultVal int) (int, error) {
-	value, err := client.variation(key, user, float64(defaultVal), reflect.TypeOf(float64(0)))
-	result, _ := value.(float64)
+	detail, err := client.variationWithType(key, user, float64(defaultVal), reflect.TypeOf(float64(0)), false)
+	result, _ := detail.Value.(float64)
 	return int(result), err
 }
 
-// Float64Variation eturns the value of a feature flag (whose variations are floats) for the given user.
-// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
+// IntVariationDetail is the same as IntVariation, but also returns further information about how
+// the value was calculated. The "reason" data will also be included in analytics events.
+func (client *LDClient) IntVariationDetail(key string, user User, defaultVal int) (int, EvaluationDetail, error) {
+	detail, err := client.variationWithType(key, user, float64(defaultVal), reflect.TypeOf(float64(0)), true)
+	result, _ := detail.Value.(float64)
+	return int(result), detail, err
+}
+
+// Float64Variation returns the value of a feature flag (whose variations are floats) for the given user.
+// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off and
+// has no off variation.
 func (client *LDClient) Float64Variation(key string, user User, defaultVal float64) (float64, error) {
-	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(float64(0)))
-	result, _ := value.(float64)
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(float64(0)), false)
+	result, _ := detail.Value.(float64)
 	return result, err
 }
 
-// StringVariation eturns the value of a feature flag (whose variations are strings) for the given user.
-// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
+// Float64VariationDetail is the same as Float64Variation, but also returns further information about how
+// the value was calculated. The "reason" data will also be included in analytics events.
+func (client *LDClient) Float64VariationDetail(key string, user User, defaultVal float64) (float64, EvaluationDetail, error) {
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(float64(0)), true)
+	result, _ := detail.Value.(float64)
+	return result, detail, err
+}
+
+// StringVariation returns the value of a feature flag (whose variations are strings) for the given user.
+// Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off and has
+// no off variation.
 func (client *LDClient) StringVariation(key string, user User, defaultVal string) (string, error) {
-	value, err := client.variation(key, user, defaultVal, reflect.TypeOf(string("string")))
-	result, _ := value.(string)
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(string("string")), false)
+	result, _ := detail.Value.(string)
 	return result, err
 }
 
-// JsonVariation eturns the value of a feature flag (whose variations are JSON) for the given user.
+// StringVariationDetail is the same as StringVariation, but also returns further information about how
+// the value was calculated. The "reason" data will also be included in analytics events.
+func (client *LDClient) StringVariationDetail(key string, user User, defaultVal string) (string, EvaluationDetail, error) {
+	detail, err := client.variationWithType(key, user, defaultVal, reflect.TypeOf(string("string")), true)
+	result, _ := detail.Value.(string)
+	return result, detail, err
+}
+
+// JsonVariation returns the value of a feature flag (whose variations are JSON) for the given user.
 // Returns defaultVal if there is an error, if the flag doesn't exist, or the feature is turned off.
 func (client *LDClient) JsonVariation(key string, user User, defaultVal json.RawMessage) (json.RawMessage, error) {
-	if client.IsOffline() {
-		return defaultVal, nil
+	detail, err := client.variation(key, user, defaultVal, false)
+	if err != nil {
+		return defaultVal, err
 	}
-	value, index, flag, err := client.evaluateInternal(key, user, defaultVal)
+	valueJSONRawMessage, err := ToJsonRawMessage(detail.Value)
+	if err != nil {
+		return defaultVal, err
+	}
+	return valueJSONRawMessage, nil
+}
 
+// JsonVariationDetail is the same as JsonVariation, but also returns further information about how
+// the value was calculated. The "reason" data will also be included in analytics events.
+func (client *LDClient) JsonVariationDetail(key string, user User, defaultVal json.RawMessage) (json.RawMessage, EvaluationDetail, error) {
+	detail, err := client.variation(key, user, defaultVal, true)
 	if err != nil {
-		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
-		return defaultVal, err
+		return defaultVal, detail, err
 	}
-	valueJsonRawMessage, err := ToJsonRawMessage(value)
+	valueJSONRawMessage, err := ToJsonRawMessage(detail.Value)
 	if err != nil {
-		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
-		return defaultVal, err
+		detail.Value = defaultVal
+		return defaultVal, detail, err
 	}
-	client.sendFlagRequestEvent(key, flag, user, index, valueJsonRawMessage, defaultVal)
-	return valueJsonRawMessage, nil
+	return valueJSONRawMessage, detail, nil
 }
 
 // Generic method for evaluating a feature flag for a given user. The type of the returned interface{}
 // will always be expectedType or the actual defaultValue will be returned.
-func (client *LDClient) variation(key string, user User, defaultVal interface{}, expectedType reflect.Type) (interface{}, error) {
-	if client.IsOffline() {
-		return defaultVal, nil
+func (client *LDClient) variationWithType(key string, user User, defaultVal interface{}, expectedType reflect.Type, sendReasonsInEvents bool) (EvaluationDetail, error) {
+	result, err := client.variation(key, user, defaultVal, sendReasonsInEvents)
+	if err != nil && result.Value != nil {
+		valueType := reflect.TypeOf(result.Value)
+		if expectedType != valueType {
+			result.Value = defaultVal
+			result.VariationIndex = nil
+			result.Reason = newEvalReasonError(EvalErrorWrongType)
+		}
 	}
-	value, index, flag, err := client.evaluateInternal(key, user, defaultVal)
-	if err != nil {
-		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
-		return defaultVal, err
-	}
-
-	valueType := reflect.TypeOf(value)
-	if expectedType != valueType {
-		client.sendFlagRequestEvent(key, flag, user, index, defaultVal, defaultVal)
-		return defaultVal, fmt.Errorf("Feature flag returned value: %+v of incompatible type: %+v; Expected: %+v", value, valueType, expectedType)
-	}
-	client.sendFlagRequestEvent(key, flag, user, index, value, defaultVal)
-	return value, nil
+	return result, err
 }
 
-func (client *LDClient) sendFlagRequestEvent(key string, flag *FeatureFlag, user User, variation *int, value, defaultVal interface{}) {
+// Generic method for evaluating a feature flag for a given user.
+func (client *LDClient) variation(key string, user User, defaultVal interface{}, sendReasonsInEvents bool) (EvaluationDetail, error) {
 	if client.IsOffline() {
-		return
+		return EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorClientNotReady)}, nil
 	}
-	evt := NewFeatureRequestEvent(key, flag, user, variation, value, defaultVal, nil)
+	result, flag, err := client.evaluateInternal(key, user, defaultVal, sendReasonsInEvents)
+	if err != nil {
+		result.Value = defaultVal
+		result.VariationIndex = nil
+	}
+
+	evt := NewFeatureRequestEvent(key, flag, user, result.VariationIndex, result.Value, defaultVal, nil)
+	if sendReasonsInEvents {
+		evt.Reason.Reason = result.Reason
+	}
 	client.eventProcessor.SendEvent(evt)
+
+	return result, err
 }
 
 // Evaluate returns the value of a feature for a specified user
 func (client *LDClient) Evaluate(key string, user User, defaultVal interface{}) (interface{}, *int, error) {
-	value, index, _, err := client.evaluateInternal(key, user, defaultVal)
-	return value, index, err
+	result, _, err := client.evaluateInternal(key, user, defaultVal, false)
+	return result.Value, result.VariationIndex, err
 }
 
-func (client *LDClient) evaluateInternal(key string, user User, defaultVal interface{}) (interface{}, *int, *FeatureFlag, error) {
+// Performs all the steps of evaluation except for sending the feature request event (the main one;
+// events for prerequisites will be sent).
+func (client *LDClient) evaluateInternal(key string, user User, defaultVal interface{}, sendReasonsInEvents bool) (EvaluationDetail, *FeatureFlag, error) {
 	if user.Key != nil && *user.Key == "" {
 		client.config.Logger.Printf("WARN: User.Key is blank when evaluating flag: %s. Flag evaluation will proceed, but the user will not be stored in LaunchDarkly.", key)
 	}
@@ -408,7 +478,8 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 		if client.store.Initialized() {
 			client.config.Logger.Printf("WARN: Feature flag evaluation called before LaunchDarkly client initialization completed; using last known values from feature store")
 		} else {
-			return defaultVal, nil, nil, ErrClientNotInitialized
+			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorClientNotReady)}
+			return detail, nil, ErrClientNotInitialized
 		}
 	}
 
@@ -416,28 +487,32 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 
 	if storeErr != nil {
 		client.config.Logger.Printf("Encountered error fetching feature from store: %+v", storeErr)
-		return defaultVal, nil, nil, storeErr
+		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorException)}
+		return detail, nil, storeErr
 	}
 
 	if data != nil {
 		feature, ok = data.(*FeatureFlag)
 		if !ok {
-			return defaultVal, nil, nil, fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key)
+			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorException)}
+			return detail, nil, fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key)
 		}
 	} else {
-		return defaultVal, nil, nil, fmt.Errorf("unknown feature key: %s Verify that this feature key exists. Returning default value", key)
+		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorFlagNotFound)}
+		return detail, nil, fmt.Errorf("unknown feature key: %s Verify that this feature key exists. Returning default value", key)
 	}
 
 	if user.Key == nil {
-		return defaultVal, nil, feature, fmt.Errorf("user.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
+		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorUserNotSpecified)}
+		return detail, feature, fmt.Errorf("user.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
 	}
 
-	result, index, prereqEvents := client.evalFlag(*feature, user)
+	detail, prereqEvents := feature.EvaluateDetail(user, client.store, sendReasonsInEvents)
+	if detail.IsDefaultValue() {
+		detail.Value = defaultVal
+	}
 	for _, event := range prereqEvents {
 		client.eventProcessor.SendEvent(event)
 	}
-	if result != nil {
-		return result, index, feature, nil
-	}
-	return defaultVal, index, feature, nil
+	return detail, feature, nil
 }
