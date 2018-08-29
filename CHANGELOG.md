@@ -2,6 +2,24 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.4.2] - 2018-08-29
+
+### Changed
+- Use latest go client (4.3.0).
+
+### Fixes
+- Ensure that server-side eval endpoints don't panic (work around gorilla mux bug)
+
+
+## [5.4.2] - 2018-08-29
+
+### Changed
+- Use latest go client (4.3.0).
+
+### Fixes
+- Ensure that server-side eval endpoints don't panic (work around gorilla mux bug)
+
+
 ## [5.4.1] - 2018-08-24
 
 ### Fixed
