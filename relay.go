@@ -418,15 +418,16 @@ func (r *Relay) makeHandler() http.Handler {
 		requestCountMiddleware(metrics.ServerRequests))
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
-	serverSideSdkRouter.Use(serverSideMiddlewareStack)
+	// TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
+	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
-	serverSideEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
-	serverSideEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("GET")
+	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("REPORT")
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
-	serverSideEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("REPORT")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
