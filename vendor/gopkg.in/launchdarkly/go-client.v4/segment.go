@@ -60,6 +60,7 @@ var Segments SegmentVersionedDataKind
 
 // SegmentRule describes a set of clauses that
 type SegmentRule struct {
+	Id       string   `json:"id,omitempty" bson:"id,omitempty"`
 	Clauses  []Clause `json:"clauses" bson:"clauses"`
 	Weight   *int     `json:"weight,omitempty" bson:"weight,omitempty"`
 	BucketBy *string  `json:"bucketBy,omitempty" bson:"bucketBy,omitempty"`

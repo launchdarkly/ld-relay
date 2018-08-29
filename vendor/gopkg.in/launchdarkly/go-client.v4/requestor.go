@@ -109,8 +109,7 @@ func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
 		_ = res.Body.Close()
 	}()
 
-	err := checkStatusCode(res.StatusCode, url)
-	if err != nil {
+	if err := checkForHttpError(res.StatusCode, url); err != nil {
 		return nil, false, err
 	}
 
@@ -119,7 +118,7 @@ func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
 	body, ioErr := ioutil.ReadAll(res.Body)
 
 	if ioErr != nil {
-		return nil, false, err
+		return nil, false, ioErr
 	}
 	return body, cached, nil
 }

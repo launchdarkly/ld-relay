@@ -3,6 +3,11 @@ LaunchDarkly SDK for Go
 
 [![Circle CI](https://circleci.com/gh/launchdarkly/go-client.svg?style=svg)](https://circleci.com/gh/launchdarkly/go-client)
 
+Go runtime compatibility
+-------------------------
+
+This version of the LaunchDarkly SDK has been tested with Go 1.8 through 1.10.
+
 Quick setup
 -----------
 

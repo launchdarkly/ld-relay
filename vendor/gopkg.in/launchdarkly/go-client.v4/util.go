@@ -102,21 +102,21 @@ func ToJsonRawMessage(input interface{}) (json.RawMessage, error) {
 	}
 }
 
-func checkStatusCode(statusCode int, url string) *HttpStatusError {
+func checkForHttpError(statusCode int, url string) error {
 	if statusCode == http.StatusUnauthorized {
-		return &HttpStatusError{
+		return HttpStatusError{
 			Message: fmt.Sprintf("Invalid SDK key when accessing URL: %s. Verify that your SDK key is correct.", url),
 			Code:    statusCode}
 	}
 
 	if statusCode == http.StatusNotFound {
-		return &HttpStatusError{
+		return HttpStatusError{
 			Message: fmt.Sprintf("Resource not found when accessing URL: %s. Verify that this resource exists.", url),
 			Code:    statusCode}
 	}
 
 	if statusCode/100 != 2 {
-		return &HttpStatusError{
+		return HttpStatusError{
 			Message: fmt.Sprintf("Unexpected response code: %d when accessing URL: %s", statusCode, url),
 			Code:    statusCode}
 	}
@@ -140,10 +140,13 @@ func MakeAllVersionedDataMap(
 	return allData
 }
 
-// Tests whether an HTTP error status represents a condition that might resolve on its own if we retry.
+// Tests whether an HTTP error status represents a condition that might resolve on its own if we retry,
+// or at least should not make us permanently stop sending requests.
 func isHTTPErrorRecoverable(statusCode int) bool {
 	if statusCode >= 400 && statusCode < 500 {
 		switch statusCode {
+		case 400: // bad request
+			return true
 		case 408: // request timeout
 			return true
 		case 429: // too many requests

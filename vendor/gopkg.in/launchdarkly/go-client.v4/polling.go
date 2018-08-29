@@ -51,7 +51,7 @@ func (pp *pollingProcessor) Start(closeWhenReady chan<- struct{}) {
 			case <-ticker.C:
 				if err := pp.poll(); err != nil {
 					pp.config.Logger.Printf("ERROR: Error when requesting feature updates: %+v", err)
-					if hse, ok := err.(*HttpStatusError); ok {
+					if hse, ok := err.(HttpStatusError); ok {
 						pp.config.Logger.Printf("ERROR: %s", httpErrorMessage(hse.Code, "polling request", "will retry"))
 						if !isHTTPErrorRecoverable(hse.Code) {
 							notifyReady()
