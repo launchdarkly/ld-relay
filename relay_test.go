@@ -132,6 +132,24 @@ func TestGetFlagEvalSucceeds(t *testing.T) {
 }`, string(b))
 }
 
+func TestGetFlagEvalWithReasonsSucceeds(t *testing.T) {
+	vars := map[string]string{"user": user()}
+	req := buildRequest("GET", vars, nil, "", makeTestContextWithData())
+	req.URL.RawQuery = "withReasons=true"
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	b, _ := ioutil.ReadAll(resp.Body)
+
+	assert.JSONEq(t, `{
+"another-flag-key":{"value": 3, "variation": 0, "version" :1, "trackEvents": false, "reason": {"kind": "FALLTHROUGH"}},
+"some-flag-key":{"value": true, "variation": 0, "version": 2, "trackEvents": false, "reason": {"kind": "OFF"}},
+"off-variation-key":{"value": null, "version": 3, "trackEvents": false, "reason": {"kind": "OFF"}}
+}`, string(b))
+}
+
 func TestReportFlagEvalSucceeds(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, makeTestContextWithData())
@@ -414,6 +432,7 @@ func TestRelay(t *testing.T) {
 
 	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
 	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
+	expectedEvalxBodyWithReasons := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false, "reason": {"kind": "OFF"}}}`)
 	allFlags := map[string]interface{}{"my-flag": flag}
 	expectedFlagsData, _ := json.Marshal(allFlags)
 	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
@@ -461,8 +480,10 @@ func TestRelay(t *testing.T) {
 		}{
 			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedEvalBody},
 			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedEvalxBody},
+			{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey, user, http.StatusOK, expectedEvalxBodyWithReasons},
 			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedEvalBody},
 			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedEvalxBody},
+			{"mobile report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey, user, http.StatusOK, expectedEvalxBodyWithReasons},
 			{"mobile get eval", "GET", fmt.Sprintf("/msdk/eval/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
 			{"mobile get evalx", "GET", fmt.Sprintf("/msdk/evalx/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
 		}
