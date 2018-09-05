@@ -673,14 +673,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 		return
 	}
 
-	withReasons := false
-	if !valueOnly {
-		for _, v := range req.URL.Query()["withReasons"] {
-			if v == "true" {
-				withReasons = true
-			}
-		}
-	}
+	withReasons := req.URL.Query().Get("withReasons") == "true"
 
 	clientCtx := getClientContext(req)
 	client := clientCtx.getClient()
