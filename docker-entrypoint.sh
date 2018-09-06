@@ -43,7 +43,7 @@ capacity = ${EVENTS_CAPACITY:-10000}
 " >> /etc/ld-relay.conf
 fi
 
-for environment in $(env | grep LD_ENV_ ); do
+for environment in $(env | grep ^LD_ENV_ ); do
 env_name="$(echo "$environment" | sed 's/^LD_ENV_//' | cut -d'=' -f1)"
 env_key="$(eval echo "\$$(echo "$environment" | cut -d'=' -f1)")"
 env_prefix="$(eval echo "\$LD_PREFIX_${env_name}")"
@@ -61,6 +61,40 @@ echo "prefix = \"$env_prefix\"" >> /etc/ld-relay.conf
 fi
 done
 
+fi
+
+if [ "$USE_DATADOG" = 1 ]; then
+echo "
+[datadog]
+enabled = true
+statsAddr = \"${DATADOG_STATS_ADDR}\"
+traceAddr = \"${DATADOG_TRACE_ADDR}\"
+prefix = \"${DATADOG_PREFIX}\"" >> /etc/ld-relay.conf
+for tag in $(env | grep ^DATADOG_TAG_ ); do
+tag_name="$(echo "$tag" | sed 's/^DATADOG_TAG_//' | cut -d'=' -f1)"
+tag_val="$(eval echo "\$$(echo "${tag}" | cut -d'=' -f1)")"
+echo "tag = \"$tag_name:$tag_val\"" >> /etc/ld-relay.conf
+done
+echo "
+" >> /etc/ld-relay.conf
+fi
+
+if [ "$USE_STACKDRIVER" = 1 ]; then
+echo "
+[stackdriver]
+enabled = true
+projectID = \"${STACKDRIVER_PROJECT_ID}\"
+prefix = \"${STACKDRIVER_PREFIX}\"
+" >> /etc/ld-relay.conf
+fi
+
+if [ "$USE_PROMETHEUS" = 1 ]; then
+echo "
+[prometheus]
+enabled = true
+port = ${PROMETHEUS_PORT:-8031}
+prefix = \"${PROMETHEUS_PREFIX}\"
+" >> /etc/ld-relay.conf
 fi
 
 exec "$@"

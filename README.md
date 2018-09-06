@@ -308,7 +308,7 @@ Metrics can be filtered by the following tags:
 
 Docker
 -------
-Using docker is not required, but if you perfer using a docker container we provide a docker entrypoint to make this as easy as possible.
+Using docker is not required, but if you prefer using a docker container we provide a docker entrypoint to make this as easy as possible.
 
 To build the ld-relay container:
 ```
@@ -338,7 +338,17 @@ LD_ENV_*env_name*            | SDK Key        |                                 
 LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
 LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
 LD_PREFIX_*env_name*         | String         |                                   | Configures a Redis prefix for that specific environment. Multiple environments can be listed.
-
+USE_DATADOG                  | Number         | `0`                               | If set to 1, enables metric exports to DataDog.
+DATADOG_STATS_ADDR           | String         | `localhost:8125`                  | URI of the DataDog stats agent.
+DATADOG_TRACE_ADDR           | String         | `localhost:8126`                  | URI of the DataDog trace agent.
+DATADOG_PREFIX               | String         |                                   | Configure a prefix for DataDog metric names.
+DATADOG_TAG_*tag_name*       | String         |                                   | Configure tags to be associated with DataDog metrics.
+USE_STACKDRIVER              | Number         | `0`                               | If set to 1, enables metric exports to Stackdriver.
+STACKDRIVER_PROJECT_ID       | String         |                                   | Stackdriver project id. Required to successfully export metrics to Stackdriver.
+STACKDRIVER_PREFIX           | String         |                                   | Configure a prefix for Stackdriver metric names.
+USE_PROMETHEUS               | Number         | `0`                               | If set to 1, enables metric exports to Prometheus.
+PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
+PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
 ### Docker examples
 To run a single environment, without Redis:
 ```
