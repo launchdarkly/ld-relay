@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.4.3] - 2018-09-97
+
+### Added 
+- Return flag evaluation reasons for mobile and client-side endpoints when `withReasons=true` query param is set.
+- Added support for metric collection configuration in docker entrypoint script. Thanks @matthalbersma for the suggestion.
+
+### Fixes
+- Fix internal relay metrics event field.
+
 ## [5.4.2] - 2018-08-29
 
 ### Changed
