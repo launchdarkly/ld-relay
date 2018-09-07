@@ -19,8 +19,8 @@ services:
 
   relay-docker:
     image: launchdarkly/ld-relay
-    environment:
-      LD_ENV_test: sdk-test-sdkKey
+    env_file:
+      - test.env
 
   test-centos:
     image: circleci/golang:1.10.3

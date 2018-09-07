@@ -31,6 +31,13 @@ test-centos test-debian test-docker: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
-test-all: test-centos test-debian test-docker
+test-docker-conf: test-docker
+	temp=$$(mktemp); \
+		trap "rm $$temp" EXIT; \
+		src=$$(docker-compose -f docker-compose.test.yml ps -q relay-docker):/etc/ld-relay.conf; \
+		docker cp $$src $$temp; \
+		diff -B expected.conf $$temp
 
-.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all
+test-all: test-centos test-debian test-docker test-docker-conf
+
+.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all test-docker-conf

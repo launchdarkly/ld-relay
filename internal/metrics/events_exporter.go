@@ -27,7 +27,7 @@ type RelayMetricsEvent struct {
 	Kind           string                     `json:"kind"`
 	RelayId        string                     `json:"relayId"`
 	StartDate      int64                      `json:"startDate"`
-	StopDate       int64                      `json:"stopDate"`
+	EndDate        int64                      `json:"endDate"`
 	Connections    []currentConnectionsMetric `json:"connections,omitempty"`
 	NewConnections []newConnectionsMetric     `json:"newConnections,omitempty"`
 }
@@ -145,7 +145,7 @@ func (e *OpenCensusEventsExporter) flush() {
 		Kind:      RelayMetricsKind,
 		RelayId:   e.relayId,
 		StartDate: unixMillis(startTime),
-		StopDate:  unixMillis(stopTime),
+		EndDate:   unixMillis(stopTime),
 	}
 	for k, v := range e.currentConnections {
 		event.Connections = append(event.Connections, currentConnectionsMetric{

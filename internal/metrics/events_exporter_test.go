@@ -66,8 +66,8 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			metricsEvent := event.(RelayMetricsEvent)
 			require.Equal(t, RelayMetricsKind, metricsEvent.Kind)
 			assert.True(t, metricsEvent.StartDate >= start/int64(time.Millisecond))
-			assert.True(t, metricsEvent.StartDate <= metricsEvent.StopDate)
-			assert.True(t, metricsEvent.StopDate <= nowInUnixMillis())
+			assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
+			assert.True(t, metricsEvent.EndDate <= nowInUnixMillis())
 			expectedRelayId, _ := tag.FromContext(ctx).Value(relayIdTagKey)
 			assert.Equal(t, expectedRelayId, metricsEvent.RelayId)
 			if !assert.ElementsMatch(t, []currentConnectionsMetric{{

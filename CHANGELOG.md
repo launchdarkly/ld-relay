@@ -6,15 +6,7 @@ All notable changes to the LaunchDarkly Relay will be documented in this file. T
 
 ### Changed
 - Use latest go client (4.3.0).
-
-### Fixes
-- Ensure that server-side eval endpoints don't panic (work around gorilla mux bug)
-
-
-## [5.4.2] - 2018-08-29
-
-### Changed
-- Use latest go client (4.3.0).
+- Preserves the "client-side-enabled" property of feature flags so that the new SDK method AllFlagsState() - which has an option for selecting only client-side flags - will work correctly when using the relay.
 
 ### Fixes
 - Ensure that server-side eval endpoints don't panic (work around gorilla mux bug)

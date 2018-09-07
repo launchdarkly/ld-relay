@@ -259,11 +259,12 @@ type Relay struct {
 }
 
 type evalXResult struct {
-	Value                interface{} `json:"value"`
-	Variation            *int        `json:"variation,omitempty"`
-	Version              int         `json:"version"`
-	DebugEventsUntilDate *uint64     `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool        `json:"trackEvents"`
+	Value                interface{}                   `json:"value"`
+	Variation            *int                          `json:"variation,omitempty"`
+	Version              int                           `json:"version"`
+	DebugEventsUntilDate *uint64                       `json:"debugEventsUntilDate,omitempty"`
+	TrackEvents          bool                          `json:"trackEvents"`
+	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
 }
 
 func (c *clientContextImpl) getClient() LdClientContext {
@@ -672,6 +673,8 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 		return
 	}
 
+	withReasons := req.URL.Query().Get("withReasons") == "true"
+
 	clientCtx := getClientContext(req)
 	client := clientCtx.getClient()
 	store := clientCtx.getStore()
@@ -712,13 +715,17 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 			if valueOnly {
 				result = detail.Value
 			} else {
-				result = evalXResult{
+				value := evalXResult{
 					Value:                detail.Value,
 					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
 					TrackEvents:          flag.TrackEvents,
 					DebugEventsUntilDate: flag.DebugEventsUntilDate,
 				}
+				if withReasons {
+					value.Reason = &ld.EvaluationReasonContainer{Reason: detail.Reason}
+				}
+				result = value
 			}
 			response[flag.Key] = result
 		}
