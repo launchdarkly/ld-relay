@@ -403,3 +403,9 @@ if err != nil {
 }
 router.PathPrefix("/relay").Handler(r)
 ```
+
+Testing
+-------
+
+You can set up your development environment by installing go and running `make init` to install the linter.  To run
+lint and unit tests, run `make test`.  To run integration runs, run `make integration-tests`.

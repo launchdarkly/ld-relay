@@ -38,6 +38,6 @@ test-docker-conf: test-docker
 		docker cp $$src $$temp; \
 		diff -B expected.conf $$temp
 
-test-all: test-centos test-debian test-docker test-docker-conf
+integration-test: test-centos test-debian test-docker test-docker-conf test-docker-standalone
 
-.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all test-docker-conf
+.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all test-docker-conf test-docker-standalone
