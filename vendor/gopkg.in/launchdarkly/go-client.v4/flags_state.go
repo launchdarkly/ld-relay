@@ -17,9 +17,9 @@ type FeatureFlagsState struct {
 
 type flagMetadata struct {
 	Variation            *int             `json:"variation,omitempty"`
-	Version              int              `json:"version"`
+	Version              *int             `json:"version,omitempty"`
 	Reason               EvaluationReason `json:"reason,omitempty"`
-	TrackEvents          bool             `json:"trackEvents"`
+	TrackEvents          *bool            `json:"trackEvents,omitempty"`
 	DebugEventsUntilDate *uint64          `json:"debugEventsUntilDate,omitempty"`
 }
 
@@ -49,6 +49,19 @@ func (o withReasonsFlagsStateOption) String() string {
 	return "WithReasons"
 }
 
+// DetailsOnlyForTrackedFlags - when passed to LDClient.AllFlagsState() - specifies that
+// any flag metadata that is normally only used for event generation - such as flag versions
+// and evaluation reasons - should be omitted for any flag that does not have event tracking
+// or debugging turned on. This reduces the size of the JSON data if you are passing the flag
+// state to the front end.
+var DetailsOnlyForTrackedFlags FlagsStateOption = detailsOnlyForTrackedFlagsOption{}
+
+type detailsOnlyForTrackedFlagsOption struct{}
+
+func (o detailsOnlyForTrackedFlagsOption) String() string {
+	return "DetailsOnlyForTrackedFlags"
+}
+
 func newFeatureFlagsState() FeatureFlagsState {
 	return FeatureFlagsState{
 		flagValues:   make(map[string]interface{}),
@@ -66,15 +79,24 @@ func hasFlagsStateOption(options []FlagsStateOption, value FlagsStateOption) boo
 	return false
 }
 
-func (s *FeatureFlagsState) addFlag(flag *FeatureFlag, value interface{}, variation *int, reason EvaluationReason) {
-	s.flagValues[flag.Key] = value
-	s.flagMetadata[flag.Key] = flagMetadata{
+func (s *FeatureFlagsState) addFlag(flag *FeatureFlag, value interface{}, variation *int, reason EvaluationReason, detailsOnlyIfTracked bool) {
+	meta := flagMetadata{
 		Variation:            variation,
-		Version:              flag.Version,
-		Reason:               reason,
-		TrackEvents:          flag.TrackEvents,
 		DebugEventsUntilDate: flag.DebugEventsUntilDate,
 	}
+	includeDetail := !detailsOnlyIfTracked || flag.TrackEvents
+	if !includeDetail && flag.DebugEventsUntilDate != nil {
+		includeDetail = *flag.DebugEventsUntilDate > now()
+	}
+	if includeDetail {
+		meta.Version = &flag.Version
+		meta.Reason = reason
+	}
+	if flag.TrackEvents { // omit this field if it's false, for brevity
+		meta.TrackEvents = &flag.TrackEvents
+	}
+	s.flagValues[flag.Key] = value
+	s.flagMetadata[flag.Key] = meta
 }
 
 // IsValid returns true if this object contains a valid snapshot of feature flag state, or false if the

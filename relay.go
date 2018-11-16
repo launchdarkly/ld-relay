@@ -24,6 +24,8 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-client.v4"
+	"gopkg.in/launchdarkly/go-client.v4/ldconsul"
+	"gopkg.in/launchdarkly/go-client.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
@@ -142,6 +144,16 @@ type Config struct {
 		Port     int
 		Url      string
 		LocalTtl int
+		Prefix   string
+	}
+	Consul struct {
+		Host     string
+		Prefix   string
+		LocalTtl int
+	}
+	DynamoDB struct {
+		TableName string
+		LocalTtl  int
 	}
 	Environment map[string]*EnvConfig
 	MetricsConfig
@@ -487,18 +499,9 @@ func (r *Relay) makeHandler() http.Handler {
 }
 
 func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
-	var baseFeatureStore ld.FeatureStore
-	if c.Redis.Url != "" {
-		if c.Redis.Host != "" {
-			logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
-		}
-		logging.Info.Printf("Using Redis Feature Store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
-		baseFeatureStore = ldr.NewRedisFeatureStoreFromUrl(c.Redis.Url, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
-	} else if c.Redis.Host != "" && c.Redis.Port != 0 {
-		logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-		baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
-	} else {
-		baseFeatureStore = ld.NewInMemoryFeatureStore(logging.Info)
+	baseFeatureStore, err := createFeatureStore(c, envConfig)
+	if err != nil {
+		return nil, err
 	}
 	logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
 
@@ -564,6 +567,48 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	}(envName, *envConfig)
 
 	return clientContext, nil
+}
+
+func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+	choosePrefix := func(defaultValue string) string {
+		if envConfig.Prefix != "" {
+			return envConfig.Prefix
+		}
+		return defaultValue
+	}
+
+	if c.Redis.Url != "" || c.Redis.Host != "" {
+		prefix := choosePrefix(c.Redis.Prefix)
+		var hostOption ldr.FeatureStoreOption
+		if c.Redis.Url != "" {
+			if c.Redis.Host != "" {
+				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+			}
+			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, prefix)
+			hostOption = ldr.URL(c.Redis.Url)
+		} else {
+			port := c.Redis.Port
+			if port == 0 {
+				port = 6379
+			}
+			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, prefix)
+			hostOption = ldr.HostAndPort(c.Redis.Host, port)
+		}
+		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(prefix),
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
+	}
+	if c.Consul.Host != "" {
+		prefix := choosePrefix(c.Consul.Prefix)
+		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, prefix)
+		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(prefix),
+			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
+	}
+	if c.DynamoDB.TableName != "" {
+		logging.Info.Printf("Using DynamoDB feature store: %s", c.DynamoDB.TableName)
+		return lddynamodb.NewDynamoDBFeatureStore(c.DynamoDB.TableName,
+			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
+	}
+	return ld.NewInMemoryFeatureStore(logging.Info), nil
 }
 
 type clientMux struct {

@@ -78,14 +78,10 @@ if showFeature {
 }
 ```
 
-Building without Redis
-----------------------
+Database integrations
+---------------------
 
-The SDK includes an adapter for caching feature flag data in [Redis](https://redis.io), using [Redigo](https://github.com/garyburd/redigo). If you don't intend to use Redis and would like to avoid installing Redigo, add the following build tag to your `go build` command:
-
-```
--tags launchdarkly_no_redis
-```
+Feature flag data can be kept in a persistent store using Redis, Consul, or DynamoDB. These adapters are implemented in the subpackages `redis`, `ldconsul`, and `lddynamodb`; to use them, call the `New...FeatureStore` function provided by the subpackage, and put the returned object in the `FeatureStore` field of your client configuration. See the subpackages and the [SDK reference guide](https://docs.launchdarkly.com/v2.0/docs/using-a-persistent-feature-store) for more information.
 
 Learn more
 -----------

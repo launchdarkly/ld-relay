@@ -19,7 +19,7 @@ In most cases, the relay proxy is not required. However, there are some specific
 
 2. Reducing outbound connections to LaunchDarkly-- at scale (thousands or tens of thousands of servers), the number of outbound persistent connections to LaunchDarkly's streaming API can be problematic for some proxies and firewalls. With the relay proxy in place in proxy mode, your servers can connect directly to hosts within your own datacenter instead of connecting directly to LaunchDarkly's streaming API. On an appropriately spec'd machine, each relay proxy can handle tens of thousands of concurrent connections, so the number of outbound connections to the LaunchDarkly streaming API can be reduced dramatically.
 
-3. Reducing redundant update traffic to Redis-- if you are using Redis as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update Redis when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to Redis.
+3. Reducing redundant database traffic-- if you are using Redis or another supported daabase as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update the database when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to the database.
 
 
 Quick setup
@@ -64,7 +64,7 @@ Configuration file format
 -------------------------
 LD Relay uses INI-style configuration files. You can read more about the syntax [here](https://git-scm.com/docs/git-config#_syntax).
 
-There are four primary section types: Main, Events, Redis, and Environments. In addition to the main section types, there are three supported sections for configuring exporters for exporting metrics and route traces: Datadog, Stackdriver, and Prometheus.
+There are three primary section types: Main, Events, and Environments. The optional Redis, DynamoDB, and Consul sections are for configuring the desired database, if any. In addition to these, there are three supported sections for configuring exporters for exporting metrics and route traces: Datadog, Stackdriver, and Prometheus.
 
 ## [main]
 variable name            | type    | default                           | description
@@ -92,7 +92,21 @@ variable name | type   | default | description
 `host`        | string |         | Hostname of the Redis database
 `port`        | Number |         | Port of the Redis database
 `url`         | string |         | URL of the Redis database (overrides `host` & `port`)
-`localTtl`    | Number | `30000` | Specifies the TTL for records added to the Redis database
+`prefix`      | string |         | Optional namespace prefix for keys, if the database is being used for other purposes
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
+
+## [dynamoDB]
+variable name | type   | default | description
+------------- |:------:|:-------:| -----------
+`table`       | string |         | DynamoDB table name (note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files)
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
+
+## [consul]
+variable name | type   | default | description
+------------- |:------:|:-------:| -----------
+`host`        | string |         | Hostname of the Consul server
+`prefix`      | string |         | Optional namespace prefix for keys, if the database is being used for other purposes
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
 
 ## [environment]
 variable name        | type           | description
