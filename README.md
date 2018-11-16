@@ -19,7 +19,7 @@ In most cases, the relay proxy is not required. However, there are some specific
 
 2. Reducing outbound connections to LaunchDarkly-- at scale (thousands or tens of thousands of servers), the number of outbound persistent connections to LaunchDarkly's streaming API can be problematic for some proxies and firewalls. With the relay proxy in place in proxy mode, your servers can connect directly to hosts within your own datacenter instead of connecting directly to LaunchDarkly's streaming API. On an appropriately spec'd machine, each relay proxy can handle tens of thousands of concurrent connections, so the number of outbound connections to the LaunchDarkly streaming API can be reduced dramatically.
 
-3. Reducing redundant database traffic-- if you are using Redis or another supported daabase as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update the database when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to the database.
+3. Reducing redundant database traffic-- if you are using Redis or another supported database as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update the database when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to the database.
 
 
 Quick setup
@@ -196,16 +196,27 @@ LDR can also be used to forward events to `events.launchdarkly.com`. When enable
 This configuration will buffer events for all environments specified in the configuration file. The events will be flushed every `flushIntervalSecs`. To point our SDKs to the relay for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance (or preferably, the host and port of a load balancer fronting your relay instances). Setting `inlineUsers` to `true` preserves full user details in every event (the default is to send them only once per user in an `"index"` event).
 
 
-Redis storage
--------------
-You can configure LDR nodes to persist feature flag settings in Redis. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from communicating with LaunchDarkly's servers.
+Persistent storage
+------------------
+You can configure LDR nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from communicating with LaunchDarkly's servers. See [Using a persistent feature store](https://docs.launchdarkly.com/v2.0/docs/using-a-persistent-feature-store).
+
 ```
+# Redis example
 [redis]
     host = "localhost"
     port = 6379
     localTtl = 30000
-```
 
+# DynamoDB example
+[dynamoDB]
+    tableName = "my-feature-flags"
+    localTtl = 30000
+
+# Consul example
+[consul]
+    host = "localhost"
+    localTtl = 30000
+```
 
 Relay proxy mode
 ----------------
@@ -216,11 +227,11 @@ LDR is typically deployed in relay proxy mode. In this mode, several LDR instanc
 
 Daemon mode
 -----------------------------
-Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. This is the preferred way to use LaunchDarkly with PHP (as there's no way to maintain persistent stream connections in PHP).
+Optionally, you can configure our SDKs to communicate directly to the persistent store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. This is the preferred way to use LaunchDarkly with PHP (as there's no way to maintain persistent stream connections in PHP).
 
 ![LD Relay in daemon mode](relay-daemon.png)
 
-To set up LDR in this mode, provide a redis host and port, and supply a Redis key prefix for each environment in your configuration file:
+In this example, the persistent store is in Redis. To set up LDR in this mode, provide a Redis host and port, and supply a Redis key prefix for each environment in your configuration file:
 ```
 [redis]
     host = "localhost"
