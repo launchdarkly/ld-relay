@@ -351,22 +351,24 @@ environment variable         | type           | default                         
 ---------------------------- |:--------------:|:---------------------------------:| -----------
 STREAM_URI                   | URI            | `https://stream.launchdarkly.com` |
 BASE_URI                     | URI            | `https://app.launchdarkly.com` |
-USE_REDIS                    | Boolean        | `false` | If set to 1, Redis configuration will be added.
-REDIS_HOST                   | URI            |         | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default. If not, the default value is `redis`
-REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default. If not, the defualt value is `6379`.
-REDIS_TTL                    | Number         | `30000`                           | Sets the TTL in milliseconds.
-USE_EVENTS                   | Number         | `0`                               | If set to 1, enables event buffering
-EVENTS_SEND                  | Boolean        | `true`                            |
+USE_REDIS                    | Boolean        | `false` | If set to `true` or 1, Redis configuration will be added.
+REDIS_HOST                   | URI            | `redis` | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default.
+REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default.
+REDIS_TTL                    | Number         | `30000`                           | Alternate name for CACHE_TTL
+USE_DYNAMODB                 | Boolean        | `false` | If set to `true` or 1, DynamoDB configuration will be added. You must also specify a table name with `LD_TABLE_NAME_*env_name*` as described below.
+CACHE_TTL                    | Number         | `30000`                           | Sets the local cache TTL in milliseconds if you are using a database.
+USE_EVENTS                   | Number         | `false`                           | If set to `true` or 1, enables event buffering.
 EVENTS_HOST                  | URI            | `https://events.launchdarkly.com` | URI of the LaunchDarkly events endpoint.
-EVENTS_FLUSH_INTERVAL        | Number         | `5`                               | Sets how often events are flushed, defaults to `5` (seconds)
+EVENTS_FLUSH_INTERVAL        | Number         | `5`                               | Sets how often events are flushed, in seconds.
 EVENTS_SAMPLING_INTERVAL     | Number         | `0`                               |
 EXIT_ON_ERROR                | Boolean        | `false`                           |
 HEARTBEAT_INTERVAL           | Number         | `15`                              |
 EVENTS_CAPACITY              | Number         | `10000`                           |
 LD_ENV_*env_name*            | SDK Key        |                                   | At least one `LD_ENV_${environment}` variable is recommended. The value should be the SDK key for that specific environment. Multiple environments can be listed.
-LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
-LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
-LD_PREFIX_*env_name*         | String         |                                   | Configures a Redis prefix for that specific environment. Multiple environments can be listed.
+LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment. Multiple environments can be listed.
+LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the Mobile key for that specific environment. Multiple environments can be listed.
+LD_PREFIX_*env_name*         | String         |                                   | Configures a database key prefix for that specific environment (with Redis or Consul only). Multiple environments can be listed.
+LD_TABLE_NAME_*env_name*     | String         |                                   | Configures a database table name for that specific environment (with DynamoDB only). Multiple environments can be listed.
 USE_DATADOG                  | Number         | `0`                               | If set to 1, enables metric exports to DataDog.
 DATADOG_STATS_ADDR           | String         | `localhost:8125`                  | URI of the DataDog stats agent.
 DATADOG_TRACE_ADDR           | String         | `localhost:8126`                  | URI of the DataDog trace agent.

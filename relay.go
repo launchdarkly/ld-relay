@@ -62,8 +62,8 @@ type EnvConfig struct {
 	ApiKey             string // deprecated, equivalent to SdkKey
 	MobileKey          *string
 	EnvId              *string
-	Prefix             string // if present, overrides Prefix in [Redis] or [Consul]
-	TableName          string // if present, overrides TableName in [DynamoDB]
+	Prefix             string // used only if Redis or Consul is enabled
+	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
 }
@@ -145,16 +145,13 @@ type Config struct {
 		Port     int
 		Url      string
 		LocalTtl int
-		Prefix   string
 	}
 	Consul struct {
 		Host     string
-		Prefix   string
 		LocalTtl int
 	}
-	DynamoDB struct {
-		TableName string
-		LocalTtl  int
+	DynamoDB *struct { // This one is a pointer so we can tell if it's present or not (all of its properties are optional)
+		LocalTtl int
 	}
 	Environment map[string]*EnvConfig
 	MetricsConfig
@@ -571,45 +568,36 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 }
 
 func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
-	firstNonEmptyValue := func(values ...string) string {
-		for _, v := range values {
-			if v != "" {
-				return v
-			}
-		}
-		return ""
-	}
-
 	if c.Redis.Url != "" || c.Redis.Host != "" {
-		prefix := firstNonEmptyValue(envConfig.Prefix, c.Redis.Prefix)
 		var hostOption ldr.FeatureStoreOption
 		if c.Redis.Url != "" {
 			if c.Redis.Host != "" {
 				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
 			}
-			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, prefix)
+			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
 			hostOption = ldr.URL(c.Redis.Url)
 		} else {
 			port := c.Redis.Port
 			if port == 0 {
 				port = 6379
 			}
-			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, prefix)
+			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
 			hostOption = ldr.HostAndPort(c.Redis.Host, port)
 		}
-		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(prefix),
+		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(envConfig.Prefix),
 			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
 	}
 	if c.Consul.Host != "" {
-		prefix := firstNonEmptyValue(envConfig.Prefix, c.Consul.Prefix)
-		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, prefix)
-		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(prefix),
+		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
+		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
-	if c.DynamoDB.TableName != "" {
-		tableName := firstNonEmptyValue(envConfig.TableName, c.DynamoDB.TableName)
-		logging.Info.Printf("Using DynamoDB feature store: %s", tableName)
-		return lddynamodb.NewDynamoDBFeatureStore(tableName,
+	if c.DynamoDB != nil {
+		if envConfig.TableName == "" {
+			return nil, errors.New("TableName property must be specified for each environment when using DynamoDB")
+		}
+		logging.Info.Printf("Using DynamoDB feature store: %s", envConfig.TableName)
+		return lddynamodb.NewDynamoDBFeatureStore(envConfig.TableName,
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
 	return ld.NewInMemoryFeatureStore(logging.Info), nil
