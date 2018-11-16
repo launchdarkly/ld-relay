@@ -13,7 +13,7 @@ baseUri = \"${BASE_URI:-https://app.launchdarkly.com}\"
 exitOnError = ${EXIT_ON_ERROR:-false}
 port = 8030
 heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
-" > /etc/ld-relay.conf
+" > /ldr/ld-relay.conf
 
 if [ "$USE_REDIS" = 1 ]; then
 if echo "$REDIS_PORT" | grep -q 'tcp://'; then
@@ -29,7 +29,7 @@ echo "
 host = \"${REDIS_HOST:-redis}\"
 port = ${REDIS_PORT:-6379}
 localTtl = ${REDIS_TTL:-30000}
-" >> /etc/ld-relay.conf
+" >> /ldr/ld-relay.conf
 fi
 
 if [ "$USE_EVENTS" = 1 ]; then
@@ -40,7 +40,7 @@ sendEvents = ${EVENTS_SEND:-true}
 flushIntervalSecs = ${EVENTS_FLUSH_INTERVAL:-5}
 samplingInterval = ${EVENTS_SAMPLING_INTERVAL:-0}
 capacity = ${EVENTS_CAPACITY:-10000}
-" >> /etc/ld-relay.conf
+" >> /ldr/ld-relay.conf
 fi
 
 for environment in $(env | grep ^LD_ENV_ ); do
@@ -52,12 +52,12 @@ env_id="$(eval echo "\$LD_CLIENT_SIDE_ID_${env_name}")"
 
 echo "
 [environment \"$env_name\"]
-apiKey = \"$env_key\"
+sdkKey = \"$env_key\"
 mobileKey = \"$env_mobile_key\"
-envId = \"$env_id\"" >> /etc/ld-relay.conf
+envId = \"$env_id\"" >> /ldr/ld-relay.conf
 
 if [ -n "$env_prefix" ]; then
-echo "prefix = \"$env_prefix\"" >> /etc/ld-relay.conf
+echo "prefix = \"$env_prefix\"" >> /ldr/ld-relay.conf
 fi
 done
 
@@ -69,14 +69,14 @@ echo "
 enabled = true
 statsAddr = \"${DATADOG_STATS_ADDR}\"
 traceAddr = \"${DATADOG_TRACE_ADDR}\"
-prefix = \"${DATADOG_PREFIX}\"" >> /etc/ld-relay.conf
+prefix = \"${DATADOG_PREFIX}\"" >> /ldr/ld-relay.conf
 for tag in $(env | grep ^DATADOG_TAG_ ); do
 tag_name="$(echo "$tag" | sed 's/^DATADOG_TAG_//' | cut -d'=' -f1)"
 tag_val="$(eval echo "\$$(echo "${tag}" | cut -d'=' -f1)")"
-echo "tag = \"$tag_name:$tag_val\"" >> /etc/ld-relay.conf
+echo "tag = \"$tag_name:$tag_val\"" >> /ldr/ld-relay.conf
 done
 echo "
-" >> /etc/ld-relay.conf
+" >> /ldr/ld-relay.conf
 fi
 
 if [ "$USE_STACKDRIVER" = 1 ]; then
@@ -85,7 +85,7 @@ echo "
 enabled = true
 projectID = \"${STACKDRIVER_PROJECT_ID}\"
 prefix = \"${STACKDRIVER_PREFIX}\"
-" >> /etc/ld-relay.conf
+" >> /ldr/ld-relay.conf
 fi
 
 if [ "$USE_PROMETHEUS" = 1 ]; then
@@ -94,7 +94,7 @@ echo "
 enabled = true
 port = ${PROMETHEUS_PORT:-8031}
 prefix = \"${PROMETHEUS_PREFIX}\"
-" >> /etc/ld-relay.conf
+" >> /ldr/ld-relay.conf
 fi
 
 exec "$@"
