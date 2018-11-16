@@ -62,7 +62,8 @@ type EnvConfig struct {
 	ApiKey             string // deprecated, equivalent to SdkKey
 	MobileKey          *string
 	EnvId              *string
-	Prefix             string
+	Prefix             string // if present, overrides Prefix in [Redis] or [Consul]
+	TableName          string // if present, overrides TableName in [DynamoDB]
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
 }
@@ -570,15 +571,17 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 }
 
 func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
-	choosePrefix := func(defaultValue string) string {
-		if envConfig.Prefix != "" {
-			return envConfig.Prefix
+	firstNonEmptyValue := func(values ...string) string {
+		for _, v := range values {
+			if v != "" {
+				return v
+			}
 		}
-		return defaultValue
+		return ""
 	}
 
 	if c.Redis.Url != "" || c.Redis.Host != "" {
-		prefix := choosePrefix(c.Redis.Prefix)
+		prefix := firstNonEmptyValue(envConfig.Prefix, c.Redis.Prefix)
 		var hostOption ldr.FeatureStoreOption
 		if c.Redis.Url != "" {
 			if c.Redis.Host != "" {
@@ -598,14 +601,15 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
 	}
 	if c.Consul.Host != "" {
-		prefix := choosePrefix(c.Consul.Prefix)
+		prefix := firstNonEmptyValue(envConfig.Prefix, c.Consul.Prefix)
 		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, prefix)
 		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
 	if c.DynamoDB.TableName != "" {
-		logging.Info.Printf("Using DynamoDB feature store: %s", c.DynamoDB.TableName)
-		return lddynamodb.NewDynamoDBFeatureStore(c.DynamoDB.TableName,
+		tableName := firstNonEmptyValue(envConfig.TableName, c.DynamoDB.TableName)
+		logging.Info.Printf("Using DynamoDB feature store: %s", tableName)
+		return lddynamodb.NewDynamoDBFeatureStore(tableName,
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
 	return ld.NewInMemoryFeatureStore(logging.Info), nil
