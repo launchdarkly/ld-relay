@@ -342,6 +342,8 @@ To build the ld-relay container:
 $ docker build -t ld-relay .
 ```
 
+In docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the relay.
+
 ### Docker environment variables
 The docker entrypoint uses environment variables to configured the dockerized LD Relay instance.
 
@@ -428,3 +430,9 @@ if err != nil {
 }
 router.PathPrefix("/relay").Handler(r)
 ```
+
+Testing
+-------
+
+You can set up your development environment by installing go and running `make init` to install the linter.  To run
+lint and unit tests, run `make test`.  To run integration runs, run `make integration-test`.
