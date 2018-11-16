@@ -1,6 +1,6 @@
 #!/bin/sh
-if [ ! -f /etc/ld-relay.conf ]; then
-# only create /etc/ld-relay.conf if it doesn't exist already
+if [ ! -f /ldr/ld-relay.conf ]; then
+# only create /ldr/ld-relay.conf if it doesn't exist already
 
 if ! env | grep -q LD_ENV_ ; then
   echo "WARNING: at least one LD_ENV_ should be set" >&2
