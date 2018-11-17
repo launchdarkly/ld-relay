@@ -471,8 +471,8 @@
     "redis",
     "utils"
   ]
-  revision = "b59734e298c60381807e59d985eb846ab0e50c8f"
-  version = "4.5.1"
+  revision = "13d47cc7621a0e74550e4ba9bf8f1d01dd788768"
+  version = "4.6.0"
 
 [solve-meta]
   analyzer-name = "dep"

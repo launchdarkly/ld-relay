@@ -98,7 +98,8 @@ variable name | type   | default | description
 ## [dynamoDB]
 variable name | type   | default | description
 ------------- |:------:|:-------:| -----------
-`table`       | string |         | DynamoDB table name (note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files)
+`enabled`     | Boolean |        | Set this to `true` if you are using DynamoDB
+`tableName`   | string |         | DynamoDB table name, if you are using the same table for all environments; otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
 `localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
 
 ## [consul]
@@ -114,7 +115,8 @@ variable name        | type           | description
 `sdkKey`             | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
 `mobileKey`          | Mobile Key     | Mobile key for the environment. Required to proxy mobile SDK functionality
 `envId`              | Client-side ID | Client-side ID for the environment. Required to proxy front-end SDK functionality
-`prefix`             | String         | Required if using a Redis feature store
+`prefix`             | String         | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
+`tableName`          | String         | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`      | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
 `insecureSkipVerify` | Boolean        | If true, TLS accepts any certificate presented by the server and any host name in that certificate.
 

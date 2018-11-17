@@ -62,7 +62,7 @@ type EnvConfig struct {
 	ApiKey             string // deprecated, equivalent to SdkKey
 	MobileKey          *string
 	EnvId              *string
-	Prefix             string // used only if Redis or Consul is enabled
+	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
@@ -150,8 +150,10 @@ type Config struct {
 		Host     string
 		LocalTtl int
 	}
-	DynamoDB *struct { // This one is a pointer so we can tell if it's present or not (all of its properties are optional)
-		LocalTtl int
+	DynamoDB struct {
+		Enabled   bool
+		TableName string
+		LocalTtl  int
 	}
 	Environment map[string]*EnvConfig
 	MetricsConfig
@@ -592,12 +594,19 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
-	if c.DynamoDB != nil {
-		if envConfig.TableName == "" {
-			return nil, errors.New("TableName property must be specified for each environment when using DynamoDB")
+	if c.DynamoDB.Enabled {
+		// Note that the global TableName can be omitted if you specify a TableName for each environment
+		// (this is why we need an Enabled property here, since the other properties are all optional).
+		// You can also specify a prefix for each environment, as with the other databases.
+		tableName := envConfig.TableName
+		if tableName == "" {
+			tableName = c.DynamoDB.TableName
 		}
-		logging.Info.Printf("Using DynamoDB feature store: %s", envConfig.TableName)
-		return lddynamodb.NewDynamoDBFeatureStore(envConfig.TableName,
+		if tableName == "" {
+			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
+		}
+		logging.Info.Printf("Using DynamoDB feature store: %s", tableName)
+		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
 	return ld.NewInMemoryFeatureStore(logging.Info), nil
