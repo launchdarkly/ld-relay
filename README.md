@@ -250,7 +250,7 @@ In this example, the persistent store is in Redis. To set up LDR in this mode, p
     sdkKey = "SPREE_TEST_API_KEY"
 ```
 
-(The per-environment prefix setting would work the same way if you were using Consul; however, with DynamoDB, you would instead have to use a separate `tableName` for each environment.)
+(The per-environment `prefix` setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate `tableName` for each environment.)
 
 You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds).
 
