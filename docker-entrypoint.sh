@@ -41,6 +41,8 @@ fi
 if [ "$USE_DYNAMODB" = 1 || "$USE_DYNAMODB" == "true" ]; then
   echo "
 [dynamoDB]
+enabled = true
+tableName = ${DYNAMODB_TABLE:-}
 localTtl = ${CACHE_TTL:-30000}
 " >> $CONF_FILE
 fi
