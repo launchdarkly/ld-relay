@@ -269,7 +269,7 @@ type evalXResult struct {
 
 func (c *clientContextImpl) getClient() LdClientContext {
 	c.mu.RLock()
-	defer c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.client
 }
 
