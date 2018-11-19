@@ -16,27 +16,29 @@ heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
 " > /ldr/ld-relay.conf
 
 if [ "$USE_REDIS" = 1 ]; then
-if [ -z "${REDIS_HOST}" ] && [ -z "${REDIS_URL}" ]; then echo "Choose REDIS_HOST and REDIS_PORT or REDIS_URL"; exit 1; fi
-if echo "$REDIS_PORT" | grep -q 'tcp://'; then
-# REDIS_PORT gets set to tcp://$docker_ip:6379 when linking to a redis container
-# default to using those values if they exist
-REDIS_HOST_PART="${REDIS_PORT%:*}"
-REDIS_HOST="${REDIS_HOST_PART##*/}"
-REDIS_PORT="${REDIS_PORT##*:}"
-echo "
-[redis]
-host = \"${REDIS_HOST:-redis}\"
-port = ${REDIS_PORT:-6379}
-" >> /ldr/ld-relay.conf
-elif [ -n "${REDIS_URL+x}" ]; then
-echo "
-[redis]
-url = \"${REDIS_URL:-redis://:password@redis:6380/0}\"
-" >> /ldr/ld-relay.conf
-fi
-echo "localTtl = ${REDIS_TTL:-30000}" >> /ldr/ld-relay.conf
-fi
+        if [ -z "${REDIS_HOST}" ] && [ -z "${REDIS_URL}" ]; then echo "Choose REDIS_HOST and REDIS_PORT or REDIS_URL"; exit 1; fi
 
+        echo "[redis]" >> /ldr/ld-relay.conf
+
+        if [ -n "$REDIS_HOST" || -n "$REDIS_PORT" ]; then
+                if echo "$REDIS_PORT" | grep -q 'tcp://'; then
+                        # REDIS_PORT gets set to tcp://$docker_ip:6379 when linking to a redis container
+                        # default to using those values if they exist
+                        REDIS_HOST_PART="${REDIS_PORT%:*}"
+                        REDIS_HOST="${REDIS_HOST_PART##*/}"
+                        REDIS_PORT="${REDIS_PORT##*:}"
+                fi
+                cat <<-EOF >> /ldr/ld-relay.conf
+                host = "${REDIS_HOST:-redis}"
+                port = "${REDIS_PORT:-6379}"
+                EOF
+        elif [ -n "${REDIS_URL+x}" ]; then
+                cat <<-EOF >> /ldr/ld-relay.conf
+                url = "${REDIS_URL}"
+                EOF
+        fi
+        echo "localTtl = ${REDIS_TTL:-30000}" >> /ldr/ld-relay.conf
+fi
 
 if [ "$USE_EVENTS" = 1 ]; then
 echo "
