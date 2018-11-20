@@ -367,7 +367,7 @@ HEARTBEAT_INTERVAL           | Number         | `15`                            
 EVENTS_CAPACITY              | Number         | `10000`                           |
 LD_ENV_*env_name*            | SDK Key        |                                   | At least one `LD_ENV_${environment}` variable is recommended. The value should be the SDK key for that specific environment. Multiple environments can be listed.
 LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment. Multiple environments can be listed.
-LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the Mobile key for that specific environment. Multiple environments can be listed.
+LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the environment ID for that specific environment (this is used by the browser JavaScript SDK). Multiple environments can be listed.
 LD_PREFIX_*env_name*         | String         |                                   | Configures a database key prefix for that specific environment (with Redis, Consul, or DynamoDB). Multiple environments can be listed.
 LD_TABLE_NAME_*env_name*     | String         |                                   | Configures a database table name for that specific environment (with DynamoDB only). Multiple environments can be listed.
 USE_DATADOG                  | Number         | `0`                               | If set to 1, enables metric exports to DataDog.
