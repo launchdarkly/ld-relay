@@ -355,7 +355,7 @@ USE_REDIS                    | Boolean        | `false` | If set to `true` or 1,
 REDIS_HOST                   | URI            | `redis` | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default.
 REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default.
 REDIS_TTL                    | Number         | `30000`                           | Alternate name for CACHE_TTL
-USE_DYNAMODB                 | Boolean        | `false` | If set to `true` or 1, DynamoDB configuration will be added. You must also specify a table name with `LD_TABLE_NAME_*env_name*` as described below.
+USE_DYNAMODB                 | Boolean        | `false` | If set to `true` or 1, DynamoDB configuration will be added. You must also specify a table name with either `DYNAMODB_TABLE` or `LD_TABLE_NAME_*env_name*` as described below.
 DYNAMODB_TABLE               | String         |                                   | DynamoDB table name, if any; if you are using a different table for each environment, leave this blank
 CACHE_TTL                    | Number         | `30000`                           | Sets the local cache TTL in milliseconds if you are using a database.
 USE_EVENTS                   | Number         | `false`                           | If set to `true` or 1, enables event buffering.
