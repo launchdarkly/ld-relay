@@ -22,6 +22,11 @@ services:
     env_file:
       - test.env
 
+  relay-docker-standalone:
+    build: .
+    env_file:
+      - test.env
+
   test-centos:
     image: circleci/golang:1.10.3
     command: bash -c "dockerize -wait http://relay-centos:8030/status -timeout 5s; curl http://relay-centos:8030/status"
@@ -33,3 +38,7 @@ services:
   test-docker:
     image: circleci/golang:1.10.3
     command: bash -c "dockerize -wait http://relay-docker:8030/status -timeout 5s; curl http://relay-docker:8030/status"
+
+  test-docker-standalone:
+    image: circleci/golang:1.10.3
+    command: bash -c "dockerize -wait http://relay-docker:8030/status -timeout 5s; curl http://relay-docker-standalone:8030/status"
