@@ -1,7 +1,0 @@
-{
-  "Vendor": true,
-  "Deadline": "120s",
-  "Enable": [
-    "misspell"
-  ]
-}

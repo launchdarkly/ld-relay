@@ -153,7 +153,7 @@ func (ef eventOutputFormatter) makeOutputEvent(evt interface{}) interface{} {
 
 // Transforms the summary data into the format used for event sending.
 func (ef eventOutputFormatter) makeSummaryEvent(snapshot eventSummary) summaryEventOutput {
-	features := make(map[string]flagSummaryData)
+	features := make(map[string]flagSummaryData, len(snapshot.counters))
 	for key, value := range snapshot.counters {
 		var flagData flagSummaryData
 		var known bool

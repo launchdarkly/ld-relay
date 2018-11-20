@@ -1,7 +1,7 @@
 package ldclient
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" // nolint:gas // just used for insecure hashing
 	"encoding/hex"
 	"errors"
 	"io"
@@ -139,7 +139,7 @@ func bucketUser(user User, key, attr, salt string) float32 {
 		idHash = idHash + "." + *user.Secondary
 	}
 
-	h := sha1.New()
+	h := sha1.New() // nolint:gas // just used for insecure hashing
 	_, _ = io.WriteString(h, key+"."+salt+"."+idHash)
 	hash := hex.EncodeToString(h.Sum(nil))[:15]
 
@@ -221,7 +221,11 @@ func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult
 
 // Returns nil if all prerequisites are OK, otherwise constructs an error reason that describes the failure
 func (f FeatureFlag) checkPrerequisites(user User, store FeatureStore, sendReasonsInEvents bool) (EvaluationReason, []FeatureRequestEvent) {
-	var events []FeatureRequestEvent
+	if len(f.Prerequisites) == 0 {
+		return nil, nil
+	}
+
+	events := make([]FeatureRequestEvent, 0, len(f.Prerequisites))
 	for _, prereq := range f.Prerequisites {
 		data, err := store.Get(Features, prereq.Key)
 		if err != nil || data == nil {
@@ -229,21 +233,22 @@ func (f FeatureFlag) checkPrerequisites(user User, store FeatureStore, sendReaso
 		}
 		prereqFeatureFlag, _ := data.(*FeatureFlag)
 		prereqOK := true
-		if prereqFeatureFlag.On {
-			prereqResult, moreEvents := prereqFeatureFlag.EvaluateDetail(user, store, sendReasonsInEvents)
-			events = append(events, moreEvents...)
-			prereqEvent := NewFeatureRequestEvent(prereq.Key, prereqFeatureFlag, user,
-				prereqResult.VariationIndex, prereqResult.Value, nil, &f.Key)
-			if sendReasonsInEvents {
-				prereqEvent.Reason.Reason = prereqResult.Reason
-			}
-			events = append(events, prereqEvent)
-			if prereqResult.VariationIndex == nil || *prereqResult.VariationIndex != prereq.Variation {
-				prereqOK = false
-			}
-		} else {
+
+		prereqResult, moreEvents := prereqFeatureFlag.EvaluateDetail(user, store, sendReasonsInEvents)
+		if !prereqFeatureFlag.On || prereqResult.VariationIndex == nil || *prereqResult.VariationIndex != prereq.Variation {
+			// Note that if the prerequisite flag is off, we don't consider it a match no matter what its
+			// off variation was. But we still need to evaluate it in order to generate an event.
 			prereqOK = false
 		}
+
+		events = append(events, moreEvents...)
+		prereqEvent := NewFeatureRequestEvent(prereq.Key, prereqFeatureFlag, user,
+			prereqResult.VariationIndex, prereqResult.Value, nil, &f.Key)
+		if sendReasonsInEvents {
+			prereqEvent.Reason.Reason = prereqResult.Reason
+		}
+		events = append(events, prereqEvent)
+
 		if !prereqOK {
 			return newEvalReasonPrerequisiteFailed(prereq.Key), events
 		}
