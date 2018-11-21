@@ -17,13 +17,10 @@ port = 8030
 heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
 " > $CONF_FILE
 
-if [ "$USE_REDIS" = 1 || "$USE_REDIS" == "true" ]; then
-  if echo "$REDIS_PORT" | grep -q 'tcp://'; then
-    # REDIS_PORT gets set to tcp://$docker_ip:6379 when linking to a redis container
-    # default to using those values if they exist
-    REDIS_HOST_PART="${REDIS_PORT%:*}"
-    REDIS_HOST="${REDIS_HOST_PART##*/}"
-    REDIS_PORT="${REDIS_PORT##*:}"
+if [ "$USE_REDIS" = 1 ] || [ "$USE_REDIS" == "true" ]; then
+  if [ -z "${REDIS_HOST}" ] && [ -z "${REDIS_PORT}" ] && [ -z "${REDIS_URL}" ]; then
+    echo "Choose REDIS_HOST and REDIS_PORT or REDIS_URL"
+    exit 1
   fi
 
   if [ -n "$CACHE_TTL" ]; then
@@ -32,22 +29,43 @@ if [ "$USE_REDIS" = 1 || "$USE_REDIS" == "true" ]; then
 
   echo "
 [redis]
-host = \"${REDIS_HOST:-redis}\"
-port = ${REDIS_PORT:-6379}
 localTtl = ${REDIS_TTL:-30000}
 " >> $CONF_FILE
+
+  if [ -n "$REDIS_HOST" ] || [ -n "$REDIS_PORT" ]; then
+
+    if echo "$REDIS_PORT" | grep -q 'tcp://'; then
+      # REDIS_PORT gets set to tcp://$docker_ip:6379 when linking to a redis container
+      # default to using those values if they exist
+      REDIS_HOST_PART="${REDIS_PORT%:*}"
+      REDIS_HOST="${REDIS_HOST_PART##*/}"
+      REDIS_PORT="${REDIS_PORT##*:}"
+    fi
+
+    echo "
+host = \"${REDIS_HOST:-redis}\"
+port = ${REDIS_PORT:-6379}
+" >> $CONF_FILE
+
+  elif [ -n "${REDIS_URL+x}" ]; then
+
+    echo "
+url = "${REDIS_URL}"
+" >> $CONF_FILE
+
+  fi
 fi
 
-if [ "$USE_DYNAMODB" = 1 || "$USE_DYNAMODB" == "true" ]; then
+if [ "$USE_DYNAMODB" = 1 ] || [ "$USE_DYNAMODB" == "true" ]; then
   echo "
 [dynamoDB]
 enabled = true
-tableName = ${DYNAMODB_TABLE:-}
+tableName = \"${DYNAMODB_TABLE:-}\"
 localTtl = ${CACHE_TTL:-30000}
 " >> $CONF_FILE
 fi
 
-if [ "$USE_CONSUL" = 1 || "$USE_CONSUL" == "true" ]; then
+if [ "$USE_CONSUL" = 1 ] || [ "$USE_CONSUL" == "true" ]; then
   echo "
 [consul]
 host = \"${CONSUL_HOST:-localhost}\"
@@ -55,7 +73,7 @@ localTtl = ${CACHE_TTL:-30000}
 " >> $CONF_FILE
 fi
 
-if [ "$USE_EVENTS" = 1 || "$USE_EVENTS" == "true" ]; then
+if [ "$USE_EVENTS" = 1 ] || [ "$USE_EVENTS" == "true" ]; then
   echo "
 [events]
 eventsUri = \"${EVENTS_HOST:-https://events.launchdarkly.com}\"
@@ -90,7 +108,7 @@ done
 
 fi
 
-if [ "$USE_DATADOG" = 1 ]; then
+if [ "$USE_DATADOG" = 1 ] || [ "$USE_DATADOG" == "true" ]; then
 echo "
 [datadog]
 enabled = true
@@ -106,7 +124,7 @@ echo "
 " >> $CONF_FILE
 fi
 
-if [ "$USE_STACKDRIVER" = 1 ]; then
+if [ "$USE_STACKDRIVER" = 1 ] || [ "$USE_STACKDRIVER" == "true" ]; then
 echo "
 [stackdriver]
 enabled = true
@@ -115,7 +133,7 @@ prefix = \"${STACKDRIVER_PREFIX}\"
 " >> $CONF_FILE
 fi
 
-if [ "$USE_PROMETHEUS" = 1 ]; then
+if [ "$USE_PROMETHEUS" = 1 ] || [ "$USE_PROMETHEUS" == "true" ]; then
 echo "
 [prometheus]
 enabled = true
