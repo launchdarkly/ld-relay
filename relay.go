@@ -605,7 +605,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		if tableName == "" {
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
-		logging.Info.Printf("Using DynamoDB feature store: %s", tableName)
+		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
 		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
