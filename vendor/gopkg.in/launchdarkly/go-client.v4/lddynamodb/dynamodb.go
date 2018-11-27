@@ -378,7 +378,7 @@ func (store *dynamoDBFeatureStore) GetInternal(kind ld.VersionedDataKind, key st
 		TableName:      aws.String(store.table),
 		ConsistentRead: aws.Bool(true),
 		Key: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey: {S: aws.String(kind.GetNamespace())},
+			tablePartitionKey: {S: aws.String(store.namespaceForKind(kind))},
 			tableSortKey:      {S: aws.String(key)},
 		},
 	})
