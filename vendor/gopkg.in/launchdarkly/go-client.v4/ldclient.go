@@ -15,7 +15,7 @@ import (
 )
 
 // Version is the client version
-const Version = "4.3.0"
+const Version = "4.6.1"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -54,10 +54,12 @@ type Config struct {
 	// Set to true if you need to see the full user details in every analytics event.
 	InlineUsersInEvents   bool
 	PrivateAttributeNames []string
-	// An object that is responsible for receiving feature flag updates from LaunchDarkly.
+	// Deprecated. Please use UpdateProcessorFactory.
+	UpdateProcessor UpdateProcessor
+	// Factory to create an object that is responsible for receiving feature flag updates from LaunchDarkly.
 	// If nil, a default implementation will be used depending on the rest of the configuration
 	// (streaming, polling, etc.); a custom implementation can be substituted for testing.
-	UpdateProcessor UpdateProcessor
+	UpdateProcessorFactory UpdateProcessorFactory
 	// An object that is responsible for recording or sending analytics events. If nil, a
 	// default implementation will be used; a custom implementation can be substituted for testing.
 	EventProcessor EventProcessor
@@ -73,11 +75,28 @@ type Config struct {
 // the minimum will be used instead.
 const MinimumPollInterval = 30 * time.Second
 
-// UpdateProcessor describes the interface for an update processor
+// UpdateProcessor describes the interface for an object that receives feature flag data.
 type UpdateProcessor interface {
 	Initialized() bool
 	Close() error
 	Start(closeWhenReady chan<- struct{})
+}
+
+// UpdateProcessorFactory is a function that creates an UpdateProcessor.
+type UpdateProcessorFactory func(sdkKey string, config Config) (UpdateProcessor, error)
+
+type nullUpdateProcessor struct{}
+
+func (n nullUpdateProcessor) Initialized() bool {
+	return true
+}
+
+func (n nullUpdateProcessor) Close() error {
+	return nil
+}
+
+func (n nullUpdateProcessor) Start(closeWhenReady chan<- struct{}) {
+	close(closeWhenReady)
 }
 
 // DefaultConfig provides the default configuration options for the LaunchDarkly client.
@@ -140,34 +159,26 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 		store:  config.FeatureStore,
 	}
 
-	if config.Offline {
-		config.Logger.Println("Started LaunchDarkly in offline mode")
-		client.eventProcessor = newNullEventProcessor()
-		return &client, nil
-	}
-
 	if config.EventProcessor != nil {
 		client.eventProcessor = config.EventProcessor
-	} else if config.SendEvents {
+	} else if config.SendEvents && !config.Offline {
 		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, nil)
 	} else {
 		client.eventProcessor = newNullEventProcessor()
 	}
 
-	if config.UseLdd {
-		config.Logger.Println("Started LaunchDarkly in LDD mode")
-		return &client, nil
-	}
-
-	requestor := newRequestor(sdkKey, config)
-
 	if config.UpdateProcessor != nil {
 		client.updateProcessor = config.UpdateProcessor
-	} else if config.Stream {
-		client.updateProcessor = newStreamProcessor(sdkKey, config, requestor)
 	} else {
-		config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
-		client.updateProcessor = newPollingProcessor(config, requestor)
+		factory := config.UpdateProcessorFactory
+		if factory == nil {
+			factory = createDefaultUpdateProcessor
+		}
+		var err error
+		client.updateProcessor, err = factory(sdkKey, config)
+		if err != nil {
+			return nil, err
+		}
 	}
 	client.updateProcessor.Start(closeWhenReady)
 	timeout := time.After(waitFor)
@@ -190,6 +201,23 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 			return &client, nil
 		}
 	}
+}
+
+func createDefaultUpdateProcessor(sdkKey string, config Config) (UpdateProcessor, error) {
+	if config.Offline {
+		config.Logger.Println("Started LaunchDarkly in offline mode")
+		return nullUpdateProcessor{}, nil
+	}
+	if config.UseLdd {
+		config.Logger.Println("Started LaunchDarkly in LDD mode")
+		return nullUpdateProcessor{}, nil
+	}
+	requestor := newRequestor(sdkKey, config)
+	if config.Stream {
+		return newStreamProcessor(sdkKey, config, requestor), nil
+	}
+	config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
+	return newPollingProcessor(config, requestor), nil
 }
 
 // Identify reports details about a a user.
@@ -274,7 +302,8 @@ func (client *LDClient) AllFlags(user User) map[string]interface{} {
 
 // AllFlagsState returns an object that encapsulates the state of all feature flags for a
 // given user, including the flag values and also metadata that can be used on the front end.
-// You may pass ClientSideOnly as an optional parameter to filter the set of flags.
+// You may pass any combination of ClientSideOnly, WithReasons, and DetailsOnlyForTrackedFlags
+// as optional parameters to control what data is included.
 //
 // The most common use case for this method is to bootstrap a set of client-side feature flags
 // from a back-end service.
@@ -308,6 +337,7 @@ func (client *LDClient) AllFlagsState(user User, options ...FlagsStateOption) Fe
 	state := newFeatureFlagsState()
 	clientSideOnly := hasFlagsStateOption(options, ClientSideOnly)
 	withReasons := hasFlagsStateOption(options, WithReasons)
+	detailsOnlyIfTracked := hasFlagsStateOption(options, DetailsOnlyForTrackedFlags)
 	for _, item := range items {
 		if flag, ok := item.(*FeatureFlag); ok {
 			if clientSideOnly && !flag.ClientSide {
@@ -318,7 +348,7 @@ func (client *LDClient) AllFlagsState(user User, options ...FlagsStateOption) Fe
 			if withReasons {
 				reason = result.Reason
 			}
-			state.addFlag(flag, result.Value, result.VariationIndex, reason)
+			state.addFlag(flag, result.Value, result.VariationIndex, reason, detailsOnlyIfTracked)
 		}
 	}
 

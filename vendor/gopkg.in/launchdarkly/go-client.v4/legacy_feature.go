@@ -1,7 +1,7 @@
 package ldclient
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" // nolint:gas // just used for insecure hashing
 	"encoding/hex"
 	"io"
 	"reflect"
@@ -94,7 +94,7 @@ func (f Feature) paramForId(user User) (float32, bool) {
 		idHash = idHash + "." + *user.Secondary
 	}
 
-	h := sha1.New()
+	h := sha1.New() // nolint:gas // just used for insecure hashing
 	_, _ = io.WriteString(h, *f.Key+"."+*f.Salt+"."+idHash)
 	hash := hex.EncodeToString(h.Sum(nil))[:15]
 

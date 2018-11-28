@@ -24,6 +24,8 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-client.v4"
+	"gopkg.in/launchdarkly/go-client.v4/ldconsul"
+	"gopkg.in/launchdarkly/go-client.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
@@ -60,7 +62,8 @@ type EnvConfig struct {
 	ApiKey             string // deprecated, equivalent to SdkKey
 	MobileKey          *string
 	EnvId              *string
-	Prefix             string
+	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
+	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
 }
@@ -142,6 +145,15 @@ type Config struct {
 		Port     int
 		Url      string
 		LocalTtl int
+	}
+	Consul struct {
+		Host     string
+		LocalTtl int
+	}
+	DynamoDB struct {
+		Enabled   bool
+		TableName string
+		LocalTtl  int
 	}
 	Environment map[string]*EnvConfig
 	MetricsConfig
@@ -487,18 +499,9 @@ func (r *Relay) makeHandler() http.Handler {
 }
 
 func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
-	var baseFeatureStore ld.FeatureStore
-	if c.Redis.Url != "" {
-		if c.Redis.Host != "" {
-			logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
-		}
-		logging.Info.Printf("Using Redis Feature Store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
-		baseFeatureStore = ldr.NewRedisFeatureStoreFromUrl(c.Redis.Url, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
-	} else if c.Redis.Host != "" && c.Redis.Port != 0 {
-		logging.Info.Printf("Using Redis Feature Store: %s:%d with prefix: %s", c.Redis.Host, c.Redis.Port, envConfig.Prefix)
-		baseFeatureStore = ldr.NewRedisFeatureStore(c.Redis.Host, c.Redis.Port, envConfig.Prefix, time.Duration(c.Redis.LocalTtl)*time.Millisecond, logging.Info)
-	} else {
-		baseFeatureStore = ld.NewInMemoryFeatureStore(logging.Info)
+	baseFeatureStore, err := createFeatureStore(c, envConfig)
+	if err != nil {
+		return nil, err
 	}
 	logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
 
@@ -564,6 +567,49 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	}(envName, *envConfig)
 
 	return clientContext, nil
+}
+
+func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+	if c.Redis.Url != "" || c.Redis.Host != "" {
+		var hostOption ldr.FeatureStoreOption
+		if c.Redis.Url != "" {
+			if c.Redis.Host != "" {
+				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+			}
+			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
+			hostOption = ldr.URL(c.Redis.Url)
+		} else {
+			port := c.Redis.Port
+			if port == 0 {
+				port = 6379
+			}
+			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
+			hostOption = ldr.HostAndPort(c.Redis.Host, port)
+		}
+		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(envConfig.Prefix),
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
+	}
+	if c.Consul.Host != "" {
+		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
+		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
+			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
+	}
+	if c.DynamoDB.Enabled {
+		// Note that the global TableName can be omitted if you specify a TableName for each environment
+		// (this is why we need an Enabled property here, since the other properties are all optional).
+		// You can also specify a prefix for each environment, as with the other databases.
+		tableName := envConfig.TableName
+		if tableName == "" {
+			tableName = c.DynamoDB.TableName
+		}
+		if tableName == "" {
+			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
+		}
+		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
+		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
+			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
+	}
+	return ld.NewInMemoryFeatureStore(logging.Info), nil
 }
 
 type clientMux struct {

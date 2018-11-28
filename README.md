@@ -19,7 +19,7 @@ In most cases, the relay proxy is not required. However, there are some specific
 
 2. Reducing outbound connections to LaunchDarkly-- at scale (thousands or tens of thousands of servers), the number of outbound persistent connections to LaunchDarkly's streaming API can be problematic for some proxies and firewalls. With the relay proxy in place in proxy mode, your servers can connect directly to hosts within your own datacenter instead of connecting directly to LaunchDarkly's streaming API. On an appropriately spec'd machine, each relay proxy can handle tens of thousands of concurrent connections, so the number of outbound connections to the LaunchDarkly streaming API can be reduced dramatically.
 
-3. Reducing redundant update traffic to Redis-- if you are using Redis as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update Redis when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to Redis.
+3. Reducing redundant database traffic-- if you are using Redis or another supported database as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update the database when a flag update happens. This pattern is safe but inefficient. By deploying the relay proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of relay proxy instances and reduce the number of redundant update calls to the database.
 
 
 Quick setup
@@ -64,7 +64,7 @@ Configuration file format
 -------------------------
 LD Relay uses INI-style configuration files. You can read more about the syntax [here](https://git-scm.com/docs/git-config#_syntax).
 
-There are four primary section types: Main, Events, Redis, and Environments. In addition to the main section types, there are three supported sections for configuring exporters for exporting metrics and route traces: Datadog, Stackdriver, and Prometheus.
+There are three primary section types: Main, Events, and Environments. The optional Redis, DynamoDB, and Consul sections are for configuring the desired database, if any. In addition to these, there are three supported sections for configuring exporters for exporting metrics and route traces: Datadog, Stackdriver, and Prometheus.
 
 ## [main]
 variable name            | type    | default                           | description
@@ -92,7 +92,20 @@ variable name | type   | default | description
 `host`        | string |         | Hostname of the Redis database
 `port`        | Number |         | Port of the Redis database
 `url`         | string |         | URL of the Redis database (overrides `host` & `port`)
-`localTtl`    | Number | `30000` | Specifies the TTL for records added to the Redis database
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
+
+## [dynamoDB]
+variable name | type   | default | description
+------------- |:------:|:-------:| -----------
+`enabled`     | Boolean |        | Set this to `true` if you are using DynamoDB
+`tableName`   | string |         | DynamoDB table name, if you are using the same table for all environments; otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
+
+## [consul]
+variable name | type   | default | description
+------------- |:------:|:-------:| -----------
+`host`        | string |         | Hostname of the Consul server
+`localTtl`    | Number | `30000` | Length of time (in milliseconds) that database items can be cached in memory
 
 ## [environment]
 variable name        | type           | description
@@ -100,7 +113,8 @@ variable name        | type           | description
 `sdkKey`             | SDK Key        | SDK key for the environment. Required to proxy back-end SDK functionality
 `mobileKey`          | Mobile Key     | Mobile key for the environment. Required to proxy mobile SDK functionality
 `envId`              | Client-side ID | Client-side ID for the environment. Required to proxy front-end SDK functionality
-`prefix`             | String         | Required if using a Redis feature store
+`prefix`             | String         | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
+`tableName`          | String         | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`      | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
 `insecureSkipVerify` | Boolean        | If true, TLS accepts any certificate presented by the server and any host name in that certificate.
 
@@ -182,16 +196,27 @@ LDR can also be used to forward events to `events.launchdarkly.com`. When enable
 This configuration will buffer events for all environments specified in the configuration file. The events will be flushed every `flushIntervalSecs`. To point our SDKs to the relay for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance (or preferably, the host and port of a load balancer fronting your relay instances). Setting `inlineUsers` to `true` preserves full user details in every event (the default is to send them only once per user in an `"index"` event).
 
 
-Redis storage
--------------
-You can configure LDR nodes to persist feature flag settings in Redis. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from communicating with LaunchDarkly's servers.
+Persistent storage
+------------------
+You can configure LDR nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in case of (e.g.) a temporary network partition that prevents LDR from communicating with LaunchDarkly's servers. See [Using a persistent feature store](https://docs.launchdarkly.com/v2.0/docs/using-a-persistent-feature-store).
+
 ```
+# Redis example
 [redis]
     host = "localhost"
     port = 6379
     localTtl = 30000
-```
 
+# DynamoDB example
+[dynamoDB]
+    tableName = "my-feature-flags"
+    localTtl = 30000
+
+# Consul example
+[consul]
+    host = "localhost"
+    localTtl = 30000
+```
 
 Relay proxy mode
 ----------------
@@ -202,11 +227,11 @@ LDR is typically deployed in relay proxy mode. In this mode, several LDR instanc
 
 Daemon mode
 -----------------------------
-Optionally, you can configure our SDKs to communicate directly to the Redis store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. This is the preferred way to use LaunchDarkly with PHP (as there's no way to maintain persistent stream connections in PHP).
+Optionally, you can configure our SDKs to communicate directly to the persistent store. If you go this route, there is no need to put a load balancer in front of LDR-- we call this daemon mode. This is the preferred way to use LaunchDarkly with PHP (as there's no way to maintain persistent stream connections in PHP).
 
 ![LD Relay in daemon mode](relay-daemon.png)
 
-To set up LDR in this mode, provide a redis host and port, and supply a Redis key prefix for each environment in your configuration file:
+In this example, the persistent store is in Redis. To set up LDR in this mode, provide a Redis host and port, and supply a Redis key prefix for each environment in your configuration file:
 ```
 [redis]
     host = "localhost"
@@ -224,6 +249,8 @@ To set up LDR in this mode, provide a redis host and port, and supply a Redis ke
     prefix = "ld:spree:test"
     sdkKey = "SPREE_TEST_API_KEY"
 ```
+
+(The per-environment `prefix` setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate `tableName` for each environment.)
 
 You can also configure an in-memory cache for the relay to use so that connections do not always hit redis. To do this, set the `localTtl` parameter in your `redis` configuration section to a number (in milliseconds).
 
@@ -324,22 +351,25 @@ environment variable         | type           | default                         
 ---------------------------- |:--------------:|:---------------------------------:| -----------
 STREAM_URI                   | URI            | `https://stream.launchdarkly.com` |
 BASE_URI                     | URI            | `https://app.launchdarkly.com` |
-USE_REDIS                    | Boolean        | `false` | If set to 1, Redis configuration will be added.
-REDIS_HOST                   | URI            |         | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default. If not, the default value is `redis`
-REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default. If not, the defualt value is `6379`.
-REDIS_TTL                    | Number         | `30000`                           | Sets the TTL in milliseconds.
-USE_EVENTS                   | Number         | `0`                               | If set to 1, enables event buffering
-EVENTS_SEND                  | Boolean        | `true`                            |
+USE_REDIS                    | Boolean        | `false` | If set to `true` or 1, Redis configuration will be added.
+REDIS_HOST                   | URI            | `redis` | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default.
+REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default.
+REDIS_TTL                    | Number         | `30000`                           | Alternate name for CACHE_TTL
+USE_DYNAMODB                 | Boolean        | `false` | If set to `true` or 1, DynamoDB configuration will be added. You must also specify a table name with either `DYNAMODB_TABLE` or `LD_TABLE_NAME_*env_name*` as described below.
+DYNAMODB_TABLE               | String         |                                   | DynamoDB table name, if any; if you are using a different table for each environment, leave this blank
+CACHE_TTL                    | Number         | `30000`                           | Sets the local cache TTL in milliseconds if you are using a database.
+USE_EVENTS                   | Number         | `false`                           | If set to `true` or 1, enables event buffering.
 EVENTS_HOST                  | URI            | `https://events.launchdarkly.com` | URI of the LaunchDarkly events endpoint.
-EVENTS_FLUSH_INTERVAL        | Number         | `5`                               | Sets how often events are flushed, defaults to `5` (seconds)
+EVENTS_FLUSH_INTERVAL        | Number         | `5`                               | Sets how often events are flushed, in seconds.
 EVENTS_SAMPLING_INTERVAL     | Number         | `0`                               |
 EXIT_ON_ERROR                | Boolean        | `false`                           |
 HEARTBEAT_INTERVAL           | Number         | `15`                              |
 EVENTS_CAPACITY              | Number         | `10000`                           |
 LD_ENV_*env_name*            | SDK Key        |                                   | At least one `LD_ENV_${environment}` variable is recommended. The value should be the SDK key for that specific environment. Multiple environments can be listed.
-LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
-LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the Mobile key for that specific environment.Multiple environments can be listed.
-LD_PREFIX_*env_name*         | String         |                                   | Configures a Redis prefix for that specific environment. Multiple environments can be listed.
+LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                   | The value should be the Mobile key for that specific environment. Multiple environments can be listed.
+LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the environment ID for that specific environment (this is used by the browser JavaScript SDK). Multiple environments can be listed.
+LD_PREFIX_*env_name*         | String         |                                   | Configures a database key prefix for that specific environment (with Redis, Consul, or DynamoDB). Multiple environments can be listed.
+LD_TABLE_NAME_*env_name*     | String         |                                   | Configures a database table name for that specific environment (with DynamoDB only). Multiple environments can be listed.
 USE_DATADOG                  | Number         | `0`                               | If set to 1, enables metric exports to DataDog.
 DATADOG_STATS_ADDR           | String         | `localhost:8125`                  | URI of the DataDog stats agent.
 DATADOG_TRACE_ADDR           | String         | `localhost:8126`                  | URI of the DataDog trace agent.

@@ -8,6 +8,8 @@ linters:
     - gocyclo
     - gofmt
     - maligned
+    - unparam
+    - lll
   fast: false
 
 linter-settings:
