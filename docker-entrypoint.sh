@@ -17,7 +17,7 @@ port = 8030
 heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
 " > $CONF_FILE
 
-if [ "$USE_REDIS" = 1 ] || [ "$USE_REDIS" == "true" ]; then
+if [ "$USE_REDIS" == 1 ] || [ "$USE_REDIS" == "true" ]; then
   if [ -z "${REDIS_HOST}" ] && [ -z "${REDIS_PORT}" ] && [ -z "${REDIS_URL}" ]; then
     echo "Choose REDIS_HOST and REDIS_PORT or REDIS_URL"
     exit 1
@@ -56,7 +56,7 @@ url = "${REDIS_URL}"
   fi
 fi
 
-if [ "$USE_DYNAMODB" = 1 ] || [ "$USE_DYNAMODB" == "true" ]; then
+if [ "$USE_DYNAMODB" == 1 ] || [ "$USE_DYNAMODB" == "true" ]; then
   echo "
 [dynamoDB]
 enabled = true
@@ -65,7 +65,7 @@ localTtl = ${CACHE_TTL:-30000}
 " >> $CONF_FILE
 fi
 
-if [ "$USE_CONSUL" = 1 ] || [ "$USE_CONSUL" == "true" ]; then
+if [ "$USE_CONSUL" == 1 ] || [ "$USE_CONSUL" == "true" ]; then
   echo "
 [consul]
 host = \"${CONSUL_HOST:-localhost}\"
@@ -73,7 +73,7 @@ localTtl = ${CACHE_TTL:-30000}
 " >> $CONF_FILE
 fi
 
-if [ "$USE_EVENTS" = 1 ] || [ "$USE_EVENTS" == "true" ]; then
+if [ "$USE_EVENTS" == 1 ] || [ "$USE_EVENTS" == "true" ]; then
   echo "
 [events]
 eventsUri = \"${EVENTS_HOST:-https://events.launchdarkly.com}\"
@@ -108,7 +108,7 @@ done
 
 fi
 
-if [ "$USE_DATADOG" = 1 ] || [ "$USE_DATADOG" == "true" ]; then
+if [ "$USE_DATADOG" == 1 ] || [ "$USE_DATADOG" == "true" ]; then
 echo "
 [datadog]
 enabled = true
@@ -124,7 +124,7 @@ echo "
 " >> $CONF_FILE
 fi
 
-if [ "$USE_STACKDRIVER" = 1 ] || [ "$USE_STACKDRIVER" == "true" ]; then
+if [ "$USE_STACKDRIVER" == 1 ] || [ "$USE_STACKDRIVER" == "true" ]; then
 echo "
 [stackdriver]
 enabled = true
@@ -133,7 +133,7 @@ prefix = \"${STACKDRIVER_PREFIX}\"
 " >> $CONF_FILE
 fi
 
-if [ "$USE_PROMETHEUS" = 1 ] || [ "$USE_PROMETHEUS" == "true" ]; then
+if [ "$USE_PROMETHEUS" == 1 ] || [ "$USE_PROMETHEUS" == "true" ]; then
 echo "
 [prometheus]
 enabled = true
