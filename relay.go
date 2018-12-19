@@ -519,7 +519,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionURI(c.Events.EventsUri))
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}

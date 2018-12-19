@@ -87,9 +87,9 @@ type OptionType interface {
 	apply(*HttpEventPublisher) error
 }
 
-type OptionURI string
+type OptionUri string
 
-func (o OptionURI) apply(p *HttpEventPublisher) error {
+func (o OptionUri) apply(p *HttpEventPublisher) error {
 	p.eventsURI = strings.TrimRight(string(o), "/") + defaultEventsURIPath
 	return nil
 }
