@@ -570,7 +570,9 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 }
 
 func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+	databaseSpecified := false
 	if c.Redis.Url != "" || c.Redis.Host != "" {
+		databaseSpecified = true
 		var hostOption ldr.FeatureStoreOption
 		if c.Redis.Url != "" {
 			if c.Redis.Host != "" {
@@ -590,11 +592,18 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
 	}
 	if c.Consul.Host != "" {
+		if databaseSpecified {
+			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
+		}
+		databaseSpecified = true
 		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
 		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
 	if c.DynamoDB.Enabled {
+		if databaseSpecified {
+			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
+		}
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
 		// (this is why we need an Enabled property here, since the other properties are all optional).
 		// You can also specify a prefix for each environment, as with the other databases.
