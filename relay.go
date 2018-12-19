@@ -798,7 +798,7 @@ func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
 }
 
-func bulkEventHandler(endpoint events.EventsEndpoint) func(http.ResponseWriter, *http.Request) {
+func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
 		dispatcher := clientCtx.getHandlers().eventDispatcher

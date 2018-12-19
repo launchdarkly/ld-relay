@@ -28,7 +28,7 @@ type Config struct {
 }
 
 // Describes one of the possible endpoints (on both events.launchdarkly.com and the relay) for posting events
-type EventsEndpoint interface {
+type Endpoint interface {
 	fmt.Stringer
 	remoteUrlPath(config Config) string
 }
@@ -67,7 +67,7 @@ const (
 
 // EventDispatcher relays events to LaunchDarkly for an environment
 type EventDispatcher struct {
-	endpoints map[EventsEndpoint]*eventEndpointDispatcher
+	endpoints map[Endpoint]*eventEndpointDispatcher
 }
 
 type eventEndpointDispatcher struct {
@@ -104,7 +104,7 @@ func (e javaScriptSDKEventsEndpoint) remoteUrlPath(config Config) string {
 	return "/events/bulk/" + "X" // TODO
 }
 
-func (r *EventDispatcher) GetHandler(endpoint EventsEndpoint) func(w http.ResponseWriter, req *http.Request) {
+func (r *EventDispatcher) GetHandler(endpoint Endpoint) func(w http.ResponseWriter, req *http.Request) {
 	d := r.endpoints[endpoint]
 	if d != nil {
 		return d.dispatchEvents
@@ -180,7 +180,7 @@ func (r *eventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
 func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config Config, featureStore ld.FeatureStore) *EventDispatcher {
 	ep := &EventDispatcher{
-		endpoints: map[EventsEndpoint]*eventEndpointDispatcher{
+		endpoints: map[Endpoint]*eventEndpointDispatcher{
 			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, featureStore, "/bulk"),
 		},
 	}
