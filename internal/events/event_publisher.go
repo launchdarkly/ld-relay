@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"sync"
 	"time"
@@ -18,11 +19,12 @@ import (
 )
 
 const (
-	numAttempts          = 2
-	defaultFlushInterval = time.Minute
-	defaultCapacity      = 1000
-	inputQueueSize       = 100
-	defaultEventsURI     = "https://events.launchdarkly.com/bulk"
+	numAttempts              = 2
+	defaultFlushInterval     = time.Minute
+	defaultCapacity          = 1000
+	inputQueueSize           = 100
+	defaultEventsEndpointURI = "https://events.launchdarkly.com/bulk"
+	defaultEventsURIPath     = "bulk"
 )
 
 var (
@@ -39,7 +41,7 @@ type HttpEventPublisher struct {
 	eventsURI  string
 	logger     ld.Logger
 	client     *http.Client
-	sdkKey     string
+	authKey    string
 	userAgent  string
 	closer     chan<- struct{}
 	closeOnce  sync.Once
@@ -85,9 +87,16 @@ type OptionType interface {
 	apply(*HttpEventPublisher) error
 }
 
-type OptionUri string
+type OptionURI string
 
-func (o OptionUri) apply(p *HttpEventPublisher) error {
+func (o OptionURI) apply(p *HttpEventPublisher) error {
+	p.eventsURI = path.Join(string(o), defaultEventsURIPath)
+	return nil
+}
+
+type OptionEndpointURI string
+
+func (o OptionEndpointURI) apply(p *HttpEventPublisher) error {
 	p.eventsURI = string(o)
 	return nil
 }
@@ -130,15 +139,15 @@ func (o OptionCapacity) apply(p *HttpEventPublisher) error {
 	return nil
 }
 
-func NewHttpEventPublisher(sdkKey string, options ...OptionType) (*HttpEventPublisher, error) {
+func NewHttpEventPublisher(authKey string, options ...OptionType) (*HttpEventPublisher, error) {
 	closer := make(chan struct{})
 
 	inputQueue := make(chan interface{}, inputQueueSize)
 	p := &HttpEventPublisher{
 		client:     http.DefaultClient,
 		userAgent:  defaultUserAgent,
-		eventsURI:  defaultEventsURI,
-		sdkKey:     sdkKey,
+		eventsURI:  defaultEventsEndpointURI,
+		authKey:    authKey,
 		closer:     closer,
 		capacity:   defaultCapacity,
 		inputQueue: inputQueue,
@@ -251,12 +260,14 @@ PostAttempts:
 			p.logger.Printf("Will retry posting events after 1 second")
 			time.Sleep(1 * time.Second)
 		}
-		req, reqErr := http.NewRequest("POST", p.eventsURI+"/bulk", bytes.NewReader(jsonPayload))
+		req, reqErr := http.NewRequest("POST", p.eventsURI, bytes.NewReader(jsonPayload))
 		if reqErr != nil {
 			return reqErr
 		}
 
-		req.Header.Add("Authorization", p.sdkKey)
+		if p.authKey != "" {
+			req.Header.Add("Authorization", p.authKey)
+		}
 		req.Header.Add("Content-Type", "application/json")
 		req.Header.Add("User-Agent", "LDRelay/"+version.Version)
 		req.Header.Add(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))

@@ -3,6 +3,7 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 	"time"
 
@@ -16,9 +17,9 @@ type eventSummarizingRelay struct {
 	featureStore   ld.FeatureStore
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore) *eventSummarizingRelay {
+func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
-	ldConfig.EventsUri = config.EventsUri
+	ldConfig.EventsEndpointUri = path.Join(config.EventsUri, remotePath)
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
