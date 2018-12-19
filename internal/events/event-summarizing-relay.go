@@ -3,8 +3,8 @@ package events
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"reflect"
+	"strings"
 	"time"
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
@@ -19,7 +19,7 @@ type eventSummarizingRelay struct {
 
 func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
-	ldConfig.EventsEndpointUri = path.Join(config.EventsUri, remotePath)
+	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second

@@ -114,9 +114,15 @@ func init() {
 func getEventsImage(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
 
-	if clientCtx.getHandlers().eventsHandler == nil {
+	if clientCtx.getHandlers().eventDispatcher == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		return
+	}
+	handler := clientCtx.getHandlers().eventDispatcher.GetHandler(events.JavaScriptSDKEventsEndpoint)
+	if handler == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write(util.ErrorJsonMsg("Event proxy for browser clients is not enabled for this environment"))
 		return
 	}
 
@@ -128,7 +134,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 			eventsReq, _ := http.NewRequest("POST", "", bytes.NewBuffer(events))
 			eventsReq.Header.Add("Content-Type", "application/json")
 			eventsReq.Header.Add("X-LaunchDarkly-User-Agent", eventsReq.Header.Get("X-LaunchDarkly-User-Agent"))
-			clientCtx.getHandlers().eventsHandler.ServeHTTP(nullW, eventsReq)
+			handler(nullW, eventsReq)
 		}()
 	}
 

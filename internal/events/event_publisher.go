@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +24,7 @@ const (
 	defaultCapacity          = 1000
 	inputQueueSize           = 100
 	defaultEventsEndpointURI = "https://events.launchdarkly.com/bulk"
-	defaultEventsURIPath     = "bulk"
+	defaultEventsURIPath     = "/bulk"
 )
 
 var (
@@ -90,7 +90,7 @@ type OptionType interface {
 type OptionURI string
 
 func (o OptionURI) apply(p *HttpEventPublisher) error {
-	p.eventsURI = path.Join(string(o), defaultEventsURIPath)
+	p.eventsURI = strings.TrimRight(string(o), "/") + defaultEventsURIPath
 	return nil
 }
 

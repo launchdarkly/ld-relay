@@ -516,7 +516,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
 		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvironmentId, c.Events, baseFeatureStore)
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
 	}
 
 	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionURI(c.Events.EventsUri))

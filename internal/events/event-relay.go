@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
-	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -149,6 +149,7 @@ func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *htt
 		if payloadVersion == 0 {
 			payloadVersion = 1
 		}
+		logging.Debug.Printf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
 		if payloadVersion >= SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(evts)
@@ -204,7 +205,7 @@ func newEventEndpointDispatcher(authKey string, config Config, featureStore ld.F
 func newEventVerbatimRelay(sdkKey string, config Config, remotePath string) *eventVerbatimRelay {
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
-		OptionEndpointURI(path.Join(config.EventsUri, remotePath)),
+		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),
 	}
 
 	if config.FlushIntervalSecs > 0 {

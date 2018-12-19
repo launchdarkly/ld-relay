@@ -336,8 +336,9 @@ func NewStreamRecorder() (StreamRecorder, io.Reader) {
 }
 
 type publishedEvent struct {
-	url  string
-	data []byte
+	url     string
+	data    []byte
+	authKey string
 }
 
 func makeTestEventBuffer(userKey string) []byte {
@@ -356,20 +357,21 @@ func TestRelay(t *testing.T) {
 
 	publishedEvents := make(chan publishedEvent)
 
-	expectEventBuffer := func(data []byte) {
-		timeout := time.After(time.Second * 10)
+	requirePublishedEvent := func(data []byte) publishedEvent {
+		timeout := time.After(time.Second * 3)
 		select {
 		case event := <-publishedEvents:
 			assert.JSONEq(t, string(data), string(event.data))
-			assert.Equal(t, "/bulk", event.url)
+			return event
 		case <-timeout:
 			assert.Fail(t, "did not get event within 3 seconds")
+			return publishedEvent{} // won't get here
 		}
 	}
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		data, _ := ioutil.ReadAll(req.Body)
-		publishedEvents <- publishedEvent{url: req.URL.String(), data: data}
+		publishedEvents <- publishedEvent{url: req.URL.String(), data: data, authKey: req.Header.Get("Authorization")}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -689,16 +691,31 @@ func TestRelay(t *testing.T) {
 		}
 	})
 
-	t.Run("server-side and mobile events proxies", func(t *testing.T) {
+	t.Run("server-side events proxy", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		body := makeTestEventBuffer("me")
+		bodyBuffer := bytes.NewBuffer(body)
+		r, _ := http.NewRequest("POST", "http://localhost/bulk", bodyBuffer)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", sdkKey)
+		r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
+		relay.ServeHTTP(w, r)
+		result := w.Result()
+		if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+			event := requirePublishedEvent(body)
+			assert.Equal(t, "/bulk", event.url)
+			assert.Equal(t, sdkKey, event.authKey)
+		}
+	})
+
+	t.Run("mobile events proxies", func(t *testing.T) {
 		specs := []struct {
-			name       string
-			method     string
-			path       string
-			authHeader string
+			name   string
+			method string
+			path   string
 		}{
-			{"events bulk", "POST", "/bulk", sdkKey},
-			{"mobile events", "POST", "/mobile/events", mobileKey},
-			{"mobile events bulk", "POST", "/mobile/events/bulk", mobileKey},
+			{"mobile events", "POST", "/mobile/events"},
+			{"mobile events bulk", "POST", "/mobile/events/bulk"},
 		}
 
 		for i, s := range specs {
@@ -707,17 +724,21 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Authorization", s.authHeader)
+			r.Header.Set("Authorization", mobileKey)
 			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
-				expectEventBuffer(body)
+				event := requirePublishedEvent(body)
+				assert.Equal(t, "/mobile", event.url)
+				assert.Equal(t, mobileKey, event.authKey)
 			}
 		}
 	})
 
 	t.Run("client-side events proxies", func(t *testing.T) {
+		expectedPath := "/events/bulk/" + envId
+
 		t.Run("bulk post", func(t *testing.T) {
 			w := httptest.NewRecorder()
 			body := makeTestEventBuffer("me-post")
@@ -728,7 +749,9 @@ func TestRelay(t *testing.T) {
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
-				expectEventBuffer(body)
+				event := requirePublishedEvent(body)
+				assert.Equal(t, expectedPath, event.url)
+				assert.Equal(t, "", event.authKey)
 			}
 		})
 
@@ -740,7 +763,9 @@ func TestRelay(t *testing.T) {
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
-				expectEventBuffer(body)
+				event := requirePublishedEvent(body)
+				assert.Equal(t, expectedPath, event.url)
+				assert.Equal(t, "", event.authKey)
 			}
 		})
 	})
