@@ -30,7 +30,6 @@ type Config struct {
 // Describes one of the possible endpoints (on both events.launchdarkly.com and the relay) for posting events
 type Endpoint interface {
 	fmt.Stringer
-	remoteUrlPath(config Config) string
 }
 
 type (
@@ -84,24 +83,12 @@ func (e *serverSDKEventsEndpoint) String() string {
 	return "ServerSDKEventsEndpoint"
 }
 
-func (e *serverSDKEventsEndpoint) remoteUrlPath(config Config) string {
-	return "/bulk"
-}
-
 func (e *mobileSDKEventsEndpoint) String() string {
 	return "MobileSDKEventsEndpoint"
 }
 
-func (e *mobileSDKEventsEndpoint) remoteUrlPath(config Config) string {
-	return "/mobile/events/bulk"
-}
-
 func (e *javaScriptSDKEventsEndpoint) String() string {
 	return "JavaScriptSDKEventsEndpoint"
-}
-
-func (e javaScriptSDKEventsEndpoint) remoteUrlPath(config Config) string {
-	return "/events/bulk/" + "X" // TODO
 }
 
 func (r *EventDispatcher) GetHandler(endpoint Endpoint) func(w http.ResponseWriter, req *http.Request) {
