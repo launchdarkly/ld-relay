@@ -218,6 +218,10 @@ You can configure LDR nodes to persist feature flag settings in Redis, DynamoDB,
     localTtl = 30000
 ```
 
+Note that the relay can only use _one_ of these at a time; for instance, enabling both Redis and DynamoDB is an error.
+
+Also note that the LaunchDarkly SDK clients have their own options for configuring persistent storage. If you are using daemon mode (see below) then the clients need to be using the same storage configuration as the relay. If you are not using daemon mode, then the two configurations are completely independent, e.g. you could have a relay using Redis, but a client using Consul or not using persistent storage at all.
+
 Relay proxy mode
 ----------------
 LDR is typically deployed in relay proxy mode. In this mode, several LDR instances are deployed in a high-availability configuration behind a load balancer. LDR nodes do not need to communicate with each other, and there is no master or cluster. This makes it easy to scale LDR horizontally by deploying more nodes behind the load balancer.
@@ -347,22 +351,24 @@ In docker, the config file is expected to be found at `/ldr/ld-relay.conf` unles
 ### Docker environment variables
 The docker entrypoint uses environment variables to configured the dockerized LD Relay instance.
 
+Note that environment variables are always strings, so the ones listed as "boolean" or "number" are simply describing how the relay will interpret that string. For boolean settings, a value of either `true` or `1` is considered true while any other value is considered false.
+
 environment variable         | type           | default                           | description
 ---------------------------- |:--------------:|:---------------------------------:| -----------
 STREAM_URI                   | URI            | `https://stream.launchdarkly.com` |
 BASE_URI                     | URI            | `https://app.launchdarkly.com` |
-USE_REDIS                    | Boolean        | `false` | If set to `true` or 1, Redis configuration will be added.
+USE_REDIS                    | Boolean        | `false` | If true, Redis configuration will be added.
 REDIS_HOST                   | URI            | `redis` | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default.
 REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default.
 REDIS_TTL                    | Number         | `30000`                           | Alternate name for CACHE_TTL
-USE_DYNAMODB                 | Boolean        | `false` | If set to `true` or 1, DynamoDB configuration will be added. You must also specify a table name with either `DYNAMODB_TABLE` or `LD_TABLE_NAME_*env_name*` as described below.
-DYNAMODB_TABLE               | String         |                                   | DynamoDB table name, if any; if you are using a different table for each environment, leave this blank
+USE_DYNAMODB                 | Boolean        | `false`                           | If true, DynamoDB configuration will be added. You must also specify a table name with either `DYNAMODB_TABLE` or `LD_TABLE_NAME_*env_name*` as described below.
+DYNAMODB_TABLE               | String         |                                   | DynamoDB table name, if any; if you are using a different table for each environment, leave this blank.
 CACHE_TTL                    | Number         | `30000`                           | Sets the local cache TTL in milliseconds if you are using a database.
-USE_EVENTS                   | Number         | `false`                           | If set to `true` or 1, enables event buffering.
+USE_EVENTS                   | Boolean        | `false`                           | Enables event buffering.
 EVENTS_HOST                  | URI            | `https://events.launchdarkly.com` | URI of the LaunchDarkly events endpoint.
 EVENTS_FLUSH_INTERVAL        | Number         | `5`                               | Sets how often events are flushed, in seconds.
 EVENTS_SAMPLING_INTERVAL     | Number         | `0`                               |
-EXIT_ON_ERROR                | Boolean        | `false`                           |
+EXIT_ON_ERROR                | Boolean        | `false`                           | If true, the relay will quit at startup time if it cannot establish a connection to LaunchDarkly.
 HEARTBEAT_INTERVAL           | Number         | `15`                              |
 EVENTS_CAPACITY              | Number         | `10000`                           |
 LD_ENV_*env_name*            | SDK Key        |                                   | At least one `LD_ENV_${environment}` variable is recommended. The value should be the SDK key for that specific environment. Multiple environments can be listed.
@@ -370,17 +376,18 @@ LD_MOBILE_KEY_*env_name*     | Mobile Key     |                                 
 LD_CLIENT_SIDE_ID_*env_name* | Client-side ID |                                   | The value should be the environment ID for that specific environment (this is used by the browser JavaScript SDK). Multiple environments can be listed.
 LD_PREFIX_*env_name*         | String         |                                   | Configures a database key prefix for that specific environment (with Redis, Consul, or DynamoDB). Multiple environments can be listed.
 LD_TABLE_NAME_*env_name*     | String         |                                   | Configures a database table name for that specific environment (with DynamoDB only). Multiple environments can be listed.
-USE_DATADOG                  | Number         | `0`                               | If set to 1, enables metric exports to DataDog.
+USE_DATADOG                  | Boolean        | `false`                           | Enables metric exports to DataDog.
 DATADOG_STATS_ADDR           | String         | `localhost:8125`                  | URI of the DataDog stats agent.
 DATADOG_TRACE_ADDR           | String         | `localhost:8126`                  | URI of the DataDog trace agent.
 DATADOG_PREFIX               | String         |                                   | Configure a prefix for DataDog metric names.
 DATADOG_TAG_*tag_name*       | String         |                                   | Configure tags to be associated with DataDog metrics.
-USE_STACKDRIVER              | Number         | `0`                               | If set to 1, enables metric exports to Stackdriver.
+USE_STACKDRIVER              | Boolean        | `false`                           | Enables metric exports to Stackdriver.
 STACKDRIVER_PROJECT_ID       | String         |                                   | Stackdriver project id. Required to successfully export metrics to Stackdriver.
 STACKDRIVER_PREFIX           | String         |                                   | Configure a prefix for Stackdriver metric names.
-USE_PROMETHEUS               | Number         | `0`                               | If set to 1, enables metric exports to Prometheus.
+USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
+
 ### Docker examples
 To run a single environment, without Redis:
 ```
