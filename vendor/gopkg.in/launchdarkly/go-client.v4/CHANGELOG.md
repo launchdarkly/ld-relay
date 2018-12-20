@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.7.0] - 2018-12-18
+### Added:
+- The new configuration option `EventsEndpointUri` allows the entire URI for event posting to be customized, not just the base URI. This is used by the LaunchDarkly Relay Proxy and will not normally be needed by developers.
+- Configuration options that did not have documentation comments are now documented.
+
 ## [4.6.1] - 2018-11-26
 ### Fixed:
 - Fixed a bug in the DynamoDB feature store that caused read operations to fail sometimes if the `lddynamodb.Prefix` option was used.

@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// Version is the client version
-const Version = "4.6.1"
+// Version is the client version.
+const Version = "4.7.0"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -28,7 +28,7 @@ type LDClient struct {
 	store           FeatureStore
 }
 
-// Logger is a generic logger interface
+// Logger is a generic logger interface.
 type Logger interface {
 	Println(...interface{})
 	Printf(string, ...interface{})
@@ -36,23 +36,58 @@ type Logger interface {
 
 // Config exposes advanced configuration options for the LaunchDarkly client.
 type Config struct {
-	BaseUri              string
-	StreamUri            string
-	EventsUri            string
-	Capacity             int
-	FlushInterval        time.Duration
-	SamplingInterval     int32
-	PollInterval         time.Duration
-	Logger               Logger
-	Timeout              time.Duration
-	FeatureStore         FeatureStore
-	Stream               bool
-	UseLdd               bool
-	SendEvents           bool
-	Offline              bool
+	// The base URI of the main LaunchDarkly service. This should not normally be changed except for testing.
+	BaseUri string
+	// The base URI of the LaunchDarkly streaming service. This should not normally be changed except for testing.
+	StreamUri string
+	// The base URI of the LaunchDarkly service that accepts analytics events. This should not normally be
+	// changed except for testing.
+	EventsUri string
+	// The full URI for posting analytics events. This is different from EventsUri in that the client will not
+	// add the default URI path to it. It should not normally be changed except for testing, and if set, it
+	// causes EventsUri to be ignored.
+	EventsEndpointUri string
+	// The capacity of the events buffer. The client buffers up to this many events in memory before flushing.
+	// If the capacity is exceeded before the buffer is flushed, events will be discarded.
+	Capacity int
+	// The time between flushes of the event buffer. Decreasing the flush interval means that the event buffer
+	// is less likely to reach capacity.
+	FlushInterval time.Duration
+	// Enables event sampling if non-zero. When set to the default of zero, all events are sent to Launchdarkly.
+	// If greater than zero, there is a 1 in SamplingInterval chance that events will be sent (for example, a
+	// value of 20 means on average 5% of events will be sent).
+	SamplingInterval int32
+	// The polling interval (when streaming is disabled). Values less than the default of MinimumPollInterval
+	// will be set to the default.
+	PollInterval time.Duration
+	// An object
+	Logger Logger
+	// The connection timeout to use when making polling requests to LaunchDarkly.
+	Timeout time.Duration
+	// Sets the implementation of FeatureStore for holding feature flags and related data received from
+	// LaunchDarkly. See NewInMemoryFeatureStore (the default) and the redis, ldconsul, and lddynamodb packages.
+	FeatureStore FeatureStore
+	// Sets whether streaming mode should be enabled. By default, streaming is enabled. It should only be
+	// disabled on the advice of LaunchDarkly support.
+	Stream bool
+	// Sets whether this client should use the LaunchDarkly relay in daemon mode. In this mode, the client does
+	// not subscribe to the streaming or polling API, but reads data only from the feature store. See:
+	// https://docs.launchdarkly.com/docs/the-relay-proxy
+	UseLdd bool
+	// Sets whether to send analytics events back to LaunchDarkly. By default, the client will send events. This
+	// differs from Offline in that it only affects sending events, not streaming or polling for events from the
+	// server.
+	SendEvents bool
+	// Sets whether this client is offline. An offline client will not make any network connections to LaunchDarkly,
+	// and will return default values for all feature flags.
+	Offline bool
+	// Sets whether or not all user attributes (other than the key) should be hidden from LaunchDarkly. If this
+	// is true, all user attribute values will be private, not just the attributes specified in PrivateAttributeNames.
 	AllAttributesPrivate bool
 	// Set to true if you need to see the full user details in every analytics event.
-	InlineUsersInEvents   bool
+	InlineUsersInEvents bool
+	// Marks a set of user attribute names private. Any users sent to LaunchDarkly with this configuration
+	// active will have attributes with these names removed.
 	PrivateAttributeNames []string
 	// Deprecated. Please use UpdateProcessorFactory.
 	UpdateProcessor UpdateProcessor

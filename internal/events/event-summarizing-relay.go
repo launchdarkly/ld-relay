@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	ld "gopkg.in/launchdarkly/go-client.v4"
@@ -16,9 +17,9 @@ type eventSummarizingRelay struct {
 	featureStore   ld.FeatureStore
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore) *eventSummarizingRelay {
+func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
-	ldConfig.EventsUri = config.EventsUri
+	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second

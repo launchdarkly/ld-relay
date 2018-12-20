@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,6 +82,7 @@ const (
 	maxFlushWorkers    = 5
 	eventSchemaHeader  = "X-LaunchDarkly-Event-Schema"
 	currentEventSchema = "3"
+	defaultURIPath     = "/bulk"
 )
 
 func newNullEventProcessor() *nullEventProcessor {
@@ -355,9 +357,13 @@ func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <
 		userFilter:  newUserFilter(config),
 		inlineUsers: config.InlineUsersInEvents,
 	}
+	uri := config.EventsEndpointUri
+	if uri == "" {
+		uri = strings.TrimRight(config.EventsUri, "/") + defaultURIPath
+	}
 	t := sendEventsTask{
 		client:    client,
-		eventsURI: config.EventsUri + "/bulk",
+		eventsURI: uri,
 		logger:    config.Logger,
 		sdkKey:    sdkKey,
 		userAgent: config.UserAgent,

@@ -237,7 +237,7 @@ type clientHandlers struct {
 	flagsStreamHandler http.Handler
 	allStreamHandler   http.Handler
 	pingStreamHandler  http.Handler
-	eventsHandler      http.Handler
+	eventDispatcher    *events.EventDispatcher
 }
 
 type clientContext interface {
@@ -477,13 +477,13 @@ func (r *Relay) makeHandler() http.Handler {
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
-	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler).Methods("POST")
-	mobileEventsRouter.HandleFunc("/events", bulkEventHandler).Methods("POST")
-	mobileEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST")
+	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.HandleFunc("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.HandleFunc("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
 	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideBulkEventsRouter.HandleFunc("", bulkEventHandler).Methods("POST", "OPTIONS")
+	clientSideBulkEventsRouter.HandleFunc("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
 	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
@@ -493,7 +493,7 @@ func (r *Relay) makeHandler() http.Handler {
 	serverSideRouter.Use(serverSideMiddlewareStack)
 	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
-	serverSideRouter.HandleFunc("/bulk", bulkEventHandler).Methods("POST")
+	serverSideRouter.HandleFunc("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
 
 	return router
 }
@@ -513,10 +513,10 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	clientConfig.Logger = logger
 	clientConfig.UserAgent = "LDRelay/" + version.Version
 
-	var eventsHandler http.Handler
+	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
 		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventsHandler = events.NewEventRelayHandler(envConfig.SdkKey, c.Events, baseFeatureStore)
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
 	}
 
 	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
@@ -538,7 +538,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		logger:     logger,
 		metricsCtx: m.OpenCensusCtx,
 		handlers: clientHandlers{
-			eventsHandler:      eventsHandler,
+			eventDispatcher:    eventDispatcher,
 			allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
 			flagsStreamHandler: flagsPublisher.Handler(envConfig.SdkKey),
 			pingStreamHandler:  pingPublisher.Handler(envConfig.SdkKey),
@@ -807,14 +807,26 @@ func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
 }
 
-func bulkEventHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	if clientCtx.getHandlers().eventsHandler == nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
-		return
+func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		dispatcher := clientCtx.getHandlers().eventDispatcher
+		if dispatcher == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
+			return
+		}
+		handler := dispatcher.GetHandler(endpoint)
+		if handler == nil {
+			// Note, if this ever happens, it is a programming error since we are only supposed to
+			// be using a fixed set of Endpoint values that the dispatcher knows about.
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
+			logging.Error.Printf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
+			return
+		}
+		handler(w, req)
 	}
-	clientCtx.getHandlers().eventsHandler.ServeHTTP(w, req)
 }
 
 func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
