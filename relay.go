@@ -818,6 +818,8 @@ func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.
 		}
 		handler := dispatcher.GetHandler(endpoint)
 		if handler == nil {
+			// Note, if this ever happens, it is a programming error since we are only supposed to
+			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
 			logging.Error.Printf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
