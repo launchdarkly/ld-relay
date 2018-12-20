@@ -2,10 +2,12 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +26,23 @@ type Config struct {
 	Capacity          int
 	InlineUsers       bool
 }
+
+// Describes one of the possible endpoints (on both events.launchdarkly.com and the relay) for posting events
+type Endpoint interface {
+	fmt.Stringer
+}
+
+type (
+	serverSDKEventsEndpoint     struct{}
+	mobileSDKEventsEndpoint     struct{}
+	javaScriptSDKEventsEndpoint struct{}
+)
+
+var (
+	ServerSDKEventsEndpoint     = &serverSDKEventsEndpoint{}
+	MobileSDKEventsEndpoint     = &mobileSDKEventsEndpoint{}
+	JavaScriptSDKEventsEndpoint = &javaScriptSDKEventsEndpoint{}
+)
 
 type eventVerbatimRelay struct {
 	config    Config
@@ -45,19 +64,42 @@ const (
 	EventSchemaHeader = "X-LaunchDarkly-Event-Schema"
 )
 
-// EventRelayHandler is a handler for relaying events to LaunchDarkly for an environment
-type EventRelayHandler struct {
-	config       Config
-	sdkKey       string
-	featureStore ld.FeatureStore
-
-	verbatimRelay    *eventVerbatimRelay
-	summarizingRelay *eventSummarizingRelay
-
-	mu sync.Mutex
+// EventDispatcher relays events to LaunchDarkly for an environment
+type EventDispatcher struct {
+	endpoints map[Endpoint]*eventEndpointDispatcher
 }
 
-func (r *EventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+type eventEndpointDispatcher struct {
+	config           Config
+	authKey          string
+	remotePath       string
+	verbatimRelay    *eventVerbatimRelay
+	summarizingRelay *eventSummarizingRelay
+	featureStore     ld.FeatureStore
+	mu               sync.Mutex
+}
+
+func (e *serverSDKEventsEndpoint) String() string {
+	return "ServerSDKEventsEndpoint"
+}
+
+func (e *mobileSDKEventsEndpoint) String() string {
+	return "MobileSDKEventsEndpoint"
+}
+
+func (e *javaScriptSDKEventsEndpoint) String() string {
+	return "JavaScriptSDKEventsEndpoint"
+}
+
+func (r *EventDispatcher) GetHandler(endpoint Endpoint) func(w http.ResponseWriter, req *http.Request) {
+	d := r.endpoints[endpoint]
+	if d != nil {
+		return d.dispatchEvents
+	}
+	return nil
+}
+
+func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *http.Request) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
 
 	if bodyErr != nil {
@@ -94,6 +136,7 @@ func (r *EventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		if payloadVersion == 0 {
 			payloadVersion = 1
 		}
+		logging.Debug.Printf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
 		if payloadVersion >= SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(evts)
@@ -103,37 +146,53 @@ func (r *EventRelayHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}()
 }
 
-func (r *EventRelayHandler) getVerbatimRelay() *eventVerbatimRelay {
+func (r *eventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.sdkKey, r.config)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.remotePath)
 	}
 	return r.verbatimRelay
 }
 
-func (r *EventRelayHandler) getSummarizingRelay() *eventSummarizingRelay {
+func (r *eventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.sdkKey, r.config, r.featureStore)
+		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.featureStore, r.remotePath)
 	}
 	return r.summarizingRelay
 }
 
-// NewEventRelayHandler create a handler for relaying events to LaunchDarkly for an environment
-func NewEventRelayHandler(sdkKey string, config Config, featureStore ld.FeatureStore) *EventRelayHandler {
-	return &EventRelayHandler{
-		sdkKey:       sdkKey,
+// NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
+func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config Config, featureStore ld.FeatureStore) *EventDispatcher {
+	ep := &EventDispatcher{
+		endpoints: map[Endpoint]*eventEndpointDispatcher{
+			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, featureStore, "/bulk"),
+		},
+	}
+	if mobileKey != nil {
+		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, featureStore, "/mobile")
+	}
+	if envID != nil {
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, featureStore, "/events/bulk/"+*envID)
+	}
+	return ep
+}
+
+func newEventEndpointDispatcher(authKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
+	return &eventEndpointDispatcher{
+		authKey:      authKey,
 		config:       config,
 		featureStore: featureStore,
+		remotePath:   remotePath,
 	}
 }
 
-func newEventVerbatimRelay(sdkKey string, config Config) *eventVerbatimRelay {
+func newEventVerbatimRelay(sdkKey string, config Config, remotePath string) *eventVerbatimRelay {
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
-		OptionUri(config.EventsUri),
+		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),
 	}
 
 	if config.FlushIntervalSecs > 0 {
