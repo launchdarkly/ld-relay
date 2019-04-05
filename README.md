@@ -360,6 +360,7 @@ BASE_URI                     | URI            | `https://app.launchdarkly.com` |
 USE_REDIS                    | Boolean        | `false` | If true, Redis configuration will be added.
 REDIS_HOST                   | URI            | `redis` | Sets the hostname of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `tcp://172.17.0.2:6379`, `REDIS_HOST` will use this value as the default.
 REDIS_PORT                   | Port           | `6379`  | Sets the port of the Redis server. If linked to a redis container that sets `REDIS_PORT` to `REDIS_PORT=tcp://172.17.0.2:6379`, `REDIS_PORT` will use this value as the default.
+REDIS_URL                    | URI            |                                   | URL of the Redis database (overrides `REDIS_HOST` & `REDIS_PORT`)
 REDIS_TTL                    | Number         | `30000`                           | Alternate name for CACHE_TTL
 USE_DYNAMODB                 | Boolean        | `false`                           | If true, DynamoDB configuration will be added. You must also specify a table name with either `DYNAMODB_TABLE` or `LD_TABLE_NAME_*env_name*` as described below.
 DYNAMODB_TABLE               | String         |                                   | DynamoDB table name, if any; if you are using a different table for each environment, leave this blank.
