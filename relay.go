@@ -28,12 +28,12 @@ import (
 	"gopkg.in/launchdarkly/go-client.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
-	"ld-relay/internal/events"
-	"ld-relay/internal/metrics"
-	"ld-relay/internal/store"
-	"ld-relay/internal/util"
-	"ld-relay/internal/version"
-	"ld-relay/logging"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 const (
