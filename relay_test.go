@@ -26,8 +26,8 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-client.v4"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"ld-relay/internal/events"
+	"ld-relay/logging"
 )
 
 type FakeLDClient struct{ initialized bool }
@@ -774,33 +774,56 @@ func TestRelay(t *testing.T) {
 }
 
 func TestLoadConfig(t *testing.T) {
-	tmpfile, err := ioutil.TempFile("", "relay-load-config")
-	defer os.Remove(tmpfile.Name()) // clean up
+	configString := `
+	[environment "test api key"]
+	ApiKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
+	
+	[environment "test api and sdk key"]
+	ApiKey = "abc"
+	SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
+`
 
-	if !assert.NoError(t, err) {
+	t.Run("Load config via file", func(t *testing.T) {
+		tmpfile, err := ioutil.TempFile("", "relay-load-config")
+		defer os.Remove(tmpfile.Name()) // clean up
+
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		tmpfile.WriteString(configString)
+		tmpfile.Close()
+
+		var c Config
+		if err := LoadConfigFile(&c, tmpfile.Name()); err != nil {
+			assert.NotNil(t, err)
+			return
+		}
+
+		assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api key"].SdkKey,
+			"expected api key to be used as sdk key when api key is set")
+		assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api and sdk key"].SdkKey,
+			"expected sdk key to be used as sdk key when both api key and sdk key are set")
+
 		return
-	}
+	})
 
-	tmpfile.WriteString(`
-[environment "test api key"]
-ApiKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
+	t.Run("Load config via string", func(t *testing.T) {
+		val := []byte(configString)
+		encoded := base64.StdEncoding.EncodeToString(val)
+		var c Config
+		if err := LoadConfigString(&c, encoded); err != nil {
+			assert.NotNil(t, err)
+			return
+		}
 
-[environment "test api and sdk key"]
-ApiKey = "abc"
-SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
-`)
-	tmpfile.Close()
+		assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api key"].SdkKey,
+			"expected api key to be used as sdk key when api key is set")
+		assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api and sdk key"].SdkKey,
+			"expected sdk key to be used as sdk key when both api key and sdk key are set")
 
-	var c Config
-	err = LoadConfigFile(&c, tmpfile.Name())
-	if !assert.NoError(t, err) {
 		return
-	}
-
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api key"].SdkKey,
-		"expected api key to be used as sdk key when api key is set")
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api and sdk key"].SdkKey,
-		"expected sdk key to be used as sdk key when both api key and sdk key are set")
+	})
 }
 
 func TestGetUserAgent(t *testing.T) {

@@ -28,12 +28,12 @@ import (
 	"gopkg.in/launchdarkly/go-client.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"ld-relay/internal/events"
+	"ld-relay/internal/metrics"
+	"ld-relay/internal/store"
+	"ld-relay/internal/util"
+	"ld-relay/internal/version"
+	"ld-relay/logging"
 )
 
 const (
@@ -203,12 +203,23 @@ func init() {
 	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
 }
 
-// LoadConfigFile reads a config file into a Config struct
-func LoadConfigFile(c *Config, path string) error {
-	if err := gcfg.ReadFileInto(c, path); err != nil {
-		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
+// LoadConfigString reads a base64 encoded string into a Config struct
+func LoadConfigString(c *Config, encoded string) error {
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("failed to decode %s: %s", encoded, err)
 	}
 
+	if err := gcfg.ReadStringInto(c, string(decoded)); err != nil {
+		return fmt.Errorf("failed to read config from string %s: %s", string(decoded), err)
+	}
+
+	checkEnvConfig(c)
+
+	return nil
+}
+
+func checkEnvConfig(c *Config) {
 	for envName, envConfig := range c.Environment {
 		if envConfig.ApiKey != "" {
 			if envConfig.SdkKey == "" {
@@ -220,6 +231,15 @@ func LoadConfigFile(c *Config, path string) error {
 			}
 		}
 	}
+}
+
+// LoadConfigFile reads a config file into a Config struct
+func LoadConfigFile(c *Config, path string) error {
+	if err := gcfg.ReadFileInto(c, path); err != nil {
+		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
+	}
+
+	checkEnvConfig(c)
 
 	return nil
 }
