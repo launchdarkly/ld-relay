@@ -440,6 +440,20 @@ if err != nil {
 }
 router.PathPrefix("/relay").Handler(r)
 ```
+There are multiple ways to define the configuration for the relay. If you are restricted to individual packages for deployment, to multipe environments. One could build the relay's confirugation programmically or utilize public methods available in the `github.com/launchdarkly/gcfg` like so:
+
+```go
+router := mux.NewRouter()
+cfg := relay.DefaultConfig
+if err := gcfg.ReadStringInto(c, os.Getenv("RELAY_SETTINGS")); err != nil {
+    return fmt.Errorf("failed to read config from RELAY_SETTINGS: %s", err)
+}
+r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
+if err != nil {
+  log.Fatalf("Error creating relay: %s", err)
+}
+router.PathPrefix("/relay").Handler(r)
+```
 
 Testing
 -------
