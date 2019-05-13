@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	es "github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-client.v4"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 )
 
 type testPublisher struct {

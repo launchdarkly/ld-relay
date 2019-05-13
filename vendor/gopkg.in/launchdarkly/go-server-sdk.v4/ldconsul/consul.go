@@ -30,8 +30,8 @@ import (
 	"time"
 
 	c "github.com/hashicorp/consul/api"
-	ld "gopkg.in/launchdarkly/go-client.v4"
-	"gopkg.in/launchdarkly/go-client.v4/utils"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/utils"
 )
 
 // Implementation notes:
@@ -174,7 +174,7 @@ func NewConsulFeatureStore(options ...FeatureStoreOption) (ld.FeatureStore, erro
 	if err != nil {
 		return nil, err
 	}
-	return utils.NewFeatureStoreWrapper(store), nil
+	return utils.NewNonAtomicFeatureStoreWrapper(store), nil
 }
 
 func newConsulFeatureStoreInternal(options ...FeatureStoreOption) (*featureStore, error) {
@@ -237,7 +237,7 @@ func (store *featureStore) GetAllInternal(kind ld.VersionedDataKind) (map[string
 	return results, nil
 }
 
-func (store *featureStore) InitInternal(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+func (store *featureStore) InitCollectionsInternal(allData []utils.StoreCollection) error {
 	kv := store.client.KV()
 
 	// Start by reading the existing keys; we will later delete any of these that weren't in allData.
@@ -252,14 +252,14 @@ func (store *featureStore) InitInternal(allData map[ld.VersionedDataKind]map[str
 
 	ops := make([]*c.KVTxnOp, 0)
 
-	for kind, items := range allData {
-		for k, v := range items {
-			data, jsonErr := json.Marshal(v)
+	for _, coll := range allData {
+		for _, item := range coll.Items {
+			data, jsonErr := json.Marshal(item)
 			if jsonErr != nil {
 				return jsonErr
 			}
 
-			key := store.featureKeyFor(kind, k)
+			key := store.featureKeyFor(coll.Kind, item.GetKey())
 			op := &c.KVTxnOp{Verb: c.KVSet, Key: key, Value: data}
 			ops = append(ops, op)
 

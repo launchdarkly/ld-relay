@@ -36,8 +36,8 @@ import (
 
 	r "github.com/garyburd/redigo/redis"
 
-	ld "gopkg.in/launchdarkly/go-client.v4"
-	"gopkg.in/launchdarkly/go-client.v4/utils"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/utils"
 )
 
 const (

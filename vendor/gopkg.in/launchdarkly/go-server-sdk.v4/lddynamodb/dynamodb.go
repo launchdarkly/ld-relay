@@ -74,8 +74,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-	ld "gopkg.in/launchdarkly/go-client.v4"
-	"gopkg.in/launchdarkly/go-client.v4/utils"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/utils"
 )
 
 const (
@@ -238,7 +238,7 @@ func NewDynamoDBFeatureStore(table string, options ...FeatureStoreOption) (ld.Fe
 	if err != nil {
 		return nil, err
 	}
-	return utils.NewFeatureStoreWrapper(store), nil
+	return utils.NewNonAtomicFeatureStoreWrapper(store), nil
 }
 
 func newDynamoDBFeatureStoreInternal(table string, options ...FeatureStoreOption) (*dynamoDBFeatureStore, error) {
@@ -273,7 +273,7 @@ func (store *dynamoDBFeatureStore) GetCacheTTL() time.Duration {
 	return store.cacheTTL
 }
 
-func (store *dynamoDBFeatureStore) InitInternal(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+func (store *dynamoDBFeatureStore) InitCollectionsInternal(allData []utils.StoreCollection) error {
 	// Start by reading the existing keys; we will later delete any of these that weren't in allData.
 	unusedOldKeys, err := store.readExistingKeys(allData)
 	if err != nil {
@@ -285,17 +285,18 @@ func (store *dynamoDBFeatureStore) InitInternal(allData map[ld.VersionedDataKind
 	numItems := 0
 
 	// Insert or update every provided item
-	for kind, items := range allData {
-		for k, v := range items {
-			av, err := store.marshalItem(kind, v)
+	for _, coll := range allData {
+		for _, item := range coll.Items {
+			key := item.GetKey()
+			av, err := store.marshalItem(coll.Kind, item)
 			if err != nil {
-				store.logger.Printf("ERROR: Failed to marshal item (key=%s): %s", k, err)
+				store.logger.Printf("ERROR: Failed to marshal item (key=%s): %s", key, err)
 				return err
 			}
 			requests = append(requests, &dynamodb.WriteRequest{
 				PutRequest: &dynamodb.PutRequest{Item: av},
 			})
-			nk := namespaceAndKey{namespace: store.namespaceForKind(kind), key: v.GetKey()}
+			nk := namespaceAndKey{namespace: store.namespaceForKind(coll.Kind), key: key}
 			unusedOldKeys[nk] = false
 			numItems++
 		}
@@ -474,9 +475,10 @@ func (store *dynamoDBFeatureStore) makeQueryForKind(kind ld.VersionedDataKind) *
 	}
 }
 
-func (store *dynamoDBFeatureStore) readExistingKeys(newData map[ld.VersionedDataKind]map[string]ld.VersionedData) (map[namespaceAndKey]bool, error) {
+func (store *dynamoDBFeatureStore) readExistingKeys(newData []utils.StoreCollection) (map[namespaceAndKey]bool, error) {
 	keys := make(map[namespaceAndKey]bool)
-	for kind := range newData {
+	for _, coll := range newData {
+		kind := coll.Kind
 		query := store.makeQueryForKind(kind)
 		query.ProjectionExpression = aws.String("#namespace, #key")
 		query.ExpressionAttributeNames = map[string]*string{
