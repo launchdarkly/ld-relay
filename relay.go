@@ -23,10 +23,10 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/gcfg"
-	ld "gopkg.in/launchdarkly/go-client.v4"
-	"gopkg.in/launchdarkly/go-client.v4/ldconsul"
-	"gopkg.in/launchdarkly/go-client.v4/lddynamodb"
-	ldr "gopkg.in/launchdarkly/go-client.v4/redis"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
+	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
@@ -875,7 +875,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	}
 }
 
-// UserV2FromBase64 decodes a base64-encoded go-client v2 user.
+// UserV2FromBase64 decodes a base64-encoded go-server-sdk v2 user.
 // If any decoding/unmarshaling errors occur or
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (*ld.User, error) {

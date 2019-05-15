@@ -5,15 +5,12 @@ builds:
   - CGO_ENABLED=0
   main: ./cmd/ld-relay/
   binary: ld-relay
-  # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}`.
+  # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}`.
   ldflags:
   - -s -w -X internal.version.Version={{.Version}}
 
-git:
-  short_hash: true
-
 nfpm:
-  name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .Commit }}_{{ .Arch }}"
+  name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .ShortCommit }}_{{ .Arch }}"
 
   homepage: https://launchdarkly.com/
   maintainer: LaunchDarkly <team@launchdarkly.com>

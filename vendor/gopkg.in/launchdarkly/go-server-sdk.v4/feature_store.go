@@ -30,7 +30,7 @@ type FeatureStore interface {
 	// returns an empty map.
 	All(kind VersionedDataKind) (map[string]VersionedData, error)
 	// Init performs an update of the entire data store, replacing any existing data.
-	Init(map[VersionedDataKind]map[string]VersionedData) error
+	Init(data map[VersionedDataKind]map[string]VersionedData) error
 	// Delete removes the specified item from the data store, unless its Version property is greater
 	// than or equal to the specified version, in which case nothing happens. Removal should be done
 	// by storing an item whose Deleted property is true (use VersionedDataKind.MakeDeleteItem()).
