@@ -73,6 +73,7 @@ type EventDispatcher struct {
 type eventEndpointDispatcher struct {
 	config           Config
 	httpClient       *http.Client
+	httpConfig       httpconfig.HTTPConfig
 	authKey          string
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
@@ -161,7 +162,7 @@ func (r *eventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.featureStore, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.httpConfig, r.featureStore, r.remotePath)
 	}
 	return r.summarizingRelay
 }
@@ -171,22 +172,24 @@ func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config 
 	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]*eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, httpClient, featureStore, "/bulk"),
+			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, httpConfig, httpClient, featureStore, "/bulk"),
 		},
 	}
 	if mobileKey != nil {
-		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, httpClient, featureStore, "/mobile")
+		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, httpConfig, httpClient, featureStore, "/mobile")
 	}
 	if envID != nil {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, httpClient, featureStore, "/events/bulk/"+*envID)
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, httpConfig, httpClient, featureStore, "/events/bulk/"+*envID)
 	}
 	return ep
 }
 
-func newEventEndpointDispatcher(authKey string, config Config, httpClient *http.Client, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
+func newEventEndpointDispatcher(authKey string, config Config, httpConfig httpconfig.HTTPConfig, httpClient *http.Client, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
 	return &eventEndpointDispatcher{
 		authKey:      authKey,
 		config:       config,
+		httpConfig:   httpConfig,
+		httpClient:   httpClient,
 		featureStore: featureStore,
 		remotePath:   remotePath,
 	}

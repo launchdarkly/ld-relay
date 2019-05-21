@@ -9,6 +9,7 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
@@ -17,13 +18,13 @@ type eventSummarizingRelay struct {
 	featureStore   ld.FeatureStore
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
+func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
 	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
-	ldConfig.HTTPAdapter = nil
+	ldConfig.HTTPAdapter = httpConfig
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
