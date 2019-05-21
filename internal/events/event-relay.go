@@ -13,11 +13,12 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
-// EventRelay configuration
+// EventRelay configuration - used in the config file struct in relay.go
 type Config struct {
 	EventsUri         string
 	SendEvents        bool
@@ -71,6 +72,7 @@ type EventDispatcher struct {
 
 type eventEndpointDispatcher struct {
 	config           Config
+	httpClient       *http.Client
 	authKey          string
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
@@ -150,7 +152,7 @@ func (r *eventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.remotePath)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpClient, r.remotePath)
 	}
 	return r.verbatimRelay
 }
@@ -165,22 +167,23 @@ func (r *eventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
-func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config Config, featureStore ld.FeatureStore) *EventDispatcher {
+func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore) *EventDispatcher {
+	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]*eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, featureStore, "/bulk"),
+			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, httpClient, featureStore, "/bulk"),
 		},
 	}
 	if mobileKey != nil {
-		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, featureStore, "/mobile")
+		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, httpClient, featureStore, "/mobile")
 	}
 	if envID != nil {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, featureStore, "/events/bulk/"+*envID)
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, httpClient, featureStore, "/events/bulk/"+*envID)
 	}
 	return ep
 }
 
-func newEventEndpointDispatcher(authKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
+func newEventEndpointDispatcher(authKey string, config Config, httpClient *http.Client, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
 	return &eventEndpointDispatcher{
 		authKey:      authKey,
 		config:       config,
@@ -189,10 +192,11 @@ func newEventEndpointDispatcher(authKey string, config Config, featureStore ld.F
 	}
 }
 
-func newEventVerbatimRelay(sdkKey string, config Config, remotePath string) *eventVerbatimRelay {
+func newEventVerbatimRelay(sdkKey string, config Config, httpClient *http.Client, remotePath string) *eventVerbatimRelay {
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
 		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),
+		OptionClient{httpClient},
 	}
 
 	if config.FlushIntervalSecs > 0 {

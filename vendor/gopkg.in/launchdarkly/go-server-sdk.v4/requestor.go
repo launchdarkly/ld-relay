@@ -32,13 +32,12 @@ func newRequestor(sdkKey string, config Config) *requestor {
 		MaxTries:       3,
 	}
 
-	cachingTransport := &httpcache.Transport{
+	httpClient := config.transformHTTPClient(&http.Client{Transport: &baseTransport})
+	httpClient.Transport = &httpcache.Transport{
 		Cache:               httpcache.NewMemoryCache(),
 		MarkCachedResponses: true,
-		Transport:           &baseTransport,
+		Transport:           httpClient.Transport,
 	}
-
-	httpClient := cachingTransport.Client()
 
 	httpRequestor := requestor{
 		sdkKey:     sdkKey,

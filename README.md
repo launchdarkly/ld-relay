@@ -388,6 +388,11 @@ STACKDRIVER_PREFIX           | String         |                                 
 USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
+PROXY_URL                    | String         |                                   | All ld-relay network traffic will be sent through this proxy if specified.
+PROXY_AUTH_NTLM              | Boolean        | `false`                           | Enables NTLM proxy authentication (requires user, password, and domain).
+PROXY_AUTH_USER              | String         |                                   | Username for proxy authentication, if applicable.
+PROXY_AUTH_PASSWORD          | String         |                                   | Password for proxy authentication, if applicable.
+PROXY_AUTH_DOMAIN            | String         |                                   | Domain name for proxy authentication, if applicable.
 
 ### Docker examples
 To run a single environment, without Redis:

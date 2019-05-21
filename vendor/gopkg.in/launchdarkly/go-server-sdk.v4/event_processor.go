@@ -102,7 +102,7 @@ func (n *nullEventProcessor) Close() error {
 // components.
 func NewDefaultEventProcessor(sdkKey string, config Config, client *http.Client) EventProcessor {
 	if client == nil {
-		client = &http.Client{}
+		client = config.newHTTPClient()
 	}
 	inputCh := make(chan eventDispatcherMessage, config.Capacity)
 	startEventDispatcher(sdkKey, config, client, inputCh)

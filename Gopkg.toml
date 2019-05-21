@@ -38,8 +38,9 @@
   name = "github.com/launchdarkly/gcfg"
 
 [[constraint]]
-  branch = "v4"
+  branch = "eb/ch37474/http-adapter"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
+  source = "github.com/launchdarkly/go-server-sdk-private"
 
 [prune]
   go-tests = true

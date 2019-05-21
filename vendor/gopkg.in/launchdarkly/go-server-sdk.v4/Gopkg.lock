@@ -111,8 +111,8 @@
 [[projects]]
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "5e2c13ba9523c8b5f5e33aee7ef3fb1c855f52cd"
-  version = "1.0.0"
+  revision = "b52bd572a58ec5efdf77914b3663c04b30dc7d36"
+  version = "1.1.0"
 
 [[projects]]
   name = "github.com/mitchellh/go-homedir"

@@ -28,6 +28,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
@@ -156,6 +157,7 @@ type Config struct {
 		LocalTtl  int
 	}
 	Environment map[string]*EnvConfig
+	ProxyConfig httpconfig.ProxyConfig
 	MetricsConfig
 }
 
@@ -344,8 +346,13 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
+	httpConfig, err := httpconfig.NewHTTPConfig(c.ProxyConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	for envName, envConfig := range c.Environment {
-		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, allPublisher, flagsPublisher, pingPublisher)
+		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
@@ -498,7 +505,9 @@ func (r *Relay) makeHandler() http.Handler {
 	return router
 }
 
-func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
+	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+
 	baseFeatureStore, err := createFeatureStore(c, envConfig)
 	if err != nil {
 		return nil, err
@@ -512,14 +521,16 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	clientConfig.BaseUri = c.Main.BaseUri
 	clientConfig.Logger = logger
 	clientConfig.UserAgent = "LDRelay/" + version.Version
+	clientConfig.HTTPAdapter = httpConfig
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
 		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, httpConfig, baseFeatureStore)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri),
+		events.OptionClient{httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}

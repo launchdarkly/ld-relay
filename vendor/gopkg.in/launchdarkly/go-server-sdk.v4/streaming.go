@@ -21,6 +21,7 @@ const (
 
 type streamProcessor struct {
 	store              FeatureStore
+	client             *http.Client
 	requestor          *requestor
 	stream             *es.Stream
 	config             Config
@@ -188,6 +189,7 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 				}
 			}
 		case <-sp.halt:
+			sp.stream.Close()
 			return
 		}
 	}
@@ -197,6 +199,7 @@ func newStreamProcessor(sdkKey string, config Config, requestor *requestor) *str
 	sp := &streamProcessor{
 		store:     config.FeatureStore,
 		config:    config,
+		client:    config.newHTTPClient(),
 		sdkKey:    sdkKey,
 		requestor: requestor,
 		halt:      make(chan struct{}),
@@ -212,7 +215,9 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 		req.Header.Add("User-Agent", sp.config.UserAgent)
 		sp.config.Logger.Printf("Connecting to LaunchDarkly stream using URL: %s", req.URL.String())
 
-		if stream, err := es.SubscribeWithRequest("", req); err != nil {
+		if stream, err := es.SubscribeWithRequestAndOptions(req,
+			es.StreamOptionHTTPClient(sp.client),
+			es.StreamOptionLogger(sp.config.Logger)); err != nil {
 			if sp.checkIfPermanentFailure(err) {
 				close(closeWhenReady)
 				return
@@ -228,7 +233,6 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 			}
 		} else {
 			sp.stream = stream
-			sp.stream.Logger = sp.config.Logger
 
 			go sp.events(closeWhenReady)
 			return
@@ -250,9 +254,6 @@ func (sp *streamProcessor) checkIfPermanentFailure(err error) bool {
 func (sp *streamProcessor) Close() error {
 	sp.closeOnce.Do(func() {
 		sp.config.Logger.Printf("Closing event stream.")
-		if sp.stream != nil {
-			sp.stream.Close()
-		}
 		close(sp.halt)
 	})
 	return nil

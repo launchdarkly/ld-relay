@@ -19,6 +19,18 @@
   version = "v0.5.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/Azure/go-ntlmssp"
+  packages = ["."]
+  revision = "4a21cbd618b459155f8b8ee7f4491cd54f5efa77"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/Codehardt/go-ntlm-proxy-auth"
+  packages = ["."]
+  revision = "93e5be72ed05f4dcff7024914b6ebbfe8f6ca44b"
+
+[[projects]]
   name = "github.com/DataDog/datadog-go"
   packages = ["statsd"]
   revision = "e67964b4021ad3a334e748e8811eb3cd6becbc6e"
@@ -181,8 +193,8 @@
 [[projects]]
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
-  revision = "05e14ea737804fcc8d8c00cdda5e2c873d766fec"
-  version = "1.0.1"
+  revision = "b52bd572a58ec5efdf77914b3663c04b30dc7d36"
+  version = "1.1.0"
 
 [[projects]]
   branch = "v1"
@@ -309,6 +321,12 @@
   ]
   revision = "e262766cd0d230a1bb7c37281e345e465f19b41b"
   version = "v0.14.0"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["md4"]
+  revision = "22d7a77e9e5f409e934ed268692e56707cd169e5"
 
 [[projects]]
   branch = "master"
@@ -463,7 +481,8 @@
   version = "v1.0.0"
 
 [[projects]]
-  name = "gopkg.in/launchdarkly/go-client.v4"
+  branch = "eb/ch37474/http-adapter"
+  name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
     "ldconsul",
@@ -471,12 +490,12 @@
     "redis",
     "utils"
   ]
-  revision = "51783c1cbe347a3f3f62e655e3fda845086e142a"
-  version = "4.7.0"
+  revision = "d45cd25928cd86a08711746d5ba4390da0acffd5"
+  source = "github.com/launchdarkly/go-server-sdk-private"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "cc6824c7024d243c911bb328866e46369ccfb45bc80df3f68a38c4dc99e64292"
+  inputs-digest = "da8234e9409e01e26bf2fa908ae84c3865d9ec8ed961cc7f50dbb401a0b8379c"
   solver-name = "gps-cdcl"
   solver-version = 1
