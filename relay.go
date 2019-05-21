@@ -157,7 +157,7 @@ type Config struct {
 		LocalTtl  int
 	}
 	Environment map[string]*EnvConfig
-	ProxyConfig httpconfig.ProxyConfig
+	Proxy       httpconfig.ProxyConfig
 	MetricsConfig
 }
 
@@ -346,7 +346,7 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
-	httpConfig, err := httpconfig.NewHTTPConfig(c.ProxyConfig)
+	httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy)
 	if err != nil {
 		return nil, err
 	}
