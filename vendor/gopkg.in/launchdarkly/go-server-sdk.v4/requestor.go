@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"time"
 
-	"github.com/facebookgo/httpcontrol"
 	"github.com/gregjones/httpcache"
 )
 
@@ -24,24 +22,22 @@ type requestor struct {
 	config     Config
 }
 
-func newRequestor(sdkKey string, config Config) *requestor {
-	baseTransport := httpcontrol.Transport{
-		RequestTimeout: config.Timeout,
-		DialTimeout:    config.Timeout,
-		DialKeepAlive:  1 * time.Minute,
-		MaxTries:       3,
+func newRequestor(sdkKey string, config Config, httpClient *http.Client) *requestor {
+	var decoratedClient http.Client
+	if httpClient != nil {
+		decoratedClient = *httpClient
+	} else {
+		decoratedClient = *config.newHTTPClient()
 	}
-
-	httpClient := config.transformHTTPClient(http.Client{Transport: &baseTransport})
-	httpClient.Transport = &httpcache.Transport{
+	decoratedClient.Transport = &httpcache.Transport{
 		Cache:               httpcache.NewMemoryCache(),
 		MarkCachedResponses: true,
-		Transport:           httpClient.Transport,
+		Transport:           decoratedClient.Transport,
 	}
 
 	httpRequestor := requestor{
 		sdkKey:     sdkKey,
-		httpClient: &httpClient,
+		httpClient: &decoratedClient,
 		config:     config,
 	}
 

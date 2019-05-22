@@ -9,6 +9,7 @@ import (
 	"time"
 
 	ntlm "github.com/Codehardt/go-ntlm-proxy-auth"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 )
 
 // ProxyConfig represents all the supported proxy options. This is used in the Config struct in relay.go.
@@ -24,6 +25,8 @@ type ProxyConfig struct {
 type HTTPConfig struct {
 	ProxyConfig
 }
+
+const defaultTimeout = 10 * time.Second
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
 func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
@@ -44,47 +47,42 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 	return ret, nil
 }
 
-// Client creates a new HTTP client instance based on the configuration.
+// Client creates a new HTTP client instance that isn't for SDK use.
 func (c HTTPConfig) Client() *http.Client {
-	client := c.TransformHTTPClient(http.Client{})
+	client := c.newHTTPClient(defaultTimeout)
 	return &client
 }
 
-// TransformHTTPClient modifies an existing HTTP client instance. Having this method allows us to
-// use HTTPConfig as a adapter for the Go SDK.
-func (c HTTPConfig) TransformHTTPClient(client http.Client) http.Client {
+// CreateHTTPClientForSDK creates an HTTP client for the Go SDK.
+func (c HTTPConfig) CreateHTTPClientForSDK(config ld.Config) http.Client {
+	return c.newHTTPClient(config.Timeout)
+}
+
+func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
+	var transport *http.Transport
+	client := http.Client{}
 	if c.ProxyConfig.UseNtlm {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
-		transport, _ := client.Transport.(*http.Transport)
 		if transport == nil {
 			transport = &http.Transport{}
-			client.Transport = transport
-		} else {
-			// copy the existing Transport object
-			t := *transport
-			transport = &t
 		}
-		if transport.DialContext == nil {
-			dialer := &net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}
-			transport.Dial = dialer.Dial
-			transport.DialContext = dialer.DialContext
+		dialer := &net.Dialer{
+			Timeout:   timeout,
+			KeepAlive: timeout,
 		}
+		transport.Dial = dialer.Dial
+		transport.DialContext = dialer.DialContext
 		ntlmDialContext := ntlm.WrapDialContext(transport.DialContext, c.ProxyConfig.Url,
 			c.ProxyConfig.User, c.ProxyConfig.Password, c.ProxyConfig.Domain)
 		transport.DialContext = ntlmDialContext
-	}
-	if c.ProxyConfig.Url != "" {
+	} else if c.ProxyConfig.Url != "" {
 		if url, err := url.Parse(c.ProxyConfig.Url); err == nil {
-			transport, _ := client.Transport.(*http.Transport)
 			if transport == nil {
 				transport = &http.Transport{}
-				client.Transport = transport
 			}
 			transport.Proxy = http.ProxyURL(url)
 		}
 	}
+	client.Transport = transport
 	return client
 }

@@ -2,6 +2,7 @@ package ldclient
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -33,7 +34,7 @@ type Config struct {
 	// The polling interval (when streaming is disabled). Values less than the default of MinimumPollInterval
 	// will be set to the default.
 	PollInterval time.Duration
-	// An object
+	// An object that can be used to produce log output.
 	Logger Logger
 	// The connection timeout to use when making polling requests to LaunchDarkly.
 	Timeout time.Duration
@@ -77,10 +78,10 @@ type Config struct {
 	// The interval at which the event processor will reset its set of known user keys.
 	UserKeysFlushInterval time.Duration
 	UserAgent             string
-	// If not nil, this function can modify the SDK's HTTP behavior. The SDK creates several http.Client instances
-	// which may have somewhat different configurations, so rather than giving the SDK a preconfigured Client instance,
-	// this function is given the opportunity to return a new client based on the original one.
-	HTTPClientTransformer HTTPClientTransformer
+	// If not nil, this function will be called to create an HTTP client instead of using the default
+	// client. The SDK may modify the client properties after that point (for instance, to add caching),
+	// but will not replace the underlying Transport, and will not modify any timeout properties you set.
+	HTTPClientFactory func(Config) http.Client
 }
 
 // UpdateProcessorFactory is a function that creates an UpdateProcessor.
@@ -90,21 +91,22 @@ type UpdateProcessorFactory func(sdkKey string, config Config) (UpdateProcessor,
 // the minimum will be used instead.
 const MinimumPollInterval = 30 * time.Second
 
-func (c Config) transformHTTPClient(client http.Client) http.Client {
-	if c.HTTPClientTransformer == nil {
-		return client
-	}
-	return c.HTTPClientTransformer(client)
-}
-
 func (c Config) newHTTPClient() *http.Client {
-	ret := c.transformHTTPClient(http.Client{})
-	return &ret
+	if c.HTTPClientFactory != nil {
+		client := c.HTTPClientFactory(c)
+		return &client
+	}
+	dialer := net.Dialer{
+		KeepAlive: 1 * time.Minute,
+	}
+	client := http.Client{
+		Timeout: c.Timeout,
+		Transport: &http.Transport{
+			DialContext: dialer.DialContext,
+		},
+	}
+	return &client
 }
-
-// HTTPClientTransformer is a function type that can modify HTTP client behavior for all of the SDK's HTTP traffic,
-// if you set the HTTPClientTransformer property in Config to your function.
-type HTTPClientTransformer func(http.Client) http.Client
 
 // DefaultConfig provides the default configuration options for the LaunchDarkly client.
 // The easiest way to create a custom configuration is to start with the

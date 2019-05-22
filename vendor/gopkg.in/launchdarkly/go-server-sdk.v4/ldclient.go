@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -83,6 +84,8 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 		config.FeatureStore = NewInMemoryFeatureStore(config.Logger)
 	}
 
+	defaultHTTPClient := config.newHTTPClient()
+
 	client := LDClient{
 		sdkKey: sdkKey,
 		config: config,
@@ -92,7 +95,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	if config.EventProcessor != nil {
 		client.eventProcessor = config.EventProcessor
 	} else if config.SendEvents && !config.Offline {
-		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, nil)
+		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, defaultHTTPClient)
 	} else {
 		client.eventProcessor = newNullEventProcessor()
 	}
@@ -102,7 +105,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	} else {
 		factory := config.UpdateProcessorFactory
 		if factory == nil {
-			factory = createDefaultUpdateProcessor
+			factory = createDefaultUpdateProcessor(defaultHTTPClient)
 		}
 		var err error
 		client.updateProcessor, err = factory(sdkKey, config)
@@ -133,21 +136,23 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	}
 }
 
-func createDefaultUpdateProcessor(sdkKey string, config Config) (UpdateProcessor, error) {
-	if config.Offline {
-		config.Logger.Println("Started LaunchDarkly in offline mode")
-		return nullUpdateProcessor{}, nil
+func createDefaultUpdateProcessor(httpClient *http.Client) func(string, Config) (UpdateProcessor, error) {
+	return func(sdkKey string, config Config) (UpdateProcessor, error) {
+		if config.Offline {
+			config.Logger.Println("Started LaunchDarkly in offline mode")
+			return nullUpdateProcessor{}, nil
+		}
+		if config.UseLdd {
+			config.Logger.Println("Started LaunchDarkly in LDD mode")
+			return nullUpdateProcessor{}, nil
+		}
+		requestor := newRequestor(sdkKey, config, httpClient)
+		if config.Stream {
+			return newStreamProcessor(sdkKey, config, requestor), nil
+		}
+		config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
+		return newPollingProcessor(config, requestor), nil
 	}
-	if config.UseLdd {
-		config.Logger.Println("Started LaunchDarkly in LDD mode")
-		return nullUpdateProcessor{}, nil
-	}
-	requestor := newRequestor(sdkKey, config)
-	if config.Stream {
-		return newStreamProcessor(sdkKey, config, requestor), nil
-	}
-	config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
-	return newPollingProcessor(config, requestor), nil
 }
 
 // Identify reports details about a a user.

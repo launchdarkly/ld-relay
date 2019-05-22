@@ -24,7 +24,7 @@ func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfi
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
-	ldConfig.HTTPClientTransformer = httpConfig.TransformHTTPClient
+	ldConfig.HTTPClientFactory = httpConfig.CreateHTTPClientForSDK
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,

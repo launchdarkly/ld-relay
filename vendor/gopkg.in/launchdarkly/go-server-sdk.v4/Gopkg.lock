@@ -53,12 +53,6 @@
   version = "v1.1.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/facebookgo/httpcontrol"
-  packages = ["."]
-  revision = "ccde4420e1fee9af5da365cb76075b95683f39a6"
-
-[[projects]]
   name = "github.com/fsnotify/fsnotify"
   packages = ["."]
   revision = "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9"
@@ -168,6 +162,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "2e9a94f1b5350ddbf61ae963e0a9a8d3f4199271d16264d37030e1e2112edea4"
+  inputs-digest = "6f967a4a31926285ec243ce9354cd26e15796892cf508398df8a5719eb4f44e4"
   solver-name = "gps-cdcl"
   solver-version = 1

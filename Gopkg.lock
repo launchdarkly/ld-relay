@@ -101,12 +101,6 @@
   version = "v1.1.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/facebookgo/httpcontrol"
-  packages = ["."]
-  revision = "ccde4420e1fee9af5da365cb76075b95683f39a6"
-
-[[projects]]
   name = "github.com/garyburd/redigo"
   packages = [
     "internal",
@@ -490,7 +484,7 @@
     "redis",
     "utils"
   ]
-  revision = "479dbe89ae8e3515da4bfd5e1109be22087dd988"
+  revision = "5d49af6a3e5b15c62562ddac26fc7efec04e0633"
   source = "github.com/launchdarkly/go-server-sdk-private"
 
 [solve-meta]

@@ -199,10 +199,14 @@ func newStreamProcessor(sdkKey string, config Config, requestor *requestor) *str
 	sp := &streamProcessor{
 		store:     config.FeatureStore,
 		config:    config,
-		client:    config.newHTTPClient(),
 		sdkKey:    sdkKey,
 		requestor: requestor,
 		halt:      make(chan struct{}),
+	}
+	if requestor != nil {
+		sp.client = requestor.httpClient
+	} else {
+		sp.client = config.newHTTPClient()
 	}
 
 	return sp
