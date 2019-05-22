@@ -15,7 +15,7 @@ import (
 // ProxyConfig represents all the supported proxy options. This is used in the Config struct in relay.go.
 type ProxyConfig struct {
 	Url      string
-	UseNtlm  bool
+	NtlmAuth bool
 	User     string
 	Password string
 	Domain   string
@@ -31,7 +31,7 @@ const defaultTimeout = 10 * time.Second
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
 func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 	ret := HTTPConfig{proxyConfig}
-	if proxyConfig.Url == "" && proxyConfig.UseNtlm {
+	if proxyConfig.Url == "" && proxyConfig.NtlmAuth {
 		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
 	}
 	if proxyConfig.Url != "" {
@@ -39,7 +39,7 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
 		}
 	}
-	if proxyConfig.UseNtlm {
+	if proxyConfig.NtlmAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errors.New("NTLM proxy authentication requires username and password")
 		}
@@ -61,7 +61,7 @@ func (c HTTPConfig) CreateHTTPClientForSDK(config ld.Config) http.Client {
 func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
 	var transport *http.Transport
 	client := http.Client{}
-	if c.ProxyConfig.UseNtlm {
+	if c.ProxyConfig.NtlmAuth {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
 		if transport == nil {
 			transport = &http.Transport{}

@@ -141,6 +141,15 @@ variable name | type    | description
 `port`        | Number  | The port that ld-relay will listen to `/metrics` on.
 `prefix`      | string  | The metrics prefix to be used by Prometheus.
 
+## [proxy]
+variable name | type    | description
+--------------|:------: | -----------
+url           | String  | All ld-relay network traffic will be sent through this HTTP proxy if specified.
+ntlmAuth      | Boolean | Enables NTLM proxy authentication (requires user, password, and domain).
+user          | String  | Username for proxy authentication, if applicable.
+password      | String  | Password for proxy authentication, if applicable.
+domain        | String  | Domain name for proxy authentication, if applicable.
+
 ```
 [main]
     streamUri = "https://stream.launchdarkly.com"
@@ -388,7 +397,7 @@ STACKDRIVER_PREFIX           | String         |                                 
 USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
-PROXY_URL                    | String         |                                   | All ld-relay network traffic will be sent through this proxy if specified.
+PROXY_URL                    | String         |                                   | All ld-relay network traffic will be sent through this HTTP proxy if specified.
 PROXY_AUTH_NTLM              | Boolean        | `false`                           | Enables NTLM proxy authentication (requires user, password, and domain).
 PROXY_AUTH_USER              | String         |                                   | Username for proxy authentication, if applicable.
 PROXY_AUTH_PASSWORD          | String         |                                   | Password for proxy authentication, if applicable.

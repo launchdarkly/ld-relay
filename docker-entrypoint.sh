@@ -170,7 +170,7 @@ password = \"${PROXY_AUTH_PASSWORD}\"
 domain = \"${PROXY_AUTH_DOMAIN}\"
 " >> $CONF_FILE
   if [ "$PROXY_AUTH_NTLM" = "1" ] || [ "$PROXY_AUTH_NTLM" = "true" ]; then
-    echo "useNtlm = true" >> $CONF_FILE
+    echo "ntlmAuth = true" >> $CONF_FILE
     echo ""
   fi
 fi
