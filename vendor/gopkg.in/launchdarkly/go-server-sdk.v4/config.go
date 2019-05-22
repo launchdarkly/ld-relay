@@ -77,10 +77,10 @@ type Config struct {
 	// The interval at which the event processor will reset its set of known user keys.
 	UserKeysFlushInterval time.Duration
 	UserAgent             string
-	// If not nil, this object can modify the SDK's HTTP behavior. The SDK creates several http.Client instances
-	// which may have somewhat different configurations, so rather than passing in a customized Client instance,
-	// this adapter is given the opportunity to modify each client.
-	HTTPAdapter HTTPAdapter
+	// If not nil, this function can modify the SDK's HTTP behavior. The SDK creates several http.Client instances
+	// which may have somewhat different configurations, so rather than giving the SDK a preconfigured Client instance,
+	// this function is given the opportunity to return a new client based on the original one.
+	HTTPClientTransformer HTTPClientTransformer
 }
 
 // UpdateProcessorFactory is a function that creates an UpdateProcessor.
@@ -90,23 +90,21 @@ type UpdateProcessorFactory func(sdkKey string, config Config) (UpdateProcessor,
 // the minimum will be used instead.
 const MinimumPollInterval = 30 * time.Second
 
-func (c Config) transformHTTPClient(client *http.Client) *http.Client {
-	if c.HTTPAdapter == nil {
+func (c Config) transformHTTPClient(client http.Client) http.Client {
+	if c.HTTPClientTransformer == nil {
 		return client
 	}
-	return c.HTTPAdapter.TransformHTTPClient(client)
+	return c.HTTPClientTransformer(client)
 }
 
 func (c Config) newHTTPClient() *http.Client {
-	return c.transformHTTPClient(&http.Client{})
+	ret := c.transformHTTPClient(http.Client{})
+	return &ret
 }
 
-// HTTPAdapter provides the ability to modify HTTP client behavior for all of the SDK's HTTP traffic.
-type HTTPAdapter interface {
-	// TransformHTTPClient will be called by the SDK each time it has created an instance of http.Client.
-	// The HTTPAdapter can modify this instance in place, or can return a new one.
-	TransformHTTPClient(client *http.Client) *http.Client
-}
+// HTTPClientTransformer is a function type that can modify HTTP client behavior for all of the SDK's HTTP traffic,
+// if you set the HTTPClientTransformer property in Config to your function.
+type HTTPClientTransformer func(http.Client) http.Client
 
 // DefaultConfig provides the default configuration options for the LaunchDarkly client.
 // The easiest way to create a custom configuration is to start with the

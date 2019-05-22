@@ -490,7 +490,7 @@
     "redis",
     "utils"
   ]
-  revision = "d45cd25928cd86a08711746d5ba4390da0acffd5"
+  revision = "479dbe89ae8e3515da4bfd5e1109be22087dd988"
   source = "github.com/launchdarkly/go-server-sdk-private"
 
 [solve-meta]

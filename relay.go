@@ -521,7 +521,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	clientConfig.BaseUri = c.Main.BaseUri
 	clientConfig.Logger = logger
 	clientConfig.UserAgent = "LDRelay/" + version.Version
-	clientConfig.HTTPAdapter = httpConfig
+	clientConfig.HTTPClientTransformer = httpConfig.TransformHTTPClient
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {

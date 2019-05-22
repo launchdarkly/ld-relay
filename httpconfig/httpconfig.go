@@ -46,19 +46,23 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 
 // Client creates a new HTTP client instance based on the configuration.
 func (c HTTPConfig) Client() *http.Client {
-	client := http.Client{}
-	return c.TransformHTTPClient(&client)
+	client := c.TransformHTTPClient(http.Client{})
+	return &client
 }
 
 // TransformHTTPClient modifies an existing HTTP client instance. Having this method allows us to
-// use HTTPConfig as an HTTPAdapter for the Go SDK.
-func (c HTTPConfig) TransformHTTPClient(client *http.Client) *http.Client {
+// use HTTPConfig as a adapter for the Go SDK.
+func (c HTTPConfig) TransformHTTPClient(client http.Client) http.Client {
 	if c.ProxyConfig.UseNtlm {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
 		transport, _ := client.Transport.(*http.Transport)
 		if transport == nil {
 			transport = &http.Transport{}
 			client.Transport = transport
+		} else {
+			// copy the existing Transport object
+			t := *transport
+			transport = &t
 		}
 		if transport.DialContext == nil {
 			dialer := &net.Dialer{
