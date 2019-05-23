@@ -59,13 +59,10 @@ func (c HTTPConfig) CreateHTTPClientForSDK(config ld.Config) http.Client {
 }
 
 func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
-	var transport *http.Transport
 	client := http.Client{}
 	if c.ProxyConfig.NtlmAuth {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
-		if transport == nil {
-			transport = &http.Transport{}
-		}
+		transport := &http.Transport{}
 		dialer := &net.Dialer{
 			Timeout:   timeout,
 			KeepAlive: timeout,
@@ -75,14 +72,13 @@ func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
 		ntlmDialContext := ntlm.WrapDialContext(transport.DialContext, c.ProxyConfig.Url,
 			c.ProxyConfig.User, c.ProxyConfig.Password, c.ProxyConfig.Domain)
 		transport.DialContext = ntlmDialContext
+		client.Transport = transport
 	} else if c.ProxyConfig.Url != "" {
 		if url, err := url.Parse(c.ProxyConfig.Url); err == nil {
-			if transport == nil {
-				transport = &http.Transport{}
-			}
+			transport := &http.Transport{}
 			transport.Proxy = http.ProxyURL(url)
+			client.Transport = transport
 		}
 	}
-	client.Transport = transport
 	return client
 }
