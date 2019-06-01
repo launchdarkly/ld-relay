@@ -22,7 +22,8 @@
   branch = "master"
   name = "github.com/Azure/go-ntlmssp"
   packages = ["."]
-  revision = "4a21cbd618b459155f8b8ee7f4491cd54f5efa77"
+  revision = "a22bdd33b2a45c81d5adce655962f79872df8fff"
+  source = "github.com/launchdarkly/go-ntlmssp"
 
 [[projects]]
   branch = "master"
@@ -475,7 +476,7 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "eb/ch37474/http-adapter"
+  branch = "v4"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -484,12 +485,12 @@
     "redis",
     "utils"
   ]
-  revision = "5d49af6a3e5b15c62562ddac26fc7efec04e0633"
+  revision = "06ba33a972114d5e5fd12039e99801ab663dca6b"
   source = "github.com/launchdarkly/go-server-sdk-private"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "da8234e9409e01e26bf2fa908ae84c3865d9ec8ed961cc7f50dbb401a0b8379c"
+  inputs-digest = "f3eba472d097ecfc389fc880b9929f2c737cf5d7ec2b8f87419f66dd93a31f0e"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -10,6 +10,7 @@ import (
 
 	ntlm "github.com/Codehardt/go-ntlm-proxy-auth"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 // ProxyConfig represents all the supported proxy options. This is used in the Config struct in relay.go.
@@ -38,11 +39,13 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 		if _, err := url.Parse(proxyConfig.Url); err != nil {
 			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
 		}
+		logging.Info.Printf("Using proxy server at %s", proxyConfig.Url)
 	}
 	if proxyConfig.NtlmAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errors.New("NTLM proxy authentication requires username and password")
 		}
+		logging.Info.Printf("NTLM proxy authentication enabled")
 	}
 	return ret, nil
 }
@@ -60,6 +63,10 @@ func (c HTTPConfig) CreateHTTPClientForSDK(config ld.Config) http.Client {
 
 func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
 	client := http.Client{}
+	var proxyURL *url.URL
+	if c.ProxyConfig.Url != "" {
+		proxyURL, _ = url.Parse(c.ProxyConfig.Url)
+	}
 	if c.ProxyConfig.NtlmAuth {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
 		transport := &http.Transport{}
@@ -69,16 +76,14 @@ func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
 		}
 		transport.Dial = dialer.Dial
 		transport.DialContext = dialer.DialContext
-		ntlmDialContext := ntlm.WrapDialContext(transport.DialContext, c.ProxyConfig.Url,
+		ntlmDialContext := ntlm.WrapDialContext(transport.DialContext, proxyURL.Host,
 			c.ProxyConfig.User, c.ProxyConfig.Password, c.ProxyConfig.Domain)
 		transport.DialContext = ntlmDialContext
 		client.Transport = transport
-	} else if c.ProxyConfig.Url != "" {
-		if url, err := url.Parse(c.ProxyConfig.Url); err == nil {
-			transport := &http.Transport{}
-			transport.Proxy = http.ProxyURL(url)
-			client.Transport = transport
-		}
+	} else if proxyURL != nil {
+		transport := &http.Transport{}
+		transport.Proxy = http.ProxyURL(proxyURL)
+		client.Transport = transport
 	}
 	return client
 }

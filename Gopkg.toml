@@ -38,9 +38,13 @@
   name = "github.com/launchdarkly/gcfg"
 
 [[constraint]]
-  branch = "eb/ch37474/http-adapter"
+  branch = "v4"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   source = "github.com/launchdarkly/go-server-sdk-private"
+
+[[override]]
+  name = "github.com/Azure/go-ntlmssp"
+  source = "github.com/launchdarkly/go-ntlmssp"
 
 [prune]
   go-tests = true
