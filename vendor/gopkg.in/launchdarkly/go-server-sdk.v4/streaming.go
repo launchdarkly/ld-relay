@@ -227,6 +227,8 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 				return
 			}
 
+			sp.config.Logger.Printf("Unable to establish streaming connection: %+v", err)
+
 			// Halt immediately if we've been closed already
 			select {
 			case <-sp.halt:
