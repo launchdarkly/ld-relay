@@ -1,8 +1,10 @@
 package httpconfig
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,11 +17,12 @@ import (
 
 // ProxyConfig represents all the supported proxy options. This is used in the Config struct in relay.go.
 type ProxyConfig struct {
-	Url      string
-	NtlmAuth bool
-	User     string
-	Password string
-	Domain   string
+	Url           string
+	NtlmAuth      bool
+	User          string
+	Password      string
+	Domain        string
+	SkipTlsVerify bool
 }
 
 // HTTPConfig encapsulates ProxyConfig plus any other HTTP options we may support in the future (currently none).
@@ -31,6 +34,7 @@ const defaultTimeout = 10 * time.Second
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
 func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
+	ntlm.SetDebugf(log.Printf)
 	ret := HTTPConfig{proxyConfig}
 	if proxyConfig.Url == "" && proxyConfig.NtlmAuth {
 		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
@@ -67,21 +71,30 @@ func (c HTTPConfig) newHTTPClient(timeout time.Duration) http.Client {
 	if c.ProxyConfig.Url != "" {
 		proxyURL, _ = url.Parse(c.ProxyConfig.Url)
 	}
+	makeProxyTLSConfig := func() *tls.Config {
+		if c.ProxyConfig.SkipTlsVerify {
+			return &tls.Config{
+				InsecureSkipVerify: true,
+			}
+		}
+		return nil
+	}
+	makeProxyTransport := func() *http.Transport {
+		return &http.Transport{TLSClientConfig: makeProxyTLSConfig()}
+	}
 	if c.ProxyConfig.NtlmAuth {
 		// See: https://github.com/Codehardt/go-ntlm-proxy-auth
-		transport := &http.Transport{}
+		transport := makeProxyTransport()
 		dialer := &net.Dialer{
 			Timeout:   timeout,
 			KeepAlive: timeout,
 		}
-		transport.Dial = dialer.Dial
-		transport.DialContext = dialer.DialContext
-		ntlmDialContext := ntlm.WrapDialContext(transport.DialContext, proxyURL.Host,
-			c.ProxyConfig.User, c.ProxyConfig.Password, c.ProxyConfig.Domain)
-		transport.DialContext = ntlmDialContext
+		transport.DialContext = ntlm.NewNTLMProxyDialContext(dialer, *proxyURL,
+			c.ProxyConfig.User, c.ProxyConfig.Password, c.ProxyConfig.Domain,
+			makeProxyTLSConfig())
 		client.Transport = transport
 	} else if proxyURL != nil {
-		transport := &http.Transport{}
+		transport := makeProxyTransport()
 		transport.Proxy = http.ProxyURL(proxyURL)
 		client.Transport = transport
 	}
