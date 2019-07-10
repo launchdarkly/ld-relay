@@ -7,9 +7,18 @@ run:
 linters:
   enable-all: true
   disable:
+    - gochecknoinits
+    - gochecknoglobals
+    - gocritic
     - gocyclo
     - gofmt
+    - goimports
+    - gosec # re-enable this when we're not using InsecureSkipVerify
+    - ineffassign
+    - lll
     - maligned  # don't really care about struct sizes
+    - stylecheck
+    - unparam
   fast: false
 
 linter-settings:

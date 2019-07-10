@@ -75,15 +75,13 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 				if schemaVersion == 1 {
 					for i, value := range flag.Variations {
 						if reflect.DeepEqual(value, e.Value) {
-							e.Variation = &i
+							n := i
+							e.Variation = &n
 							break
 						}
 					}
 				}
 			}
-		}
-		if err != nil {
-			return nil, err
 		}
 		return e, nil
 	case ld.CustomEventKind:
