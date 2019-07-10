@@ -22,6 +22,7 @@ defaults:
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
       - run: make init
+      - run: go build ./cmd/ld-relay
       - run:
           name: lint
           command: |
