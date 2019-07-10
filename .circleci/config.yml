@@ -23,12 +23,6 @@ defaults:
       - run: dep ensure -dry-run
       - run: make init
       - run:
-          name: lint
-          command: |
-            if [ -z "$DISABLE_LINT" ]; then
-              make lint
-            fi
-      - run:
           name: Set up Code Climate test-reporter
           command: |
             curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
@@ -54,6 +48,12 @@ defaults:
               go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
             fi
           when: always
+      - run:
+          name: lint
+          command: |
+            if [ -z "$DISABLE_LINT" ]; then
+              make lint
+            fi
       - store_test_results:
           path: /tmp/circle-reports
       - store_artifacts:
