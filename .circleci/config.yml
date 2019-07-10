@@ -19,6 +19,7 @@ defaults:
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
+      - run: go version && go env
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
       - run: make init
