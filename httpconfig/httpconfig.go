@@ -35,7 +35,7 @@ const defaultTimeout = 10 * time.Second
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
 func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 	ntlm.SetDebugf(log.Printf)
-	ret := HTTPConfig{proxyConfig}
+	ret := HTTPConfig{ProxyConfig: proxyConfig}
 	if proxyConfig.Url == "" && proxyConfig.NtlmAuth {
 		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
 	}

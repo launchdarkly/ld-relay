@@ -530,7 +530,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	}
 
 	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri),
-		events.OptionClient{httpConfig.Client()})
+		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}

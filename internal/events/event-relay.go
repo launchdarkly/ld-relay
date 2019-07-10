@@ -199,7 +199,7 @@ func newEventVerbatimRelay(sdkKey string, config Config, httpClient *http.Client
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
 		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),
-		OptionClient{httpClient},
+		OptionClient{Client: httpClient},
 	}
 
 	if config.FlushIntervalSecs > 0 {
