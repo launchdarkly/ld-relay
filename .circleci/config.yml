@@ -22,7 +22,12 @@ defaults:
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
       - run: make init
-      - run: make lint
+      - run:
+          name: lint
+          command: |
+            if [ -z "$DISABLE_LINT" ]; then
+              make lint
+            fi
       - run:
           name: Set up Code Climate test-reporter
           command: |
@@ -79,6 +84,7 @@ jobs:
         environment:
           <<: *environment
           DISABLE_COVERAGE: 1
+          DISABLE_LINT: 1
 
     <<: *build_steps
 

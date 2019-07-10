@@ -7,9 +7,6 @@ run:
 linters:
   enable-all: true
   disable:
-    - gochecknoinits
-    - gochecknoglobals
-    - gocritic
     - gocyclo
     - gofmt
     - goimports
@@ -17,7 +14,6 @@ linters:
     - ineffassign
     - lll
     - maligned  # don't really care about struct sizes
-    - stylecheck
     - unparam
   fast: false
 
