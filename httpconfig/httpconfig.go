@@ -64,7 +64,10 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 			return ret, fmt.Errorf("Can't read CA certificate file %s", filePath)
 		}
 		if ret.CaCerts == nil {
-			ret.CaCerts = x509.NewCertPool()
+			ret.CaCerts, err = x509.SystemCertPool() // this returns a *copy* of the existing CA certs
+			if err != nil {
+				ret.CaCerts = x509.NewCertPool()
+			}
 		}
 		if !ret.CaCerts.AppendCertsFromPEM(bytes) {
 			return ret, fmt.Errorf("CA certificate file %s did not contain a valid certificate", filePath)
