@@ -17,6 +17,7 @@ const (
 	patchEvent         = "patch"
 	deleteEvent        = "delete"
 	indirectPatchEvent = "indirect/patch"
+	streamReadTimeout  = 5 * time.Minute // the LaunchDarkly stream should send a heartbeat comment every 3 minutes
 )
 
 type streamProcessor struct {
@@ -203,11 +204,13 @@ func newStreamProcessor(sdkKey string, config Config, requestor *requestor) *str
 		requestor: requestor,
 		halt:      make(chan struct{}),
 	}
-	if requestor != nil {
-		sp.client = requestor.httpClient
-	} else {
-		sp.client = config.newHTTPClient()
-	}
+
+	sp.client = config.newHTTPClient()
+	// Client.Timeout isn't just a connect timeout, it will break the connection if a full response
+	// isn't received within that time (which, with the stream, it never will be), so we must make
+	// sure it's zero and not the usual configured default. What we do want is a *connection* timeout,
+	// which is set by newHTTPClient as a property of the Dialer.
+	sp.client.Timeout = 0
 
 	return sp
 }
@@ -221,13 +224,15 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 
 		if stream, err := es.SubscribeWithRequestAndOptions(req,
 			es.StreamOptionHTTPClient(sp.client),
+			es.StreamOptionReadTimeout(streamReadTimeout),
 			es.StreamOptionLogger(sp.config.Logger)); err != nil {
+
+			sp.config.Logger.Printf("Unable to establish streaming connection: %+v", err)
+
 			if sp.checkIfPermanentFailure(err) {
 				close(closeWhenReady)
 				return
 			}
-
-			sp.config.Logger.Printf("Unable to establish streaming connection: %+v", err)
 
 			// Halt immediately if we've been closed already
 			select {

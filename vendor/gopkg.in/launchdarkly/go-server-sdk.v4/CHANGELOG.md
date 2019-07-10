@@ -2,6 +2,21 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.8.2] - 2019-07-02
+### Added:
+- Logging a message when failing to establish a streaming connection.
+
+## [4.8.1] - 2019-06-12
+### Fixed:
+- A bug introduced in the 4.8.0 release was causing stream connections to restart frequently. ([#3](https://github.com/launchdarkly/go-server-sdk/issues/3))
+
+## [4.8.0] - 2019-06-11
+### Added:
+- The `HTTPClientFactory` property in `Config` allows you to customize the HTTP client instances used by the SDK. This could be used, for instance, to support a type of proxy behavior that is not built into the Go standard library, or for compatibility with frameworks such as Google App Engine that require special networking configuration.
+
+### Fixed:
+- When using a custom attribute for rollout bucketing, the SDK now treats numeric values the same regardless of whether they are stored as `int` or `float64`, as long as the actual value is an integer. This is necessary to ensure consistent behavior because of the default behavior of JSON encoding in Go, which causes all numbers to become `float64` if they have been marshaled to JSON and then unmarshaled. As described in [the documentation for this feature](https://docs.launchdarkly.com/docs/targeting-users#section-percentage-rollouts), any floating-point value that has a fractional component is still disallowed.
+
 ## [4.7.4] - 2019-05-06
 ### Fixed:
 - `Version` in `ldclient.go` is now correctly reported as `4.7.4`.

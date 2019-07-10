@@ -98,6 +98,7 @@ func (c Config) newHTTPClient() *http.Client {
 	}
 	dialer := net.Dialer{
 		KeepAlive: 1 * time.Minute,
+		Timeout:   c.Timeout, // see newStreamProcessor for why we are setting this
 	}
 	client := http.Client{
 		Timeout: c.Timeout,

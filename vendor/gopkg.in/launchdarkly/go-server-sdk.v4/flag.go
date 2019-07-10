@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"math"
 	"reflect"
 	"strconv"
 )
@@ -154,8 +155,13 @@ func bucketableStringValue(uValue interface{}) (string, bool) {
 	if s, ok := uValue.(string); ok {
 		return s, true
 	}
+	// Can't only check for int type, because integer values in JSON may be decoded as float64
 	if i, ok := uValue.(int); ok {
 		return strconv.Itoa(i), true
+	} else if i, ok := uValue.(float64); ok {
+		if i == math.Trunc(i) {
+			return strconv.Itoa(int(i)), true
+		}
 	}
 	return "", false
 }

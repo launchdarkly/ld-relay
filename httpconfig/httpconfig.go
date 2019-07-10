@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"time"
 
-	ntlm "github.com/Codehardt/go-ntlm-proxy-auth"
+	ntlm "github.com/launchdarkly/go-ntlm-proxy-auth"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
