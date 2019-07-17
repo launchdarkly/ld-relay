@@ -131,32 +131,40 @@ func (c CommonMetricsConfig) enabled() bool {
 
 // Config describes the configuration for a relay instance
 type Config struct {
-	Main struct {
-		ExitOnError            bool
-		IgnoreConnectionErrors bool
-		StreamUri              string
-		BaseUri                string
-		Port                   int
-		HeartbeatIntervalSecs  int
-	}
-	Events events.Config
-	Redis  struct {
-		Host     string
-		Port     int
-		Url      string
-		LocalTtl int
-	}
-	Consul struct {
-		Host     string
-		LocalTtl int
-	}
-	DynamoDB struct {
-		Enabled   bool
-		TableName string
-		LocalTtl  int
-	}
+	Main        MainConfig
+	Events      events.Config
+	Redis       RedisConfig
+	Consul      ConsulConfig
+	DynamoDB    DynamoDBConfig
 	Environment map[string]*EnvConfig
 	MetricsConfig
+}
+
+type MainConfig struct {
+	ExitOnError            bool
+	IgnoreConnectionErrors bool
+	StreamUri              string
+	BaseUri                string
+	Port                   int
+	HeartbeatIntervalSecs  int
+}
+
+type ConsulConfig struct {
+	Host     string
+	LocalTtl int
+}
+
+type RedisConfig struct {
+	Host     string
+	Port     int
+	Url      string
+	LocalTtl int
+}
+
+type DynamoDBConfig struct {
+	Enabled   bool
+	TableName string
+	LocalTtl  int
 }
 
 type MetricsConfig struct {
