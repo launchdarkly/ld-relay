@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	ntlmssp "github.com/Azure/go-ntlmssp"
+	ntlmssp "github.com/launchdarkly/go-ntlmssp"
 )
 
 // DialContext is the DialContext function that should be wrapped with a

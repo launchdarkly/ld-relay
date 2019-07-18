@@ -30,10 +30,6 @@
   version = "3.5.1"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/facebookgo/httpcontrol"
-
-[[constraint]]
   name = "github.com/garyburd/redigo"
   version = "1.4.0"
 

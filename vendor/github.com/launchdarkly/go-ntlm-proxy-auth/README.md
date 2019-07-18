@@ -5,7 +5,7 @@
 
 With this package, you can connect to http/https servers protected by an NTLM proxy in Golang.
 
-This is a fork of https://github.com/Codehardt/go-ntlm-proxy-auth which adds support for HTTPS proxy URLs.
+This is a fork of https://github.com/Codehardt/go-ntlm-proxy-auth which adds support for HTTPS proxy URLs. It also uses the fork https://github.com/launchdarkly/go-ntlmssp instead of `github.com/Azure/go-ntlmssp`.
 
 ## Example: NewNTLMProxyDialContext
 
