@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldhttp"
@@ -30,8 +29,6 @@ type HTTPConfig struct {
 	ProxyURL          *url.URL
 	HTTPClientFactory ld.HTTPClientFactory
 }
-
-const defaultTimeout = 10 * time.Second
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
 func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
