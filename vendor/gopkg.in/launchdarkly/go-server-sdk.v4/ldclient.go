@@ -207,7 +207,8 @@ func (client *LDClient) Initialized() bool {
 }
 
 // Close shuts down the LaunchDarkly client. After calling this, the LaunchDarkly client
-// should no longer be used.
+// should no longer be used. The method will block until all pending analytics events (if any)
+// been sent.
 func (client *LDClient) Close() error {
 	client.config.Logger.Println("Closing LaunchDarkly Client")
 	if client.IsOffline() {
@@ -220,7 +221,9 @@ func (client *LDClient) Close() error {
 	return nil
 }
 
-// Flush immediately flushes queued events.
+// Flush tells the client that all pending analytics events (if any) should be delivered as soon
+// as possible. Flushing is asynchronous, so this method will return before it is complete.
+// However, if you call Close(), events are guaranteed to be sent before that method returns.
 func (client *LDClient) Flush() {
 	client.eventProcessor.Flush()
 }

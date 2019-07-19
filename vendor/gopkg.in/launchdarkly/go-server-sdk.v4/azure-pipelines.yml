@@ -2,6 +2,9 @@ jobs:
   - job: build
     pool:
       vmImage: 'vs2017-win2016'
+    variables:
+      GOPATH: C:\Users\VssAdministrator\go
+      PACKAGE_PATH: gopkg.in\launchdarkly\go-server-sdk.v4
     steps:
       - task: PowerShell@2
         displayName: 'Move Source'
@@ -11,8 +14,8 @@ jobs:
           script: |
             go version
             go env GOPATH
-            mkdir C:\Users\VssAdministrator\go\src\gopkg.in\launchdarkly\go-client.v4
-            mv * C:\Users\VssAdministrator\go\src\gopkg.in\launchdarkly\go-client.v4\
+            mkdir $(GOPATH)\src\$(PACKAGE_PATH)
+            mv * $(GOPATH)\src\$(PACKAGE_PATH)\
       - task: PowerShell@2
         displayName: 'Setup Dynamo'
         inputs:
@@ -52,7 +55,6 @@ jobs:
         displayName: 'Setup SDK and Test'
         inputs:
           targetType: inline
-          workingDirectory: C:\Users\VssAdministrator\go\src\gopkg.in\launchdarkly\go-client.v4
+          workingDirectory: $(GOPATH)\src\$(PACKAGE_PATH)
           script: |
-            go get -t
-            go test -race
+            go test -race ./...

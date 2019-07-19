@@ -116,7 +116,6 @@ variable name        | type           | description
 `prefix`             | String         | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
 `tableName`          | String         | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`      | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
-`insecureSkipVerify` | Boolean        | If true, TLS accepts any certificate presented by the server and any host name in that certificate.
 
 ## [datadog]
 variable name | type    | description
@@ -149,6 +148,7 @@ ntlmAuth      | Boolean | Enables NTLM proxy authentication (requires user, pass
 user          | String  | Username for proxy authentication, if applicable.
 password      | String  | Password for proxy authentication, if applicable.
 domain        | String  | Domain name for proxy authentication, if applicable.
+caCertFiles   | String  | Comma-delimited list of file paths to additional CA certificates that should be trusted (in PEM format).
 
 ```
 [main]

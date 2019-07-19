@@ -23,15 +23,6 @@
   version = "v0.5.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:69f63c8ebc968d6080a06005469a5bf2b32a56640350f1168f658066c9c690d6"
-  name = "github.com/Azure/go-ntlmssp"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "a22bdd33b2a45c81d5adce655962f79872df8fff"
-  source = "github.com/launchdarkly/go-ntlmssp"
-
-[[projects]]
   digest = "1:bd285ec20a7450d2272631284de698f2d76e923a458fee90e99cc1db4b97708d"
   name = "github.com/DataDog/datadog-go"
   packages = ["statsd"]
@@ -244,11 +235,19 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:e27603eeb020b0a73c1d575178f7fd7c23a27e8ec60f992563dc4c5d0efa6aef"
+  digest = "1:e0a42c45487a3c098e6eaba5f8a91ed4cbd4c2974e58d6b2d323a65395006983"
   name = "github.com/launchdarkly/go-ntlm-proxy-auth"
   packages = ["."]
   pruneopts = "UT"
-  revision = "22cdb55db8fb17eedb84c3a9eb7d879e0a7da5df"
+  revision = "90effd9f15f98bbb96df6a3989187340d3a10700"
+
+[[projects]]
+  branch = "master"
+  digest = "1:69f63c8ebc968d6080a06005469a5bf2b32a56640350f1168f658066c9c690d6"
+  name = "github.com/launchdarkly/go-ntlmssp"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "a22bdd33b2a45c81d5adce655962f79872df8fff"
 
 [[projects]]
   digest = "1:ff5ebae34cfbf047d505ee150de27e60570e8c394b3b8fdbb720ff6ac71985fc"
@@ -574,18 +573,21 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:0d8c874db9c068fbbfa3f5874800b65b1286abccc6a2b7db8e099967c1be35fb"
+  branch = "eb/ch43336/ntlm-proxy"
+  digest = "1:8b81cc8a0067b396edda491dc23a6a40cc426e2bec5577e3a9aaa0080de29868"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
     "ldconsul",
     "lddynamodb",
+    "ldhttp",
+    "ldntlm",
     "redis",
     "utils",
   ]
   pruneopts = "UT"
-  revision = "75e5176cff458ca627be1205698bbac1314841ae"
-  version = "4.8.2"
+  revision = "f61b8014479098368a38df85b5cb49d1613a12ab"
+  source = "github.com/launchdarkly/go-server-sdk-private"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -598,7 +600,6 @@
     "github.com/kardianos/minwinsvc",
     "github.com/launchdarkly/eventsource",
     "github.com/launchdarkly/gcfg",
-    "github.com/launchdarkly/go-ntlm-proxy-auth",
     "github.com/pborman/uuid",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
@@ -610,6 +611,8 @@
     "gopkg.in/launchdarkly/go-server-sdk.v4",
     "gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul",
     "gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb",
+    "gopkg.in/launchdarkly/go-server-sdk.v4/ldhttp",
+    "gopkg.in/launchdarkly/go-server-sdk.v4/ldntlm",
     "gopkg.in/launchdarkly/go-server-sdk.v4/redis",
   ]
   solver-name = "gps-cdcl"

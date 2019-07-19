@@ -39,11 +39,9 @@
 
 [[constraint]]
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
-  version = "4.8.2"
-
-[[override]]
-  name = "github.com/Azure/go-ntlmssp"
-  source = "github.com/launchdarkly/go-ntlmssp"
+  source = "github.com/launchdarkly/go-server-sdk-private"
+  branch = "eb/ch43336/ntlm-proxy"
+  #version = "4.8.2"
 
 [prune]
   go-tests = true
