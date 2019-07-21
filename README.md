@@ -75,6 +75,9 @@ variable name            | type    | default                           | descrip
 `ignoreConnectionErrors` | Boolean | `false`                           | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | Number  | `8030`                            | Port the LD Relay should listen on
 `heartbeatIntervalSecs`  | Number  | `0`                               | If > 0, sends heartbeats to connected clients at this interval
+`tlsEnabled`             | Boolean | `false`                           | Enable TLS on the relay
+`tlsCert`                | String  | ``                                | Required if `tlsEnabled` is true. Path to TLS Certificate
+`tlsKey`                 | String  | ``                                | Required if `tlsEnabled` is true. Path to TLS Private Key 
 
 ## [events]
 variable name       | type    | default                           | description
