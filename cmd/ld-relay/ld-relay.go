@@ -38,7 +38,22 @@ func main() {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
+	if c.Main.TLS {
+		if c.Main.TLSCert == "" {
+			logging.Error.Printf("TLS: tlscert required")
+			os.Exit(1)
+		}
+		if c.Main.TLSKey == "" {
+			logging.Error.Printf("TLS: tlskey required")
+			os.Exit(1)
+		}
+
+		err = http.ListenAndServeTLS(fmt.Sprintf(":%d", c.Main.Port), c.Main.TLSCert, c.Main.TLSKey, r)
+		logging.Info.Printf("Server started with TLS enabled")
+	} else {
+		err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
+	}
+
 	if err != nil {
 		if c.Main.ExitOnError {
 			logging.Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err)

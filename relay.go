@@ -47,6 +47,7 @@ const (
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
 	defaultFlushIntervalSecs     = 5
+	defaultTls                   = false
 
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
@@ -147,6 +148,9 @@ type MainConfig struct {
 	BaseUri                string
 	Port                   int
 	HeartbeatIntervalSecs  int
+	TLS                    bool
+	TLSCert                string
+	TLSKey                 string
 }
 
 type ConsulConfig struct {
