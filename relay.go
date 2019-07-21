@@ -211,6 +211,7 @@ func init() {
 	DefaultConfig.Main.StreamUri = defaultStreamUri
 	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 	DefaultConfig.Main.Port = defaultPort
+	DefaultConfig.Main.TLSEnabled = defaultTLSEnabled
 	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
 	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
 }
