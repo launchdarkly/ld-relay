@@ -41,11 +41,11 @@ func main() {
 
 	if c.Main.TLSEnabled {
 		if c.Main.TLSCert == "" {
-			logging.Error.Printf("TLS: tlscert required")
+			logging.Error.Printf("TLS: tlsCert required")
 			os.Exit(1)
 		}
 		if c.Main.TLSKey == "" {
-			logging.Error.Printf("TLS: tlskey required")
+			logging.Error.Printf("TLS: tlsKey required")
 			os.Exit(1)
 		}
 
