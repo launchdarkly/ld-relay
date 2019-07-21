@@ -7,6 +7,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strconv"
 	"strings"
 
 	_ "github.com/kardianos/minwinsvc"
@@ -38,7 +39,7 @@ func main() {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}
 
-	if c.Main.TLS {
+	if c.Main.TLSEnabled {
 		if c.Main.TLSCert == "" {
 			logging.Error.Printf("TLS: tlscert required")
 			os.Exit(1)
@@ -48,10 +49,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		err = http.ListenAndServeTLS(fmt.Sprintf(":%d", c.Main.Port), c.Main.TLSCert, c.Main.TLSKey, r)
-		logging.Info.Printf("Server started with TLS enabled")
+		go func() {
+			err = http.ListenAndServeTLS(fmt.Sprintf(":%d", c.Main.Port), c.Main.TLSCert, c.Main.TLSKey, r)
+		}()
 	} else {
-		err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
+		go func() {
+			err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
+		}()
 	}
 
 	if err != nil {
@@ -60,8 +64,10 @@ func main() {
 		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 	} else {
-		logging.Info.Printf("Listening on port %d\n", c.Main.Port)
+		logging.Info.Printf("TLS Enabled: %s, Listening on port %d\n", strconv.FormatBool(c.Main.TLSEnabled), c.Main.Port)
 	}
+
+	select {}
 }
 
 func formatVersion(version string) string {
