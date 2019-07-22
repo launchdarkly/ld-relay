@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,7 +92,7 @@ func makeTestContextWithData() *clientContextImpl {
 }
 
 func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {
-	items := []string{}
+	obj := make(map[string]interface{})
 	for _, f := range flags {
 		value := f.expectedValue
 		if fullData {
@@ -106,11 +105,10 @@ func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {
 			}
 			value = m
 		}
-		j, _ := json.Marshal(value)
-		s := "\"" + f.flag.Key + "\":" + string(j)
-		items = append(items, s)
+		obj[f.flag.Key] = value
 	}
-	return "{" + strings.Join(items, ",") + "}"
+	out, _ := json.Marshal(obj)
+	return string(out)
 }
 
 // jsonFind returns the nested entity at a path in a json obj
