@@ -287,6 +287,14 @@ type evalXResult struct {
 	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
 }
 
+type sdkKind string
+
+const (
+	serverSdk   sdkKind = "server"
+	jsClientSdk sdkKind = "js"
+	mobileSdk   sdkKind = "mobile"
+)
+
 func (c *clientContextImpl) getClient() LdClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -426,13 +434,13 @@ func (r *Relay) makeHandler() http.Handler {
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
 	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
-	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET", "OPTIONS")
-	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
 	clientSideSdkEvalXRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalXRouter))
-	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	serverSideMiddlewareStack := chainMiddleware(
 		r.sdkClientMux.selectClientByAuthorizationKey,
@@ -443,12 +451,12 @@ func (r *Relay) makeHandler() http.Handler {
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
-	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("GET")
-	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("REPORT")
+	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("GET")
+	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("REPORT")
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("REPORT")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
@@ -459,12 +467,12 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkRouter.Use(mobileMiddlewareStack)
 
 	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("REPORT")
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
-	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
-	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(mobileSdk)).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(mobileSdk)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack)
@@ -706,15 +714,19 @@ func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 	})
 }
 
-func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, true)
+func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		evaluateAllShared(w, req, true, sdkKind)
+	}
 }
 
-func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, false)
+func evaluateAllFeatureFlags(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		evaluateAllShared(w, req, false, sdkKind)
+	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -773,6 +785,9 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.(*ld.FeatureFlag); ok {
+			if sdkKind == jsClientSdk && !flag.ClientSide {
+				continue
+			}
 			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}
 			if valueOnly {
