@@ -7,7 +7,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"strconv"
 	"strings"
 
 	_ "github.com/kardianos/minwinsvc"
@@ -64,7 +63,10 @@ func main() {
 		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 	} else {
-		logging.Info.Printf("TLS Enabled: %s, Listening on port %d\n", strconv.FormatBool(c.Main.TLSEnabled), c.Main.Port)
+		if c.Main.TLSEnabled {
+			logging.Info.Printf("TLS Enabled for Server")
+		}
+		logging.Info.Printf("Listening on port %d\n", c.Main.Port)
 	}
 
 	select {}
