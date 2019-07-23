@@ -1,4 +1,5 @@
-GOLANGCI_VERSION=v1.7
+GOLANGCI_VERSION=v1.10.2
+# earlier versions of golangci-lint don't work in go 1.9
 
 SHELL=/bin/bash
 
@@ -8,7 +9,7 @@ test:
 	go test ./...
 
 lint: $(LINTER)
-	./bin/golangci-lint run ./...
+	$(LINTER) run ./...
 
 $(LINTER):
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $(GOLANGCI_VERSION)

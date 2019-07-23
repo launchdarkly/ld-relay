@@ -18,29 +18,32 @@ Build instructions
  
 ### Prerequisites
  
-The SDK builds with [Gradle](https://gradle.org/) and should be built against Go 1.8 or newer.
+The SDK should be built against Go 1.8 or newer.
  
 ### Building
- 
+
 To build the SDK without running any tests:
 ```
-go build
+make
 ```
 
 If you wish to clean your working directory between builds, you can clean it by running:
 ```
-go clean
+make clean
 ```
 
-When building the SDK, you may need to download additional dependencies. You can do so by using `go get`.
+To run the linter:
 ```
-go get <DEPENDENCY_PACKAGE_NAME_HERE>
+make lint
 ```
 
- 
+If you add any new dependencies to the SDK, use `dep ensure` to ensure that they are copied to `vendor/`.
+
 ### Testing
  
 To build the SDK and run all unit tests:
 ```
-go test
+make test
 ```
+
+By default, the full unit test suite includes live tests of the integrations for Consul, DynamoDB, and Redis. Those tests expect you to have instances of all of those databases running locally. To skip them, set the environment variable `LD_SKIP_DATABASE_TESTS=1` before running the tests.

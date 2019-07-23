@@ -161,4 +161,18 @@ prefix = \"${PROMETHEUS_PREFIX}\"
 " >> $CONF_FILE
 fi
 
+if [ -n "$PROXY_URL" ]; then
+  echo "
+[proxy]
+url = \"${PROXY_URL}\"
+user = \"${PROXY_AUTH_USER}\"
+password = \"${PROXY_AUTH_PASSWORD}\"
+domain = \"${PROXY_AUTH_DOMAIN}\"
+" >> $CONF_FILE
+  if [ "$PROXY_AUTH_NTLM" = "1" ] || [ "$PROXY_AUTH_NTLM" = "true" ]; then
+    echo "ntlmAuth = true" >> $CONF_FILE
+    echo ""
+  fi
+fi
+
 exec "$@"

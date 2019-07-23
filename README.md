@@ -116,7 +116,6 @@ variable name        | type           | description
 `prefix`             | String         | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
 `tableName`          | String         | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`      | URI            | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment
-`insecureSkipVerify` | Boolean        | If true, TLS accepts any certificate presented by the server and any host name in that certificate.
 
 ## [datadog]
 variable name | type    | description
@@ -140,6 +139,16 @@ variable name | type    | description
 `enabled`     | Boolean | If true, enabled exporting traces to Prometheus.
 `port`        | Number  | The port that ld-relay will listen to `/metrics` on.
 `prefix`      | string  | The metrics prefix to be used by Prometheus.
+
+## [proxy]
+variable name | type    | description
+--------------|:------: | -----------
+url           | String  | All ld-relay network traffic will be sent through this HTTP proxy if specified.
+ntlmAuth      | Boolean | Enables NTLM proxy authentication (requires user, password, and domain).
+user          | String  | Username for proxy authentication, if applicable.
+password      | String  | Password for proxy authentication, if applicable.
+domain        | String  | Domain name for proxy authentication, if applicable.
+caCertFiles   | String  | Comma-delimited list of file paths to additional CA certificates that should be trusted (in PEM format).
 
 ```
 [main]
@@ -388,6 +397,11 @@ STACKDRIVER_PREFIX           | String         |                                 
 USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
+PROXY_URL                    | String         |                                   | All ld-relay network traffic will be sent through this HTTP proxy if specified.
+PROXY_AUTH_NTLM              | Boolean        | `false`                           | Enables NTLM proxy authentication (requires user, password, and domain).
+PROXY_AUTH_USER              | String         |                                   | Username for proxy authentication, if applicable.
+PROXY_AUTH_PASSWORD          | String         |                                   | Password for proxy authentication, if applicable.
+PROXY_AUTH_DOMAIN            | String         |                                   | Domain name for proxy authentication, if applicable.
 
 ### Docker examples
 To run a single environment, without Redis:

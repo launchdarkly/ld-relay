@@ -20,6 +20,7 @@ defaults:
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
+      - run: go version && go env
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
       - run:
@@ -54,6 +55,12 @@ defaults:
               go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
             fi
           when: always
+      - run:
+          name: lint
+          command: |
+            if [ -z "$DISABLE_LINT" ]; then
+              make lint
+            fi
       - store_test_results:
           path: /tmp/circle-reports
       - store_artifacts:
@@ -84,6 +91,7 @@ jobs:
         environment:
           <<: *environment
           DISABLE_COVERAGE: 1
+          DISABLE_LINT: 1
 
     <<: *build_steps
 
