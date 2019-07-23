@@ -485,5 +485,4 @@ r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
 Testing
 -------
 
-You can set up your development environment by installing go and running `make init` to install the linter.  To run
-lint and unit tests, run `make test`.  To run integration runs, run `make integration-test`.
+After installing a compatible version of Go, run `make test` to build and run unit tests. To run integration runs, run `make integration-test`. To run the linter, run `make lint`.

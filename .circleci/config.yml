@@ -13,6 +13,7 @@ defaults:
     COMMON_GO_PACKAGES: >
       github.com/jstemmer/go-junit-report
       github.com/kyoh86/richgo
+    DISABLE_LINT: 1  # golangci-lint is currently broken for this project (ch44169)
 
   build_steps: &build_steps
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
@@ -22,7 +23,12 @@ defaults:
       - run: go version && go env
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
-      - run: make init
+      - run:
+          name: lint
+          command: |
+            if [ "$DISABLE_LINT" != "1" ]; then
+              make lint
+            fi
       - run:
           name: Set up Code Climate test-reporter
           command: |
