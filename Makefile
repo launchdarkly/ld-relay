@@ -2,13 +2,15 @@ GOLANGCI_VERSION=v1.7
 
 SHELL=/bin/bash
 
-test: lint
+LINTER=./bin/golangci-lint
+
+test:
 	go test ./...
 
-lint:
+lint: $(LINTER)
 	./bin/golangci-lint run ./...
 
-init:
+$(LINTER):
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $(GOLANGCI_VERSION)
 
 # Get the lines added to the most recent changelog update (minus the first 2 lines)
@@ -40,4 +42,4 @@ test-docker-conf: test-docker
 
 integration-test: test-centos test-debian test-docker test-docker-conf test-docker-standalone
 
-.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all test-docker-conf test-docker-standalone
+.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-conf test-docker-standalone
