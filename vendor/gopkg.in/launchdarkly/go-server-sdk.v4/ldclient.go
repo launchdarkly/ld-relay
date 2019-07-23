@@ -14,7 +14,7 @@ import (
 )
 
 // Version is the client version.
-const Version = "4.8.2"
+const Version = "4.9.0"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -444,12 +444,19 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 	var storeErr error
 	var ok bool
 
+	evalErrorResult := func(errKind EvalErrorKind, flag *FeatureFlag, err error) (EvaluationDetail, *FeatureFlag, error) {
+		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(errKind)}
+		if client.config.LogEvaluationErrors {
+			client.config.Logger.Printf("WARN: %s", err.Error())
+		}
+		return detail, flag, err
+	}
+
 	if !client.Initialized() {
 		if client.store.Initialized() {
 			client.config.Logger.Printf("WARN: Feature flag evaluation called before LaunchDarkly client initialization completed; using last known values from feature store")
 		} else {
-			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorClientNotReady)}
-			return detail, nil, ErrClientNotInitialized
+			return evalErrorResult(EvalErrorClientNotReady, nil, ErrClientNotInitialized)
 		}
 	}
 
@@ -464,20 +471,26 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 	if data != nil {
 		feature, ok = data.(*FeatureFlag)
 		if !ok {
-			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorException)}
-			return detail, nil, fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key)
+			return evalErrorResult(EvalErrorException, nil,
+				fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key))
 		}
 	} else {
-		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorFlagNotFound)}
-		return detail, nil, fmt.Errorf("unknown feature key: %s Verify that this feature key exists. Returning default value", key)
+		return evalErrorResult(EvalErrorFlagNotFound, nil,
+			fmt.Errorf("unknown feature key: %s. Verify that this feature key exists. Returning default value", key))
 	}
 
 	if user.Key == nil {
-		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorUserNotSpecified)}
-		return detail, feature, fmt.Errorf("user.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
+		return evalErrorResult(EvalErrorUserNotSpecified, feature,
+			fmt.Errorf("user.Key cannot be nil when evaluating flag: %s. Returning default value", key))
 	}
 
 	detail, prereqEvents := feature.EvaluateDetail(user, client.store, sendReasonsInEvents)
+	if detail.Reason != nil && detail.Reason.GetKind() == EvalReasonError && client.config.LogEvaluationErrors {
+		if re, ok := detail.Reason.(EvaluationReasonError); ok {
+			client.config.Logger.Printf("WARN: flag evaluation for %s failed with error %s, default value was returned",
+				key, re.ErrorKind)
+		}
+	}
 	if detail.IsDefaultValue() {
 		detail.Value = defaultVal
 	}

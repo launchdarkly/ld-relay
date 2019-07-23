@@ -102,11 +102,22 @@ func NewHTTPTransport(options ...TransportOption) (*http.Transport, *net.Dialer,
 		Timeout:   extraOptions.connectTimeout,
 		KeepAlive: 1 * time.Minute, // see newStreamProcessor for why we are setting this
 	}
-	transport := &http.Transport{
-		DialContext: dialer.DialContext,
-	}
+	transport := newDefaultTransport()
+	transport.DialContext = dialer.DialContext
 	if extraOptions.caCerts != nil {
 		transport.TLSClientConfig = &tls.Config{RootCAs: extraOptions.caCerts}
 	}
 	return transport, dialer, nil
+}
+
+func newDefaultTransport() *http.Transport {
+	// The reason we don't just make a copy of http.DefaultTransport is that Transport contains a
+	// sync.Mutex, and copying a lock by value is bad.
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 }

@@ -573,8 +573,7 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "eb/ch43336/ntlm-proxy"
-  digest = "1:8b81cc8a0067b396edda491dc23a6a40cc426e2bec5577e3a9aaa0080de29868"
+  digest = "1:adc4d968c682a60c746bb90beed5446bbd9c0dbe7d4185bd484d5437283dba55"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -586,8 +585,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "f61b8014479098368a38df85b5cb49d1613a12ab"
-  source = "github.com/launchdarkly/go-server-sdk-private"
+  revision = "2049bc85c1cc02f8609bb06acfc02646ccae32cc"
+  version = "4.9.0"
 
 [solve-meta]
   analyzer-name = "dep"

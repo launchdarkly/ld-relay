@@ -64,6 +64,10 @@ type Config struct {
 	// Marks a set of user attribute names private. Any users sent to LaunchDarkly with this configuration
 	// active will have attributes with these names removed.
 	PrivateAttributeNames []string
+	// Sets whether the client should log a warning message whenever a flag cannot be evaluated due to an error
+	// (e.g. there is no flag with that key, or the user properties are invalid). By default, these messages are
+	// not logged, although you can detect such errors programmatically using the VariationDetail methods.
+	LogEvaluationErrors bool
 	// Deprecated. Please use UpdateProcessorFactory.
 	UpdateProcessor UpdateProcessor
 	// Factory to create an object that is responsible for receiving feature flag updates from LaunchDarkly.
