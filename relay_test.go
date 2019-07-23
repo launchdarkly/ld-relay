@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -9,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -36,18 +34,6 @@ func (c FakeLDClient) Initialized() bool {
 	return c.initialized
 }
 
-var nullLogger = log.New(ioutil.Discard, "", 0)
-var emptyStore = ld.NewInMemoryFeatureStore(nullLogger)
-
-// Returns a key matching the UUID header pattern
-func key() string {
-	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
-}
-
-func user() string {
-	return "eyJrZXkiOiJ0ZXN0In0="
-}
-
 func handler() clientMux {
 	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
 	return clientMux{clientContextByKey: clients}
@@ -69,67 +55,43 @@ func buildRequest(verb string, vars map[string]string, headers map[string]string
 	return req
 }
 
-func makeStoreWithData(initialized bool) ld.FeatureStore {
-	zero := 0
-	store := ld.NewInMemoryFeatureStore(nullLogger)
-	if initialized {
-		store.Init(nil)
-	}
-	store.Upsert(ld.Features, &ld.FeatureFlag{Key: "another-flag-key", On: true, Fallthrough: ld.VariationOrRollout{Variation: &zero}, Variations: []interface{}{3}, Version: 1})
-	store.Upsert(ld.Features, &ld.FeatureFlag{Key: "some-flag-key", OffVariation: &zero, Variations: []interface{}{true}, Version: 2})
-	store.Upsert(ld.Features, &ld.FeatureFlag{Key: "off-variation-key", Version: 3})
-	return store
-}
-
-func makeTestContextWithData() *clientContextImpl {
-	return &clientContextImpl{
-		client: FakeLDClient{initialized: true},
-		store:  makeStoreWithData(true),
-		logger: nullLogger,
-	}
-}
-
 func TestGetFlagEvalValueOnlySucceeds(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	req := buildRequest("GET", vars, nil, "", makeTestContextWithData())
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(resp, req)
+	evaluateAllFeatureFlagsValueOnly(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.JSONEq(t, `{"another-flag-key":3,"some-flag-key":true, "off-variation-key": null}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, false, false), string(b))
 }
 
 func TestReportFlagEvalValueOnlySucceeds(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, makeTestContextWithData())
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(resp, req)
+	evaluateAllFeatureFlagsValueOnly(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.JSONEq(t, `{"another-flag-key":3,"some-flag-key":true, "off-variation-key": null}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, false, false), string(b))
 }
 
 func TestGetFlagEvalSucceeds(t *testing.T) {
 	vars := map[string]string{"user": user()}
 	req := buildRequest("GET", vars, nil, "", makeTestContextWithData())
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(resp, req)
+	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.JSONEq(t, `{
-"another-flag-key":{"value": 3, "variation": 0, "version" :1, "trackEvents": false},
-"some-flag-key":{"value": true, "variation": 0, "version": 2, "trackEvents": false},
-"off-variation-key":{"value": null, "version": 3, "trackEvents": false}
-}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, true, false), string(b))
 }
 
 func TestGetFlagEvalWithReasonsSucceeds(t *testing.T) {
@@ -137,34 +99,26 @@ func TestGetFlagEvalWithReasonsSucceeds(t *testing.T) {
 	req := buildRequest("GET", vars, nil, "", makeTestContextWithData())
 	req.URL.RawQuery = "withReasons=true"
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(resp, req)
+	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.JSONEq(t, `{
-"another-flag-key":{"value": 3, "variation": 0, "version" :1, "trackEvents": false, "reason": {"kind": "FALLTHROUGH"}},
-"some-flag-key":{"value": true, "variation": 0, "version": 2, "trackEvents": false, "reason": {"kind": "OFF"}},
-"off-variation-key":{"value": null, "version": 3, "trackEvents": false, "reason": {"kind": "OFF"}}
-}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, true, true), string(b))
 }
 
 func TestReportFlagEvalSucceeds(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, makeTestContextWithData())
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(resp, req)
+	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
 
-	assert.JSONEq(t, `{
-"another-flag-key":{"value": 3, "variation": 0, "version" :1, "trackEvents": false},
-"some-flag-key":{"value": true, "variation": 0, "version": 2, "trackEvents": false},
-"off-variation-key":{"value": null, "version": 3, "trackEvents": false}
-}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, true, false), string(b))
 }
 
 func TestAuthorizeMethodFailsOnInvalidAuthKey(t *testing.T) {
@@ -182,7 +136,7 @@ func TestFlagEvalFailsOnInvalidUserJson(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	req := buildRequest("REPORT", vars, headers, `{"user":"key"}notjson`, nil)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(resp, req)
+	evaluateAllFeatureFlagsValueOnly(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 }
@@ -191,7 +145,7 @@ func TestReportFlagEvalFailsWithMissingUserKey(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	req := buildRequest("REPORT", nil, headers, "{}", makeTestContextWithData())
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(resp, req)
+	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 
@@ -209,7 +163,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(resp, req)
+	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
 
@@ -227,19 +181,19 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(resp, req)
+	evaluateAllFeatureFlagsValueOnly(jsClientSdk)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
-	assert.JSONEq(t, `{"another-flag-key":3,"some-flag-key":true, "off-variation-key": null}`, string(b))
+	assert.JSONEq(t, makeEvalBody(clientSideFlags, false, false), string(b))
 }
 
 func TestFindEnvironmentFailsOnInvalidEnvId(t *testing.T) {
 	vars := map[string]string{"envId": "blah", "user": user()}
 	req := buildRequest("GET", vars, nil, "", nil)
 	resp := httptest.NewRecorder()
-	clientSideHandler([]string{}).selectClientByUrlParam(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly)).ServeHTTP(resp, req)
+	clientSideHandler([]string{}).selectClientByUrlParam(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(jsClientSdk))).ServeHTTP(resp, req)
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
@@ -287,52 +241,6 @@ func TestCorsMiddlewareSetsCorrectHeadersForInvalidOrigin(t *testing.T) {
 
 	handler().selectClientByAuthorizationKey(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
 
-}
-
-type bodyMatcher func(t *testing.T, body []byte)
-
-func expectBody(expectedBody string) bodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.EqualValues(t, expectedBody, body)
-	}
-}
-
-func expectJSONBody(expectedBody string) bodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.JSONEq(t, expectedBody, string(body))
-	}
-}
-
-type StreamRecorder struct {
-	*bufio.Writer
-	*httptest.ResponseRecorder
-	closer chan bool
-}
-
-func (r StreamRecorder) CloseNotify() <-chan bool {
-	return r.closer
-}
-
-func (r StreamRecorder) Close() {
-	r.closer <- true
-}
-
-func (r StreamRecorder) Write(data []byte) (int, error) {
-	return r.Writer.Write(data)
-}
-
-func (r StreamRecorder) Flush() {
-	r.Writer.Flush()
-}
-
-func NewStreamRecorder() (StreamRecorder, io.Reader) {
-	reader, writer := io.Pipe()
-	recorder := httptest.NewRecorder()
-	return StreamRecorder{
-		ResponseRecorder: recorder,
-		Writer:           bufio.NewWriter(writer),
-		closer:           make(chan bool),
-	}, reader
 }
 
 type publishedEvent struct {
@@ -421,23 +329,21 @@ func TestRelay(t *testing.T) {
 	config.Events.FlushIntervalSecs = 1
 	config.Events.Capacity = defaultEventCapacity
 
-	zero := 0
-	flag := ld.FeatureFlag{Key: "my-flag", OffVariation: &zero, Variations: []interface{}{1}}
-
 	createDummyClient := func(sdkKey string, config ld.Config) (LdClientContext, error) {
-		config.FeatureStore.Init(nil)
-		config.FeatureStore.Upsert(ld.Features, &flag)
+		addAllFlags(config.FeatureStore, true)
 		return &FakeLDClient{true}, nil
 	}
 
 	relay, _ := NewRelay(config, createDummyClient)
 
-	expectedEvalBody := expectJSONBody(`{"my-flag":1}`)
-	expectedEvalxBody := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false}}`)
-	expectedEvalxBodyWithReasons := expectJSONBody(`{"my-flag":{"value":1,"variation":0,"version":0,"trackEvents":false, "reason": {"kind": "OFF"}}}`)
-	allFlags := map[string]interface{}{"my-flag": flag}
-	expectedFlagsData, _ := json.Marshal(allFlags)
-	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": allFlags, "segments": map[string]interface{}{}}})
+	expectedJSEvalBody := expectJSONBody(makeEvalBody(clientSideFlags, false, false))
+	expectedJSEvalxBody := expectJSONBody(makeEvalBody(clientSideFlags, true, false))
+	expectedJSEvalxBodyWithReasons := expectJSONBody(makeEvalBody(clientSideFlags, true, true))
+	expectedMobileEvalBody := expectJSONBody(makeEvalBody(allFlags, false, false))
+	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(allFlags, true, false))
+	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(allFlags, true, true))
+	expectedFlagsData, _ := json.Marshal(flagsMap(allFlags))
+	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": flagsMap(allFlags), "segments": map[string]interface{}{}}})
 
 	getStatus := func(relay http.Handler, t *testing.T) map[string]interface{} {
 		w := httptest.NewRecorder()
@@ -470,7 +376,7 @@ func TestRelay(t *testing.T) {
 		}
 	})
 
-	t.Run("sdk and mobile routes", func(t *testing.T) {
+	t.Run("mobile routes", func(t *testing.T) {
 		specs := []struct {
 			name           string
 			method         string
@@ -480,12 +386,12 @@ func TestRelay(t *testing.T) {
 			expectedStatus int
 			bodyMatcher    bodyMatcher
 		}{
-			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedEvalBody},
-			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedEvalxBody},
-			{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey, user, http.StatusOK, expectedEvalxBodyWithReasons},
-			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedEvalBody},
-			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedEvalxBody},
-			{"mobile report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey, user, http.StatusOK, expectedEvalxBodyWithReasons},
+			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedMobileEvalBody},
+			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedMobileEvalxBody},
+			{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey, user, http.StatusOK, expectedMobileEvalxBodyWithReasons},
+			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedMobileEvalBody},
+			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedMobileEvalxBody},
+			{"mobile report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey, user, http.StatusOK, expectedMobileEvalxBodyWithReasons},
 			{"mobile get eval", "GET", fmt.Sprintf("/msdk/eval/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
 			{"mobile get evalx", "GET", fmt.Sprintf("/msdk/evalx/users/%s", base64User), mobileKey, nil, http.StatusOK, nil},
 		}
@@ -569,10 +475,12 @@ func TestRelay(t *testing.T) {
 			expectedStatus int
 			bodyMatcher    bodyMatcher
 		}{
-			{"report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedEvalBody},
-			{"report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedEvalxBody},
-			{"get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalBody},
-			{"get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedEvalxBody},
+			{"report eval ", "REPORT", fmt.Sprintf("/sdk/eval/%s/user", envId), user, http.StatusOK, expectedJSEvalBody},
+			{"report evalx", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user", envId), user, http.StatusOK, expectedJSEvalxBody},
+			{"report evalx with reasons", "REPORT", fmt.Sprintf("/sdk/evalx/%s/user?withReasons=true", envId), user, http.StatusOK, expectedJSEvalxBodyWithReasons},
+			{"get eval", "GET", fmt.Sprintf("/sdk/eval/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedJSEvalBody},
+			{"get evalx", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s", envId, base64User), nil, http.StatusOK, expectedJSEvalxBody},
+			{"get evalx with reasons", "GET", fmt.Sprintf("/sdk/evalx/%s/users/%s?withReasons=true", envId, base64User), nil, http.StatusOK, expectedJSEvalxBodyWithReasons},
 			{"post events", "POST", fmt.Sprintf("/events/bulk/%s", envId), []byte("[]"), http.StatusAccepted, nil},
 			{"get events image", "GET", fmt.Sprintf("/a/%s.gif?d=%s", envId, base64Events), nil, http.StatusOK, expectBody(string(transparent1PixelImg))},
 			{"get goals", "GET", fmt.Sprintf("/sdk/goals/%s", envId), nil, http.StatusOK, expectBody(`["got some goals"]`)},
@@ -815,17 +723,4 @@ func TestGetUserAgent(t *testing.T) {
 		req.Header.Set(userAgentHeader, "my-agent")
 		assert.Equal(t, "my-agent", getUserAgent(req))
 	})
-}
-
-// jsonFind returns the nested entity at a path in a json obj
-func jsonFind(obj map[string]interface{}, paths ...string) interface{} {
-	var value interface{} = obj
-	for _, p := range paths {
-		if v, ok := value.(map[string]interface{}); !ok {
-			return nil
-		} else {
-			value = v[p]
-		}
-	}
-	return value
 }

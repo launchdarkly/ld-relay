@@ -438,7 +438,6 @@ $ sc create ld-relay DisplayName="LaunchDarkly Relay Proxy" start="auto" binPath
 Integrating LD Relay into your own application
 ----------------------------------------------
 
-
 You can also use relay to handle endpoints in your own application if you don't want to use the default `ld-relay` application.  Below is an
 example using [Gorilla](https://github.com/gorilla/mux) of how you might instantiate a relay inside your web server beneath a path called "/relay":
 
@@ -447,13 +446,40 @@ router := mux.NewRouter()
 configFileName := "path/to/my-config-file"
 cfg := relay.DefaultConfig
 if err := relay.LoadConfigFile(&cfg, configFileName); err != nil {
-  log.Fatalf("Error loading config file: %s", err)
+    log.Fatalf("Error loading config file: %s", err)
 }
 r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
 if err != nil {
-  log.Fatalf("Error creating relay: %s", err)
+    log.Fatalf("Error creating relay: %s", err)
 }
 router.PathPrefix("/relay").Handler(r)
+```
+
+The above example uses a configuration file. You can also pass in a `relay.Config` struct that you have filled in directly:
+
+```go
+cfg := relay.DefaultConfig
+cfg.Main.Port = 5000
+cfg.Environment = map[string]*relay.EnvConfig{
+    "Spree Project Production": &relay.EnvConfig{
+        SdkKey: "SPREE_PROD_API_KEY",
+    }
+}
+r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
+```
+
+Or, you can parse the configuration from a string that is in the same format as the configuration file, using the same `gcfg` package that ld-relay uses:
+
+```go
+import "github.com/launchdarkly/gcfg"
+
+configString := `[main]\nport = 5000\n[environment "Spree Project Production"]\nsdkKey = "SPREE_PROD_API_KEY"`
+
+cfg := relay.DefaultConfig
+if err := gcfg.ReadStringInto(&cfg, configString); err != nil {
+    log.Fatalf("Error loading config file: %s", err)
+}
+r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
 ```
 
 Testing
