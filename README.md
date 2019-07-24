@@ -389,6 +389,9 @@ USE_STACKDRIVER              | Boolean        | `false`                         
 STACKDRIVER_PROJECT_ID       | String         |                                   | Stackdriver project id. Required to successfully export metrics to Stackdriver.
 STACKDRIVER_PREFIX           | String         |                                   | Configure a prefix for Stackdriver metric names.
 USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
+TLS_ENABLED                  | Boolean        | `false`                           | if true, set HTTP server to require TLS connections.
+TLS_CERT                     | String         |                                   | Required if TLS_ENABLED is true. Path to TLS Cert file.
+TLS_KEY                      | String         |                                   | Required if TLS_ENABLED is true. Path to TLS Key file.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
 
