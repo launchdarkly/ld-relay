@@ -87,7 +87,7 @@ variable name       | type    | default                           | description
 `flushIntervalSecs` | Number  | `5`                               | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush_interval and / or increasing capacity to meet your needs.
 `samplingInterval`  | Number  | `0`                               | Sends every one out of every `samplingInterval` events
 `capacity`          | Number  | `1000`                               | Maximum number of events in queue before events are automatically flushed
-`inlineUsers`       | Boolean | `false`                           | When enabled, all non-private user attriutes will be sent in events. Otherwise, only the user's key is sent in events
+`inlineUsers`       | Boolean | `false`                           | When enabled, all non-private user attributes will be sent in events. Otherwise, only the user's key is sent in events
 
 ## [redis]
 variable name | type   | default | description
