@@ -18,19 +18,19 @@ heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
 " > $CONF_FILE
 
 # TLS Configuration for listener
-if [ "${TLS_ENABLED:-false}" = "true" ]; then
-  echo "tlsEnabled = ${TLS_ENABLED}" >> $CONF_FILE
+if [ "${TLS_ENABLED:-false}" = "1" ] || [ "${TLS_ENABLED}" = "true" ]; then
+  echo "tlsEnabled = true" >> $CONF_FILE
   if [ -z "${TLS_CERT}" ]; then
     echo "ERROR: TLS_ENABLED is true and needs to have TLS_CERT set"
     exit 1
   else
-    echo "tlsCert = ${TLS_CERT}" >> $CONF_FILE
+    echo "tlsCert = "${TLS_CERT}"" >> $CONF_FILE
   fi
   if [ -z "${TLS_KEY}" ]; then
     echo "ERROR: TLS_ENABLED is true and needs to have TLS_KEY set"
     exit 1
   else
-    echo "tlsKey = ${TLS_KEY}" >> $CONF_FILE
+    echo "tlsKey = "${TLS_KEY}"" >> $CONF_FILE
   fi
 fi
 

@@ -47,7 +47,6 @@ const (
 	defaultHeartbeatIntervalSecs = 180
 	defaultMetricsPrefix         = "launchdarkly_relay"
 	defaultFlushIntervalSecs     = 5
-	defaultTLSEnabled            = false
 
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
@@ -211,7 +210,6 @@ func init() {
 	DefaultConfig.Main.StreamUri = defaultStreamUri
 	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
 	DefaultConfig.Main.Port = defaultPort
-	DefaultConfig.Main.TLSEnabled = defaultTLSEnabled
 	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
 	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
 }
@@ -232,6 +230,10 @@ func LoadConfigFile(c *Config, path string) error {
 				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
 			}
 		}
+	}
+
+	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
+		return errors.New("tlsCert and tlsKey are required if TLS is enabled")
 	}
 
 	return nil

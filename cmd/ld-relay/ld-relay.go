@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -8,6 +11,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/kardianos/minwinsvc"
 
@@ -38,38 +42,87 @@ func main() {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}
 
-	if c.Main.TLSEnabled {
-		if c.Main.TLSCert == "" {
-			logging.Error.Printf("TLS: tlsCert required")
-			os.Exit(1)
-		}
-		if c.Main.TLSKey == "" {
-			logging.Error.Printf("TLS: tlsKey required")
-			os.Exit(1)
-		}
+	srv, errs := startHTTPServer(&c, r)
 
-		go func() {
-			err = http.ListenAndServeTLS(fmt.Sprintf(":%d", c.Main.Port), c.Main.TLSCert, c.Main.TLSKey, r)
-		}()
-	} else {
-		go func() {
-			err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
-		}()
-	}
+	go startupCheck(&c, errs)
 
-	if err != nil {
+	select {
+	case err := <-errs:
 		if c.Main.ExitOnError {
-			logging.Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+			logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+			srv.Shutdown(context.TODO())
+			os.Exit(1)
 		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
-	} else {
-		if c.Main.TLSEnabled {
-			logging.Info.Printf("TLS Enabled for Server")
-		}
-		logging.Info.Printf("Listening on port %d\n", c.Main.Port)
 	}
 
 	select {}
+}
+
+func startHTTPServer(c *relay.Config, r *relay.Relay) (*http.Server, chan error) {
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", c.Main.Port),
+		Handler: r,
+	}
+
+	errs := make(chan error)
+	if c.Main.TLSEnabled {
+		go func() {
+			logging.Info.Printf("TLS Enabled for Server")
+			err := srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
+			if err != nil {
+				errs <- err
+			}
+		}()
+	} else {
+		go func() {
+			err := srv.ListenAndServe()
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+
+	return srv, errs
+}
+
+func startupCheck(c *relay.Config, errs chan error) {
+	for i := 0; i < 5; i++ {
+		time.Sleep(time.Second)
+		client := &http.Client{}
+		scheme := "http"
+
+		if c.Main.TLSEnabled {
+			tr := &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			}
+			client = &http.Client{Transport: tr}
+			scheme = "https"
+		}
+
+		url := fmt.Sprintf("%s://:%d/status", scheme, c.Main.Port)
+
+		resp, err := client.Get(url)
+		if err != nil {
+			log.Println("Warning:", err)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Println("HTTP Status Check failed:", resp.StatusCode)
+			if i != 4 {
+				continue
+			}
+		} else {
+			logging.Info.Printf("Listening on port %d\n", c.Main.Port)
+			break
+		}
+
+		if i == 4 {
+			errs <- errors.New("getting server status failed")
+		}
+		break
+	}
 }
 
 func formatVersion(version string) string {
