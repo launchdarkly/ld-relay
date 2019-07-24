@@ -24,13 +24,13 @@ if [ "${TLS_ENABLED:-false}" = "1" ] || [ "${TLS_ENABLED}" = "true" ]; then
     echo "ERROR: TLS_ENABLED is true and needs to have TLS_CERT set"
     exit 1
   else
-    echo "tlsCert = "${TLS_CERT}"" >> $CONF_FILE
+    echo "tlsCert = \"${TLS_CERT}\"" >> $CONF_FILE
   fi
   if [ -z "${TLS_KEY}" ]; then
     echo "ERROR: TLS_ENABLED is true and needs to have TLS_KEY set"
     exit 1
   else
-    echo "tlsKey = "${TLS_KEY}"" >> $CONF_FILE
+    echo "tlsKey = \"${TLS_KEY}\"" >> $CONF_FILE
   fi
 fi
 

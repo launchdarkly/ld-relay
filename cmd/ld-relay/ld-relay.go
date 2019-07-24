@@ -42,12 +42,14 @@ func main() {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}
 
-	srv, errs := startHTTPServer(&c, r)
+	errs := make(chan error)
+	defer close(errs)
+
+	srv := startHTTPServer(&c, r, errs)
 
 	go startupCheck(&c, errs)
 
-	select {
-	case err := <-errs:
+	for err := range errs {
 		if c.Main.ExitOnError {
 			logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 			if err := srv.Shutdown(context.TODO()); err != nil {
@@ -61,13 +63,12 @@ func main() {
 	select {}
 }
 
-func startHTTPServer(c *relay.Config, r *relay.Relay) (*http.Server, chan error) {
+func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan error) *http.Server {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", c.Main.Port),
 		Handler: r,
 	}
 
-	errs := make(chan error)
 	if c.Main.TLSEnabled {
 		go func() {
 			logging.Info.Printf("TLS Enabled for Server")
@@ -85,7 +86,7 @@ func startHTTPServer(c *relay.Config, r *relay.Relay) (*http.Server, chan error)
 		}()
 	}
 
-	return srv, errs
+	return srv
 }
 
 func startupCheck(c *relay.Config, errs chan error) {
