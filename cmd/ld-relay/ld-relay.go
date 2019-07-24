@@ -50,7 +50,9 @@ func main() {
 	case err := <-errs:
 		if c.Main.ExitOnError {
 			logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
-			srv.Shutdown(context.TODO())
+			if err := srv.Shutdown(context.TODO()); err != nil {
+				logging.Error.Printf("Error shutting down HTTP Server: %s", err)
+			}
 			os.Exit(1)
 		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
@@ -94,7 +96,7 @@ func startupCheck(c *relay.Config, errs chan error) {
 
 		if c.Main.TLSEnabled {
 			tr := &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // nolint: gas
 			}
 			client = &http.Client{Transport: tr}
 			scheme = "https"
@@ -104,12 +106,16 @@ func startupCheck(c *relay.Config, errs chan error) {
 
 		resp, err := client.Get(url)
 		if err != nil {
-			log.Println("Warning:", err)
+			logging.Warning.Println(err)
 			continue
 		}
-		resp.Body.Close()
+		err = resp.Body.Close()
+		if err != nil {
+			logging.Warning.Println(err)
+		}
+
 		if resp.StatusCode != http.StatusOK {
-			log.Println("HTTP Status Check failed:", resp.StatusCode)
+			logging.Warning.Printf("HTTP Status Check failed: %d", resp.StatusCode)
 			if i != 4 {
 				continue
 			}
