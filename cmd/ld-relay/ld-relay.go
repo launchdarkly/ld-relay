@@ -50,46 +50,40 @@ func main() {
 	go startupCheck(&c, errs)
 
 	for err := range errs {
-		if c.Main.ExitOnError {
-			logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
-			if err := srv.Shutdown(context.TODO()); err != nil {
-				logging.Error.Printf("Error shutting down HTTP Server: %s", err)
-			}
-			os.Exit(1)
-		}
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+		if err := srv.Shutdown(context.TODO()); err != nil {
+			logging.Error.Printf("Error shutting down HTTP Server: %s", err)
+		}
+		os.Exit(1)
 	}
 
-	select {}
 }
 
-func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan error) *http.Server {
+func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan<- error) *http.Server {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", c.Main.Port),
 		Handler: r,
 	}
 
-	if c.Main.TLSEnabled {
-		go func() {
+	go func() {
+		if c.Main.TLSEnabled {
 			logging.Info.Printf("TLS Enabled for Server")
 			err := srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
 			if err != nil {
 				errs <- err
 			}
-		}()
-	} else {
-		go func() {
+		} else {
 			err := srv.ListenAndServe()
 			if err != nil {
 				errs <- err
 			}
-		}()
-	}
+		}
+	}()
 
 	return srv
 }
 
-func startupCheck(c *relay.Config, errs chan error) {
+func startupCheck(c *relay.Config, errs chan<- error) {
 	for i := 0; i < 5; i++ {
 		time.Sleep(time.Second)
 		client := &http.Client{}
@@ -104,7 +98,6 @@ func startupCheck(c *relay.Config, errs chan error) {
 		}
 
 		url := fmt.Sprintf("%s://:%d/status", scheme, c.Main.Port)
-
 		resp, err := client.Get(url)
 		if err != nil {
 			logging.Warning.Println(err)
