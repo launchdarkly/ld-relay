@@ -10,8 +10,8 @@ fi
 
 echo "
 [main]
-streamUri = \"$STREAM_URI}\"
-baseUri = \"${BASE_URI}\"
+streamUri = \"$STREAM_URI\"
+baseUri = \"$BASE_URI\"
 exitOnError = ${EXIT_ON_ERROR:-false}
 port = 8030
 heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
