@@ -95,7 +95,7 @@ fi
 if [ "$USE_EVENTS" = "1" ] || [ "$USE_EVENTS" = "true" ]; then
   echo "
 [events]
-eventsUri = \"${EVENTS_HOST:-https://events.launchdarkly.com}\"
+eventsUri = \"${EVENTS_HOST}\"
 sendEvents = true
 flushIntervalSecs = ${EVENTS_FLUSH_INTERVAL:-5}
 samplingInterval = ${EVENTS_SAMPLING_INTERVAL:-0}
