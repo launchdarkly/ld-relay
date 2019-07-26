@@ -75,6 +75,9 @@ variable name            | type    | default                           | descrip
 `ignoreConnectionErrors` | Boolean | `false`                           | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | Number  | `8030`                            | Port the LD Relay should listen on
 `heartbeatIntervalSecs`  | Number  | `0`                               | If > 0, sends heartbeats to connected clients at this interval
+`tlsEnabled`             | Boolean | `false`                           | Enable TLS on the relay
+`tlsCert`                | String  | ``                                | Required if `tlsEnabled` is true. Path to TLS Certificate
+`tlsKey`                 | String  | ``                                | Required if `tlsEnabled` is true. Path to TLS Private Key 
 
 ## [events]
 variable name       | type    | default                           | description
@@ -84,7 +87,7 @@ variable name       | type    | default                           | description
 `flushIntervalSecs` | Number  | `5`                               | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush_interval and / or increasing capacity to meet your needs.
 `samplingInterval`  | Number  | `0`                               | Sends every one out of every `samplingInterval` events
 `capacity`          | Number  | `1000`                               | Maximum number of events in queue before events are automatically flushed
-`inlineUsers`       | Boolean | `false`                           | When enabled, all non-private user attriutes will be sent in events. Otherwise, only the user's key is sent in events
+`inlineUsers`       | Boolean | `false`                           | When enabled, all non-private user attributes will be sent in events. Otherwise, only the user's key is sent in events
 
 ## [redis]
 variable name | type   | default | description
@@ -395,6 +398,9 @@ USE_STACKDRIVER              | Boolean        | `false`                         
 STACKDRIVER_PROJECT_ID       | String         |                                   | Stackdriver project id. Required to successfully export metrics to Stackdriver.
 STACKDRIVER_PREFIX           | String         |                                   | Configure a prefix for Stackdriver metric names.
 USE_PROMETHEUS               | Boolean        | `false`                           | Enables metric exports to Prometheus.
+TLS_ENABLED                  | Boolean        | `false`                           | if true, set HTTP server to require TLS connections.
+TLS_CERT                     | String         |                                   | Required if TLS_ENABLED is true. Path to TLS Cert file.
+TLS_KEY                      | String         |                                   | Required if TLS_ENABLED is true. Path to TLS Key file.
 PROMETHEUS_PREFIX            | String         |                                   | Configure a prefix for Prometheus metric names.
 PROMETHEUS_PORT              | Number         | 8031                              | The port that ld-relay will listen to `/metrics` on.
 PROXY_URL                    | String         |                                   | All ld-relay network traffic will be sent through this HTTP proxy if specified.
