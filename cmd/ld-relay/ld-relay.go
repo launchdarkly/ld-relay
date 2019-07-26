@@ -38,15 +38,37 @@ func main() {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}
 
-	err = http.ListenAndServe(fmt.Sprintf(":%d", c.Main.Port), r)
-	if err != nil {
-		if c.Main.ExitOnError {
-			logging.Error.Fatalf("Error starting http listener on port: %d  %s", c.Main.Port, err)
-		}
+	errs := make(chan error)
+	defer close(errs)
+
+	startHTTPServer(&c, r, errs)
+
+	for err := range errs {
 		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
-	} else {
-		logging.Info.Printf("Listening on port %d\n", c.Main.Port)
+		os.Exit(1)
 	}
+
+}
+
+func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan<- error) {
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", c.Main.Port),
+		Handler: r,
+	}
+
+	go func() {
+		var err error
+		logging.Info.Printf("Starting server listening on port %d\n", c.Main.Port)
+		if c.Main.TLSEnabled {
+			logging.Info.Printf("TLS Enabled for server")
+			err = srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil {
+			errs <- err
+		}
+	}()
 }
 
 func formatVersion(version string) string {

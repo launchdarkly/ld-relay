@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -56,6 +57,9 @@ type MainConfig struct {
 	BaseUri                string
 	Port                   int
 	HeartbeatIntervalSecs  int
+	TLSEnabled             bool
+	TLSCert                string
+	TLSKey                 string
 }
 
 // RedisConfig configures the optional Redis integration, which is used only if Host is non-empty.
@@ -185,18 +189,6 @@ func (c MetricsConfig) toOptions() (options []metrics.ExporterOptions) {
 	return options
 }
 
-// InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
-func InitializeMetrics(c MetricsConfig) error {
-	return metrics.RegisterExporters(c.toOptions())
-}
-
-type environmentStatus struct {
-	SdkKey    string `json:"sdkKey"`
-	EnvId     string `json:"envId,omitempty"`
-	MobileKey string `json:"mobileKey,omitempty"`
-	Status    string `json:"status"`
-}
-
 // DefaultConfig contains defaults for all relay configuration sections.
 //
 // If you are incorporating Relay into your own code and configuring it programmatically, it is best to
@@ -236,5 +228,12 @@ func LoadConfigFile(c *Config, path string) error {
 		}
 	}
 
+	return validateConfig(c)
+}
+
+func validateConfig(c *Config) error {
+	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
+		return errors.New("tlsCert and tlsKey are required if TLS is enabled")
+	}
 	return nil
 }

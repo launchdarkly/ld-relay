@@ -36,6 +36,18 @@ import (
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
+// InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
+func InitializeMetrics(c MetricsConfig) error {
+	return metrics.RegisterExporters(c.toOptions())
+}
+
+type environmentStatus struct {
+	SdkKey    string `json:"sdkKey"`
+	EnvId     string `json:"envId,omitempty"`
+	MobileKey string `json:"mobileKey,omitempty"`
+	Status    string `json:"status"`
+}
+
 type corsContext interface {
 	AllowedOrigins() []string
 }
