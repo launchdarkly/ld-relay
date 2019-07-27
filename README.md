@@ -33,9 +33,6 @@ go get -u gopkg.in/launchdarkly/ld-relay.v5/...
 
 3. Create LD Relay configuration file. Create a new filed called `ld-relay.conf` containing the text:
 ```
-[main]
-    streamUri = "https://stream.launchdarkly.com"
-    baseUri = "https://app.launchdarkly.com"
 [environment "<NAME-OF-YOUR-ENVIRONMENT>"]
     sdkKey = "<SDK-KEY-FOR-YOUR-ENVIRONMENT>"
 ```
@@ -155,8 +152,6 @@ caCertFiles   | String  | Comma-delimited list of file paths to additional CA ce
 
 ```
 [main]
-    streamUri = "https://stream.launchdarkly.com"
-    baseUri = "https://app.launchdarkly.com"
     exitOnError = true
     heartbeatIntervalSecs = 15
 
