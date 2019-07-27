@@ -10,8 +10,8 @@ fi
 
 echo "
 [main]
-streamUri = \"${STREAM_URI:-https://stream.launchdarkly.com}\"
-baseUri = \"${BASE_URI:-https://app.launchdarkly.com}\"
+streamUri = \"$STREAM_URI\"
+baseUri = \"$BASE_URI\"
 exitOnError = ${EXIT_ON_ERROR:-false}
 port = 8030
 heartbeatIntervalSecs = ${HEARTBEAT_INTERVAL:-15}
@@ -112,7 +112,7 @@ fi
 if [ "$USE_EVENTS" = "1" ] || [ "$USE_EVENTS" = "true" ]; then
   echo "
 [events]
-eventsUri = \"${EVENTS_HOST:-https://events.launchdarkly.com}\"
+eventsUri = \"$EVENTS_HOST\"
 sendEvents = true
 flushIntervalSecs = ${EVENTS_FLUSH_INTERVAL:-5}
 samplingInterval = ${EVENTS_SAMPLING_INTERVAL:-0}
