@@ -32,15 +32,8 @@ DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
 test-centos test-debian test-docker test-docker-standalone: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
-	trap "$(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
+	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
-test-docker-conf: test-docker
-	temp=$$(mktemp); \
-		trap "rm $$temp" EXIT; \
-		src=$$(docker-compose -f docker-compose.test.yml ps -q relay-docker):/ldr/ld-relay.conf; \
-		docker cp $$src $$temp; \
-		diff -B expected.conf $$temp
+integration-test: test-centos test-debian test-docker test-docker-standalone
 
-integration-test: test-centos test-debian test-docker test-docker-conf test-docker-standalone
-
-.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-conf test-docker-standalone
+.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-standalone

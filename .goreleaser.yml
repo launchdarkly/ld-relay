@@ -52,5 +52,5 @@ dockers:
     - latest
     # If your Dockerfile copies files other than the binary itself,
     # you should list them here as well.
-    extra_files:
-    - docker-entrypoint.sh
+    # extra_files:
+    # - filename

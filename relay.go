@@ -36,6 +36,11 @@ import (
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
+const (
+	userAgentHeader   = "user-agent"
+	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
+)
+
 // InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
 func InitializeMetrics(c MetricsConfig) error {
 	return metrics.RegisterExporters(c.toOptions())
@@ -168,7 +173,7 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	}
 
 	if len(c.Environment) == 0 {
-		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
+		return nil, fmt.Errorf("you must specify at least one environment in your configuration")
 	}
 
 	baseUrl, err := url.Parse(c.Main.BaseUri)
