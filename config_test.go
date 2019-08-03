@@ -123,33 +123,42 @@ func TestConfigFromEnvironmentRequiresCertAndKeyForTLS(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithRedis(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Redis = RedisConfig{
 				Host:     "localhost",
 				Port:     6379,
 				LocalTtl: defaultDatabaseLocalTTLMs,
+				Tls:      false,
+				Password: "",
 			}
 		},
 		map[string]string{
 			"USE_REDIS": "1",
 		},
 	)
+	// test setting host and port plus all optional parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Redis = RedisConfig{
 				Host:     "redishost",
 				Port:     6400,
 				LocalTtl: 3000,
+				Tls:      true,
+				Password: "pass",
 			}
 		},
 		map[string]string{
-			"USE_REDIS":  "1",
-			"REDIS_HOST": "redishost",
-			"REDIS_PORT": "6400",
-			"CACHE_TTL":  "3000",
+			"USE_REDIS":      "1",
+			"REDIS_HOST":     "redishost",
+			"REDIS_PORT":     "6400",
+			"REDIS_TLS":      "1",
+			"REDIS_PASSWORD": "pass",
+			"CACHE_TTL":      "3000",
 		},
 	)
+	// test setting obsolete REDIS_TTL
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Redis = RedisConfig{
@@ -163,6 +172,7 @@ func TestConfigFromEnvironmentWithRedis(t *testing.T) {
 			"REDIS_TTL": "3000",
 		},
 	)
+	// test setting URL instead of host/port
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Redis = RedisConfig{
@@ -175,6 +185,7 @@ func TestConfigFromEnvironmentWithRedis(t *testing.T) {
 			"REDIS_URL": "http://redishost:6400",
 		},
 	)
+	// test special Docker syntax
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Redis = RedisConfig{
@@ -188,6 +199,7 @@ func TestConfigFromEnvironmentWithRedis(t *testing.T) {
 			"REDIS_PORT": "tcp://redishost:6400",
 		},
 	)
+	// error for conflicting parameters
 	testInvalidConfigVars(t,
 		map[string]string{
 			"USE_REDIS":  "1",
@@ -199,6 +211,7 @@ func TestConfigFromEnvironmentWithRedis(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithConsul(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Consul = ConsulConfig{
@@ -210,6 +223,7 @@ func TestConfigFromEnvironmentWithConsul(t *testing.T) {
 			"USE_CONSUL": "1",
 		},
 	)
+	// test setting all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Consul = ConsulConfig{
@@ -226,6 +240,7 @@ func TestConfigFromEnvironmentWithConsul(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithDynamoDB(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.DynamoDB = DynamoDBConfig{
@@ -237,6 +252,7 @@ func TestConfigFromEnvironmentWithDynamoDB(t *testing.T) {
 			"USE_DYNAMODB": "1",
 		},
 	)
+	// test setting all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.DynamoDB = DynamoDBConfig{
@@ -265,6 +281,7 @@ func TestConfigFromEnvironmentDisallowsMultipleDatabases(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithDatadogConfig(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Datadog = DatadogConfig{
@@ -278,6 +295,7 @@ func TestConfigFromEnvironmentWithDatadogConfig(t *testing.T) {
 			"USE_DATADOG": "1",
 		},
 	)
+	// test setting all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Datadog = DatadogConfig{
@@ -299,6 +317,7 @@ func TestConfigFromEnvironmentWithDatadogConfig(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithStackdriverConfig(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Stackdriver = StackdriverConfig{
@@ -310,6 +329,7 @@ func TestConfigFromEnvironmentWithStackdriverConfig(t *testing.T) {
 			"USE_STACKDRIVER": "1",
 		},
 	)
+	// test setting all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Stackdriver = StackdriverConfig{
@@ -326,6 +346,7 @@ func TestConfigFromEnvironmentWithStackdriverConfig(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithPrometheusConfig(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Prometheus = PrometheusConfig{
@@ -337,6 +358,7 @@ func TestConfigFromEnvironmentWithPrometheusConfig(t *testing.T) {
 			"USE_PROMETHEUS": "1",
 		},
 	)
+	// test setting all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Prometheus = PrometheusConfig{
@@ -353,6 +375,7 @@ func TestConfigFromEnvironmentWithPrometheusConfig(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentWithProxyConfig(t *testing.T) {
+	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
 			c.Proxy = httpconfig.ProxyConfig{
@@ -364,6 +387,7 @@ func TestConfigFromEnvironmentWithProxyConfig(t *testing.T) {
 				CaCertFiles: "cert",
 			}
 		},
+		// test setting all parameters
 		map[string]string{
 			"PROXY_URL":           "http://proxy",
 			"PROXY_AUTH_USER":     "user",

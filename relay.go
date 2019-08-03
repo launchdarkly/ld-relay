@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	redigo "github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
 
@@ -434,8 +435,19 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
 			hostOption = ldr.HostAndPort(c.Redis.Host, port)
 		}
-		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(envConfig.Prefix),
-			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
+		redisOptions := []ldr.FeatureStoreOption{hostOption, ldr.Prefix(envConfig.Prefix),
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+		if c.Redis.Tls || (c.Redis.Password != "") {
+			dialOptions := []redigo.DialOption{}
+			if c.Redis.Tls {
+				dialOptions = append(dialOptions, redigo.DialUseTLS(true))
+			}
+			if c.Redis.Password != "" {
+				dialOptions = append(dialOptions, redigo.DialPassword(c.Redis.Password))
+			}
+			redisOptions = append(redisOptions, ldr.DialOptions(dialOptions...))
+		}
+		return ldr.NewRedisFeatureStoreWithDefaults(redisOptions...)
 	}
 	if c.Consul.Host != "" {
 		if databaseSpecified {

@@ -73,6 +73,8 @@ type RedisConfig struct {
 	Port     int
 	Url      string
 	LocalTtl int
+	Tls      bool
+	Password string
 }
 
 // ConsulConfig configures the optional Consul integration, which is used only if Host is non-empty.
@@ -321,7 +323,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 
 	useRedis := false
 	maybeSetFromEnvBool(&useRedis, "USE_REDIS")
-	if useRedis {
+	if useRedis || (c.Redis.Host != "" || c.Redis.Url != "") {
 		host := ""
 		portStr := ""
 		url := ""
@@ -353,6 +355,8 @@ func LoadConfigFromEnvironment(c *Config) error {
 			c.Redis.Host = "localhost"
 			c.Redis.Port = defaultRedisPort
 		}
+		maybeSetFromEnvBool(&c.Redis.Tls, "REDIS_TLS")
+		maybeSetFromEnv(&c.Redis.Password, "REDIS_PASSWORD")
 		maybeSetFromEnvInt(&c.Redis.LocalTtl, "REDIS_TTL", &errs)
 		maybeSetFromEnvInt(&c.Redis.LocalTtl, "CACHE_TTL", &errs) // synonym
 	}

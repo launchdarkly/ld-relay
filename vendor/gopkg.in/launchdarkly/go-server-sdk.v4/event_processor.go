@@ -378,6 +378,7 @@ func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <
 	ef := eventOutputFormatter{
 		userFilter:  newUserFilter(config),
 		inlineUsers: config.InlineUsersInEvents,
+		config:      config,
 	}
 	uri := config.EventsEndpointUri
 	if uri == "" {
