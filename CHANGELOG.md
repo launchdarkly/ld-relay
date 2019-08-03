@@ -2,6 +2,21 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.6.0] - 2019-08-02
+### Added:
+- You can now specify a proxy server URL in the configuration file, or in a Docker environment variable.
+- Also, Relay now respects the standard Go environment variables `HTTP_PROXY` and `HTTPS_PROXY`.
+- You may specify additional CA certificates for outgoing HTTPS connections.
+- Relay now supports proxy servers that use NTLM authentication.
+- You may specify a Redis password, or turn on TLS for Redis, without modifying the Redis URL.
+- See `README.md` for details on configuring all of the above features.
+ 
+### Changed:
+- Extracted `Config` structs so that they could be configured programmatically when Relay is used as a library. (Thanks, [mightyguava](https://github.com/launchdarkly/ld-relay/pull/65)!)
+ 
+### Fixed:
+- The endpoints used by the client-side JavaScript SDKs were incorrectly returning _all_ flags, rather than only the flags with the "client-side" property (as the regular LaunchDarkly service does). ([#63](https://github.com/launchdarkly/ld-relay/issues/63))
+
 ## [5.5.2] - 2019-05-15
 ### Added
 - Added documentation for the `REDIS_URL` environment variable to the README.
