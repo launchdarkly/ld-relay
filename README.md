@@ -98,13 +98,17 @@ _(2)_ See note _(1)_ above. The default value for `eventsUri` is `https://events
 
 ### File section: `[Redis]`
 
-Property in file | Environment var | Type    | Default | Description
----------------- | --------------- | :-----: | :------ | -----------
-n/a              | `USE_REDIS`     | Boolean | `false`     | If you are using environment variables, set this to enable Redis.
-`host`           | `REDIS_HOST`    | String  | `localhost` | Hostname of the Redis database. Redis is enabled if this or `url` is set.
-`port`           | `REDIS_PORT`    | Number  | `6379`      | Port of the Redis database. Note that if you are using environment variables, setting `REDIS_PORT` to a string like `tcp://host:port` sets both the host and the port; this is used in Docker.
-`url`            | `REDIS_URL`     | String  |             | URL of the Redis database (overrides `host` & `port`).
-`localTtl`       | `CACHE_TTL`     | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+Property in file | Environment var  | Type    | Default | Description
+---------------- | ---------------- | :-----: | :------ | -----------
+n/a              | `USE_REDIS`      | Boolean | `false`     | If you are using environment variables, set this to enable Redis.
+`host`           | `REDIS_HOST`     | String  | `localhost` | Hostname of the Redis database. Redis is enabled if this or `url` is set.
+`port`           | `REDIS_PORT`     | Number  | `6379`      | Port of the Redis database. Note that if you are using environment variables, setting `REDIS_PORT` to a string like `tcp://host:port` sets both the host and the port; this is used in Docker.
+`url`            | `REDIS_URL`      | String  |             | URL of the Redis database (overrides `host` & `port`).
+`tls`            | `REDIS_TLS`      | Boolean | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this).
+`password`       | `REDIS_PASSWORD` | String  |             | Optional password if Redis require authentication.
+`localTtl`       | `CACHE_TTL`      | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+
+Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` enables TLS, and `redis://:password@host` instead of `redis://host` sets a password. You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
 
 ### File section: `[DynamoDB]`
 

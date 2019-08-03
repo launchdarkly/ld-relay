@@ -68,6 +68,9 @@ type Config struct {
 	// (e.g. there is no flag with that key, or the user properties are invalid). By default, these messages are
 	// not logged, although you can detect such errors programmatically using the VariationDetail methods.
 	LogEvaluationErrors bool
+	// Sets whether log messages for errors related to a specific user can include the user key. By default, they
+	// will not, since the user key might be considered privileged information.
+	LogUserKeyInErrors bool
 	// Deprecated. Please use UpdateProcessorFactory.
 	UpdateProcessor UpdateProcessor
 	// Factory to create an object that is responsible for receiving feature flag updates from LaunchDarkly.

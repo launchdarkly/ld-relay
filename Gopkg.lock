@@ -573,7 +573,7 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:adc4d968c682a60c746bb90beed5446bbd9c0dbe7d4185bd484d5437283dba55"
+  digest = "1:e8d7375da5313a70e85ad86346e4096d6201f308392cecd979731ab25b98219f"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -585,8 +585,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "2049bc85c1cc02f8609bb06acfc02646ccae32cc"
-  version = "4.9.0"
+  revision = "20575529122405c0a43fe61fffdec91d0062b575"
+  version = "4.10.0"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -594,6 +594,7 @@
   input-imports = [
     "contrib.go.opencensus.io/exporter/stackdriver",
     "github.com/DataDog/opencensus-go-exporter-datadog",
+    "github.com/garyburd/redigo/redis",
     "github.com/gorilla/mux",
     "github.com/gregjones/httpcache",
     "github.com/kardianos/minwinsvc",
