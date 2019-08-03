@@ -158,8 +158,8 @@ func (o OptionEnvName) apply(p *Processor) error {
 
 type DatadogOptions struct {
 	Prefix    string
-	TraceAddr *string
-	StatsAddr *string
+	TraceAddr string
+	StatsAddr string
 	Tags      []string
 }
 

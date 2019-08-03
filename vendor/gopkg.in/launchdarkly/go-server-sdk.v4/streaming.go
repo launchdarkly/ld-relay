@@ -17,10 +17,12 @@ const (
 	patchEvent         = "patch"
 	deleteEvent        = "delete"
 	indirectPatchEvent = "indirect/patch"
+	streamReadTimeout  = 5 * time.Minute // the LaunchDarkly stream should send a heartbeat comment every 3 minutes
 )
 
 type streamProcessor struct {
 	store              FeatureStore
+	client             *http.Client
 	requestor          *requestor
 	stream             *es.Stream
 	config             Config
@@ -188,6 +190,7 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 				}
 			}
 		case <-sp.halt:
+			sp.stream.Close()
 			return
 		}
 	}
@@ -202,6 +205,13 @@ func newStreamProcessor(sdkKey string, config Config, requestor *requestor) *str
 		halt:      make(chan struct{}),
 	}
 
+	sp.client = config.newHTTPClient()
+	// Client.Timeout isn't just a connect timeout, it will break the connection if a full response
+	// isn't received within that time (which, with the stream, it never will be), so we must make
+	// sure it's zero and not the usual configured default. What we do want is a *connection* timeout,
+	// which is set by newHTTPClient as a property of the Dialer.
+	sp.client.Timeout = 0
+
 	return sp
 }
 
@@ -212,7 +222,13 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 		req.Header.Add("User-Agent", sp.config.UserAgent)
 		sp.config.Logger.Printf("Connecting to LaunchDarkly stream using URL: %s", req.URL.String())
 
-		if stream, err := es.SubscribeWithRequest("", req); err != nil {
+		if stream, err := es.SubscribeWithRequestAndOptions(req,
+			es.StreamOptionHTTPClient(sp.client),
+			es.StreamOptionReadTimeout(streamReadTimeout),
+			es.StreamOptionLogger(sp.config.Logger)); err != nil {
+
+			sp.config.Logger.Printf("Unable to establish streaming connection: %+v", err)
+
 			if sp.checkIfPermanentFailure(err) {
 				close(closeWhenReady)
 				return
@@ -228,7 +244,6 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 			}
 		} else {
 			sp.stream = stream
-			sp.stream.Logger = sp.config.Logger
 
 			go sp.events(closeWhenReady)
 			return
@@ -250,9 +265,6 @@ func (sp *streamProcessor) checkIfPermanentFailure(err error) bool {
 func (sp *streamProcessor) Close() error {
 	sp.closeOnce.Do(func() {
 		sp.config.Logger.Printf("Closing event stream.")
-		if sp.stream != nil {
-			sp.stream.Close()
-		}
 		close(sp.halt)
 	})
 	return nil

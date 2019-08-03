@@ -1,14 +1,17 @@
-GOLANGCI_VERSION=v1.7
+GOLANGCI_VERSION=v1.10.2
+# earlier versions of golangci-lint don't work in go 1.9
 
 SHELL=/bin/bash
 
-test: lint
+LINTER=./bin/golangci-lint
+
+test:
 	go test ./...
 
-lint:
-	./bin/golangci-lint run ./...
+lint: $(LINTER)
+	$(LINTER) run ./...
 
-init:
+$(LINTER):
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $(GOLANGCI_VERSION)
 
 # Get the lines added to the most recent changelog update (minus the first 2 lines)
@@ -29,15 +32,8 @@ DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
 test-centos test-debian test-docker test-docker-standalone: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
-	trap "$(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
+	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
-test-docker-conf: test-docker
-	temp=$$(mktemp); \
-		trap "rm $$temp" EXIT; \
-		src=$$(docker-compose -f docker-compose.test.yml ps -q relay-docker):/ldr/ld-relay.conf; \
-		docker cp $$src $$temp; \
-		diff -B expected.conf $$temp
+integration-test: test-centos test-debian test-docker test-docker-standalone
 
-integration-test: test-centos test-debian test-docker test-docker-conf test-docker-standalone
-
-.PHONY: docker init lint publish release test test-centos test-debian test-docker test-all test-docker-conf test-docker-standalone
+.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-standalone

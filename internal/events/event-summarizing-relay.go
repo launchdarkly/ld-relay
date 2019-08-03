@@ -9,6 +9,7 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
@@ -17,12 +18,13 @@ type eventSummarizingRelay struct {
 	featureStore   ld.FeatureStore
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
+func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
 	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
+	ldConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
@@ -73,15 +75,13 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 				if schemaVersion == 1 {
 					for i, value := range flag.Variations {
 						if reflect.DeepEqual(value, e.Value) {
-							e.Variation = &i
+							n := i
+							e.Variation = &n
 							break
 						}
 					}
 				}
 			}
-		}
-		if err != nil {
-			return nil, err
 		}
 		return e, nil
 	case ld.CustomEventKind:

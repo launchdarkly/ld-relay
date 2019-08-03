@@ -108,7 +108,7 @@ func (o OptionFlushInterval) apply(p *HttpEventPublisher) error {
 }
 
 type OptionClient struct {
-	*http.Client
+	Client *http.Client
 }
 
 func (o OptionClient) apply(p *HttpEventPublisher) error {

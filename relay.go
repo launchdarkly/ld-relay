@@ -18,16 +18,17 @@ import (
 	"sync"
 	"time"
 
+	redigo "github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
 	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
@@ -37,151 +38,9 @@ import (
 )
 
 const (
-	defaultRedisLocalTtlMs       = 30000
-	defaultPort                  = 8030
-	defaultAllowedOrigin         = "*"
-	defaultEventCapacity         = 1000
-	defaultEventsUri             = "https://events.launchdarkly.com"
-	defaultBaseUri               = "https://app.launchdarkly.com"
-	defaultStreamUri             = "https://stream.launchdarkly.com"
-	defaultHeartbeatIntervalSecs = 180
-	defaultMetricsPrefix         = "launchdarkly_relay"
-	defaultFlushIntervalSecs     = 5
-
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
-
-var (
-	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-)
-
-// EnvConfig describes an environment to be relayed
-type EnvConfig struct {
-	SdkKey             string
-	ApiKey             string // deprecated, equivalent to SdkKey
-	MobileKey          *string
-	EnvId              *string
-	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
-	TableName          string // used only if DynamoDB is enabled
-	AllowedOrigin      *[]string
-	InsecureSkipVerify bool
-}
-
-type ExporterConfig interface {
-	toOptions() metrics.ExporterOptions
-	enabled() bool
-}
-
-type DatadogConfig struct {
-	TraceAddr *string
-	StatsAddr *string
-	Tag       []string
-	CommonMetricsConfig
-}
-
-func (c DatadogConfig) toOptions() metrics.ExporterOptions {
-	return metrics.DatadogOptions{
-		TraceAddr: c.TraceAddr,
-		StatsAddr: c.StatsAddr,
-		Tags:      c.Tag,
-		Prefix:    c.getPrefix(),
-	}
-}
-
-type StackdriverConfig struct {
-	ProjectID string
-	CommonMetricsConfig
-}
-
-func (c StackdriverConfig) toOptions() metrics.ExporterOptions {
-	return metrics.StackdriverOptions{
-		ProjectID: c.ProjectID,
-		Prefix:    c.getPrefix(),
-	}
-}
-
-type PrometheusConfig struct {
-	Port int
-	CommonMetricsConfig
-}
-
-func (c PrometheusConfig) toOptions() (options metrics.ExporterOptions) {
-	return metrics.PrometheusOptions{
-		Port:   c.Port,
-		Prefix: c.getPrefix(),
-	}
-}
-
-type CommonMetricsConfig struct {
-	Enabled bool
-	Prefix  string
-}
-
-func (c CommonMetricsConfig) getPrefix() string {
-	prefix := c.Prefix
-	if prefix == "" {
-		return defaultMetricsPrefix
-	}
-	return prefix
-}
-func (c CommonMetricsConfig) enabled() bool {
-	return c.Enabled
-}
-
-// Config describes the configuration for a relay instance
-type Config struct {
-	Main        MainConfig
-	Events      events.Config
-	Redis       RedisConfig
-	Consul      ConsulConfig
-	DynamoDB    DynamoDBConfig
-	Environment map[string]*EnvConfig
-	MetricsConfig
-}
-
-type MainConfig struct {
-	ExitOnError            bool
-	IgnoreConnectionErrors bool
-	StreamUri              string
-	BaseUri                string
-	Port                   int
-	HeartbeatIntervalSecs  int
-}
-
-type ConsulConfig struct {
-	Host     string
-	LocalTtl int
-}
-
-type RedisConfig struct {
-	Host     string
-	Port     int
-	Url      string
-	LocalTtl int
-}
-
-type DynamoDBConfig struct {
-	Enabled   bool
-	TableName string
-	LocalTtl  int
-}
-
-type MetricsConfig struct {
-	Datadog     DatadogConfig
-	Stackdriver StackdriverConfig
-	Prometheus  PrometheusConfig
-}
-
-func (c MetricsConfig) toOptions() (options []metrics.ExporterOptions) {
-	exporterConfigs := []ExporterConfig{c.Datadog, c.Stackdriver, c.Prometheus}
-	for _, e := range exporterConfigs {
-		if e.enabled() {
-			options = append(options, e.toOptions())
-		}
-	}
-	return options
-}
 
 // InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
 func InitializeMetrics(c MetricsConfig) error {
@@ -193,43 +52,6 @@ type environmentStatus struct {
 	EnvId     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
-}
-
-var DefaultConfig = Config{
-	Events: events.Config{
-		Capacity:  defaultEventCapacity,
-		EventsUri: defaultEventsUri,
-	},
-}
-
-func init() {
-	DefaultConfig.Main.BaseUri = defaultBaseUri
-	DefaultConfig.Main.StreamUri = defaultStreamUri
-	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
-	DefaultConfig.Main.Port = defaultPort
-	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
-	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
-}
-
-// LoadConfigFile reads a config file into a Config struct
-func LoadConfigFile(c *Config, path string) error {
-	if err := gcfg.ReadFileInto(c, path); err != nil {
-		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
-	}
-
-	for envName, envConfig := range c.Environment {
-		if envConfig.ApiKey != "" {
-			if envConfig.SdkKey == "" {
-				envConfig.SdkKey = envConfig.ApiKey
-				c.Environment[envName] = envConfig
-				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
-			} else {
-				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
-			}
-		}
-	}
-
-	return nil
 }
 
 type corsContext interface {
@@ -286,6 +108,14 @@ type evalXResult struct {
 	TrackEvents          bool                          `json:"trackEvents"`
 	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
 }
+
+type sdkKind string
+
+const (
+	serverSdk   sdkKind = "server"
+	jsClientSdk sdkKind = "js"
+	mobileSdk   sdkKind = "mobile"
+)
 
 func (c *clientContextImpl) getClient() LdClientContext {
 	c.mu.RLock()
@@ -344,7 +174,7 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	}
 
 	if len(c.Environment) == 0 {
-		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
+		return nil, fmt.Errorf("you must specify at least one environment in your configuration")
 	}
 
 	baseUrl, err := url.Parse(c.Main.BaseUri)
@@ -352,8 +182,13 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
+	httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy)
+	if err != nil {
+		return nil, err
+	}
+
 	for envName, envConfig := range c.Environment {
-		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, allPublisher, flagsPublisher, pingPublisher)
+		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
@@ -426,13 +261,13 @@ func (r *Relay) makeHandler() http.Handler {
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
 	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
-	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET", "OPTIONS")
-	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
 	clientSideSdkEvalXRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalXRouter))
-	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	serverSideMiddlewareStack := chainMiddleware(
 		r.sdkClientMux.selectClientByAuthorizationKey,
@@ -443,12 +278,12 @@ func (r *Relay) makeHandler() http.Handler {
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
-	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("GET")
-	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("REPORT")
+	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("GET")
+	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("REPORT")
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("REPORT")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
@@ -459,12 +294,12 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkRouter.Use(mobileMiddlewareStack)
 
 	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("REPORT")
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
-	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
-	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(mobileSdk)).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(mobileSdk)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack)
@@ -506,7 +341,9 @@ func (r *Relay) makeHandler() http.Handler {
 	return router
 }
 
-func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
+	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+
 	baseFeatureStore, err := createFeatureStore(c, envConfig)
 	if err != nil {
 		return nil, err
@@ -520,14 +357,16 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	clientConfig.BaseUri = c.Main.BaseUri
 	clientConfig.Logger = logger
 	clientConfig.UserAgent = "LDRelay/" + version.Version
+	clientConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
 		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, httpConfig, baseFeatureStore)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri),
+		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}
@@ -596,8 +435,19 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
 			hostOption = ldr.HostAndPort(c.Redis.Host, port)
 		}
-		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(envConfig.Prefix),
-			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
+		redisOptions := []ldr.FeatureStoreOption{hostOption, ldr.Prefix(envConfig.Prefix),
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+		if c.Redis.Tls || (c.Redis.Password != "") {
+			dialOptions := []redigo.DialOption{}
+			if c.Redis.Tls {
+				dialOptions = append(dialOptions, redigo.DialUseTLS(true))
+			}
+			if c.Redis.Password != "" {
+				dialOptions = append(dialOptions, redigo.DialPassword(c.Redis.Password))
+			}
+			redisOptions = append(redisOptions, ldr.DialOptions(dialOptions...))
+		}
+		return ldr.NewRedisFeatureStoreWithDefaults(redisOptions...)
 	}
 	if c.Consul.Host != "" {
 		if databaseSpecified {
@@ -706,15 +556,19 @@ func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 	})
 }
 
-func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, true)
+func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		evaluateAllShared(w, req, true, sdkKind)
+	}
 }
 
-func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, false)
+func evaluateAllFeatureFlags(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		evaluateAllShared(w, req, false, sdkKind)
+	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
 	var user *ld.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
@@ -773,6 +627,9 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool)
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.(*ld.FeatureFlag); ok {
+			if sdkKind == jsClientSdk && !flag.ClientSide {
+				continue
+			}
 			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}
 			if valueOnly {

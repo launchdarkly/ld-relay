@@ -9,7 +9,12 @@ linters:
   disable:
     - gocyclo
     - gofmt
+    - goimports
+    - gosec # re-enable this when we're not using InsecureSkipVerify
+    - ineffassign
+    - lll
     - maligned  # don't really care about struct sizes
+    - unparam
   fast: false
 
 linter-settings:

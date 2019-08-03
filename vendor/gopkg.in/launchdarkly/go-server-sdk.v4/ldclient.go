@@ -7,15 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"os"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
 )
 
 // Version is the client version.
-const Version = "4.7.4"
+const Version = "4.10.0"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -34,91 +33,12 @@ type Logger interface {
 	Printf(string, ...interface{})
 }
 
-// Config exposes advanced configuration options for the LaunchDarkly client.
-type Config struct {
-	// The base URI of the main LaunchDarkly service. This should not normally be changed except for testing.
-	BaseUri string
-	// The base URI of the LaunchDarkly streaming service. This should not normally be changed except for testing.
-	StreamUri string
-	// The base URI of the LaunchDarkly service that accepts analytics events. This should not normally be
-	// changed except for testing.
-	EventsUri string
-	// The full URI for posting analytics events. This is different from EventsUri in that the client will not
-	// add the default URI path to it. It should not normally be changed except for testing, and if set, it
-	// causes EventsUri to be ignored.
-	EventsEndpointUri string
-	// The capacity of the events buffer. The client buffers up to this many events in memory before flushing.
-	// If the capacity is exceeded before the buffer is flushed, events will be discarded.
-	Capacity int
-	// The time between flushes of the event buffer. Decreasing the flush interval means that the event buffer
-	// is less likely to reach capacity.
-	FlushInterval time.Duration
-	// Enables event sampling if non-zero. When set to the default of zero, all events are sent to Launchdarkly.
-	// If greater than zero, there is a 1 in SamplingInterval chance that events will be sent (for example, a
-	// value of 20 means on average 5% of events will be sent).
-	SamplingInterval int32
-	// The polling interval (when streaming is disabled). Values less than the default of MinimumPollInterval
-	// will be set to the default.
-	PollInterval time.Duration
-	// An object
-	Logger Logger
-	// The connection timeout to use when making polling requests to LaunchDarkly.
-	Timeout time.Duration
-	// Sets the implementation of FeatureStore for holding feature flags and related data received from
-	// LaunchDarkly. See NewInMemoryFeatureStore (the default) and the redis, ldconsul, and lddynamodb packages.
-	FeatureStore FeatureStore
-	// Sets whether streaming mode should be enabled. By default, streaming is enabled. It should only be
-	// disabled on the advice of LaunchDarkly support.
-	Stream bool
-	// Sets whether this client should use the LaunchDarkly relay in daemon mode. In this mode, the client does
-	// not subscribe to the streaming or polling API, but reads data only from the feature store. See:
-	// https://docs.launchdarkly.com/docs/the-relay-proxy
-	UseLdd bool
-	// Sets whether to send analytics events back to LaunchDarkly. By default, the client will send events. This
-	// differs from Offline in that it only affects sending events, not streaming or polling for events from the
-	// server.
-	SendEvents bool
-	// Sets whether this client is offline. An offline client will not make any network connections to LaunchDarkly,
-	// and will return default values for all feature flags.
-	Offline bool
-	// Sets whether or not all user attributes (other than the key) should be hidden from LaunchDarkly. If this
-	// is true, all user attribute values will be private, not just the attributes specified in PrivateAttributeNames.
-	AllAttributesPrivate bool
-	// Set to true if you need to see the full user details in every analytics event.
-	InlineUsersInEvents bool
-	// Marks a set of user attribute names private. Any users sent to LaunchDarkly with this configuration
-	// active will have attributes with these names removed.
-	PrivateAttributeNames []string
-	// Deprecated. Please use UpdateProcessorFactory.
-	UpdateProcessor UpdateProcessor
-	// Factory to create an object that is responsible for receiving feature flag updates from LaunchDarkly.
-	// If nil, a default implementation will be used depending on the rest of the configuration
-	// (streaming, polling, etc.); a custom implementation can be substituted for testing.
-	UpdateProcessorFactory UpdateProcessorFactory
-	// An object that is responsible for recording or sending analytics events. If nil, a
-	// default implementation will be used; a custom implementation can be substituted for testing.
-	EventProcessor EventProcessor
-	// The number of user keys that the event processor can remember at any one time, so that
-	// duplicate user details will not be sent in analytics events.
-	UserKeysCapacity int
-	// The interval at which the event processor will reset its set of known user keys.
-	UserKeysFlushInterval time.Duration
-	UserAgent             string
-}
-
-// MinimumPollInterval describes the minimum value for Config.PollInterval. If you specify a smaller interval,
-// the minimum will be used instead.
-const MinimumPollInterval = 30 * time.Second
-
 // UpdateProcessor describes the interface for an object that receives feature flag data.
 type UpdateProcessor interface {
 	Initialized() bool
 	Close() error
 	Start(closeWhenReady chan<- struct{})
 }
-
-// UpdateProcessorFactory is a function that creates an UpdateProcessor.
-type UpdateProcessorFactory func(sdkKey string, config Config) (UpdateProcessor, error)
 
 type nullUpdateProcessor struct{}
 
@@ -132,30 +52,6 @@ func (n nullUpdateProcessor) Close() error {
 
 func (n nullUpdateProcessor) Start(closeWhenReady chan<- struct{}) {
 	close(closeWhenReady)
-}
-
-// DefaultConfig provides the default configuration options for the LaunchDarkly client.
-// The easiest way to create a custom configuration is to start with the
-// default config, and set the custom options from there. For example:
-//   var config = DefaultConfig
-//   config.Capacity = 2000
-var DefaultConfig = Config{
-	BaseUri:               "https://app.launchdarkly.com",
-	StreamUri:             "https://stream.launchdarkly.com",
-	EventsUri:             "https://events.launchdarkly.com",
-	Capacity:              10000,
-	FlushInterval:         5 * time.Second,
-	PollInterval:          MinimumPollInterval,
-	Logger:                log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags),
-	Timeout:               3000 * time.Millisecond,
-	Stream:                true,
-	FeatureStore:          nil,
-	UseLdd:                false,
-	SendEvents:            true,
-	Offline:               false,
-	UserKeysCapacity:      1000,
-	UserKeysFlushInterval: 5 * time.Minute,
-	UserAgent:             "",
 }
 
 // Initialization errors
@@ -188,6 +84,8 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 		config.FeatureStore = NewInMemoryFeatureStore(config.Logger)
 	}
 
+	defaultHTTPClient := config.newHTTPClient()
+
 	client := LDClient{
 		sdkKey: sdkKey,
 		config: config,
@@ -197,7 +95,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	if config.EventProcessor != nil {
 		client.eventProcessor = config.EventProcessor
 	} else if config.SendEvents && !config.Offline {
-		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, nil)
+		client.eventProcessor = NewDefaultEventProcessor(sdkKey, config, defaultHTTPClient)
 	} else {
 		client.eventProcessor = newNullEventProcessor()
 	}
@@ -207,7 +105,7 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	} else {
 		factory := config.UpdateProcessorFactory
 		if factory == nil {
-			factory = createDefaultUpdateProcessor
+			factory = createDefaultUpdateProcessor(defaultHTTPClient)
 		}
 		var err error
 		client.updateProcessor, err = factory(sdkKey, config)
@@ -238,21 +136,23 @@ func MakeCustomClient(sdkKey string, config Config, waitFor time.Duration) (*LDC
 	}
 }
 
-func createDefaultUpdateProcessor(sdkKey string, config Config) (UpdateProcessor, error) {
-	if config.Offline {
-		config.Logger.Println("Started LaunchDarkly in offline mode")
-		return nullUpdateProcessor{}, nil
+func createDefaultUpdateProcessor(httpClient *http.Client) func(string, Config) (UpdateProcessor, error) {
+	return func(sdkKey string, config Config) (UpdateProcessor, error) {
+		if config.Offline {
+			config.Logger.Println("Started LaunchDarkly in offline mode")
+			return nullUpdateProcessor{}, nil
+		}
+		if config.UseLdd {
+			config.Logger.Println("Started LaunchDarkly in LDD mode")
+			return nullUpdateProcessor{}, nil
+		}
+		requestor := newRequestor(sdkKey, config, httpClient)
+		if config.Stream {
+			return newStreamProcessor(sdkKey, config, requestor), nil
+		}
+		config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
+		return newPollingProcessor(config, requestor), nil
 	}
-	if config.UseLdd {
-		config.Logger.Println("Started LaunchDarkly in LDD mode")
-		return nullUpdateProcessor{}, nil
-	}
-	requestor := newRequestor(sdkKey, config)
-	if config.Stream {
-		return newStreamProcessor(sdkKey, config, requestor), nil
-	}
-	config.Logger.Println("You should only disable the streaming API if instructed to do so by LaunchDarkly support")
-	return newPollingProcessor(config, requestor), nil
 }
 
 // Identify reports details about a a user.
@@ -307,7 +207,8 @@ func (client *LDClient) Initialized() bool {
 }
 
 // Close shuts down the LaunchDarkly client. After calling this, the LaunchDarkly client
-// should no longer be used.
+// should no longer be used. The method will block until all pending analytics events (if any)
+// been sent.
 func (client *LDClient) Close() error {
 	client.config.Logger.Println("Closing LaunchDarkly Client")
 	if client.IsOffline() {
@@ -320,7 +221,9 @@ func (client *LDClient) Close() error {
 	return nil
 }
 
-// Flush immediately flushes queued events.
+// Flush tells the client that all pending analytics events (if any) should be delivered as soon
+// as possible. Flushing is asynchronous, so this method will return before it is complete.
+// However, if you call Close(), events are guaranteed to be sent before that method returns.
 func (client *LDClient) Flush() {
 	client.eventProcessor.Flush()
 }
@@ -541,12 +444,19 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 	var storeErr error
 	var ok bool
 
+	evalErrorResult := func(errKind EvalErrorKind, flag *FeatureFlag, err error) (EvaluationDetail, *FeatureFlag, error) {
+		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(errKind)}
+		if client.config.LogEvaluationErrors {
+			client.config.Logger.Printf("WARN: %s", err.Error())
+		}
+		return detail, flag, err
+	}
+
 	if !client.Initialized() {
 		if client.store.Initialized() {
 			client.config.Logger.Printf("WARN: Feature flag evaluation called before LaunchDarkly client initialization completed; using last known values from feature store")
 		} else {
-			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorClientNotReady)}
-			return detail, nil, ErrClientNotInitialized
+			return evalErrorResult(EvalErrorClientNotReady, nil, ErrClientNotInitialized)
 		}
 	}
 
@@ -561,20 +471,26 @@ func (client *LDClient) evaluateInternal(key string, user User, defaultVal inter
 	if data != nil {
 		feature, ok = data.(*FeatureFlag)
 		if !ok {
-			detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorException)}
-			return detail, nil, fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key)
+			return evalErrorResult(EvalErrorException, nil,
+				fmt.Errorf("unexpected data type (%T) found in store for feature key: %s. Returning default value", data, key))
 		}
 	} else {
-		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorFlagNotFound)}
-		return detail, nil, fmt.Errorf("unknown feature key: %s Verify that this feature key exists. Returning default value", key)
+		return evalErrorResult(EvalErrorFlagNotFound, nil,
+			fmt.Errorf("unknown feature key: %s. Verify that this feature key exists. Returning default value", key))
 	}
 
 	if user.Key == nil {
-		detail := EvaluationDetail{Value: defaultVal, Reason: newEvalReasonError(EvalErrorUserNotSpecified)}
-		return detail, feature, fmt.Errorf("user.Key cannot be nil for user: %+v when evaluating flag: %s", user, key)
+		return evalErrorResult(EvalErrorUserNotSpecified, feature,
+			fmt.Errorf("user.Key cannot be nil when evaluating flag: %s. Returning default value", key))
 	}
 
 	detail, prereqEvents := feature.EvaluateDetail(user, client.store, sendReasonsInEvents)
+	if detail.Reason != nil && detail.Reason.GetKind() == EvalReasonError && client.config.LogEvaluationErrors {
+		if re, ok := detail.Reason.(EvaluationReasonError); ok {
+			client.config.Logger.Printf("WARN: flag evaluation for %s failed with error %s, default value was returned",
+				key, re.ErrorKind)
+		}
+	}
 	if detail.IsDefaultValue() {
 		detail.Value = defaultVal
 	}
