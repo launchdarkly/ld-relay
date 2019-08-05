@@ -7,15 +7,22 @@ package datadog
 
 import (
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/DataDog/datadog-go/statsd"
 	"go.opencensus.io/stats/view"
 )
 
-// defaultStatsAddr specifies the default address for the DogStatsD service.
-const defaultStatsAddr = "localhost:8125"
+const (
+	// DefaultStatsAddrUDP specifies the default protocol (UDP) and address
+	// for the DogStatsD service.
+	DefaultStatsAddrUDP = "localhost:8125"
+
+	// DefaultStatsAddrUDS specifies the default socket address for the
+	// DogStatsD service over UDS. Only useful for platforms supporting unix
+	// sockets.
+	DefaultStatsAddrUDS = "unix:///var/run/datadog/dsd.socket"
+)
 
 // collector implements statsd.Client
 type statsExporter struct {
@@ -25,22 +32,22 @@ type statsExporter struct {
 	viewData map[string]*view.Data
 }
 
-func newStatsExporter(o Options) *statsExporter {
+func newStatsExporter(o Options) (*statsExporter, error) {
 	endpoint := o.StatsAddr
 	if endpoint == "" {
-		endpoint = defaultStatsAddr
+		endpoint = DefaultStatsAddrUDP
 	}
 
 	client, err := statsd.New(endpoint)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	return &statsExporter{
 		opts:     o,
 		viewData: make(map[string]*view.Data),
 		client:   client,
-	}
+	}, nil
 }
 
 func (s *statsExporter) addViewData(vd *view.Data) {
@@ -49,8 +56,14 @@ func (s *statsExporter) addViewData(vd *view.Data) {
 	s.viewData[sig] = vd
 	s.mu.Unlock()
 
+	var lastErr error
 	for _, row := range vd.Rows {
-		s.submitMetric(vd.View, row, sig)
+		if err := s.submitMetric(vd.View, row, sig); err != nil {
+			lastErr = err
+		}
+	}
+	if lastErr != nil {
+		s.opts.onError(lastErr) // Only report last error.
 	}
 }
 
