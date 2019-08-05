@@ -435,6 +435,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		fmt.Printf("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
 		redisOptions := []ldr.FeatureStoreOption{ldr.Prefix(envConfig.Prefix),
 			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+		dialOptions := []redigo.DialOption{}
 		if c.Redis.Tls || (c.Redis.Password != "") {
 			if c.Redis.Tls {
 				if strings.HasPrefix(redisURL, "redis:") {
