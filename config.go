@@ -324,9 +324,12 @@ func LoadConfigFromEnvironment(c *Config) error {
 	useRedis := false
 	maybeSetFromEnvBool(&useRedis, "USE_REDIS")
 	if useRedis || (c.Redis.Host != "" || c.Redis.Url != "") {
-		host := ""
+		host := c.Redis.Host
 		portStr := ""
-		url := ""
+		if c.Redis.Port > 0 {
+			portStr = fmt.Sprintf("%d", c.Redis.Port)
+		}
+		url := c.Redis.Url
 		maybeSetFromEnv(&host, "REDIS_HOST")
 		maybeSetFromEnv(&portStr, "REDIS_PORT")
 		maybeSetFromEnv(&url, "REDIS_URL")

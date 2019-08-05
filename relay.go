@@ -420,33 +420,34 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 	databaseSpecified := false
 	if c.Redis.Url != "" || c.Redis.Host != "" {
 		databaseSpecified = true
-		var hostOption ldr.FeatureStoreOption
-		if c.Redis.Url != "" {
-			if c.Redis.Host != "" {
+		redisURL := c.Redis.Url
+		if c.Redis.Host != "" {
+			if redisURL != "" {
 				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+			} else {
+				port := c.Redis.Port
+				if port == 0 {
+					port = 6379
+				}
+				redisURL = fmt.Sprintf("redis://%s:%d", c.Redis.Host, c.Redis.Port)
 			}
-			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
-			hostOption = ldr.URL(c.Redis.Url)
-		} else {
-			port := c.Redis.Port
-			if port == 0 {
-				port = 6379
-			}
-			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
-			hostOption = ldr.HostAndPort(c.Redis.Host, port)
 		}
-		redisOptions := []ldr.FeatureStoreOption{hostOption, ldr.Prefix(envConfig.Prefix),
+		fmt.Printf("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
+		redisOptions := []ldr.FeatureStoreOption{ldr.Prefix(envConfig.Prefix),
 			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+		dialOptions := []redigo.DialOption{}
 		if c.Redis.Tls || (c.Redis.Password != "") {
-			dialOptions := []redigo.DialOption{}
 			if c.Redis.Tls {
-				dialOptions = append(dialOptions, redigo.DialUseTLS(true))
+				if strings.HasPrefix(redisURL, "redis:") {
+					// Redigo's DialUseTLS option will not work if you're specifying a URL.
+					redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
+				}
 			}
 			if c.Redis.Password != "" {
 				dialOptions = append(dialOptions, redigo.DialPassword(c.Redis.Password))
 			}
-			redisOptions = append(redisOptions, ldr.DialOptions(dialOptions...))
 		}
+		redisOptions = append(redisOptions, ldr.URL(redisURL), ldr.DialOptions(dialOptions...))
 		return ldr.NewRedisFeatureStoreWithDefaults(redisOptions...)
 	}
 	if c.Consul.Host != "" {

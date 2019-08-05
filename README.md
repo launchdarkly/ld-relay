@@ -104,7 +104,7 @@ n/a              | `USE_REDIS`      | Boolean | `false`     | If you are using e
 `host`           | `REDIS_HOST`     | String  | `localhost` | Hostname of the Redis database. Redis is enabled if this or `url` is set.
 `port`           | `REDIS_PORT`     | Number  | `6379`      | Port of the Redis database. Note that if you are using environment variables, setting `REDIS_PORT` to a string like `tcp://host:port` sets both the host and the port; this is used in Docker.
 `url`            | `REDIS_URL`      | String  |             | URL of the Redis database (overrides `host` & `port`).
-`tls`            | `REDIS_TLS`      | Boolean | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this).
+`tls`            | `REDIS_TLS`      | Boolean | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.
 `password`       | `REDIS_PASSWORD` | String  |             | Optional password if Redis require authentication.
 `localTtl`       | `CACHE_TTL`      | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
 
