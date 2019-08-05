@@ -385,7 +385,7 @@
   version = "1.0.2"
 
 [[projects]]
-  digest = "1:db72e967ec7812520afc5fbac1e293f34fdc3ebfcdc4cbaf645cd8078192fe78"
+  digest = "1:ccd9da0d25cd96f2e91d2f4497ad885cff2d4c09cfaa1ecbb7e9702d180f9bc0"
   name = "go.opencensus.io"
   packages = [
     ".",
@@ -409,8 +409,8 @@
     "trace/tracestate",
   ]
   pruneopts = "UT"
-  revision = "9c377598961b706d1542bd2d84d538b5094d596e"
-  version = "v0.22.0"
+  revision = "df6e2001952312404b06f5f6f03fcb4aec1648e5"
+  version = "v0.21.0"
 
 [[projects]]
   branch = "master"
@@ -585,12 +585,12 @@
   version = "v1.13.0"
 
 [[projects]]
-  digest = "1:110a2f150462cca180cb22e360426adb53c809f942c8d809e4b2d109e3dbe7f0"
+  digest = "1:171240120c3ed1aa7c583e07210d9456218c83d12aae9df8e4b00eb9ae870aa8"
   name = "gopkg.in/DataDog/dd-trace-go.v1"
   packages = ["ddtrace/ext"]
   pruneopts = "UT"
-  revision = "d052956664af54dbcff2712d10c67c76fbfc299f"
-  version = "v1.0.0"
+  revision = "612cde3ce8a9ac1d5cb7070075d6e275bd62752d"
+  version = "v1.16.1"
 
 [[projects]]
   digest = "1:e8d7375da5313a70e85ad86346e4096d6201f308392cecd979731ab25b98219f"
