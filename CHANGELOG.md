@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.6.1] - 2019-08-05
+### Fixed:
+- Enabling TLS for Redis as a separate option was not working; it would only work if you specified a `rediss://` secure URL. Both methods now work. ([#71](https://github.com/launchdarkly/ld-relay/issues/71))
+
 ## [5.6.0] - 2019-08-02
 ### Added:
 - You can now specify a proxy server URL in the configuration file, or in a Docker environment variable.
