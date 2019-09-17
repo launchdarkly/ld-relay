@@ -80,6 +80,8 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `tlsEnabled`             | `TLS_ENABLED`        | Boolean | `false` | Enable TLS on the Relay Proxy.
 `tlsCert`                | `TLS_CERT`           | String  |         | Required if `tlsEnabled` is true. Path to TLS certificate file.
 `tlsKey`                 | `TLS_KEY`            | String  |         | Required if `tlsEnabled` is true. Path to TLS private key file.
+`logLevel`               | `LOG_LEVEL`          | String  | `info`  | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
+`sdkLogLevel`            | `SDK_LOG_LEVEL`      | String  | `info`  | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
 
 _(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
 
@@ -398,6 +400,13 @@ We have done extensive load tests on the Relay Proxy in AWS/EC2. We have also co
 The Relay Proxy has an additional `status` endpoint which provides the current status of all of its streaming connections. This can obtained by querying the URL path `/status` with a GET request.
 
 
+## Logging
+
+Like the Go SDK, the Relay Proxy supports four logging levels: Debug, Info, Warn, and Error, with Debug being the most verbose. Setting the minimum level to Info (the default) means Debug is disabled; setting it to Warn means Debug and Info are disabled; etc.
+
+There are two categories of log output: messages from the Relay Proxy itself (for instance, when it has successfully started up, or when it has received an HTTP request), and messages from the underlying SDK that handles the connections to LaunchDarkly. These two can be configured separately: the `logLevel` parameter or `LOG_LEVEL` variable sets the minimum level for Relay Proxy messages, and the `sdkLogLevel` parameter or `SDK_LOG_LEVEL` variable sets the minimum level for SDK messages. This is because you may wish to see more verbose output in one category than another: for instance, debug-level logging for the Relay Proxy includes all HTTP messages, but debug-level logging for the SDK includes all analytics event data (which can include user properties), so if you want to see requests but not events you would set only `logLevel` to `debug`.
+
+
 ## Proxied endpoints
 
 The table below describes the endpoints proxied by the Relay Proxy.  In this table:
@@ -432,7 +441,7 @@ Endpoint                           | Method        | Auth Header | Description
 
 ## Exporting metrics and traces
 
-The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See the [configuration section](https://github.com/launchdarkly/ld-relay#configuration-file-format-and-environment-variables) for configuration instructions.
+The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See the [configuration section](#configuration-file-format-and-environment-variables) for configuration instructions.
 
 The following metrics are supported:
 
@@ -460,7 +469,7 @@ To build the `ld-relay` container:
 $ docker build -t ld-relay .
 ```
 
-In Docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the Relay Proxy (see the [configuration section](https://github.com/launchdarkly/ld-relay#configuration-file-format-and-environment-variables)).
+In Docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the Relay Proxy (see the [configuration section](#configuration-file-format-and-environment-variables)).
 
 
 ### Docker examples

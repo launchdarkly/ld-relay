@@ -26,6 +26,7 @@ import (
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
@@ -154,6 +155,8 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 
 // NewRelay creates a new relay given a configuration and a method to create a client
 func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
+	logging.InitLoggingWithLevel(c.Main.GetLogLevel())
+
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -241,12 +244,15 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
 	}
-	r.Handler = r.makeHandler()
+	r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
 	return &r, nil
 }
 
-func (r *Relay) makeHandler() http.Handler {
+func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	router := mux.NewRouter()
+	if withRequestLogging {
+		router.Use(logging.RequestLoggerMiddleware)
+	}
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
 	// Client-side evaluation
@@ -344,7 +350,7 @@ func (r *Relay) makeHandler() http.Handler {
 func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
 	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
 
-	baseFeatureStore, err := createFeatureStore(c, envConfig)
+	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -352,12 +358,21 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 
 	clientConfig := ld.DefaultConfig
 	clientConfig.Stream = true
-	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 	clientConfig.StreamUri = c.Main.StreamUri
 	clientConfig.BaseUri = c.Main.BaseUri
-	clientConfig.Logger = logger
+	clientConfig.Loggers.SetBaseLogger(logger)
+	clientConfig.Loggers.SetMinLevel(c.Main.GetSdkLogLevel())
 	clientConfig.UserAgent = "LDRelay/" + version.Version
 	clientConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
+
+	// This is a bit awkward because the SDK now uses a factory mechanism to create feature stores - so that they can
+	// inherit the client's logging settings - but we also need to be able to access the feature store instance
+	// directly. So we're calling the factory ourselves, and still using the deprecated Config.FeatureStore property.
+	baseFeatureStore, err := baseFeatureStoreFactory(clientConfig)
+	if err != nil {
+		return nil, err
+	}
+	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
@@ -416,7 +431,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	return clientContext, nil
 }
 
-func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory, error) {
 	databaseSpecified := false
 	if c.Redis.Url != "" || c.Redis.Host != "" {
 		databaseSpecified = true
@@ -448,7 +463,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			}
 		}
 		redisOptions = append(redisOptions, ldr.URL(redisURL), ldr.DialOptions(dialOptions...))
-		return ldr.NewRedisFeatureStoreWithDefaults(redisOptions...)
+		return ldr.NewRedisFeatureStoreFactory(redisOptions...)
 	}
 	if c.Consul.Host != "" {
 		if databaseSpecified {
@@ -456,7 +471,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		}
 		databaseSpecified = true
 		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
-		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
+		return ldconsul.NewConsulFeatureStoreFactory(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
 	if c.DynamoDB.Enabled {
@@ -474,10 +489,10 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
 		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
+		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
-	return ld.NewInMemoryFeatureStore(logging.Info), nil
+	return ld.NewInMemoryFeatureStoreFactory(), nil
 }
 
 type clientMux struct {
