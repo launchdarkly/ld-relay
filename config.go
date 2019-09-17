@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/gcfg"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
@@ -63,6 +64,18 @@ type MainConfig struct {
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
+	LogLevel               string
+	SdkLogLevel            string
+}
+
+func (c MainConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
+}
+
+func (c MainConfig) GetSdkLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.SdkLogLevel)
+	return level
 }
 
 // RedisConfig configures the optional Redis integration, which is used only if Host is non-empty.
@@ -263,6 +276,12 @@ func ValidateConfig(c *Config) error {
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
 		return errors.New("TLS cert and key are required if TLS is enabled")
 	}
+	if _, ok := getLogLevelByName(c.Main.LogLevel); !ok {
+		return fmt.Errorf(`Invalid log level "%s"`, c.Main.LogLevel)
+	}
+	if _, ok := getLogLevelByName(c.Main.SdkLogLevel); !ok {
+		return fmt.Errorf(`Invalid SDK log level "%s"`, c.Main.SdkLogLevel)
+	}
 	databases := []string{}
 	if c.Redis.Host != "" || c.Redis.Url != "" {
 		databases = append(databases, "Redis")
@@ -295,6 +314,8 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
+	maybeSetFromEnv(&c.Main.LogLevel, "LOG_LEVEL")
+	maybeSetFromEnv(&c.Main.SdkLogLevel, "SDK_LOG_LEVEL")
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnv(&c.Events.EventsUri, "EVENTS_HOST")
@@ -417,6 +438,18 @@ func LoadConfigFromEnvironment(c *Config) error {
 	}
 
 	return ValidateConfig(c)
+}
+
+func getLogLevelByName(levelName string) (ldlog.LogLevel, bool) {
+	if levelName == "" {
+		return ldlog.Info, true
+	}
+	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error, ldlog.None} {
+		if strings.EqualFold(level.Name(), levelName) {
+			return level, true
+		}
+	}
+	return 0, false
 }
 
 func maybeEnvStrPtr(name string) *string {
