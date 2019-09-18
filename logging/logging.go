@@ -12,20 +12,25 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
-// Global package level loggers - note that in a future version these may be replaced by ldlog.Loggers.
+// Global package level loggers - these are preserved for backward compatibility, but in a
+// future version they will be replaced by ldlog.Loggers.
+// Output sent to these loggers does not have an environment name prefix, and is filtered by
+// the logLevel/LOG_LEVEL parameter rather than by envLogLevel/ENV_LOG_LEVEL.
 var (
-	// Logger instance for debug-level logging from Relay (rather than from the SDK). Always non-nil.
+	// Logger instance for global (not per-environment) debug-level logging. Always non-nil.
 	Debug *log.Logger
-	// Logger instance for debug-level logging from Relay (rather than from the SDK). Always non-nil.
+	// Logger instance for global (not per-environment) info-level logging. Always non-nil.
 	Info *log.Logger
-	// Logger instance for debug-level logging from Relay (rather than from the SDK). Always non-nil.
+	// Logger instance for global (not per-environment) warn-level logging. Always non-nil.
 	Warning *log.Logger
-	// Logger instance for debug-level logging from Relay (rather than from the SDK). Always non-nil.
+	// Logger instance for global (not per-environment) error-level logging. Always non-nil.
 	Error *log.Logger
+	// This is set to true if the application explicitly called InitLogging
+	initializedWithSpecificWriters bool
 )
 
 func init() {
-	InitLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+	initLoggingInternal(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 }
 
 // InitLogging sets the destination streams for each logging level.
@@ -34,17 +39,47 @@ func InitLogging(
 	infoHandle io.Writer,
 	warningHandle io.Writer,
 	errorHandle io.Writer) {
-	makeLog := func(w io.Writer, name string) *log.Logger {
-		return log.New(w, fmt.Sprintf("%s: ", name), log.Ldate|log.Ltime|log.Lshortfile)
-	}
+	initLoggingInternal(debugHandle, infoHandle, warningHandle, errorHandle)
+	initializedWithSpecificWriters = true
+}
+
+func initLoggingInternal(
+	debugHandle io.Writer,
+	infoHandle io.Writer,
+	warningHandle io.Writer,
+	errorHandle io.Writer) {
 	Debug = makeLog(debugHandle, "DEBUG")
 	Info = makeLog(infoHandle, "INFO")
 	Warning = makeLog(warningHandle, "WARNING")
 	Error = makeLog(errorHandle, "ERROR")
 }
 
+func makeLog(w io.Writer, name string) *log.Logger {
+	return log.New(w, fmt.Sprintf("%s: ", name), log.Ldate|log.Ltime|log.Lshortfile)
+}
+
 // InitLoggingWithLevel sets up the default logger configuration based on a minimum log level.
+// This is the preferred method rather than InitLogging.
 func InitLoggingWithLevel(level ldlog.LogLevel) {
+	if initializedWithSpecificWriters {
+		// The application called InitLogging directly, so we don't want to recreate the Logger
+		// instances - just disable the ones that should be disabled.
+		nullLog := makeLog(ioutil.Discard, "")
+		if level > ldlog.Debug {
+			Debug = nullLog
+		}
+		if level > ldlog.Info {
+			Info = nullLog
+		}
+		if level > ldlog.Warn {
+			Warning = nullLog
+		}
+		if level > ldlog.Error {
+			Error = nullLog
+		}
+		return
+	}
+
 	var debugHandle io.Writer = os.Stdout
 	var infoHandle io.Writer = os.Stdout
 	var warningHandle io.Writer = os.Stdout
@@ -140,7 +175,7 @@ func (w *loggingHttpResponseWriter) Flush() {
 }
 
 func (w *loggingHttpResponseWriter) CloseNotify() <-chan bool {
-	if c, ok := w.writer.(http.CloseNotifier); ok {
+	if c, ok := w.writer.(http.CloseNotifier); ok { //nolint
 		return c.CloseNotify()
 	}
 	return make(chan bool)

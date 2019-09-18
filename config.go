@@ -65,16 +65,10 @@ type MainConfig struct {
 	TLSCert                string
 	TLSKey                 string
 	LogLevel               string
-	SdkLogLevel            string
 }
 
 func (c MainConfig) GetLogLevel() ldlog.LogLevel {
 	level, _ := getLogLevelByName(c.LogLevel)
-	return level
-}
-
-func (c MainConfig) GetSdkLogLevel() ldlog.LogLevel {
-	level, _ := getLogLevelByName(c.SdkLogLevel)
 	return level
 }
 
@@ -120,6 +114,12 @@ type EnvConfig struct {
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
+	LogLevel           string
+}
+
+func (c EnvConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
@@ -279,8 +279,10 @@ func ValidateConfig(c *Config) error {
 	if _, ok := getLogLevelByName(c.Main.LogLevel); !ok {
 		return fmt.Errorf(`Invalid log level "%s"`, c.Main.LogLevel)
 	}
-	if _, ok := getLogLevelByName(c.Main.SdkLogLevel); !ok {
-		return fmt.Errorf(`Invalid SDK log level "%s"`, c.Main.SdkLogLevel)
+	for _, ec := range c.Environment {
+		if _, ok := getLogLevelByName(ec.LogLevel); !ok {
+			return fmt.Errorf(`Invalid environment log level "%s"`, ec.LogLevel)
+		}
 	}
 	databases := []string{}
 	if c.Redis.Host != "" || c.Redis.Url != "" {
@@ -315,7 +317,6 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
 	maybeSetFromEnv(&c.Main.LogLevel, "LOG_LEVEL")
-	maybeSetFromEnv(&c.Main.SdkLogLevel, "SDK_LOG_LEVEL")
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnv(&c.Events.EventsUri, "EVENTS_HOST")
@@ -335,6 +336,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 			values := strings.Split(s, ",")
 			ec.AllowedOrigin = &values
 		}
+		maybeSetFromEnv(&ec.LogLevel, "LD_LOG_LEVEL_"+envName)
 		// Not supported: EnvConfig.InsecureSkipVerify (that flag should only be used for testing, never in production)
 		if c.Environment == nil {
 			c.Environment = make(map[string]*EnvConfig)
