@@ -3,17 +3,13 @@ package relay
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +29,6 @@ import (
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
@@ -53,10 +48,6 @@ type environmentStatus struct {
 	EnvId     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
-}
-
-type corsContext interface {
-	AllowedOrigins() []string
 }
 
 // LdClientContext defines a minimal interface for a LaunchDarkly client
@@ -320,6 +311,11 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("GET")
 	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("REPORT")
 
+	// PHP SDK endpoints
+	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(http.HandlerFunc(pollAllFlagsHandler))).Methods("GET")
+	serverSideSdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollFlagHandler))).Methods("GET")
+	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollSegmentHandler))).Methods("GET")
+
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
 		r.mobileClientMux.selectClientByAuthorizationKey,
@@ -372,7 +368,6 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
-
 	return router
 }
 
@@ -539,360 +534,4 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory,
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
 	return ld.NewInMemoryFeatureStoreFactory(), nil
-}
-
-type clientMux struct {
-	clientContextByKey map[string]*clientContextImpl
-}
-
-func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	envs := make(map[string]environmentStatus)
-
-	healthy := true
-	for _, clientCtx := range m.clientContextByKey {
-		var status environmentStatus
-		if clientCtx.envId != nil {
-			status.EnvId = *clientCtx.envId
-		}
-		if clientCtx.mobileKey != nil {
-			status.MobileKey = obscureKey(*clientCtx.mobileKey)
-		}
-		status.SdkKey = obscureKey(clientCtx.sdkKey)
-		client := clientCtx.getClient()
-		if client == nil || !client.Initialized() {
-			status.Status = "disconnected"
-			healthy = false
-		} else {
-			status.Status = "connected"
-		}
-		envs[clientCtx.name] = status
-	}
-
-	resp := struct {
-		Environments  map[string]environmentStatus `json:"environments"`
-		Status        string                       `json:"status"`
-		Version       string                       `json:"version"`
-		ClientVersion string                       `json:"clientVersion"`
-	}{
-		Environments:  envs,
-		Version:       version.Version,
-		ClientVersion: ld.Version,
-	}
-
-	if healthy {
-		resp.Status = "healthy"
-	} else {
-		resp.Status = "degraded"
-	}
-
-	data, _ := json.Marshal(resp)
-
-	w.Write(data)
-}
-
-func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		authKey, err := fetchAuthToken(req)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		clientCtx := m.clientContextByKey[authKey]
-
-		if clientCtx == nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("ld-relay is not configured for the provided key"))
-			return
-		}
-
-		if clientCtx.getClient() == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("client was not initialized"))
-			return
-		}
-
-		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
-		next.ServeHTTP(w, req)
-	})
-}
-
-func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, true, sdkKind)
-	}
-}
-
-func evaluateAllFeatureFlags(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, false, sdkKind)
-	}
-}
-
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
-	var user *ld.User
-	var userDecodeErr error
-	if req.Method == "REPORT" {
-		if req.Header.Get("Content-Type") != "application/json" {
-			w.WriteHeader(http.StatusUnsupportedMediaType)
-			w.Write([]byte("Content-Type must be application/json."))
-			return
-		}
-
-		body, _ := ioutil.ReadAll(req.Body)
-		userDecodeErr = json.Unmarshal(body, &user)
-	} else {
-		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = UserV2FromBase64(base64User)
-	}
-	if userDecodeErr != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
-		return
-	}
-
-	withReasons := req.URL.Query().Get("withReasons") == "true"
-
-	clientCtx := getClientContext(req)
-	client := clientCtx.getClient()
-	store := clientCtx.getStore()
-	loggers := clientCtx.getLoggers()
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if !client.Initialized() {
-		if store.Initialized() {
-			loggers.Warn("Called before client initialization; using last known values from feature store")
-		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			loggers.Warn("Called before client initialization. Feature store not available")
-			w.Write(util.ErrorJsonMsg("Service not initialized"))
-			return
-		}
-	}
-
-	if user.Key == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
-		return
-	}
-
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, *user.Key)
-
-	items, err := store.All(ld.Features)
-	if err != nil {
-		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(util.ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
-		return
-	}
-
-	response := make(map[string]interface{}, len(items))
-	for _, item := range items {
-		if flag, ok := item.(*ld.FeatureFlag); ok {
-			if sdkKind == jsClientSdk && !flag.ClientSide {
-				continue
-			}
-			detail, _ := flag.EvaluateDetail(*user, store, false)
-			var result interface{}
-			if valueOnly {
-				result = detail.Value
-			} else {
-				value := evalXResult{
-					Value:                detail.Value,
-					Variation:            detail.VariationIndex,
-					Version:              flag.Version,
-					TrackEvents:          flag.TrackEvents,
-					DebugEventsUntilDate: flag.DebugEventsUntilDate,
-				}
-				if withReasons {
-					value.Reason = &ld.EvaluationReasonContainer{Reason: detail.Reason}
-				}
-				result = value
-			}
-			response[flag.Key] = result
-		}
-	}
-
-	result, _ := json.Marshal(response)
-
-	w.WriteHeader(http.StatusOK)
-	w.Write(result)
-}
-
-func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested client-side ping stream")
-	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
-}
-
-func allStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /all stream")
-	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
-}
-
-func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
-	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
-}
-
-func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		dispatcher := clientCtx.getHandlers().eventDispatcher
-		if dispatcher == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
-			return
-		}
-		handler := dispatcher.GetHandler(endpoint)
-		if handler == nil {
-			// Note, if this ever happens, it is a programming error since we are only supposed to
-			// be using a fixed set of Endpoint values that the dispatcher knows about.
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
-			logging.Error.Printf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
-			return
-		}
-		handler(w, req)
-	}
-}
-
-func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		ctx := getClientContext(req)
-		userAgent := getUserAgent(req)
-		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
-			handler.ServeHTTP(w, req)
-		}, measure)
-	}
-}
-
-func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		ctx := getClientContext(req)
-		userAgent := getUserAgent(req)
-		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
-			handler.ServeHTTP(w, req)
-		}, measure)
-	}
-}
-
-func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
-}
-
-func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
-}
-
-func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
-}
-
-func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := getClientContext(req)
-			userAgent := getUserAgent(req)
-			// Ignoring internal routing error that would have been ignored anyway
-			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, route, req.Method, func() {
-				next.ServeHTTP(w, req)
-			}, measure)
-		})
-	}
-}
-
-// UserV2FromBase64 decodes a base64-encoded go-server-sdk v2 user.
-// If any decoding/unmarshaling errors occur or
-// the user is missing the 'key' attribute an error is returned.
-func UserV2FromBase64(base64User string) (*ld.User, error) {
-	var user ld.User
-	idStr, decodeErr := base64urlDecode(base64User)
-	if decodeErr != nil {
-		return nil, errors.New("User part of url path did not decode as valid base64")
-	}
-
-	jsonErr := json.Unmarshal(idStr, &user)
-
-	if jsonErr != nil {
-		return nil, errors.New("User part of url path did not decode to valid user as json")
-	}
-
-	if user.Key == nil {
-		return nil, errors.New("User must have a 'key' attribute")
-	}
-	return &user, nil
-}
-
-func base64urlDecode(base64String string) ([]byte, error) {
-	idStr, decodeErr := base64.URLEncoding.DecodeString(base64String)
-
-	if decodeErr != nil {
-		// base64String could be unpadded
-		// see https://github.com/golang/go/issues/4237#issuecomment-267792481
-		idStrRaw, decodeErrRaw := base64.RawURLEncoding.DecodeString(base64String)
-
-		if decodeErrRaw != nil {
-			return nil, errors.New("String did not decode as valid base64")
-		}
-
-		return idStrRaw, nil
-	}
-
-	return idStr, nil
-}
-
-func fetchAuthToken(req *http.Request) (string, error) {
-	authHdr := req.Header.Get("Authorization")
-	match := uuidHeaderPattern.FindStringSubmatch(authHdr)
-
-	// successfully matched UUID from header
-	if len(match) == 2 {
-		return match[1], nil
-	}
-
-	return "", errors.New("No valid token found")
-}
-
-func last5(str string) string {
-	if len(str) >= 5 {
-		return str[len(str)-5:]
-	}
-	return str
-}
-
-func getClientContext(req *http.Request) clientContext {
-	return req.Context().Value(contextKey).(clientContext)
-}
-
-func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		handler := next
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			handler = middlewares[i](handler)
-		}
-		return handler
-	}
-}
-
-var hexdigit = regexp.MustCompile(`[a-fA-F\d]`)
-
-func obscureKey(key string) string {
-	if len(key) > 8 {
-		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
-	}
-	return key
-}
-
-// getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
-func getUserAgent(req *http.Request) string {
-	if agent := req.Header.Get(ldUserAgentHeader); agent != "" {
-		return agent
-	}
-	return req.Header.Get(userAgentHeader)
 }
