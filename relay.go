@@ -69,6 +69,7 @@ type clientContext interface {
 	getLoggers() *ldlog.Loggers
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
+	getTtl() time.Duration
 	getInitError() error
 }
 
@@ -83,6 +84,7 @@ type clientContextImpl struct {
 	mobileKey  *string
 	name       string
 	metricsCtx context.Context
+	ttl        time.Duration
 	initErr    error
 }
 
@@ -137,6 +139,10 @@ func (c *clientContextImpl) getHandlers() clientHandlers {
 
 func (c *clientContextImpl) getMetricsCtx() context.Context {
 	return c.metricsCtx
+}
+
+func (c *clientContextImpl) getTtl() time.Duration {
+	return c.ttl
 }
 
 func (c *clientContextImpl) getInitError() error {
@@ -433,6 +439,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		store:      baseFeatureStore,
 		loggers:    envLoggers,
 		metricsCtx: m.OpenCensusCtx,
+		ttl:        time.Minute * time.Duration(envConfig.TtlMinutes),
 		handlers: clientHandlers{
 			eventDispatcher:    eventDispatcher,
 			allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),

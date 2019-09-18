@@ -143,6 +143,7 @@ Property in file | Environment var               | Type   | Description
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
 `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
+`ttlMinutes`     | `LD_TTL_MINUTES_MyEnvName`    | Number | HTTP caching TTL for the PHP polling endpoints (see [Using with PHP](#using-with-php))
 
 In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 
@@ -427,6 +428,9 @@ Endpoint                           | Method        | Auth Header | Description
 /sdk/eval/*clientId*/users         | REPORT        | n/a         | Same as above but request body is user JSON object
 /sdk/evalx/*clientId*/users/*user* | GET           | n/a         | Returns flag evaluation results and additional metadata
 /sdk/evalx/*clientId*/users        | REPORT        | n/a         | Same as above but request body is user JSON object
+/sdk/flags                         | GET           | sdk         | For [PHP SDK](#using-with-php)
+/sdk/flags/*flagKey*               | GET           | sdk         | For [PHP SDK](#using-with-php)
+/sdk/segments/*segmentKey*         | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs
 /mobile/events                     | POST          | mobile      | For receiving events from mobile SDKs
 /mobile/events/bulk                | POST          | mobile      | Same as above
@@ -464,6 +468,13 @@ Metrics can be filtered by the following tags:
 - `userAgent`: The user agent used to make the request, typically a LaunchDarkly SDK version. Example: "Node/3.4.0"
 
 **Note:** Traces for stream connections will trace until the connection is closed.
+
+
+## Using with PHP
+
+The [PHP SDK](https://github.com/launchdarkly/php-server-sdk) communicates differently with LaunchDarkly than the other SDKs because it does not support long-lived streaming connections. It must either poll for flags on demand via HTTP, or get them from Redis or another database. The latter is much more efficient and is therefore the preferred approach, but if you are not using a database, the Relay Proxy can handle HTTP requests from PHP.
+
+However, it is highly recommended that if you do this, you use the `ttlMinutes` parameter in the [environment configuration](#file-section-environment-name). This is equivalent to the [TTL setting for the environment on your LaunchDarkly dashboard](https://docs.launchdarkly.com/docs/environments#section-ttl-settings), but must be set here separately because the Relay Proxy does not have access to those dashboard properties. This will cause HTTP responses from the PHP endpoints to have a `Cache-Control: max-age` so that the PHP SDK will not make additional HTTP requests for the same flag more often than that interval. Note that this may result in different PHP application instances receiving flag updates at slightly different times as their HTTP caches will not be exactly in sync. It does not affect any SDKs other than PHP.
 
 
 ## Docker

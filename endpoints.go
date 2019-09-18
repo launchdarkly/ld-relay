@@ -11,10 +11,10 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
@@ -45,10 +45,9 @@ func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
-	loggers := clientCtx.getLoggers()
 	data, err := clientCtx.getStore().All(ld.Features)
 	if err != nil {
-		loggers.Errorf("Error reading feature store: %s", err)
+		clientCtx.getLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
 		return
 	}
@@ -64,19 +63,17 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", flag.GetKey(), flag.GetVersion()))
 	}
 	etag := hex.EncodeToString(hash.Sum(nil))[:15]
-	writeCacheableJSONResponse(w, req, loggers, data, etag)
+	writeCacheableJSONResponse(w, req, clientCtx, data, etag)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	pollFlagOrSegment(clientCtx.getStore(), clientCtx.getLoggers(), ld.Features)(w, req)
+	pollFlagOrSegment(getClientContext(req), ld.Features)(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	pollFlagOrSegment(clientCtx.getStore(), clientCtx.getLoggers(), ld.Segments)(w, req)
+	pollFlagOrSegment(getClientContext(req), ld.Segments)(w, req)
 }
 
 // Event-recorder endpoints:
@@ -218,24 +215,24 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	w.Write(result)
 }
 
-func pollFlagOrSegment(featureStore ld.FeatureStore, loggers *ldlog.Loggers, kind ld.VersionedDataKind) func(http.ResponseWriter, *http.Request) {
+func pollFlagOrSegment(clientContext clientContext, kind ld.VersionedDataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
-		item, err := featureStore.Get(kind, key)
+		item, err := clientContext.getStore().Get(kind, key)
 		if err != nil {
-			loggers.Errorf("Error reading feature store: %s", err)
+			clientContext.getLoggers().Errorf("Error reading feature store: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if item == nil {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			writeCacheableJSONResponse(w, req, loggers, item, strconv.Itoa(item.GetVersion()))
+			writeCacheableJSONResponse(w, req, clientContext, item, strconv.Itoa(item.GetVersion()))
 		}
 	}
 }
 
-func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, loggers *ldlog.Loggers,
+func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext clientContext,
 	entity interface{}, etagValue string) {
 	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
@@ -246,11 +243,20 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, logger
 	}
 	bytes, err := json.Marshal(entity)
 	if err != nil {
-		loggers.Errorf("Error marshaling JSON: %s", err)
+		clientContext.getLoggers().Errorf("Error marshaling JSON: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Etag", etag)
+		ttl := clientContext.getTtl()
+		if ttl > 0 {
+			w.Header().Set("Vary", "Authorization")
+			expiresAt := time.Now().UTC().Add(ttl)
+			w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
+			// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
+			// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
+			// will all see the same expiration time.
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(bytes)
 	}
