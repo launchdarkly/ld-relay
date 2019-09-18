@@ -250,7 +250,12 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		w.Header().Set("Etag", etag)
 		ttl := clientContext.getTtl()
 		if ttl > 0 {
-			w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", ttl/time.Second))
+			w.Header().Set("Vary", "Authorization")
+			expiresAt := time.Now().UTC().Add(ttl)
+			w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
+			// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
+			// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
+			// will all see the same expiration time.
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(bytes)

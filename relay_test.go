@@ -734,7 +734,7 @@ func TestRelay(t *testing.T) {
 			r := makeRequest(fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key))
 			relay.ServeHTTP(w, r)
 			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
-			assert.Equal(t, "", w.Result().Header.Get("Cache-Control"))
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
@@ -752,7 +752,7 @@ func TestRelay(t *testing.T) {
 			r.Header.Set("Authorization", sdkKeyWithTTL)
 			relay.ServeHTTP(w, r)
 			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
-			assert.Equal(t, "max-age=600", w.Result().Header.Get("Cache-Control"))
+			assert.NotEqual(t, "", w.Result().Header.Get("Expires"))
 		})
 
 		t.Run("get all flags", func(t *testing.T) {
@@ -760,7 +760,7 @@ func TestRelay(t *testing.T) {
 			r := makeRequest("http://localhost/sdk/flags")
 			relay.ServeHTTP(w, r)
 			assertOKResponseWithEntity(t, w.Result(), flagsMap(allFlags))
-			assert.Equal(t, "", w.Result().Header.Get("Cache-Control"))
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
@@ -770,7 +770,7 @@ func TestRelay(t *testing.T) {
 			r := makeRequest(fmt.Sprintf("http://localhost/sdk/segments/%s", segment1.Key))
 			relay.ServeHTTP(w, r)
 			assertOKResponseWithEntity(t, w.Result(), segment1)
-			assert.Equal(t, "", w.Result().Header.Get("Cache-Control"))
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
