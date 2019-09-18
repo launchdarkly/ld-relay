@@ -1,11 +1,16 @@
 package relay
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"regexp"
+	"sort"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
@@ -47,12 +52,19 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	// Compute an overall Etag for the data set by adding all the flag versions
-	var aggregateVersion int64
+	// Compute an overall Etag for the data set by hashing flag keys and versions
+	hash := sha1.New() // nolint:gas // just used for insecure hashing
+	keys := make([]string, 0, len(data))
 	for _, flag := range data {
-		aggregateVersion += int64(flag.GetVersion())
+		keys = append(keys, flag.GetKey())
 	}
-	writeCacheableJSONResponse(w, req, loggers, data, aggregateVersion)
+	sort.Strings(keys) // makes the hash deterministic
+	for _, key := range keys {
+		flag := data[key]
+		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", flag.GetKey(), flag.GetVersion()))
+	}
+	etag := hex.EncodeToString(hash.Sum(nil))[:15]
+	writeCacheableJSONResponse(w, req, loggers, data, etag)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
@@ -218,16 +230,16 @@ func pollFlagOrSegment(featureStore ld.FeatureStore, loggers *ldlog.Loggers, kin
 		if item == nil {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			writeCacheableJSONResponse(w, req, loggers, item, int64(item.GetVersion()))
+			writeCacheableJSONResponse(w, req, loggers, item, strconv.Itoa(item.GetVersion()))
 		}
 	}
 }
 
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, loggers *ldlog.Loggers,
-	entity interface{}, version int64) {
-	versionEtag := fmt.Sprintf("%d", version)
+	entity interface{}, etagValue string) {
+	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
-		if cachedEtag == versionEtag {
+		if cachedEtag == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -238,7 +250,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, logger
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Etag", versionEtag)
+		w.Header().Set("Etag", etag)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(bytes)
 	}
