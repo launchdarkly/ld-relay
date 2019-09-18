@@ -2,6 +2,7 @@ package relay
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -46,15 +47,12 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		loggers.Errorf("Error marshaling JSON: %s", err)
-		w.WriteHeader(500)
-		return
+	// Compute an overall Etag for the data set by adding all the flag versions
+	var aggregateVersion int64
+	for _, flag := range data {
+		aggregateVersion += int64(flag.GetVersion())
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, _ = w.Write(bytes)
+	writeCacheableJSONResponse(w, req, loggers, data, aggregateVersion)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
@@ -214,22 +212,35 @@ func pollFlagOrSegment(featureStore ld.FeatureStore, loggers *ldlog.Loggers, kin
 		item, err := featureStore.Get(kind, key)
 		if err != nil {
 			loggers.Errorf("Error reading feature store: %s", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if item == nil {
-			w.WriteHeader(404)
+			w.WriteHeader(http.StatusNotFound)
 		} else {
-			bytes, err := json.Marshal(item)
-			if err != nil {
-				loggers.Errorf("Error marshaling JSON: %s", err)
-				w.WriteHeader(500)
-			} else {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(200)
-				_, _ = w.Write(bytes)
-			}
+			writeCacheableJSONResponse(w, req, loggers, item, int64(item.GetVersion()))
 		}
+	}
+}
+
+func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, loggers *ldlog.Loggers,
+	entity interface{}, version int64) {
+	versionEtag := fmt.Sprintf("%d", version)
+	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
+		if cachedEtag == versionEtag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	bytes, err := json.Marshal(entity)
+	if err != nil {
+		loggers.Errorf("Error marshaling JSON: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Etag", versionEtag)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes)
 	}
 }
 
