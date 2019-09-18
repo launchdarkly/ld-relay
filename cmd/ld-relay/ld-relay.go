@@ -75,6 +75,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if c.Main.ExitAlways {
+		os.Exit(0)
+	}
+
 	if err := relay.InitializeMetrics(c.MetricsConfig); err != nil {
 		logging.Error.Printf("Error initializing metrics: %s", err)
 	}

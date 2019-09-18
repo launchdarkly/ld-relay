@@ -77,6 +77,7 @@ type clientContext interface {
 	getLogger() ld.Logger
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
+	getInitError() error
 }
 
 type clientContextImpl struct {
@@ -90,6 +91,7 @@ type clientContextImpl struct {
 	mobileKey  *string
 	name       string
 	metricsCtx context.Context
+	initErr    error
 }
 
 // Relay relays endpoints to and from the LaunchDarkly service
@@ -145,6 +147,10 @@ func (c *clientContextImpl) getMetricsCtx() context.Context {
 	return c.metricsCtx
 }
 
+func (c *clientContextImpl) getInitError() error {
+	return c.initErr
+}
+
 type clientFactoryFunc func(sdkKey string, config ld.Config) (LdClientContext, error)
 
 // DefaultClientFactory creates a default client for connecting to the LaunchDarkly stream
@@ -187,8 +193,10 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, err
 	}
 
+	clientReadyCh := make(chan clientContext, len(c.Environment))
+
 	for envName, envConfig := range c.Environment {
-		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher)
+		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher, clientReadyCh)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
@@ -241,8 +249,29 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
 	}
-	r.Handler = r.makeHandler()
-	return &r, nil
+
+	if c.Main.ExitAlways {
+		logging.Info.Println("Running in one-shot mode - will exit immediately after initializing environments")
+		// Just wait until all clients have either started or failed, then exit without bothering
+		// to set up HTTP handlers.
+		numFinished := 0
+		failed := false
+		for numFinished < len(c.Environment) {
+			ctx := <-clientReadyCh
+			numFinished++
+			if ctx.getInitError() != nil {
+				failed = true
+			}
+		}
+		var err error
+		if failed {
+			err = errors.New("one or more environments failed to initialize")
+		}
+		return &r, err
+	} else {
+		r.Handler = r.makeHandler()
+		return &r, nil
+	}
 }
 
 func (r *Relay) makeHandler() http.Handler {
@@ -342,7 +371,8 @@ func (r *Relay) makeHandler() http.Handler {
 }
 
 func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
-	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
+	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
+	readyCh chan<- clientContext) (*clientContextImpl, error) {
 
 	baseFeatureStore, err := createFeatureStore(c, envConfig)
 	if err != nil {
@@ -398,11 +428,15 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		clientContext.setClient(client)
 
 		if err != nil {
+			clientContext.initErr = err
 			if !c.Main.IgnoreConnectionErrors {
 				logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
+				}
+				if readyCh != nil {
+					readyCh <- clientContext
 				}
 				return
 			}
@@ -410,6 +444,9 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 			logging.Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 		} else {
 			logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+		}
+		if readyCh != nil {
+			readyCh <- clientContext
 		}
 	}(envName, *envConfig)
 
