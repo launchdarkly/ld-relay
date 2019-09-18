@@ -74,6 +74,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
 `baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service.
 `exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
+`exitAlways`             | `EXIT_ALWAYS`        | Boolean | `true`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
 `heartbeatIntervalSecs`  | `HEARTBEAT_INTERVAL` | Number  | `180`   | Interval (in seconds) for heartbeat messages to prevent read timeouts on streaming connections.
@@ -83,6 +84,8 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `logLevel`               | `LOG_LEVEL`          | String  | `info`  | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
 
 _(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
+
+_(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags; this is only useful if you have enabled Redis or another database, so that it will store the flags there.
 
 ### File section: `[Events]`
 
