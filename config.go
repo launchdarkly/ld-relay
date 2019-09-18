@@ -56,6 +56,7 @@ type Config struct {
 // This corresponds to the [Main] section in the configuration file.
 type MainConfig struct {
 	ExitOnError            bool
+	ExitAlways             bool
 	IgnoreConnectionErrors bool
 	StreamUri              string
 	BaseUri                string
@@ -311,6 +312,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnv(&c.Main.BaseUri, "BASE_URI")
 	maybeSetFromEnv(&c.Main.StreamUri, "STREAM_URI")
 	maybeSetFromEnvBool(&c.Main.ExitOnError, "EXIT_ON_ERROR")
+	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
 	maybeSetFromEnvInt(&c.Main.HeartbeatIntervalSecs, "HEARTBEAT_INTERVAL", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
