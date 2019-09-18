@@ -84,6 +84,7 @@ func (r *requestor) requestResource(kind VersionedDataKind, key string) (Version
 }
 
 func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
+	r.config.Loggers.Debug("Polling LaunchDarkly for feature flag updates")
 	req, reqErr := http.NewRequest("GET", r.config.BaseUri+resource, nil)
 	if reqErr != nil {
 		return nil, false, reqErr

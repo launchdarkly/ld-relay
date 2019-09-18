@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/gcfg"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
@@ -64,6 +65,12 @@ type MainConfig struct {
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
+	LogLevel               string
+}
+
+func (c MainConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
 }
 
 // RedisConfig configures the optional Redis integration, which is used only if Host is non-empty.
@@ -108,6 +115,12 @@ type EnvConfig struct {
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
+	LogLevel           string
+}
+
+func (c EnvConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
@@ -264,6 +277,14 @@ func ValidateConfig(c *Config) error {
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
 		return errors.New("TLS cert and key are required if TLS is enabled")
 	}
+	if _, ok := getLogLevelByName(c.Main.LogLevel); !ok {
+		return fmt.Errorf(`Invalid log level "%s"`, c.Main.LogLevel)
+	}
+	for _, ec := range c.Environment {
+		if _, ok := getLogLevelByName(ec.LogLevel); !ok {
+			return fmt.Errorf(`Invalid environment log level "%s"`, ec.LogLevel)
+		}
+	}
 	databases := []string{}
 	if c.Redis.Host != "" || c.Redis.Url != "" {
 		databases = append(databases, "Redis")
@@ -297,6 +318,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
+	maybeSetFromEnv(&c.Main.LogLevel, "LOG_LEVEL")
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnv(&c.Events.EventsUri, "EVENTS_HOST")
@@ -316,6 +338,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 			values := strings.Split(s, ",")
 			ec.AllowedOrigin = &values
 		}
+		maybeSetFromEnv(&ec.LogLevel, "LD_LOG_LEVEL_"+envName)
 		// Not supported: EnvConfig.InsecureSkipVerify (that flag should only be used for testing, never in production)
 		if c.Environment == nil {
 			c.Environment = make(map[string]*EnvConfig)
@@ -419,6 +442,18 @@ func LoadConfigFromEnvironment(c *Config) error {
 	}
 
 	return ValidateConfig(c)
+}
+
+func getLogLevelByName(levelName string) (ldlog.LogLevel, bool) {
+	if levelName == "" {
+		return ldlog.Info, true
+	}
+	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error, ldlog.None} {
+		if strings.EqualFold(level.Name(), levelName) {
+			return level, true
+		}
+	}
+	return 0, false
 }
 
 func maybeEnvStrPtr(name string) *string {

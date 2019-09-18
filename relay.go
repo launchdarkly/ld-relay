@@ -26,6 +26,7 @@ import (
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
@@ -74,7 +75,7 @@ type clientContext interface {
 	getClient() LdClientContext
 	setClient(LdClientContext)
 	getStore() ld.FeatureStore
-	getLogger() ld.Logger
+	getLoggers() *ldlog.Loggers
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
 	getInitError() error
@@ -84,7 +85,7 @@ type clientContextImpl struct {
 	mu         sync.RWMutex
 	client     LdClientContext
 	store      ld.FeatureStore
-	logger     ld.Logger
+	loggers    ldlog.Loggers
 	handlers   clientHandlers
 	sdkKey     string
 	envId      *string
@@ -135,8 +136,8 @@ func (c *clientContextImpl) getStore() ld.FeatureStore {
 	return c.store
 }
 
-func (c *clientContextImpl) getLogger() ld.Logger {
-	return c.logger
+func (c *clientContextImpl) getLoggers() *ldlog.Loggers {
+	return &c.loggers
 }
 
 func (c *clientContextImpl) getHandlers() clientHandlers {
@@ -160,6 +161,8 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 
 // NewRelay creates a new relay given a configuration and a method to create a client
 func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
+	logging.InitLoggingWithLevel(c.Main.GetLogLevel())
+
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -269,13 +272,16 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		}
 		return &r, err
 	} else {
-		r.Handler = r.makeHandler()
+		r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
 		return &r, nil
 	}
 }
 
-func (r *Relay) makeHandler() http.Handler {
+func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	router := mux.NewRouter()
+	if withRequestLogging {
+		router.Use(logging.RequestLoggerMiddleware)
+	}
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
 	// Client-side evaluation
@@ -374,28 +380,46 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
 	readyCh chan<- clientContext) (*clientContextImpl, error) {
 
-	baseFeatureStore, err := createFeatureStore(c, envConfig)
+	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig)
 	if err != nil {
 		return nil, err
 	}
-	logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
+	logger := log.New(os.Stderr, fmt.Sprintf("[env: %s] ", envName), log.LstdFlags)
+	envLoggers := ldlog.Loggers{}
+	envLoggers.SetBaseLogger(logger)
+	if envConfig.LogLevel == "" {
+		envLoggers.SetMinLevel(c.Main.GetLogLevel())
+	} else {
+		envLoggers.SetMinLevel(envConfig.GetLogLevel())
+	}
 
 	clientConfig := ld.DefaultConfig
 	clientConfig.Stream = true
-	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 	clientConfig.StreamUri = c.Main.StreamUri
 	clientConfig.BaseUri = c.Main.BaseUri
-	clientConfig.Logger = logger
+	clientConfig.Loggers = envLoggers
 	clientConfig.UserAgent = "LDRelay/" + version.Version
 	clientConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
 
+	// This is a bit awkward because the SDK now uses a factory mechanism to create feature stores - so that they can
+	// inherit the client's logging settings - but we also need to be able to access the feature store instance
+	// directly. So we're calling the factory ourselves, and still using the deprecated Config.FeatureStore property.
+	baseFeatureStore, err := baseFeatureStoreFactory(clientConfig)
+	if err != nil {
+		return nil, err
+	}
+	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher,
+		baseFeatureStore, envLoggers, c.Main.HeartbeatIntervalSecs)
+
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
-		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, httpConfig, baseFeatureStore)
+		envLoggers.Info("Proxying events for this environment")
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId,
+			envLoggers, c.Events, httpConfig, baseFeatureStore)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri),
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, envLoggers,
+		events.OptionUri(c.Events.EventsUri),
 		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
@@ -412,7 +436,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		sdkKey:     envConfig.SdkKey,
 		mobileKey:  envConfig.MobileKey,
 		store:      baseFeatureStore,
-		logger:     logger,
+		loggers:    envLoggers,
 		metricsCtx: m.OpenCensusCtx,
 		handlers: clientHandlers{
 			eventDispatcher:    eventDispatcher,
@@ -430,7 +454,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		if err != nil {
 			clientContext.initErr = err
 			if !c.Main.IgnoreConnectionErrors {
-				logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				envLoggers.Errorf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
@@ -453,7 +477,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	return clientContext, nil
 }
 
-func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory, error) {
 	databaseSpecified := false
 	if c.Redis.Url != "" || c.Redis.Host != "" {
 		databaseSpecified = true
@@ -485,7 +509,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			}
 		}
 		redisOptions = append(redisOptions, ldr.URL(redisURL), ldr.DialOptions(dialOptions...))
-		return ldr.NewRedisFeatureStoreWithDefaults(redisOptions...)
+		return ldr.NewRedisFeatureStoreFactory(redisOptions...)
 	}
 	if c.Consul.Host != "" {
 		if databaseSpecified {
@@ -493,7 +517,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		}
 		databaseSpecified = true
 		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
-		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
+		return ldconsul.NewConsulFeatureStoreFactory(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
 	if c.DynamoDB.Enabled {
@@ -511,10 +535,10 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
 		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
+		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
-	return ld.NewInMemoryFeatureStore(logging.Info), nil
+	return ld.NewInMemoryFeatureStoreFactory(), nil
 }
 
 type clientMux struct {
@@ -633,16 +657,16 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	clientCtx := getClientContext(req)
 	client := clientCtx.getClient()
 	store := clientCtx.getStore()
-	logger := clientCtx.getLogger()
+	loggers := clientCtx.getLoggers()
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if !client.Initialized() {
 		if store.Initialized() {
-			logger.Println("WARN: Called before client initialization; using last known values from feature store")
+			loggers.Warn("Called before client initialization; using last known values from feature store")
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			logger.Println("WARN: Called before client initialization. Feature store not available")
+			loggers.Warn("Called before client initialization. Feature store not available")
 			w.Write(util.ErrorJsonMsg("Service not initialized"))
 			return
 		}
@@ -654,9 +678,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		return
 	}
 
+	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, *user.Key)
+
 	items, err := store.All(ld.Features)
 	if err != nil {
-		logger.Printf("WARN: Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
+		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(util.ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
 		return
@@ -697,16 +723,19 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 
 func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
+	clientCtx.getLoggers().Debug("Application requested client-side ping stream")
 	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
 }
 
 func allStreamHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
+	clientCtx.getLoggers().Debug("Application requested server-side /all stream")
 	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
 }
 
 func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
+	clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
 	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
 }
 

@@ -24,6 +24,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 				TLSEnabled:             true,
 				TLSCert:                "cert",
 				TLSKey:                 "key",
+				LogLevel:               "warn",
 			}
 			c.Events = events.Config{
 				SendEvents:        true,
@@ -41,6 +42,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 					EnvId:     strPtr("earth-env"),
 					Prefix:    "earth-",
 					TableName: "earth-table",
+					LogLevel:  "debug",
 				},
 				"krypton": &EnvConfig{
 					SdkKey:        "krypton-sdk",
@@ -63,6 +65,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			"TLS_ENABLED":               "1",
 			"TLS_CERT":                  "cert",
 			"TLS_KEY":                   "key",
+			"LOG_LEVEL":                 "warn",
 			"USE_EVENTS":                "1",
 			"EVENTS_HOST":               "http://events",
 			"EVENTS_FLUSH_INTERVAL":     "120",
@@ -74,6 +77,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			"LD_CLIENT_SIDE_ID_earth":   "earth-env",
 			"LD_PREFIX_earth":           "earth-",
 			"LD_TABLE_NAME_earth":       "earth-table",
+			"LD_LOG_LEVEL_earth":        "debug",
 			"LD_ENV_krypton":            "krypton-sdk",
 			"LD_MOBILE_KEY_krypton":     "krypton-mob",
 			"LD_CLIENT_SIDE_ID_krypton": "krypton-env",

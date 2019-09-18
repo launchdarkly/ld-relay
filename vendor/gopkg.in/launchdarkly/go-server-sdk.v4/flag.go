@@ -17,21 +17,22 @@ const (
 
 // FeatureFlag describes an individual feature flag
 type FeatureFlag struct {
-	Key                  string             `json:"key" bson:"key"`
-	Version              int                `json:"version" bson:"version"`
-	On                   bool               `json:"on" bson:"on"`
-	TrackEvents          bool               `json:"trackEvents" bson:"trackEvents"`
-	Deleted              bool               `json:"deleted" bson:"deleted"`
-	Prerequisites        []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
-	Salt                 string             `json:"salt" bson:"salt"`
-	Sel                  string             `json:"sel" bson:"sel"`
-	Targets              []Target           `json:"targets" bson:"targets"`
-	Rules                []Rule             `json:"rules" bson:"rules"`
-	Fallthrough          VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
-	OffVariation         *int               `json:"offVariation" bson:"offVariation"`
-	Variations           []interface{}      `json:"variations" bson:"variations"`
-	DebugEventsUntilDate *uint64            `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
-	ClientSide           bool               `json:"clientSide" bson:"-"`
+	Key                    string             `json:"key" bson:"key"`
+	Version                int                `json:"version" bson:"version"`
+	On                     bool               `json:"on" bson:"on"`
+	TrackEvents            bool               `json:"trackEvents" bson:"trackEvents"`
+	TrackEventsFallthrough bool               `json:"trackEventsFallthrough" bson:"trackEventsFallthrough"`
+	Deleted                bool               `json:"deleted" bson:"deleted"`
+	Prerequisites          []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
+	Salt                   string             `json:"salt" bson:"salt"`
+	Sel                    string             `json:"sel" bson:"sel"`
+	Targets                []Target           `json:"targets" bson:"targets"`
+	Rules                  []Rule             `json:"rules" bson:"rules"`
+	Fallthrough            VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
+	OffVariation           *int               `json:"offVariation" bson:"offVariation"`
+	Variations             []interface{}      `json:"variations" bson:"variations"`
+	DebugEventsUntilDate   *uint64            `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
+	ClientSide             bool               `json:"clientSide" bson:"-"`
 }
 
 // GetKey returns the string key for the feature flag
@@ -87,6 +88,7 @@ type Rule struct {
 	ID                 string `json:"id,omitempty" bson:"id,omitempty"`
 	VariationOrRollout `bson:",inline"`
 	Clauses            []Clause `json:"clauses" bson:"clauses"`
+	TrackEvents        bool     `json:"trackEvents" bson:"trackEvents"`
 }
 
 // VariationOrRollout contains either the fixed variation or percent rollout to serve.
@@ -248,8 +250,8 @@ func (f FeatureFlag) checkPrerequisites(user User, store FeatureStore, sendReaso
 		}
 
 		events = append(events, moreEvents...)
-		prereqEvent := NewFeatureRequestEvent(prereq.Key, prereqFeatureFlag, user,
-			prereqResult.VariationIndex, prereqResult.Value, nil, &f.Key)
+		prereqEvent := newSuccessfulEvalEvent(prereqFeatureFlag, user, prereqResult.VariationIndex,
+			prereqResult.Value, nil, prereqResult.Reason, sendReasonsInEvents, &f.Key)
 		if sendReasonsInEvents {
 			prereqEvent.Reason.Reason = prereqResult.Reason
 		}

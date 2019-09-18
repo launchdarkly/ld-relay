@@ -573,20 +573,21 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:e8d7375da5313a70e85ad86346e4096d6201f308392cecd979731ab25b98219f"
+  digest = "1:0ab2d209011b084574feffb174a0a6dcf11f8bf57bfc248bd43d8643b0c1e664"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
     "ldconsul",
     "lddynamodb",
     "ldhttp",
+    "ldlog",
     "ldntlm",
     "redis",
     "utils",
   ]
   pruneopts = "UT"
-  revision = "20575529122405c0a43fe61fffdec91d0062b575"
-  version = "4.10.0"
+  revision = "c0371d4b3fec5569315591bbef36a2bc6487bdb9"
+  version = "4.12.0"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -612,6 +613,7 @@
     "gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul",
     "gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb",
     "gopkg.in/launchdarkly/go-server-sdk.v4/ldhttp",
+    "gopkg.in/launchdarkly/go-server-sdk.v4/ldlog",
     "gopkg.in/launchdarkly/go-server-sdk.v4/ldntlm",
     "gopkg.in/launchdarkly/go-server-sdk.v4/redis",
   ]
