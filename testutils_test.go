@@ -57,6 +57,8 @@ var flag4ClientSide = testFlag{
 var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide}
 var clientSideFlags = []testFlag{flag4ClientSide}
 
+var segment1 = ld.Segment{Key: "segment-key"}
+
 // Returns a key matching the UUID header pattern
 func key() string {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
@@ -80,6 +82,7 @@ func addAllFlags(store ld.FeatureStore, initialized bool) {
 		f := flag
 		store.Upsert(ld.Features, &f.flag)
 	}
+	store.Upsert(ld.Segments, &segment1)
 }
 
 func flagsMap(testFlags []testFlag) map[string]interface{} {

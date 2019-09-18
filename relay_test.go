@@ -343,7 +343,14 @@ func TestRelay(t *testing.T) {
 	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(allFlags, true, false))
 	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(allFlags, true, true))
 	expectedFlagsData, _ := json.Marshal(flagsMap(allFlags))
-	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": flagsMap(allFlags), "segments": map[string]interface{}{}}})
+	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{
+		"data": {
+			"flags": flagsMap(allFlags),
+			"segments": map[string]interface{}{
+				segment1.Key: &segment1,
+			},
+		},
+	})
 
 	getStatus := func(relay http.Handler, t *testing.T) map[string]interface{} {
 		w := httptest.NewRecorder()
@@ -675,6 +682,64 @@ func TestRelay(t *testing.T) {
 				assert.Equal(t, expectedPath, event.url)
 				assert.Equal(t, "", event.authKey)
 			}
+		})
+	})
+
+	t.Run("PHP endpoints", func(t *testing.T) {
+		t.Run("get flag", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key), nil)
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusOK, result.StatusCode) {
+				body, _ := ioutil.ReadAll(w.Result().Body)
+				expectedJson, _ := json.Marshal(flag1ServerSide.flag)
+				assert.Equal(t, string(expectedJson), string(body))
+			}
+		})
+
+		t.Run("get flag - not found", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", "http://localhost/sdk/flags/no-such-flag", nil)
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			assert.Equal(t, http.StatusNotFound, result.StatusCode)
+		})
+
+		t.Run("get all flags", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", "http://localhost/sdk/flags", nil)
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusOK, result.StatusCode) {
+				body, _ := ioutil.ReadAll(w.Result().Body)
+				assert.Equal(t, string(expectedFlagsData), string(body))
+			}
+		})
+
+		t.Run("get segment", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/segments/%s", segment1.Key), nil)
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusOK, result.StatusCode) {
+				body, _ := ioutil.ReadAll(w.Result().Body)
+				expectedJson, _ := json.Marshal(segment1)
+				assert.Equal(t, string(expectedJson), string(body))
+			}
+		})
+
+		t.Run("get segment - not found", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", "http://localhost/sdk/segments/no-such-segment", nil)
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			assert.Equal(t, http.StatusNotFound, result.StatusCode)
 		})
 	})
 
