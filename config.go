@@ -116,6 +116,7 @@ type EnvConfig struct {
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
 	LogLevel           string
+	TtlMinutes         int
 }
 
 func (c EnvConfig) GetLogLevel() ldlog.LogLevel {
@@ -334,6 +335,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 		ec.EnvId = maybeEnvStrPtr("LD_CLIENT_SIDE_ID_" + envName)
 		maybeSetFromEnv(&ec.Prefix, "LD_PREFIX_"+envName)
 		maybeSetFromEnv(&ec.TableName, "LD_TABLE_NAME_"+envName)
+		maybeSetFromEnvInt(&ec.TtlMinutes, "LD_TTL_MINUTES_"+envName, &errs)
 		if s := os.Getenv("LD_ALLOWED_ORIGIN_" + envName); s != "" {
 			values := strings.Split(s, ",")
 			ec.AllowedOrigin = &values

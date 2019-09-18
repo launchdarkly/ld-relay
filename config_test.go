@@ -51,6 +51,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 					Prefix:        "krypton-",
 					TableName:     "krypton-table",
 					AllowedOrigin: &origins,
+					TtlMinutes:    5,
 				},
 			}
 		},
@@ -84,6 +85,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			"LD_PREFIX_krypton":         "krypton-",
 			"LD_TABLE_NAME_krypton":     "krypton-table",
 			"LD_ALLOWED_ORIGIN_krypton": "https://oa,https://rann",
+			"LD_TTL_MINUTES_krypton":    "5",
 		},
 	)
 }
