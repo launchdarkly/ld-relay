@@ -22,7 +22,7 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
-RELEASE_CMD=VERSION=$(GORELEASER_VERSION) curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+RELEASE_CMD=curl -sL https://git.io/goreleaser | VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
 
 publish:
 	$(RELEASE_CMD)
