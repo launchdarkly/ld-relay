@@ -35,12 +35,12 @@ func (c FakeLDClient) Initialized() bool {
 }
 
 func handler() clientMux {
-	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
 	return clientMux{clientContextByKey: clients}
 }
 
 func clientSideHandler(allowedOrigins []string) clientSideMux {
-	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
 	contexts := map[string]*clientSideContext{key(): testClientSideContext}
 	return clientSideMux{contextByKey: contexts}
 }
@@ -157,9 +157,9 @@ func TestReportFlagEvalFailsWithMissingUserKey(t *testing.T) {
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client: FakeLDClient{initialized: false},
-		store:  makeStoreWithData(false),
-		logger: nullLogger,
+		client:  FakeLDClient{initialized: false},
+		store:   makeStoreWithData(false),
+		loggers: makeNullLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
@@ -175,9 +175,9 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client: FakeLDClient{initialized: false},
-		store:  makeStoreWithData(true),
-		logger: nullLogger,
+		client:  FakeLDClient{initialized: false},
+		store:   makeStoreWithData(true),
+		loggers: makeNullLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
