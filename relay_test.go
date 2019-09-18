@@ -686,60 +686,83 @@ func TestRelay(t *testing.T) {
 	})
 
 	t.Run("PHP endpoints", func(t *testing.T) {
-		t.Run("get flag", func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key), nil)
+		makeRequest := func(url string) *http.Request {
+			r, _ := http.NewRequest("GET", url, nil)
 			r.Header.Set("Authorization", sdkKey)
-			relay.ServeHTTP(w, r)
-			result := w.Result()
-			if assert.Equal(t, http.StatusOK, result.StatusCode) {
-				body, _ := ioutil.ReadAll(w.Result().Body)
-				expectedJson, _ := json.Marshal(flag1ServerSide.flag)
+			return r
+		}
+
+		assertOKResponseWithEntity := func(t *testing.T, resp *http.Response, entity interface{}) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				body, _ := ioutil.ReadAll(resp.Body)
+				expectedJson, _ := json.Marshal(entity)
 				assert.Equal(t, string(expectedJson), string(body))
 			}
+		}
+
+		assertQueryWithSameEtagIsCached := func(t *testing.T, req *http.Request, resp *http.Response) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				etag := resp.Header.Get("Etag")
+				if assert.NotEqual(t, "", etag) {
+					w := httptest.NewRecorder()
+					req.Header.Set("If-None-Match", etag)
+					relay.ServeHTTP(w, req)
+					assert.Equal(t, http.StatusNotModified, w.Result().StatusCode)
+				}
+			}
+		}
+
+		assertQueryWithDifferentEtagIsNotCached := func(t *testing.T, req *http.Request, resp *http.Response) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				etag := resp.Header.Get("Etag")
+				if assert.NotEqual(t, "", etag) {
+					w := httptest.NewRecorder()
+					req.Header.Set("If-None-Match", "different-from-"+etag)
+					relay.ServeHTTP(w, req)
+					assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+				}
+			}
+		}
+
+		t.Run("get flag", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest(fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key))
+			relay.ServeHTTP(w, r)
+			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
 
 		t.Run("get flag - not found", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", "http://localhost/sdk/flags/no-such-flag", nil)
-			r.Header.Set("Authorization", sdkKey)
+			r := makeRequest("http://localhost/sdk/flags/no-such-flag")
 			relay.ServeHTTP(w, r)
-			result := w.Result()
-			assert.Equal(t, http.StatusNotFound, result.StatusCode)
+			assert.Equal(t, http.StatusNotFound, w.Result().StatusCode)
 		})
 
 		t.Run("get all flags", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", "http://localhost/sdk/flags", nil)
-			r.Header.Set("Authorization", sdkKey)
+			r := makeRequest("http://localhost/sdk/flags")
 			relay.ServeHTTP(w, r)
-			result := w.Result()
-			if assert.Equal(t, http.StatusOK, result.StatusCode) {
-				body, _ := ioutil.ReadAll(w.Result().Body)
-				assert.Equal(t, string(expectedFlagsData), string(body))
-			}
+			assertOKResponseWithEntity(t, w.Result(), flagsMap(allFlags))
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
 
 		t.Run("get segment", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/segments/%s", segment1.Key), nil)
-			r.Header.Set("Authorization", sdkKey)
+			r := makeRequest(fmt.Sprintf("http://localhost/sdk/segments/%s", segment1.Key))
 			relay.ServeHTTP(w, r)
-			result := w.Result()
-			if assert.Equal(t, http.StatusOK, result.StatusCode) {
-				body, _ := ioutil.ReadAll(w.Result().Body)
-				expectedJson, _ := json.Marshal(segment1)
-				assert.Equal(t, string(expectedJson), string(body))
-			}
+			assertOKResponseWithEntity(t, w.Result(), segment1)
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
 		})
 
 		t.Run("get segment - not found", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", "http://localhost/sdk/segments/no-such-segment", nil)
-			r.Header.Set("Authorization", sdkKey)
+			r := makeRequest("http://localhost/sdk/segments/no-such-segment")
 			relay.ServeHTTP(w, r)
-			result := w.Result()
-			assert.Equal(t, http.StatusNotFound, result.StatusCode)
+			assert.Equal(t, http.StatusNotFound, w.Result().StatusCode)
 		})
 	})
 
