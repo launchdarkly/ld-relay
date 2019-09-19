@@ -1,9 +1,9 @@
 package ldclient
 
 import (
-	"log"
-	"os"
 	"sync"
+
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 // FeatureStore is an interface describing a structure that maintains the live collection of features
@@ -47,23 +47,45 @@ type FeatureStore interface {
 	Initialized() bool
 }
 
+// FeatureStoreFactory is a factory function that produces a FeatureStore implementation. It receives
+// a copy of the Config so that it can use the same logging configuration as the rest of the SDK; it
+// can assume that config.Loggers has been initialized so it can write to any log level.
+type FeatureStoreFactory func(config Config) (FeatureStore, error)
+
 // InMemoryFeatureStore is a memory based FeatureStore implementation, backed by a lock-striped map.
 type InMemoryFeatureStore struct {
 	allData       map[VersionedDataKind]map[string]VersionedData
 	isInitialized bool
 	sync.RWMutex
-	logger Logger
+	loggers ldlog.Loggers
 }
 
 // NewInMemoryFeatureStore creates a new in-memory FeatureStore instance.
+//
+// Deprecated: Specific implementation types such as InMemoryFeatureStore should not be used and
+// may be removed in the future. Instead, use NewInMemoryFeatureStoreFactory.
 func NewInMemoryFeatureStore(logger Logger) *InMemoryFeatureStore {
-	if logger == nil {
-		logger = log.New(os.Stderr, "[LaunchDarkly InMemoryFeatureStore]", log.LstdFlags)
+	config := Config{}
+	config.Loggers.SetBaseLogger(logger)
+	return newInMemoryFeatureStoreInternal(config)
+}
+
+// NewInMemoryFeatureStoreFactory returns a factory function to create an in-memory FeatureStore.
+// Setting the FeatureStoreFactory option in Config to this function ensures that it will use the
+// same logging configuration as the other SDK components.
+func NewInMemoryFeatureStoreFactory() FeatureStoreFactory {
+	return func(config Config) (FeatureStore, error) {
+		return newInMemoryFeatureStoreInternal(config), nil
 	}
+}
+
+func newInMemoryFeatureStoreInternal(config Config) *InMemoryFeatureStore {
+	loggers := config.Loggers
+	loggers.SetPrefix("InMemoryFeatureStore:")
 	return &InMemoryFeatureStore{
 		allData:       make(map[VersionedDataKind]map[string]VersionedData),
 		isInitialized: false,
-		logger:        logger,
+		loggers:       loggers,
 	}
 }
 
@@ -77,10 +99,10 @@ func (store *InMemoryFeatureStore) Get(kind VersionedDataKind, key string) (Vers
 	item := store.allData[kind][key]
 
 	if item == nil {
-		store.logger.Printf("WARN: Key: %s not found in \"%s\".", key, kind)
+		store.loggers.Debugf(`Key %s not found in "%s"`, key, kind)
 		return nil, nil
 	} else if item.IsDeleted() {
-		store.logger.Printf("WARN: Attempted to get deleted item in \"%s\". Key: %s", kind, key)
+		store.loggers.Debugf(`Attempted to get deleted item with key %s in "%s"`, kind, key)
 		return nil, nil
 	} else {
 		return item, nil

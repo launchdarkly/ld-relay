@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 
 	es "github.com/launchdarkly/eventsource"
@@ -24,6 +25,7 @@ type SSERelayFeatureStore struct {
 	flagsPublisher ESPublisher
 	pingPublisher  ESPublisher
 	apiKey         string
+	loggers        ldlog.Loggers
 }
 
 type allRepository struct {
@@ -37,13 +39,15 @@ type pingRepository struct {
 }
 
 // NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
-func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPublisher ESPublisher, pingPublisher ESPublisher, baseFeatureStore ld.FeatureStore, heartbeatInterval int) *SSERelayFeatureStore {
+func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPublisher ESPublisher, pingPublisher ESPublisher,
+	baseFeatureStore ld.FeatureStore, loggers ldlog.Loggers, heartbeatInterval int) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
 		store:          baseFeatureStore,
 		apiKey:         apiKey,
 		allPublisher:   allPublisher,
 		flagsPublisher: flagsPublisher,
 		pingPublisher:  pingPublisher,
+		loggers:        loggers,
 	}
 
 	allPublisher.Register(apiKey, allRepository{relayStore: relayStore})
@@ -85,6 +89,7 @@ func (relay *SSERelayFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld
 
 // Init initializes the feature store
 func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+	relay.loggers.Debug("Received all feature flags")
 	err := relay.store.Init(allData)
 
 	if err != nil {
@@ -100,11 +105,13 @@ func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[str
 
 // Delete marks a single item as deleted in the feature store
 func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
+	relay.loggers.Debugf(`Received feature flag deletion: %s (version %d)`, key, version)
 	err := relay.store.Delete(kind, key, version)
 	if err != nil {
 		return err
 	}
 
+	relay.loggers.Debugf(`Feature flag %s was deleted (version %d)`, key, version)
 	relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, version))
 	if kind == ld.Features {
 		relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
@@ -116,6 +123,7 @@ func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string,
 
 // Upsert inserts or updates a single item in the feature store
 func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
+	relay.loggers.Debugf(`Received feature flag update: %s (version %d)`, item.GetKey(), item.GetVersion())
 	err := relay.store.Upsert(kind, item)
 
 	if err != nil {

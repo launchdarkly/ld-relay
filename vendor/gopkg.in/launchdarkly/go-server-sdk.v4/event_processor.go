@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 // EventProcessor defines the interface for dispatching analytics events.
@@ -30,7 +32,7 @@ type defaultEventProcessor struct {
 	inboxCh       chan eventDispatcherMessage
 	inboxFullOnce sync.Once
 	closeOnce     sync.Once
-	logger        Logger
+	loggers       ldlog.Loggers
 }
 
 type eventDispatcher struct {
@@ -46,7 +48,7 @@ type eventBuffer struct {
 	summarizer       eventSummarizer
 	capacity         int
 	capacityExceeded bool
-	logger           Logger
+	loggers          ldlog.Loggers
 }
 
 type flushPayload struct {
@@ -57,7 +59,7 @@ type flushPayload struct {
 type sendEventsTask struct {
 	client    *http.Client
 	eventsURI string
-	logger    Logger
+	loggers   ldlog.Loggers
 	sdkKey    string
 	userAgent string
 	formatter eventOutputFormatter
@@ -108,9 +110,12 @@ func NewDefaultEventProcessor(sdkKey string, config Config, client *http.Client)
 	}
 	inboxCh := make(chan eventDispatcherMessage, config.Capacity)
 	startEventDispatcher(sdkKey, config, client, inboxCh)
+	if config.SamplingInterval > 0 {
+		config.Loggers.Warn("Config.SamplingInterval is deprecated")
+	}
 	return &defaultEventProcessor{
 		inboxCh: inboxCh,
-		logger:  config.Logger,
+		loggers: config.Loggers,
 	}
 }
 
@@ -133,7 +138,7 @@ func (ep *defaultEventProcessor) postNonBlockingMessageToInbox(e eventDispatcher
 	// across many goroutines-- so if we wait for a space in the inbox, we risk a very serious slowdown of the
 	// app. To avoid that, we'll just drop the event. The log warning about this will only be shown once.
 	ep.inboxFullOnce.Do(func() {
-		ep.logger.Printf("Events are being produced faster than they can be processed; some events will be dropped")
+		ep.loggers.Warn("Events are being produced faster than they can be processed; some events will be dropped")
 	})
 	return false
 }
@@ -172,14 +177,14 @@ func startEventDispatcher(sdkKey string, config Config, client *http.Client,
 func (ed *eventDispatcher) runMainLoop(inboxCh <-chan eventDispatcherMessage,
 	flushCh chan<- *flushPayload, workersGroup *sync.WaitGroup) {
 	if err := recover(); err != nil {
-		ed.config.Logger.Printf("Unexpected panic in event processing thread: %+v", err)
+		ed.config.Loggers.Errorf("Unexpected panic in event processing thread: %+v", err)
 	}
 
 	outbox := eventBuffer{
 		events:     make([]Event, 0, ed.config.Capacity),
 		summarizer: newEventSummarizer(),
 		capacity:   ed.config.Capacity,
-		logger:     ed.config.Logger,
+		loggers:    ed.config.Loggers,
 	}
 	userKeys := newLruCache(ed.config.UserKeysCapacity)
 
@@ -329,7 +334,7 @@ func (ed *eventDispatcher) isDisabled() bool {
 
 func (ed *eventDispatcher) handleResponse(resp *http.Response) {
 	if err := checkForHttpError(resp.StatusCode, resp.Request.URL.String()); err != nil {
-		ed.config.Logger.Println(httpErrorMessage(resp.StatusCode, "posting events", "some events were dropped"))
+		ed.config.Loggers.Error(httpErrorMessage(resp.StatusCode, "posting events", "some events were dropped"))
 		if !isHTTPErrorRecoverable(resp.StatusCode) {
 			ed.stateLock.Lock()
 			defer ed.stateLock.Unlock()
@@ -349,7 +354,7 @@ func (b *eventBuffer) addEvent(event Event) {
 	if len(b.events) >= b.capacity {
 		if !b.capacityExceeded {
 			b.capacityExceeded = true
-			b.logger.Printf("WARN: Exceeded event queue capacity. Increase capacity to avoid dropping events.")
+			b.loggers.Warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
 		}
 		return
 	}
@@ -387,7 +392,7 @@ func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <
 	t := sendEventsTask{
 		client:    client,
 		eventsURI: uri,
-		logger:    config.Logger,
+		loggers:   config.Loggers,
 		sdkKey:    sdkKey,
 		userAgent: config.UserAgent,
 		formatter: ef,
@@ -417,20 +422,22 @@ func (t *sendEventsTask) run(flushCh <-chan *flushPayload, responseFn func(*http
 func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
 	jsonPayload, marshalErr := json.Marshal(outputEvents)
 	if marshalErr != nil {
-		t.logger.Printf("Unexpected error marshalling event json: %+v", marshalErr)
+		t.loggers.Errorf("Unexpected error marshalling event json: %+v", marshalErr)
 		return nil
 	}
+
+	t.loggers.Debugf("Sending %d events: %s", len(outputEvents), jsonPayload)
 
 	var resp *http.Response
 	var respErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
-			t.logger.Printf("Will retry posting events after 1 second")
+			t.loggers.Warn("Will retry posting events after 1 second")
 			time.Sleep(1 * time.Second)
 		}
 		req, reqErr := http.NewRequest("POST", t.eventsURI, bytes.NewReader(jsonPayload))
 		if reqErr != nil {
-			t.logger.Printf("Unexpected error while creating event request: %+v", reqErr)
+			t.loggers.Errorf("Unexpected error while creating event request: %+v", reqErr)
 			return nil
 		}
 
@@ -447,10 +454,10 @@ func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
 		}
 
 		if respErr != nil {
-			t.logger.Printf("Unexpected error while sending events: %+v", respErr)
+			t.loggers.Warnf("Unexpected error while sending events: %+v", respErr)
 			continue
 		} else if resp.StatusCode >= 400 && isHTTPErrorRecoverable(resp.StatusCode) {
-			t.logger.Printf("Received error status %d when sending events", resp.StatusCode)
+			t.loggers.Warnf("Received error status %d when sending events", resp.StatusCode)
 			continue
 		} else {
 			break

@@ -11,11 +11,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 var nullLogger = log.New(ioutil.Discard, "", 0)
 var emptyStore = ld.NewInMemoryFeatureStore(nullLogger)
 var zero = 0
+
+func makeNullLoggers() ldlog.Loggers {
+	ls := ldlog.Loggers{}
+	ls.SetMinLevel(ldlog.None)
+	return ls
+}
 
 type testFlag struct {
 	flag              ld.FeatureFlag
@@ -50,6 +57,8 @@ var flag4ClientSide = testFlag{
 var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide}
 var clientSideFlags = []testFlag{flag4ClientSide}
 
+var segment1 = ld.Segment{Key: "segment-key"}
+
 // Returns a key matching the UUID header pattern
 func key() string {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
@@ -73,6 +82,7 @@ func addAllFlags(store ld.FeatureStore, initialized bool) {
 		f := flag
 		store.Upsert(ld.Features, &f.flag)
 	}
+	store.Upsert(ld.Segments, &segment1)
 }
 
 func flagsMap(testFlags []testFlag) map[string]interface{} {
@@ -85,9 +95,9 @@ func flagsMap(testFlags []testFlag) map[string]interface{} {
 
 func makeTestContextWithData() *clientContextImpl {
 	return &clientContextImpl{
-		client: FakeLDClient{initialized: true},
-		store:  makeStoreWithData(true),
-		logger: nullLogger,
+		client:  FakeLDClient{initialized: true},
+		store:   makeStoreWithData(true),
+		loggers: makeNullLoggers(),
 	}
 }
 

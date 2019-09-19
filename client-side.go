@@ -59,32 +59,6 @@ func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	clientCtx.proxy.ServeHTTP(w, req)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var domains []string
-		if context, ok := r.Context().Value(contextKey).(corsContext); ok {
-			domains = context.AllowedOrigins()
-		}
-		if len(domains) > 0 {
-			for _, d := range domains {
-				if r.Header.Get("Origin") == d {
-					setCorsHeaders(w, d)
-					return
-				}
-			}
-			// Not a valid origin, set allowed origin to any allowed origin
-			setCorsHeaders(w, domains[0])
-		} else {
-			origin := defaultAllowedOrigin
-			if r.Header.Get("Origin") != "" {
-				origin = r.Header.Get("Origin")
-			}
-			setCorsHeaders(w, origin)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 var allowedHeadersList = []string{
 	"Content-Type",
 	"Content-Length",

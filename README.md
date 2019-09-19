@@ -74,14 +74,18 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
 `baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service.
 `exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
+`exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
 `heartbeatIntervalSecs`  | `HEARTBEAT_INTERVAL` | Number  | `180`   | Interval (in seconds) for heartbeat messages to prevent read timeouts on streaming connections.
 `tlsEnabled`             | `TLS_ENABLED`        | Boolean | `false` | Enable TLS on the Relay Proxy.
 `tlsCert`                | `TLS_CERT`           | String  |         | Required if `tlsEnabled` is true. Path to TLS certificate file.
 `tlsKey`                 | `TLS_KEY`            | String  |         | Required if `tlsEnabled` is true. Path to TLS private key file.
+`logLevel`               | `LOG_LEVEL`          | String  | `info`  | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
 
 _(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
+
+_(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags; this is only useful if you have enabled Redis or another database, so that it will store the flags there.
 
 ### File section: `[Events]`
 
@@ -138,8 +142,10 @@ Property in file | Environment var               | Type   | Description
 `prefix`         | `LD_PREFIX_MyEnvName`         | String | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
+`logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
+`ttlMinutes`     | `LD_TTL_MINUTES_MyEnvName`    | Number | HTTP caching TTL for the PHP polling endpoints (see [Using with PHP](#using-with-php))
 
-In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key.
+In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 
 ```
 # Configuration file example
@@ -151,6 +157,7 @@ In the following examples, there are two environments, each of which has a serve
 [Environment "Spree Project Test"]
     sdkKey = "SPREE_TEST_SDK_KEY"
     mobileKey = "SPREE_TEST_MOVILE_KEY"
+    logLevel = "debug"
 ```
 
 ```
@@ -398,6 +405,15 @@ We have done extensive load tests on the Relay Proxy in AWS/EC2. We have also co
 The Relay Proxy has an additional `status` endpoint which provides the current status of all of its streaming connections. This can obtained by querying the URL path `/status` with a GET request.
 
 
+## Logging
+
+Like the Go SDK, the Relay Proxy supports four logging levels: Debug, Info, Warn, and Error, with Debug being the most verbose. Setting the minimum level to Info (the default) means Debug is disabled; setting it to Warn means Debug and Info are disabled; etc.
+
+There are two categories of log output: global messages and per-environment messages. Global messages are from the general Relay Proxy infrastructure - for instance, when it has successfully started up, or when it has received an HTTP request. Per-environment messages are for the Relay Proxy's interaction with LaunchDarkly for a specific one of your configured environments - for instance, receiving a flag update or sending analytics events. These can be configured separately: the `logLevel` parameter in `[main]` or the `LOG_LEVEL` variable sets the minimum level for global messages, and the `logLevel` parameter in `[environment]` or the `LD_LOG_LEVEL_envName` variable sets the minimum level for per-environment messages in a specific environment. This is because you may wish to see more verbose output in one category than another, or in one environment than another. If you do not specify a log level for an individual environment, it defaults to the global log level.
+
+Note that debug-level logging for per-environment messages may include user properties and feature flag keys.
+
+
 ## Proxied endpoints
 
 The table below describes the endpoints proxied by the Relay Proxy.  In this table:
@@ -412,6 +428,9 @@ Endpoint                           | Method        | Auth Header | Description
 /sdk/eval/*clientId*/users         | REPORT        | n/a         | Same as above but request body is user JSON object
 /sdk/evalx/*clientId*/users/*user* | GET           | n/a         | Returns flag evaluation results and additional metadata
 /sdk/evalx/*clientId*/users        | REPORT        | n/a         | Same as above but request body is user JSON object
+/sdk/flags                         | GET           | sdk         | For [PHP SDK](#using-with-php)
+/sdk/flags/*flagKey*               | GET           | sdk         | For [PHP SDK](#using-with-php)
+/sdk/segments/*segmentKey*         | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs
 /mobile/events                     | POST          | mobile      | For receiving events from mobile SDKs
 /mobile/events/bulk                | POST          | mobile      | Same as above
@@ -432,7 +451,7 @@ Endpoint                           | Method        | Auth Header | Description
 
 ## Exporting metrics and traces
 
-The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See the [configuration section](https://github.com/launchdarkly/ld-relay#configuration-file-format-and-environment-variables) for configuration instructions.
+The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See the [configuration section](#configuration-file-format-and-environment-variables) for configuration instructions.
 
 The following metrics are supported:
 
@@ -451,6 +470,13 @@ Metrics can be filtered by the following tags:
 **Note:** Traces for stream connections will trace until the connection is closed.
 
 
+## Using with PHP
+
+The [PHP SDK](https://github.com/launchdarkly/php-server-sdk) communicates differently with LaunchDarkly than the other SDKs because it does not support long-lived streaming connections. It must either poll for flags on demand via HTTP, or get them from Redis or another database. The latter is much more efficient and is therefore the preferred approach, but if you are not using a database, the Relay Proxy can handle HTTP requests from PHP.
+
+However, it is highly recommended that if you do this, you use the `ttlMinutes` parameter in the [environment configuration](#file-section-environment-name). This is equivalent to the [TTL setting for the environment on your LaunchDarkly dashboard](https://docs.launchdarkly.com/docs/environments#section-ttl-settings), but must be set here separately because the Relay Proxy does not have access to those dashboard properties. This will cause HTTP responses from the PHP endpoints to have a `Cache-Control: max-age` so that the PHP SDK will not make additional HTTP requests for the same flag more often than that interval. Note that this may result in different PHP application instances receiving flag updates at slightly different times as their HTTP caches will not be exactly in sync. It does not affect any SDKs other than PHP.
+
+
 ## Docker
 
 Using Docker is not required, but if you prefer using a Docker container we provide a Docker entrypoint to make this as easy as possible.
@@ -460,7 +486,7 @@ To build the `ld-relay` container:
 $ docker build -t ld-relay .
 ```
 
-In Docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the Relay Proxy (see the [configuration section](https://github.com/launchdarkly/ld-relay#configuration-file-format-and-environment-variables)).
+In Docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the Relay Proxy (see the [configuration section](#configuration-file-format-and-environment-variables)).
 
 
 ### Docker examples

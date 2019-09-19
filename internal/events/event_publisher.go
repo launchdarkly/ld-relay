@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 )
@@ -39,7 +37,7 @@ type EventPublisher interface {
 
 type HttpEventPublisher struct {
 	eventsURI  string
-	logger     ld.Logger
+	loggers    ldlog.Loggers
 	client     *http.Client
 	authKey    string
 	userAgent  string
@@ -55,12 +53,12 @@ type batch []interface{}
 type rawBatch []json.RawMessage
 type flush struct{}
 
-func (b batch) append(q *[]interface{}, max int, logger ld.Logger, reachedCapacity *bool) {
+func (b batch) append(q *[]interface{}, max int, loggers *ldlog.Loggers, reachedCapacity *bool) {
 	available := max - len(*q)
 	taken := len(b)
 	if available < len(b) {
 		if !*reachedCapacity {
-			logger.Printf("WARNING: Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
+			loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
 		}
 		*reachedCapacity = true
 		taken = available
@@ -68,12 +66,12 @@ func (b batch) append(q *[]interface{}, max int, logger ld.Logger, reachedCapaci
 	*q = append(*q, b[:taken]...)
 }
 
-func (b rawBatch) append(q *[]interface{}, max int, logger ld.Logger, reachedCapacity *bool) {
+func (b rawBatch) append(q *[]interface{}, max int, loggers *ldlog.Loggers, reachedCapacity *bool) {
 	available := max - len(*q)
 	taken := len(b)
 	if available < len(b) {
 		if !*reachedCapacity {
-			logger.Printf("WARNING: Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
+			loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
 		}
 		*reachedCapacity = true
 		taken = available
@@ -123,15 +121,6 @@ func (o OptionUserAgent) apply(p *HttpEventPublisher) error {
 	return nil
 }
 
-type OptionLogger struct {
-	ld.Logger
-}
-
-func (o OptionLogger) apply(p *HttpEventPublisher) error {
-	p.logger = o.Logger
-	return nil
-}
-
 type OptionCapacity int
 
 func (o OptionCapacity) apply(p *HttpEventPublisher) error {
@@ -139,7 +128,7 @@ func (o OptionCapacity) apply(p *HttpEventPublisher) error {
 	return nil
 }
 
-func NewHttpEventPublisher(authKey string, options ...OptionType) (*HttpEventPublisher, error) {
+func NewHttpEventPublisher(authKey string, loggers ldlog.Loggers, options ...OptionType) (*HttpEventPublisher, error) {
 	closer := make(chan struct{})
 
 	inputQueue := make(chan interface{}, inputQueueSize)
@@ -151,8 +140,9 @@ func NewHttpEventPublisher(authKey string, options ...OptionType) (*HttpEventPub
 		closer:     closer,
 		capacity:   defaultCapacity,
 		inputQueue: inputQueue,
-		logger:     log.New(os.Stderr, "HttpEventPublisher: ", log.LstdFlags),
+		loggers:    loggers,
 	}
+	p.loggers.SetPrefix("HttpEventPublisher:")
 
 	flushInterval := defaultFlushInterval
 
@@ -177,7 +167,7 @@ func NewHttpEventPublisher(authKey string, options ...OptionType) (*HttpEventPub
 	go func() {
 		for {
 			if err := recover(); err != nil {
-				p.logger.Printf("Unexpected panic in event relay : %+v", err)
+				p.loggers.Errorf("Unexpected panic in event relay : %+v", err)
 				continue
 			}
 			reachedCapacity := false
@@ -190,9 +180,9 @@ func NewHttpEventPublisher(authKey string, options ...OptionType) (*HttpEventPub
 						p.flush()
 						continue EventLoop
 					case rawBatch:
-						e.append(&p.queue, p.capacity, p.logger, &reachedCapacity)
+						e.append(&p.queue, p.capacity, &p.loggers, &reachedCapacity)
 					case batch:
-						e.append(&p.queue, p.capacity, p.logger, &reachedCapacity)
+						e.append(&p.queue, p.capacity, &p.loggers, &reachedCapacity)
 					}
 				case <-ticker.C:
 					p.flush()
@@ -228,14 +218,14 @@ func (p *HttpEventPublisher) flush() {
 	payload, err := json.Marshal(p.queue[0:len(p.queue)])
 	p.queue = make([]interface{}, 0, p.capacity)
 	if err != nil {
-		p.logger.Printf("Unexpected error marshalling event json: %+v", err)
+		p.loggers.Errorf("Unexpected error marshalling event json: %+v", err)
 		return
 	}
 	p.wg.Add(1)
 	go func() {
 		err := p.postEvents(payload)
 		if err != nil {
-			p.logger.Println(err.Error())
+			p.loggers.Error(err.Error())
 		}
 		p.wg.Done()
 	}()
@@ -255,9 +245,9 @@ PostAttempts:
 	for attempt := 0; attempt < numAttempts; attempt++ {
 		if attempt > 0 {
 			if respErr != nil {
-				p.logger.Printf("Unexpected error while sending events: %+v", respErr)
+				p.loggers.Errorf("Unexpected error while sending events: %+v", respErr)
 			}
-			p.logger.Printf("Will retry posting events after 1 second")
+			p.loggers.Warn("Will retry posting events after 1 second")
 			time.Sleep(1 * time.Second)
 		}
 		req, reqErr := http.NewRequest("POST", p.eventsURI, bytes.NewReader(jsonPayload))

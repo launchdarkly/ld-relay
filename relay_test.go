@@ -35,12 +35,12 @@ func (c FakeLDClient) Initialized() bool {
 }
 
 func handler() clientMux {
-	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
 	return clientMux{clientContextByKey: clients}
 }
 
 func clientSideHandler(allowedOrigins []string) clientSideMux {
-	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, logger: nullLogger}}
+	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
 	contexts := map[string]*clientSideContext{key(): testClientSideContext}
 	return clientSideMux{contextByKey: contexts}
 }
@@ -157,9 +157,9 @@ func TestReportFlagEvalFailsWithMissingUserKey(t *testing.T) {
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client: FakeLDClient{initialized: false},
-		store:  makeStoreWithData(false),
-		logger: nullLogger,
+		client:  FakeLDClient{initialized: false},
+		store:   makeStoreWithData(false),
+		loggers: makeNullLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
@@ -175,9 +175,9 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client: FakeLDClient{initialized: false},
-		store:  makeStoreWithData(true),
-		logger: nullLogger,
+		client:  FakeLDClient{initialized: false},
+		store:   makeStoreWithData(true),
+		loggers: makeNullLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
@@ -284,6 +284,7 @@ func TestRelay(t *testing.T) {
 	}))
 
 	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0"
+	sdkKeyWithTTL := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"
 	sdkKeyClientSide := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"
 	sdkKeyMobile := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"
 	mobileKey := "mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
@@ -296,6 +297,10 @@ func TestRelay(t *testing.T) {
 		Environment: map[string]*EnvConfig{
 			"sdk test": {
 				SdkKey: sdkKey,
+			},
+			"sdk test with TTL": {
+				SdkKey:     sdkKeyWithTTL,
+				TtlMinutes: 10,
 			},
 			"client-side test": {
 				SdkKey: sdkKeyClientSide,
@@ -343,7 +348,14 @@ func TestRelay(t *testing.T) {
 	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(allFlags, true, false))
 	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(allFlags, true, true))
 	expectedFlagsData, _ := json.Marshal(flagsMap(allFlags))
-	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{"data": {"flags": flagsMap(allFlags), "segments": map[string]interface{}{}}})
+	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{
+		"data": {
+			"flags": flagsMap(allFlags),
+			"segments": map[string]interface{}{
+				segment1.Key: &segment1,
+			},
+		},
+	})
 
 	getStatus := func(relay http.Handler, t *testing.T) map[string]interface{} {
 		w := httptest.NewRecorder()
@@ -675,6 +687,99 @@ func TestRelay(t *testing.T) {
 				assert.Equal(t, expectedPath, event.url)
 				assert.Equal(t, "", event.authKey)
 			}
+		})
+	})
+
+	t.Run("PHP endpoints", func(t *testing.T) {
+		makeRequest := func(url string) *http.Request {
+			r, _ := http.NewRequest("GET", url, nil)
+			r.Header.Set("Authorization", sdkKey)
+			return r
+		}
+
+		assertOKResponseWithEntity := func(t *testing.T, resp *http.Response, entity interface{}) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				body, _ := ioutil.ReadAll(resp.Body)
+				expectedJson, _ := json.Marshal(entity)
+				assert.Equal(t, string(expectedJson), string(body))
+			}
+		}
+
+		assertQueryWithSameEtagIsCached := func(t *testing.T, req *http.Request, resp *http.Response) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				etag := resp.Header.Get("Etag")
+				if assert.NotEqual(t, "", etag) {
+					w := httptest.NewRecorder()
+					req.Header.Set("If-None-Match", etag)
+					relay.ServeHTTP(w, req)
+					assert.Equal(t, http.StatusNotModified, w.Result().StatusCode)
+				}
+			}
+		}
+
+		assertQueryWithDifferentEtagIsNotCached := func(t *testing.T, req *http.Request, resp *http.Response) {
+			if assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				etag := resp.Header.Get("Etag")
+				if assert.NotEqual(t, "", etag) {
+					w := httptest.NewRecorder()
+					req.Header.Set("If-None-Match", "different-from-"+etag)
+					relay.ServeHTTP(w, req)
+					assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+				}
+			}
+		}
+
+		t.Run("get flag", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest(fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key))
+			relay.ServeHTTP(w, r)
+			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+		})
+
+		t.Run("get flag - not found", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest("http://localhost/sdk/flags/no-such-flag")
+			relay.ServeHTTP(w, r)
+			assert.Equal(t, http.StatusNotFound, w.Result().StatusCode)
+		})
+
+		t.Run("get flag - environment has TTL", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key), nil)
+			r.Header.Set("Authorization", sdkKeyWithTTL)
+			relay.ServeHTTP(w, r)
+			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
+			assert.NotEqual(t, "", w.Result().Header.Get("Expires"))
+		})
+
+		t.Run("get all flags", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest("http://localhost/sdk/flags")
+			relay.ServeHTTP(w, r)
+			assertOKResponseWithEntity(t, w.Result(), flagsMap(allFlags))
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+		})
+
+		t.Run("get segment", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest(fmt.Sprintf("http://localhost/sdk/segments/%s", segment1.Key))
+			relay.ServeHTTP(w, r)
+			assertOKResponseWithEntity(t, w.Result(), segment1)
+			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
+			assertQueryWithSameEtagIsCached(t, r, w.Result())
+			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+		})
+
+		t.Run("get segment - not found", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := makeRequest("http://localhost/sdk/segments/no-such-segment")
+			relay.ServeHTTP(w, r)
+			assert.Equal(t, http.StatusNotFound, w.Result().StatusCode)
 		})
 	})
 

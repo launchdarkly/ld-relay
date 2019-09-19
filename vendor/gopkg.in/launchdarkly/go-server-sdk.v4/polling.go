@@ -27,7 +27,7 @@ func newPollingProcessor(config Config, requestor *requestor) *pollingProcessor 
 }
 
 func (pp *pollingProcessor) Start(closeWhenReady chan<- struct{}) {
-	pp.config.Logger.Printf("Starting LaunchDarkly polling processor with interval: %+v", pp.config.PollInterval)
+	pp.config.Loggers.Infof("Starting LaunchDarkly polling with interval: %+v", pp.config.PollInterval)
 
 	ticker := newTickerWithInitialTick(pp.config.PollInterval)
 
@@ -46,13 +46,13 @@ func (pp *pollingProcessor) Start(closeWhenReady chan<- struct{}) {
 		for {
 			select {
 			case <-pp.quit:
-				pp.config.Logger.Printf("Polling Processor closed.")
+				pp.config.Loggers.Info("Polling has been shut down")
 				return
 			case <-ticker.C:
 				if err := pp.poll(); err != nil {
-					pp.config.Logger.Printf("ERROR: Error when requesting feature updates: %+v", err)
+					pp.config.Loggers.Errorf("Error when requesting feature updates: %+v", err)
 					if hse, ok := err.(HttpStatusError); ok {
-						pp.config.Logger.Printf("ERROR: %s", httpErrorMessage(hse.Code, "polling request", "will retry"))
+						pp.config.Loggers.Error(httpErrorMessage(hse.Code, "polling request", "will retry"))
 						if !isHTTPErrorRecoverable(hse.Code) {
 							notifyReady()
 							return
@@ -62,6 +62,7 @@ func (pp *pollingProcessor) Start(closeWhenReady chan<- struct{}) {
 				}
 				pp.setInitializedOnce.Do(func() {
 					pp.isInitialized = true
+					pp.config.Loggers.Info("First polling request successful")
 					notifyReady()
 				})
 			}
@@ -85,7 +86,6 @@ func (pp *pollingProcessor) poll() error {
 
 func (pp *pollingProcessor) Close() error {
 	pp.closeOnce.Do(func() {
-		pp.config.Logger.Printf("Closing Polling Processor")
 		close(pp.quit)
 	})
 	return nil
