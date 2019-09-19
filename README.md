@@ -74,7 +74,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
 `baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service.
 `exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
-`exitAlways`             | `EXIT_ALWAYS`        | Boolean | `true`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
+`exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
 `heartbeatIntervalSecs`  | `HEARTBEAT_INTERVAL` | Number  | `180`   | Interval (in seconds) for heartbeat messages to prevent read timeouts on streaming connections.
