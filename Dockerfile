@@ -20,7 +20,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr ./cmd/ld-relay
 
-FROM alpine:3.7
+FROM alpine:3.10.2
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
