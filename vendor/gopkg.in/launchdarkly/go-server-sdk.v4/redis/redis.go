@@ -161,8 +161,14 @@ func (o cacheTTLOption) apply(opts *redisFeatureStoreOptions) error {
 
 // CacheTTL creates an option for NewRedisFeatureStoreFactory to set the amount of time
 // that recently read or updated items should remain in an in-memory cache. This reduces the
-// amount of database access if the same feature flags are being evaluated repeatedly. If it
-// is zero, there will be no in-memory caching. The default value is DefaultCacheTTL.
+// amount of database access if the same feature flags are being evaluated repeatedly.
+//
+// The default value is DefaultCacheTTL. A value of zero disables in-memory caching completely.
+// A negative value means data is cached forever (i.e. it will only be read again from the
+// database if the SDK is restarted). Use the "cached forever" mode with caution: it means
+// that in a scenario where multiple processes are sharing the database, and the current
+// process loses connectivity to LaunchDarkly while other processes are still receiving
+// updates and writing them to the database, the current process will have stale data.
 //
 //     factory, err := redis.NewRedisFeatureStoreFactory(redis.CacheTTL(30*time.Second))
 func CacheTTL(ttl time.Duration) FeatureStoreOption {
@@ -317,7 +323,7 @@ func NewRedisFeatureStoreFactory(options ...FeatureStoreOption) (ld.FeatureStore
 	}
 	return func(ldConfig ld.Config) (ld.FeatureStore, error) {
 		core := newRedisFeatureStoreInternal(configuredOptions, ldConfig)
-		return utils.NewFeatureStoreWrapper(core), nil
+		return utils.NewFeatureStoreWrapperWithConfig(core, ldConfig), nil
 	}, nil
 }
 
@@ -327,7 +333,7 @@ func newStoreForDeprecatedConstructors(options ...FeatureStoreOption) *RedisFeat
 		return nil
 	}
 	core := newRedisFeatureStoreInternal(configuredOptions, ld.Config{})
-	return &RedisFeatureStore{wrapper: utils.NewFeatureStoreWrapper(core)}
+	return &RedisFeatureStore{wrapper: utils.NewFeatureStoreWrapperWithConfig(core, ld.Config{})}
 }
 
 func validateOptions(options ...FeatureStoreOption) (redisFeatureStoreOptions, error) {
@@ -536,6 +542,13 @@ func (store *redisFeatureStoreCore) InitializedInternal() bool {
 	defer c.Close() // nolint:errcheck
 	inited, _ := r.Bool(c.Do("EXISTS", store.initedKey()))
 	return inited
+}
+
+func (store *redisFeatureStoreCore) IsStoreAvailable() bool {
+	c := store.getConn()
+	defer c.Close() // nolint:errcheck
+	_, err := r.Bool(c.Do("EXISTS", store.initedKey()))
+	return err == nil
 }
 
 func (store *redisFeatureStoreCore) featuresKey(kind ld.VersionedDataKind) string {

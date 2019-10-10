@@ -573,10 +573,11 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:0ab2d209011b084574feffb174a0a6dcf11f8bf57bfc248bd43d8643b0c1e664"
+  digest = "1:8945d090fbca98f1f3c942a61e3ef5b3800a2e43f86cc679b02404925026d977"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
+    "internal",
     "ldconsul",
     "lddynamodb",
     "ldhttp",
@@ -586,8 +587,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "c0371d4b3fec5569315591bbef36a2bc6487bdb9"
-  version = "4.12.0"
+  revision = "b0b4d6236d9b2bde6f6984502eef8ef53dbb0b2f"
+  version = "4.13.0"
 
 [solve-meta]
   analyzer-name = "dep"

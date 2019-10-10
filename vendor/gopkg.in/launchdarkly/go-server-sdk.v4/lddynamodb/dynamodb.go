@@ -151,8 +151,14 @@ func (o cacheTTLOption) apply(opts *featureStoreOptions) error {
 
 // CacheTTL creates an option for NewDynamoDBFeatureStoreFactory to set the amount of time
 // that recently read or updated items should remain in an in-memory cache. This reduces the
-// amount of database access if the same feature flags are being evaluated repeatedly. If it
-// is zero, there will be no in-memory caching. The default value is DefaultCacheTTL.
+// amount of database access if the same feature flags are being evaluated repeatedly.
+//
+// The default value is DefaultCacheTTL. A value of zero disables in-memory caching completely.
+// A negative value means data is cached forever (i.e. it will only be read again from the
+// database if the SDK is restarted). Use the "cached forever" mode with caution: it means
+// that in a scenario where multiple processes are sharing the database, and the current
+// process loses connectivity to LaunchDarkly while other processes are still receiving
+// updates and writing them to the database, the current process will have stale data.
 //
 //     factory, err := lddynamodb.NewDynamoDBFeatureStoreFactory("my-table-name",
 //         lddynamodb.CacheTTL(30*time.Second))
@@ -276,7 +282,7 @@ func NewDynamoDBFeatureStoreFactory(table string, options ...FeatureStoreOption)
 		if err != nil {
 			return nil, err
 		}
-		return utils.NewNonAtomicFeatureStoreWrapper(store), nil
+		return utils.NewNonAtomicFeatureStoreWrapperWithConfig(store, ldConfig), nil
 	}, nil
 }
 
@@ -483,6 +489,21 @@ func (store *dynamoDBFeatureStore) UpsertInternal(kind ld.VersionedDataKind, ite
 	}
 
 	return item, nil
+}
+
+func (store *dynamoDBFeatureStore) IsStoreAvailable() bool {
+	// There doesn't seem to be a specific DynamoDB API for just testing the connection. We will just
+	// do a simple query for the "inited" key, and test whether we get an error ("not found" does not
+	// count as an error).
+	_, err := store.client.GetItem(&dynamodb.GetItemInput{
+		TableName:      aws.String(store.options.table),
+		ConsistentRead: aws.Bool(true),
+		Key: map[string]*dynamodb.AttributeValue{
+			tablePartitionKey: {S: aws.String(store.initedKey())},
+			tableSortKey:      {S: aws.String(store.initedKey())},
+		},
+	})
+	return err == nil
 }
 
 func (store *dynamoDBFeatureStore) prefixedNamespace(baseNamespace string) string {
