@@ -325,6 +325,12 @@ Note that the Relay Proxy can only use _one_ of these at a time; for instance, e
 
 Also note that the LaunchDarkly SDK clients have their own options for configuring persistent storage. If you are using daemon mode (see below) then the clients need to be using the same storage configuration as the Relay Proxy. If you are not using daemon mode, then the two configurations are completely independent, e.g. you could have a relay using Redis, but a client using Consul or not using persistent storage at all.
 
+In case the database becomes unavailable, Relay's behavior (based on its use of the Go SDK) depends on the `CACHE_TTL` setting:
+
+- If the TTL is a positive number, then the last known flag data will remain cached in memory for that amount of time, after which Relay will be unable to serve flags to SDK clients. Once the database becomes available again, Relay will request all of the flags from LaunchDarkly again and write the latest values to the database.
+- If the TTL is a negative number, then the in-memory cache never expires. Relay will continue serving flags to SDK clients, and will update the cache if it receives any flag updates from LaunchDarkly. As Relay will only read from the database upon service startup, it is recommended that you avoid restarting Relay while detecting database downtime. Once the database becomes available again, Relay will write the contents of the cache back to the database. Use the "cached forever" mode with caution: it means that in a scenario where multiple Relay processes are sharing the database, and the current process loses connectivity to LaunchDarkly while other processes are still receiving updates and writing them to the database, the current process will have stale data.
+
+Note that the in-memory cache only helps SDKs using the Relay in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. [Learn more.](https://docs.launchdarkly.com/docs/using-the-relay-proxy#section-using-the-relay-proxy-in-different-modes)
 
 ## Relay proxy mode
 
@@ -373,7 +379,7 @@ LD_PREFIX_Spree_Project_Test=ld:spree:test
 
 (The per-environment "prefix" setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate table name for each environment.)
 
-The `localTtl`/`CACHE_TTL` parameter controls the length of time (in milliseconds) that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database.
+The `localTtl`/`CACHE_TTL` parameter controls the length of time (in milliseconds) that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database; see [persistent storage](#persistent-storage).
 
 You will then need to [configure your SDK](https://docs.launchdarkly.com/docs/using-a-persistent-feature-store#section-using-a-persistent-feature-store-without-connecting-to-launchdarkly) to connect to Redis directly.
 

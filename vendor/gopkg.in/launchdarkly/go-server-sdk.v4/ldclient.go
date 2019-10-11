@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -14,7 +15,7 @@ import (
 )
 
 // Version is the client version.
-const Version = "4.12.0"
+const Version = "4.13.0"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -252,8 +253,9 @@ func (client *LDClient) Close() error {
 		return nil
 	}
 	_ = client.eventProcessor.Close()
-	if !client.config.UseLdd {
-		_ = client.updateProcessor.Close()
+	_ = client.updateProcessor.Close()
+	if c, ok := client.store.(io.Closer); ok { // not all FeatureStores implement Closer
+		_ = c.Close()
 	}
 	return nil
 }

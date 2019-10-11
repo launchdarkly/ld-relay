@@ -193,14 +193,16 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 			if valueOnly {
 				result = detail.Value
 			} else {
+				isExperiment := isExperiment(flag, detail.Reason)
 				value := evalXResult{
 					Value:                detail.Value,
 					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
-					TrackEvents:          flag.TrackEvents,
+					TrackEvents:          flag.TrackEvents || isExperiment,
+					TrackReason:          isExperiment,
 					DebugEventsUntilDate: flag.DebugEventsUntilDate,
 				}
-				if withReasons {
+				if withReasons || isExperiment {
 					value.Reason = &ld.EvaluationReasonContainer{Reason: detail.Reason}
 				}
 				result = value
@@ -213,6 +215,22 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
+}
+
+// This logic is copied from the Go SDK; eventually we'll provide a different way to reuse it
+func isExperiment(flag *ld.FeatureFlag, reason ld.EvaluationReason) bool {
+	if reason == nil {
+		return false
+	}
+	switch r := reason.(type) {
+	case ld.EvaluationReasonFallthrough:
+		return flag.TrackEventsFallthrough
+	case ld.EvaluationReasonRuleMatch:
+		if r.RuleIndex >= 0 && r.RuleIndex < len(flag.Rules) {
+			return flag.Rules[r.RuleIndex].TrackEvents
+		}
+	}
+	return false
 }
 
 func pollFlagOrSegment(clientContext clientContext, kind ld.VersionedDataKind) func(http.ResponseWriter, *http.Request) {

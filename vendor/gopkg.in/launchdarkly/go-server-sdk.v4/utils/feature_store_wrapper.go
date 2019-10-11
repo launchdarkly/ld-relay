@@ -5,11 +5,14 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	cache "github.com/patrickmn/go-cache"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/internal"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 // UnmarshalItem attempts to unmarshal an entity that has been stored as JSON in a
@@ -57,8 +60,19 @@ type FeatureStoreCoreBase interface {
 	InitializedInternal() bool
 	// GetCacheTTL returns the length of time that data should be retained in an in-memory
 	// cache. This cache is maintained by FeatureStoreWrapper. If GetCacheTTL returns zero,
-	// there will be no cache.
+	// there will be no cache. If it returns a negative number, the cache never expires.
 	GetCacheTTL() time.Duration
+}
+
+// FeatureStoreCoreStatus is an optional interface that can be implemented by FeatureStoreCoreBase
+// implementations. It allows FeatureStoreWrapper to request a status check on the availability of
+// the underlying data store.
+type FeatureStoreCoreStatus interface {
+	// Tests whether the data store seems to be functioning normally. This should not be a detailed
+	// test of different kinds of operations, but just the smallest possible operation to determine
+	// whether (for instance) we can reach the database. FeatureStoreWrapper will call this method
+	// at intervals if the store has previously failed, until it returns true.
+	IsStoreAvailable() bool
 }
 
 // FeatureStoreCore is an interface for a simplified subset of the functionality of
@@ -110,39 +124,80 @@ type StoreCollection struct {
 // FeatureStoreWrapper is a partial implementation of ldclient.FeatureStore that delegates basic
 // functionality to an instance of FeatureStoreCore. It provides optional caching, and will
 // automatically provide the proper data ordering when using  NonAtomicFeatureStoreCoreInitialization.
+//
+// Also, if the FeatureStoreCore object implements ldclient.FeatureStoreStatusProvider, the wrapper
+// will make it possible for SDK components to react appropriately if the availability of the store
+// changes (e.g. if we lose a database connection, but then regain it).
 type FeatureStoreWrapper struct {
 	core          FeatureStoreCoreBase
 	coreAtomic    FeatureStoreCore
 	coreNonAtomic NonAtomicFeatureStoreCore
+	coreStatus    FeatureStoreCoreStatus
+	statusManager *internal.FeatureStoreStatusManager
 	cache         *cache.Cache
+	loggers       ldlog.Loggers
 	inited        bool
 	initLock      sync.RWMutex
 }
 
 const initCheckedKey = "$initChecked"
 
+// NewFeatureStoreWrapperWithConfig creates an instance of FeatureStoreWrapper that wraps an instance
+// of FeatureStoreCore. It takes a Config parameter so that it can use the same logging configuration
+// as the SDK.
+func NewFeatureStoreWrapperWithConfig(core FeatureStoreCore, config ld.Config) *FeatureStoreWrapper {
+	w := newBaseWrapper(core, config)
+	w.coreAtomic = core
+	return w
+}
+
 // NewFeatureStoreWrapper creates an instance of FeatureStoreWrapper that wraps an instance
 // of FeatureStoreCore.
+// Deprecated: Use NewFeatureStoreWrapperWithConfig.
 func NewFeatureStoreWrapper(core FeatureStoreCore) *FeatureStoreWrapper {
-	w := FeatureStoreWrapper{core: core, coreAtomic: core}
-	w.cache = initCache(core)
-	return &w
+	return NewFeatureStoreWrapperWithConfig(core, ld.Config{})
+}
+
+// NewNonAtomicFeatureStoreWrapperWithConfig creates an instance of FeatureStoreWrapper that wraps an
+// instance of NonAtomicFeatureStoreCore. It takes a Config parameter so that it can use the same logging configuration
+// as the SDK.
+func NewNonAtomicFeatureStoreWrapperWithConfig(core NonAtomicFeatureStoreCore, config ld.Config) *FeatureStoreWrapper {
+	w := newBaseWrapper(core, config)
+	w.coreNonAtomic = core
+	return w
 }
 
 // NewNonAtomicFeatureStoreWrapper creates an instance of FeatureStoreWrapper that wraps an
 // instance of NonAtomicFeatureStoreCore.
 func NewNonAtomicFeatureStoreWrapper(core NonAtomicFeatureStoreCore) *FeatureStoreWrapper {
-	w := FeatureStoreWrapper{core: core, coreNonAtomic: core}
-	w.cache = initCache(core)
-	return &w
+	return NewNonAtomicFeatureStoreWrapperWithConfig(core, ld.Config{})
 }
 
-func initCache(core FeatureStoreCoreBase) *cache.Cache {
+func newBaseWrapper(core FeatureStoreCoreBase, config ld.Config) *FeatureStoreWrapper {
 	cacheTTL := core.GetCacheTTL()
-	if cacheTTL > 0 {
-		return cache.New(cacheTTL, 5*time.Minute)
+	var myCache *cache.Cache
+	if cacheTTL != 0 {
+		myCache = cache.New(cacheTTL, 5*time.Minute)
+		// Note that the documented behavior of go-cache is that if cacheTTL is negative, the
+		// cache never expires. That is consistent with we've defined the parameter.
 	}
-	return nil
+
+	w := &FeatureStoreWrapper{
+		core:    core,
+		cache:   myCache,
+		loggers: config.Loggers,
+	}
+	if cs, ok := core.(FeatureStoreCoreStatus); ok {
+		w.coreStatus = cs
+	}
+	w.statusManager = internal.NewFeatureStoreStatusManager(
+		true,
+		w.pollAvailabilityAfterOutage,
+		myCache == nil || core.GetCacheTTL() > 0, // needsRefresh=true unless we're in infinite cache mode
+		config.Loggers,
+	)
+
+	return w
 }
 
 func featureStoreCacheKey(kind ld.VersionedDataKind, key string) string {
@@ -155,6 +210,31 @@ func featureStoreAllItemsCacheKey(kind ld.VersionedDataKind) string {
 
 // Init performs an update of the entire data store, with optional caching.
 func (w *FeatureStoreWrapper) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+	err := w.initCore(allData)
+	if w.cache != nil {
+		w.cache.Flush()
+	}
+	if err != nil && !w.hasCacheWithInfiniteTTL() {
+		// Normally, if the underlying store failed to do the update, we do not want to update the cache -
+		// the idea being that it's better to stay in a consistent state of having old data than to act
+		// like we have new data but then suddenly fall back to old data when the cache expires. However,
+		// if the cache TTL is infinite, then it makes sense to update the cache always.
+		return err
+	}
+	if w.cache != nil {
+		for kind, items := range allData {
+			w.filterAndCacheItems(kind, items)
+		}
+	}
+	if err == nil || w.hasCacheWithInfiniteTTL() {
+		w.initLock.Lock()
+		defer w.initLock.Unlock()
+		w.inited = true
+	}
+	return err
+}
+
+func (w *FeatureStoreWrapper) initCore(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
 	var err error
 	if w.coreNonAtomic != nil {
 		// If the store uses non-atomic initialization, we'll need to put the data in the proper update
@@ -164,19 +244,7 @@ func (w *FeatureStoreWrapper) Init(allData map[ld.VersionedDataKind]map[string]l
 	} else {
 		err = w.coreAtomic.InitInternal(allData)
 	}
-	if w.cache != nil {
-		w.cache.Flush()
-		if err == nil {
-			for kind, items := range allData {
-				w.filterAndCacheItems(kind, items)
-			}
-		}
-	}
-	if err == nil {
-		w.initLock.Lock()
-		defer w.initLock.Unlock()
-		w.inited = true
-	}
+	w.processError(err)
 	return err
 }
 
@@ -203,6 +271,7 @@ func (w *FeatureStoreWrapper) filterAndCacheItems(kind ld.VersionedDataKind, ite
 func (w *FeatureStoreWrapper) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
 	if w.cache == nil {
 		item, err := w.core.GetInternal(kind, key)
+		w.processError(err)
 		return itemOnlyIfNotDeleted(item), err
 	}
 	cacheKey := featureStoreCacheKey(kind, key)
@@ -216,6 +285,7 @@ func (w *FeatureStoreWrapper) Get(kind ld.VersionedDataKind, key string) (ld.Ver
 	}
 	// Item was not cached or cached value was not valid
 	item, err := w.core.GetInternal(kind, key)
+	w.processError(err)
 	if err == nil {
 		w.cache.Set(cacheKey, item, cache.DefaultExpiration)
 	}
@@ -232,7 +302,9 @@ func itemOnlyIfNotDeleted(item ld.VersionedData) ld.VersionedData {
 // All retrieves all items of the specified kind, with optional caching.
 func (w *FeatureStoreWrapper) All(kind ld.VersionedDataKind) (map[string]ld.VersionedData, error) {
 	if w.cache == nil {
-		return w.core.GetAllInternal(kind)
+		items, err := w.core.GetAllInternal(kind)
+		w.processError(err)
+		return items, err
 	}
 	// Check whether we have a cache item for the entire data set
 	cacheKey := featureStoreAllItemsCacheKey(kind)
@@ -243,6 +315,7 @@ func (w *FeatureStoreWrapper) All(kind ld.VersionedDataKind) (map[string]ld.Vers
 	}
 	// Data set was not cached or cached value was not valid
 	items, err := w.core.GetAllInternal(kind)
+	w.processError(err)
 	if err != nil {
 		return nil, err
 	}
@@ -252,12 +325,37 @@ func (w *FeatureStoreWrapper) All(kind ld.VersionedDataKind) (map[string]ld.Vers
 // Upsert updates or adds an item, with optional caching.
 func (w *FeatureStoreWrapper) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
 	finalItem, err := w.core.UpsertInternal(kind, item)
+	w.processError(err)
+	// Normally, if the underlying store failed to do the update, we do not want to update the cache -
+	// the idea being that it's better to stay in a consistent state of having old data than to act
+	// like we have new data but then suddenly fall back to old data when the cache expires. However,
+	// if the cache TTL is infinite, then it makes sense to update the cache always.
+	if err != nil {
+		if !w.hasCacheWithInfiniteTTL() {
+			return err
+		}
+		finalItem = item
+	}
 	// Note that what we put into the cache is finalItem, which may not be the same as item (i.e. if
 	// another process has already updated the item to a higher version).
-	if err == nil && finalItem != nil {
-		if w.cache != nil {
-			w.cache.Set(featureStoreCacheKey(kind, item.GetKey()), finalItem, cache.DefaultExpiration)
-			w.cache.Delete(featureStoreAllItemsCacheKey(kind))
+	if finalItem != nil && w.cache != nil {
+		w.cache.Set(featureStoreCacheKey(kind, item.GetKey()), finalItem, cache.DefaultExpiration)
+		// If the cache has a finite TTL, then we should remove the "all items" cache entry to force
+		// a reread the next time All is called. However, if it's an infinite TTL, we need to just
+		// update the item within the existing "all items" entry (since we want things to still work
+		// even if the underlying store is unavailable).
+		allCacheKey := featureStoreAllItemsCacheKey(kind)
+		if w.hasCacheWithInfiniteTTL() {
+			if data, present := w.cache.Get(allCacheKey); present {
+				if items, ok := data.(map[string]ld.VersionedData); ok {
+					items[item.GetKey()] = item // updates the existing map since maps are passed by reference
+				}
+			} else {
+				items := map[string]ld.VersionedData{item.GetKey(): item}
+				w.cache.Set(allCacheKey, items, cache.DefaultExpiration)
+			}
+		} else {
+			w.cache.Delete(allCacheKey)
 		}
 	}
 	return err
@@ -303,4 +401,68 @@ func (w *FeatureStoreWrapper) Initialized() bool {
 		}
 	}
 	return newValue
+}
+
+// Close releases any resources being held by the store.
+func (w *FeatureStoreWrapper) Close() error {
+	w.statusManager.Close()
+	if coreCloser, ok := w.core.(io.Closer); ok {
+		return coreCloser.Close()
+	}
+	return nil
+}
+
+// GetStoreStatus returns the current status of the store.
+func (w *FeatureStoreWrapper) GetStoreStatus() internal.FeatureStoreStatus {
+	return internal.FeatureStoreStatus{Available: w.statusManager.IsAvailable()}
+}
+
+// StatusSubscribe creates a channel that will receive all changes in store status.
+func (w *FeatureStoreWrapper) StatusSubscribe() internal.FeatureStoreStatusSubscription {
+	return w.statusManager.Subscribe()
+}
+
+func (w *FeatureStoreWrapper) processError(err error) {
+	if err == nil {
+		// If we're waiting to recover after a failure, we'll let the polling routine take care
+		// of signaling success. Even if we could signal success a little earlier based on the
+		// success of whatever operation we just did, we'd rather avoid the overhead of acquiring
+		// w.statusLock every time we do anything. So we'll just do nothing here.
+		return
+	}
+	w.statusManager.UpdateAvailability(false)
+}
+
+func (w *FeatureStoreWrapper) pollAvailabilityAfterOutage() bool {
+	if w.coreStatus == nil || !w.coreStatus.IsStoreAvailable() {
+		return false
+	}
+	if w.hasCacheWithInfiniteTTL() {
+		// If we're in infinite cache mode, then we can assume the cache has a full set of current
+		// flag data (since presumably the update processor has still been running) and we can just
+		// write the contents of the cache to the underlying data store.
+		allData := make(map[ld.VersionedDataKind]map[string]ld.VersionedData, 2)
+		for _, kind := range ld.VersionedDataKinds {
+			allCacheKey := featureStoreAllItemsCacheKey(kind)
+			if data, present := w.cache.Get(allCacheKey); present {
+				if items, ok := data.(map[string]ld.VersionedData); ok {
+					allData[kind] = items
+				}
+			}
+		}
+		err := w.initCore(allData)
+		if err != nil {
+			// We failed to write the cached data to the underlying store. In this case,
+			// w.initCore() has already put us back into the failed state. The only further
+			// thing we can do is to log a note about what just happened.
+			w.loggers.Errorf("Tried to write cached data to persistent store after a store outage, but failed: %s", err)
+		} else {
+			w.loggers.Warn("Successfully updated persistent store from cached data")
+		}
+	}
+	return true
+}
+
+func (w *FeatureStoreWrapper) hasCacheWithInfiniteTTL() bool {
+	return w.cache != nil && w.core.GetCacheTTL() < 0
 }

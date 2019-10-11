@@ -10,6 +10,7 @@ import (
 	"time"
 
 	es "github.com/launchdarkly/eventsource"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/internal"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
@@ -25,12 +26,13 @@ type streamProcessor struct {
 	store              FeatureStore
 	client             *http.Client
 	requestor          *requestor
-	stream             *es.Stream
 	config             Config
 	sdkKey             string
 	setInitializedOnce sync.Once
 	isInitialized      bool
 	halt               chan struct{}
+	storeStatusSub     internal.FeatureStoreStatusSubscription
+	readyOnce          sync.Once
 	closeOnce          sync.Once
 }
 
@@ -61,6 +63,9 @@ func (sp *streamProcessor) Initialized() bool {
 
 func (sp *streamProcessor) Start(closeWhenReady chan<- struct{}) {
 	sp.config.Loggers.Info("Starting LaunchDarkly streaming connection")
+	if fss, ok := sp.store.(internal.FeatureStoreStatusProvider); ok {
+		sp.storeStatusSub = fss.StatusSubscribe()
+	}
 	go sp.subscribe(closeWhenReady)
 }
 
@@ -83,10 +88,10 @@ func parsePath(path string) (parsedPath, error) {
 	return parsedPath, nil
 }
 
-func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
-	var readyOnce sync.Once
+// Returns true if we should recreate the stream and start over
+func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struct{}) bool {
 	notifyReady := func() {
-		readyOnce.Do(func() {
+		sp.readyOnce.Do(func() {
 			close(closeWhenReady)
 		})
 	}
@@ -95,18 +100,23 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 
 	// Consume remaining Events and Errors so we can garbage collect
 	defer func() {
-		for range sp.stream.Events {
+		for range stream.Events {
 		}
-		for range sp.stream.Errors {
+		for range stream.Errors {
 		}
 	}()
 
+	var statusCh <-chan internal.FeatureStoreStatus
+	if sp.storeStatusSub != nil {
+		statusCh = sp.storeStatusSub.Channel()
+	}
+
 	for {
 		select {
-		case event, ok := <-sp.stream.Events:
+		case event, ok := <-stream.Events:
 			if !ok {
 				sp.config.Loggers.Info("Event stream closed")
-				return
+				return false
 			}
 			switch event.Event() {
 			case putEvent:
@@ -118,7 +128,7 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 				err := sp.store.Init(MakeAllVersionedDataMap(put.Data.Flags, put.Data.Segments))
 				if err != nil {
 					sp.config.Loggers.Errorf("Error initializing store: %s", err)
-					return
+					return false
 				}
 				sp.setInitializedOnce.Do(func() {
 					sp.config.Loggers.Info("LaunchDarkly streaming is active")
@@ -175,24 +185,32 @@ func (sp *streamProcessor) events(closeWhenReady chan<- struct{}) {
 			default:
 				sp.config.Loggers.Infof("Unexpected event found in stream: %s", event.Event())
 			}
-		case err, ok := <-sp.stream.Errors:
+		case err, ok := <-stream.Errors:
 			if !ok {
 				sp.config.Loggers.Info("Event error stream closed")
-				return // Otherwise we will spin in this loop
+				return false // Otherwise we will spin in this loop
 			}
 			if err != io.EOF {
 				sp.config.Loggers.Errorf("Error encountered processing stream: %+v", err)
 				if sp.checkIfPermanentFailure(err) {
 					sp.closeOnce.Do(func() {
 						sp.config.Loggers.Info("Closing event stream")
-						sp.stream.Close()
+						stream.Close()
 					})
-					return
+					return false
 				}
 			}
+		case newStoreStatus := <-statusCh:
+			if newStoreStatus.Available && newStoreStatus.NeedsRefresh {
+				// The store has just transitioned from unavailable to available, and we can't guarantee that
+				// all of the latest data got cached, so let's restart the stream to refresh all the data.
+				sp.config.Loggers.Warn("Restarting stream to refresh data after feature store outage")
+				stream.Close()
+				return true // causes subscribe() to restart the connection
+			}
 		case <-sp.halt:
-			sp.stream.Close()
-			return
+			stream.Close()
+			return false
 		}
 	}
 }
@@ -244,10 +262,10 @@ func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
 				time.Sleep(2 * time.Second)
 			}
 		} else {
-			sp.stream = stream
-
-			go sp.events(closeWhenReady)
-			return
+			if !sp.events(stream, closeWhenReady) {
+				return
+			}
+			// If events() returned true, we should continue the for loop
 		}
 	}
 }
@@ -267,6 +285,9 @@ func (sp *streamProcessor) Close() error {
 	sp.closeOnce.Do(func() {
 		sp.config.Loggers.Info("Closing event stream")
 		close(sp.halt)
+		if sp.storeStatusSub != nil {
+			sp.storeStatusSub.Close()
+		}
 	})
 	return nil
 }
