@@ -28,34 +28,78 @@ type testFlag struct {
 	flag              ld.FeatureFlag
 	expectedValue     interface{}
 	expectedVariation int
-	expectedReason    ld.EvalReasonKind
+	expectedReason    map[string]interface{}
+	isExperiment      bool
 }
 
 var flag1ServerSide = testFlag{
 	flag:              ld.FeatureFlag{Key: "some-flag-key", OffVariation: &zero, Variations: []interface{}{true}, Version: 2},
 	expectedValue:     true,
 	expectedVariation: 0,
-	expectedReason:    ld.EvalReasonOff,
+	expectedReason:    map[string]interface{}{"kind": "OFF"},
 }
 var flag2ServerSide = testFlag{
 	flag:              ld.FeatureFlag{Key: "another-flag-key", On: true, Fallthrough: ld.VariationOrRollout{Variation: &zero}, Variations: []interface{}{3}, Version: 1},
 	expectedValue:     3,
 	expectedVariation: 0,
-	expectedReason:    ld.EvalReasonFallthrough,
+	expectedReason:    map[string]interface{}{"kind": "FALLTHROUGH"},
 }
 var flag3ServerSide = testFlag{
 	flag:           ld.FeatureFlag{Key: "off-variation-key", Version: 3},
 	expectedValue:  nil,
-	expectedReason: ld.EvalReasonOff,
+	expectedReason: map[string]interface{}{"kind": "OFF"},
 }
 var flag4ClientSide = testFlag{
 	flag:              ld.FeatureFlag{Key: "client-flag-key", OffVariation: &zero, Variations: []interface{}{5}, Version: 2, ClientSide: true},
 	expectedValue:     5,
 	expectedVariation: 0,
-	expectedReason:    ld.EvalReasonOff,
+	expectedReason:    map[string]interface{}{"kind": "OFF"},
 }
-var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide}
-var clientSideFlags = []testFlag{flag4ClientSide}
+var flag5ClientSide = testFlag{
+	flag: ld.FeatureFlag{
+		Key:                    "fallthrough-experiment-flag-key",
+		On:                     true,
+		Fallthrough:            ld.VariationOrRollout{Variation: &zero},
+		Variations:             []interface{}{3},
+		TrackEventsFallthrough: true,
+		Version:                1,
+		ClientSide:             true,
+	},
+	expectedValue:  3,
+	expectedReason: map[string]interface{}{"kind": "FALLTHROUGH"},
+	isExperiment:   true,
+}
+var flag6ClientSide = testFlag{
+	flag: ld.FeatureFlag{
+		Key:         "rule-match-experiment-flag-key",
+		On:          true,
+		Fallthrough: ld.VariationOrRollout{},
+		Rules: []ld.Rule{
+			ld.Rule{
+				VariationOrRollout: ld.VariationOrRollout{Variation: &zero},
+				ID:                 "rule-id",
+				TrackEvents:        true,
+				Clauses: []ld.Clause{
+					ld.Clause{
+						Attribute: "key",
+						Op:        "in",
+						Values:    []interface{}{"not-a-real-user-key "},
+						Negate:    true,
+					},
+				},
+			},
+		},
+		Variations: []interface{}{4},
+		Version:    1,
+		ClientSide: true,
+	},
+	expectedValue:  4,
+	expectedReason: map[string]interface{}{"kind": "RULE_MATCH", "ruleIndex": 0, "ruleId": "rule-id"},
+	isExperiment:   true,
+}
+var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide,
+	flag5ClientSide, flag6ClientSide}
+var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSide}
 
 var segment1 = ld.Segment{Key: "segment-key"}
 
@@ -106,12 +150,18 @@ func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {
 	for _, f := range flags {
 		value := f.expectedValue
 		if fullData {
-			m := map[string]interface{}{"value": value, "version": f.flag.Version, "trackEvents": f.flag.TrackEvents}
+			m := map[string]interface{}{"value": value, "version": f.flag.Version}
 			if value != nil {
 				m["variation"] = f.expectedVariation
 			}
-			if reasons {
-				m["reason"] = map[string]interface{}{"kind": f.expectedReason}
+			if reasons || f.isExperiment {
+				m["reason"] = f.expectedReason
+			}
+			if f.flag.TrackEvents || f.isExperiment {
+				m["trackEvents"] = true
+			}
+			if f.isExperiment {
+				m["trackReason"] = true
 			}
 			value = m
 		}

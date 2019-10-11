@@ -101,7 +101,8 @@ type evalXResult struct {
 	Variation            *int                          `json:"variation,omitempty"`
 	Version              int                           `json:"version"`
 	DebugEventsUntilDate *uint64                       `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool                          `json:"trackEvents"`
+	TrackEvents          bool                          `json:"trackEvents,omitempty"`
+	TrackReason          bool                          `json:"trackReason,omitempty"`
 	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
 }
 
