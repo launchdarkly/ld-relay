@@ -118,7 +118,7 @@ Note that the TLS and password options can also be specified as part of the URL:
 
 Property in file    | Environment var    | Type    | Default | Description
 ------------------- | ------------------ | :-----: | :------ | -----------
-`enabled`           | `DYNAMODB_ENABLED` | Boolean | `false` | Enables DynamoDB.
+`enabled`           | `USE_DYNAMODB`     | Boolean | `false` | Enables DynamoDB.
 `tableName`         | `DYNAMODB_TABLE`   | String  |         | The DynamoDB table name, if you are using the same table for all environments. Otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
 `localTtl`          | `CACHE_TTL`        | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
 
