@@ -10,7 +10,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
+
+func makeNullLoggers() ldlog.Loggers {
+	ls := ldlog.Loggers{}
+	ls.SetMinLevel(ldlog.None)
+	return ls
+}
 
 func TestEventPublisher(t *testing.T) {
 	body := make(chan []byte)
@@ -20,7 +27,7 @@ func TestEventPublisher(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", OptionUri(server.URL))
+	publisher, _ := NewHttpEventPublisher("my-key", makeNullLoggers(), OptionUri(server.URL))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	publisher.Publish("hello again")
@@ -41,7 +48,7 @@ func TestEventPublishRaw(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", OptionUri(server.URL))
+	publisher, _ := NewHttpEventPublisher("my-key", makeNullLoggers(), OptionUri(server.URL))
 	defer publisher.Close()
 	publisher.PublishRaw(json.RawMessage(`{"hello": 1}`))
 	publisher.Flush()
@@ -54,7 +61,7 @@ func TestEventPublishRaw(t *testing.T) {
 }
 
 func TestEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
-	publisher, _ := NewHttpEventPublisher("my-key")
+	publisher, _ := NewHttpEventPublisher("my-key", makeNullLoggers())
 	timeout := time.After(time.Second)
 	publisher.Close()
 	publisher.Close()
@@ -69,7 +76,7 @@ func TestPublisherAutomaticFlush(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", OptionUri(server.URL), OptionFlushInterval(time.Millisecond))
+	publisher, _ := NewHttpEventPublisher("my-key", makeNullLoggers(), OptionUri(server.URL), OptionFlushInterval(time.Millisecond))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	select {
@@ -88,7 +95,7 @@ func TestHttpEventPublisherCapacity(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", OptionUri(server.URL), OptionCapacity(1))
+	publisher, _ := NewHttpEventPublisher("my-key", makeNullLoggers(), OptionUri(server.URL), OptionCapacity(1))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	publisher.Publish("goodbye")

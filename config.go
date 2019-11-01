@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/gcfg"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
@@ -55,6 +56,7 @@ type Config struct {
 // This corresponds to the [Main] section in the configuration file.
 type MainConfig struct {
 	ExitOnError            bool
+	ExitAlways             bool
 	IgnoreConnectionErrors bool
 	StreamUri              string
 	BaseUri                string
@@ -63,6 +65,12 @@ type MainConfig struct {
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
+	LogLevel               string
+}
+
+func (c MainConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
 }
 
 // RedisConfig configures the optional Redis integration, which is used only if Host is non-empty.
@@ -107,6 +115,13 @@ type EnvConfig struct {
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      *[]string
 	InsecureSkipVerify bool
+	LogLevel           string
+	TtlMinutes         int
+}
+
+func (c EnvConfig) GetLogLevel() ldlog.LogLevel {
+	level, _ := getLogLevelByName(c.LogLevel)
+	return level
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
@@ -263,6 +278,14 @@ func ValidateConfig(c *Config) error {
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
 		return errors.New("TLS cert and key are required if TLS is enabled")
 	}
+	if _, ok := getLogLevelByName(c.Main.LogLevel); !ok {
+		return fmt.Errorf(`Invalid log level "%s"`, c.Main.LogLevel)
+	}
+	for _, ec := range c.Environment {
+		if _, ok := getLogLevelByName(ec.LogLevel); !ok {
+			return fmt.Errorf(`Invalid environment log level "%s"`, ec.LogLevel)
+		}
+	}
 	databases := []string{}
 	if c.Redis.Host != "" || c.Redis.Url != "" {
 		databases = append(databases, "Redis")
@@ -290,11 +313,13 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnv(&c.Main.BaseUri, "BASE_URI")
 	maybeSetFromEnv(&c.Main.StreamUri, "STREAM_URI")
 	maybeSetFromEnvBool(&c.Main.ExitOnError, "EXIT_ON_ERROR")
+	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
 	maybeSetFromEnvInt(&c.Main.HeartbeatIntervalSecs, "HEARTBEAT_INTERVAL", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
+	maybeSetFromEnv(&c.Main.LogLevel, "LOG_LEVEL")
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnv(&c.Events.EventsUri, "EVENTS_HOST")
@@ -310,10 +335,12 @@ func LoadConfigFromEnvironment(c *Config) error {
 		ec.EnvId = maybeEnvStrPtr("LD_CLIENT_SIDE_ID_" + envName)
 		maybeSetFromEnv(&ec.Prefix, "LD_PREFIX_"+envName)
 		maybeSetFromEnv(&ec.TableName, "LD_TABLE_NAME_"+envName)
+		maybeSetFromEnvInt(&ec.TtlMinutes, "LD_TTL_MINUTES_"+envName, &errs)
 		if s := os.Getenv("LD_ALLOWED_ORIGIN_" + envName); s != "" {
 			values := strings.Split(s, ",")
 			ec.AllowedOrigin = &values
 		}
+		maybeSetFromEnv(&ec.LogLevel, "LD_LOG_LEVEL_"+envName)
 		// Not supported: EnvConfig.InsecureSkipVerify (that flag should only be used for testing, never in production)
 		if c.Environment == nil {
 			c.Environment = make(map[string]*EnvConfig)
@@ -417,6 +444,18 @@ func LoadConfigFromEnvironment(c *Config) error {
 	}
 
 	return ValidateConfig(c)
+}
+
+func getLogLevelByName(levelName string) (ldlog.LogLevel, bool) {
+	if levelName == "" {
+		return ldlog.Info, true
+	}
+	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error, ldlog.None} {
+		if strings.EqualFold(level.Name(), levelName) {
+			return level, true
+		}
+	}
+	return 0, false
 }
 
 func maybeEnvStrPtr(name string) *string {

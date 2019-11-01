@@ -2,6 +2,8 @@ package ldclient
 
 import (
 	"encoding/json"
+
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 type serializableUser struct {
@@ -12,7 +14,7 @@ type serializableUser struct {
 type userFilter struct {
 	allAttributesPrivate    bool
 	globalPrivateAttributes []string
-	logger                  Logger
+	loggers                 ldlog.Loggers
 	logUserKeyInErrors      bool
 }
 
@@ -20,12 +22,12 @@ func newUserFilter(config Config) userFilter {
 	return userFilter{
 		allAttributesPrivate:    config.AllAttributesPrivate,
 		globalPrivateAttributes: config.PrivateAttributeNames,
-		logger:                  config.Logger,
+		loggers:                 config.Loggers,
 		logUserKeyInErrors:      config.LogUserKeyInErrors,
 	}
 }
 
-const userSerializationErrorMessage = "ERROR: An error occurred while processing custom attributes for %s. If this is a concurrent" +
+const userSerializationErrorMessage = "An error occurred while processing custom attributes for %s. If this is a concurrent" +
 	" modification error, check that you are not modifying custom attributes in a User after you have evaluated a flag with that User. The" +
 	" custom attributes for this user have been dropped from analytics data. Error: %s"
 
@@ -106,9 +108,7 @@ func (uf *userFilter) scrubUser(user User) (ret *serializableUser) {
 		// custom attributes map) will be caught here, in which case we simply drop the custom attributes.
 		defer func() {
 			if r := recover(); r != nil {
-				if uf.logger != nil {
-					uf.logger.Printf(userSerializationErrorMessage, describeUserForErrorLog(&user, uf.logUserKeyInErrors), r)
-				}
+				uf.loggers.Errorf(userSerializationErrorMessage, describeUserForErrorLog(&user, uf.logUserKeyInErrors), r)
 				ret.User.Custom = nil
 			}
 		}()
@@ -132,12 +132,10 @@ func (uf *userFilter) scrubUser(user User) (ret *serializableUser) {
 
 func (u serializableUser) MarshalJSON() (output []byte, err error) {
 	marshalUserWithoutCustomAttrs := func(err interface{}) ([]byte, error) {
-		if u.filter.logger != nil {
-			if me, ok := err.(*json.MarshalerError); ok {
-				err = me.Err
-			}
-			u.filter.logger.Printf(userSerializationErrorMessage, describeUserForErrorLog(&u.User, u.filter.logUserKeyInErrors), err)
+		if me, ok := err.(*json.MarshalerError); ok {
+			err = me.Err
 		}
+		u.filter.loggers.Errorf(userSerializationErrorMessage, describeUserForErrorLog(&u.User, u.filter.logUserKeyInErrors), err)
 		u.User.Custom = nil
 		return json.Marshal(u.User)
 	}

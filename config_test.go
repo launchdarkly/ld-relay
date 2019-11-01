@@ -18,11 +18,13 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 				BaseUri:                "http://base",
 				StreamUri:              "http://stream",
 				ExitOnError:            true,
+				ExitAlways:             true,
 				IgnoreConnectionErrors: true,
 				HeartbeatIntervalSecs:  90,
 				TLSEnabled:             true,
 				TLSCert:                "cert",
 				TLSKey:                 "key",
+				LogLevel:               "warn",
 			}
 			c.Events = events.Config{
 				SendEvents:        true,
@@ -40,6 +42,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 					EnvId:     strPtr("earth-env"),
 					Prefix:    "earth-",
 					TableName: "earth-table",
+					LogLevel:  "debug",
 				},
 				"krypton": &EnvConfig{
 					SdkKey:        "krypton-sdk",
@@ -48,6 +51,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 					Prefix:        "krypton-",
 					TableName:     "krypton-table",
 					AllowedOrigin: &origins,
+					TtlMinutes:    5,
 				},
 			}
 		},
@@ -56,11 +60,13 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			"BASE_URI":                  "http://base",
 			"STREAM_URI":                "http://stream",
 			"EXIT_ON_ERROR":             "1",
+			"EXIT_ALWAYS":               "1",
 			"IGNORE_CONNECTION_ERRORS":  "1",
 			"HEARTBEAT_INTERVAL":        "90",
 			"TLS_ENABLED":               "1",
 			"TLS_CERT":                  "cert",
 			"TLS_KEY":                   "key",
+			"LOG_LEVEL":                 "warn",
 			"USE_EVENTS":                "1",
 			"EVENTS_HOST":               "http://events",
 			"EVENTS_FLUSH_INTERVAL":     "120",
@@ -72,12 +78,14 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			"LD_CLIENT_SIDE_ID_earth":   "earth-env",
 			"LD_PREFIX_earth":           "earth-",
 			"LD_TABLE_NAME_earth":       "earth-table",
+			"LD_LOG_LEVEL_earth":        "debug",
 			"LD_ENV_krypton":            "krypton-sdk",
 			"LD_MOBILE_KEY_krypton":     "krypton-mob",
 			"LD_CLIENT_SIDE_ID_krypton": "krypton-env",
 			"LD_PREFIX_krypton":         "krypton-",
 			"LD_TABLE_NAME_krypton":     "krypton-table",
 			"LD_ALLOWED_ORIGIN_krypton": "https://oa,https://rann",
+			"LD_TTL_MINUTES_krypton":    "5",
 		},
 	)
 }

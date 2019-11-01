@@ -2,7 +2,33 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-[4.10.0] - 2019-07-30
+## [4.13.0] - 2019-10-10
+### Added:
+- It is now possible to specify an infinite cache TTL for persistent feature stores by passing a negative number to the `CacheTTL` option, in which case the persistent store will never be read unless the application restarts. Use this mode with caution as described in the comments for `redis.CacheTTL`, `dynamodb.CacheTTL`, etc.
+
+### Changed:
+- When using a persistent store with an infinite cache TTL (see above), if the SDK receives a feature flag update from LaunchDarkly and is unable to write it to the persistent store because of a database outage, it will still update the data in the in-memory cache so it will be available to the application. This is different from the existing behavior when there is a finite cache TTL: in that case, if the database update fails, the in-memory cache will _not_ be updated because the update would be lost as soon as the cache expires.
+- When using a persistent store, if there is a database error (indicating that the database may be unavailable, or at least that the most recent update did not get persisted), the SDK will continue to monitor the database availability. Once it returns to normal, if the cache TTL is finite, the SDK will restart the stream connection to ensure that it receives and persists a full set of flag data; if the cache TTL is infinite, it will assume the cache is up to date and will simply write it to the database.
+
+
+## [4.12.0] - 2019-09-12
+### Added:
+- The Go SDK now has log levels, similar to the logging frameworks used in the other LaunchDarkly SDKs. Log messages can have a level of Debug, Info, Warn, or Error; by default, Debug is hidden. The new package [`ldlog`](https://godoc.org/gopkg.in/launchdarkly/go-server-sdk.v4/ldlog) defines these levels, and you can use `Config.Loggers.SetMinLevel()` and `Config.Loggers.SetBaseLogger()` to control the behavior. The old property `Config.Logger` still works but is deprecated.
+- The SDK will produce very detailed output if you call `Config.Loggers.SetMinLevel(ldlog.Debug)`. This includes information about when and how it connects to LaunchDarkly, and a full dump of all analytics event data it is sending. Since the debug logging is very verbose, and the event data includes user properties, you should not normally enable this log level in production unless advised to by LaunchDarkly support.
+- There is now a different property for specifying a feature store mechanism: `Config.FeatureStoreFactory`, which takes a factory method, rather than `Config.FeatureStore`, which takes an implementation instance. Using a factory method allows the implementation to access `Config` properties such as the logging configuration. The new methods `NewInMemoryFeatureStoreFactory`, `redis.NewRedisFeatureStoreFactory`, `consul.NewConsulFeatureStoreFactory`, and `dynamodb.NewDynamoDBFeatureStoreFactory` work with this mechanism.
+- The SDK's CI build now verifies compatibility with Go 1.11 and 1.12.
+
+### Deprecated:
+- `Config.SamplingInterval`: the intended use case for the `SamplingInterval` feature was to reduce analytics event network usage in high-traffic applications. This feature is being deprecated in favor of summary counters, which are meant to track all events.
+- `Config.Logger`: use `Config.Loggers` for more flexible configuration.
+- `NewInMemoryFeatureStore`, `redis.NewRedisFeatureStoreWithDefault`, `consul.NewConsulFeaturStore`, `dynamodb.NewDynamoDBFeatureStore`: see above.
+
+
+## [4.11.0] - 2019-08-19
+### Added:
+- Added support for upcoming LaunchDarkly experimentation features. See `LDClient.TrackWithMetric`.
+
+## [4.10.0] - 2019-07-30
 ### Added:
 - In the `redis` subpackage, the new option `DialOptions` allows configuration of any [connection option supported by Redigo](https://godoc.org/github.com/garyburd/redigo/redis#DialOption), such as setting a password or enabling TLS. (Thanks, [D-Raiser](https://github.com/launchdarkly/go-server-sdk/pull/8)!) Note that it was already possible to specify a password or TLS as part of the Redis URL.
 - The new `Config` property `LogUserKeyInErrors`, if set to true, causes error log messages that are related to a specific user to include that user's key. This is false by default since user keys could be considered privileged information.

@@ -5,23 +5,23 @@
 //
 // To use the Redis feature store with the LaunchDarkly client:
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults()
+//     factory, err := redis.NewRedisFeatureStoreFactory()
 //     if err != nil { ... }
 //
 //     config := ld.DefaultConfig
-//     config.FeatureStore = store
+//     config.FeatureStoreFactory = factory
 //     client, err := ld.MakeCustomClient("sdk-key", config, 5*time.Second)
 //
 // The default Redis pool configuration uses an address of localhost:6379, a maximum of 16
 // concurrent connections, and blocking connection requests. You may also customize other
-// properties of the feature store by providing options to NewRedisFeatureStoreWithDefaults,
+// properties of the feature store by providing options to NewRedisFeatureStoreFactory,
 // for example:
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.URL(myRedisURL),
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.URL(myRedisURL),
 //         redis.CacheTTL(30*time.Second))
 //
 // For advanced customization of the underlying Redigo client, use the DialOptions or Pool
-// options with NewRedisFeatureStoreWithDefaults. Note that some Redis client features can
+// options with NewRedisFeatureStoreFactory. Note that some Redis client features can
 // also be specified as part of the URL: Redigo supports the redis:// syntax
 // (https://www.iana.org/assignments/uri-schemes/prov/redis), which can include a password
 // and a database number, as well as rediss:// (https://www.iana.org/assignments/uri-schemes/prov/rediss),
@@ -36,13 +36,12 @@ package redis
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"time"
 
 	r "github.com/garyburd/redigo/redis"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/utils"
 )
 
@@ -62,25 +61,34 @@ const (
 	DefaultCacheTTL = 15 * time.Second
 )
 
+type redisFeatureStoreOptions struct {
+	prefix      string
+	pool        *r.Pool
+	redisURL    string
+	dialOptions []r.DialOption
+	cacheTTL    time.Duration
+	logger      ld.Logger
+}
+
 // FeatureStoreOption is the interface for optional configuration parameters that can be
-// passed to NewRedisFeatureStoreWithDefaults. These include UseConfig, Prefix, CacheTTL, and UseLogger.
+// passed to NewRedisFeatureStoreFactory. These include UseConfig, Prefix, CacheTTL, and UseLogger.
 type FeatureStoreOption interface {
-	apply(store *redisFeatureStoreCore) error
+	apply(opts *redisFeatureStoreOptions) error
 }
 
 type redisURLOption struct {
 	url string
 }
 
-func (o redisURLOption) apply(store *redisFeatureStoreCore) error {
-	store.redisURL = o.url
+func (o redisURLOption) apply(opts *redisFeatureStoreOptions) error {
+	opts.redisURL = o.url
 	return nil
 }
 
-// URL creates an option for NewRedisFeatureStoreWithDefaults to specify the Redis host URL.
+// URL creates an option for NewRedisFeatureStoreFactory to specify the Redis host URL.
 // If not specified, the default value is DefaultURL.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.URL("redis://my-redis-host:6379"))
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.URL("redis://my-redis-host:6379"))
 //
 // Note that some Redis client features can also be specified as part of the URL: Redigo supports
 // the redis:// syntax (https://www.iana.org/assignments/uri-schemes/prov/redis), which can include a
@@ -93,7 +101,7 @@ func URL(url string) FeatureStoreOption {
 // HostAndPort creates an option for NewRedisFeatureStoreWithDefaults to specify the Redis host
 // address as a hostname and port.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.HostAndPort("my-redis-host", 6379))
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.HostAndPort("my-redis-host", 6379))
 func HostAndPort(host string, port int) FeatureStoreOption {
 	return redisURLOption{fmt.Sprintf("redis://%s:%d", host, port)}
 }
@@ -102,17 +110,17 @@ type redisPoolOption struct {
 	pool *r.Pool
 }
 
-func (o redisPoolOption) apply(store *redisFeatureStoreCore) error {
-	store.pool = o.pool
+func (o redisPoolOption) apply(opts *redisFeatureStoreOptions) error {
+	opts.pool = o.pool
 	return nil
 }
 
-// Pool creates an option for NewRedisFeatureStoreWithDefaults to make the feature store
+// Pool creates an option for NewRedisFeatureStoreFactory to make the feature store
 // use a specific connection pool configuration. If not specified, it will create a default
 // configuration (see package description). Specifying this option will cause any address
 // specified with RedisURL or RedisHostAndPort to be ignored.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.Pool(myPool))
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.Pool(myPool))
 //
 // If you only need to change basic connection options such as providing a password, it is
 // simpler to use DialOptions.
@@ -124,20 +132,20 @@ type prefixOption struct {
 	prefix string
 }
 
-func (o prefixOption) apply(store *redisFeatureStoreCore) error {
+func (o prefixOption) apply(opts *redisFeatureStoreOptions) error {
 	if o.prefix == "" {
-		store.prefix = DefaultPrefix
+		opts.prefix = DefaultPrefix
 	} else {
-		store.prefix = o.prefix
+		opts.prefix = o.prefix
 	}
 	return nil
 }
 
-// Prefix creates an option for NewRedisFeatureStoreWithDefaults to specify a string
+// Prefix creates an option for NewRedisFeatureStoreFactory to specify a string
 // that should be prepended to all Redis keys used by the feature store. A colon will be
 // added to this automatically. If this is unspecified or empty, DefaultPrefix will be used.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.Prefix("ld-data"))
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.Prefix("ld-data"))
 func Prefix(prefix string) FeatureStoreOption {
 	return prefixOption{prefix}
 }
@@ -146,17 +154,23 @@ type cacheTTLOption struct {
 	cacheTTL time.Duration
 }
 
-func (o cacheTTLOption) apply(store *redisFeatureStoreCore) error {
-	store.cacheTTL = o.cacheTTL
+func (o cacheTTLOption) apply(opts *redisFeatureStoreOptions) error {
+	opts.cacheTTL = o.cacheTTL
 	return nil
 }
 
-// CacheTTL creates an option for NewRedisFeatureStoreWithDefaults to set the amount of time
+// CacheTTL creates an option for NewRedisFeatureStoreFactory to set the amount of time
 // that recently read or updated items should remain in an in-memory cache. This reduces the
-// amount of database access if the same feature flags are being evaluated repeatedly. If it
-// is zero, there will be no in-memory caching. The default value is DefaultCacheTTL.
+// amount of database access if the same feature flags are being evaluated repeatedly.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.CacheTTL(30*time.Second))
+// The default value is DefaultCacheTTL. A value of zero disables in-memory caching completely.
+// A negative value means data is cached forever (i.e. it will only be read again from the
+// database if the SDK is restarted). Use the "cached forever" mode with caution: it means
+// that in a scenario where multiple processes are sharing the database, and the current
+// process loses connectivity to LaunchDarkly while other processes are still receiving
+// updates and writing them to the database, the current process will have stale data.
+//
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.CacheTTL(30*time.Second))
 func CacheTTL(ttl time.Duration) FeatureStoreOption {
 	return cacheTTLOption{ttl}
 }
@@ -165,15 +179,17 @@ type loggerOption struct {
 	logger ld.Logger
 }
 
-func (o loggerOption) apply(store *redisFeatureStoreCore) error {
-	store.logger = o.logger
+func (o loggerOption) apply(opts *redisFeatureStoreOptions) error {
+	opts.logger = o.logger
 	return nil
 }
 
-// Logger creates an option for NewDynamoDBFeatureStore, to specify where to send log output.
-// If not specified, a log.Logger is used.
+// Logger creates an option for NewRedisFeatureStore, to specify where to send log output.
 //
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.Logger(myLogger))
+// If you use NewConsulFeatureStoreFactory rather than the deprecated constructors, you do not
+// need to specify a logger because it will use the same logging configuration as the SDK client.
+//
+//     store, err := redis.NewRedisFeatureStore(redis.Logger(myLogger))
 func Logger(logger ld.Logger) FeatureStoreOption {
 	return loggerOption{logger}
 }
@@ -182,19 +198,19 @@ type redisDialOptionsOption struct {
 	options []r.DialOption
 }
 
-func (o redisDialOptionsOption) apply(store *redisFeatureStoreCore) error {
-	store.dialOptions = append(store.dialOptions, o.options...)
+func (o redisDialOptionsOption) apply(opts *redisFeatureStoreOptions) error {
+	opts.dialOptions = append(opts.dialOptions, o.options...)
 	return nil
 }
 
-// DialOptions creates an option for NewRedisFeatureStoreWithDefaults to specify any of the
+// DialOptions creates an option for NewRedisFeatureStoreFactory to specify any of the
 // advanced Redis connection options supported by Redigo, such as DialPassword.
 //
 //     import (
 //         redigo "github.com/garyburd/redigo/redis"
 //         "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 //     )
-//     store, err := redis.NewRedisFeatureStoreWithDefaults(redis.DialOption(redigo.DialPassword("verysecure123")))
+//     factory, err := redis.NewRedisFeatureStoreFactory(redis.DialOption(redigo.DialPassword("verysecure123")))
 //
 // Note that some Redis client features can also be specified as part of the URL: see comments
 // on the URL() option.
@@ -213,13 +229,10 @@ type RedisFeatureStore struct { // nolint:golint // package name in type name
 // as the outermost object, is a historical one: the NewRedisFeatureStore constructors had already
 // been defined as returning *RedisFeatureStore rather than the interface type.
 type redisFeatureStoreCore struct {
-	prefix      string
-	pool        *r.Pool
-	redisURL    string
-	dialOptions []r.DialOption
-	cacheTTL    time.Duration
-	logger      ld.Logger
-	testTxHook  func()
+	options    redisFeatureStoreOptions
+	loggers    ldlog.Loggers
+	pool       *r.Pool
+	testTxHook func()
 }
 
 func newPool(url string, dialOptions []r.DialOption) *r.Pool {
@@ -247,7 +260,7 @@ const initedKey = "$inited"
 // The "prefix", "timeout", and "logger" parameters are equivalent to the Prefix, CacheTTL, and
 // Logger options for NewRedisFeatureStoreWithDefaults.
 //
-// Deprecated: It is simpler to use NewRedisFeatureStoreWithDefaults(redis.URL(url)) and override
+// Deprecated: It is simpler to use NewRedisFeatureStoreFactory(redis.URL(url)) and override
 // any other defaults as needed.
 func NewRedisFeatureStoreFromUrl(url, prefix string, timeout time.Duration, logger ld.Logger) *RedisFeatureStore {
 	return newStoreForDeprecatedConstructors(URL(url), Prefix(prefix), CacheTTL(timeout), Logger(logger))
@@ -257,7 +270,7 @@ func NewRedisFeatureStoreFromUrl(url, prefix string, timeout time.Duration, logg
 // redigo pool configuration. The "prefix", "timeout", and "logger" parameters are equivalent to
 // the Prefix, CacheTTL, and Logger options for NewRedisFeatureStoreWithDefaults.
 //
-// Deprecated: It is simpler to use NewRedisFeatureStoreWithDefaults(redis.Pool(pool)) and override
+// Deprecated: It is simpler to use NewRedisFeatureStoreFactory(redis.Pool(pool)) and override
 // any other defaults as needed.
 func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Duration, logger ld.Logger) *RedisFeatureStore {
 	return newStoreForDeprecatedConstructors(Pool(pool), Prefix(prefix), CacheTTL(timeout), Logger(logger))
@@ -268,57 +281,90 @@ func NewRedisFeatureStoreWithPool(pool *r.Pool, prefix string, timeout time.Dura
 // The "prefix", "timeout", and "logger" parameters are equivalent to the Prefix, CacheTTL, and
 // Logger options for NewRedisFeatureStoreWithDefaults.
 //
-// Deprecated: It is simpler to use NewRedisFeatureStoreWithDefaults(redis.HostAndPort(host, port))
+// Deprecated: It is simpler to use NewRedisFeatureStoreFactory(redis.HostAndPort(host, port))
 // and override any other defaults as needed.
 func NewRedisFeatureStore(host string, port int, prefix string, timeout time.Duration, logger ld.Logger) *RedisFeatureStore {
 	return newStoreForDeprecatedConstructors(HostAndPort(host, port), Prefix(prefix), CacheTTL(timeout), Logger(logger))
 }
 
-// NewRedisFeatureStoreWithDefaults constructs a new Redis-backed feature store
+// NewRedisFeatureStoreWithDefaults constructs a new Redis-backed feature store.
 //
 // By default, it uses DefaultURL as the Redis address, DefaultPrefix as the prefix for all keys,
 // DefaultCacheTTL as the duration for in-memory caching, no authentication and a default connection
 // pool configuration (see package description for details). You may override any of these with
 // FeatureStoreOption values created with RedisURL, RedisHostAndPort, RedisPool, Prefix, CacheTTL,
 // Logger, or Auth.
+//
+// Deprecated: Use NewRedisFeatureStoreFactory instead
 func NewRedisFeatureStoreWithDefaults(options ...FeatureStoreOption) (ld.FeatureStore, error) {
-	core, err := newRedisFeatureStoreInternal(options...)
+	factory, err := NewRedisFeatureStoreFactory(options...)
 	if err != nil {
 		return nil, err
 	}
-	return utils.NewFeatureStoreWrapper(core), nil
+	return factory(ld.Config{})
+}
+
+// NewRedisFeatureStoreFactory returns a factory function for a Redis-backed feature store.
+//
+// By default, it uses DefaultURL as the Redis address, DefaultPrefix as the prefix for all keys,
+// DefaultCacheTTL as the duration for in-memory caching, no authentication and a default connection
+// pool configuration (see package description for details). You may override any of these with
+// FeatureStoreOption values created with RedisURL, RedisHostAndPort, RedisPool, Prefix, CacheTTL,
+// Logger, or Auth.
+//
+// Set the FeatureStoreFactory field in your Config to the returned value. Because this is specified
+// as a factory function, the Redis client is not actually created until you create the SDK client.
+// This also allows it to use the same logging configuration as the SDK, so you do not have to
+// specify the Logger option separately.
+func NewRedisFeatureStoreFactory(options ...FeatureStoreOption) (ld.FeatureStoreFactory, error) {
+	configuredOptions, err := validateOptions(options...)
+	if err != nil {
+		return nil, err
+	}
+	return func(ldConfig ld.Config) (ld.FeatureStore, error) {
+		core := newRedisFeatureStoreInternal(configuredOptions, ldConfig)
+		return utils.NewFeatureStoreWrapperWithConfig(core, ldConfig), nil
+	}, nil
 }
 
 func newStoreForDeprecatedConstructors(options ...FeatureStoreOption) *RedisFeatureStore {
-	core, err := newRedisFeatureStoreInternal(options...)
+	configuredOptions, err := validateOptions(options...)
 	if err != nil {
 		return nil
 	}
-	return &RedisFeatureStore{wrapper: utils.NewFeatureStoreWrapper(core)}
+	core := newRedisFeatureStoreInternal(configuredOptions, ld.Config{})
+	return &RedisFeatureStore{wrapper: utils.NewFeatureStoreWrapperWithConfig(core, ld.Config{})}
 }
 
-func newRedisFeatureStoreInternal(options ...FeatureStoreOption) (*redisFeatureStoreCore, error) {
-	core := redisFeatureStoreCore{
+func validateOptions(options ...FeatureStoreOption) (redisFeatureStoreOptions, error) {
+	ret := redisFeatureStoreOptions{
 		prefix:   DefaultPrefix,
 		redisURL: DefaultURL,
 		cacheTTL: DefaultCacheTTL,
 	}
 	for _, o := range options {
-		err := o.apply(&core)
+		err := o.apply(&ret)
 		if err != nil {
-			return nil, err
+			return ret, err
 		}
 	}
+	return ret, nil
+}
 
-	if core.logger == nil {
-		core.logger = defaultLogger()
+func newRedisFeatureStoreInternal(configuredOptions redisFeatureStoreOptions, ldConfig ld.Config) *redisFeatureStoreCore {
+	core := &redisFeatureStoreCore{
+		options: configuredOptions,
+		pool:    configuredOptions.pool,
+		loggers: ldConfig.Loggers, // copied by value so we can modify it
 	}
+	core.loggers.SetBaseLogger(configuredOptions.logger) // has no effect if it is nil
+	core.loggers.SetPrefix("RedisFeatureStore:")
+
 	if core.pool == nil {
-		core.logger.Printf("RedisFeatureStore: Using url: %s", core.redisURL)
-		core.pool = newPool(core.redisURL, core.dialOptions)
+		core.loggers.Infof("Using url: %s", configuredOptions.redisURL)
+		core.pool = newPool(configuredOptions.redisURL, configuredOptions.dialOptions)
 	}
-
-	return &core, nil
+	return core
 }
 
 // Get returns an individual object of a given type from the store
@@ -355,7 +401,7 @@ func (store *RedisFeatureStore) Initialized() bool {
 // caching behavior if necessary.
 
 func (store *redisFeatureStoreCore) GetCacheTTL() time.Duration {
-	return store.cacheTTL
+	return store.options.cacheTTL
 }
 
 func (store *redisFeatureStoreCore) GetInternal(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
@@ -366,7 +412,7 @@ func (store *redisFeatureStoreCore) GetInternal(kind ld.VersionedDataKind, key s
 
 	if err != nil {
 		if err == r.ErrNil {
-			store.logger.Printf("RedisFeatureStore: DEBUG: Key: %s not found in \"%s\"", key, kind.GetNamespace())
+			store.loggers.Debugf("Key: %s not found in \"%s\"", key, kind.GetNamespace())
 			return nil, nil
 		}
 		return nil, err
@@ -374,7 +420,7 @@ func (store *redisFeatureStoreCore) GetInternal(kind ld.VersionedDataKind, key s
 
 	item, jsonErr := utils.UnmarshalItem(kind, []byte(jsonStr))
 	if jsonErr != nil {
-		return nil, jsonErr
+		return nil, fmt.Errorf("failed to unmarshal %s key %s: %s", kind, key, jsonErr)
 	}
 	return item, nil
 }
@@ -395,7 +441,7 @@ func (store *redisFeatureStoreCore) GetAllInternal(kind ld.VersionedDataKind) (m
 		item, jsonErr := utils.UnmarshalItem(kind, []byte(v))
 
 		if jsonErr != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to unmarshal %s: %s", kind, err)
 		}
 
 		results[k] = item
@@ -419,7 +465,7 @@ func (store *redisFeatureStoreCore) InitInternal(allData map[ld.VersionedDataKin
 			data, jsonErr := json.Marshal(v)
 
 			if jsonErr != nil {
-				return jsonErr
+				return fmt.Errorf("failed to marshal %s key %s: %s", kind, k, jsonErr)
 			}
 
 			_ = c.Send("HSET", baseKey, k, data)
@@ -459,12 +505,18 @@ func (store *redisFeatureStoreCore) UpsertInternal(kind ld.VersionedDataKind, ne
 		}
 
 		if oldItem != nil && oldItem.GetVersion() >= newItem.GetVersion() {
+			updateOrDelete := "update"
+			if newItem.IsDeleted() {
+				updateOrDelete = "delete"
+			}
+			store.loggers.Debugf(`Attempted to %s key: %s version: %d in "%s" with a version that is the same or older: %d`,
+				updateOrDelete, key, oldItem.GetVersion(), kind.GetNamespace(), newItem.GetVersion())
 			return oldItem, nil
 		}
 
 		data, jsonErr := json.Marshal(newItem)
 		if jsonErr != nil {
-			return nil, jsonErr
+			return nil, fmt.Errorf("failed to marshal %s key %s: %s", kind, key, jsonErr)
 		}
 
 		_ = c.Send("MULTI")
@@ -475,7 +527,7 @@ func (store *redisFeatureStoreCore) UpsertInternal(kind ld.VersionedDataKind, ne
 			if err == nil {
 				if result == nil {
 					// if exec returned nothing, it means the watch was triggered and we should retry
-					store.logger.Printf("RedisFeatureStore: DEBUG: Concurrent modification detected, retrying")
+					store.loggers.Debug("Concurrent modification detected, retrying")
 					continue
 				}
 			}
@@ -492,18 +544,21 @@ func (store *redisFeatureStoreCore) InitializedInternal() bool {
 	return inited
 }
 
+func (store *redisFeatureStoreCore) IsStoreAvailable() bool {
+	c := store.getConn()
+	defer c.Close() // nolint:errcheck
+	_, err := r.Bool(c.Do("EXISTS", store.initedKey()))
+	return err == nil
+}
+
 func (store *redisFeatureStoreCore) featuresKey(kind ld.VersionedDataKind) string {
-	return store.prefix + ":" + kind.GetNamespace()
+	return store.options.prefix + ":" + kind.GetNamespace()
 }
 
 func (store *redisFeatureStoreCore) initedKey() string {
-	return store.prefix + ":" + initedKey
+	return store.options.prefix + ":" + initedKey
 }
 
 func (store *redisFeatureStoreCore) getConn() r.Conn {
 	return store.pool.Get()
-}
-
-func defaultLogger() *log.Logger {
-	return log.New(os.Stderr, "[LaunchDarkly]", log.LstdFlags)
 }
