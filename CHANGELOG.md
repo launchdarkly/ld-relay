@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.8.1] - 2019-11-05
+### Fixed:
+- The `README` incorrectly referred to an environment variable as `DYNAMODB_ENABLED` when it is really `USE_DYNAMODB`. (Thanks, [estraph](https://github.com/launchdarkly/ld-relay/pull/79)!)
+- Updated the Alpine base image in the Docker build because some packages in the old image had vulnerabilities. This was previously thought to have been completed in Relay 5.7.0, however, the initial attempt at this version bump was incomplete.
+
 ## [5.8.0] - 2019-10-11
 ### Added:
 - It is now possible to specify an infinite cache TTL for persistent feature stores by setting the cache TTL to a negative number, in which case the persistent store will never be read unless Relay restarts. See "Persistent storage" in `README.md`.
