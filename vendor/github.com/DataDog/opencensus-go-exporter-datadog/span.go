@@ -8,39 +8,39 @@ package datadog
 import (
 	"encoding/binary"
 	"fmt"
+	"net/http"
 	"strconv"
 
 	"go.opencensus.io/trace"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
 )
 
-// canonicalCodes maps (*trace.SpanData).Status.Code to their description. See:
+// statusCodes maps (*trace.SpanData).Status.Code to their message and http status code. See:
 // https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto.
-var canonicalCodes = [...]string{
-	"ok",
-	"cancelled",
-	"unknown",
-	"invalid_argument",
-	"deadline_exceeded",
-	"not_found",
-	"already_exists",
-	"permission_denied",
-	"resource_exhausted",
-	"failed_precondition",
-	"aborted",
-	"out_of_range",
-	"unimplemented",
-	"internal",
-	"unavailable",
-	"data_loss",
-	"unauthenticated",
+var statusCodes = map[int32]codeDetails{
+	trace.StatusCodeOK:                 {message: "OK", status: http.StatusOK},
+	trace.StatusCodeCancelled:          {message: "CANCELLED", status: 499},
+	trace.StatusCodeUnknown:            {message: "UNKNOWN", status: http.StatusInternalServerError},
+	trace.StatusCodeInvalidArgument:    {message: "INVALID_ARGUMENT", status: http.StatusBadRequest},
+	trace.StatusCodeDeadlineExceeded:   {message: "DEADLINE_EXCEEDED", status: http.StatusGatewayTimeout},
+	trace.StatusCodeNotFound:           {message: "NOT_FOUND", status: http.StatusNotFound},
+	trace.StatusCodeAlreadyExists:      {message: "ALREADY_EXISTS", status: http.StatusConflict},
+	trace.StatusCodePermissionDenied:   {message: "PERMISSION_DENIED", status: http.StatusForbidden},
+	trace.StatusCodeResourceExhausted:  {message: "RESOURCE_EXHAUSTED", status: http.StatusTooManyRequests},
+	trace.StatusCodeFailedPrecondition: {message: "FAILED_PRECONDITION", status: http.StatusBadRequest},
+	trace.StatusCodeAborted:            {message: "ABORTED", status: http.StatusConflict},
+	trace.StatusCodeOutOfRange:         {message: "OUT_OF_RANGE", status: http.StatusBadRequest},
+	trace.StatusCodeUnimplemented:      {message: "UNIMPLEMENTED", status: http.StatusNotImplemented},
+	trace.StatusCodeInternal:           {message: "INTERNAL", status: http.StatusInternalServerError},
+	trace.StatusCodeUnavailable:        {message: "UNAVAILABLE", status: http.StatusServiceUnavailable},
+	trace.StatusCodeDataLoss:           {message: "DATA_LOSS", status: http.StatusNotImplemented},
+	trace.StatusCodeUnauthenticated:    {message: "UNAUTHENTICATED", status: http.StatusUnauthorized},
 }
 
-func canonicalCodeString(code int32) string {
-	if code < 0 || int(code) >= len(canonicalCodes) {
-		return "error code " + strconv.FormatInt(int64(code), 10)
-	}
-	return canonicalCodes[code]
+// codeDetails specifies information about a trace status code.
+type codeDetails struct {
+	message string // status message
+	status  int    // corresponding HTTP status code
 }
 
 // convertSpan takes an OpenCensus span and returns a Datadog span.
@@ -49,31 +49,56 @@ func (e *traceExporter) convertSpan(s *trace.SpanData) *ddSpan {
 	span := &ddSpan{
 		TraceID:  binary.BigEndian.Uint64(s.SpanContext.TraceID[8:]),
 		SpanID:   binary.BigEndian.Uint64(s.SpanContext.SpanID[:]),
-		Name:     s.Name,
+		Name:     "opencensus",
 		Resource: s.Name,
 		Service:  e.opts.Service,
 		Start:    startNano,
 		Duration: s.EndTime.UnixNano() - startNano,
-		Metrics:  map[string]float64{samplingPriorityKey: ext.PriorityAutoKeep},
+		Metrics:  map[string]float64{},
 		Meta:     map[string]string{},
 	}
 	if s.ParentSpanID != (trace.SpanID{}) {
 		span.ParentID = binary.BigEndian.Uint64(s.ParentSpanID[:])
 	}
+
+	code, ok := statusCodes[s.Status.Code]
+	if !ok {
+		code = codeDetails{
+			message: "ERR_CODE_" + strconv.FormatInt(int64(s.Status.Code), 10),
+			status:  http.StatusInternalServerError,
+		}
+	}
+
 	switch s.SpanKind {
 	case trace.SpanKindClient:
 		span.Type = "client"
+		if code.status/100 == 4 {
+			span.Error = 1
+		}
 	case trace.SpanKindServer:
 		span.Type = "server"
+		fallthrough
+	default:
+		if code.status/100 == 5 {
+			span.Error = 1
+		}
 	}
-	statusKey := statusDescriptionKey
-	if code := s.Status.Code; code != 0 {
-		statusKey = ext.ErrorMsg
-		span.Error = 1
-		span.Meta[ext.ErrorType] = canonicalCodeString(s.Status.Code)
+
+	if span.Error == 1 {
+		span.Meta[ext.ErrorType] = code.message
+		if msg := s.Status.Message; msg != "" {
+			span.Meta[ext.ErrorMsg] = msg
+		}
 	}
+
+	span.Meta[keyStatusCode] = strconv.Itoa(int(s.Status.Code))
+	span.Meta[keyStatus] = code.message
 	if msg := s.Status.Message; msg != "" {
-		span.Meta[statusKey] = msg
+		span.Meta[keyStatusDescription] = msg
+	}
+
+	for key, val := range e.opts.GlobalTags {
+		setTag(span, key, val)
 	}
 	for key, val := range s.Attributes {
 		setTag(span, key, val)
@@ -82,8 +107,12 @@ func (e *traceExporter) convertSpan(s *trace.SpanData) *ddSpan {
 }
 
 const (
-	samplingPriorityKey  = "_sampling_priority_v1"
-	statusDescriptionKey = "opencensus.status_description"
+	keySamplingPriority     = "_sampling_priority_v1"
+	keyStatusDescription    = "opencensus.status_description"
+	keyStatusCode           = "opencensus.status_code"
+	keyStatus               = "opencensus.status"
+	keySpanName             = "span.name"
+	keySamplingPriorityRate = "_sampling_priority_rate_v1"
 )
 
 func setTag(s *ddSpan, key string, val interface{}) {
@@ -94,23 +123,29 @@ func setTag(s *ddSpan, key string, val interface{}) {
 	switch v := val.(type) {
 	case string:
 		setStringTag(s, key, v)
-		return
 	case bool:
 		if v {
-			s.Meta[key] = "true"
+			setStringTag(s, key, "true")
 		} else {
-			s.Meta[key] = "false"
+			setStringTag(s, key, "false")
 		}
+	case float64:
+		setMetric(s, key, v)
 	case int64:
-		if key == ext.SamplingPriority {
-			s.Metrics[samplingPriorityKey] = float64(v)
-		} else {
-			s.Metrics[key] = float64(v)
-		}
+		setMetric(s, key, float64(v))
 	default:
 		// should never happen according to docs, nevertheless
 		// we should account for this to avoid exceptions
-		s.Meta[key] = fmt.Sprintf("%v", v)
+		setStringTag(s, key, fmt.Sprintf("%v", v))
+	}
+}
+
+func setMetric(s *ddSpan, key string, v float64) {
+	switch key {
+	case ext.SamplingPriority:
+		s.Metrics[keySamplingPriority] = v
+	default:
+		s.Metrics[key] = v
 	}
 }
 
@@ -122,6 +157,14 @@ func setStringTag(s *ddSpan, key, v string) {
 		s.Resource = v
 	case ext.SpanType:
 		s.Type = v
+	case ext.AnalyticsEvent:
+		if v != "false" {
+			setMetric(s, ext.EventSampleRate, 1)
+		} else {
+			setMetric(s, ext.EventSampleRate, 0)
+		}
+	case keySpanName:
+		s.Name = v
 	default:
 		s.Meta[key] = v
 	}
