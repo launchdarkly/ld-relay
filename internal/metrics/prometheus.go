@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"go.opencensus.io/exporter/prometheus"
+	"contrib.go.opencensus.io/exporter/prometheus"
 	"go.opencensus.io/stats/view"
 
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"

@@ -14,7 +14,10 @@ func init() {
 
 func registerDatadogExporter(options ExporterOptions) error {
 	o := options.(DatadogOptions)
-	exporter := datadog.NewExporter(datadog.Options{Namespace: o.Prefix, Service: o.Prefix, TraceAddr: o.TraceAddr, StatsAddr: o.StatsAddr, Tags: o.Tags})
+	exporter, err := datadog.NewExporter(datadog.Options{Namespace: o.Prefix, Service: o.Prefix, TraceAddr: o.TraceAddr, StatsAddr: o.StatsAddr, Tags: o.Tags})
+	if err != nil {
+		return err
+	}
 	view.RegisterExporter(exporter)
 	trace.RegisterExporter(exporter)
 	return nil
