@@ -1,4 +1,4 @@
-// Copyright 2018, OpenCensus Authors
+// Copyright 2019, OpenCensus Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal // import "go.opencensus.io/stats/internal"
+package metricexport
 
-const (
-	MaxNameLength = 255
+import (
+	"context"
+
+	"go.opencensus.io/metric/metricdata"
 )
 
-func IsPrintable(str string) bool {
-	for _, r := range str {
-		if !(r >= ' ' && r <= '~') {
-			return false
-		}
-	}
-	return true
+// Exporter is an interface that exporters implement to export the metric data.
+type Exporter interface {
+	ExportMetrics(ctx context.Context, data []*metricdata.Metric) error
 }
