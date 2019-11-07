@@ -1,6 +1,6 @@
 # This is the Dockerfile used for release (published to dockerhub by goreleaser)
 
-FROM alpine:3.7
+FROM alpine:3.10.2
 
 RUN apk add --no-cache \
     curl \
@@ -15,11 +15,8 @@ RUN addgroup -g 1000 -S ldr-user && \
     mkdir /ldr && \
     chown 1000:1000 /ldr
 
-COPY docker-entrypoint.sh /usr/bin/
-
-ENTRYPOINT ["docker-entrypoint.sh"]
-
 USER 1000
 
 EXPOSE 8030
-CMD ["/usr/bin/ldr", "--config", "/ldr/ld-relay.conf"]
+ENV PORT=8030
+ENTRYPOINT ["/usr/bin/ldr", "--config", "/ldr/ld-relay.conf", "--allow-missing-file", "--from-env"]

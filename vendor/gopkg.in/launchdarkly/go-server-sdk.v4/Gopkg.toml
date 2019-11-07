@@ -30,10 +30,6 @@
   version = "3.5.1"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/facebookgo/httpcontrol"
-
-[[constraint]]
   name = "github.com/garyburd/redigo"
   version = "1.4.0"
 
@@ -43,7 +39,7 @@
 
 [[constraint]]
   name = "github.com/launchdarkly/eventsource"
-  version = "1.0.0"
+  version = "1.1.0"
 
 [[constraint]]
   name = "github.com/patrickmn/go-cache"

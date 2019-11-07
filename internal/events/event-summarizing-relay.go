@@ -8,25 +8,31 @@ import (
 	"time"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 )
 
 type eventSummarizingRelay struct {
 	eventProcessor ld.EventProcessor
 	featureStore   ld.FeatureStore
+	loggers        ldlog.Loggers
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventSummarizingRelay {
+func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore,
+	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
 	ldConfig := ld.DefaultConfig
 	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
 	ldConfig.Capacity = config.Capacity
 	ldConfig.InlineUsersInEvents = config.InlineUsers
 	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
+	ldConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
+	ldConfig.Loggers = loggers
 	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
 		featureStore:   featureStore,
+		loggers:        loggers,
 	}
 }
 
@@ -37,7 +43,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 		if err == nil {
 			evt, err := er.translateEvent(rawEvent, fields, schemaVersion)
 			if err != nil {
-				logging.Error.Printf("Error in event processing, event was discarded: %+v", err)
+				er.loggers.Errorf("Error in event processing, event was discarded: %+v", err)
 			}
 			if evt != nil {
 				er.eventProcessor.SendEvent(evt)
@@ -73,15 +79,13 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 				if schemaVersion == 1 {
 					for i, value := range flag.Variations {
 						if reflect.DeepEqual(value, e.Value) {
-							e.Variation = &i
+							n := i
+							e.Variation = &n
 							break
 						}
 					}
 				}
 			}
-		}
-		if err != nil {
-			return nil, err
 		}
 		return e, nil
 	case ld.CustomEventKind:

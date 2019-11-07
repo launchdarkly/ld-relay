@@ -7,6 +7,7 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
 type testPublisher struct {
@@ -25,12 +26,15 @@ func (p *testPublisher) PublishComment(channels []string, text string) {
 func (p *testPublisher) Register(channel string, repo es.Repository) {}
 
 func TestRelayFeatureStore(t *testing.T) {
+	loggers := ldlog.Loggers{}
+	loggers.SetMinLevel(ldlog.None)
+
 	t.Run("init", func(t *testing.T) {
 		baseStore := ld.NewInMemoryFeatureStore(nil)
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		store.Init(nil)
 		emptyDataMap := map[string]ld.VersionedData{}
@@ -47,7 +51,7 @@ func TestRelayFeatureStore(t *testing.T) {
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		store.Delete(ld.Features, "my-flag", 1)
 		assert.EqualValues(t, []es.Event{deleteEvent{Path: "/flags/my-flag", Version: 1}}, allPublisher.events)
@@ -61,7 +65,7 @@ func TestRelayFeatureStore(t *testing.T) {
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		newFlag := ld.FeatureFlag{Key: "my-new-flag", Version: 1}
 		store.Upsert(ld.Features, &newFlag)
@@ -79,7 +83,7 @@ func TestRelayFeatureStore(t *testing.T) {
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		updatedFlag := ld.FeatureFlag{Key: "my-flag", Version: 2}
 		store.Upsert(ld.Features, &updatedFlag)
@@ -97,7 +101,7 @@ func TestRelayFeatureStore(t *testing.T) {
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		staleFlag := ld.FeatureFlag{Key: "my-flag", Version: 1}
 		store.Upsert(ld.Features, &staleFlag)
@@ -120,7 +124,7 @@ func TestRelayFeatureStore(t *testing.T) {
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}
 		pingPublisher := &testPublisher{}
-		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, 1)
+		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
 		staleFlag := ld.FeatureFlag{Key: "my-flag", Version: 1}
 		store.Upsert(ld.Features, &staleFlag)

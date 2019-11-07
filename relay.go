@@ -3,177 +3,40 @@ package relay
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	redigo "github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/gcfg"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
 const (
-	defaultRedisLocalTtlMs       = 30000
-	defaultPort                  = 8030
-	defaultAllowedOrigin         = "*"
-	defaultEventCapacity         = 1000
-	defaultEventsUri             = "https://events.launchdarkly.com"
-	defaultBaseUri               = "https://app.launchdarkly.com"
-	defaultStreamUri             = "https://stream.launchdarkly.com"
-	defaultHeartbeatIntervalSecs = 180
-	defaultMetricsPrefix         = "launchdarkly_relay"
-	defaultFlushIntervalSecs     = 5
-
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
-
-var (
-	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-)
-
-// EnvConfig describes an environment to be relayed
-type EnvConfig struct {
-	SdkKey             string
-	ApiKey             string // deprecated, equivalent to SdkKey
-	MobileKey          *string
-	EnvId              *string
-	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
-	TableName          string // used only if DynamoDB is enabled
-	AllowedOrigin      *[]string
-	InsecureSkipVerify bool
-}
-
-type ExporterConfig interface {
-	toOptions() metrics.ExporterOptions
-	enabled() bool
-}
-
-type DatadogConfig struct {
-	TraceAddr *string
-	StatsAddr *string
-	Tag       []string
-	CommonMetricsConfig
-}
-
-func (c DatadogConfig) toOptions() metrics.ExporterOptions {
-	return metrics.DatadogOptions{
-		TraceAddr: c.TraceAddr,
-		StatsAddr: c.StatsAddr,
-		Tags:      c.Tag,
-		Prefix:    c.getPrefix(),
-	}
-}
-
-type StackdriverConfig struct {
-	ProjectID string
-	CommonMetricsConfig
-}
-
-func (c StackdriverConfig) toOptions() metrics.ExporterOptions {
-	return metrics.StackdriverOptions{
-		ProjectID: c.ProjectID,
-		Prefix:    c.getPrefix(),
-	}
-}
-
-type PrometheusConfig struct {
-	Port int
-	CommonMetricsConfig
-}
-
-func (c PrometheusConfig) toOptions() (options metrics.ExporterOptions) {
-	return metrics.PrometheusOptions{
-		Port:   c.Port,
-		Prefix: c.getPrefix(),
-	}
-}
-
-type CommonMetricsConfig struct {
-	Enabled bool
-	Prefix  string
-}
-
-func (c CommonMetricsConfig) getPrefix() string {
-	prefix := c.Prefix
-	if prefix == "" {
-		return defaultMetricsPrefix
-	}
-	return prefix
-}
-func (c CommonMetricsConfig) enabled() bool {
-	return c.Enabled
-}
-
-// Config describes the configuration for a relay instance
-type Config struct {
-	Main struct {
-		ExitOnError            bool
-		IgnoreConnectionErrors bool
-		StreamUri              string
-		BaseUri                string
-		Port                   int
-		HeartbeatIntervalSecs  int
-	}
-	Events events.Config
-	Redis  struct {
-		Host     string
-		Port     int
-		Url      string
-		LocalTtl int
-	}
-	Consul struct {
-		Host     string
-		LocalTtl int
-	}
-	DynamoDB struct {
-		Enabled   bool
-		TableName string
-		LocalTtl  int
-	}
-	Environment map[string]*EnvConfig
-	MetricsConfig
-}
-
-type MetricsConfig struct {
-	Datadog     DatadogConfig
-	Stackdriver StackdriverConfig
-	Prometheus  PrometheusConfig
-}
-
-func (c MetricsConfig) toOptions() (options []metrics.ExporterOptions) {
-	exporterConfigs := []ExporterConfig{c.Datadog, c.Stackdriver, c.Prometheus}
-	for _, e := range exporterConfigs {
-		if e.enabled() {
-			options = append(options, e.toOptions())
-		}
-	}
-	return options
-}
 
 // InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
 func InitializeMetrics(c MetricsConfig) error {
@@ -185,47 +48,6 @@ type environmentStatus struct {
 	EnvId     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
-}
-
-var DefaultConfig = Config{
-	Events: events.Config{
-		Capacity:  defaultEventCapacity,
-		EventsUri: defaultEventsUri,
-	},
-}
-
-func init() {
-	DefaultConfig.Main.BaseUri = defaultBaseUri
-	DefaultConfig.Main.StreamUri = defaultStreamUri
-	DefaultConfig.Main.HeartbeatIntervalSecs = defaultHeartbeatIntervalSecs
-	DefaultConfig.Main.Port = defaultPort
-	DefaultConfig.Redis.LocalTtl = defaultRedisLocalTtlMs
-	DefaultConfig.Events.FlushIntervalSecs = defaultFlushIntervalSecs
-}
-
-// LoadConfigFile reads a config file into a Config struct
-func LoadConfigFile(c *Config, path string) error {
-	if err := gcfg.ReadFileInto(c, path); err != nil {
-		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
-	}
-
-	for envName, envConfig := range c.Environment {
-		if envConfig.ApiKey != "" {
-			if envConfig.SdkKey == "" {
-				envConfig.SdkKey = envConfig.ApiKey
-				c.Environment[envName] = envConfig
-				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
-			} else {
-				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
-			}
-		}
-	}
-
-	return nil
-}
-
-type corsContext interface {
-	AllowedOrigins() []string
 }
 
 // LdClientContext defines a minimal interface for a LaunchDarkly client
@@ -244,22 +66,26 @@ type clientContext interface {
 	getClient() LdClientContext
 	setClient(LdClientContext)
 	getStore() ld.FeatureStore
-	getLogger() ld.Logger
+	getLoggers() *ldlog.Loggers
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
+	getTtl() time.Duration
+	getInitError() error
 }
 
 type clientContextImpl struct {
 	mu         sync.RWMutex
 	client     LdClientContext
 	store      ld.FeatureStore
-	logger     ld.Logger
+	loggers    ldlog.Loggers
 	handlers   clientHandlers
 	sdkKey     string
 	envId      *string
 	mobileKey  *string
 	name       string
 	metricsCtx context.Context
+	ttl        time.Duration
+	initErr    error
 }
 
 // Relay relays endpoints to and from the LaunchDarkly service
@@ -275,9 +101,18 @@ type evalXResult struct {
 	Variation            *int                          `json:"variation,omitempty"`
 	Version              int                           `json:"version"`
 	DebugEventsUntilDate *uint64                       `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool                          `json:"trackEvents"`
+	TrackEvents          bool                          `json:"trackEvents,omitempty"`
+	TrackReason          bool                          `json:"trackReason,omitempty"`
 	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
 }
+
+type sdkKind string
+
+const (
+	serverSdk   sdkKind = "server"
+	jsClientSdk sdkKind = "js"
+	mobileSdk   sdkKind = "mobile"
+)
 
 func (c *clientContextImpl) getClient() LdClientContext {
 	c.mu.RLock()
@@ -295,8 +130,8 @@ func (c *clientContextImpl) getStore() ld.FeatureStore {
 	return c.store
 }
 
-func (c *clientContextImpl) getLogger() ld.Logger {
-	return c.logger
+func (c *clientContextImpl) getLoggers() *ldlog.Loggers {
+	return &c.loggers
 }
 
 func (c *clientContextImpl) getHandlers() clientHandlers {
@@ -305,6 +140,14 @@ func (c *clientContextImpl) getHandlers() clientHandlers {
 
 func (c *clientContextImpl) getMetricsCtx() context.Context {
 	return c.metricsCtx
+}
+
+func (c *clientContextImpl) getTtl() time.Duration {
+	return c.ttl
+}
+
+func (c *clientContextImpl) getInitError() error {
+	return c.initErr
 }
 
 type clientFactoryFunc func(sdkKey string, config ld.Config) (LdClientContext, error)
@@ -316,6 +159,8 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 
 // NewRelay creates a new relay given a configuration and a method to create a client
 func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
+	logging.InitLoggingWithLevel(c.Main.GetLogLevel())
+
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
 	allPublisher.AllowCORS = true
@@ -336,7 +181,7 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	}
 
 	if len(c.Environment) == 0 {
-		return nil, fmt.Errorf("you must specify at least one environment in your configuration file")
+		return nil, fmt.Errorf("you must specify at least one environment in your configuration")
 	}
 
 	baseUrl, err := url.Parse(c.Main.BaseUri)
@@ -344,8 +189,15 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
+	httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy)
+	if err != nil {
+		return nil, err
+	}
+
+	clientReadyCh := make(chan clientContext, len(c.Environment))
+
 	for envName, envConfig := range c.Environment {
-		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, allPublisher, flagsPublisher, pingPublisher)
+		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher, clientReadyCh)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
@@ -398,12 +250,36 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
 	}
-	r.Handler = r.makeHandler()
-	return &r, nil
+
+	if c.Main.ExitAlways {
+		logging.Info.Println("Running in one-shot mode - will exit immediately after initializing environments")
+		// Just wait until all clients have either started or failed, then exit without bothering
+		// to set up HTTP handlers.
+		numFinished := 0
+		failed := false
+		for numFinished < len(c.Environment) {
+			ctx := <-clientReadyCh
+			numFinished++
+			if ctx.getInitError() != nil {
+				failed = true
+			}
+		}
+		var err error
+		if failed {
+			err = errors.New("one or more environments failed to initialize")
+		}
+		return &r, err
+	} else {
+		r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
+		return &r, nil
+	}
 }
 
-func (r *Relay) makeHandler() http.Handler {
+func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	router := mux.NewRouter()
+	if withRequestLogging {
+		router.Use(logging.RequestLoggerMiddleware)
+	}
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
 	// Client-side evaluation
@@ -418,13 +294,13 @@ func (r *Relay) makeHandler() http.Handler {
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
 	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
-	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET", "OPTIONS")
-	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
 	clientSideSdkEvalXRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalXRouter))
-	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(jsClientSdk)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	serverSideMiddlewareStack := chainMiddleware(
 		r.sdkClientMux.selectClientByAuthorizationKey,
@@ -435,12 +311,17 @@ func (r *Relay) makeHandler() http.Handler {
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
-	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("GET")
-	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly))).Methods("REPORT")
+	serverSideEvalRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("GET")
+	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(serverSdk)))).Methods("REPORT")
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{user}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(serverSdk)))).Methods("REPORT")
+
+	// PHP SDK endpoints
+	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(http.HandlerFunc(pollAllFlagsHandler))).Methods("GET")
+	serverSideSdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollFlagHandler))).Methods("GET")
+	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollSegmentHandler))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
@@ -451,12 +332,12 @@ func (r *Relay) makeHandler() http.Handler {
 	msdkRouter.Use(mobileMiddlewareStack)
 
 	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly).Methods("REPORT")
+	msdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("GET")
+	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(mobileSdk)).Methods("REPORT")
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
-	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags).Methods("GET")
-	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags).Methods("REPORT")
+	msdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(mobileSdk)).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(mobileSdk)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack)
@@ -494,32 +375,54 @@ func (r *Relay) makeHandler() http.Handler {
 	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
 	serverSideRouter.HandleFunc("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
-
 	return router
 }
 
-func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc, allPublisher, flagsPublisher, pingPublisher *eventsource.Server) (*clientContextImpl, error) {
-	baseFeatureStore, err := createFeatureStore(c, envConfig)
+func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
+	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
+	readyCh chan<- clientContext) (*clientContextImpl, error) {
+
+	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig)
 	if err != nil {
 		return nil, err
 	}
-	logger := log.New(os.Stderr, fmt.Sprintf("[LaunchDarkly Relay (SdkKey ending with %s)] ", last5(envConfig.SdkKey)), log.LstdFlags)
+	logger := log.New(os.Stderr, fmt.Sprintf("[env: %s] ", envName), log.LstdFlags)
+	envLoggers := ldlog.Loggers{}
+	envLoggers.SetBaseLogger(logger)
+	if envConfig.LogLevel == "" {
+		envLoggers.SetMinLevel(c.Main.GetLogLevel())
+	} else {
+		envLoggers.SetMinLevel(envConfig.GetLogLevel())
+	}
 
 	clientConfig := ld.DefaultConfig
 	clientConfig.Stream = true
-	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher, baseFeatureStore, c.Main.HeartbeatIntervalSecs)
 	clientConfig.StreamUri = c.Main.StreamUri
 	clientConfig.BaseUri = c.Main.BaseUri
-	clientConfig.Logger = logger
+	clientConfig.Loggers = envLoggers
 	clientConfig.UserAgent = "LDRelay/" + version.Version
+	clientConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
+
+	// This is a bit awkward because the SDK now uses a factory mechanism to create feature stores - so that they can
+	// inherit the client's logging settings - but we also need to be able to access the feature store instance
+	// directly. So we're calling the factory ourselves, and still using the deprecated Config.FeatureStore property.
+	baseFeatureStore, err := baseFeatureStoreFactory(clientConfig)
+	if err != nil {
+		return nil, err
+	}
+	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher,
+		baseFeatureStore, envLoggers, c.Main.HeartbeatIntervalSecs)
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
-		logging.Info.Printf("Proxying events for environment %s", envName)
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId, c.Events, baseFeatureStore)
+		envLoggers.Info("Proxying events for this environment")
+		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId,
+			envLoggers, c.Events, httpConfig, baseFeatureStore)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, events.OptionUri(c.Events.EventsUri))
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, envLoggers,
+		events.OptionUri(c.Events.EventsUri),
+		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}
@@ -535,8 +438,9 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		sdkKey:     envConfig.SdkKey,
 		mobileKey:  envConfig.MobileKey,
 		store:      baseFeatureStore,
-		logger:     logger,
+		loggers:    envLoggers,
 		metricsCtx: m.OpenCensusCtx,
+		ttl:        time.Minute * time.Duration(envConfig.TtlMinutes),
 		handlers: clientHandlers{
 			eventDispatcher:    eventDispatcher,
 			allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
@@ -551,11 +455,15 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		clientContext.setClient(client)
 
 		if err != nil {
+			clientContext.initErr = err
 			if !c.Main.IgnoreConnectionErrors {
-				logging.Error.Printf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+				envLoggers.Errorf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 
 				if c.Main.ExitOnError {
 					os.Exit(1)
+				}
+				if readyCh != nil {
+					readyCh <- clientContext
 				}
 				return
 			}
@@ -564,32 +472,47 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		} else {
 			logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
 		}
+		if readyCh != nil {
+			readyCh <- clientContext
+		}
 	}(envName, *envConfig)
 
 	return clientContext, nil
 }
 
-func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error) {
+func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory, error) {
 	databaseSpecified := false
 	if c.Redis.Url != "" || c.Redis.Host != "" {
 		databaseSpecified = true
-		var hostOption ldr.FeatureStoreOption
-		if c.Redis.Url != "" {
-			if c.Redis.Host != "" {
+		redisURL := c.Redis.Url
+		if c.Redis.Host != "" {
+			if redisURL != "" {
 				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+			} else {
+				port := c.Redis.Port
+				if port == 0 {
+					port = 6379
+				}
+				redisURL = fmt.Sprintf("redis://%s:%d", c.Redis.Host, c.Redis.Port)
 			}
-			logging.Info.Printf("Using Redis feature store: %s with prefix: %s", c.Redis.Url, envConfig.Prefix)
-			hostOption = ldr.URL(c.Redis.Url)
-		} else {
-			port := c.Redis.Port
-			if port == 0 {
-				port = 6379
-			}
-			logging.Info.Printf("Using Redis feature store: %s:%d with prefix: %s", c.Redis.Host, port, envConfig.Prefix)
-			hostOption = ldr.HostAndPort(c.Redis.Host, port)
 		}
-		return ldr.NewRedisFeatureStoreWithDefaults(hostOption, ldr.Prefix(envConfig.Prefix),
-			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl)*time.Millisecond), ldr.Logger(logging.Info))
+		fmt.Printf("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
+		redisOptions := []ldr.FeatureStoreOption{ldr.Prefix(envConfig.Prefix),
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+		dialOptions := []redigo.DialOption{}
+		if c.Redis.Tls || (c.Redis.Password != "") {
+			if c.Redis.Tls {
+				if strings.HasPrefix(redisURL, "redis:") {
+					// Redigo's DialUseTLS option will not work if you're specifying a URL.
+					redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
+				}
+			}
+			if c.Redis.Password != "" {
+				dialOptions = append(dialOptions, redigo.DialPassword(c.Redis.Password))
+			}
+		}
+		redisOptions = append(redisOptions, ldr.URL(redisURL), ldr.DialOptions(dialOptions...))
+		return ldr.NewRedisFeatureStoreFactory(redisOptions...)
 	}
 	if c.Consul.Host != "" {
 		if databaseSpecified {
@@ -597,7 +520,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 		}
 		databaseSpecified = true
 		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
-		return ldconsul.NewConsulFeatureStore(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
+		return ldconsul.NewConsulFeatureStoreFactory(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
 			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
 	}
 	if c.DynamoDB.Enabled {
@@ -615,352 +538,8 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStore, error)
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
 		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		return lddynamodb.NewDynamoDBFeatureStore(tableName, lddynamodb.Prefix(envConfig.Prefix),
+		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
 	}
-	return ld.NewInMemoryFeatureStore(logging.Info), nil
-}
-
-type clientMux struct {
-	clientContextByKey map[string]*clientContextImpl
-}
-
-func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	envs := make(map[string]environmentStatus)
-
-	healthy := true
-	for _, clientCtx := range m.clientContextByKey {
-		var status environmentStatus
-		if clientCtx.envId != nil {
-			status.EnvId = *clientCtx.envId
-		}
-		if clientCtx.mobileKey != nil {
-			status.MobileKey = obscureKey(*clientCtx.mobileKey)
-		}
-		status.SdkKey = obscureKey(clientCtx.sdkKey)
-		client := clientCtx.getClient()
-		if client == nil || !client.Initialized() {
-			status.Status = "disconnected"
-			healthy = false
-		} else {
-			status.Status = "connected"
-		}
-		envs[clientCtx.name] = status
-	}
-
-	resp := struct {
-		Environments  map[string]environmentStatus `json:"environments"`
-		Status        string                       `json:"status"`
-		Version       string                       `json:"version"`
-		ClientVersion string                       `json:"clientVersion"`
-	}{
-		Environments:  envs,
-		Version:       version.Version,
-		ClientVersion: ld.Version,
-	}
-
-	if healthy {
-		resp.Status = "healthy"
-	} else {
-		resp.Status = "degraded"
-	}
-
-	data, _ := json.Marshal(resp)
-
-	w.Write(data)
-}
-
-func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		authKey, err := fetchAuthToken(req)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		clientCtx := m.clientContextByKey[authKey]
-
-		if clientCtx == nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("ld-relay is not configured for the provided key"))
-			return
-		}
-
-		if clientCtx.getClient() == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("client was not initialized"))
-			return
-		}
-
-		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
-		next.ServeHTTP(w, req)
-	})
-}
-
-func evaluateAllFeatureFlagsValueOnly(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, true)
-}
-
-func evaluateAllFeatureFlags(w http.ResponseWriter, req *http.Request) {
-	evaluateAllShared(w, req, false)
-}
-
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool) {
-	var user *ld.User
-	var userDecodeErr error
-	if req.Method == "REPORT" {
-		if req.Header.Get("Content-Type") != "application/json" {
-			w.WriteHeader(http.StatusUnsupportedMediaType)
-			w.Write([]byte("Content-Type must be application/json."))
-			return
-		}
-
-		body, _ := ioutil.ReadAll(req.Body)
-		userDecodeErr = json.Unmarshal(body, &user)
-	} else {
-		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = UserV2FromBase64(base64User)
-	}
-	if userDecodeErr != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
-		return
-	}
-
-	withReasons := req.URL.Query().Get("withReasons") == "true"
-
-	clientCtx := getClientContext(req)
-	client := clientCtx.getClient()
-	store := clientCtx.getStore()
-	logger := clientCtx.getLogger()
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if !client.Initialized() {
-		if store.Initialized() {
-			logger.Println("WARN: Called before client initialization; using last known values from feature store")
-		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			logger.Println("WARN: Called before client initialization. Feature store not available")
-			w.Write(util.ErrorJsonMsg("Service not initialized"))
-			return
-		}
-	}
-
-	if user.Key == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
-		return
-	}
-
-	items, err := store.All(ld.Features)
-	if err != nil {
-		logger.Printf("WARN: Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(util.ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
-		return
-	}
-
-	response := make(map[string]interface{}, len(items))
-	for _, item := range items {
-		if flag, ok := item.(*ld.FeatureFlag); ok {
-			detail, _ := flag.EvaluateDetail(*user, store, false)
-			var result interface{}
-			if valueOnly {
-				result = detail.Value
-			} else {
-				value := evalXResult{
-					Value:                detail.Value,
-					Variation:            detail.VariationIndex,
-					Version:              flag.Version,
-					TrackEvents:          flag.TrackEvents,
-					DebugEventsUntilDate: flag.DebugEventsUntilDate,
-				}
-				if withReasons {
-					value.Reason = &ld.EvaluationReasonContainer{Reason: detail.Reason}
-				}
-				result = value
-			}
-			response[flag.Key] = result
-		}
-	}
-
-	result, _ := json.Marshal(response)
-
-	w.WriteHeader(http.StatusOK)
-	w.Write(result)
-}
-
-func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
-}
-
-func allStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
-}
-
-func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
-}
-
-func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		dispatcher := clientCtx.getHandlers().eventDispatcher
-		if dispatcher == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
-			return
-		}
-		handler := dispatcher.GetHandler(endpoint)
-		if handler == nil {
-			// Note, if this ever happens, it is a programming error since we are only supposed to
-			// be using a fixed set of Endpoint values that the dispatcher knows about.
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
-			logging.Error.Printf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
-			return
-		}
-		handler(w, req)
-	}
-}
-
-func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		ctx := getClientContext(req)
-		userAgent := getUserAgent(req)
-		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
-			handler.ServeHTTP(w, req)
-		}, measure)
-	}
-}
-
-func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		ctx := getClientContext(req)
-		userAgent := getUserAgent(req)
-		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
-			handler.ServeHTTP(w, req)
-		}, measure)
-	}
-}
-
-func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
-}
-
-func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
-}
-
-func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
-	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
-}
-
-func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := getClientContext(req)
-			userAgent := getUserAgent(req)
-			// Ignoring internal routing error that would have been ignored anyway
-			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, route, req.Method, func() {
-				next.ServeHTTP(w, req)
-			}, measure)
-		})
-	}
-}
-
-// UserV2FromBase64 decodes a base64-encoded go-server-sdk v2 user.
-// If any decoding/unmarshaling errors occur or
-// the user is missing the 'key' attribute an error is returned.
-func UserV2FromBase64(base64User string) (*ld.User, error) {
-	var user ld.User
-	idStr, decodeErr := base64urlDecode(base64User)
-	if decodeErr != nil {
-		return nil, errors.New("User part of url path did not decode as valid base64")
-	}
-
-	jsonErr := json.Unmarshal(idStr, &user)
-
-	if jsonErr != nil {
-		return nil, errors.New("User part of url path did not decode to valid user as json")
-	}
-
-	if user.Key == nil {
-		return nil, errors.New("User must have a 'key' attribute")
-	}
-	return &user, nil
-}
-
-func base64urlDecode(base64String string) ([]byte, error) {
-	idStr, decodeErr := base64.URLEncoding.DecodeString(base64String)
-
-	if decodeErr != nil {
-		// base64String could be unpadded
-		// see https://github.com/golang/go/issues/4237#issuecomment-267792481
-		idStrRaw, decodeErrRaw := base64.RawURLEncoding.DecodeString(base64String)
-
-		if decodeErrRaw != nil {
-			return nil, errors.New("String did not decode as valid base64")
-		}
-
-		return idStrRaw, nil
-	}
-
-	return idStr, nil
-}
-
-func fetchAuthToken(req *http.Request) (string, error) {
-	authHdr := req.Header.Get("Authorization")
-	match := uuidHeaderPattern.FindStringSubmatch(authHdr)
-
-	// successfully matched UUID from header
-	if len(match) == 2 {
-		return match[1], nil
-	}
-
-	return "", errors.New("No valid token found")
-}
-
-func last5(str string) string {
-	if len(str) >= 5 {
-		return str[len(str)-5:]
-	}
-	return str
-}
-
-func getClientContext(req *http.Request) clientContext {
-	return req.Context().Value(contextKey).(clientContext)
-}
-
-func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		handler := next
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			handler = middlewares[i](handler)
-		}
-		return handler
-	}
-}
-
-var hexdigit = regexp.MustCompile(`[a-fA-F\d]`)
-
-func obscureKey(key string) string {
-	if len(key) > 8 {
-		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
-	}
-	return key
-}
-
-// getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
-func getUserAgent(req *http.Request) string {
-	if agent := req.Header.Get(ldUserAgentHeader); agent != "" {
-		return agent
-	}
-	return req.Header.Get(userAgentHeader)
+	return ld.NewInMemoryFeatureStoreFactory(), nil
 }

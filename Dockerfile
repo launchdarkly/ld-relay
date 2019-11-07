@@ -20,7 +20,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr ./cmd/ld-relay
 
-FROM alpine:3.7
+FROM alpine:3.10.2
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
@@ -37,11 +37,8 @@ ARG SRC_DIR=/go/src/gopkg.in/launchdarkly/ld-relay.v5
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
 
-COPY docker-entrypoint.sh /usr/bin/
-
-ENTRYPOINT ["docker-entrypoint.sh"]
-
 USER 1000
 
 EXPOSE 8030
-CMD ["/usr/bin/ldr", "--config", "/ldr/ld-relay.conf"]
+ENV PORT=8030
+ENTRYPOINT ["/usr/bin/ldr", "--config", "/ldr/ld-relay.conf", "--allow-missing-file", "--from-env"]

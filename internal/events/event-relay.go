@@ -12,12 +12,14 @@ import (
 	"time"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 
+	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
 
-// EventRelay configuration
+// EventRelay configuration - used in the config file struct in relay.go
 type Config struct {
 	EventsUri         string
 	SendEvents        bool
@@ -71,11 +73,14 @@ type EventDispatcher struct {
 
 type eventEndpointDispatcher struct {
 	config           Config
+	httpClient       *http.Client
+	httpConfig       httpconfig.HTTPConfig
 	authKey          string
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
 	summarizingRelay *eventSummarizingRelay
 	featureStore     ld.FeatureStore
+	loggers          ldlog.Loggers
 	mu               sync.Mutex
 }
 
@@ -103,7 +108,7 @@ func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *htt
 	body, bodyErr := ioutil.ReadAll(req.Body)
 
 	if bodyErr != nil {
-		logging.Error.Printf("Error reading event post body: %+v", bodyErr)
+		r.loggers.Errorf("Error reading event post body: %+v", bodyErr)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write(util.ErrorJsonMsg("unable to read request body"))
 		return
@@ -121,14 +126,14 @@ func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *htt
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				logging.Error.Printf("Unexpected panic in event relay : %+v", err)
+				r.loggers.Errorf("Unexpected panic in event relay: %+v", err)
 			}
 		}()
 
 		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
-			logging.Error.Printf("Error unmarshaling event post body: %+v", err)
+			r.loggers.Errorf("Error unmarshaling event post body: %+v", err)
 			return
 		}
 
@@ -136,6 +141,9 @@ func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *htt
 		if payloadVersion == 0 {
 			payloadVersion = 1
 		}
+		// This debug-level log message goes to logging.Debug, not to r.loggers, because it is more of a
+		// message from ld-relay itself about a client request, rather than SDK logging about requests
+		// that ld-relay makes.
 		logging.Debug.Printf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
 		if payloadVersion >= SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
@@ -150,7 +158,7 @@ func (r *eventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.remotePath)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpClient, r.loggers, r.remotePath)
 	}
 	return r.verbatimRelay
 }
@@ -159,47 +167,53 @@ func (r *eventEndpointDispatcher) getSummarizingRelay() *eventSummarizingRelay {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.featureStore, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.httpConfig, r.featureStore, r.loggers, r.remotePath)
 	}
 	return r.summarizingRelay
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
-func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, config Config, featureStore ld.FeatureStore) *EventDispatcher {
+func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers ldlog.Loggers, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore) *EventDispatcher {
+	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]*eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, featureStore, "/bulk"),
+			ServerSDKEventsEndpoint: newEventEndpointDispatcher(sdkKey, config, httpConfig, httpClient, featureStore, loggers, "/bulk"),
 		},
 	}
 	if mobileKey != nil {
-		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, featureStore, "/mobile")
+		ep.endpoints[MobileSDKEventsEndpoint] = newEventEndpointDispatcher(*mobileKey, config, httpConfig, httpClient, featureStore, loggers, "/mobile")
 	}
 	if envID != nil {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, featureStore, "/events/bulk/"+*envID)
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newEventEndpointDispatcher("", config, httpConfig, httpClient, featureStore, loggers, "/events/bulk/"+*envID)
 	}
 	return ep
 }
 
-func newEventEndpointDispatcher(authKey string, config Config, featureStore ld.FeatureStore, remotePath string) *eventEndpointDispatcher {
+func newEventEndpointDispatcher(authKey string, config Config, httpConfig httpconfig.HTTPConfig,
+	httpClient *http.Client, featureStore ld.FeatureStore, loggers ldlog.Loggers, remotePath string) *eventEndpointDispatcher {
 	return &eventEndpointDispatcher{
 		authKey:      authKey,
 		config:       config,
+		httpConfig:   httpConfig,
+		httpClient:   httpClient,
 		featureStore: featureStore,
+		loggers:      loggers,
 		remotePath:   remotePath,
 	}
 }
 
-func newEventVerbatimRelay(sdkKey string, config Config, remotePath string) *eventVerbatimRelay {
+func newEventVerbatimRelay(sdkKey string, config Config, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *eventVerbatimRelay {
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
 		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),
+		OptionClient{Client: httpClient},
 	}
 
 	if config.FlushIntervalSecs > 0 {
 		opts = append(opts, OptionFlushInterval(time.Duration(config.FlushIntervalSecs)*time.Second))
 	}
 
-	publisher, _ := NewHttpEventPublisher(sdkKey, opts...)
+	publisher, _ := NewHttpEventPublisher(sdkKey, loggers, opts...)
 
 	res := &eventVerbatimRelay{
 		config:    config,

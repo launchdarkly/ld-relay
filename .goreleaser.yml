@@ -41,16 +41,15 @@ nfpm:
         "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
 
 dockers:
-  - image: launchdarkly/ld-relay
+  - image_templates:
+    - "launchdarkly/ld-relay:{{ .Tag }}"
+    - "launchdarkly/ld-relay:v{{ .Major }}"
+    - "launchdarkly/ld-relay:latest"
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile.goreleaser
     skip_push: false
-    tag_templates:
-    - "{{ .Tag }}"
-    - "v{{ .Major }}"
-    - latest
     # If your Dockerfile copies files other than the binary itself,
     # you should list them here as well.
-    extra_files:
-    - docker-entrypoint.sh
+    # extra_files:
+    # - filename

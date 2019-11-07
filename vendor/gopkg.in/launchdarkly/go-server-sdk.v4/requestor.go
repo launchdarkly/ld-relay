@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"time"
 
-	"github.com/facebookgo/httpcontrol"
 	"github.com/gregjones/httpcache"
 )
 
@@ -24,25 +22,22 @@ type requestor struct {
 	config     Config
 }
 
-func newRequestor(sdkKey string, config Config) *requestor {
-	baseTransport := httpcontrol.Transport{
-		RequestTimeout: config.Timeout,
-		DialTimeout:    config.Timeout,
-		DialKeepAlive:  1 * time.Minute,
-		MaxTries:       3,
+func newRequestor(sdkKey string, config Config, httpClient *http.Client) *requestor {
+	var decoratedClient http.Client
+	if httpClient != nil {
+		decoratedClient = *httpClient
+	} else {
+		decoratedClient = *config.newHTTPClient()
 	}
-
-	cachingTransport := &httpcache.Transport{
+	decoratedClient.Transport = &httpcache.Transport{
 		Cache:               httpcache.NewMemoryCache(),
 		MarkCachedResponses: true,
-		Transport:           &baseTransport,
+		Transport:           decoratedClient.Transport,
 	}
-
-	httpClient := cachingTransport.Client()
 
 	httpRequestor := requestor{
 		sdkKey:     sdkKey,
-		httpClient: httpClient,
+		httpClient: &decoratedClient,
 		config:     config,
 	}
 
@@ -89,6 +84,7 @@ func (r *requestor) requestResource(kind VersionedDataKind, key string) (Version
 }
 
 func (r *requestor) makeRequest(resource string) ([]byte, bool, error) {
+	r.config.Loggers.Debug("Polling LaunchDarkly for feature flag updates")
 	req, reqErr := http.NewRequest("GET", r.config.BaseUri+resource, nil)
 	if reqErr != nil {
 		return nil, false, reqErr
