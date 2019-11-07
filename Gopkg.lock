@@ -453,9 +453,12 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:e0140c0c868c6e0f01c0380865194592c011fe521d6e12d78bfd33e756fe018a"
+  digest = "1:c4afa8e6da2fe215303a20aec68d74a9415007297d627273d60378a3c25ac2d3"
   name = "golang.org/x/sync"
-  packages = ["semaphore"]
+  packages = [
+    "semaphore",
+    "singleflight",
+  ]
   pruneopts = "UT"
   revision = "1d60e4601c6fd243af51cc01ddf169918a5407ca"
 
@@ -593,7 +596,7 @@
   version = "v1.16.1"
 
 [[projects]]
-  digest = "1:8945d090fbca98f1f3c942a61e3ef5b3800a2e43f86cc679b02404925026d977"
+  digest = "1:191abfd2b89b07667dd05bc01f4a1373d47773b53d8b50257c45a8bd873f8df1"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -607,8 +610,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "b0b4d6236d9b2bde6f6984502eef8ef53dbb0b2f"
-  version = "4.13.0"
+  revision = "a5d7cf930fe6a5f1b66d289c0eace5adce35daa7"
+  version = "4.13.1"
 
 [solve-meta]
   analyzer-name = "dep"

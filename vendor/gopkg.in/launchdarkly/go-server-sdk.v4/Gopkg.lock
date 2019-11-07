@@ -201,6 +201,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:4afdcaf2f776edc7fc481d0c4cc5a1ebae7e407076690c8c8dbab6f287c31c76"
+  name = "golang.org/x/sync"
+  packages = ["singleflight"]
+  pruneopts = "NUT"
+  revision = "cd5d95a43a6e21273425c7ae415d3df9ea832eeb"
+
+[[projects]]
+  branch = "master"
   digest = "1:9976581dd4c7206d2573fc4b118bf3251ecf7a53ae5ef9cfba451fc8d7f8060a"
   name = "golang.org/x/sys"
   packages = ["unix"]
@@ -229,6 +237,7 @@
   input-imports = [
     "github.com/aws/aws-sdk-go/aws",
     "github.com/aws/aws-sdk-go/aws/awserr",
+    "github.com/aws/aws-sdk-go/aws/credentials",
     "github.com/aws/aws-sdk-go/aws/session",
     "github.com/aws/aws-sdk-go/service/dynamodb",
     "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface",
@@ -242,6 +251,7 @@
     "github.com/patrickmn/go-cache",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
+    "golang.org/x/sync/singleflight",
     "gopkg.in/ghodss/yaml.v1",
   ]
   solver-name = "gps-cdcl"
