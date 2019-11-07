@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.13.1] - 2019-11-05
+### Fixed:
+- When using a persistent feature store (Redis, etc.), if multiple goroutines request the same flag in rapid succession when the flag data is not in the cache, the SDK will coalesce these requests so only a single database query is done.
+
+
 ## [4.13.0] - 2019-10-10
 ### Added:
 - It is now possible to specify an infinite cache TTL for persistent feature stores by passing a negative number to the `CacheTTL` option, in which case the persistent store will never be read unless the application restarts. Use this mode with caution as described in the comments for `redis.CacheTTL`, `dynamodb.CacheTTL`, etc.
