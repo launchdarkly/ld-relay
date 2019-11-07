@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	cache "github.com/patrickmn/go-cache"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/internal"
@@ -135,6 +137,7 @@ type FeatureStoreWrapper struct {
 	coreStatus    FeatureStoreCoreStatus
 	statusManager *internal.FeatureStoreStatusManager
 	cache         *cache.Cache
+	requests      singleflight.Group
 	loggers       ldlog.Loggers
 	inited        bool
 	initLock      sync.RWMutex
@@ -283,13 +286,25 @@ func (w *FeatureStoreWrapper) Get(kind ld.VersionedDataKind, key string) (ld.Ver
 			return itemOnlyIfNotDeleted(item), nil
 		}
 	}
-	// Item was not cached or cached value was not valid
-	item, err := w.core.GetInternal(kind, key)
-	w.processError(err)
-	if err == nil {
-		w.cache.Set(cacheKey, item, cache.DefaultExpiration)
+	// Item was not cached or cached value was not valid. Use singleflight to ensure that we'll only
+	// do this core query once even if multiple goroutines are requesting it
+	reqKey := fmt.Sprintf("get:%s:%s", kind.GetNamespace(), key)
+	itemIntf, err, _ := w.requests.Do(reqKey, func() (interface{}, error) {
+		item, err := w.core.GetInternal(kind, key)
+		w.processError(err)
+		if err == nil {
+			w.cache.Set(cacheKey, item, cache.DefaultExpiration)
+		}
+		return itemOnlyIfNotDeleted(item), err
+	})
+	if err != nil {
+		return nil, err
 	}
-	return itemOnlyIfNotDeleted(item), err
+	if item, ok := itemIntf.(ld.VersionedData); ok { // singleflight.Group.Do returns value as interface{}
+		return item, err
+	}
+	w.loggers.Errorf("feature store query returned unexpected type %T", itemIntf)
+	return nil, nil
 }
 
 func itemOnlyIfNotDeleted(item ld.VersionedData) ld.VersionedData {
@@ -313,13 +328,25 @@ func (w *FeatureStoreWrapper) All(kind ld.VersionedDataKind) (map[string]ld.Vers
 			return items, nil
 		}
 	}
-	// Data set was not cached or cached value was not valid
-	items, err := w.core.GetAllInternal(kind)
-	w.processError(err)
+	// Data set was not cached or cached value was not valid. Use singleflight to ensure that we'll only
+	// do this core query once even if multiple goroutines are requesting it
+	reqKey := fmt.Sprintf("all:%s", kind.GetNamespace())
+	itemsIntf, err, _ := w.requests.Do(reqKey, func() (interface{}, error) {
+		items, err := w.core.GetAllInternal(kind)
+		w.processError(err)
+		if err != nil {
+			return nil, err
+		}
+		return w.filterAndCacheItems(kind, items), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return w.filterAndCacheItems(kind, items), nil
+	if items, ok := itemsIntf.(map[string]ld.VersionedData); ok { // singleflight.Group.Do returns value as interface{}
+		return items, err
+	}
+	w.loggers.Errorf("feature store query returned unexpected type %T", itemsIntf)
+	return nil, nil
 }
 
 // Upsert updates or adds an item, with optional caching.

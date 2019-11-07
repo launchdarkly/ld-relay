@@ -15,6 +15,14 @@
   version = "v0.25.0"
 
 [[projects]]
+  digest = "1:a0f79124a2fba5112d3d1466b917daf508e548c6c2da106399df92a79e06628b"
+  name = "contrib.go.opencensus.io/exporter/prometheus"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f4a2c1e53ec45636355d35fb9022b64e4bdd4a91"
+  version = "v0.1.0"
+
+[[projects]]
   digest = "1:4b96dcd8534bc6450a922bd16a76360ba3381f0d1daf40abbaec91c053fbfeb5"
   name = "contrib.go.opencensus.io/exporter/stackdriver"
   packages = ["."]
@@ -32,11 +40,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:ab873b6756d6bbbe7172144ba643877aa59ae1d615b241ab62fa2e2cf97bfd3a"
+  digest = "1:5bff2303114e11ae44205459fab71af50f1618763515b5c9508d0cf172ebe87d"
   name = "github.com/DataDog/opencensus-go-exporter-datadog"
   packages = ["."]
   pruneopts = "UT"
-  revision = "dbb3980bd763bbc52ff3cc211c6f8f7b354ad2d9"
+  revision = "c7b72e836616d5d093305cdf0103398610385717"
 
 [[projects]]
   digest = "1:cc1a29e0c75a02a14e1a854c27876725ab8681e8dd3dd1d7eb19ae9b062d7ca4"
@@ -188,6 +196,14 @@
   packages = ["."]
   pruneopts = "UT"
   revision = "6bb64b370b90e7ef1fa532be9e591a81c3493e00"
+
+[[projects]]
+  digest = "1:7fae9ec96d10b2afce0da23c378c8b3389319b7f92fa092f2621bba3078cfb4b"
+  name = "github.com/hashicorp/golang-lru"
+  packages = ["simplelru"]
+  pruneopts = "UT"
+  revision = "7f827b33c0f158ec5dfbba01bb0b14a4541fd81d"
+  version = "v0.5.3"
 
 [[projects]]
   digest = "1:0dd7b7b01769f9df356dc99f9e4144bdbabf6c79041ea7c0892379c5737f3c44"
@@ -369,17 +385,20 @@
   version = "1.0.2"
 
 [[projects]]
-  digest = "1:45fd093cd028c16219457b66626e29d551bc1d72b75afb378604e996b16b1c68"
+  digest = "1:ccd9da0d25cd96f2e91d2f4497ad885cff2d4c09cfaa1ecbb7e9702d180f9bc0"
   name = "go.opencensus.io"
   packages = [
     ".",
-    "exporter/prometheus",
     "exporter/stackdriver/propagation",
     "internal",
     "internal/tagencoding",
+    "metric/metricdata",
+    "metric/metricexport",
+    "metric/metricproducer",
     "plugin/ocgrpc",
     "plugin/ochttp",
     "plugin/ochttp/propagation/b3",
+    "resource",
     "stats",
     "stats/internal",
     "stats/view",
@@ -387,10 +406,11 @@
     "trace",
     "trace/internal",
     "trace/propagation",
+    "trace/tracestate",
   ]
   pruneopts = "UT"
-  revision = "e262766cd0d230a1bb7c37281e345e465f19b41b"
-  version = "v0.14.0"
+  revision = "df6e2001952312404b06f5f6f03fcb4aec1648e5"
+  version = "v0.21.0"
 
 [[projects]]
   branch = "master"
@@ -433,9 +453,12 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:e0140c0c868c6e0f01c0380865194592c011fe521d6e12d78bfd33e756fe018a"
+  digest = "1:c4afa8e6da2fe215303a20aec68d74a9415007297d627273d60378a3c25ac2d3"
   name = "golang.org/x/sync"
-  packages = ["semaphore"]
+  packages = [
+    "semaphore",
+    "singleflight",
+  ]
   pruneopts = "UT"
   revision = "1d60e4601c6fd243af51cc01ddf169918a5407ca"
 
@@ -565,15 +588,15 @@
   version = "v1.13.0"
 
 [[projects]]
-  digest = "1:110a2f150462cca180cb22e360426adb53c809f942c8d809e4b2d109e3dbe7f0"
+  digest = "1:171240120c3ed1aa7c583e07210d9456218c83d12aae9df8e4b00eb9ae870aa8"
   name = "gopkg.in/DataDog/dd-trace-go.v1"
   packages = ["ddtrace/ext"]
   pruneopts = "UT"
-  revision = "d052956664af54dbcff2712d10c67c76fbfc299f"
-  version = "v1.0.0"
+  revision = "612cde3ce8a9ac1d5cb7070075d6e275bd62752d"
+  version = "v1.16.1"
 
 [[projects]]
-  digest = "1:8945d090fbca98f1f3c942a61e3ef5b3800a2e43f86cc679b02404925026d977"
+  digest = "1:191abfd2b89b07667dd05bc01f4a1373d47773b53d8b50257c45a8bd873f8df1"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -587,13 +610,14 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "b0b4d6236d9b2bde6f6984502eef8ef53dbb0b2f"
-  version = "4.13.0"
+  revision = "a5d7cf930fe6a5f1b66d289c0eace5adce35daa7"
+  version = "4.13.1"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "contrib.go.opencensus.io/exporter/prometheus",
     "contrib.go.opencensus.io/exporter/stackdriver",
     "github.com/DataDog/opencensus-go-exporter-datadog",
     "github.com/garyburd/redigo/redis",
@@ -605,7 +629,6 @@
     "github.com/pborman/uuid",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
-    "go.opencensus.io/exporter/prometheus",
     "go.opencensus.io/stats",
     "go.opencensus.io/stats/view",
     "go.opencensus.io/tag",

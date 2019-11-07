@@ -39,8 +39,12 @@
 
 [[constraint]]
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
-  version = "4.13.0"
+  version = "4.13.1"
 
 [prune]
   go-tests = true
   unused-packages = true
+
+[[constraint]]
+  name = "go.opencensus.io"
+  version = "0.21.0"

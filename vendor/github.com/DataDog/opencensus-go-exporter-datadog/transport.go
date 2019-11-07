@@ -8,6 +8,7 @@ package datadog
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -53,7 +54,7 @@ func newTransport(addr string) *transport {
 		Timeout: 1 * time.Second,
 	}
 	return &transport{
-		url:    fmt.Sprintf("http://%s/v0.3/traces", addr),
+		url:    fmt.Sprintf("http://%s/v0.4/traces", addr),
 		client: httpclient,
 	}
 }
@@ -69,32 +70,32 @@ var httpHeaders = map[string]string{
 }
 
 // upload sents the given request body to the Datadog agent and assigns the traceCount
-// as an HTTP header.
-func (t *transport) upload(body *bytes.Buffer, traceCount int) error {
-	req, err := http.NewRequest("POST", t.url, body)
+// as an HTTP header. It returns a non-nil body if it was successful.
+func (t *transport) upload(data *bytes.Buffer, traceCount int) (body io.ReadCloser, err error) {
+	req, err := http.NewRequest("POST", t.url, data)
 	if err != nil {
-		return fmt.Errorf("cannot create http request: %v", err)
+		return nil, fmt.Errorf("cannot create http request: %v", err)
 	}
 	for header, value := range httpHeaders {
 		req.Header.Set(header, value)
 	}
 	req.Header.Set("X-Datadog-Trace-Count", strconv.Itoa(traceCount))
-	req.Header.Set("Content-Length", strconv.Itoa(body.Len()))
+	req.Header.Set("Content-Length", strconv.Itoa(data.Len()))
 	response, err := t.client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer response.Body.Close()
 	if code := response.StatusCode; code >= 400 {
 		// error, check the body for context information and
 		// return a user friendly error
 		msg := make([]byte, 1000)
 		n, _ := response.Body.Read(msg)
+		response.Body.Close()
 		txt := http.StatusText(code)
 		if n > 0 {
-			return fmt.Errorf("%s (Status: %s)", msg[:n], txt)
+			return nil, fmt.Errorf("%s (Status: %s)", msg[:n], txt)
 		}
-		return fmt.Errorf("%s", txt)
+		return nil, fmt.Errorf("%s", txt)
 	}
-	return nil
+	return response.Body, nil
 }

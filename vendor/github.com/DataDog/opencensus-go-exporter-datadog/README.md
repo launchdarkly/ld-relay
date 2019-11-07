@@ -12,3 +12,13 @@ provides some simple usage examples.
 
 [godoc-image]: https://godoc.org/github.com/DataDog/opencensus-go-exporter-datadog?status.svg
 [godoc-url]: https://godoc.org/github.com/DataDog/opencensus-go-exporter-datadog
+
+### Disclaimer
+
+In order to get accurate Datadog APM statistics and full distributed tracing, trace sampling must be done by the Datadog stack. For this to be possible, OpenCensus must be notified to forward all traces to our exporter:
+
+```go
+trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+```
+
+This change simply means that Datadog will handle sampling. It does not mean that all traces will be sampled.

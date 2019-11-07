@@ -69,6 +69,10 @@ type Options struct {
 
 	// Tags specifies a set of global tags to attach to each metric.
 	Tags []string
+
+	// GlobalTags holds a set of tags that will automatically be applied to all
+	// exported spans.
+	GlobalTags map[string]interface{}
 }
 
 func (o *Options) onError(err error) {
@@ -82,11 +86,17 @@ func (o *Options) onError(err error) {
 // NewExporter returns an exporter that exports stats and traces to Datadog.
 // When using trace, it is important to call Stop at the end of your program
 // for a clean exit and to flush any remaining tracing data to the Datadog agent.
-func NewExporter(o Options) *Exporter {
-	return &Exporter{
-		statsExporter: newStatsExporter(o),
-		traceExporter: newTraceExporter(o),
+// If an error occurs initializing the stats exporter, the error will be returned
+// and the exporter will be nil.
+func NewExporter(o Options) (exporter *Exporter, err error) {
+	statsExporter, err := newStatsExporter(o)
+	if err != nil {
+		return nil, err
 	}
+	return &Exporter{
+		statsExporter: statsExporter,
+		traceExporter: newTraceExporter(o),
+	}, nil
 }
 
 // regex pattern
