@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	redigo "github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 	"github.com/gregjones/httpcache"
@@ -538,8 +540,20 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory,
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
 		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, lddynamodb.Prefix(envConfig.Prefix),
-			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl)*time.Millisecond), lddynamodb.Logger(logging.Info))
+		options := []lddynamodb.FeatureStoreOption{
+			lddynamodb.Prefix(envConfig.Prefix),
+			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl) * time.Millisecond),
+			lddynamodb.Logger(logging.Info),
+		}
+		if c.DynamoDB.Url != "" {
+			awsOptions := session.Options{
+				Config: aws.Config{
+					Endpoint: aws.String(c.DynamoDB.Url),
+				},
+			}
+			options = append(options, lddynamodb.SessionOptions(awsOptions))
+		}
+		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, options...)
 	}
 	return ld.NewInMemoryFeatureStoreFactory(), nil
 }
