@@ -55,6 +55,9 @@ defaults:
             fi
           when: always
       - run:
+          name: Run Prometheus endpoint test
+          command: ./scripts/test-prometheus-endpoint.sh
+      - run:
           name: lint
           command: |
             if [ -z "$DISABLE_LINT" ]; then

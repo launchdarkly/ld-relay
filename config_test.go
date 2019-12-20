@@ -266,12 +266,14 @@ func TestConfigFromEnvironmentWithDynamoDB(t *testing.T) {
 			c.DynamoDB = DynamoDBConfig{
 				Enabled:   true,
 				TableName: "table",
+				Url:       "http://localhost:8000",
 				LocalTtl:  3000,
 			}
 		},
 		map[string]string{
 			"USE_DYNAMODB":   "1",
 			"DYNAMODB_TABLE": "table",
+			"DYNAMODB_URL":   "http://localhost:8000",
 			"CACHE_TTL":      "3000",
 		},
 	)

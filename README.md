@@ -120,7 +120,10 @@ Property in file    | Environment var    | Type    | Default | Description
 ------------------- | ------------------ | :-----: | :------ | -----------
 `enabled`           | `USE_DYNAMODB`     | Boolean | `false` | Enables DynamoDB.
 `tableName`         | `DYNAMODB_TABLE`   | String  |         | The DynamoDB table name, if you are using the same table for all environments. Otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
+`url`               | `DYNAMODB_URL`     | String  |         | The service endpoint if you are using a local DynamoDB instance instead of the regular service.
 `localTtl`          | `CACHE_TTL`        | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+
+The AWS credentials and region for DynamoDB are not part of the Relay configuration; they should be set using either the standard AWS environment variables or a local AWS configuration file, as documented for [the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
 
 ### File section: `[Consul]`
 
@@ -211,8 +214,8 @@ Property in file | Environment var          | Type    | Default | Description
 Property in file | Environment var     | Type    | Default | Description
 ---------------- | ------------------- | :-----: | :------ | -----------
 `enabled`        | `USE_PROMETHEUS`    | Boolean | `false` | If true, enables exporting traces to Prometheus.
-`port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will listen to `/metrics` on.
-`prefix`         | `PROMETHEUS_PREFIX` | String  |         |  The metrics prefix to be used by Prometheus.
+`port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will provide the `/metrics` endpoint on.
+`prefix`         | `PROMETHEUS_PREFIX` | String  |         | The metrics prefix to be used by Prometheus.
 
 ### File section: `[Proxy]`
 

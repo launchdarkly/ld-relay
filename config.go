@@ -99,6 +99,7 @@ type ConsulConfig struct {
 type DynamoDBConfig struct {
 	Enabled   bool
 	TableName string
+	Url       string
 	LocalTtl  int
 }
 
@@ -227,7 +228,7 @@ var DefaultConfig = Config{
 		BaseUri:               defaultBaseURI,
 		StreamUri:             defaultStreamURI,
 		HeartbeatIntervalSecs: defaultHeartbeatIntervalSecs,
-		Port: defaultPort,
+		Port:                  defaultPort,
 	},
 	Events: events.Config{
 		Capacity:          defaultEventCapacity,
@@ -402,6 +403,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnvBool(&c.DynamoDB.Enabled, "USE_DYNAMODB")
 	if c.DynamoDB.Enabled {
 		maybeSetFromEnv(&c.DynamoDB.TableName, "DYNAMODB_TABLE")
+		maybeSetFromEnv(&c.DynamoDB.Url, "DYNAMODB_URL")
 		maybeSetFromEnvInt(&c.DynamoDB.LocalTtl, "CACHE_TTL", &errs)
 	}
 
