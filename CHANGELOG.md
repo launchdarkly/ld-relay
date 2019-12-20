@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.9.0] - 2019-12-20
+### Added:
+- Added ability to specify DynamoDB endpoint URL for a local instance (`url` property in `dynamodb` config section, or `DYNAMODB_URL` environment variable). ([#82](https://github.com/launchdarkly/ld-relay/issues/82))
+
+### Fixed:
+- Fixed a regression that broke the Prometheus exporter in the 5.8.2 release.
+
 ## [5.8.2] - 2019-11-07
 ### Changed:
 - Updated to a newer version of the OpenCensus Prometheus exporter. (Thanks, [mightyguava](https://github.com/launchdarkly/ld-relay/pull/70!))
