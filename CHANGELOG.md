@@ -3,9 +3,10 @@
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
 ## [5.8.2] - 2019-11-07
+### Changed:
+- Updated to a newer version of the OpenCensus Prometheus exporter. (Thanks, [mightyguava](https://github.com/launchdarkly/ld-relay/pull/70!))
 ### Fixed:
 - When using a persistent feature store (Redis, etc.), if multiple clients request flags at the same time when the flag data is not in the cache, Relay will coalesce these requests so only a single database query is done.
-
 
 ## [5.8.1] - 2019-11-05
 ### Fixed:
