@@ -214,8 +214,8 @@ Property in file | Environment var          | Type    | Default | Description
 Property in file | Environment var     | Type    | Default | Description
 ---------------- | ------------------- | :-----: | :------ | -----------
 `enabled`        | `USE_PROMETHEUS`    | Boolean | `false` | If true, enables exporting traces to Prometheus.
-`port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will listen to `/metrics` on.
-`prefix`         | `PROMETHEUS_PREFIX` | String  |         |  The metrics prefix to be used by Prometheus.
+`port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will provide the `/metrics` endpoint on.
+`prefix`         | `PROMETHEUS_PREFIX` | String  |         | The metrics prefix to be used by Prometheus.
 
 ### File section: `[Proxy]`
 

@@ -21,7 +21,11 @@ func registerPrometheusExporter(options ExporterOptions) error {
 		port = o.Port
 	}
 
-	exporter, err := prometheus.NewExporter(prometheus.Options{Namespace: o.Prefix})
+	logPrometheusError := func(e error) {
+		logging.Error.Printf("Prometheus exporter error: %s", e)
+	}
+
+	exporter, err := prometheus.NewExporter(prometheus.Options{Namespace: o.Prefix, OnError: logPrometheusError})
 	if err != nil {
 		return err
 	}
