@@ -38,33 +38,53 @@ func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfi
 
 func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVersion int) {
 	for _, rawEvent := range rawEvents {
-		var fields map[string]interface{}
-		err := json.Unmarshal(rawEvent, &fields)
-		if err == nil {
-			evt, err := er.translateEvent(rawEvent, fields, schemaVersion)
-			if err != nil {
-				er.loggers.Errorf("Error in event processing, event was discarded: %+v", err)
-			}
-			if evt != nil {
-				er.eventProcessor.SendEvent(evt)
-			}
+		evt, err := er.translateEvent(rawEvent, schemaVersion)
+		if err != nil {
+			er.loggers.Errorf("Error in event processing, event was discarded: %+v", err)
+		}
+		if evt != nil {
+			er.eventProcessor.SendEvent(evt)
 		}
 	}
 }
 
-func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields map[string]interface{}, schemaVersion int) (ld.Event, error) {
-	switch fields["kind"] {
+func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (ld.Event, error) {
+	var kindFieldOnly struct {
+		Kind string
+	}
+	if err := json.Unmarshal(rawEvent, &kindFieldOnly); err != nil {
+		return nil, err
+	}
+	switch kindFieldOnly.Kind {
 	case ld.FeatureRequestEventKind:
 		var e ld.FeatureRequestEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
 			return nil, err
 		}
-		// Look up the feature flag so we can set the event's TrackEvent and DebugEventsUntilDate properties
-		// (unless Version was omitted, which means the flag did't exist).
+		// There are three possible cases we need to handle here.
+		// 1. This is from an old SDK, prior to the implementation of summary events. SchemaVersion will be 1
+		//    (or omitted). We have to look up the flag, get the TrackEvents and DebugEventsUntilDate properties
+		//    from the flag, and also infer VariationIndex from the flag value (since old SDKs did not set this).
+		// 2a. This is from a PHP SDK version >= 3.1.0 but < 3.6.0. SchemaVersion will be 2. The SDK does set
+		//    VariationIndex, but it does not set TrackEvents or DebugEventsUntilDate, so we have to look up the
+		//    flag for those.
+		// 2b. PHP SDK version >= 3.6.0 does set TrackEvents and DebugEventsUntilDate for us. Unfortunately, we
+		//    cannot distinguish an event that has false/null in these properties because that is their value
+		//    from an event that simply didn't have them set because the SDK didn't know to set them; the
+		//    schemaVersion will be 2 in either case. So, if they are false/null, then we have to look up the
+		//    flag to get them. But if they do have values in the event, we must respect those (since they may
+		//    have been determined by experimentation logic rather than the top-level flag properties).
 		if e.Version == nil {
+			// If Version was omitted, then the flag didn't exist so we won't bother looking it up. Whatever's
+			// in the event is all we have.
 			e.Variation = nil
 		} else {
+			if e.TrackEvents || e.DebugEventsUntilDate != nil {
+				return e, nil // case 2b - we know this is a newer PHP SDK if these properties have truthy values
+			}
+			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
+			// to be set so we can't distinguish it from 2a and must look up the flag)
 			data, err := er.featureStore.Get(ld.Features, e.Key)
 			if err != nil {
 				return nil, err
@@ -73,10 +93,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 				flag := data.(*ld.FeatureFlag)
 				e.TrackEvents = flag.TrackEvents
 				e.DebugEventsUntilDate = flag.DebugEventsUntilDate
-				// If schemaVersion is 1, this is from an old SDK that doesn't send a variation index, so we
-				// have to infer the index from the value. Schema version 2 is a newer PHP SDK that does send
-				// a variation index.
-				if schemaVersion == 1 {
+				if schemaVersion <= 1 && e.Variation == nil {
 					for i, value := range flag.Variations {
 						if reflect.DeepEqual(value, e.Value) {
 							n := i
@@ -103,5 +120,5 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, fields
 		}
 		return e, nil
 	}
-	return nil, fmt.Errorf("unexpected event kind: %s", fields["kind"])
+	return nil, fmt.Errorf("unexpected event kind: %s", kindFieldOnly.Kind)
 }
