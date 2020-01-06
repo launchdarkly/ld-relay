@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.9.1] - 2020-01-06
+### Fixed:
+- When forwarding events from the PHP SDK, Relay was not preserving additional information related to experimentation features (supported in PHP SDK 3.6.0 and above). As a result, some flag rules might be included in experimentation data in the LaunchDarkly UI when those rules were not selected to be included. Events from other SDKs were not affected.
+
 ## [5.9.0] - 2019-12-20
 ### Added:
 - Added ability to specify DynamoDB endpoint URL for a local instance (`url` property in `dynamodb` config section, or `DYNAMODB_URL` environment variable). ([#82](https://github.com/launchdarkly/ld-relay/issues/82))
