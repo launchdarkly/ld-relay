@@ -161,7 +161,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
-				logging.Error.Printf("Error getting all flags: %s\n", err.Error())
+				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
 				out <- makeFlagsPutEvent(flags)
 			}
@@ -179,11 +179,11 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.All(ld.Features)
 
 			if err != nil {
-				logging.Error.Printf("Error getting all flags: %s\n", err.Error())
+				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
 				segments, err := r.relayStore.All(ld.Segments)
 				if err != nil {
-					logging.Error.Printf("Error getting all segments: %s\n", err.Error())
+					logging.GlobalLoggers.Errorf("Error getting all segments: %s\n", err.Error())
 				} else {
 					out <- makePutEvent(flags, segments)
 				}

@@ -22,7 +22,7 @@ func registerPrometheusExporter(options ExporterOptions) error {
 	}
 
 	logPrometheusError := func(e error) {
-		logging.Error.Printf("Prometheus exporter error: %s", e)
+		logging.GlobalLoggers.Errorf("Prometheus exporter error: %s", e)
 	}
 
 	exporter, err := prometheus.NewExporter(prometheus.Options{Namespace: o.Prefix, OnError: logPrometheusError})
@@ -33,9 +33,9 @@ func registerPrometheusExporter(options ExporterOptions) error {
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 		if err != nil {
-			logging.Error.Printf("Failed to start Prometheus listener\n")
+			logging.GlobalLoggers.Errorf("Failed to start Prometheus listener\n")
 		} else {
-			logging.Info.Printf("Prometheus listening on port %d\n", port)
+			logging.GlobalLoggers.Infof("Prometheus listening on port %d\n", port)
 		}
 	}()
 	view.RegisterExporter(exporter)

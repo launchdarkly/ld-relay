@@ -264,9 +264,9 @@ func LoadConfigFile(c *Config, path string) error {
 			if envConfig.SdkKey == "" {
 				envConfig.SdkKey = envConfig.ApiKey
 				c.Environment[envName] = envConfig
-				logging.Warning.Println(`"apiKey" is deprecated, please use "sdkKey"`)
+				logging.GlobalLoggers.Warn(`"apiKey" is deprecated, please use "sdkKey"`)
 			} else {
-				logging.Warning.Println(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
+				logging.GlobalLoggers.Warn(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
 			}
 		}
 	}

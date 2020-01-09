@@ -11,7 +11,7 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	"gopkg.in/launchdarkly/ld-relay.v5"
+	relay "gopkg.in/launchdarkly/ld-relay.v5"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
@@ -56,7 +56,7 @@ func main() {
 			configDesc = "configuration from environment variables"
 		}
 	}
-	logging.Info.Printf("Starting LaunchDarkly relay version %s with %s\n", formatVersion(version.Version), configDesc)
+	logging.GlobalLoggers.Infof("Starting LaunchDarkly relay version %s with %s\n", formatVersion(version.Version), configDesc)
 
 	if configFile != "" {
 		if err := relay.LoadConfigFile(&c, configFile); err != nil {
@@ -71,7 +71,7 @@ func main() {
 
 	r, err := relay.NewRelay(c, relay.DefaultClientFactory)
 	if err != nil {
-		logging.Error.Printf("Unable to create relay: %s", err)
+		logging.GlobalLoggers.Errorf("Unable to create relay: %s", err)
 		os.Exit(1)
 	}
 
@@ -80,7 +80,7 @@ func main() {
 	}
 
 	if err := relay.InitializeMetrics(c.MetricsConfig); err != nil {
-		logging.Error.Printf("Error initializing metrics: %s", err)
+		logging.GlobalLoggers.Errorf("Error initializing metrics: %s", err)
 	}
 
 	errs := make(chan error)
@@ -89,7 +89,7 @@ func main() {
 	startHTTPServer(&c, r, errs)
 
 	for err := range errs {
-		logging.Error.Printf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+		logging.GlobalLoggers.Errorf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 		os.Exit(1)
 	}
 
@@ -103,9 +103,9 @@ func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan<- error) {
 
 	go func() {
 		var err error
-		logging.Info.Printf("Starting server listening on port %d\n", c.Main.Port)
+		logging.GlobalLoggers.Infof("Starting server listening on port %d\n", c.Main.Port)
 		if c.Main.TLSEnabled {
-			logging.Info.Printf("TLS Enabled for server")
+			logging.GlobalLoggers.Infof("TLS Enabled for server")
 			err = srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
 		} else {
 			err = srv.ListenAndServe()

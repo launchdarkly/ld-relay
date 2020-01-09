@@ -141,10 +141,10 @@ func (r *eventEndpointDispatcher) dispatchEvents(w http.ResponseWriter, req *htt
 		if payloadVersion == 0 {
 			payloadVersion = 1
 		}
-		// This debug-level log message goes to logging.Debug, not to r.loggers, because it is more of a
+		// This debug-level log message goes to logging.GlobalLoggers, not to r.loggers, because it is more of a
 		// message from ld-relay itself about a client request, rather than SDK logging about requests
 		// that ld-relay makes.
-		logging.Debug.Printf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
+		logging.GlobalLoggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
 		if payloadVersion >= SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(evts)
