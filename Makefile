@@ -1,7 +1,7 @@
 GOLANGCI_VERSION=v1.10.2
 # earlier versions of golangci-lint don't work in go 1.9
 
-GORELEASER_VERSION=0.123.3
+GORELEASER_VERSION=v0.123.3
 
 SHELL=/bin/bash
 
