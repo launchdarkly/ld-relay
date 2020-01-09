@@ -26,7 +26,7 @@ func transformUnorderedDataToOrderedData(allData map[ld.VersionedDataKind]map[st
 }
 
 func doesDataKindSupportDependencies(kind ld.VersionedDataKind) bool {
-	return kind == ld.Features
+	return kind == ld.Features //nolint:megacheck
 }
 
 func addItemsInDependencyOrder(itemsMap map[string]ld.VersionedData, out *[]ld.VersionedData) {
@@ -57,7 +57,7 @@ func addWithDependenciesFirst(startItem ld.VersionedData, remainingItems map[str
 func getDependencyKeys(item ld.VersionedData) []string {
 	var ret []string
 	switch i := item.(type) {
-	case *ld.FeatureFlag:
+	case *ld.FeatureFlag: //nolint:megacheck // allow deprecated usage
 		for _, p := range i.Prerequisites {
 			ret = append(ret, p.Key)
 		}
@@ -69,9 +69,9 @@ func getDependencyKeys(item ld.VersionedData) []string {
 // haven't been accounted for here, they'll come after those two in an arbitrary order.
 func dataKindPriority(kind ld.VersionedDataKind) int {
 	switch kind {
-	case ld.Segments:
+	case ld.Segments: //nolint:megacheck // allow deprecated usage
 		return 0
-	case ld.Features:
+	case ld.Features: //nolint:megacheck // allow deprecated usage
 		return 1
 	default:
 		return len(kind.GetNamespace()) + 2

@@ -1,6 +1,8 @@
 package ldclient
 
-// Segment describes a group of users
+// Segment describes a group of users.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Segment struct {
 	Key      string        `json:"key" bson:"key"`
 	Included []string      `json:"included" bson:"included"`
@@ -32,7 +34,9 @@ func (s *Segment) Clone() VersionedData {
 	return &s1
 }
 
-// SegmentVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for segments
+// SegmentVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for segments.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type SegmentVersionedDataKind struct{}
 
 // GetNamespace returns the a unique namespace identifier for feature flag objects
@@ -55,10 +59,14 @@ func (sk SegmentVersionedDataKind) MakeDeletedItem(key string, version int) Vers
 	return &Segment{Key: key, Version: version, Deleted: true}
 }
 
-// Segments is convenience variable to access an instance of SegmentVersionedDataKind
+// Segments is convenience variable to access an instance of SegmentVersionedDataKind.
+//
+// Deprecated: this variable is for internal use and will be moved to another package in a future version.
 var Segments SegmentVersionedDataKind
 
-// SegmentRule describes a set of clauses that
+// SegmentRule describes a set of rules in a Segment.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type SegmentRule struct {
 	Id       string   `json:"id,omitempty" bson:"id,omitempty"`
 	Clauses  []Clause `json:"clauses" bson:"clauses"`
@@ -66,7 +74,9 @@ type SegmentRule struct {
 	BucketBy *string  `json:"bucketBy,omitempty" bson:"bucketBy,omitempty"`
 }
 
-// SegmentExplanation describes a rule that determines whether a user was included in or excluded from a segment
+// SegmentExplanation describes a rule that determines whether a user was included in or excluded from a segment.
+//
+// Deprecated: this type is for internal use and will be removed in a future version.
 type SegmentExplanation struct {
 	Kind        string
 	MatchedRule *SegmentRule

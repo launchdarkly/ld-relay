@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const defaultConnectTimeout = 10 * time.Second
 type transportExtraOptions struct {
 	caCerts        *x509.CertPool
 	connectTimeout time.Duration
+	proxyURL       *url.URL
 }
 
 // TransportOption is the interface for optional configuration parameters that can be passed to NewHTTPTransport.
@@ -83,6 +85,21 @@ func CACertFileOption(filePath string) TransportOption {
 	return caCertFileOption{filePath: filePath}
 }
 
+// ProxyOption specifies a proxy URL to be used for all requests, when used with NewHTTPTransport.
+// This overrides any setting of the HTTP_PROXY, HTTPS_PROXY, or NO_PROXY environment variables.
+func ProxyOption(url url.URL) TransportOption {
+	return proxyOption{url}
+}
+
+type proxyOption struct {
+	url url.URL
+}
+
+func (o proxyOption) apply(opts *transportExtraOptions) error {
+	opts.proxyURL = &o.url
+	return nil
+}
+
 // NewHTTPTransport creates a customized http.Transport struct using the specified options. It returns both
 // the Transport and an associated net.Dialer.
 //
@@ -106,6 +123,9 @@ func NewHTTPTransport(options ...TransportOption) (*http.Transport, *net.Dialer,
 	transport.DialContext = dialer.DialContext
 	if extraOptions.caCerts != nil {
 		transport.TLSClientConfig = &tls.Config{RootCAs: extraOptions.caCerts}
+	}
+	if extraOptions.proxyURL != nil {
+		transport.Proxy = http.ProxyURL(extraOptions.proxyURL)
 	}
 	return transport, dialer, nil
 }

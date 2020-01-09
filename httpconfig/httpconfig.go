@@ -62,6 +62,9 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 		}
 		logging.GlobalLoggers.Info("NTLM proxy authentication enabled")
 	} else {
+		if ret.ProxyURL != nil {
+			transportOpts = append(transportOpts, ldhttp.ProxyOption(*ret.ProxyURL))
+		}
 		ret.HTTPClientFactory = ld.NewHTTPClientFactory(transportOpts...)
 	}
 	return ret, nil

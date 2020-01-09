@@ -40,6 +40,8 @@ type User struct {
 
 // DerivedAttribute is an entry in a Derived attribute map and is for internal use by LaunchDarkly only. Derived attributes
 // sent to LaunchDarkly are ignored.
+//
+// Deprecated: this type is for internal use and will be removed in a future version.
 type DerivedAttribute struct {
 	Value       interface{} `json:"value" bson:"value"`
 	LastDerived time.Time   `json:"lastDerived" bson:"lastDerived"`
