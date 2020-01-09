@@ -1,6 +1,8 @@
 GOLANGCI_VERSION=v1.10.2
 # earlier versions of golangci-lint don't work in go 1.9
 
+GORELEASER_VERSION=0.123.3
+
 SHELL=/bin/bash
 
 LINTER=./bin/golangci-lint
@@ -20,7 +22,7 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
-RELEASE_CMD=curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+RELEASE_CMD=VERSION=$(GORELEASER_VERSION) curl -sL https://git.io/goreleaser | bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
 
 publish:
 	$(RELEASE_CMD)
