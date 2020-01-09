@@ -200,7 +200,7 @@ func RegisterExporters(options []ExporterOptions) (registrationErr error) {
 				registrationErr = fmt.Errorf("Could not register %s exporter: %s", o.getType(), err)
 				return
 			} else {
-				logging.Info.Printf("Successfully registered %s exporter.", o.getType())
+				logging.GlobalLoggers.Infof("Successfully registered %s exporter.", o.getType())
 			}
 		}
 
@@ -262,7 +262,7 @@ func (p *Processor) Close() {
 func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
-		logging.Error.Printf(`Failed to create tags: %s`, err)
+		logging.GlobalLoggers.Errorf(`Failed to create tags: %s`, err)
 	} else {
 		for _, m := range measure.measures {
 			ctx, _ := tag.New(ctx, *measure.tags...)
@@ -276,7 +276,7 @@ func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure)
 func WithCount(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
-		logging.Error.Printf(`Failed to create tag for user agent : %s`, err)
+		logging.GlobalLoggers.Errorf(`Failed to create tag for user agent : %s`, err)
 	} else {
 		for _, m := range measure.measures {
 			ctx, _ := tag.New(ctx, *measure.tags...)
@@ -290,7 +290,7 @@ func WithCount(ctx context.Context, userAgent string, f func(), measure Measure)
 func WithRouteCount(ctx context.Context, userAgent, route, method string, f func(), measure Measure) {
 	tagCtx, err := tag.New(ctx, tag.Insert(routeTagKey, sanitizeTagValue(route)), tag.Insert(methodTagKey, sanitizeTagValue(method)))
 	if err != nil {
-		logging.Error.Printf(`Failed to create tags for route "%s %s": %s`, method, route, err)
+		logging.GlobalLoggers.Errorf(`Failed to create tags for route "%s %s": %s`, method, route, err)
 	} else {
 		ctx = tagCtx
 	}

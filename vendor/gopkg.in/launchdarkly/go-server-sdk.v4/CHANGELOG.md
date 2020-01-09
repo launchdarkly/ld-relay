@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.14.0] - 2020-01-09
+### Added:
+- `ldhttp.ProxyOption`, for specifying an HTTP/HTTPS proxy URL programmatically rather than using environment variables.
+
+### Fixed:
+- `NewHTTPClientFactory` did not work correctly: it did construct an HTTP client, but did not actually apply any `ldhttp` transport options that were specified.
+- In rare circumstances (depending on the exact data in the flag configuration, the flag's salt value, and the user properties), a percentage rollout could fail and return a default value, logging the error "Data inconsistency in feature flag ... variation/rollout object with no variation or rollout". This would happen if the user's hashed value fell exactly at the end of the last "bucket" (the last variation defined in the rollout). This has been fixed so that the user will get the last variation.
+
+### Deprecated:
+- Data model classes `FeatureFlag`, `Segment`, etc. are all deprecated and will be moved to another package in the future. Application code should never need to reference these types, and feature store integration code should only use abstractions like `ld.VersionedData`.
+- `SegmentExplanation`, `HttpStatusError`, `ParseTime`, `ParseFloat64`, and `ToJsonRawMessage` were meant for internal use, and will be removed or made private in a future version.
+
 ## [4.13.1] - 2019-11-05
 ### Fixed:
 - When using a persistent feature store (Redis, etc.), if multiple goroutines request the same flag in rapid succession when the flag data is not in the cache, the SDK will coalesce these requests so only a single database query is done.

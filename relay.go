@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -254,7 +253,7 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	}
 
 	if c.Main.ExitAlways {
-		logging.Info.Println("Running in one-shot mode - will exit immediately after initializing environments")
+		logging.GlobalLoggers.Info("Running in one-shot mode - will exit immediately after initializing environments")
 		// Just wait until all clients have either started or failed, then exit without bothering
 		// to set up HTTP handlers.
 		numFinished := 0
@@ -384,17 +383,16 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
 	readyCh chan<- clientContext) (*clientContextImpl, error) {
 
-	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig)
-	if err != nil {
-		return nil, err
-	}
-	logger := log.New(os.Stderr, fmt.Sprintf("[env: %s] ", envName), log.LstdFlags)
-	envLoggers := ldlog.Loggers{}
-	envLoggers.SetBaseLogger(logger)
+	envLoggers := logging.MakeLoggers(fmt.Sprintf("env: %s", envName))
 	if envConfig.LogLevel == "" {
 		envLoggers.SetMinLevel(c.Main.GetLogLevel())
 	} else {
 		envLoggers.SetMinLevel(envConfig.GetLogLevel())
+	}
+
+	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig, envLoggers)
+	if err != nil {
+		return nil, err
 	}
 
 	clientConfig := ld.DefaultConfig
@@ -470,9 +468,9 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 				return
 			}
 
-			logging.Error.Printf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+			logging.GlobalLoggers.Errorf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 		} else {
-			logging.Info.Printf("Initialized LaunchDarkly client for %s\n", envName)
+			logging.GlobalLoggers.Infof("Initialized LaunchDarkly client for %s\n", envName)
 		}
 		if readyCh != nil {
 			readyCh <- clientContext
@@ -482,14 +480,15 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	return clientContext, nil
 }
 
-func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory, error) {
+func createFeatureStore(c Config, envConfig *EnvConfig, loggers ldlog.Loggers) (ld.FeatureStoreFactory, error) {
 	databaseSpecified := false
+	infoLogger := loggers.ForLevel(ldlog.Info) // for methods that require a single logger instead of a Loggers
 	if c.Redis.Url != "" || c.Redis.Host != "" {
 		databaseSpecified = true
 		redisURL := c.Redis.Url
 		if c.Redis.Host != "" {
 			if redisURL != "" {
-				logging.Warning.Println("Both a URL and a hostname were specified for Redis; will use the URL")
+				loggers.Warnf("Both a URL and a hostname were specified for Redis; will use the URL")
 			} else {
 				port := c.Redis.Port
 				if port == 0 {
@@ -498,9 +497,9 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory,
 				redisURL = fmt.Sprintf("redis://%s:%d", c.Redis.Host, c.Redis.Port)
 			}
 		}
-		fmt.Printf("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
+		loggers.Infof("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
 		redisOptions := []ldr.FeatureStoreOption{ldr.Prefix(envConfig.Prefix),
-			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(logging.Info)}
+			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(infoLogger)}
 		dialOptions := []redigo.DialOption{}
 		if c.Redis.Tls || (c.Redis.Password != "") {
 			if c.Redis.Tls {
@@ -521,9 +520,9 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory,
 			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
 		}
 		databaseSpecified = true
-		logging.Info.Printf("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
+		loggers.Infof("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
 		return ldconsul.NewConsulFeatureStoreFactory(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
-			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(logging.Info))
+			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(infoLogger))
 	}
 	if c.DynamoDB.Enabled {
 		if databaseSpecified {
@@ -539,11 +538,11 @@ func createFeatureStore(c Config, envConfig *EnvConfig) (ld.FeatureStoreFactory,
 		if tableName == "" {
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
-		logging.Info.Printf("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
+		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
 		options := []lddynamodb.FeatureStoreOption{
 			lddynamodb.Prefix(envConfig.Prefix),
 			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl) * time.Millisecond),
-			lddynamodb.Logger(logging.Info),
+			lddynamodb.Logger(infoLogger),
 		}
 		if c.DynamoDB.Url != "" {
 			awsOptions := session.Options{

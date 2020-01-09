@@ -95,7 +95,7 @@ func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.
 			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
-			logging.Error.Printf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
+			logging.GlobalLoggers.Errorf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
 			return
 		}
 		handler(w, req)

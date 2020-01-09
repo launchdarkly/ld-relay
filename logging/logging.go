@@ -12,21 +12,37 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
+// Global logging object for Relay messages that are not tied to a specific environment.
+// Use level-specific output methods such as Info/Infof, Warn/Warnf, tc.
+//
+// Output sent here does not have an environment name prefix, and is filtered by
+// the logLevel/LOG_LEVEL parameter rather than by envLogLevel/ENV_LOG_LEVEL.
+//
+// The obsolete variables logging.Debug, logging.Info, etc. will still work, and will respect the
+// log level configuration in terms of filtering, but will not include the level name in the
+// output.
+var GlobalLoggers ldlog.Loggers
+
+// This is set to true if the application explicitly called InitLogging
+var initializedWithSpecificWriters bool
+
 // Global package level loggers - these are preserved for backward compatibility, but in a
 // future version they will be replaced by ldlog.Loggers.
 // Output sent to these loggers does not have an environment name prefix, and is filtered by
 // the logLevel/LOG_LEVEL parameter rather than by envLogLevel/ENV_LOG_LEVEL.
 var (
-	// Logger instance for global (not per-environment) debug-level logging. Always non-nil.
+	// Obsolete Logger instance for global debug-level logging. Retained for backward compatibility.
+	// Deprecated: Use GlobalLoggers.
 	Debug *log.Logger
-	// Logger instance for global (not per-environment) info-level logging. Always non-nil.
+	// Obsolete Logger instance for global info-level logging. Retained for backward compatibility.
+	// Deprecated: Use GlobalLoggers.
 	Info *log.Logger
-	// Logger instance for global (not per-environment) warn-level logging. Always non-nil.
+	// Obsolete Logger instance for global warn-level logging. Retained for backward compatibility.
+	// Deprecated: Use GlobalLoggers.
 	Warning *log.Logger
-	// Logger instance for global (not per-environment) error-level logging. Always non-nil.
+	// Obsolete Logger instance for global error-level logging. Retained for backward compatibility.
+	// Deprecated: Use GlobalLoggers.
 	Error *log.Logger
-	// This is set to true if the application explicitly called InitLogging
-	initializedWithSpecificWriters bool
 )
 
 func init() {
@@ -48,14 +64,29 @@ func initLoggingInternal(
 	infoHandle io.Writer,
 	warningHandle io.Writer,
 	errorHandle io.Writer) {
-	Debug = makeLog(debugHandle, "DEBUG")
-	Info = makeLog(infoHandle, "INFO")
-	Warning = makeLog(warningHandle, "WARNING")
-	Error = makeLog(errorHandle, "ERROR")
+	Debug = makeLog(debugHandle)
+	Info = makeLog(infoHandle)
+	Warning = makeLog(warningHandle)
+	Error = makeLog(errorHandle)
+	GlobalLoggers = MakeLoggers("main")
 }
 
-func makeLog(w io.Writer, name string) *log.Logger {
-	return log.New(w, fmt.Sprintf("%s: ", name), log.Ldate|log.Ltime|log.Lshortfile)
+func makeLog(w io.Writer) *log.Logger {
+	return log.New(w, "", log.Ldate|log.Ltime|log.Lmicroseconds)
+}
+
+// MakeLoggers returns a ldlog.Loggers instance that uses the previously configured log writers,
+// with an optional category description that will be prepended to messages.
+func MakeLoggers(category string) ldlog.Loggers {
+	loggers := ldlog.Loggers{}
+	loggers.SetBaseLoggerForLevel(ldlog.Debug, Debug)
+	loggers.SetBaseLoggerForLevel(ldlog.Info, Info)
+	loggers.SetBaseLoggerForLevel(ldlog.Warn, Warning)
+	loggers.SetBaseLoggerForLevel(ldlog.Error, Error)
+	if category != "" {
+		loggers.SetPrefix(fmt.Sprintf("[%s]", category))
+	}
+	return loggers
 }
 
 // InitLoggingWithLevel sets up the default logger configuration based on a minimum log level.
@@ -64,7 +95,7 @@ func InitLoggingWithLevel(level ldlog.LogLevel) {
 	if initializedWithSpecificWriters {
 		// The application called InitLogging directly, so we don't want to recreate the Logger
 		// instances - just disable the ones that should be disabled.
-		nullLog := makeLog(ioutil.Discard, "")
+		nullLog := makeLog(ioutil.Discard)
 		if level > ldlog.Debug {
 			Debug = nullLog
 		}
@@ -97,6 +128,7 @@ func InitLoggingWithLevel(level ldlog.LogLevel) {
 		errorHandle = ioutil.Discard
 	}
 	InitLogging(debugHandle, infoHandle, warningHandle, errorHandle)
+	GlobalLoggers.SetMinLevel(level)
 }
 
 type loggingHttpResponseWriter struct {
@@ -140,7 +172,7 @@ func (w *loggingHttpResponseWriter) logRequest() {
 	if w.streaming {
 		if w.bytesWritten == 0 {
 			// starting stream
-			Debug.Printf("Request: method=%s url=%s auth=%s status=%d (streaming)",
+			GlobalLoggers.Debugf("Request: method=%s url=%s auth=%s status=%d (streaming)",
 				w.request.Method,
 				w.request.URL,
 				authStr,
@@ -148,14 +180,14 @@ func (w *loggingHttpResponseWriter) logRequest() {
 			)
 		} else {
 			// ending stream
-			Debug.Printf("Stream closed: url=%s auth=%s bytes=%d",
+			GlobalLoggers.Debugf("Stream closed: url=%s auth=%s bytes=%d",
 				w.request.URL,
 				authStr,
 				w.bytesWritten,
 			)
 		}
 	} else {
-		Debug.Printf("Request: method=%s url=%s auth=%s status=%d bytes=%d",
+		GlobalLoggers.Debugf("Request: method=%s url=%s auth=%s status=%d bytes=%d",
 			w.request.Method,
 			w.request.URL,
 			authStr,

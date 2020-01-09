@@ -41,7 +41,7 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 		if err != nil {
 			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
 		}
-		logging.Info.Printf("Using proxy server at %s", proxyConfig.Url)
+		logging.GlobalLoggers.Infof("Using proxy server at %s", proxyConfig.Url)
 		ret.ProxyURL = u
 	}
 	var transportOpts []ldhttp.TransportOption
@@ -60,8 +60,11 @@ func NewHTTPConfig(proxyConfig ProxyConfig) (HTTPConfig, error) {
 		if err != nil {
 			return ret, err
 		}
-		logging.Info.Printf("NTLM proxy authentication enabled")
+		logging.GlobalLoggers.Info("NTLM proxy authentication enabled")
 	} else {
+		if ret.ProxyURL != nil {
+			transportOpts = append(transportOpts, ldhttp.ProxyOption(*ret.ProxyURL))
+		}
 		ret.HTTPClientFactory = ld.NewHTTPClientFactory(transportOpts...)
 	}
 	return ret, nil
