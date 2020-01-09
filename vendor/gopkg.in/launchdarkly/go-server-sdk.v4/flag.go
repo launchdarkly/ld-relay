@@ -15,7 +15,9 @@ const (
 	userKey   = "key"
 )
 
-// FeatureFlag describes an individual feature flag
+// FeatureFlag describes an individual feature flag.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type FeatureFlag struct {
 	Key                    string             `json:"key" bson:"key"`
 	Version                int                `json:"version" bson:"version"`
@@ -56,7 +58,9 @@ func (f *FeatureFlag) Clone() VersionedData {
 	return &f1
 }
 
-// FeatureFlagVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for flags
+// FeatureFlagVersionedDataKind implements VersionedDataKind and provides methods to build storage engine for flags.
+//
+// Deprecated: this type is for internal use and will be removed in a future version.
 type FeatureFlagVersionedDataKind struct{}
 
 // GetNamespace returns the a unique namespace identifier for feature flag objects
@@ -79,11 +83,15 @@ func (fk FeatureFlagVersionedDataKind) MakeDeletedItem(key string, version int) 
 	return &FeatureFlag{Key: key, Version: version, Deleted: true}
 }
 
-// Features is convenience variable to access an instance of FeatureFlagVersionedDataKind
+// Features is convenience variable to access an instance of FeatureFlagVersionedDataKind.
+//
+// Deprecated: this variable is for internal use and will be removed in a future version.
 var Features FeatureFlagVersionedDataKind
 
 // Rule expresses a set of AND-ed matching conditions for a user, along with either a fixed
-// variation or a set of rollout percentages
+// variation or a set of rollout percentages.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Rule struct {
 	ID                 string `json:"id,omitempty" bson:"id,omitempty"`
 	VariationOrRollout `bson:",inline"`
@@ -93,18 +101,24 @@ type Rule struct {
 
 // VariationOrRollout contains either the fixed variation or percent rollout to serve.
 // Invariant: one of the variation or rollout must be non-nil.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type VariationOrRollout struct {
 	Variation *int     `json:"variation,omitempty" bson:"variation,omitempty"`
 	Rollout   *Rollout `json:"rollout,omitempty" bson:"rollout,omitempty"`
 }
 
-// Rollout describes how users will be bucketed into variations during a percentage rollout
+// Rollout describes how users will be bucketed into variations during a percentage rollout.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Rollout struct {
 	Variations []WeightedVariation `json:"variations" bson:"variations"`
 	BucketBy   *string             `json:"bucketBy,omitempty" bson:"bucketBy,omitempty"`
 }
 
-// Clause describes an individual cluuse within a targeting rule
+// Clause describes an individual cluuse within a targeting rule.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Clause struct {
 	Attribute string        `json:"attribute" bson:"attribute"`
 	Op        Operator      `json:"op" bson:"op"`
@@ -112,19 +126,25 @@ type Clause struct {
 	Negate    bool          `json:"negate" bson:"negate"`
 }
 
-// WeightedVariation describes a fraction of users who will receive a specific variation
+// WeightedVariation describes a fraction of users who will receive a specific variation.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type WeightedVariation struct {
 	Variation int `json:"variation" bson:"variation"`
 	Weight    int `json:"weight" bson:"weight"` // Ranges from 0 to 100000
 }
 
-// Target describes a set of users who will receive a specific variation
+// Target describes a set of users who will receive a specific variation.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Target struct {
 	Values    []string `json:"values" bson:"values"`
 	Variation int      `json:"variation" bson:"variation"`
 }
 
-// Prerequisite describes a requirement that another feature flag return a specific variation
+// Prerequisite describes a requirement that another feature flag return a specific variation.
+//
+// Deprecated: this type is for internal use and will be moved to another package in a future version.
 type Prerequisite struct {
 	Key       string `json:"key"`
 	Variation int    `json:"variation"`
@@ -171,7 +191,7 @@ func bucketableStringValue(uValue interface{}) (string, bool) {
 // EvalResult describes the value and variation index that are the result of flag evaluation.
 // It also includes a list of any prerequisite flags that were evaluated to generate the evaluation.
 //
-// Deprecated: Use EvaluateDetail instead.
+// Deprecated: this type is for internal use and will be removed in a future version.
 type EvalResult struct {
 	Value                     interface{}
 	Variation                 *int
@@ -181,6 +201,8 @@ type EvalResult struct {
 
 // EvaluateDetail attempts to evaluate the feature flag for the given user and returns its
 // value, the reason for the value, and any events generated by prerequisite flags.
+//
+// Deprecated: this method is for internal use and will be moved to another package in a future version.
 func (f FeatureFlag) EvaluateDetail(user User, store FeatureStore, sendReasonsInEvents bool) (EvaluationDetail, []FeatureRequestEvent) {
 	if f.On {
 		prereqErrorReason, prereqEvents := f.checkPrerequisites(user, store, sendReasonsInEvents)
@@ -195,7 +217,7 @@ func (f FeatureFlag) EvaluateDetail(user User, store FeatureStore, sendReasonsIn
 // Evaluate returns the variation selected for a user.
 // It also contains a list of events generated during evaluation.
 //
-// Deprecated: Use EvaluateDetail instead.
+// Deprecated: this method is for internal use and will be removed in a future version.
 func (f FeatureFlag) Evaluate(user User, store FeatureStore) (interface{}, *int, []FeatureRequestEvent) {
 	detail, prereqEvents := f.EvaluateDetail(user, store, false)
 	return detail.Value, detail.VariationIndex, prereqEvents
@@ -204,7 +226,7 @@ func (f FeatureFlag) Evaluate(user User, store FeatureStore) (interface{}, *int,
 // EvaluateExplain returns the variation selected for a user along with a detailed explanation of which rule
 // resulted in the selected variation.
 //
-// Deprecated: Use EvaluateDetail instead.
+// Deprecated: this method is for internal use and will be removed in a future version.
 func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult, error) {
 	if user.Key == nil {
 		return nil, nil
@@ -410,6 +432,11 @@ func (r VariationOrRollout) variationIndexForUser(user User, key, salt string) *
 			return &wv.Variation
 		}
 	}
-	// If we get here, it's due to either a rounding error or weights that don't add up to 100000
-	return nil
+	// The user's bucket value was greater than or equal to the end of the last bucket. This could happen due
+	// to a rounding error, or due to the fact that we are scaling to 100000 rather than 99999, or the flag
+	// data could contain buckets that don't actually add up to 100000. Rather than returning an error in
+	// this case (or changing the scaling, which would potentially change the results for *all* users), we
+	// will simply put the user in the last bucket.
+	v := r.Rollout.Variations[len(r.Rollout.Variations)-1].Variation
+	return &v
 }

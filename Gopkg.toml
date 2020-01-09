@@ -39,7 +39,7 @@
 
 [[constraint]]
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
-  version = "4.13.1"
+  version = "4.14.0"
 
 [prune]
   go-tests = true
