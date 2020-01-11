@@ -2,7 +2,7 @@
 Description=LaunchDarkly Relay Proxy
 
 [Service]
-Type=forking
+Type=simple
 ExecStart=/usr/local/bin/ld-relay
 
 [Install]
