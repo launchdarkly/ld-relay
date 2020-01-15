@@ -60,10 +60,13 @@ func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 }
 
 var allowedHeadersList = []string{
+	"Cache-Control",
 	"Content-Type",
 	"Content-Length",
 	"Accept-Encoding",
 	"X-LaunchDarkly-User-Agent",
+	"X-LaunchDarkly-Payload-ID",
+	"X-LaunchDarkly-Wrapper",
 	events.EventSchemaHeader,
 }
 
