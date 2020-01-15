@@ -78,6 +78,14 @@
   version = "v1.4.0"
 
 [[projects]]
+  digest = "1:ab3ec1fe3e39bac4b3ab63390767766622be35b7cab03f47f787f9ec60522a53"
+  name = "github.com/google/uuid"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "0cd6bf5da1e1c83f8b45653022c74f71af0538a4"
+  version = "v1.1.1"
+
+[[projects]]
   branch = "master"
   digest = "1:dccdc65f02deecb82d4f4a087ddc9556402114b6deb9cb8b24cdbd86c7c0aac7"
   name = "github.com/gregjones/httpcache"
@@ -244,6 +252,7 @@
     "github.com/blang/semver",
     "github.com/fsnotify/fsnotify",
     "github.com/garyburd/redigo/redis",
+    "github.com/google/uuid",
     "github.com/gregjones/httpcache",
     "github.com/hashicorp/consul/api",
     "github.com/launchdarkly/eventsource",
