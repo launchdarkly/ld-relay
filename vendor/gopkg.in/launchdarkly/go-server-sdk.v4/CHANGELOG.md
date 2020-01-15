@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.14.1] - 2020-01-15
+### Fixed:
+- The SDK now specifies a uniquely identifiable request header when sending events to LaunchDarkly to ensure that events are only processed once, even if the SDK sends them two times due to a failed initial attempt.
+
 ## [4.14.0] - 2020-01-09
 ### Added:
 - `ldhttp.ProxyOption`, for specifying an HTTP/HTTPS proxy URL programmatically rather than using environment variables.

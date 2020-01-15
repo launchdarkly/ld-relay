@@ -205,7 +205,7 @@ func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,"+events.EventSchemaHeader)
+		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader)
 		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
 	})).ServeHTTP(resp, req)
 }
