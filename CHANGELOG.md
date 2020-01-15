@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.9.3] - 2020-01-14
+### Fixed:
+- When running Relay as a systemd service, the `ld-relay.service` file incorrectly specified the process start-up type as `forking`. Relay does not fork; the correct type is `simple`.
+
+
 ## [5.9.2] - 2020-01-09
 ### Fixed:
 - Relay's logging format was extremely inconsistent: depending on whether a message was related to a specific environment or not, the fields would be in different order and the timestamp was not always at the beginning of the line. This has been normalized so the timestamp (with microseconds) is always first, followed by a tag that is either `[env: name-of-environment]` or `[main]`, then a level such as `INFO:`, and then the message. ([#85](https://github.com/launchdarkly/ld-relay/issues/85))
