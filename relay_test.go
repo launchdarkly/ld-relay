@@ -611,21 +611,39 @@ func TestRelay(t *testing.T) {
 		}
 	})
 
-	t.Run("server-side events proxy", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		body := makeTestEventBuffer("me")
-		bodyBuffer := bytes.NewBuffer(body)
-		r, _ := http.NewRequest("POST", "http://localhost/bulk", bodyBuffer)
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Authorization", sdkKey)
-		r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-		relay.ServeHTTP(w, r)
-		result := w.Result()
-		if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
-			event := requirePublishedEvent(body)
-			assert.Equal(t, "/bulk", event.url)
-			assert.Equal(t, sdkKey, event.authKey)
-		}
+	t.Run("server-side events proxies", func(t *testing.T) {
+		t.Run("bulk post", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me")
+			bodyBuffer := bytes.NewBuffer(body)
+			r, _ := http.NewRequest("POST", "http://localhost/bulk", bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Authorization", sdkKey)
+			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+				event := requirePublishedEvent(body)
+				assert.Equal(t, "/bulk", event.url)
+				assert.Equal(t, sdkKey, event.authKey)
+			}
+		})
+
+		t.Run("diagnostics forwarding", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me")
+			bodyBuffer := bytes.NewBuffer(body)
+			r, _ := http.NewRequest("POST", "http://localhost/diagnostic", bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Authorization", sdkKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+				event := requirePublishedEvent(body)
+				assert.Equal(t, "/diagnostic", event.url)
+				assert.Equal(t, sdkKey, event.authKey)
+			}
+		})
 	})
 
 	t.Run("mobile events proxies", func(t *testing.T) {
@@ -654,6 +672,22 @@ func TestRelay(t *testing.T) {
 				assert.Equal(t, mobileKey, event.authKey)
 			}
 		}
+
+		t.Run("diagnostics forwarding", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me")
+			bodyBuffer := bytes.NewBuffer(body)
+			r, _ := http.NewRequest("POST", "http://localhost/mobile/events/diagnostic", bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Authorization", mobileKey)
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
+				event := requirePublishedEvent(body)
+				assert.Equal(t, "/mobile/events/diagnostic", event.url)
+				assert.Equal(t, mobileKey, event.authKey)
+			}
+		})
 	})
 
 	t.Run("client-side events proxies", func(t *testing.T) {
@@ -683,6 +717,22 @@ func TestRelay(t *testing.T) {
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
+				event := requirePublishedEvent(body)
+				assert.Equal(t, expectedPath, event.url)
+				assert.Equal(t, "", event.authKey)
+			}
+		})
+
+		t.Run("diagnostics forwarding", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := makeTestEventBuffer("me")
+			bodyBuffer := bytes.NewBuffer(body)
+			expectedPath := fmt.Sprintf("/events/bulk/%s", envId)
+			r, _ := http.NewRequest("POST", "http://localhost"+expectedPath, bodyBuffer)
+			r.Header.Set("Content-Type", "application/json")
+			relay.ServeHTTP(w, r)
+			result := w.Result()
+			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := requirePublishedEvent(body)
 				assert.Equal(t, expectedPath, event.url)
 				assert.Equal(t, "", event.authKey)

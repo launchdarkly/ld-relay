@@ -78,8 +78,11 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 
 // Event-recorder endpoints:
 // events.ld.com/bulk (server-side)
+// events.ld.com/diagnostic (server-side diagnostic)
 // events.ld.com/mobile, events.ld.com/mobile/events, events.ld.com/mobileevents/bulk (mobile)
+// events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
+// events.ld.com/events/diagnostic/{envId} (JS)
 func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
