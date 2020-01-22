@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.10.0] - 2020-01-22
+### Added:
+- When forwarding events, Relay is now able to forward diagnostic data that is sent by newer versions of the SDKs. This has no effect on its behavior with older SDKs.
+
+### Fixed:
+- Updated to Go SDK 4.14.2 to fix a bug that could cause spurious "feature store query returned unexpected type" errors to be logged.
+
 ## [5.9.4] - 2020-01-15
 ### Fixed:
 - For connections from JavaScript browser SDK versions 2.16.1 and above, Relay now supports CORS requests that include new request headers sent by those SDK versions.
