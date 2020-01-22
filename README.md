@@ -441,8 +441,8 @@ Endpoint                           | Method        | Auth Header | Description
 /sdk/flags/*flagKey*               | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/segments/*segmentKey*         | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/goals/*clientId*              | GET           | n/a         | For JS and other client-side SDKs
-/mobile                            | POST          | mobile      | Same as above
-/mobile/events                     | POST          | mobile      | For receiving events from mobile SDKs
+/mobile                            | POST          | mobile      | For receiving events from mobile SDKs
+/mobile/events                     | POST          | mobile      | Same as above
 /mobile/events/bulk                | POST          | mobile      | Same as above
 /mobile/events/diagnostic          | POST          | mobile      | Same as above
 /bulk                              | POST          | sdk         | For receiving events from server-side SDKs
