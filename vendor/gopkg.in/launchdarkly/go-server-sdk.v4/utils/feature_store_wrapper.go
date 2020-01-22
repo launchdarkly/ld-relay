@@ -297,7 +297,7 @@ func (w *FeatureStoreWrapper) Get(kind ld.VersionedDataKind, key string) (ld.Ver
 		}
 		return itemOnlyIfNotDeleted(item), err
 	})
-	if err != nil {
+	if err != nil || itemIntf == nil {
 		return nil, err
 	}
 	if item, ok := itemIntf.(ld.VersionedData); ok { // singleflight.Group.Do returns value as interface{}
