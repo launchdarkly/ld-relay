@@ -1,4 +1,4 @@
-version: 2
+version: 2.1
 
 experimental:
   notify:
@@ -6,100 +6,127 @@ experimental:
       only:
         - master
 
-defaults:
-  environment: &environment
-    CIRCLE_TEST_REPORTS: /tmp/circle-reports
-    CIRCLE_ARTIFACTS: /tmp/circle-artifacts
-    COMMON_GO_PACKAGES: >
-      github.com/jstemmer/go-junit-report
-    DISABLE_LINT: 1  # golangci-lint is currently broken for this project (ch44169)
+workflows:
+  workflow:
+    jobs:
+      - go-test:
+          name: Go 1.14
+          docker-image: circleci/golang:1.14
+          run-lint: true
+          test-coverage: true
+      - go-test:
+          name: Go 1.13
+          docker-image: circleci/golang:1.13
+          run-lint: true
+      - go-test:
+          name: Go 1.12
+          docker-image: circleci/golang:1.12
+      - go-test:
+          name: Go 1.11
+          docker-image: circleci/golang:1.11
+      - go-test:
+          name: Go 1.10
+          docker-image: circleci/golang:1.10
+      - go-test:
+          name: Go 1.9
+          docker-image: circleci/golang:1.9
+      - go-test:
+          name: Go 1.8
+          docker-image: circleci/golang:1.8
+      - test-publish
+      - publish:
+          filters:
+            tags:
+              only: /\d+\.\d+\.\d+(-.*)?/
+            branches:
+              only: /v\d+/
+          requires:
+            - Go 1.14
+      
+jobs:
+  go-test:
+    parameters:
+      docker-image:
+        type: string
+      run-lint:
+        type: boolean
+        default: false
+      test-coverage:
+        type: boolean
+        default: false
+  
+    docker:
+      - image: <<parameters.docker-image>>
+        environment: &environment
+          CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          CIRCLE_ARTIFACTS: /tmp/circle-artifacts
+          COMMON_GO_PACKAGES: >
+            github.com/jstemmer/go-junit-report
 
-  build_steps: &build_steps
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
+
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
       - run: go version && go env
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - run: dep ensure -dry-run
-      - run:
-          name: lint
-          command: |
-            if [ "$DISABLE_LINT" != "1" ]; then
-              make lint
-            fi
-      - run:
-          name: Set up Code Climate test-reporter
-          command: |
-            curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-            chmod +x ./cc-test-reporter
-      - run:
-          name: Run tests
-          command: |
-            mkdir -p $CIRCLE_TEST_REPORTS
-            mkdir -p $CIRCLE_ARTIFACTS
-            trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-            if [ -z "$DISABLE_COVERAGE" ]; then
-              go_cover_args="-covermode=atomic -coverpkg=./... -coverprofile /tmp/circle-artifacts/coverage.txt"
-            fi
-            go test -race $go_cover_args -v $(go list ./... | grep -v /vendor/) | tee $CIRCLE_ARTIFACTS/report.txt
-            if [[ -z "$DISABLE_COVERAGE" && -n "$CC_TEST_REPORTER_ID" ]]; then
-              ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
-              ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
-            fi
-      - run:
-          name: Generate coverage report
-          command: |
-            if [ -z "$DISABLE_COVERAGE" ]; then
-              go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
-            fi
-          when: always
+      - when:
+          condition: <<parameters.run-lint>>
+          steps:
+            - run: make lint
+      - run: |
+          mkdir -p $CIRCLE_TEST_REPORTS
+          mkdir -p $CIRCLE_ARTIFACTS
+      - unless:
+          condition: <<parameters.test-coverage>>
+          steps:
+            - run:
+                name: Run tests
+                command: |
+                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+                  make test | tee $CIRCLE_ARTIFACTS/report.txt  
+      - when:
+          condition: <<parameters.test-coverage>>
+          steps:
+            - run:
+                name: Run tests with coverage
+                command: |
+                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+                  make test-with-coverage -e TEST_COVERAGE_REPORT_FILE=$CIRCLE_ARTIFACTS/coverage.txt | tee $CIRCLE_ARTIFACTS/report.txt  
+      - when:
+          condition: <<parameters.test-coverage>>
+          steps:
+            - run:
+                name: Set up Code Climate test-reporter
+                command: |
+                  curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+                  chmod +x ./cc-test-reporter
+            - run:
+                name: upload coverage report if applicable
+                # note that CircleCI doesn't let us use "when" for an environment variable like $CC_TEST_REPORTER_ID
+                command: |
+                  if [[ -n "$CC_TEST_REPORTER_ID" ]]; then
+                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
+                    ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
+                  fi
+            - run:
+                name: Generate coverage report
+                command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
       - run:
           name: Run Prometheus endpoint test
           command: ./scripts/test-prometheus-endpoint.sh
-      - run:
-          name: lint
-          command: |
-            if [ -z "$DISABLE_LINT" ]; then
-              make lint
-            fi
       - store_test_results:
           path: /tmp/circle-reports
       - store_artifacts:
           path: /tmp/circle-artifacts
 
-jobs:
-  go-test:
+  test-publish:
     docker:
       - &release_docker_image
         image: circleci/golang:1.10.3
         environment:
           <<: *environment
-
-    <<: *build_steps
-
-  go-test-1.9:
-    docker:
-      - image: circleci/golang:1.9
-        environment:
-          <<: *environment
-          DISABLE_COVERAGE: 1
-
-    <<: *build_steps
-
-  go-test-1.8:
-    docker:
-      - image: circleci/golang:1.8
-        environment:
-          <<: *environment
-          DISABLE_COVERAGE: 1
-          DISABLE_LINT: 1
-
-    <<: *build_steps
-
-  test-publish:
-    docker:
-      - <<: *release_docker_image
 
     working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
@@ -132,20 +159,3 @@ jobs:
             fi
       - store_artifacts:
           path: dist/
-
-workflows:
-  version: 2
-  test:
-    jobs:
-      - go-test
-      - go-test-1.8
-      - go-test-1.9
-      - test-publish
-      - publish:
-          filters:
-            tags:
-              only: /\d+\.\d+\.\d+(-.*)?/
-            branches:
-              only: /v\d+/
-          requires:
-            - go-test

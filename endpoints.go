@@ -1,7 +1,7 @@
 package relay
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // we're not using SHA1 for encryption, just for generating an insecure hash
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
