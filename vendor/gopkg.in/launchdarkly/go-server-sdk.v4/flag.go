@@ -8,6 +8,8 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v1/ldvalue"
 )
 
 const (
@@ -151,10 +153,13 @@ type Prerequisite struct {
 }
 
 func bucketUser(user User, key, attr, salt string) float32 {
-	uValue, pass := user.valueOf(attr)
+	uValue, found := user.valueOf(attr)
+	if !found {
+		return 0
+	}
 
 	idHash, ok := bucketableStringValue(uValue)
-	if pass || !ok {
+	if !ok {
 		return 0
 	}
 
@@ -234,7 +239,7 @@ func (f FeatureFlag) EvaluateExplain(user User, store FeatureStore) (*EvalResult
 	detail, events := f.EvaluateDetail(user, store, false)
 
 	var err error
-	if errReason, ok := detail.Reason.(EvaluationReasonError); ok && errReason.ErrorKind == EvalErrorMalformedFlag {
+	if detail.Reason != nil && detail.Reason.GetKind() == EvalReasonError && detail.Reason.GetErrorKind() == EvalErrorMalformedFlag {
 		err = errors.New("Invalid variation index") // this was the only type of error that could occur in the old logic
 	}
 	expl := Explanation{}
@@ -273,7 +278,7 @@ func (f FeatureFlag) checkPrerequisites(user User, store FeatureStore, sendReaso
 
 		events = append(events, moreEvents...)
 		prereqEvent := newSuccessfulEvalEvent(prereqFeatureFlag, user, prereqResult.VariationIndex,
-			prereqResult.Value, nil, prereqResult.Reason, sendReasonsInEvents, &f.Key)
+			prereqResult.JSONValue, ldvalue.Null(), prereqResult.Reason, sendReasonsInEvents, &f.Key)
 		if sendReasonsInEvents {
 			prereqEvent.Reason.Reason = prereqResult.Reason
 		}
@@ -311,9 +316,11 @@ func (f FeatureFlag) getVariation(index int, reason EvaluationReason) Evaluation
 	if index < 0 || index >= len(f.Variations) {
 		return EvaluationDetail{Reason: newEvalReasonError(EvalErrorMalformedFlag)}
 	}
+	value := f.Variations[index]
 	return EvaluationDetail{
 		Reason:         reason,
-		Value:          f.Variations[index],
+		Value:          value,
+		JSONValue:      ldvalue.UnsafeUseArbitraryValue(value), //nolint // allow deprecated usage
 		VariationIndex: &index,
 	}
 }
@@ -343,9 +350,9 @@ func (r Rule) matchesUser(store FeatureStore, user User) bool {
 }
 
 func (c Clause) matchesUserNoSegments(user User) bool {
-	uValue, pass := user.valueOf(c.Attribute)
+	uValue, found := user.valueOf(c.Attribute)
 
-	if pass {
+	if !found {
 		return false
 	}
 	matchFn := operatorFn(c.Op)

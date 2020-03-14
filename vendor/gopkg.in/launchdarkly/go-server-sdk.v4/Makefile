@@ -19,7 +19,7 @@ clean:
 
 test:
 	@# Note, we need to specify all these packages individually for go test in order to remain 1.8-compatible
-	go test -race -v . ./ldfiledata ./ldfilewatch ./ldhttp ./ldntlm ./utils $(DB_TEST_PACKAGES)
+	go test -race -v . ./ldfiledata ./ldfilewatch ./ldhttp ./ldlog ./ldntlm ./utils $(DB_TEST_PACKAGES)
 	@# The proxy tests must be run separately because Go caches the global proxy environment variables. We use
 	@# build tags to isolate these tests from the main test run so that if you do "go test ./..." you won't
 	@# get unexpected errors.

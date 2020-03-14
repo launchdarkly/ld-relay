@@ -180,3 +180,8 @@ func (store *InMemoryFeatureStore) Initialized() bool {
 	defer store.RUnlock()
 	return store.isInitialized
 }
+
+// Used internally to describe this component in diagnostic data.
+func (store *InMemoryFeatureStore) GetDiagnosticsComponentTypeName() string {
+	return "memory"
+}

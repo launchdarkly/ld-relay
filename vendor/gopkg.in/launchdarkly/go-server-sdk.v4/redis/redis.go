@@ -551,6 +551,11 @@ func (store *redisFeatureStoreCore) IsStoreAvailable() bool {
 	return err == nil
 }
 
+// Used internally to describe this component in diagnostic data.
+func (store *redisFeatureStoreCore) GetDiagnosticsComponentTypeName() string {
+	return "Redis"
+}
+
 func (store *redisFeatureStoreCore) featuresKey(kind ld.VersionedDataKind) string {
 	return store.options.prefix + ":" + kind.GetNamespace()
 }

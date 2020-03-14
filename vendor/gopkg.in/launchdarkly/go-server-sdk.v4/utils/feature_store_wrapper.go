@@ -17,6 +17,13 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
 
+// Optional interface that can be implemented by components whose types can't be easily
+// determined by looking at the config object. This is also defined in diagnostic_events.go,
+// but that's in another package and we'd rather not export this implementation detail.
+type diagnosticsComponentDescriptor interface {
+	GetDiagnosticsComponentTypeName() string
+}
+
 // UnmarshalItem attempts to unmarshal an entity that has been stored as JSON in a
 // FeatureStore. The kind parameter indicates what type of entity is expected.
 func UnmarshalItem(kind ld.VersionedDataKind, raw []byte) (ld.VersionedData, error) {
@@ -449,6 +456,14 @@ func (w *FeatureStoreWrapper) StatusSubscribe() internal.FeatureStoreStatusSubsc
 	return w.statusManager.Subscribe()
 }
 
+// Used internally to describe this component in diagnostic data.
+func (w *FeatureStoreWrapper) GetDiagnosticsComponentTypeName() string {
+	if dcd, ok := w.core.(diagnosticsComponentDescriptor); ok {
+		return dcd.GetDiagnosticsComponentTypeName()
+	}
+	return "custom"
+}
+
 func (w *FeatureStoreWrapper) processError(err error) {
 	if err == nil {
 		// If we're waiting to recover after a failure, we'll let the polling routine take care
@@ -485,6 +500,8 @@ func (w *FeatureStoreWrapper) pollAvailabilityAfterOutage() bool {
 			w.loggers.Errorf("Tried to write cached data to persistent store after a store outage, but failed: %s", err)
 		} else {
 			w.loggers.Warn("Successfully updated persistent store from cached data")
+			// Note that w.inited should have already been set when InitInternal was originally called -
+			// in infinite cache mode, we set it even if the database update failed.
 		}
 	}
 	return true

@@ -3,6 +3,7 @@ package ldclient
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -40,6 +41,8 @@ type eventDispatcher struct {
 	sdkKey            string
 	config            Config
 	lastKnownPastTime uint64
+	deduplicatedUsers int
+	eventsInLastBatch int
 	disabled          bool
 	stateLock         sync.Mutex
 }
@@ -49,21 +52,23 @@ type eventBuffer struct {
 	summarizer       eventSummarizer
 	capacity         int
 	capacityExceeded bool
+	droppedEvents    int
 	loggers          ldlog.Loggers
 }
 
 type flushPayload struct {
-	events  []Event
-	summary eventSummary
+	diagnosticEvent interface{}
+	events          []Event
+	summary         eventSummary
 }
 
 type sendEventsTask struct {
-	client    *http.Client
-	eventsURI string
-	loggers   ldlog.Loggers
-	sdkKey    string
-	userAgent string
-	formatter eventOutputFormatter
+	client        *http.Client
+	eventsURI     string
+	diagnosticURI string
+	sdkKey        string
+	config        Config
+	formatter     eventOutputFormatter
 }
 
 // Payload of the inboxCh channel.
@@ -89,6 +94,7 @@ const (
 	payloadIDHeader    = "X-LaunchDarkly-Payload-ID"
 	currentEventSchema = "3"
 	defaultURIPath     = "/bulk"
+	diagnosticsURIPath = "/diagnostic"
 )
 
 func newNullEventProcessor() *nullEventProcessor {
@@ -158,8 +164,12 @@ func (ep *defaultEventProcessor) Close() error {
 	return nil
 }
 
-func startEventDispatcher(sdkKey string, config Config, client *http.Client,
-	inboxCh <-chan eventDispatcherMessage) {
+func startEventDispatcher(
+	sdkKey string,
+	config Config,
+	client *http.Client,
+	inboxCh <-chan eventDispatcherMessage,
+) {
 	ed := &eventDispatcher{
 		sdkKey: sdkKey,
 		config: config,
@@ -173,11 +183,19 @@ func startEventDispatcher(sdkKey string, config Config, client *http.Client,
 		startFlushTask(sdkKey, config, client, flushCh, &workersGroup,
 			func(r *http.Response) { ed.handleResponse(r) })
 	}
-	go ed.runMainLoop(inboxCh, flushCh, &workersGroup)
+	if config.diagnosticsManager != nil {
+		event := config.diagnosticsManager.CreateInitEvent()
+		ed.sendDiagnosticsEvent(event, client, flushCh, &workersGroup)
+	}
+	go ed.runMainLoop(inboxCh, flushCh, &workersGroup, client)
 }
 
-func (ed *eventDispatcher) runMainLoop(inboxCh <-chan eventDispatcherMessage,
-	flushCh chan<- *flushPayload, workersGroup *sync.WaitGroup) {
+func (ed *eventDispatcher) runMainLoop(
+	inboxCh <-chan eventDispatcherMessage,
+	flushCh chan<- *flushPayload,
+	workersGroup *sync.WaitGroup,
+	client *http.Client,
+) {
 	if err := recover(); err != nil {
 		ed.config.Loggers.Errorf("Unexpected panic in event processing thread: %+v", err)
 	}
@@ -201,6 +219,18 @@ func (ed *eventDispatcher) runMainLoop(inboxCh <-chan eventDispatcherMessage,
 	flushTicker := time.NewTicker(flushInterval)
 	usersResetTicker := time.NewTicker(userKeysFlushInterval)
 
+	var diagnosticsTicker *time.Ticker
+	var diagnosticsTickerCh <-chan time.Time
+	diagnosticsManager := ed.config.diagnosticsManager
+	if diagnosticsManager != nil {
+		interval := ed.config.DiagnosticRecordingInterval
+		if interval <= 0 {
+			interval = DefaultConfig.DiagnosticRecordingInterval
+		}
+		diagnosticsTicker = time.NewTicker(interval)
+		diagnosticsTickerCh = diagnosticsTicker.C
+	}
+
 	for {
 		// Drain the response channel with a higher priority than anything else
 		// to ensure that the flush workers don't get blocked.
@@ -217,6 +247,9 @@ func (ed *eventDispatcher) runMainLoop(inboxCh <-chan eventDispatcherMessage,
 			case shutdownEventsMessage:
 				flushTicker.Stop()
 				usersResetTicker.Stop()
+				if diagnosticsTicker != nil {
+					diagnosticsTicker.Stop()
+				}
 				workersGroup.Wait() // Wait for all in-progress flushes to complete
 				close(flushCh)      // Causes all idle flush workers to terminate
 				m.replyCh <- struct{}{}
@@ -226,6 +259,19 @@ func (ed *eventDispatcher) runMainLoop(inboxCh <-chan eventDispatcherMessage,
 			ed.triggerFlush(&outbox, flushCh, workersGroup)
 		case <-usersResetTicker.C:
 			userKeys.clear()
+		case <-diagnosticsTickerCh:
+			if diagnosticsManager == nil || !diagnosticsManager.CanSendStatsEvent() {
+				break
+			}
+			event := diagnosticsManager.CreateStatsEventAndReset(
+				outbox.droppedEvents,
+				ed.deduplicatedUsers,
+				ed.eventsInLastBatch,
+			)
+			outbox.droppedEvents = 0
+			ed.deduplicatedUsers = 0
+			ed.eventsInLastBatch = 0
+			ed.sendDiagnosticsEvent(event, client, flushCh, workersGroup)
 		}
 	}
 }
@@ -258,7 +304,9 @@ func (ed *eventDispatcher) processEvent(evt Event, outbox *eventBuffer, userKeys
 	// the user, and can be omitted if that event will contain an inline user.
 	if !(willAddFullEvent && ed.config.InlineUsersInEvents) {
 		user := evt.GetBase().User
-		if !noticeUser(userKeys, &user) {
+		if noticeUser(userKeys, &user) {
+			ed.deduplicatedUsers++
+		} else {
 			if _, ok := evt.(IdentifyEvent); !ok {
 				indexEvent := IndexEvent{
 					BaseEvent{CreationDate: evt.GetBase().CreationDate, User: user},
@@ -310,7 +358,12 @@ func (ed *eventDispatcher) triggerFlush(outbox *eventBuffer, flushCh chan<- *flu
 	}
 	// Is there anything to flush?
 	payload := outbox.getPayload()
-	if len(payload.events) == 0 && len(payload.summary.counters) == 0 {
+	totalEventCount := len(payload.events)
+	if len(payload.summary.counters) > 0 {
+		totalEventCount++
+	}
+	if totalEventCount == 0 {
+		ed.eventsInLastBatch = 0
 		return
 	}
 	workersGroup.Add(1) // Increment the count of active flushes
@@ -319,6 +372,7 @@ func (ed *eventDispatcher) triggerFlush(outbox *eventBuffer, flushCh chan<- *flu
 		// If the channel wasn't full, then there is a worker available who will pick up
 		// this flush payload and send it. The event outbox and summary state can now be
 		// cleared from the main goroutine.
+		ed.eventsInLastBatch = totalEventCount
 		outbox.clear()
 	default:
 		// We can't start a flush right now because we're waiting for one of the workers
@@ -352,12 +406,34 @@ func (ed *eventDispatcher) handleResponse(resp *http.Response) {
 	}
 }
 
+func (ed *eventDispatcher) sendDiagnosticsEvent(
+	event interface{},
+	client *http.Client,
+	flushCh chan<- *flushPayload,
+	workersGroup *sync.WaitGroup,
+) {
+	payload := flushPayload{diagnosticEvent: event}
+	workersGroup.Add(1) // Increment the count of active flushes
+	select {
+	case flushCh <- &payload:
+		// If the channel wasn't full, then there is a worker available who will pick up
+		// this flush payload and send it.
+	default:
+		// We can't start a flush right now because we're waiting for one of the workers
+		// to pick up the last one. We'll just discard this diagnostic event - presumably
+		// we'll send another one later anyway, and we don't want this kind of nonessential
+		// data to cause any kind of back-pressure.
+		workersGroup.Done()
+	}
+}
+
 func (b *eventBuffer) addEvent(event Event) {
 	if len(b.events) >= b.capacity {
 		if !b.capacityExceeded {
 			b.capacityExceeded = true
 			b.loggers.Warn("Exceeded event queue capacity. Increase capacity to avoid dropping events.")
 		}
+		b.droppedEvents++
 		return
 	}
 	b.capacityExceeded = false
@@ -392,12 +468,12 @@ func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <
 		uri = strings.TrimRight(config.EventsUri, "/") + defaultURIPath
 	}
 	t := sendEventsTask{
-		client:    client,
-		eventsURI: uri,
-		loggers:   config.Loggers,
-		sdkKey:    sdkKey,
-		userAgent: config.UserAgent,
-		formatter: ef,
+		client:        client,
+		eventsURI:     uri,
+		diagnosticURI: strings.TrimRight(config.EventsUri, "/") + diagnosticsURIPath,
+		sdkKey:        sdkKey,
+		config:        config,
+		formatter:     ef,
 	}
 	go t.run(flushCh, responseFn, workersGroup)
 }
@@ -410,44 +486,47 @@ func (t *sendEventsTask) run(flushCh <-chan *flushPayload, responseFn func(*http
 			// Channel has been closed - we're shutting down
 			break
 		}
-		outputEvents := t.formatter.makeOutputEvents(payload.events, payload.summary)
-		if len(outputEvents) > 0 {
-			resp := t.postEvents(outputEvents)
-			if resp != nil {
-				responseFn(resp)
+		if payload.diagnosticEvent != nil {
+			t.postEvents(t.diagnosticURI, payload.diagnosticEvent, "diagnostic event")
+		} else {
+			outputEvents := t.formatter.makeOutputEvents(payload.events, payload.summary)
+			if len(outputEvents) > 0 {
+				resp := t.postEvents(t.eventsURI, outputEvents, fmt.Sprintf("%d events", len(outputEvents)))
+				if resp != nil {
+					responseFn(resp)
+				}
 			}
 		}
 		workersGroup.Done() // Decrement the count of in-progress flushes
 	}
 }
 
-func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
-	jsonPayload, marshalErr := json.Marshal(outputEvents)
+func (t *sendEventsTask) postEvents(uri string, outputData interface{}, description string) *http.Response {
+	jsonPayload, marshalErr := json.Marshal(outputData)
 	if marshalErr != nil {
-		t.loggers.Errorf("Unexpected error marshalling event json: %+v", marshalErr)
+		t.config.Loggers.Errorf("Unexpected error marshalling event json: %+v", marshalErr)
 		return nil
 	}
 	payloadUUID, _ := uuid.NewRandom()
 	payloadID := payloadUUID.String() // if NewRandom somehow failed, we'll just proceed with an empty string
 
-	t.loggers.Debugf("Sending %d events: %s", len(outputEvents), jsonPayload)
+	t.config.Loggers.Debugf("Sending %s: %s", description, jsonPayload)
 
 	var resp *http.Response
 	var respErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
-			t.loggers.Warn("Will retry posting events after 1 second")
+			t.config.Loggers.Warn("Will retry posting events after 1 second")
 			time.Sleep(1 * time.Second)
 		}
-		req, reqErr := http.NewRequest("POST", t.eventsURI, bytes.NewReader(jsonPayload))
+		req, reqErr := http.NewRequest("POST", uri, bytes.NewReader(jsonPayload))
 		if reqErr != nil {
-			t.loggers.Errorf("Unexpected error while creating event request: %+v", reqErr)
+			t.config.Loggers.Errorf("Unexpected error while creating event request: %+v", reqErr)
 			return nil
 		}
 
-		req.Header.Add("Authorization", t.sdkKey)
+		addBaseHeaders(req, t.sdkKey, t.config)
 		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("User-Agent", t.userAgent)
 		req.Header.Add(eventSchemaHeader, currentEventSchema)
 		req.Header.Add(payloadIDHeader, payloadID)
 
@@ -459,10 +538,10 @@ func (t *sendEventsTask) postEvents(outputEvents []interface{}) *http.Response {
 		}
 
 		if respErr != nil {
-			t.loggers.Warnf("Unexpected error while sending events: %+v", respErr)
+			t.config.Loggers.Warnf("Unexpected error while sending events: %+v", respErr)
 			continue
 		} else if resp.StatusCode >= 400 && isHTTPErrorRecoverable(resp.StatusCode) {
-			t.loggers.Warnf("Received error status %d when sending events", resp.StatusCode)
+			t.config.Loggers.Warnf("Received error status %d when sending events", resp.StatusCode)
 			continue
 		} else {
 			break

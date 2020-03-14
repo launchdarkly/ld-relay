@@ -20,6 +20,7 @@ import (
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/eventsource"
+	"gopkg.in/launchdarkly/go-sdk-common.v1/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
@@ -98,7 +99,7 @@ type Relay struct {
 }
 
 type evalXResult struct {
-	Value                interface{}                   `json:"value"`
+	Value                ldvalue.Value                 `json:"value"`
 	Variation            *int                          `json:"variation,omitempty"`
 	Version              int                           `json:"version"`
 	DebugEventsUntilDate *uint64                       `json:"debugEventsUntilDate,omitempty"`

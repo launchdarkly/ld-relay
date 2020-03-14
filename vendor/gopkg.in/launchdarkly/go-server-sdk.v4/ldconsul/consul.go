@@ -393,6 +393,11 @@ func (store *featureStore) IsStoreAvailable() bool {
 	return err == nil
 }
 
+// Used internally to describe this component in diagnostic data.
+func (store *featureStore) GetDiagnosticsComponentTypeName() string {
+	return "Consul"
+}
+
 func (store *featureStore) getEvenIfDeleted(kind ld.VersionedDataKind, key string) (retrievedItem ld.VersionedData,
 	modifyIndex uint64, err error) {
 	var defaultModifyIndex = uint64(0)
