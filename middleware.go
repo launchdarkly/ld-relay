@@ -205,7 +205,7 @@ func UserV2FromBase64(base64User string) (*ld.User, error) {
 		return nil, errors.New("User part of url path did not decode to valid user as json")
 	}
 
-	if user.Key == nil {
+	if user.Key == nil { //nolint:staticcheck // direct access to user.Key is deprecated
 		return nil, errors.New("User must have a 'key' attribute")
 	}
 	return &user, nil

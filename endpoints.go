@@ -175,13 +175,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if user.Key == nil {
+	if user.Key == nil { //nolint:staticcheck // direct access to User.Key is deprecated
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, *user.Key)
+	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.GetKey())
 
 	items, err := store.All(ld.Features)
 	if err != nil {
@@ -200,11 +200,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}
 			if valueOnly {
-				result = detail.Value
+				result = detail.JSONValue
 			} else {
 				isExperiment := isExperiment(flag, detail.Reason)
 				value := evalXResult{
-					Value:                detail.Value,
+					Value:                detail.JSONValue,
 					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
 					TrackEvents:          flag.TrackEvents || isExperiment,
@@ -231,12 +231,13 @@ func isExperiment(flag *ld.FeatureFlag, reason ld.EvaluationReason) bool {
 	if reason == nil {
 		return false
 	}
-	switch r := reason.(type) {
-	case ld.EvaluationReasonFallthrough:
+	switch reason.GetKind() {
+	case ld.EvalReasonFallthrough:
 		return flag.TrackEventsFallthrough
-	case ld.EvaluationReasonRuleMatch:
-		if r.RuleIndex >= 0 && r.RuleIndex < len(flag.Rules) {
-			return flag.Rules[r.RuleIndex].TrackEvents
+	case ld.EvalReasonRuleMatch:
+		i := reason.GetRuleIndex()
+		if i >= 0 && i < len(flag.Rules) {
+			return flag.Rules[i].TrackEvents
 		}
 	}
 	return false
