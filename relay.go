@@ -341,36 +341,37 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(mobileSdk)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
-	mobileStreamRouter.Use(mobileMiddlewareStack)
-	mobileStreamRouter.HandleFunc("", countMobileConns(pingStreamHandler)).Methods("REPORT")
-	mobileStreamRouter.HandleFunc("/{user}", countMobileConns(pingStreamHandler)).Methods("GET")
+	mobileStreamRouter.Use(mobileMiddlewareStack, streamingMiddleware)
+	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandler())).Methods("REPORT")
+	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandler())).Methods("GET")
 
-	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
+	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(
+		countMobileConns(streamingMiddleware(pingStreamHandler())))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter))
-	clientSidePingRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
+	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), streamingMiddleware)
+	clientSidePingRouter.Handle("", countBrowserConns(pingStreamHandler())).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter))
+	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), streamingMiddleware)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.HandleFunc("/{user}", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(pingStreamHandler())).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", countBrowserConns(pingStreamHandler())).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
-	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("/events/diagnostic", bulkEventHandler(events.MobileSDKDiagnosticEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(events.MobileSDKDiagnosticEventsEndpoint)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
 	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideBulkEventsRouter.HandleFunc("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideBulkEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
 	clientSideDiagnosticEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideDiagnosticEventsRouter.HandleFunc("", bulkEventHandler(events.JavaScriptSDKDiagnosticEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKDiagnosticEventsEndpoint)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
 	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
@@ -378,10 +379,11 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(serverSideMiddlewareStack)
-	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
-	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
-	serverSideRouter.HandleFunc("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
-	serverSideRouter.HandleFunc("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/all", countServerConns(streamingMiddleware(allStreamHandler()))).Methods("GET")
+	serverSideRouter.Handle("/flags", countServerConns(streamingMiddleware(flagsStreamHandler()))).Methods("GET")
+
 	return router
 }
 

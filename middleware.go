@@ -108,25 +108,25 @@ func getClientContext(req *http.Request) clientContext {
 	return req.Context().Value(contextKey).(clientContext)
 }
 
-func withCount(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
+func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
 		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
-	}
+	})
 }
 
-func countMobileConns(handler http.HandlerFunc) http.HandlerFunc {
+func countMobileConns(handler http.Handler) http.Handler {
 	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
 }
 
-func countBrowserConns(handler http.HandlerFunc) http.HandlerFunc {
+func countBrowserConns(handler http.Handler) http.Handler {
 	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
 }
 
-func countServerConns(handler http.HandlerFunc) http.HandlerFunc {
+func countServerConns(handler http.Handler) http.Handler {
 	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
@@ -144,14 +144,14 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	}
 }
 
-func withGauge(handler http.HandlerFunc, measure metrics.Measure) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
+func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
 		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
-	}
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -177,6 +177,15 @@ func corsMiddleware(next http.Handler) http.Handler {
 			setCorsHeaders(w, origin)
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func streamingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// If Nginx is being used as a proxy/load balancer, adding this header tells it not to buffer this response because
+		// it is a streaming response. If Nginx is not being used, this header has no effect.
+		w.Header().Add("X-Accel-Buffering", "no")
+		next.ServeHTTP(w, req)
 	})
 }
 

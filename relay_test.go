@@ -369,6 +369,16 @@ func TestRelay(t *testing.T) {
 		return status
 	}
 
+	assertNonStreamingHeaders := func(t *testing.T, h http.Header) {
+		assert.Equal(t, "", h.Get("X-Accel-Buffering"))
+		assert.NotRegexp(t, "^text/event-stream", h.Get("Content-Type"))
+	}
+
+	assertStreamingHeaders := func(t *testing.T, h http.Header) {
+		assert.Equal(t, "no", h.Get("X-Accel-Buffering"))
+		assert.Regexp(t, "^text/event-stream", h.Get("Content-Type"))
+	}
+
 	t.Run("status", func(t *testing.T) {
 		status := getStatus(relay, t)
 		assert.Equal(t, "sdk-********-****-****-****-*******e42d0", jsonFind(status, "environments", "sdk test", "sdkKey"))
@@ -427,6 +437,7 @@ func TestRelay(t *testing.T) {
 					body, _ := ioutil.ReadAll(result.Body)
 					s.bodyMatcher(t, body)
 				}
+				assertNonStreamingHeaders(t, w.Header())
 			})
 		}
 	})
@@ -471,6 +482,7 @@ func TestRelay(t *testing.T) {
 						assert.JSONEq(t, string(s.expectedData), event.Data())
 					}
 				}
+				assertStreamingHeaders(t, w.Header())
 				w.Close()
 				wg.Wait()
 			})
@@ -520,6 +532,7 @@ func TestRelay(t *testing.T) {
 							s.bodyMatcher(t, body)
 						}
 					}
+					assertNonStreamingHeaders(t, w.Header())
 				})
 
 				t.Run("options", func(t *testing.T) {
@@ -584,6 +597,7 @@ func TestRelay(t *testing.T) {
 					result := w.Result()
 					assert.ElementsMatch(t, []string{s.method, "OPTIONS", "OPTIONS"}, strings.Split(result.Header.Get("Access-Control-Allow-Methods"), ","))
 					assert.Equal(t, "*", result.Header.Get("Access-Control-Allow-Origin"))
+					assertStreamingHeaders(t, w.Header())
 				})
 
 				t.Run("options", func(t *testing.T) {
@@ -787,6 +801,7 @@ func TestRelay(t *testing.T) {
 			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+			assertNonStreamingHeaders(t, w.Header())
 		})
 
 		t.Run("get flag - not found", func(t *testing.T) {
@@ -813,6 +828,7 @@ func TestRelay(t *testing.T) {
 			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+			assertNonStreamingHeaders(t, w.Header())
 		})
 
 		t.Run("get segment", func(t *testing.T) {
@@ -823,6 +839,7 @@ func TestRelay(t *testing.T) {
 			assert.Equal(t, "", w.Result().Header.Get("Expires")) // TTL isn't set for this environment
 			assertQueryWithSameEtagIsCached(t, r, w.Result())
 			assertQueryWithDifferentEtagIsNotCached(t, r, w.Result())
+			assertNonStreamingHeaders(t, w.Header())
 		})
 
 		t.Run("get segment - not found", func(t *testing.T) {

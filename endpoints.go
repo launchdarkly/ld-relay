@@ -22,24 +22,30 @@ import (
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
-func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested client-side ping stream")
-	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+func pingStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // Server-side SDK streaming endpoint for both flags and segments: stream.ld.com/all
-func allStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /all stream")
-	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+func allStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested server-side /all stream")
+		clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // Old server-side SDK streaming endpoint for just flags: stream.ld.com/flags
-func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
-	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+func flagsStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
+		clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
@@ -83,8 +89,8 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
 // events.ld.com/events/diagnostic/{envId} (JS)
-func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
+func bulkEventHandler(endpoint events.Endpoint) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
 		dispatcher := clientCtx.getHandlers().eventDispatcher
 		if dispatcher == nil {
@@ -102,7 +108,7 @@ func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.
 			return
 		}
 		handler(w, req)
-	}
+	})
 }
 
 // Client-side evaluation endpoint, new schema with metadata:
