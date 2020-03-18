@@ -133,6 +133,26 @@ func (l Loggers) Errorf(format string, values ...interface{}) {
 	l.ForLevel(Error).Printf(format, values...)
 }
 
+// NewDefaultLoggers returns a new Loggers instance with default properties.
+//
+// This is different from an empty Loggers{} instance in that the latter will not produce any output
+// until you call either SetBaseLogger, SetMinLevel, or Init on it. Calling NewDefaultLoggers() ensures
+// that the default minimum level of Info is enabled.
+func NewDefaultLoggers() Loggers {
+	ret := Loggers{}
+	ret.SetMinLevel(Info)
+	return ret
+}
+
+// Init ensures that the Loggers instance is ready to use.
+//
+// This is necessary only if you have a Loggers instance that was not produced by NewDefaultLoggers
+// and that may not have had SetBaseLogger or SetMinLevel called on it. It ensures that the default
+// properties have been set. If you have already set any properties, Init does nothing.
+func (l *Loggers) Init() {
+	l.ensureInited()
+}
+
 // SetBaseLogger specifies the default destination for output at all log levels. This does not apply
 // to any levels whose BaseLogger has been overridden with SetBaseLoggerForLevel. All messages
 // written to this logger will be prefixed with "NAME: " where NAME is DEBUG, INFO, etc.

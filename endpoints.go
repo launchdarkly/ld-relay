@@ -1,7 +1,7 @@
 package relay
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // we're not using SHA1 for encryption, just for generating an insecure hash
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -22,24 +22,30 @@ import (
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
-func pingStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested client-side ping stream")
-	clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+func pingStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // Server-side SDK streaming endpoint for both flags and segments: stream.ld.com/all
-func allStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /all stream")
-	clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+func allStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested server-side /all stream")
+		clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // Old server-side SDK streaming endpoint for just flags: stream.ld.com/flags
-func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
-	clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+func flagsStreamHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
+		clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
@@ -83,8 +89,8 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
 // events.ld.com/events/diagnostic/{envId} (JS)
-func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
+func bulkEventHandler(endpoint events.Endpoint) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
 		dispatcher := clientCtx.getHandlers().eventDispatcher
 		if dispatcher == nil {
@@ -102,7 +108,7 @@ func bulkEventHandler(endpoint events.Endpoint) func(http.ResponseWriter, *http.
 			return
 		}
 		handler(w, req)
-	}
+	})
 }
 
 // Client-side evaluation endpoint, new schema with metadata:
@@ -169,13 +175,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if user.Key == nil {
+	if user.Key == nil { //nolint:staticcheck // direct access to User.Key is deprecated
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, *user.Key)
+	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.GetKey())
 
 	items, err := store.All(ld.Features)
 	if err != nil {
@@ -194,11 +200,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}
 			if valueOnly {
-				result = detail.Value
+				result = detail.JSONValue
 			} else {
 				isExperiment := isExperiment(flag, detail.Reason)
 				value := evalXResult{
-					Value:                detail.Value,
+					Value:                detail.JSONValue,
 					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
 					TrackEvents:          flag.TrackEvents || isExperiment,
@@ -225,12 +231,13 @@ func isExperiment(flag *ld.FeatureFlag, reason ld.EvaluationReason) bool {
 	if reason == nil {
 		return false
 	}
-	switch r := reason.(type) {
-	case ld.EvaluationReasonFallthrough:
+	switch reason.GetKind() {
+	case ld.EvalReasonFallthrough:
 		return flag.TrackEventsFallthrough
-	case ld.EvaluationReasonRuleMatch:
-		if r.RuleIndex >= 0 && r.RuleIndex < len(flag.Rules) {
-			return flag.Rules[r.RuleIndex].TrackEvents
+	case ld.EvalReasonRuleMatch:
+		i := reason.GetRuleIndex()
+		if i >= 0 && i < len(flag.Rules) {
+			return flag.Rules[i].TrackEvents
 		}
 	}
 	return false

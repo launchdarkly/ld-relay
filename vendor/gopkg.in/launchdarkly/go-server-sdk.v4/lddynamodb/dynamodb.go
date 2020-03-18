@@ -506,6 +506,11 @@ func (store *dynamoDBFeatureStore) IsStoreAvailable() bool {
 	return err == nil
 }
 
+// Used internally to describe this component in diagnostic data.
+func (store *dynamoDBFeatureStore) GetDiagnosticsComponentTypeName() string {
+	return "DynamoDB"
+}
+
 func (store *dynamoDBFeatureStore) prefixedNamespace(baseNamespace string) string {
 	if store.options.prefix == "" {
 		return baseNamespace

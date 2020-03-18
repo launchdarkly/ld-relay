@@ -7,14 +7,19 @@ run:
 linters:
   enable-all: true
   disable:
+    - funlen # allow long/complex functions for now
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit # allow long/complex functions for now
+    - gocritic # very aggressive about preferring switch statements to if/else
     - gocyclo
     - gofmt
-    - goimports
-    - gosec # re-enable this when we're not using InsecureSkipVerify
-    - ineffassign
-    - lll
-    - maligned  # don't really care about struct sizes
+    - gomnd # extremely aggressive linter that complains about all numeric literals, even just adding 1 to something (https://github.com/tommy-muehle/go-mnd)
+    - maligned # don't really care about struct sizes
     - unparam
+    - lll
+    - whitespace
+    - wsl # enforces a very specific style with an idiosyncratic definition of what "cuddling" is
   fast: false
 
 linter-settings:
@@ -28,6 +33,15 @@ issues:
     - "G104: Errors unhandled." # Let errcheck handle these
     - "Error return value of `w.Write` is not checked"
     - "should have comment or be unexported" # TODO: label everything that is exported when relay becomes a library
+    - "ST1005: error strings should not be capitalized"
+    - "ST1000: at least one file in a package should have a package comment"
+    # Relay accesses some Go SDK types and methods directly that are deprecated to discourage applications from relying on them;
+    # these will be replaced in the next major versions of Go SDK and Relay
+    - "SA1019: ld.FeatureFlag is deprecated.*"
+    - "SA1019: ld.Features is deprecated.*"
+    - "SA1019: ld.Segment is deprecated.*"
+    - "SA1019: ld.Segments is deprecated.*"
+    - "SA1019: flag.EvaluateDetail is deprecated.*"
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

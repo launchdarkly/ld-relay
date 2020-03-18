@@ -150,6 +150,18 @@ func MakeAllVersionedDataMap(
 	return allData
 }
 
+func addBaseHeaders(req *http.Request, sdkKey string, config Config) {
+	req.Header.Add("Authorization", sdkKey)
+	req.Header.Add("User-Agent", config.UserAgent)
+	if config.WrapperName != "" {
+		w := config.WrapperName
+		if config.WrapperVersion != "" {
+			w = w + "/" + config.WrapperVersion
+		}
+		req.Header.Add("X-LaunchDarkly-Wrapper", w)
+	}
+}
+
 // Tests whether an HTTP error status represents a condition that might resolve on its own if we retry,
 // or at least should not make us permanently stop sending requests.
 func isHTTPErrorRecoverable(statusCode int) bool {
@@ -190,4 +202,23 @@ func describeUserForErrorLog(user *User, logUserKeyInErrors bool) string {
 		return fmt.Sprintf("user '%s'", key)
 	}
 	return "a user (enable LogUserKeyInErrors to see the user key)"
+}
+
+func stringSlicesEqual(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, n0 := range a {
+		ok := false
+		for _, n1 := range b {
+			if n1 == n0 {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v1/ldvalue"
 )
 
 // EvalReasonKind defines the possible values of the Kind property of EvaluationReason.
@@ -54,9 +56,32 @@ const (
 
 // EvaluationReason describes the reason that a flag evaluation producted a particular value.
 // Specific kinds of reasons have their own types that implement this interface.
+//
+// Note: In a future version, EvaluationReason will be a struct, and the currently existing
+// structs implementing this interface (EvaluationReasonOff, etc.) will be removed. For
+// compatibility, avoid referencing those types and use only the EvaluationReason methods.
 type EvaluationReason interface {
+	fmt.Stringer
+
 	// GetKind describes the general category of the reason.
 	GetKind() EvalReasonKind
+
+	// GetRuleIndex provides the index of the rule that was matched (0 being the first), if
+	// the Kind is EvalReasonRuleMatch. Otherwise it returns -1.
+	GetRuleIndex() int
+
+	// GetRuleID provides the unique identifier of the rule that was matched, if the Kind is
+	// EvalReasonRuleMatch. Otherwise it returns an empty string. Unlike the rule index, this
+	// identifier will not change if other rules are added or deleted.
+	GetRuleID() string
+
+	// GetPrerequisiteKey provides the flag key of the prerequisite that failed, if the Kind
+	// is EvalReasonPrerequisiteFailed. Otherwise it returns an empty string.
+	GetPrerequisiteKey() string
+
+	// GetErrorKind describes the general category of the error, if the Kind is EvalReasonError.
+	// Otherwise it returns an empty string.
+	GetErrorKind() EvalErrorKind
 }
 
 type evaluationReasonBase struct {
@@ -69,11 +94,14 @@ func (r evaluationReasonBase) GetKind() EvalReasonKind {
 }
 
 // EvaluationReasonOff means that the flag was off and therefore returned its configured off value.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonOff.
 type EvaluationReasonOff struct {
 	evaluationReasonBase
 }
 
-var evalReasonOffInstance = EvaluationReasonOff{
+var evalReasonOffInstance EvaluationReason = EvaluationReasonOff{
 	evaluationReasonBase: evaluationReasonBase{Kind: EvalReasonOff},
 }
 
@@ -81,12 +109,35 @@ func (r EvaluationReasonOff) String() string {
 	return string(r.GetKind())
 }
 
+// GetRuleIndex for this type always returns -1.
+func (r EvaluationReasonOff) GetRuleIndex() int {
+	return -1
+}
+
+// GetRuleID for this type always returns an empty string.
+func (r EvaluationReasonOff) GetRuleID() string {
+	return ""
+}
+
+// GetPrerequisiteKey for this type always returns an empty string.
+func (r EvaluationReasonOff) GetPrerequisiteKey() string {
+	return ""
+}
+
+// GetErrorKind for this type always returns an empty string.
+func (r EvaluationReasonOff) GetErrorKind() EvalErrorKind {
+	return ""
+}
+
 // EvaluationReasonTargetMatch means that the user key was specifically targeted for this flag.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonTargetMatch.
 type EvaluationReasonTargetMatch struct {
 	evaluationReasonBase
 }
 
-var evalReasonTargetMatchInstance = EvaluationReasonTargetMatch{
+var evalReasonTargetMatchInstance EvaluationReason = EvaluationReasonTargetMatch{
 	evaluationReasonBase: evaluationReasonBase{Kind: EvalReasonTargetMatch},
 }
 
@@ -94,7 +145,31 @@ func (r EvaluationReasonTargetMatch) String() string {
 	return string(r.GetKind())
 }
 
+// GetRuleIndex for this type always returns -1.
+func (r EvaluationReasonTargetMatch) GetRuleIndex() int {
+	return -1
+}
+
+// GetRuleID for this type always returns an empty string.
+func (r EvaluationReasonTargetMatch) GetRuleID() string {
+	return ""
+}
+
+// GetPrerequisiteKey for this type always returns an empty string.
+func (r EvaluationReasonTargetMatch) GetPrerequisiteKey() string {
+	return ""
+}
+
+// GetErrorKind for this type always returns an empty string.
+func (r EvaluationReasonTargetMatch) GetErrorKind() EvalErrorKind {
+	return ""
+}
+
 // EvaluationReasonRuleMatch means that the user matched one of the flag's rules.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonRuleMatch, and use GetRuleIndex() or
+// GetRuleID() instead of accessing the RuleIndex and RuleID fields directly.
 type EvaluationReasonRuleMatch struct {
 	evaluationReasonBase
 	// RuleIndex is the index of the rule that was matched (0 being the first).
@@ -115,8 +190,32 @@ func (r EvaluationReasonRuleMatch) String() string {
 	return fmt.Sprintf("%s(%d,%s)", r.GetKind(), r.RuleIndex, r.RuleID)
 }
 
+// GetRuleIndex provides the index of the rule that was matched (0 being the first).
+func (r EvaluationReasonRuleMatch) GetRuleIndex() int {
+	return r.RuleIndex
+}
+
+// GetRuleID provides the unique identifier of the rule that was matched.
+func (r EvaluationReasonRuleMatch) GetRuleID() string {
+	return r.RuleID
+}
+
+// GetPrerequisiteKey for this type always returns an empty string.
+func (r EvaluationReasonRuleMatch) GetPrerequisiteKey() string {
+	return ""
+}
+
+// GetErrorKind for this type always returns an empty string.
+func (r EvaluationReasonRuleMatch) GetErrorKind() EvalErrorKind {
+	return ""
+}
+
 // EvaluationReasonPrerequisiteFailed means that the flag was considered off because it had at
 // least one prerequisite flag that either was off or did not return the desired variation.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonPrerequisiteFailed, and use
+// GetPrerequisiteKey() instead of accessing the PrerequisiteKey field directly.
 type EvaluationReasonPrerequisiteFailed struct {
 	evaluationReasonBase
 	// PrerequisiteKey is the flag key of the prerequisite that failed.
@@ -134,8 +233,31 @@ func (r EvaluationReasonPrerequisiteFailed) String() string {
 	return fmt.Sprintf("%s(%s)", r.GetKind(), r.PrerequisiteKey)
 }
 
+// GetRuleIndex for this type always returns -1.
+func (r EvaluationReasonPrerequisiteFailed) GetRuleIndex() int {
+	return -1
+}
+
+// GetRuleID for this type always returns an empty string.
+func (r EvaluationReasonPrerequisiteFailed) GetRuleID() string {
+	return ""
+}
+
+// GetPrerequisiteKey provides the flag key of the prerequisite that failed.
+func (r EvaluationReasonPrerequisiteFailed) GetPrerequisiteKey() string {
+	return r.PrerequisiteKey
+}
+
+// GetErrorKind for this type always returns an empty string.
+func (r EvaluationReasonPrerequisiteFailed) GetErrorKind() EvalErrorKind {
+	return ""
+}
+
 // EvaluationReasonFallthrough means that the flag was on but the user did not match any targets
 // or rules.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonFallthrough.
 type EvaluationReasonFallthrough struct {
 	evaluationReasonBase
 }
@@ -148,8 +270,32 @@ func (r EvaluationReasonFallthrough) String() string {
 	return string(r.GetKind())
 }
 
+// GetRuleIndex for this type always returns -1.
+func (r EvaluationReasonFallthrough) GetRuleIndex() int {
+	return -1
+}
+
+// GetRuleID for this type always returns an empty string.
+func (r EvaluationReasonFallthrough) GetRuleID() string {
+	return ""
+}
+
+// GetPrerequisiteKey for this type always returns an empty string.
+func (r EvaluationReasonFallthrough) GetPrerequisiteKey() string {
+	return ""
+}
+
+// GetErrorKind for this type always returns an empty string.
+func (r EvaluationReasonFallthrough) GetErrorKind() EvalErrorKind {
+	return ""
+}
+
 // EvaluationReasonError means that the flag could not be evaluated, e.g. because it does not
 // exist or due to an unexpected error.
+//
+// Deprecated: This type will be removed in a future version. Use the GetKind() method on
+// EvaluationReason instead to test for EvalReasonError, and use GetErrorKind() instead of
+// accessing the ErrorKind field directly.
 type EvaluationReasonError struct {
 	evaluationReasonBase
 	// ErrorKind describes the type of error.
@@ -163,6 +309,26 @@ func newEvalReasonError(kind EvalErrorKind) EvaluationReasonError {
 	}
 }
 
+// GetRuleIndex for this type always returns -1.
+func (r EvaluationReasonError) GetRuleIndex() int {
+	return -1
+}
+
+// GetRuleID for this type always returns an empty string.
+func (r EvaluationReasonError) GetRuleID() string {
+	return ""
+}
+
+// GetPrerequisiteKey for this type always returns an empty string.
+func (r EvaluationReasonError) GetPrerequisiteKey() string {
+	return ""
+}
+
+// GetErrorKind describes the general category of the error.
+func (r EvaluationReasonError) GetErrorKind() EvalErrorKind {
+	return r.ErrorKind
+}
+
 func (r EvaluationReasonError) String() string {
 	return fmt.Sprintf("%s(%s)", r.GetKind(), r.ErrorKind)
 }
@@ -172,13 +338,44 @@ func (r EvaluationReasonError) String() string {
 type EvaluationDetail struct {
 	// Value is the result of the flag evaluation. This will be either one of the flag's variations or
 	// the default value that was passed to the Variation method.
+	//
+	// Deprecated: Use JSONValue instead. The Value property will be removed in a future version.
 	Value interface{}
+	// JSONValue is the result of the flag evaluation, represented with the ldvalue.Value type.
+	// This is always the same value you would get by calling LDClient.JSONVariation(). You can
+	// convert it to a bool, int, string, etc. using methods of ldvalue.Value.
+	//
+	// This property is preferred over EvaluationDetail.Value, because the interface{} type of Value
+	// can expose a mutable data structure (slice or map) and accidentally modifying such a structure
+	// could affect SDK behavior.
+	JSONValue ldvalue.Value
 	// VariationIndex is the index of the returned value within the flag's list of variations, e.g.
 	// 0 for the first variation - or nil if the default value was returned.
 	VariationIndex *int
 	// Reason is an EvaluationReason object describing the main factor that influenced the flag
 	// evaluation value.
 	Reason EvaluationReason
+}
+
+// NewEvaluationDetail creates an EvaluationDetail, specifying all fields. The deprecated Value property is set
+// to the same value that is wrapped by jsonValue.
+func NewEvaluationDetail(jsonValue ldvalue.Value, variationIndex *int, reason EvaluationReason) EvaluationDetail {
+	return EvaluationDetail{
+		Value:          jsonValue.UnsafeArbitraryValue(), //nolint // allow deprecated usage
+		JSONValue:      jsonValue,
+		VariationIndex: variationIndex,
+		Reason:         reason,
+	}
+}
+
+// NewEvaluationError creates an EvaluationDetail describing an error. The deprecated Value property is set
+// to the same value that is wrapped by jsonValue.
+func NewEvaluationError(jsonValue ldvalue.Value, errorKind EvalErrorKind) EvaluationDetail {
+	return EvaluationDetail{
+		Value:     jsonValue.UnsafeArbitraryValue(), //nolint // allow deprecated usage
+		JSONValue: jsonValue,
+		Reason:    newEvalReasonError(errorKind),
+	}
 }
 
 // IsDefaultValue returns true if the result of the evaluation was the default value.

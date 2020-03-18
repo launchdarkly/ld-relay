@@ -1,4 +1,4 @@
-# !/bin/bash
+#!/bin/bash
 
 # This script performs a smoke test for Relay data export to Prometheus. It does not run Prometheus,
 # but starts Relay with Prometheus export enabled and then verifies that a metric is available from

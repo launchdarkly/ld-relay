@@ -10,7 +10,7 @@ LaunchDarkly overview
 Supported Go versions
 -------------------------
 
-This version of the LaunchDarkly SDK has been tested with Go 1.8 through 1.10.
+This version of the LaunchDarkly SDK has been tested with Go 1.8 through 1.14.
 
 Getting started
 -----------

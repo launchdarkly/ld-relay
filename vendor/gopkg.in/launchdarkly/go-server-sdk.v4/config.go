@@ -102,7 +102,30 @@ type Config struct {
 	UserKeysCapacity int
 	// The interval at which the event processor will reset its set of known user keys.
 	UserKeysFlushInterval time.Duration
-	UserAgent             string
+	// The User-Agent header to send with HTTP requests. This defaults to a value that identifies the version
+	// of the Go SDK for LaunchDarkly usage metrics.
+	UserAgent string
+	// Set to true to opt out of sending diagnostic events.
+	//
+	// Unless DiagnosticOptOut is set to true, the client will send some diagnostics data to the LaunchDarkly
+	// servers in order to assist in the development of future SDK improvements. These diagnostics consist of an
+	// initial payload containing some details of the SDK in use, the SDK's configuration, and the platform the
+	// SDK is being run on, as well as payloads sent periodically with information on irregular occurrences such
+	// as dropped events.
+	DiagnosticOptOut bool
+	// The interval at which periodic diagnostic events will be sent, if DiagnosticOptOut is false.
+	//
+	// The default is every 15 minutes and the minimum is every minute.
+	DiagnosticRecordingInterval time.Duration
+	// For use by wrapper libraries to set an identifying name for the wrapper being used.
+	//
+	// This will be sent in request headers during requests to the LaunchDarkly servers to allow recording
+	// metrics on the usage of these wrapper libraries.
+	WrapperName string
+	// For use by wrapper libraries to set the version to be included alongside a WrapperName.
+	//
+	// If WrapperName is unset, this field will be ignored.
+	WrapperVersion string
 	// If not nil, this function will be called to create an HTTP client instead of using the default
 	// client. You may use this to specify custom HTTP properties such as a proxy URL or CA certificates.
 	// The SDK may modify the client properties after that point (for instance, to add caching),
@@ -114,6 +137,8 @@ type Config struct {
 	//     config := ld.DefaultConfig
 	//     config.HTTPClientFactory = ld.NewHTTPClientFactory(ldhttp.ProxyURL(myProxyURL))
 	HTTPClientFactory HTTPClientFactory
+	// Used internally to share a diagnosticsManager instance between components.
+	diagnosticsManager *diagnosticsManager
 }
 
 // HTTPClientFactory is a function that creates a custom HTTP client.
@@ -169,20 +194,21 @@ var defaultLogger = log.New(os.Stderr, "[LaunchDarkly] ", log.LstdFlags)
 //     var config = DefaultConfig
 //     config.Capacity = 2000
 var DefaultConfig = Config{
-	BaseUri:               "https://app.launchdarkly.com",
-	StreamUri:             "https://stream.launchdarkly.com",
-	EventsUri:             "https://events.launchdarkly.com",
-	Capacity:              10000,
-	FlushInterval:         5 * time.Second,
-	PollInterval:          MinimumPollInterval,
-	Timeout:               3000 * time.Millisecond,
-	Stream:                true,
-	FeatureStore:          nil,
-	UseLdd:                false,
-	SendEvents:            true,
-	Offline:               false,
-	UserKeysCapacity:      1000,
-	UserKeysFlushInterval: 5 * time.Minute,
-	UserAgent:             "",
-	Logger:                defaultLogger,
+	BaseUri:                     "https://app.launchdarkly.com",
+	StreamUri:                   "https://stream.launchdarkly.com",
+	EventsUri:                   "https://events.launchdarkly.com",
+	Capacity:                    10000,
+	FlushInterval:               5 * time.Second,
+	PollInterval:                MinimumPollInterval,
+	Timeout:                     3000 * time.Millisecond,
+	Stream:                      true,
+	FeatureStore:                nil,
+	UseLdd:                      false,
+	SendEvents:                  true,
+	Offline:                     false,
+	UserKeysCapacity:            1000,
+	UserKeysFlushInterval:       5 * time.Minute,
+	UserAgent:                   "",
+	Logger:                      defaultLogger,
+	DiagnosticRecordingInterval: 15 * time.Minute,
 }
