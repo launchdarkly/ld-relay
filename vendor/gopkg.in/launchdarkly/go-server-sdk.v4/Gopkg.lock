@@ -133,12 +133,12 @@
   revision = "0b12d6b5"
 
 [[projects]]
-  digest = "1:e7e2c9232df69b745ae7f80a0ab7a346a0e370a64cefc2ce0abf490143b924bd"
+  digest = "1:94c218917bd79f04c12285627767c33051e3f27cbb2e714fa46c08323ee560d6"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
   pruneopts = "NUT"
-  revision = "b52bd572a58ec5efdf77914b3663c04b30dc7d36"
-  version = "1.1.0"
+  revision = "a1b22c819bc306d8fe2461a8d17fc9a5d7aa8f07"
+  version = "v1.4.1"
 
 [[projects]]
   branch = "master"
@@ -155,6 +155,18 @@
   packages = ["."]
   pruneopts = "NUT"
   revision = "a22bdd33b2a45c81d5adce655962f79872df8fff"
+
+[[projects]]
+  digest = "1:8246372a0823b1537c4948660912da3b89842b963ca0a088b3c087d22c14786d"
+  name = "github.com/launchdarkly/go-test-helpers"
+  packages = [
+    ".",
+    "httphelpers",
+    "ldservices",
+  ]
+  pruneopts = "NUT"
+  revision = "5bddee53b2893034a37b9bc99ec57bb0b7eeae78"
+  version = "1.0.0"
 
 [[projects]]
   digest = "1:a4df73029d2c42fabcb6b41e327d2f87e685284ec03edf76921c267d9cfc9c23"
@@ -240,12 +252,12 @@
   version = "1.0.0"
 
 [[projects]]
-  digest = "1:7c95b35057a0ff2e19f707173cc1a947fa43a6eb5c4d300d196ece0334046082"
+  digest = "1:62a89978829993fb84e755bff5ae0e3d84837228898fd55b1a88a885036e1e51"
   name = "gopkg.in/yaml.v2"
   packages = ["."]
   pruneopts = "NUT"
-  revision = "5420a8b6744d3b0345ab293f6fcba19c978f1183"
-  version = "v2.2.1"
+  revision = "0b1645d91e851e735d3e23330303ce81f70adbe3"
+  version = "v2.3.0"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -265,6 +277,9 @@
     "github.com/hashicorp/consul/api",
     "github.com/launchdarkly/eventsource",
     "github.com/launchdarkly/go-ntlm-proxy-auth",
+    "github.com/launchdarkly/go-test-helpers",
+    "github.com/launchdarkly/go-test-helpers/httphelpers",
+    "github.com/launchdarkly/go-test-helpers/ldservices",
     "github.com/patrickmn/go-cache",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",

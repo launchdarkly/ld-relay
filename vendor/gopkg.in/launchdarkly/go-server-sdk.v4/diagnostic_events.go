@@ -173,7 +173,7 @@ func (m *diagnosticsManager) CreateInitEvent() diagnosticInitEvent {
 		PollingIntervalMillis:             durationToMillis(m.config.PollInterval),
 		StartWaitMillis:                   durationToMillis(m.startWaitTime),
 		SamplingInterval:                  m.config.SamplingInterval,
-		ReconnectTimeMillis:               3000,
+		ReconnectTimeMillis:               durationToMillis(m.config.StreamInitialReconnectDelay),
 		StreamingDisabled:                 !m.config.Stream,
 		UsingRelayDaemon:                  m.config.UseLdd,
 		Offline:                           m.config.Offline,

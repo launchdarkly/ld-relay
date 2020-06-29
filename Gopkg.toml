@@ -24,7 +24,6 @@
 #   go-tests = true
 #   unused-packages = true
 
-
 [[constraint]]
   branch = "master"
   name = "github.com/gorilla/mux"
@@ -39,7 +38,7 @@
 
 [[constraint]]
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
-  version = "4.16.2"
+  version = "4.17.2"
 
 [prune]
   go-tests = true

@@ -3,7 +3,6 @@ package ldclient
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,11 +14,15 @@ import (
 )
 
 const (
-	putEvent           = "put"
-	patchEvent         = "patch"
-	deleteEvent        = "delete"
-	indirectPatchEvent = "indirect/patch"
-	streamReadTimeout  = 5 * time.Minute // the LaunchDarkly stream should send a heartbeat comment every 3 minutes
+	putEvent                 = "put"
+	patchEvent               = "patch"
+	deleteEvent              = "delete"
+	indirectPatchEvent       = "indirect/patch"
+	streamReadTimeout        = 5 * time.Minute // the LaunchDarkly stream should send a heartbeat comment every 3 minutes
+	streamMaxRetryDelay      = 30 * time.Second
+	streamRetryResetInterval = 60 * time.Second
+	streamJitterRatio        = 0.5
+	defaultStreamRetryDelay  = 1 * time.Second
 )
 
 type streamProcessor struct {
@@ -33,6 +36,7 @@ type streamProcessor struct {
 	halt                       chan struct{}
 	storeStatusSub             internal.FeatureStoreStatusSubscription
 	connectionAttemptStartTime uint64
+	connectionAttemptLock      sync.Mutex
 	readyOnce                  sync.Once
 	closeOnce                  sync.Once
 }
@@ -110,12 +114,14 @@ func parsePath(path string) (parsedPath, error) {
 // succeeded (we got an initial payload and successfully stored it) or permanently failed (we got a 401, etc.).
 // Otherwise, the client initialization method may time out but we will still be retrying in the background, and
 // if we succeed then the client can detect that we're initialized now by calling our Initialized method.
-func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struct{}) bool {
+func (sp *streamProcessor) consumeStream(stream *es.Stream, closeWhenReady chan<- struct{}) {
 	// Consume remaining Events and Errors so we can garbage collect
 	defer func() {
 		for range stream.Events {
 		}
-		for range stream.Errors {
+		if stream.Errors != nil {
+			for range stream.Errors {
+			}
 		}
 	}()
 
@@ -129,7 +135,7 @@ func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struc
 		case event, ok := <-stream.Events:
 			if !ok {
 				sp.config.Loggers.Info("Event stream closed")
-				return false // The stream only gets closed without an error happening if we're being shut down externally
+				return // The stream only gets closed without an error happening if we're being shut down externally
 			}
 			sp.logConnectionResult(true)
 
@@ -217,23 +223,7 @@ func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struc
 			}
 
 			if shouldRestart {
-				return true
-			}
-
-		case err, ok := <-stream.Errors:
-			if !ok {
-				sp.config.Loggers.Info("Event error stream closed")
-				return false // Otherwise we will spin in this loop
-			}
-			if err != io.EOF {
-				sp.config.Loggers.Errorf("Error encountered processing stream: %+v", err)
-				if sp.checkIfPermanentFailure(err) {
-					sp.closeOnce.Do(func() {
-						sp.config.Loggers.Info("Closing event stream")
-						stream.Close()
-					})
-					return false // unrecoverable failure
-				}
+				stream.Restart()
 			}
 
 		case newStoreStatus := <-statusCh:
@@ -243,8 +233,7 @@ func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struc
 					// The store is telling us that it can't guarantee that all of the latest data was cached.
 					// So we'll restart the stream to ensure a full refresh.
 					sp.config.Loggers.Warn("Restarting stream to refresh data after feature store outage")
-					stream.Close()
-					return true // causes subscribe() to restart the connection
+					stream.Restart()
 				}
 				// All of the updates were cached and have been written to the store, so we don't need to
 				// restart the stream. We just need to make sure the client knows we're initialized now
@@ -254,7 +243,7 @@ func (sp *streamProcessor) events(stream *es.Stream, closeWhenReady chan<- struc
 
 		case <-sp.halt:
 			stream.Close()
-			return false
+			return
 		}
 	}
 }
@@ -279,41 +268,46 @@ func newStreamProcessor(sdkKey string, config Config, requestor *requestor) *str
 }
 
 func (sp *streamProcessor) subscribe(closeWhenReady chan<- struct{}) {
-	for {
-		req, _ := http.NewRequest("GET", sp.config.StreamUri+"/all", nil)
-		addBaseHeaders(req, sp.sdkKey, sp.config)
-		sp.config.Loggers.Info("Connecting to LaunchDarkly stream")
+	req, _ := http.NewRequest("GET", sp.config.StreamUri+"/all", nil)
+	addBaseHeaders(req, sp.sdkKey, sp.config)
+	sp.config.Loggers.Info("Connecting to LaunchDarkly stream")
 
-		sp.logConnectionStarted()
+	sp.logConnectionStarted()
 
-		if stream, err := es.SubscribeWithRequestAndOptions(req,
-			es.StreamOptionHTTPClient(sp.client),
-			es.StreamOptionReadTimeout(streamReadTimeout),
-			es.StreamOptionLogger(sp.config.Loggers.ForLevel(ldlog.Info))); err != nil {
-
-			sp.config.Loggers.Warnf("Unable to establish streaming connection: %+v", err)
-			sp.logConnectionResult(false)
-
-			if sp.checkIfPermanentFailure(err) {
-				close(closeWhenReady)
-				return
-			}
-
-			// Halt immediately if we've been closed already
-			select {
-			case <-sp.halt:
-				close(closeWhenReady)
-				return
-			default:
-				time.Sleep(2 * time.Second)
-			}
-		} else {
-			if !sp.events(stream, closeWhenReady) {
-				return
-			}
-			// If events() returned true, we should continue the for loop
-		}
+	initialRetryDelay := sp.config.StreamInitialReconnectDelay
+	if initialRetryDelay <= 0 {
+		initialRetryDelay = defaultStreamRetryDelay
 	}
+
+	errorHandler := func(err error) es.StreamErrorHandlerResult {
+		sp.logConnectionResult(false)
+		shouldStreamShutDown := sp.checkIfPermanentFailure(err) // this also logs the error
+		if !shouldStreamShutDown {
+			sp.logConnectionStarted()
+		}
+		return es.StreamErrorHandlerResult{CloseNow: shouldStreamShutDown}
+	}
+
+	stream, err := es.SubscribeWithRequestAndOptions(req,
+		es.StreamOptionHTTPClient(sp.client),
+		es.StreamOptionReadTimeout(streamReadTimeout),
+		es.StreamOptionInitialRetry(initialRetryDelay),
+		es.StreamOptionUseBackoff(streamMaxRetryDelay),
+		es.StreamOptionUseJitter(streamJitterRatio),
+		es.StreamOptionRetryResetInterval(streamRetryResetInterval),
+		es.StreamOptionErrorHandler(errorHandler),
+		es.StreamOptionCanRetryFirstConnection(-1),
+		es.StreamOptionLogger(sp.config.Loggers.ForLevel(ldlog.Info)),
+	)
+
+	if err != nil {
+		sp.logConnectionResult(false)
+
+		close(closeWhenReady)
+		return
+	}
+
+	sp.consumeStream(stream, closeWhenReady)
 }
 
 func (sp *streamProcessor) setInitializedAndNotifyClient(success bool, closeWhenReady chan<- struct{}) {
@@ -331,24 +325,29 @@ func (sp *streamProcessor) setInitializedAndNotifyClient(success bool, closeWhen
 func (sp *streamProcessor) checkIfPermanentFailure(err error) bool {
 	if se, ok := err.(es.SubscriptionError); ok {
 		sp.config.Loggers.Error(httpErrorMessage(se.Code, "streaming connection", "will retry"))
-		if !isHTTPErrorRecoverable(se.Code) {
-			return true
-		}
+		return !isHTTPErrorRecoverable(se.Code)
 	}
+	sp.config.Loggers.Errorf("Network error on streaming connection: %s", err.Error())
 	return false
 }
 
 func (sp *streamProcessor) logConnectionStarted() {
+	sp.connectionAttemptLock.Lock()
+	defer sp.connectionAttemptLock.Unlock()
 	sp.connectionAttemptStartTime = now()
 }
 
 func (sp *streamProcessor) logConnectionResult(success bool) {
-	if sp.connectionAttemptStartTime > 0 && sp.config.diagnosticsManager != nil {
+	sp.connectionAttemptLock.Lock()
+	startTimeWas := sp.connectionAttemptStartTime
+	sp.connectionAttemptStartTime = 0
+	sp.connectionAttemptLock.Unlock()
+
+	if startTimeWas > 0 && sp.config.diagnosticsManager != nil {
 		timestamp := now()
 		sp.config.diagnosticsManager.RecordStreamInit(timestamp, !success,
-			milliseconds(timestamp-sp.connectionAttemptStartTime))
+			milliseconds(timestamp-startTimeWas))
 	}
-	sp.connectionAttemptStartTime = 0
 }
 
 // Close instructs the processor to stop receiving updates
