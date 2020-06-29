@@ -237,12 +237,12 @@
   revision = "cad6b2b879b0970e4245a20ebf1a81a756e2bb70"
 
 [[projects]]
-  digest = "1:fb312f870b330e589857c4e4497b7782c3bf66f832b7d256d6993e6424bae168"
+  digest = "1:f57c2b06da835c5cc69e5d59a8dc8581ccb92dfebce57feb9b6ce5925a672312"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
   pruneopts = "UT"
-  revision = "6b837031c9caed93dbd5ecee9bd1f48ad4b91c1d"
-  version = "1.2.0"
+  revision = "80731fec8144f3a120d5df8684412220cfa2837b"
+  version = "v1.4.2"
 
 [[projects]]
   branch = "v1"
@@ -612,7 +612,7 @@
   version = "1.0.0"
 
 [[projects]]
-  digest = "1:cdff678f12194aa5304000389d10951749576e753386a55686b6a320df48afd7"
+  digest = "1:e8234318e293d42204e56fbdcfcbb479863799a441885041a734dc3a6bc1ff45"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -626,8 +626,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "3984042d9ae9919f61e21fe807886693a497fbb5"
-  version = "4.16.2"
+  revision = "5d022ad40612fec40d5315a68e1b20467599f158"
+  version = "4.17.2"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -651,6 +651,7 @@
     "go.opencensus.io/stats/view",
     "go.opencensus.io/tag",
     "go.opencensus.io/trace",
+    "gopkg.in/launchdarkly/go-sdk-common.v1/ldvalue",
     "gopkg.in/launchdarkly/go-server-sdk.v4",
     "gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul",
     "gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb",
