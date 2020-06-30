@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	redigo "github.com/garyburd/redigo/redis"
@@ -20,18 +22,20 @@ import (
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
-	ldr "gopkg.in/launchdarkly/go-server-sdk.v4/redis"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldconsul"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/lddynamodb"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldredis"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/metrics"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
+	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 )
 
 const (
@@ -66,7 +70,7 @@ type clientHandlers struct {
 type clientContext interface {
 	getClient() LdClientContext
 	setClient(LdClientContext)
-	getStore() ld.FeatureStore
+	getStore() interfaces.DataStore
 	getLoggers() *ldlog.Loggers
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
@@ -75,18 +79,18 @@ type clientContext interface {
 }
 
 type clientContextImpl struct {
-	mu         sync.RWMutex
-	client     LdClientContext
-	store      ld.FeatureStore
-	loggers    ldlog.Loggers
-	handlers   clientHandlers
-	sdkKey     string
-	envId      *string
-	mobileKey  *string
-	name       string
-	metricsCtx context.Context
-	ttl        time.Duration
-	initErr    error
+	mu           sync.RWMutex
+	client       LdClientContext
+	storeAdapter *store.SSERelayDataStoreAdapter
+	loggers      ldlog.Loggers
+	handlers     clientHandlers
+	sdkKey       string
+	envId        *string
+	mobileKey    *string
+	name         string
+	metricsCtx   context.Context
+	ttl          time.Duration
+	initErr      error
 }
 
 // Relay relays endpoints to and from the LaunchDarkly service
@@ -98,13 +102,13 @@ type Relay struct {
 }
 
 type evalXResult struct {
-	Value                interface{}                   `json:"value"`
-	Variation            *int                          `json:"variation,omitempty"`
-	Version              int                           `json:"version"`
-	DebugEventsUntilDate *uint64                       `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool                          `json:"trackEvents,omitempty"`
-	TrackReason          bool                          `json:"trackReason,omitempty"`
-	Reason               *ld.EvaluationReasonContainer `json:"reason,omitempty"`
+	Value                interface{}                 `json:"value"`
+	Variation            *int                        `json:"variation,omitempty"`
+	Version              int                         `json:"version"`
+	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
+	TrackEvents          bool                        `json:"trackEvents,omitempty"`
+	TrackReason          bool                        `json:"trackReason,omitempty"`
+	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
 }
 
 type sdkKind string
@@ -127,8 +131,11 @@ func (c *clientContextImpl) setClient(client LdClientContext) {
 	c.client = client
 }
 
-func (c *clientContextImpl) getStore() ld.FeatureStore {
-	return c.store
+func (c *clientContextImpl) getStore() interfaces.DataStore {
+	if c.storeAdapter == nil {
+		return nil
+	}
+	return c.storeAdapter.Store
 }
 
 func (c *clientContextImpl) getLoggers() *ldlog.Loggers {
@@ -190,14 +197,14 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
 	}
 
-	httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy)
-	if err != nil {
-		return nil, err
-	}
-
 	clientReadyCh := make(chan clientContext, len(c.Environment))
 
 	for envName, envConfig := range c.Environment {
+		httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy, envConfig.SdkKey)
+		if err != nil {
+			return nil, err
+		}
+
 		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher, clientReadyCh)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
@@ -396,34 +403,32 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 		envLoggers.SetMinLevel(envConfig.GetLogLevel())
 	}
 
-	baseFeatureStoreFactory, err := createFeatureStore(c, envConfig, envLoggers)
+	baseDataStoreFactory, err := configureDataStore(c, envConfig, envLoggers)
 	if err != nil {
 		return nil, err
 	}
 
-	clientConfig := ld.DefaultConfig
-	clientConfig.Stream = true
-	clientConfig.StreamUri = c.Main.StreamUri
-	clientConfig.BaseUri = c.Main.BaseUri
-	clientConfig.Loggers = envLoggers
-	clientConfig.UserAgent = "LDRelay/" + version.Version
-	clientConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
-
-	// This is a bit awkward because the SDK now uses a factory mechanism to create feature stores - so that they can
-	// inherit the client's logging settings - but we also need to be able to access the feature store instance
-	// directly. So we're calling the factory ourselves, and still using the deprecated Config.FeatureStore property.
-	baseFeatureStore, err := baseFeatureStoreFactory(clientConfig)
-	if err != nil {
-		return nil, err
+	clientConfig := ld.Config{
+		DataSource: ldcomponents.StreamingDataSource().BaseURI(c.Main.StreamUri),
+		HTTP:       httpConfig.SDKHTTPConfigFactory,
+		Logging:    ldcomponents.Logging().Loggers(envLoggers),
 	}
-	clientConfig.FeatureStore = store.NewSSERelayFeatureStore(envConfig.SdkKey, allPublisher, flagsPublisher, pingPublisher,
-		baseFeatureStore, envLoggers, c.Main.HeartbeatIntervalSecs)
+
+	storeAdapter := store.NewSSERelayDataStoreAdapter(baseDataStoreFactory,
+		store.SSERelayDataStoreParams{
+			SDKKey:            envConfig.SdkKey,
+			AllPublisher:      allPublisher,
+			FlagsPublisher:    flagsPublisher,
+			PingPublisher:     pingPublisher,
+			HeartbeatInterval: c.Main.HeartbeatIntervalSecs,
+		})
+	clientConfig.DataStore = storeAdapter
 
 	var eventDispatcher *events.EventDispatcher
 	if c.Events.SendEvents {
 		envLoggers.Info("Proxying events for this environment")
 		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId,
-			envLoggers, c.Events, httpConfig, baseFeatureStore)
+			envLoggers, c.Events, httpConfig, storeAdapter)
 	}
 
 	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, envLoggers,
@@ -439,14 +444,14 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	}
 
 	clientContext := &clientContextImpl{
-		name:       envName,
-		envId:      envConfig.EnvId,
-		sdkKey:     envConfig.SdkKey,
-		mobileKey:  envConfig.MobileKey,
-		store:      baseFeatureStore,
-		loggers:    envLoggers,
-		metricsCtx: m.OpenCensusCtx,
-		ttl:        time.Minute * time.Duration(envConfig.TtlMinutes),
+		name:         envName,
+		envId:        envConfig.EnvId,
+		sdkKey:       envConfig.SdkKey,
+		mobileKey:    envConfig.MobileKey,
+		storeAdapter: storeAdapter,
+		loggers:      envLoggers,
+		metricsCtx:   m.OpenCensusCtx,
+		ttl:          time.Minute * time.Duration(envConfig.TtlMinutes),
 		handlers: clientHandlers{
 			eventDispatcher:    eventDispatcher,
 			allStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
@@ -486,11 +491,16 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	return clientContext, nil
 }
 
-func createFeatureStore(c Config, envConfig *EnvConfig, loggers ldlog.Loggers) (ld.FeatureStoreFactory, error) {
-	databaseSpecified := false
-	infoLogger := loggers.ForLevel(ldlog.Info) // for methods that require a single logger instead of a Loggers
+func configureDataStore(
+	c Config,
+	envConfig *EnvConfig,
+	loggers ldlog.Loggers,
+) (interfaces.DataStoreFactory, error) {
+	var dbFactory interfaces.DataStoreFactory
+
 	if c.Redis.Url != "" || c.Redis.Host != "" {
-		databaseSpecified = true
+		builder := ldredis.DataStore()
+
 		redisURL := c.Redis.Url
 		if c.Redis.Host != "" {
 			if redisURL != "" {
@@ -504,8 +514,7 @@ func createFeatureStore(c Config, envConfig *EnvConfig, loggers ldlog.Loggers) (
 			}
 		}
 		loggers.Infof("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
-		redisOptions := []ldr.FeatureStoreOption{ldr.Prefix(envConfig.Prefix),
-			ldr.CacheTTL(time.Duration(c.Redis.LocalTtl) * time.Millisecond), ldr.Logger(infoLogger)}
+
 		dialOptions := []redigo.DialOption{}
 		if c.Redis.Tls || (c.Redis.Password != "") {
 			if c.Redis.Tls {
@@ -518,20 +527,26 @@ func createFeatureStore(c Config, envConfig *EnvConfig, loggers ldlog.Loggers) (
 				dialOptions = append(dialOptions, redigo.DialPassword(c.Redis.Password))
 			}
 		}
-		redisOptions = append(redisOptions, ldr.URL(redisURL), ldr.DialOptions(dialOptions...))
-		return ldr.NewRedisFeatureStoreFactory(redisOptions...)
+
+		builder.URL(redisURL)
+		builder.Prefix(envConfig.Prefix)
+		builder.DialOptions(dialOptions...)
+		dbFactory = ldcomponents.PersistentDataStore(builder).
+			CacheTime(time.Duration(c.Redis.LocalTtl) * time.Millisecond)
 	}
 	if c.Consul.Host != "" {
-		if databaseSpecified {
+		if dbFactory != nil {
 			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
 		}
-		databaseSpecified = true
 		loggers.Infof("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
-		return ldconsul.NewConsulFeatureStoreFactory(ldconsul.Address(c.Consul.Host), ldconsul.Prefix(envConfig.Prefix),
-			ldconsul.CacheTTL(time.Duration(c.Consul.LocalTtl)*time.Millisecond), ldconsul.Logger(infoLogger))
+		dbFactory = ldcomponents.PersistentDataStore(
+			ldconsul.DataStore().
+				Address(c.Consul.Host).
+				Prefix(envConfig.Prefix),
+		).CacheTime(time.Duration(c.Consul.LocalTtl) * time.Millisecond)
 	}
 	if c.DynamoDB.Enabled {
-		if databaseSpecified {
+		if dbFactory != nil {
 			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
 		}
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
@@ -545,20 +560,22 @@ func createFeatureStore(c Config, envConfig *EnvConfig, loggers ldlog.Loggers) (
 			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 		}
 		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		options := []lddynamodb.FeatureStoreOption{
-			lddynamodb.Prefix(envConfig.Prefix),
-			lddynamodb.CacheTTL(time.Duration(c.DynamoDB.LocalTtl) * time.Millisecond),
-			lddynamodb.Logger(infoLogger),
-		}
+		builder := lddynamodb.DataStore(tableName).
+			Prefix(envConfig.Prefix)
 		if c.DynamoDB.Url != "" {
 			awsOptions := session.Options{
 				Config: aws.Config{
 					Endpoint: aws.String(c.DynamoDB.Url),
 				},
 			}
-			options = append(options, lddynamodb.SessionOptions(awsOptions))
+			builder.SessionOptions(awsOptions)
 		}
-		return lddynamodb.NewDynamoDBFeatureStoreFactory(tableName, options...)
+		dbFactory = ldcomponents.PersistentDataStore(builder).
+			CacheTime(time.Duration(c.Consul.LocalTtl) * time.Millisecond)
 	}
-	return ld.NewInMemoryFeatureStoreFactory(), nil
+
+	if dbFactory != nil {
+		return dbFactory, nil
+	}
+	return ldcomponents.InMemoryDataStore(), nil
 }

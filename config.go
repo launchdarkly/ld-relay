@@ -10,11 +10,11 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/gcfg"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/metrics"
+	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 )
 
 const (

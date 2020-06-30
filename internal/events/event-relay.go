@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
+	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/util"
 )
 
 // EventRelay configuration - used in the config file struct in relay.go
@@ -89,7 +89,7 @@ type analyticsEventEndpointDispatcher struct {
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
 	summarizingRelay *eventSummarizingRelay
-	featureStore     ld.FeatureStore
+	storeAdapter     *store.SSERelayDataStoreAdapter
 	loggers          ldlog.Loggers
 	mu               sync.Mutex
 }
@@ -241,26 +241,26 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.httpConfig, r.featureStore, r.loggers, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.httpConfig, r.storeAdapter, r.loggers, r.remotePath)
 	}
 	return r.summarizingRelay
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
-func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers ldlog.Loggers, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore) *EventDispatcher {
+func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers ldlog.Loggers, config Config, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter) *EventDispatcher {
 	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey, config, httpConfig, httpClient, featureStore, loggers, "/bulk"),
+			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey, config, httpConfig, httpClient, storeAdapter, loggers, "/bulk"),
 		},
 	}
 	ep.endpoints[ServerSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers, "/diagnostic")
 	if mobileKey != nil {
-		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(*mobileKey, config, httpConfig, httpClient, featureStore, loggers, "/mobile")
+		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(*mobileKey, config, httpConfig, httpClient, storeAdapter, loggers, "/mobile")
 		ep.endpoints[MobileSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != nil {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher("", config, httpConfig, httpClient, featureStore, loggers, "/events/bulk/"+*envID)
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher("", config, httpConfig, httpClient, storeAdapter, loggers, "/events/bulk/"+*envID)
 		ep.endpoints[JavaScriptSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers, "/events/diagnostic/"+*envID)
 	}
 	return ep
@@ -275,13 +275,13 @@ func newDiagnosticEventEndpointDispatcher(config Config, httpClient *http.Client
 }
 
 func newAnalyticsEventEndpointDispatcher(authKey string, config Config, httpConfig httpconfig.HTTPConfig,
-	httpClient *http.Client, featureStore ld.FeatureStore, loggers ldlog.Loggers, remotePath string) *analyticsEventEndpointDispatcher {
+	httpClient *http.Client, storeAdapter *store.SSERelayDataStoreAdapter, loggers ldlog.Loggers, remotePath string) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:      authKey,
 		config:       config,
 		httpConfig:   httpConfig,
 		httpClient:   httpClient,
-		featureStore: featureStore,
+		storeAdapter: storeAdapter,
 		loggers:      loggers,
 		remotePath:   remotePath,
 	}

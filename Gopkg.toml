@@ -37,9 +37,9 @@
   branch = "v1"
   name = "github.com/launchdarkly/gcfg"
 
-[[constraint]]
-  name = "gopkg.in/launchdarkly/go-server-sdk.v4"
-  version = "4.14.1"
+#[[constraint]]
+#  name = "gopkg.in/launchdarkly/go-server-sdk.v5"
+#  source = "github.com/launchdarkly/go-server-sdk-private"
 
 [prune]
   go-tests = true

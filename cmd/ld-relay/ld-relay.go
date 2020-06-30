@@ -11,9 +11,9 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	relay "gopkg.in/launchdarkly/ld-relay.v5"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	relay "gopkg.in/launchdarkly/ld-relay.v6"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/version"
+	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 )
 
 const defaultConfigPath = "/etc/ld-relay.conf"

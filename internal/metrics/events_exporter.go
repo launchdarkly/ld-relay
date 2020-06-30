@@ -6,7 +6,7 @@ import (
 
 	"go.opencensus.io/stats/view"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
 )
 
 type currentConnectionsMetric struct {

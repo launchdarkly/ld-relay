@@ -1,0 +1,4 @@
+bin/
+build/
+go-server-sdk.test
+allocations.out

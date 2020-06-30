@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
 )
 
 func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {

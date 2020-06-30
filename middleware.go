@@ -8,9 +8,10 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/metrics"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/version"
 )
 
 type corsContext interface {
@@ -183,23 +184,23 @@ func corsMiddleware(next http.Handler) http.Handler {
 // UserV2FromBase64 decodes a base64-encoded go-server-sdk v2 user.
 // If any decoding/unmarshaling errors occur or
 // the user is missing the 'key' attribute an error is returned.
-func UserV2FromBase64(base64User string) (*ld.User, error) {
-	var user ld.User
+func UserV2FromBase64(base64User string) (lduser.User, error) {
+	var user lduser.User
 	idStr, decodeErr := base64urlDecode(base64User)
 	if decodeErr != nil {
-		return nil, errors.New("User part of url path did not decode as valid base64")
+		return user, errors.New("User part of url path did not decode as valid base64")
 	}
 
 	jsonErr := json.Unmarshal(idStr, &user)
 
 	if jsonErr != nil {
-		return nil, errors.New("User part of url path did not decode to valid user as json")
+		return user, errors.New("User part of url path did not decode to valid user as json")
 	}
 
-	if user.Key == nil {
-		return nil, errors.New("User must have a 'key' attribute")
+	if user.GetKey() == "" {
+		return user, errors.New("User must have a 'key' attribute")
 	}
-	return &user, nil
+	return user, nil
 }
 
 func base64urlDecode(base64String string) ([]byte, error) {

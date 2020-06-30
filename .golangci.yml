@@ -15,6 +15,7 @@ linters:
     - lll
     - maligned  # don't really care about struct sizes
     - unparam
+    - wsl
   fast: false
 
 linter-settings:

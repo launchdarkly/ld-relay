@@ -4,25 +4,33 @@ import (
 	"encoding/json"
 	"testing"
 
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
+	"gopkg.in/launchdarkly/ld-relay.v6/sharedtest"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+
+	relaystore "gopkg.in/launchdarkly/ld-relay.v6/internal/store"
 )
 
 func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
-	date := uint64(9000)
-	flag := &ld.FeatureFlag{
-		Key:                  "flagkey",
-		Version:              22, // deliberately different version from event - we should use the version from the event
-		Variations:           []interface{}{"a", "b"},
-		TrackEvents:          true,
-		DebugEventsUntilDate: &date,
-	}
-	_ = store.Upsert(ld.Features, flag)
+	flag := ldbuilders.NewFlagBuilder("flagkey").
+		Version(22). // deliberately different version from event - we should use the version from the event
+		Variations(ldvalue.String("a"), ldvalue.String("b")).
+		TrackEvents(true).
+		DebugEventsUntilDate(ldtime.UnixMillisecondTime(9000)).
+		Build()
+	_, _ = sharedtest.UpsertFlag(store, flag)
 
 	eventIn := `{
 		"kind": "feature",
@@ -35,21 +43,21 @@ func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 1)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, flag.Key, fe.Key)
-	assert.Equal(t, 11, *fe.Version)
-	assert.Equal(t, "b", fe.Value)
-	assert.Equal(t, 1, *fe.Variation) // set by translateEvent based on flag.Variations
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, 11, fe.Version)
+	assert.Equal(t, ldvalue.String("b"), fe.Value)
+	assert.Equal(t, 1, fe.Variation) // set by translateEvent based on flag.Variations
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.True(t, fe.TrackEvents) // set by translateEvent from flag.TrackEvents
-	assert.Equal(t, flag.DebugEventsUntilDate, fe.DebugEventsUntilDate)
+	assert.Equal(t, ldtime.UnixMillisecondTime(*flag.DebugEventsUntilDate), fe.DebugEventsUntilDate)
 }
 
 func TestTranslateFeatureEventWithSchemaVersion1AndUnknownFlag(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
 
 	eventIn := `{
@@ -62,23 +70,23 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnknownFlag(t *testing.T) {
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 1)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, "flagkey", fe.Key)
-	assert.Nil(t, fe.Version)
-	assert.Equal(t, "c", fe.Value)
-	assert.Nil(t, fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, ldevents.NoVersion, fe.Version)
+	assert.Equal(t, ldvalue.String("c"), fe.Value)
+	assert.Equal(t, ldevents.NoVariation, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.False(t, fe.TrackEvents)
-	assert.Nil(t, fe.DebugEventsUntilDate)
+	assert.Equal(t, ldtime.UnixMillisecondTime(0), fe.DebugEventsUntilDate)
 }
 
 func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *testing.T) {
 	// The only difference here from the previous test is that "version" has a value, so we will try to
 	// look up the flag, but the lookup will fail.
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
 
 	eventIn := `{
@@ -91,31 +99,29 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *te
 	}`
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 1)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, "flagkey", fe.Key)
-	assert.Equal(t, 11, *fe.Version)
-	assert.Equal(t, "c", fe.Value)
-	assert.Nil(t, fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, 11, fe.Version)
+	assert.Equal(t, ldvalue.String("c"), fe.Value)
+	assert.Equal(t, ldevents.NoVariation, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.False(t, fe.TrackEvents)
-	assert.Nil(t, fe.DebugEventsUntilDate)
+	assert.Equal(t, ldtime.UnixMillisecondTime(0), fe.DebugEventsUntilDate)
 }
 
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEventsInEvent(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
-	date := uint64(9000)
-	flag := &ld.FeatureFlag{
-		Key:                  "flagkey",
-		Version:              22,                      // deliberately different version from event - we should use the version from the event
-		Variations:           []interface{}{"a", "x"}, // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
-		TrackEvents:          true,
-		DebugEventsUntilDate: &date,
-	}
-	_ = store.Upsert(ld.Features, flag)
+	flag := ldbuilders.NewFlagBuilder("flagkey").
+		Version(22).                                          // deliberately different version from event - we should use the version from the event
+		Variations(ldvalue.String("a"), ldvalue.String("x")). // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
+		TrackEvents(true).
+		DebugEventsUntilDate(ldtime.UnixMillisecondTime(9000)).
+		Build()
+	_, _ = sharedtest.UpsertFlag(store, flag)
 
 	eventIn := `{
 		"kind": "feature",
@@ -130,29 +136,28 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEvent
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, flag.Key, fe.Key)
-	assert.Equal(t, 11, *fe.Version)
-	assert.Equal(t, "b", fe.Value)
-	assert.Equal(t, 1, *fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, 11, fe.Version)
+	assert.Equal(t, ldvalue.String("b"), fe.Value)
+	assert.Equal(t, 1, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.True(t, fe.TrackEvents) // set by translateEvent from flag.TrackEvents
-	assert.Equal(t, flag.DebugEventsUntilDate, fe.DebugEventsUntilDate)
-	assert.Equal(t, ld.EvalReasonFallthrough, fe.Reason.Reason.GetKind())
+	assert.Equal(t, ldtime.UnixMillisecondTime(*flag.DebugEventsUntilDate), fe.DebugEventsUntilDate)
+	assert.Equal(t, ldreason.EvalReasonFallthrough, fe.Reason.GetKind())
 }
 
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsInEvent(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
-	flag := &ld.FeatureFlag{
-		Key:        "flagkey",
-		Version:    22,                      // deliberately different version from event - we should use the version from the event
-		Variations: []interface{}{"a", "x"}, // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
-	}
-	_ = store.Upsert(ld.Features, flag)
+	flag := ldbuilders.NewFlagBuilder("flagkey").
+		Version(22).                                          // deliberately different version from event - we should use the version from the event
+		Variations(ldvalue.String("a"), ldvalue.String("x")). // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
+		Build()
+	_, _ = sharedtest.UpsertFlag(store, flag)
 
 	eventIn := `{
 		"kind": "feature",
@@ -168,29 +173,28 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsIn
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, flag.Key, fe.Key)
-	assert.Equal(t, 11, *fe.Version)
-	assert.Equal(t, "b", fe.Value)
-	assert.Equal(t, 1, *fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, 11, fe.Version)
+	assert.Equal(t, ldvalue.String("b"), fe.Value)
+	assert.Equal(t, 1, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.True(t, fe.TrackEvents) // comes from the event, not the flag
-	assert.Nil(t, fe.DebugEventsUntilDate)
-	assert.Equal(t, ld.EvalReasonFallthrough, fe.Reason.Reason.GetKind())
+	assert.Equal(t, ldtime.UnixMillisecondTime(0), fe.DebugEventsUntilDate)
+	assert.Equal(t, ldreason.EvalReasonFallthrough, fe.Reason.GetKind())
 }
 
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUntilDateInEvent(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
-	flag := &ld.FeatureFlag{
-		Key:        "flagkey",
-		Version:    22,                      // deliberately different version from event - we should use the version from the event
-		Variations: []interface{}{"a", "x"}, // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
-	}
-	_ = store.Upsert(ld.Features, flag)
+	flag := ldbuilders.NewFlagBuilder("flagkey").
+		Version(22).                                          // deliberately different version from event - we should use the version from the event
+		Variations(ldvalue.String("a"), ldvalue.String("x")). // deliberately doesn't include "b" - we want to see that it uses the variation index from the event
+		Build()
+	_, _ = sharedtest.UpsertFlag(store, flag)
 
 	eventIn := `{
 		"kind": "feature",
@@ -206,22 +210,22 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUn
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, flag.Key, fe.Key)
-	assert.Equal(t, 11, *fe.Version)
-	assert.Equal(t, "b", fe.Value)
-	assert.Equal(t, 1, *fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, 11, fe.Version)
+	assert.Equal(t, ldvalue.String("b"), fe.Value)
+	assert.Equal(t, 1, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.False(t, fe.TrackEvents)
-	assert.Equal(t, uint64(9000), *fe.DebugEventsUntilDate)
-	assert.Equal(t, ld.EvalReasonFallthrough, fe.Reason.Reason.GetKind())
+	assert.Equal(t, ldtime.UnixMillisecondTime(9000), fe.DebugEventsUntilDate)
+	assert.Equal(t, ldreason.EvalReasonFallthrough, fe.Reason.GetKind())
 }
 
 func TestTranslateFeatureEventWithSchemaVersion2AndUnknownFlag(t *testing.T) {
-	store, _ := ld.NewInMemoryFeatureStoreFactory()(ld.Config{})
+	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		featureStore: store,
+		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
 	}
 
 	eventIn := `{
@@ -235,16 +239,16 @@ func TestTranslateFeatureEventWithSchemaVersion2AndUnknownFlag(t *testing.T) {
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	fe := eventOut.(ld.FeatureRequestEvent)
-	assert.Equal(t, uint64(1000), fe.CreationDate)
+	fe := eventOut.(ldevents.FeatureRequestEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), fe.CreationDate)
 	assert.Equal(t, "flagkey", fe.Key)
-	assert.Nil(t, fe.Version)
-	assert.Equal(t, "c", fe.Value)
-	assert.Nil(t, fe.Variation)
-	assert.Equal(t, "c", fe.Default)
+	assert.Equal(t, ldevents.NoVersion, fe.Version)
+	assert.Equal(t, ldvalue.String("c"), fe.Value)
+	assert.Equal(t, ldevents.NoVariation, fe.Variation)
+	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.False(t, fe.TrackEvents)
-	assert.Nil(t, fe.DebugEventsUntilDate)
-	assert.Equal(t, ld.EvalReasonError, fe.Reason.Reason.GetKind())
+	assert.Equal(t, ldtime.UnixMillisecondTime(0), fe.DebugEventsUntilDate)
+	assert.Equal(t, ldreason.EvalReasonError, fe.Reason.GetKind())
 }
 
 func TestTranslateIdentifyEventReturnsEventUnchanged(t *testing.T) {
@@ -262,10 +266,10 @@ func TestTranslateIdentifyEventReturnsEventUnchanged(t *testing.T) {
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	ie := eventOut.(ld.IdentifyEvent)
-	assert.Equal(t, uint64(1000), ie.CreationDate)
-	assert.Equal(t, "userkey", *ie.User.Key)
-	assert.Equal(t, "Mina", *ie.User.Name)
+	ie := eventOut.(ldevents.IdentifyEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), ie.CreationDate)
+	assert.Equal(t, "userkey", ie.User.GetKey())
+	assert.Equal(t, "Mina", ie.User.GetName().StringValue())
 }
 
 func TestTranslateCustomEventReturnsEventUnchanged(t *testing.T) {
@@ -285,11 +289,12 @@ func TestTranslateCustomEventReturnsEventUnchanged(t *testing.T) {
 
 	eventOut, err := er.translateEvent(json.RawMessage(eventIn), 2)
 	require.NoError(t, err)
-	ce := eventOut.(ld.CustomEvent)
-	assert.Equal(t, uint64(1000), ce.CreationDate)
+	ce := eventOut.(ldevents.CustomEvent)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1000), ce.CreationDate)
 	assert.Equal(t, "customkey", ce.Key)
-	assert.Equal(t, "userkey", *ce.User.Key)
-	assert.Equal(t, "Lucy", *ce.User.Name)
-	assert.Equal(t, "x", ce.Data)
-	assert.Equal(t, 1.5, *ce.MetricValue)
+	assert.Equal(t, "userkey", ce.User.GetKey())
+	assert.Equal(t, "Lucy", ce.User.GetName().StringValue())
+	assert.Equal(t, ldvalue.String("x"), ce.Data)
+	assert.True(t, ce.HasMetric)
+	assert.Equal(t, 1.5, ce.MetricValue)
 }

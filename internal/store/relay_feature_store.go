@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 
 	es "github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 )
 
 // ESPublisher defines an interface for publishing events to eventsource
@@ -18,9 +18,62 @@ type ESPublisher interface {
 	Register(channel string, repo es.Repository)
 }
 
-// SSERelayFeatureStore is a feature store that relays updates to eventsource
+// SSERelayDataStoreAdapter is used to create the SSERelayDataStore.
+//
+// Because the SDK normally wants to manage the lifecycle of its components, it requires you to provide
+// a factory for any custom component, rather than an instance of the component itself. Then it asks the
+// factory to create the instance when the LDClient is created. However, in this case we want to be able
+// to access the instance externally.
+//
+// Also, since SSERelayDataStore is a wrapper for an underlying data store that could be a database, we
+// need to be able to specify which data store implementation is being used - also as a factory.
+//
+// So, this factory implementation - which should only be used for a single client at a time - calls the
+// wrapped factory to produce the underlying data store, then creates our own store instance, and then
+// puts a reference to that instance inside itself where we can see it.
+type SSERelayDataStoreAdapter struct {
+	Store          interfaces.DataStore
+	wrappedFactory interfaces.DataStoreFactory
+	params         SSERelayDataStoreParams
+}
+
+func NewSSERelayDataStoreAdapter(
+	wrappedFactory interfaces.DataStoreFactory,
+	params SSERelayDataStoreParams,
+) *SSERelayDataStoreAdapter {
+	return &SSERelayDataStoreAdapter{wrappedFactory: wrappedFactory, params: params}
+}
+
+func (a *SSERelayDataStoreAdapter) CreateDataStore(
+	context interfaces.ClientContext,
+	dataStoreUpdates interfaces.DataStoreUpdates,
+) (interfaces.DataStore, error) {
+	wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
+	if err != nil {
+		return nil, err // this will cause client initialization to fail immediately
+	}
+	a.Store = NewSSERelayFeatureStore(
+		a.params.SDKKey,
+		a.params.AllPublisher,
+		a.params.FlagsPublisher,
+		a.params.PingPublisher,
+		wrappedStore,
+		context.GetLogging().GetLoggers(),
+		a.params.HeartbeatInterval,
+	)
+	return a.Store, nil
+}
+
+type SSERelayDataStoreParams struct {
+	SDKKey            string
+	AllPublisher      ESPublisher
+	FlagsPublisher    ESPublisher
+	PingPublisher     ESPublisher
+	HeartbeatInterval int
+}
+
 type SSERelayFeatureStore struct {
-	store          ld.FeatureStore
+	store          interfaces.DataStore
 	allPublisher   ESPublisher
 	flagsPublisher ESPublisher
 	pingPublisher  ESPublisher
@@ -39,8 +92,15 @@ type pingRepository struct {
 }
 
 // NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
-func NewSSERelayFeatureStore(apiKey string, allPublisher ESPublisher, flagsPublisher ESPublisher, pingPublisher ESPublisher,
-	baseFeatureStore ld.FeatureStore, loggers ldlog.Loggers, heartbeatInterval int) *SSERelayFeatureStore {
+func NewSSERelayFeatureStore(
+	apiKey string,
+	allPublisher ESPublisher,
+	flagsPublisher ESPublisher,
+	pingPublisher ESPublisher,
+	baseFeatureStore interfaces.DataStore,
+	loggers ldlog.Loggers,
+	heartbeatInterval int,
+) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
 		store:          baseFeatureStore,
 		apiKey:         apiKey,
@@ -77,18 +137,26 @@ func (relay *SSERelayFeatureStore) heartbeat() {
 	relay.pingPublisher.PublishComment(relay.keys(), "")
 }
 
+func (relay *SSERelayFeatureStore) Close() error {
+	return relay.store.Close()
+}
+
+func (relay *SSERelayFeatureStore) IsStatusMonitoringEnabled() bool {
+	return relay.store.IsStatusMonitoringEnabled()
+}
+
 // Get returns a single item from the feature store
-func (relay *SSERelayFeatureStore) Get(kind ld.VersionedDataKind, key string) (ld.VersionedData, error) {
+func (relay *SSERelayFeatureStore) Get(kind interfaces.StoreDataKind, key string) (interfaces.StoreItemDescriptor, error) {
 	return relay.store.Get(kind, key)
 }
 
 // All returns all items in the feature store
-func (relay *SSERelayFeatureStore) All(kind ld.VersionedDataKind) (map[string]ld.VersionedData, error) {
-	return relay.store.All(kind)
+func (relay *SSERelayFeatureStore) GetAll(kind interfaces.StoreDataKind) ([]interfaces.StoreKeyedItemDescriptor, error) {
+	return relay.store.GetAll(kind)
 }
 
 // Init initializes the feature store
-func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[string]ld.VersionedData) error {
+func (relay *SSERelayFeatureStore) Init(allData []interfaces.StoreCollection) error {
 	relay.loggers.Debug("Received all feature flags")
 	err := relay.store.Init(allData)
 
@@ -96,60 +164,56 @@ func (relay *SSERelayFeatureStore) Init(allData map[ld.VersionedDataKind]map[str
 		return err
 	}
 
-	relay.allPublisher.Publish(relay.keys(), makePutEvent(allData[ld.Features], allData[ld.Segments]))
-	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(allData[ld.Features]))
+	relay.allPublisher.Publish(relay.keys(), makePutEvent(allData))
+	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(getFlagsData(allData)))
 	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 
 	return nil
 }
 
-// Delete marks a single item as deleted in the feature store
-func (relay *SSERelayFeatureStore) Delete(kind ld.VersionedDataKind, key string, version int) error {
-	relay.loggers.Debugf(`Received feature flag deletion: %s (version %d)`, key, version)
-	err := relay.store.Delete(kind, key, version)
-	if err != nil {
-		return err
+func getFlagsData(allData []interfaces.StoreCollection) []interfaces.StoreKeyedItemDescriptor {
+	for _, coll := range allData {
+		if coll.Kind == interfaces.DataKindFeatures() {
+			return coll.Items
+		}
 	}
-
-	relay.loggers.Debugf(`Feature flag %s was deleted (version %d)`, key, version)
-	relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, version))
-	if kind == ld.Features {
-		relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, version))
-	}
-	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
-
 	return nil
 }
 
 // Upsert inserts or updates a single item in the feature store
-func (relay *SSERelayFeatureStore) Upsert(kind ld.VersionedDataKind, item ld.VersionedData) error {
-	relay.loggers.Debugf(`Received feature flag update: %s (version %d)`, item.GetKey(), item.GetVersion())
-	err := relay.store.Upsert(kind, item)
+func (relay *SSERelayFeatureStore) Upsert(
+	kind interfaces.StoreDataKind,
+	key string,
+	item interfaces.StoreItemDescriptor,
+) (bool, error) {
+	relay.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
+	updated, err := relay.store.Upsert(kind, key, item)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	newItem, err := relay.store.Get(kind, item.GetKey())
-
-	if err != nil {
-		return err
-	}
-
-	if newItem != nil {
-		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, newItem))
-		if kind == ld.Features {
-			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(newItem))
+	if updated {
+		if item.Item == nil {
+			relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, item.Version))
+			if kind == interfaces.DataKindFeatures() {
+				relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, item.Version))
+			}
+		} else {
+			relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, key, item))
+			if kind == interfaces.DataKindFeatures() {
+				relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(key, item))
+			}
 		}
 		relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 	}
 
-	return nil
+	return updated, nil
 }
 
-// Initialized returns true after the feature store has been initialized the first time
-func (relay *SSERelayFeatureStore) Initialized() bool {
-	return relay.store.Initialized()
+// IsInitialized returns true after the feature store has been initialized the first time
+func (relay *SSERelayFeatureStore) IsInitialized() bool {
+	return relay.store.IsInitialized()
 }
 
 // Replay allows the feature store to act as an SSE repository (to send bootstrap events)
@@ -157,8 +221,8 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {
 		defer close(out)
-		if r.relayStore.Initialized() {
-			flags, err := r.relayStore.All(ld.Features)
+		if r.relayStore.IsInitialized() {
+			flags, err := r.relayStore.GetAll(interfaces.DataKindFeatures())
 
 			if err != nil {
 				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
@@ -175,17 +239,21 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	out = make(chan es.Event)
 	go func() {
 		defer close(out)
-		if r.relayStore.Initialized() {
-			flags, err := r.relayStore.All(ld.Features)
+		if r.relayStore.IsInitialized() {
+			flags, err := r.relayStore.GetAll(interfaces.DataKindFeatures())
 
 			if err != nil {
 				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
-				segments, err := r.relayStore.All(ld.Segments)
+				segments, err := r.relayStore.GetAll(interfaces.DataKindSegments())
 				if err != nil {
 					logging.GlobalLoggers.Errorf("Error getting all segments: %s\n", err.Error())
 				} else {
-					out <- makePutEvent(flags, segments)
+					allData := []interfaces.StoreCollection{
+						{Kind: interfaces.DataKindFeatures(), Items: flags},
+						{Kind: interfaces.DataKindSegments(), Items: segments},
+					}
+					out <- makePutEvent(allData)
 				}
 			}
 
@@ -204,14 +272,14 @@ func (r pingRepository) Replay(channel, id string) (out chan es.Event) {
 	return
 }
 
-var dataKindApiName = map[ld.VersionedDataKind]string{
-	ld.Features: "flags",
-	ld.Segments: "segments",
+var dataKindApiName = map[interfaces.StoreDataKind]string{
+	interfaces.DataKindFeatures(): "flags",
+	interfaces.DataKindSegments(): "segments",
 }
 
-type flagsPutEvent map[string]ld.VersionedData
+type flagsPutEvent map[string]interface{}
 type allPutEvent struct {
-	D map[string]map[string]ld.VersionedData `json:"data"`
+	D map[string]map[string]interface{} `json:"data"`
 }
 type deleteEvent struct {
 	Path    string `json:"path"`
@@ -219,8 +287,8 @@ type deleteEvent struct {
 }
 
 type upsertEvent struct {
-	Path string           `json:"path"`
-	D    ld.VersionedData `json:"data"`
+	Path string      `json:"path"`
+	D    interface{} `json:"data"`
 }
 
 type pingEvent struct{}
@@ -313,21 +381,21 @@ func (t pingEvent) Comment() string {
 	return ""
 }
 
-func makeUpsertEvent(kind ld.VersionedDataKind, item ld.VersionedData) es.Event {
+func makeUpsertEvent(kind interfaces.StoreDataKind, key string, item interfaces.StoreItemDescriptor) es.Event {
 	return upsertEvent{
-		Path: "/" + dataKindApiName[kind] + "/" + item.GetKey(),
-		D:    item,
+		Path: "/" + dataKindApiName[kind] + "/" + key,
+		D:    item.Item,
 	}
 }
 
-func makeFlagsUpsertEvent(item ld.VersionedData) es.Event {
+func makeFlagsUpsertEvent(key string, item interfaces.StoreItemDescriptor) es.Event {
 	return upsertEvent{
-		Path: "/" + item.GetKey(),
-		D:    item,
+		Path: "/" + key,
+		D:    item.Item,
 	}
 }
 
-func makeDeleteEvent(kind ld.VersionedDataKind, key string, version int) es.Event {
+func makeDeleteEvent(kind interfaces.StoreDataKind, key string, version int) es.Event {
 	return deleteEvent{
 		Path:    "/" + dataKindApiName[kind] + "/" + key,
 		Version: version,
@@ -341,22 +409,26 @@ func makeFlagsDeleteEvent(key string, version int) es.Event {
 	}
 }
 
-func makePutEvent(flags map[string]ld.VersionedData, segments map[string]ld.VersionedData) es.Event {
-	var allData = map[string]map[string]ld.VersionedData{
+func makePutEvent(allData []interfaces.StoreCollection) es.Event {
+	var allDataMap = map[string]map[string]interface{}{
 		"flags":    {},
 		"segments": {},
 	}
-	for key, flag := range flags {
-		allData["flags"][key] = flag
+	for _, coll := range allData {
+		name := dataKindApiName[coll.Kind]
+		for _, item := range coll.Items {
+			allDataMap[name][item.Key] = item.Item.Item
+		}
 	}
-	for key, seg := range segments {
-		allData["segments"][key] = seg
-	}
-	return allPutEvent{D: allData}
+	return allPutEvent{D: allDataMap}
 }
 
-func makeFlagsPutEvent(flags map[string]ld.VersionedData) es.Event {
-	return flagsPutEvent(flags)
+func makeFlagsPutEvent(flags []interfaces.StoreKeyedItemDescriptor) es.Event {
+	flagsMap := make(map[string]interface{}, len(flags))
+	for _, f := range flags {
+		flagsMap[f.Key] = f.Item.Item
+	}
+	return flagsPutEvent(flagsMap)
 }
 
 func makePingEvent() es.Event {

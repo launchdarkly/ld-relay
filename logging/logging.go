@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 // Global logging object for Relay messages that are not tied to a specific environment.

@@ -3,35 +3,83 @@ package events
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+
+	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
 )
 
 type eventSummarizingRelay struct {
-	eventProcessor ld.EventProcessor
-	featureStore   ld.FeatureStore
+	eventProcessor ldevents.EventProcessor
+	storeAdapter   *store.SSERelayDataStoreAdapter
 	loggers        ldlog.Loggers
 }
 
-func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfig.HTTPConfig, featureStore ld.FeatureStore,
+type receivedEventUser struct {
+	lduser.User
+	PrivateAttrs []string `json:"privateAttrs"`
+}
+
+func (r receivedEventUser) asEventUser() ldevents.EventUser {
+	return ldevents.EventUser{User: r.User, AlreadyFilteredAttributes: r.PrivateAttrs}
+}
+
+type receivedFeatureEvent struct {
+	CreationDate         ldtime.UnixMillisecondTime `json:"creationDate"`
+	Key                  string                     `json:"key"`
+	User                 receivedEventUser          `json:"user"`
+	Version              *int                       `json:"version"`
+	Variation            *int                       `json:"variation"`
+	Value                ldvalue.Value              `json:"value"`
+	Default              ldvalue.Value              `json:"default"`
+	TrackEvents          bool                       `json:"trackEvents"`
+	DebugEventsUntilDate ldtime.UnixMillisecondTime `json:"debugEventsUntilDate"`
+	Reason               ldreason.EvaluationReason  `json:"reason"`
+}
+
+type receivedCustomEvent struct {
+	CreationDate ldtime.UnixMillisecondTime `json:"creationDate"`
+	Key          string                     `json:"key"`
+	User         receivedEventUser          `json:"user"`
+	Data         ldvalue.Value              `json:"data"`
+	MetricValue  *float64                   `json:"metricValue"`
+}
+
+type receivedIdentifyEvent struct {
+	CreationDate ldtime.UnixMillisecondTime `json:"creationDate"`
+	User         receivedEventUser          `json:"user"`
+}
+
+func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
-	ldConfig := ld.DefaultConfig
-	ldConfig.EventsEndpointUri = strings.TrimRight(config.EventsUri, "/") + remotePath
-	ldConfig.Capacity = config.Capacity
-	ldConfig.InlineUsersInEvents = config.InlineUsers
-	ldConfig.FlushInterval = time.Duration(config.FlushIntervalSecs) * time.Second
-	ldConfig.HTTPClientFactory = httpConfig.HTTPClientFactory
-	ldConfig.Loggers = loggers
-	ep := ld.NewDefaultEventProcessor(sdkKey, ldConfig, nil)
+	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
+	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	eventsURI := strings.TrimRight(config.EventsUri, "/") + remotePath
+	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
+
+	eventsConfig := ldevents.EventsConfiguration{
+		Capacity:            config.Capacity,
+		InlineUsersInEvents: config.InlineUsers,
+		EventSender:         eventSender,
+		FlushInterval:       time.Duration(config.FlushIntervalSecs) * time.Second,
+		Loggers:             loggers,
+	}
+	ep := ldevents.NewDefaultEventProcessor(eventsConfig)
+
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
-		featureStore:   featureStore,
+		storeAdapter:   storeAdapter,
 		loggers:        loggers,
 	}
 }
@@ -48,7 +96,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 	}
 }
 
-func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (ld.Event, error) {
+func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (ldevents.Event, error) {
 	var kindFieldOnly struct {
 		Kind string
 	}
@@ -56,12 +104,24 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 		return nil, err
 	}
 	switch kindFieldOnly.Kind {
-	case ld.FeatureRequestEventKind:
-		var e ld.FeatureRequestEvent
+	case "feature":
+		var e receivedFeatureEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
 			return nil, err
 		}
+
+		newEvent := ldevents.FeatureRequestEvent{
+			BaseEvent: ldevents.BaseEvent{
+				CreationDate: e.CreationDate,
+				User:         e.User.asEventUser(),
+			},
+			Key:     e.Key,
+			Value:   e.Value,
+			Default: e.Default,
+			Reason:  e.Reason,
+		}
+
 		// There are three possible cases we need to handle here.
 		// 1. This is from an old SDK, prior to the implementation of summary events. SchemaVersion will be 1
 		//    (or omitted). We have to look up the flag, get the TrackEvents and DebugEventsUntilDate properties
@@ -78,47 +138,75 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 		if e.Version == nil {
 			// If Version was omitted, then the flag didn't exist so we won't bother looking it up. Whatever's
 			// in the event is all we have.
-			e.Variation = nil
+			newEvent.Version = ldevents.NoVersion
+			newEvent.Variation = ldevents.NoVariation
 		} else {
-			if e.TrackEvents || e.DebugEventsUntilDate != nil {
-				return e, nil // case 2b - we know this is a newer PHP SDK if these properties have truthy values
+			newEvent.Version = *e.Version
+			if e.Variation == nil {
+				newEvent.Variation = ldevents.NoVariation
+			} else {
+				newEvent.Variation = *e.Variation
+			}
+			if e.TrackEvents || e.DebugEventsUntilDate != 0 {
+				newEvent.TrackEvents = e.TrackEvents
+				newEvent.DebugEventsUntilDate = e.DebugEventsUntilDate
+				return newEvent, nil // case 2b - we know this is a newer PHP SDK if these properties have truthy values
 			}
 			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
 			// to be set so we can't distinguish it from 2a and must look up the flag)
-			data, err := er.featureStore.Get(ld.Features, e.Key)
+			data, err := er.storeAdapter.Store.Get(interfaces.DataKindFeatures(), e.Key)
 			if err != nil {
 				return nil, err
 			}
-			if data != nil {
-				flag := data.(*ld.FeatureFlag)
-				e.TrackEvents = flag.TrackEvents
-				e.DebugEventsUntilDate = flag.DebugEventsUntilDate
+			if data.Item != nil {
+				flag := data.Item.(*ldmodel.FeatureFlag)
+				newEvent.TrackEvents = flag.TrackEvents
+				if flag.DebugEventsUntilDate != nil {
+					newEvent.DebugEventsUntilDate = *flag.DebugEventsUntilDate
+				}
 				if schemaVersion <= 1 && e.Variation == nil {
 					for i, value := range flag.Variations {
-						if reflect.DeepEqual(value, e.Value) {
+						if value.Equal(e.Value) {
 							n := i
-							e.Variation = &n
+							newEvent.Variation = n
 							break
 						}
 					}
 				}
 			}
 		}
-		return e, nil
-	case ld.CustomEventKind:
-		var e ld.CustomEvent
+		return newEvent, nil
+	case "custom":
+		var e receivedCustomEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
 			return nil, err
 		}
-		return e, nil
-	case ld.IdentifyEventKind:
-		var e ld.IdentifyEvent
+		newEvent := ldevents.CustomEvent{
+			BaseEvent: ldevents.BaseEvent{
+				CreationDate: e.CreationDate,
+				User:         e.User.asEventUser(),
+			},
+			Key:  e.Key,
+			Data: e.Data,
+		}
+		if e.MetricValue != nil {
+			newEvent.HasMetric = true
+			newEvent.MetricValue = *e.MetricValue
+		}
+		return newEvent, nil
+	case "identify":
+		var e receivedIdentifyEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
 			return nil, err
 		}
-		return e, nil
+		return ldevents.IdentifyEvent{
+			BaseEvent: ldevents.BaseEvent{
+				CreationDate: e.CreationDate,
+				User:         e.User.asEventUser(),
+			},
+		}, nil
 	}
 	return nil, fmt.Errorf("unexpected event kind: %s", kindFieldOnly.Kind)
 }

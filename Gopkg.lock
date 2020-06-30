@@ -237,12 +237,12 @@
   revision = "cad6b2b879b0970e4245a20ebf1a81a756e2bb70"
 
 [[projects]]
-  digest = "1:fb312f870b330e589857c4e4497b7782c3bf66f832b7d256d6993e6424bae168"
+  digest = "1:e7c4e6e398099d8a0835a28e2b8e37ac1109afff7ec611ce3e25d0627c6bc589"
   name = "github.com/launchdarkly/eventsource"
   packages = ["."]
   pruneopts = "UT"
-  revision = "6b837031c9caed93dbd5ecee9bd1f48ad4b91c1d"
-  version = "1.2.0"
+  revision = "a1b22c819bc306d8fe2461a8d17fc9a5d7aa8f07"
+  version = "v1.4.1"
 
 [[projects]]
   branch = "v1"
@@ -272,6 +272,17 @@
   packages = ["."]
   pruneopts = "UT"
   revision = "a22bdd33b2a45c81d5adce655962f79872df8fff"
+
+[[projects]]
+  digest = "1:9b59afb6c39de41d7f356a3be921d1de42bb1726f982d6174c05b97712ab5430"
+  name = "github.com/launchdarkly/go-test-helpers"
+  packages = [
+    "httphelpers",
+    "ldservices",
+  ]
+  pruneopts = "UT"
+  revision = "bdc50e152102df1cc8bfae26422e3ca7604bd04f"
+  version = "v1.1.2"
 
 [[projects]]
   digest = "1:ff5ebae34cfbf047d505ee150de27e60570e8c394b3b8fdbb720ff6ac71985fc"
@@ -604,22 +615,65 @@
   version = "v1.16.1"
 
 [[projects]]
-  digest = "1:f1646675fe0053c8d1a0ec59ad4ac1ad7b91f19f9d8166086ba92a1c0ce26f1f"
-  name = "gopkg.in/launchdarkly/go-server-sdk.v4"
+  digest = "1:797d10f97b03b3580492b34e3a1cb2608a1d905307a002341e4b957c1b92d0ab"
+  name = "gopkg.in/launchdarkly/go-sdk-common.v1"
+  packages = ["ldvalue"]
+  pruneopts = "UT"
+  revision = "d48d1b4f4e7043144f7344be8a94cb3e3cd84275"
+  version = "1.0.0"
+
+[[projects]]
+  branch = "v2"
+  digest = "1:5f4850b7ae9547377ff482606cb06bf52a079200cc2d24b9e738fb30da6f5975"
+  name = "gopkg.in/launchdarkly/go-sdk-common.v2"
+  packages = [
+    "ldlog",
+    "ldreason",
+    "ldtime",
+    "lduser",
+    "ldvalue",
+  ]
+  pruneopts = "UT"
+  revision = "9d571f47a7aede45d1a1162c7e1bd3244ef1133b"
+
+[[projects]]
+  branch = "v1"
+  digest = "1:2d4a6f59c14791a5abbd0aa3b0c724e14f1cf03721082c36c5bea7e71affba2b"
+  name = "gopkg.in/launchdarkly/go-sdk-events.v1"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "335433cdd623d4ba48739b92990b528b4e6835a0"
+
+[[projects]]
+  branch = "v1"
+  digest = "1:b459cfbaec280f08e715aee3e7354b233ff4741613cbcc7e89476146613a5ec3"
+  name = "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
   packages = [
     ".",
+    "ldbuilders",
+    "ldmodel",
+  ]
+  pruneopts = "UT"
+  revision = "c8aded9abc93901751f94a533142c12398f72887"
+
+[[projects]]
+  digest = "1:f54ca125f3210dde69f4bf5ff81ee0dc8d5a129268427441c8bf1784400498e9"
+  name = "gopkg.in/launchdarkly/go-server-sdk.v5"
+  packages = [
+    ".",
+    "interfaces",
     "internal",
+    "ldcomponents",
     "ldconsul",
     "lddynamodb",
     "ldhttp",
-    "ldlog",
     "ldntlm",
-    "redis",
-    "utils",
+    "ldredis",
+    "sharedtest",
   ]
   pruneopts = "UT"
-  revision = "62a443d18b644c63d56b1db2fb37f924dbcfb995"
-  version = "4.14.2"
+  revision = "fce07bc78469f086ad8466d370fda906c8614844"
+  version = "v5.0.0-alpha.2"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -636,6 +690,7 @@
     "github.com/kardianos/minwinsvc",
     "github.com/launchdarkly/eventsource",
     "github.com/launchdarkly/gcfg",
+    "github.com/launchdarkly/go-test-helpers/httphelpers",
     "github.com/pborman/uuid",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
@@ -643,13 +698,23 @@
     "go.opencensus.io/stats/view",
     "go.opencensus.io/tag",
     "go.opencensus.io/trace",
-    "gopkg.in/launchdarkly/go-server-sdk.v4",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/ldconsul",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/lddynamodb",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/ldhttp",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/ldlog",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/ldntlm",
-    "gopkg.in/launchdarkly/go-server-sdk.v4/redis",
+    "gopkg.in/launchdarkly/go-sdk-common.v2/ldlog",
+    "gopkg.in/launchdarkly/go-sdk-common.v2/ldreason",
+    "gopkg.in/launchdarkly/go-sdk-common.v2/ldtime",
+    "gopkg.in/launchdarkly/go-sdk-common.v2/lduser",
+    "gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue",
+    "gopkg.in/launchdarkly/go-sdk-events.v1",
+    "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1",
+    "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders",
+    "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel",
+    "gopkg.in/launchdarkly/go-server-sdk.v5",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/interfaces",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/ldconsul",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/lddynamodb",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/ldhttp",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/ldntlm",
+    "gopkg.in/launchdarkly/go-server-sdk.v5/ldredis",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

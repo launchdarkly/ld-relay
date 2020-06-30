@@ -14,10 +14,14 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
+	"gopkg.in/launchdarkly/ld-relay.v6/internal/util"
+	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 )
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
@@ -45,35 +49,31 @@ func flagsStreamHandler(w http.ResponseWriter, req *http.Request) {
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
-	data, err := clientCtx.getStore().All(ld.Features)
+	data, err := clientCtx.getStore().GetAll(interfaces.DataKindFeatures())
 	if err != nil {
 		clientCtx.getLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
 		return
 	}
+	respData := itemsCollectionToMap(data)
 	// Compute an overall Etag for the data set by hashing flag keys and versions
-	hash := sha1.New() // nolint:gas // just used for insecure hashing
-	keys := make([]string, 0, len(data))
-	for _, flag := range data {
-		keys = append(keys, flag.GetKey())
-	}
-	sort.Strings(keys) // makes the hash deterministic
-	for _, key := range keys {
-		flag := data[key]
-		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", flag.GetKey(), flag.GetVersion()))
+	hash := sha1.New()                                                         // nolint:gas // just used for insecure hashing
+	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
+	for _, item := range data {
+		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
 	}
 	etag := hex.EncodeToString(hash.Sum(nil))[:15]
-	writeCacheableJSONResponse(w, req, clientCtx, data, etag)
+	writeCacheableJSONResponse(w, req, clientCtx, respData, etag)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), ld.Features)(w, req)
+	pollFlagOrSegment(getClientContext(req), interfaces.DataKindFeatures())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), ld.Segments)(w, req)
+	pollFlagOrSegment(getClientContext(req), interfaces.DataKindSegments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -128,7 +128,7 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWrite
 }
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
-	var user *ld.User
+	var user lduser.User
 	var userDecodeErr error
 	if req.Method == "REPORT" {
 		if req.Header.Get("Content-Type") != "application/json" {
@@ -159,7 +159,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	w.Header().Set("Content-Type", "application/json")
 
 	if !client.Initialized() {
-		if store.Initialized() {
+		if store.IsInitialized() {
 			loggers.Warn("Called before client initialization; using last known values from feature store")
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -169,15 +169,15 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if user.Key == nil {
+	if user.GetKey() == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, *user.Key)
+	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.GetKey())
 
-	items, err := store.All(ld.Features)
+	items, err := store.GetAll(interfaces.DataKindFeatures())
 	if err != nil {
 		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -185,28 +185,32 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		return
 	}
 
+	evaluator := ldeval.NewEvaluator(basicDataProvider{store})
+
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
-		if flag, ok := item.(*ld.FeatureFlag); ok {
+		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
 			if sdkKind == jsClientSdk && !flag.ClientSide {
 				continue
 			}
-			detail, _ := flag.EvaluateDetail(*user, store, false)
+			detail := evaluator.Evaluate(flag, user, nil)
 			var result interface{}
 			if valueOnly {
 				result = detail.Value
 			} else {
-				isExperiment := isExperiment(flag, detail.Reason)
+				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
 				value := evalXResult{
 					Value:                detail.Value,
-					Variation:            detail.VariationIndex,
 					Version:              flag.Version,
 					TrackEvents:          flag.TrackEvents || isExperiment,
-					TrackReason:          isExperiment,
 					DebugEventsUntilDate: flag.DebugEventsUntilDate,
+					TrackReason:          isExperiment,
+				}
+				if detail.VariationIndex >= 0 {
+					value.Variation = &detail.VariationIndex
 				}
 				if withReasons || isExperiment {
-					value.Reason = &ld.EvaluationReasonContainer{Reason: detail.Reason}
+					value.Reason = &detail.Reason
 				}
 				result = value
 			}
@@ -220,23 +224,31 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	w.Write(result)
 }
 
-// This logic is copied from the Go SDK; eventually we'll provide a different way to reuse it
-func isExperiment(flag *ld.FeatureFlag, reason ld.EvaluationReason) bool {
-	if reason == nil {
-		return false
-	}
-	switch r := reason.(type) {
-	case ld.EvaluationReasonFallthrough:
-		return flag.TrackEventsFallthrough
-	case ld.EvaluationReasonRuleMatch:
-		if r.RuleIndex >= 0 && r.RuleIndex < len(flag.Rules) {
-			return flag.Rules[r.RuleIndex].TrackEvents
-		}
-	}
-	return false
+type basicDataProvider struct {
+	store interfaces.DataStore
 }
 
-func pollFlagOrSegment(clientContext clientContext, kind ld.VersionedDataKind) func(http.ResponseWriter, *http.Request) {
+func (p basicDataProvider) GetFeatureFlag(key string) *ldmodel.FeatureFlag {
+	data, err := p.store.Get(interfaces.DataKindFeatures(), key)
+	if err == nil && data.Item != nil {
+		if f, ok := data.Item.(*ldmodel.FeatureFlag); ok {
+			return f
+		}
+	}
+	return nil
+}
+
+func (p basicDataProvider) GetSegment(key string) *ldmodel.Segment {
+	data, err := p.store.Get(interfaces.DataKindSegments(), key)
+	if err == nil && data.Item != nil {
+		if s, ok := data.Item.(*ldmodel.Segment); ok {
+			return s
+		}
+	}
+	return nil
+}
+
+func pollFlagOrSegment(clientContext clientContext, kind interfaces.StoreDataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
 		item, err := clientContext.getStore().Get(kind, key)
@@ -245,10 +257,10 @@ func pollFlagOrSegment(clientContext clientContext, kind ld.VersionedDataKind) f
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if item == nil {
+		if item.Item == nil {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			writeCacheableJSONResponse(w, req, clientContext, item, strconv.Itoa(item.GetVersion()))
+			writeCacheableJSONResponse(w, req, clientContext, item.Item, strconv.Itoa(item.Version))
 		}
 	}
 }
@@ -298,4 +310,12 @@ func obscureKey(key string) string {
 		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
 	}
 	return key
+}
+
+func itemsCollectionToMap(coll []interfaces.StoreKeyedItemDescriptor) map[string]interface{} {
+	ret := make(map[string]interface{}, len(coll))
+	for _, item := range coll {
+		ret[item.Key] = item.Item.Item
+	}
+	return ret
 }
