@@ -6,13 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+)
+
+var (
+	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
 )
 
 type corsContext interface {
@@ -172,7 +178,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			// Not a valid origin, set allowed origin to any allowed origin
 			setCorsHeaders(w, domains[0])
 		} else {
-			origin := defaultAllowedOrigin
+			origin := cors.DefaultAllowedOrigin
 			if r.Header.Get("Origin") != "" {
 				origin = r.Header.Get("Origin")
 			}

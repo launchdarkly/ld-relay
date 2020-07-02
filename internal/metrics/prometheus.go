@@ -7,11 +7,34 @@ import (
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"go.opencensus.io/stats/view"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 func init() {
 	defineExporter(prometheusExporter, registerPrometheusExporter)
+}
+
+type PrometheusOptions struct {
+	Prefix string
+	Port   int
+}
+
+func (p PrometheusOptions) getType() ExporterType {
+	return prometheusExporter
+}
+
+type PrometheusConfig config.PrometheusConfig
+
+func (c PrometheusConfig) toOptions() ExporterOptions {
+	return PrometheusOptions{
+		Port:   c.Port,
+		Prefix: c.Prefix,
+	}
+}
+
+func (c PrometheusConfig) enabled() bool {
+	return c.Enabled
 }
 
 func registerPrometheusExporter(options ExporterOptions) error {

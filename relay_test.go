@@ -25,6 +25,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/logging"
@@ -310,8 +311,8 @@ func TestRelay(t *testing.T) {
 	user := []byte(`{"key":"me"}`)
 	base64User := base64.StdEncoding.EncodeToString([]byte(user))
 
-	config := Config{
-		Environment: map[string]*EnvConfig{
+	config := c.Config{
+		Environment: map[string]*c.EnvConfig{
 			"sdk test": {
 				SdkKey: sdkKey,
 			},
@@ -349,7 +350,7 @@ func TestRelay(t *testing.T) {
 	config.Events.SendEvents = true
 	config.Events.EventsUri = eventsServer.URL
 	config.Events.FlushIntervalSecs = 1
-	config.Events.Capacity = defaultEventCapacity
+	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
 	createDummyClient := func(sdkKey string, config ld.Config) (LdClientContext, error) {
 		store, _ := config.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
@@ -890,15 +891,15 @@ SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
 `)
 	tmpfile.Close()
 
-	var c Config
-	err = LoadConfigFile(&c, tmpfile.Name())
+	var config c.Config
+	err = c.LoadConfigFile(&config, tmpfile.Name())
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api key"].SdkKey,
+	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", config.Environment["test api key"].SdkKey,
 		"expected api key to be used as sdk key when api key is set")
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", c.Environment["test api and sdk key"].SdkKey,
+	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", config.Environment["test api and sdk key"].SdkKey,
 		"expected sdk key to be used as sdk key when both api key and sdk key are set")
 }
 

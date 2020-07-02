@@ -14,20 +14,11 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
-
-// EventRelay configuration - used in the config file struct in relay.go
-type Config struct {
-	EventsUri         string
-	SendEvents        bool
-	FlushIntervalSecs int
-	SamplingInterval  int32
-	Capacity          int
-	InlineUsers       bool
-}
 
 // Describes one of the possible endpoints (on both events.launchdarkly.com and the relay) for posting events
 type Endpoint interface {
@@ -53,7 +44,7 @@ var (
 )
 
 type eventVerbatimRelay struct {
-	config    Config
+	config    c.EventsConfig
 	publisher EventPublisher
 }
 
@@ -82,7 +73,7 @@ type eventEndpointDispatcher interface {
 }
 
 type analyticsEventEndpointDispatcher struct {
-	config           Config
+	config           c.EventsConfig
 	httpClient       *http.Client
 	httpConfig       httpconfig.HTTPConfig
 	authKey          string
@@ -247,7 +238,7 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
-func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers ldlog.Loggers, config Config, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter) *EventDispatcher {
+func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers ldlog.Loggers, config c.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter) *EventDispatcher {
 	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]eventEndpointDispatcher{
@@ -266,7 +257,7 @@ func NewEventDispatcher(sdkKey string, mobileKey *string, envID *string, loggers
 	return ep
 }
 
-func newDiagnosticEventEndpointDispatcher(config Config, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *diagnosticEventEndpointDispatcher {
+func newDiagnosticEventEndpointDispatcher(config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *diagnosticEventEndpointDispatcher {
 	return &diagnosticEventEndpointDispatcher{
 		httpClient:        httpClient,
 		remoteEndpointURI: strings.TrimRight(config.EventsUri, "/") + remotePath,
@@ -274,7 +265,7 @@ func newDiagnosticEventEndpointDispatcher(config Config, httpClient *http.Client
 	}
 }
 
-func newAnalyticsEventEndpointDispatcher(authKey string, config Config, httpConfig httpconfig.HTTPConfig,
+func newAnalyticsEventEndpointDispatcher(authKey string, config c.EventsConfig, httpConfig httpconfig.HTTPConfig,
 	httpClient *http.Client, storeAdapter *store.SSERelayDataStoreAdapter, loggers ldlog.Loggers, remotePath string) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:      authKey,
@@ -287,7 +278,7 @@ func newAnalyticsEventEndpointDispatcher(authKey string, config Config, httpConf
 	}
 }
 
-func newEventVerbatimRelay(sdkKey string, config Config, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *eventVerbatimRelay {
+func newEventVerbatimRelay(sdkKey string, config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *eventVerbatimRelay {
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
 		OptionEndpointURI(strings.TrimRight(config.EventsUri, "/") + remotePath),

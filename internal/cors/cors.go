@@ -1,0 +1,5 @@
+package cors
+
+const (
+	DefaultAllowedOrigin = "*"
+)

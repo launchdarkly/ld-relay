@@ -24,6 +24,7 @@ require (
 	github.com/launchdarkly/eventsource v1.4.2
 	github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb
 	github.com/launchdarkly/go-test-helpers v1.1.3
+	github.com/launchdarkly/go-test-helpers/v2 v2.0.0
 	github.com/mitchellh/go-homedir v1.0.0 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/mapstructure v1.1.2 // indirect

@@ -1,4 +1,4 @@
-package relay
+package config
 
 import (
 	"os"
@@ -7,8 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/launchdarkly/ld-relay/v6/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	helpers "github.com/launchdarkly/go-test-helpers/v2"
 )
 
 func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
@@ -27,7 +26,7 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 				TLSKey:                 "key",
 				LogLevel:               "warn",
 			}
-			c.Events = events.Config{
+			c.Events = EventsConfig{
 				SendEvents:        true,
 				EventsUri:         "http://events",
 				FlushIntervalSecs: 120,
@@ -39,16 +38,16 @@ func TestConfigFromEnvironmentWithAllBaseProperties(t *testing.T) {
 			c.Environment = map[string]*EnvConfig{
 				"earth": &EnvConfig{
 					SdkKey:    "earth-sdk",
-					MobileKey: strPtr("earth-mob"),
-					EnvId:     strPtr("earth-env"),
+					MobileKey: helpers.StrPtr("earth-mob"),
+					EnvId:     helpers.StrPtr("earth-env"),
 					Prefix:    "earth-",
 					TableName: "earth-table",
 					LogLevel:  "debug",
 				},
 				"krypton": &EnvConfig{
 					SdkKey:        "krypton-sdk",
-					MobileKey:     strPtr("krypton-mob"),
-					EnvId:         strPtr("krypton-env"),
+					MobileKey:     helpers.StrPtr("krypton-mob"),
+					EnvId:         helpers.StrPtr("krypton-env"),
 					Prefix:        "krypton-",
 					TableName:     "krypton-table",
 					AllowedOrigin: &origins,
@@ -311,8 +310,8 @@ func TestConfigFromEnvironmentWithDatadogConfig(t *testing.T) {
 		func(c *Config) {
 			c.Datadog = DatadogConfig{
 				CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-				TraceAddr:           strPtr("trace"),
-				StatsAddr:           strPtr("stats"),
+				TraceAddr:           helpers.StrPtr("trace"),
+				StatsAddr:           helpers.StrPtr("stats"),
 				Tag:                 []string{"tag1:value1", "tag2:value2"},
 			}
 		},
@@ -389,7 +388,7 @@ func TestConfigFromEnvironmentWithProxyConfig(t *testing.T) {
 	// test defaults for all parameters
 	testValidConfigVars(t,
 		func(c *Config) {
-			c.Proxy = httpconfig.ProxyConfig{
+			c.Proxy = ProxyConfig{
 				Url:         "http://proxy",
 				User:        "user",
 				Password:    "pass",
@@ -449,8 +448,4 @@ func setEnvironment(vars map[string]string) {
 	for name, value := range vars {
 		os.Setenv(name, value)
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }
