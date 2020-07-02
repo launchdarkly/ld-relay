@@ -193,20 +193,30 @@ func (relay *SSERelayFeatureStore) Upsert(
 		return false, err
 	}
 
-	if updated {
-		if item.Item == nil {
-			relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, item.Version))
-			if kind == interfaces.DataKindFeatures() {
-				relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, item.Version))
-			}
-		} else {
-			relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, key, item))
-			if kind == interfaces.DataKindFeatures() {
-				relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(key, item))
-			}
+	// If updated is false, it means that there was already a higher-versioned item in the store.
+	newItem := item
+	if !updated {
+		newItem, err = relay.store.Get(kind, key)
+		if err != nil {
+			return false, nil
 		}
-		relay.pingPublisher.Publish(relay.keys(), makePingEvent())
+		if newItem.Item == nil {
+			// For consistency with past behavior, we do not re-publish deleted items to clients
+			return false, nil
+		}
 	}
+	if item.Item == nil {
+		relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, newItem.Version))
+		if kind == interfaces.DataKindFeatures() {
+			relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, newItem.Version))
+		}
+	} else {
+		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, key, newItem))
+		if kind == interfaces.DataKindFeatures() {
+			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(key, newItem))
+		}
+	}
+	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 
 	return updated, nil
 }

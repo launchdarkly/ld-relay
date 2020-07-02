@@ -202,7 +202,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 			detail := evaluator.Evaluate(flag, user, nil)
 			var result interface{}
 			if valueOnly {
-				result = detail.JSONValue
+				result = detail.Value
 			} else {
 				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
 				value := evalXResult{
