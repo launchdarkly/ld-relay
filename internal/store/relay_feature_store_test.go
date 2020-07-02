@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	es "github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v6/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
