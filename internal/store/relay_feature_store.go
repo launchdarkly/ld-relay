@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"github.com/launchdarkly/ld-relay/v6/logging"
+	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
