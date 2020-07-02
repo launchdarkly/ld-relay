@@ -2,10 +2,6 @@
 # It is NOT the version that is pushed to dockerhub
 FROM cimg/go:1.13 as builder
 
-RUN apk --no-cache add \
-    libc-dev \
- && rm -rf /var/cache/apk/*
-
 ARG SRC_DIR=$HOME/ld-relay
 
 RUN mkdir -p $SRC_DIR
@@ -27,11 +23,10 @@ RUN addgroup -g 1000 -S ldr-user && \
     mkdir /ldr && \
     chown 1000:1000 /ldr
 
-RUN apk add --no-cache \
+RUN apt-get install \
     curl \
     ca-certificates \
- && update-ca-certificates \
- && rm -rf /var/cache/apk/*
+ && update-ca-certificates
 
 ARG SRC_DIR=$HOME/ld-relay
 
