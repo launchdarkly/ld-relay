@@ -52,25 +52,19 @@ func NewHTTPConfig(proxyConfig ProxyConfig, sdkKey string) (HTTPConfig, error) {
 		ret.ProxyURL = u
 	}
 
-	var caCertPaths []string
-	for _, filePath := range strings.Split(strings.TrimSpace(proxyConfig.CaCertFiles), ",") {
-		if filePath != "" {
-			caCertPaths = append(caCertPaths, filePath)
-		}
-	}
+	caCertFiles := strings.Split(strings.TrimSpace(proxyConfig.CaCertFiles), ",")
 
-	var transportOpts []ldhttp.TransportOption
-	for _, filePath := range strings.Split(strings.TrimSpace(proxyConfig.CaCertFiles), ",") {
-		if filePath != "" {
-			transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
-		}
-	}
 	if proxyConfig.NtlmAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errors.New("NTLM proxy authentication requires username and password")
 		}
 		transportOpts := []ldhttp.TransportOption{
 			ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
+		}
+		for _, filePath := range caCertFiles {
+			if filePath != "" {
+				transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
+			}
 		}
 		factory, err := ldntlm.NewNTLMProxyHTTPClientFactory(proxyConfig.Url,
 			proxyConfig.User, proxyConfig.Password, proxyConfig.Domain, transportOpts...)
@@ -82,6 +76,11 @@ func NewHTTPConfig(proxyConfig ProxyConfig, sdkKey string) (HTTPConfig, error) {
 	} else {
 		if ret.ProxyURL != nil {
 			configBuilder.ProxyURL(*ret.ProxyURL)
+		}
+		for _, filePath := range caCertFiles {
+			if filePath != "" {
+				configBuilder.CACertFile(filePath)
+			}
 		}
 	}
 
