@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -83,11 +84,12 @@ func newEventSummarizingRelay(sdkKey string, config Config, httpConfig httpconfi
 	}
 }
 
-func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVersion int) {
+func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVersion int) bool {
 	for _, rawEvent := range rawEvents {
 		evt, err := er.translateEvent(rawEvent, schemaVersion)
 		if err != nil {
-			er.loggers.Errorf("Error in event processing, event was discarded: %+v", err)
+			er.loggers.Errorf("Error in event processing, event was discarded: %s", err)
+			return false
 		}
 		if evt != nil {
 			switch e := evt.(type) {
@@ -101,6 +103,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 
 		}
 	}
+	return true
 }
 
 func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (ldevents.Event, error) {
@@ -159,9 +162,18 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				newEvent.DebugEventsUntilDate = e.DebugEventsUntilDate
 				return newEvent, nil // case 2b - we know this is a newer PHP SDK if these properties have truthy values
 			}
+			store := er.storeAdapter.GetStore()
+			if store == nil {
+				// The data store has not been created yet. That is pretty much the first thing that happens when
+				// the LDClient is created, and the LDClient is created when Relay starts up, so this can only happen
+				// if we receive events very early during startup. There's nothing we can do about this, and it's not
+				// terribly significant because if the SDK had sent the events a few milliseconds earlier, Relay
+				// would've been even less ready to receive them.
+				return nil, errors.New("Relay is not ready to process events yet (data store not yet created)")
+			}
 			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
 			// to be set so we can't distinguish it from 2a and must look up the flag)
-			data, err := er.storeAdapter.Store.Get(ldstoreimpl.Features(), e.Key)
+			data, err := store.Get(ldstoreimpl.Features(), e.Key)
 			if err != nil {
 				return nil, err
 			}

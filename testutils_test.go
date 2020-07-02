@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/sharedtest"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
 	"github.com/stretchr/testify/assert"
 
@@ -21,7 +21,7 @@ import (
 )
 
 var emptyStore = sharedtest.NewInMemoryStore()
-var emptyStoreAdapter = &store.SSERelayDataStoreAdapter{Store: emptyStore}
+var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
 var zero = 0
 
 type testFlag struct {
@@ -113,7 +113,7 @@ func flagsMap(testFlags []testFlag) map[string]interface{} {
 func makeTestContextWithData() *clientContextImpl {
 	return &clientContextImpl{
 		client:       FakeLDClient{initialized: true},
-		storeAdapter: &store.SSERelayDataStoreAdapter{Store: makeStoreWithData(true)},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(true)),
 		loggers:      ldlog.NewDisabledLoggers(),
 	}
 }

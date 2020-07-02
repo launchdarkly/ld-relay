@@ -22,7 +22,7 @@ import (
 func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22). // deliberately different version from event - we should use the version from the event
@@ -57,7 +57,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 func TestTranslateFeatureEventWithSchemaVersion1AndUnknownFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{
@@ -86,7 +86,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *te
 	// look up the flag, but the lookup will fail.
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{
@@ -113,7 +113,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *te
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEventsInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -151,7 +151,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEvent
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -188,7 +188,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsIn
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUntilDateInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -225,7 +225,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUn
 func TestTranslateFeatureEventWithSchemaVersion2AndUnknownFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: &relaystore.SSERelayDataStoreAdapter{Store: store},
+		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{
