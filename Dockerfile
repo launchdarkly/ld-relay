@@ -10,10 +10,6 @@ WORKDIR $SRC_DIR
 
 COPY . .
 
-ENV CGO_ENABLED=0
-ENV GOOS=linux
-ENV GOPATH=/go
-
 RUN go build -a -o ldr ./cmd/ld-relay
 
 FROM cimg/go:1.13
