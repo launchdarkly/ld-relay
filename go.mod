@@ -3,59 +3,41 @@ module github.com/launchdarkly/ld-relay/v6
 go 1.13
 
 require (
-	cloud.google.com/go v0.26.0
 	contrib.go.opencensus.io/exporter/prometheus v0.1.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.5.0
-	github.com/DataDog/datadog-go v0.0.0-20180330214955-e67964b4021a
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20190726131236-c7b72e836616
+	github.com/armon/go-metrics v0.3.3 // indirect
 	github.com/aws/aws-sdk-go v1.15.74
-	github.com/beorn7/perks v1.0.1
-	github.com/blang/semver v3.5.1+incompatible
-	github.com/davecgh/go-spew v1.1.1
+	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/garyburd/redigo v1.4.0
-	github.com/golang/protobuf v1.3.2
-	github.com/google/uuid v1.1.1
-	github.com/googleapis/gax-go v2.0.0+incompatible
-	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f
+	github.com/google/uuid v1.1.1 // indirect
+	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
+	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f // indirect
 	github.com/gorilla/mux v1.6.3-0.20180517173623-c85619274f5d
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
-	github.com/hashicorp/consul v1.3.0
-	github.com/hashicorp/go-cleanhttp v0.5.0
-	github.com/hashicorp/go-rootcerts v0.0.0-20160503143440-6bb64b370b90
-	github.com/hashicorp/golang-lru v0.5.3
-	github.com/hashicorp/serf v0.8.1
-	github.com/jmespath/go-jmespath v0.0.0-20160202185014-0b12d6b521d8
+	github.com/hashicorp/consul v1.3.0 // indirect
+	github.com/hashicorp/go-msgpack v1.1.5 // indirect
+	github.com/hashicorp/go-rootcerts v0.0.0-20160503143440-6bb64b370b90 // indirect
+	github.com/hashicorp/go-uuid v1.0.2 // indirect
+	github.com/hashicorp/golang-lru v0.5.3 // indirect
+	github.com/hashicorp/memberlist v0.2.2 // indirect
+	github.com/hashicorp/serf v0.8.1 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
 	github.com/launchdarkly/eventsource v1.4.2
 	github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb
-	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.0
-	github.com/launchdarkly/go-ntlmssp v1.0.0
-	github.com/matttproud/golang_protobuf_extensions v1.0.1
-	github.com/mitchellh/go-homedir v1.0.0
-	github.com/mitchellh/mapstructure v1.1.2
-	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.0 // indirect
+	github.com/launchdarkly/go-ntlmssp v1.0.0 // indirect
+	github.com/mitchellh/go-homedir v1.0.0 // indirect
+	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
+	github.com/mitchellh/mapstructure v1.1.2 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c
-	github.com/philhofer/fwd v1.0.0
-	github.com/pmezard/go-difflib v1.0.0
-	github.com/prometheus/client_golang v1.1.0
-	github.com/prometheus/client_model v0.1.0
-	github.com/prometheus/common v0.7.0
-	github.com/prometheus/procfs v0.0.8
+	github.com/philhofer/fwd v1.0.0 // indirect
 	github.com/stretchr/testify v1.6.0
-	github.com/tinylib/msgp v1.0.2
+	github.com/tinylib/msgp v1.0.2 // indirect
 	go.opencensus.io v0.21.0
-	golang.org/x/crypto v0.0.0-20190513172903-22d7a77e9e5f
-	golang.org/x/net v0.0.0-20190613194153-d28f0bde5980
-	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
-	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
-	golang.org/x/sys v0.0.0-20190801041406-cbf593c0f2f3
-	golang.org/x/text v0.3.0
-	google.golang.org/api v0.0.0-20180717000714-0025a57598c0
-	google.golang.org/appengine v1.4.0
-	google.golang.org/genproto v0.0.0-20190307195333-5fe7a883aa19
-	google.golang.org/grpc v1.19.0
-	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1
+	google.golang.org/api v0.0.0-20180717000714-0025a57598c0 // indirect
+	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
 	gopkg.in/launchdarkly/go-sdk-common.v1 v1.0.0-20200204015611-d48d1b4f4e70
 	gopkg.in/launchdarkly/go-server-sdk.v4 v4.0.0-20200514001346-5d022ad40612
-	gopkg.in/launchdarkly/ld-relay.v5 v5.0.0-20200318010324-6b1ec632a605
 )
