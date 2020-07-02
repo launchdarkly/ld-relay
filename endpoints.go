@@ -21,7 +21,6 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
@@ -193,7 +192,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		return
 	}
 
-	evaluator := ldeval.NewEvaluator(basicDataProvider{store})
+	evaluator := ldeval.NewEvaluator(ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, *loggers))
 
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
@@ -232,30 +231,6 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(result)
-}
-
-type basicDataProvider struct {
-	store interfaces.DataStore
-}
-
-func (p basicDataProvider) GetFeatureFlag(key string) *ldmodel.FeatureFlag {
-	data, err := p.store.Get(ldstoreimpl.Features(), key)
-	if err == nil && data.Item != nil {
-		if f, ok := data.Item.(*ldmodel.FeatureFlag); ok {
-			return f
-		}
-	}
-	return nil
-}
-
-func (p basicDataProvider) GetSegment(key string) *ldmodel.Segment {
-	data, err := p.store.Get(ldstoreimpl.Segments(), key)
-	if err == nil && data.Item != nil {
-		if s, ok := data.Item.(*ldmodel.Segment); ok {
-			return s
-		}
-	}
-	return nil
 }
 
 func pollFlagOrSegment(clientContext clientContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {

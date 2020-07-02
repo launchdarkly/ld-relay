@@ -27,9 +27,9 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/logging"
-	"github.com/launchdarkly/ld-relay/v6/sharedtest"
 )
 
 type FakeLDClient struct{ initialized bool }
@@ -162,7 +162,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
 		client:       FakeLDClient{initialized: false},
-		storeAdapter: &store.SSERelayDataStoreAdapter{Store: makeStoreWithData(false)},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(false)),
 		loggers:      ldlog.NewDisabledLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
@@ -180,7 +180,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
 		client:       FakeLDClient{initialized: false},
-		storeAdapter: &store.SSERelayDataStoreAdapter{Store: makeStoreWithData(true)},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(true)),
 		loggers:      ldlog.NewDisabledLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)

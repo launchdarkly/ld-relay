@@ -137,7 +137,7 @@ func (c *clientContextImpl) getStore() interfaces.DataStore {
 	if c.storeAdapter == nil {
 		return nil
 	}
-	return c.storeAdapter.Store
+	return c.storeAdapter.GetStore()
 }
 
 func (c *clientContextImpl) getLoggers() *ldlog.Loggers {

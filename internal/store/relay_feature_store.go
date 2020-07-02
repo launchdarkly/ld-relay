@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/logging"
@@ -34,9 +35,14 @@ type ESPublisher interface {
 // wrapped factory to produce the underlying data store, then creates our own store instance, and then
 // puts a reference to that instance inside itself where we can see it.
 type SSERelayDataStoreAdapter struct {
-	Store          interfaces.DataStore
+	store          interfaces.DataStore
 	wrappedFactory interfaces.DataStoreFactory
 	params         SSERelayDataStoreParams
+	mu             sync.Mutex
+}
+
+func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
+	return a.store
 }
 
 func NewSSERelayDataStoreAdapter(
@@ -46,24 +52,39 @@ func NewSSERelayDataStoreAdapter(
 	return &SSERelayDataStoreAdapter{wrappedFactory: wrappedFactory, params: params}
 }
 
+func NewSSERelayDataStoreAdapterWithExistingStore( // used only in testing
+	store interfaces.DataStore,
+) *SSERelayDataStoreAdapter {
+	return &SSERelayDataStoreAdapter{store: store}
+}
+
 func (a *SSERelayDataStoreAdapter) CreateDataStore(
 	context interfaces.ClientContext,
 	dataStoreUpdates interfaces.DataStoreUpdates,
 ) (interfaces.DataStore, error) {
-	wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
-	if err != nil {
-		return nil, err // this will cause client initialization to fail immediately
+	var s *SSERelayFeatureStore
+	if a.wrappedFactory != nil {
+		wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
+		if err != nil {
+			return nil, err // this will cause client initialization to fail immediately
+		}
+		s = NewSSERelayFeatureStore(
+			a.params.SDKKey,
+			a.params.AllPublisher,
+			a.params.FlagsPublisher,
+			a.params.PingPublisher,
+			wrappedStore,
+			context.GetLogging().GetLoggers(),
+			a.params.HeartbeatInterval,
+		)
 	}
-	a.Store = NewSSERelayFeatureStore(
-		a.params.SDKKey,
-		a.params.AllPublisher,
-		a.params.FlagsPublisher,
-		a.params.PingPublisher,
-		wrappedStore,
-		context.GetLogging().GetLoggers(),
-		a.params.HeartbeatInterval,
-	)
-	return a.Store, nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s == nil {
+		return a.store, nil
+	}
+	a.store = s
+	return s, nil
 }
 
 type SSERelayDataStoreParams struct {

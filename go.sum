@@ -26,8 +26,6 @@ github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+Ce
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/bgentry/speakeasy v0.1.0/go.mod h1:+zsyZBPWlz7T6j88CTgSN5bM796AkVf0kBD4zp0CCIs=
-github.com/blang/semver v3.5.1+incompatible h1:cQNTCjp13qL8KC3Nbxr/y2Bqb63oX6wdnnjpJbkM4JQ=
-github.com/blang/semver v3.5.1+incompatible/go.mod h1:kRBLl5iJ+tD4TcOOxsy/0fnwebNt5EWlYSAyrTnjyyk=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869/go.mod h1:Ekp36dRnpXw/yCqJaO+ZrUyxD+3VXMFFr56k5XYrpB4=
 github.com/cespare/xxhash/v2 v2.1.1 h1:6MnRN8NT7+YBpUIWxHtefFZOKTAPgGjpQSxqLNn0+qY=
 github.com/cespare/xxhash/v2 v2.1.1/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
@@ -72,10 +70,9 @@ github.com/gorilla/mux v1.6.3-0.20180517173623-c85619274f5d h1:i5lTWEGnpjLHcdnhQ
 github.com/gorilla/mux v1.6.3-0.20180517173623-c85619274f5d/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2zaAs=
 github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f h1:kOkUP6rcVVqC+KlKKENKtgfFfJyDySYhqL9srXooghY=
 github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f/go.mod h1:FecbI9+v66THATjSRHfNgh1IVFe/9kFxbXtjV0ctIMA=
-github.com/hashicorp/consul v1.3.0 h1:0ihJs1J8ejURfAbwhwv+USnf4oyqfAddv/3xXXv4ltg=
-github.com/hashicorp/consul v1.3.0/go.mod h1:mFrjN1mfidgJfYP1xrJCF+AfRhr6Eaqhb2+sfyn/OOI=
 github.com/hashicorp/consul/api v1.3.0 h1:HXNYlRkkM/t+Y/Yhxtwcy02dlYwIaoxzvxPnS+cqy78=
 github.com/hashicorp/consul/api v1.3.0/go.mod h1:MmDNSzIMUjNpY/mQ398R4bk2FnqQLoPndWW5VkKPlCE=
+github.com/hashicorp/consul/sdk v0.3.0 h1:UOxjlb4xVNF93jak1mzzoBatyFju9nrkxpVwIp/QqxQ=
 github.com/hashicorp/consul/sdk v0.3.0/go.mod h1:VKf9jXwCTEY1QZP2MOLRhb5i/I/ssyNV1vwHyQBF0x8=
 github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
@@ -91,8 +88,6 @@ github.com/hashicorp/go-msgpack v1.1.5/go.mod h1:gWVc3sv/wbDmR3rQsj1CAktEZzoz1YN
 github.com/hashicorp/go-multierror v1.0.0 h1:iVjPR7a6H0tWELX5NxNe7bYopibicUzc7uPribsnS6o=
 github.com/hashicorp/go-multierror v1.0.0/go.mod h1:dHtQlpGsu+cZNNAkkCN/P3hoUDHhCYQXV3UM06sGGrk=
 github.com/hashicorp/go-retryablehttp v0.5.3/go.mod h1:9B5zBasrRhHXnJnui7y6sL7es7NDiJgTc6Er0maI1Xs=
-github.com/hashicorp/go-rootcerts v0.0.0-20160503143440-6bb64b370b90 h1:VBj0QYQ0u2MCJzBfeYXGexnAl17GsH1yidnoxCqqD9E=
-github.com/hashicorp/go-rootcerts v0.0.0-20160503143440-6bb64b370b90/go.mod h1:o4zcYY1e0GEZI6eSEr+43QDYmuGglw1qSO6qdHUHCgg=
 github.com/hashicorp/go-rootcerts v1.0.0 h1:Rqb66Oo1X/eSV1x66xbDccZjhJigjg0+e82kpwzSwCI=
 github.com/hashicorp/go-rootcerts v1.0.0/go.mod h1:K6zTfqpRlCUIjkwsN4Z+hiSfzSTQa6eBIzfwKfwNnHU=
 github.com/hashicorp/go-sockaddr v1.0.0 h1:GeH6tui99pF4NJgfnhp+L6+FfobzVW3Ah46sLo0ICXs=
@@ -111,8 +106,6 @@ github.com/hashicorp/mdns v1.0.0/go.mod h1:tL+uN++7HEJ6SQLQ2/p+z2pH24WQKWjBPkE0m
 github.com/hashicorp/memberlist v0.1.3/go.mod h1:ajVTdAv/9Im8oMAAj5G31PhhMCZJV2pPBoIllUwCN7I=
 github.com/hashicorp/memberlist v0.2.2 h1:5+RffWKwqJ71YPu9mWsF7ZOscZmwfasdA8kbdC7AO2g=
 github.com/hashicorp/memberlist v0.2.2/go.mod h1:MS2lj3INKhZjWNqd3N0m3J+Jxf3DAOnAH9VT3Sh9MUE=
-github.com/hashicorp/serf v0.8.1 h1:mYs6SMzu72+90OcPa5wr3nfznA4Dw9UyR791ZFNOIf4=
-github.com/hashicorp/serf v0.8.1/go.mod h1:h/Ru6tmZazX7WO/GDmwdpS975F019L4t5ng5IgwbNrE=
 github.com/hashicorp/serf v0.8.2 h1:YZ7UKsJv+hKjqGVUUbtE3HNj79Eln2oQ75tniF6iPt0=
 github.com/hashicorp/serf v0.8.2/go.mod h1:6hOLApaqBFA1NXqRQAsxw9QxuDEvNxSQRwA/JwenrHc=
 github.com/jmespath/go-jmespath v0.0.0-20160202185014-0b12d6b521d8 h1:12VvqtR6Aowv3l/EQUlocDHW2Cp4G9WJVH7uyH8QFJE=
@@ -126,6 +119,7 @@ github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxv
 github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515/go.mod h1:+0opPa2QZZtGFBFZlji/RkVcI2GknAs/DXo4wKdlNEc=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
+github.com/kr/pretty v0.2.0 h1:s5hAObm+yFO5uHYt5dYjxi2rXrsnmRpJx4OYvIWUaQs=
 github.com/kr/pretty v0.2.0/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
@@ -137,12 +131,8 @@ github.com/launchdarkly/eventsource v1.4.2 h1:qLWR3FgHrFpdeHH8lJjBjxdFaZ2U+UG4zB
 github.com/launchdarkly/eventsource v1.4.2/go.mod h1:nX3/XHrcN2ou8HBgjqBTdv22Gl5KoMnzviwrwyGZh+k=
 github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb h1:a+uuDT3nURKt4laWk3PF7gxUuQfZ3XNE51AiOKjj5GA=
 github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb/go.mod h1:Y0RjGJ9V/bMra5xAA/Z0bkwdkwi/41b+/Krem9nIYs8=
-github.com/launchdarkly/go-ntlm-proxy-auth v1.0.0 h1:7EwUx4cdrgUbqK2ywanghriwPZn1HqAviv+OYkMhSdg=
-github.com/launchdarkly/go-ntlm-proxy-auth v1.0.0/go.mod h1:/y5vS3fC/8mp9Xrw317Yw+9qKGSU2f7lx7BG7vFYqeA=
 github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1 h1:Iz5cg9mB/0vt5llZE+J0iGQ5+O/U8CWuRUUR7Ou8eNM=
 github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1/go.mod h1:hKWfH/hga5oslM2mRkDZi+14u2h1dFsmgbvSM9qF8pk=
-github.com/launchdarkly/go-ntlmssp v1.0.0 h1:H2EG3IZlyTymcNaILEB68VapltYsUgPTaKbe3DCx+0c=
-github.com/launchdarkly/go-ntlmssp v1.0.0/go.mod h1:rZQicBRNZBfM+eydZ8LNaQ0p9twUfP6T0hUzJFhaxM4=
 github.com/launchdarkly/go-ntlmssp v1.0.1 h1:snB77118TQvf9tfHrkSyrIop/UX5e5VD2D2mv7Kh3wE=
 github.com/launchdarkly/go-ntlmssp v1.0.1/go.mod h1:/cq3t2JyALD7GdVF5BEWcEuGlIGa44FZ4v4CVk7vuCY=
 github.com/launchdarkly/go-semver v1.0.0 h1:GbQX6vE/LiiReLmKNXxMWEK5FqgpCiTlWeCbBlou1Gs=
@@ -151,7 +141,6 @@ github.com/launchdarkly/go-test-helpers v1.1.2 h1:Y8Y3+MOf1xFv879FHbpBQJ0dCOimWj
 github.com/launchdarkly/go-test-helpers v1.1.2/go.mod h1:syxmwe20VkSug3b/t+4e5V1CyUUcT1x6nfWIIF55rj0=
 github.com/launchdarkly/go-test-helpers v1.1.3 h1:SgliO/iURt4AgQwuu27HFsDCqRenUvpM/5Um+Op+1hw=
 github.com/launchdarkly/go-test-helpers v1.1.3/go.mod h1:bdm93TgmHJ/CbNIN5BpbZsaoIbd9ZVexRrINSBPz+DE=
-github.com/launchdarkly/go-test-helpers v1.2.0 h1:TGyQWaUpmBN3nCOZprbFvw5Q/XW/ZIHjRiI4DzjFK3Y=
 github.com/launchdarkly/go-test-helpers/v2 v2.0.0 h1:zoBisvj96XQpXmb8v+xHEgfPvWmRcdMnRvTqK65pzC4=
 github.com/launchdarkly/go-test-helpers/v2 v2.0.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/mattn/go-colorable v0.0.9/go.mod h1:9vuHe8Xs5qXnSaW/c/ABM9alt+Vo+STaOChaDxuIBZU=
@@ -189,6 +178,7 @@ github.com/philhofer/fwd v1.0.0/go.mod h1:gk3iGcWd9+svBvR0sR+KPcfE+RNWozjowpeBVG
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
@@ -318,8 +308,6 @@ gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0-beta.1/go.mod h1:Tc+WQhBX/1rJL4BN3
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-alpha.3/go.mod h1:1WIZBF+uXFCn8RkZagadCXoOrz56lWn6JSBB/M0sjec=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.1 h1:6rE8MmrF/uDJdAhooRcIJrFRzYVw1k08opyJowfa7eg=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.1/go.mod h1:8zkK/rTeoXnFEiWQ5ZfTm6lRkkqMkeuRy4Gh9QEB87c=
-gopkg.in/launchdarkly/go-server-sdk.v4 v4.0.0-20200514001346-5d022ad40612 h1:g9Dc7nT48vT/j52Og22KNKzXUNFhj7kUolJkWZ24kQ0=
-gopkg.in/launchdarkly/go-server-sdk.v4 v4.0.0-20200514001346-5d022ad40612/go.mod h1:5PjGYhLa/sjT7W4x56rD0ZyqhmMQPP9b4Y57WzFAqT4=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0-alpha.4 h1:jwaml8UdE6xIahMIQ81Cd6oi0xMjCXW3s2iMetN9R5g=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0-alpha.4/go.mod h1:QdeunR+G/QjvCniRhj0t65zSK7I4s67A1QocccEkYc8=
 gopkg.in/yaml.v2 v2.2.1/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
