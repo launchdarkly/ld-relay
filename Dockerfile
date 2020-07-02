@@ -1,8 +1,12 @@
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM cimg/go:1.13 as builder
+FROM golang:1.13.12-alpine as builder
 
-ARG SRC_DIR=/home/circleci/ld-relay
+RUN apk --no-cache add \
+    libc-dev \
+ && rm -rf /var/cache/apk/*
+
+ARG SRC_DIR=/go/ld-relay
 
 RUN mkdir -p $SRC_DIR
 
@@ -10,21 +14,26 @@ WORKDIR $SRC_DIR
 
 COPY . .
 
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOPATH=/go
+
 RUN go build -a -o ldr ./cmd/ld-relay
 
-FROM cimg/go:1.13
+FROM golang:1.13.12-alpine
 
-RUN sudo addgroup --gid 1000 --system ldr-user && \
-    sudo adduser --system --uid 1000 --gid 1000 ldr-user && \
-    sudo mkdir /ldr && \
-    sudo chown 1000:1000 /ldr
+RUN addgroup -g 1000 -S ldr-user && \
+    adduser -u 1000 -S ldr-user -G ldr-user && \
+    mkdir /ldr && \
+    chown 1000:1000 /ldr
 
-RUN sudo apt-get install \
+RUN apk add --no-cache \
     curl \
     ca-certificates \
- && sudo update-ca-certificates
+ && update-ca-certificates \
+ && rm -rf /var/cache/apk/*
 
-ARG SRC_DIR=/home/circleci/ld-relay
+ARG SRC_DIR=/go/ld-relay
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
 
