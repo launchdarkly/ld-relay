@@ -24,8 +24,8 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 type FakeLDClient struct{ initialized bool }

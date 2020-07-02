@@ -15,9 +15,9 @@ import (
 
 	"github.com/gorilla/mux"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)

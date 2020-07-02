@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
-	"gopkg.in/launchdarkly/ld-relay.v5/logging"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 
 	es "github.com/launchdarkly/eventsource"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
