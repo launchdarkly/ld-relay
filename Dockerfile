@@ -14,12 +14,12 @@ RUN go build -a -o ldr ./cmd/ld-relay
 
 FROM cimg/go:1.13
 
-RUN addgroup --gid 1000 --system ldr-user && \
-    adduser --uid 1000 --system ldr-user --group ldr-user && \
-    mkdir /ldr && \
-    chown 1000:1000 /ldr
+RUN sudo addgroup --gid 1000 --system ldr-user && \
+    sudo adduser --uid 1000 --system ldr-user --group ldr-user && \
+    sudo mkdir /ldr && \
+    sudo chown 1000:1000 /ldr
 
-RUN apt-get install \
+RUN sudo apt-get install \
     curl \
     ca-certificates \
  && update-ca-certificates
