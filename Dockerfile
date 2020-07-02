@@ -15,7 +15,7 @@ RUN go build -a -o ldr ./cmd/ld-relay
 FROM cimg/go:1.13
 
 RUN sudo addgroup --gid 1000 --system ldr-user && \
-    sudo adduser --uid 1000 --system ldr-user --group ldr-user && \
+    sudo adduser --system --uid 1000 --gid 1000 ldr-user && \
     sudo mkdir /ldr && \
     sudo chown 1000:1000 /ldr
 
