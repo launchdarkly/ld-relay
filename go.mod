@@ -24,7 +24,6 @@ require (
 	go.opencensus.io v0.21.0
 	google.golang.org/api v0.0.0-20180717000714-0025a57598c0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
-	gopkg.in/launchdarkly/go-sdk-common.v1 v1.0.0-20200204015611-d48d1b4f4e70
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.0-beta.1
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0-beta.1
 	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.1

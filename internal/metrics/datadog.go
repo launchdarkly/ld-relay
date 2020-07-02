@@ -8,7 +8,7 @@ import (
 	"go.opencensus.io/trace"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v1/ldvalue"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
 func init() {
