@@ -2,7 +2,7 @@
 # It is NOT the version that is pushed to dockerhub
 FROM cimg/go:1.13 as builder
 
-ARG SRC_DIR=~/ld-relay
+ARG SRC_DIR=/home/circleci/ld-relay
 
 RUN mkdir -p $SRC_DIR
 
@@ -24,7 +24,7 @@ RUN sudo apt-get install \
     ca-certificates \
  && sudo update-ca-certificates
 
-ARG SRC_DIR=~/ld-relay
+ARG SRC_DIR=/home/circleci/ld-relay
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
 
