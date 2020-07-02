@@ -22,9 +22,10 @@ import (
 type ExporterType string
 
 const (
-	datadogExporter     ExporterType = "Datadog"
-	stackdriverExporter ExporterType = "Stackdriver"
-	prometheusExporter  ExporterType = "Prometheus"
+	datadogExporter      ExporterType = "Datadog"
+	stackdriverExporter  ExporterType = "Stackdriver"
+	prometheusExporter   ExporterType = "Prometheus"
+	defaultMetricsPrefix              = "launchdarkly_relay"
 
 	browser = "browser"
 	mobile  = "mobile"
@@ -175,6 +176,14 @@ func ExporterOptionsFromConfig(c config.MetricsConfig) (options []ExporterOption
 	}
 	return options
 }
+
+func getPrefix(c config.CommonMetricsConfig) string {
+	if c.Prefix != "" {
+		return c.Prefix
+	}
+	return defaultMetricsPrefix
+}
+
 func defineExporter(exporterType ExporterType, registerer ExporterRegisterer) {
 	exporters[exporterType] = registerer
 }

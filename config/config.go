@@ -12,7 +12,6 @@ const (
 	defaultBaseURI               = "https://app.launchdarkly.com"
 	defaultStreamURI             = "https://stream.launchdarkly.com"
 	defaultHeartbeatIntervalSecs = 180
-	defaultMetricsPrefix         = "launchdarkly_relay"
 	defaultFlushIntervalSecs     = 5
 	defaultRedisPort             = 6379
 	defaultPrometheusPort        = 8031
@@ -166,18 +165,6 @@ type StackdriverConfig struct {
 type PrometheusConfig struct {
 	Port int
 	CommonMetricsConfig
-}
-
-func (c CommonMetricsConfig) getPrefix() string {
-	prefix := c.Prefix
-	if prefix == "" {
-		return defaultMetricsPrefix
-	}
-	return prefix
-}
-
-func (c CommonMetricsConfig) enabled() bool {
-	return c.Enabled
 }
 
 // DefaultConfig contains defaults for all relay configuration sections.

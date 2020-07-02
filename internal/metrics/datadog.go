@@ -35,7 +35,7 @@ func (c DatadogConfig) toOptions() ExporterOptions {
 		TraceAddr: ldvalue.NewOptionalStringFromPointer(c.TraceAddr).StringValue(),
 		StatsAddr: ldvalue.NewOptionalStringFromPointer(c.StatsAddr).StringValue(),
 		Tags:      c.Tag,
-		Prefix:    c.Prefix,
+		Prefix:    getPrefix(c.CommonMetricsConfig),
 	}
 }
 

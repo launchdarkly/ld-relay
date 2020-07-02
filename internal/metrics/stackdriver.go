@@ -26,7 +26,7 @@ type StackdriverConfig config.StackdriverConfig
 func (c StackdriverConfig) toOptions() ExporterOptions {
 	return StackdriverOptions{
 		ProjectID: c.ProjectID,
-		Prefix:    c.Prefix,
+		Prefix:    getPrefix(c.CommonMetricsConfig),
 	}
 }
 

@@ -29,7 +29,7 @@ type PrometheusConfig config.PrometheusConfig
 func (c PrometheusConfig) toOptions() ExporterOptions {
 	return PrometheusOptions{
 		Port:   c.Port,
-		Prefix: c.Prefix,
+		Prefix: getPrefix(c.CommonMetricsConfig),
 	}
 }
 
