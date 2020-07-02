@@ -32,11 +32,11 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/lddynamodb"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldredis"
 
-	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v6/logging"
+	"github.com/launchdarkly/ld-relay/v6/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 const (

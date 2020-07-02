@@ -6,10 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	es "github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/ld-relay/v6/sharedtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/ld-relay.v6/sharedtest"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 type testPublisher struct {
@@ -54,8 +55,8 @@ func TestRelayFeatureStore(t *testing.T) {
 		pingPublisher := &testPublisher{}
 		store := NewSSERelayFeatureStore("api-key", allPublisher, flagsPublisher, pingPublisher, baseStore, loggers, 1)
 
-		_, _ = store.Upsert(interfaces.DataKindFeatures(), "my-flag",
-			interfaces.StoreItemDescriptor{Version: 1, Item: nil})
+		_, _ = store.Upsert(ldstoreimpl.Features(), "my-flag",
+			ldstoretypes.ItemDescriptor{Version: 1, Item: nil})
 		assert.EqualValues(t, []es.Event{deleteEvent{Path: "/flags/my-flag", Version: 1}}, allPublisher.events)
 		assert.EqualValues(t, []es.Event{deleteEvent{Path: "/my-flag", Version: 1}}, flagsPublisher.events)
 		assert.EqualValues(t, []es.Event{pingEvent{}}, pingPublisher.events)
@@ -121,8 +122,8 @@ func TestRelayFeatureStore(t *testing.T) {
 	t.Run("updating deleted flag with older version does nothing", func(t *testing.T) {
 		baseStore := sharedtest.NewInMemoryStore()
 		baseStore.Init(nil)
-		_, _ = baseStore.Upsert(interfaces.DataKindFeatures(), "my-flag",
-			interfaces.StoreItemDescriptor{Version: 2, Item: nil})
+		_, _ = baseStore.Upsert(ldstoreimpl.Features(), "my-flag",
+			ldstoretypes.ItemDescriptor{Version: 2, Item: nil})
 
 		allPublisher := &testPublisher{}
 		flagsPublisher := &testPublisher{}

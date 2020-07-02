@@ -13,8 +13,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
 
 type contextKeyType string
@@ -109,8 +109,8 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 	if d != "" {
 		go func() {
 			nullW := httptest.NewRecorder()
-			eventsData, _ := base64.StdEncoding.DecodeString(d)
-			eventsReq, _ := http.NewRequest("POST", "", bytes.NewBuffer(eventsData))
+			eventData, _ := base64.StdEncoding.DecodeString(d)
+			eventsReq, _ := http.NewRequest("POST", "", bytes.NewBuffer(eventData))
 			eventsReq.Header.Add("Content-Type", "application/json")
 			eventsReq.Header.Add("X-LaunchDarkly-User-Agent", eventsReq.Header.Get("X-LaunchDarkly-User-Agent"))
 			eventsReq.Header.Add(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))

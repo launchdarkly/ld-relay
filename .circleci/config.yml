@@ -11,28 +11,12 @@ workflows:
     jobs:
       - go-test:
           name: Go 1.14
-          docker-image: circleci/golang:1.14
+          docker-image: cimg/go:1.14
           run-lint: true
           test-coverage: true
       - go-test:
           name: Go 1.13
-          docker-image: circleci/golang:1.13
-          run-lint: true
-      - go-test:
-          name: Go 1.12
-          docker-image: circleci/golang:1.12
-      - go-test:
-          name: Go 1.11
-          docker-image: circleci/golang:1.11
-      - go-test:
-          name: Go 1.10
-          docker-image: circleci/golang:1.10
-      - go-test:
-          name: Go 1.9
-          docker-image: circleci/golang:1.9
-      - go-test:
-          name: Go 1.8
-          docker-image: circleci/golang:1.8
+          docker-image: cimg/go:1.13
       - test-publish
       - publish:
           filters:
@@ -63,14 +47,11 @@ jobs:
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v6
-
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
       - run: go version && go env
       - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-      - run: dep ensure -dry-run
       - when:
           condition: <<parameters.run-lint>>
           steps:
@@ -107,7 +88,9 @@ jobs:
                 # note that CircleCI doesn't let us use "when" for an environment variable like $CC_TEST_REPORTER_ID
                 command: |
                   if [[ -n "$CC_TEST_REPORTER_ID" ]]; then
-                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
+                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov \
+                      --prefix github.com/launchdarkly/ld-relay/v6 \
+                      --output $CIRCLE_ARTIFACTS/coverage.json
                     ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
                   fi
             - run:
@@ -124,11 +107,9 @@ jobs:
   test-publish:
     docker:
       - &release_docker_image
-        image: circleci/golang:1.10.3
+        image: cimg/go:1.13
         environment:
           <<: *environment
-
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
 
     steps:
       - checkout
@@ -144,7 +125,6 @@ jobs:
     docker:
       - <<: *release_docker_image
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v6
     steps:
       - checkout
       - setup_remote_docker  # start docker engine

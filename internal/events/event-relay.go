@@ -14,9 +14,9 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
 
 // EventRelay configuration - used in the config file struct in relay.go

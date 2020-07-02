@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
-	"gopkg.in/launchdarkly/ld-relay.v6/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/sharedtest"
 
 	"github.com/stretchr/testify/assert"
 

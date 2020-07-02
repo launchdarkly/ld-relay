@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/logging"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/ld-relay.v6/logging"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
 	es "github.com/launchdarkly/eventsource"
 )
@@ -146,17 +148,17 @@ func (relay *SSERelayFeatureStore) IsStatusMonitoringEnabled() bool {
 }
 
 // Get returns a single item from the feature store
-func (relay *SSERelayFeatureStore) Get(kind interfaces.StoreDataKind, key string) (interfaces.StoreItemDescriptor, error) {
+func (relay *SSERelayFeatureStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
 	return relay.store.Get(kind, key)
 }
 
 // All returns all items in the feature store
-func (relay *SSERelayFeatureStore) GetAll(kind interfaces.StoreDataKind) ([]interfaces.StoreKeyedItemDescriptor, error) {
+func (relay *SSERelayFeatureStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
 	return relay.store.GetAll(kind)
 }
 
 // Init initializes the feature store
-func (relay *SSERelayFeatureStore) Init(allData []interfaces.StoreCollection) error {
+func (relay *SSERelayFeatureStore) Init(allData []ldstoretypes.Collection) error {
 	relay.loggers.Debug("Received all feature flags")
 	err := relay.store.Init(allData)
 
@@ -171,9 +173,9 @@ func (relay *SSERelayFeatureStore) Init(allData []interfaces.StoreCollection) er
 	return nil
 }
 
-func getFlagsData(allData []interfaces.StoreCollection) []interfaces.StoreKeyedItemDescriptor {
+func getFlagsData(allData []ldstoretypes.Collection) []ldstoretypes.KeyedItemDescriptor {
 	for _, coll := range allData {
-		if coll.Kind == interfaces.DataKindFeatures() {
+		if coll.Kind == ldstoreimpl.Features() {
 			return coll.Items
 		}
 	}
@@ -182,9 +184,9 @@ func getFlagsData(allData []interfaces.StoreCollection) []interfaces.StoreKeyedI
 
 // Upsert inserts or updates a single item in the feature store
 func (relay *SSERelayFeatureStore) Upsert(
-	kind interfaces.StoreDataKind,
+	kind ldstoretypes.DataKind,
 	key string,
-	item interfaces.StoreItemDescriptor,
+	item ldstoretypes.ItemDescriptor,
 ) (bool, error) {
 	relay.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
 	updated, err := relay.store.Upsert(kind, key, item)
@@ -207,12 +209,12 @@ func (relay *SSERelayFeatureStore) Upsert(
 	}
 	if item.Item == nil {
 		relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, newItem.Version))
-		if kind == interfaces.DataKindFeatures() {
+		if kind == ldstoreimpl.Features() {
 			relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, newItem.Version))
 		}
 	} else {
 		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, key, newItem))
-		if kind == interfaces.DataKindFeatures() {
+		if kind == ldstoreimpl.Features() {
 			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(key, newItem))
 		}
 	}
@@ -232,7 +234,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 	go func() {
 		defer close(out)
 		if r.relayStore.IsInitialized() {
-			flags, err := r.relayStore.GetAll(interfaces.DataKindFeatures())
+			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
 
 			if err != nil {
 				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
@@ -250,18 +252,18 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 	go func() {
 		defer close(out)
 		if r.relayStore.IsInitialized() {
-			flags, err := r.relayStore.GetAll(interfaces.DataKindFeatures())
+			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
 
 			if err != nil {
 				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
-				segments, err := r.relayStore.GetAll(interfaces.DataKindSegments())
+				segments, err := r.relayStore.GetAll(ldstoreimpl.Segments())
 				if err != nil {
 					logging.GlobalLoggers.Errorf("Error getting all segments: %s\n", err.Error())
 				} else {
-					allData := []interfaces.StoreCollection{
-						{Kind: interfaces.DataKindFeatures(), Items: flags},
-						{Kind: interfaces.DataKindSegments(), Items: segments},
+					allData := []ldstoretypes.Collection{
+						{Kind: ldstoreimpl.Features(), Items: flags},
+						{Kind: ldstoreimpl.Segments(), Items: segments},
 					}
 					out <- makePutEvent(allData)
 				}
@@ -282,9 +284,9 @@ func (r pingRepository) Replay(channel, id string) (out chan es.Event) {
 	return
 }
 
-var dataKindApiName = map[interfaces.StoreDataKind]string{
-	interfaces.DataKindFeatures(): "flags",
-	interfaces.DataKindSegments(): "segments",
+var dataKindApiName = map[ldstoretypes.DataKind]string{
+	ldstoreimpl.Features(): "flags",
+	ldstoreimpl.Segments(): "segments",
 }
 
 type flagsPutEvent map[string]interface{}
@@ -391,21 +393,21 @@ func (t pingEvent) Comment() string {
 	return ""
 }
 
-func makeUpsertEvent(kind interfaces.StoreDataKind, key string, item interfaces.StoreItemDescriptor) es.Event {
+func makeUpsertEvent(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) es.Event {
 	return upsertEvent{
 		Path: "/" + dataKindApiName[kind] + "/" + key,
 		D:    item.Item,
 	}
 }
 
-func makeFlagsUpsertEvent(key string, item interfaces.StoreItemDescriptor) es.Event {
+func makeFlagsUpsertEvent(key string, item ldstoretypes.ItemDescriptor) es.Event {
 	return upsertEvent{
 		Path: "/" + key,
 		D:    item.Item,
 	}
 }
 
-func makeDeleteEvent(kind interfaces.StoreDataKind, key string, version int) es.Event {
+func makeDeleteEvent(kind ldstoretypes.DataKind, key string, version int) es.Event {
 	return deleteEvent{
 		Path:    "/" + dataKindApiName[kind] + "/" + key,
 		Version: version,
@@ -419,7 +421,7 @@ func makeFlagsDeleteEvent(key string, version int) es.Event {
 	}
 }
 
-func makePutEvent(allData []interfaces.StoreCollection) es.Event {
+func makePutEvent(allData []ldstoretypes.Collection) es.Event {
 	var allDataMap = map[string]map[string]interface{}{
 		"flags":    {},
 		"segments": {},
@@ -433,7 +435,7 @@ func makePutEvent(allData []interfaces.StoreCollection) es.Event {
 	return allPutEvent{D: allDataMap}
 }
 
-func makeFlagsPutEvent(flags []interfaces.StoreKeyedItemDescriptor) es.Event {
+func makeFlagsPutEvent(flags []ldstoretypes.KeyedItemDescriptor) es.Event {
 	flagsMap := make(map[string]interface{}, len(flags))
 	for _, f := range flags {
 		flagsMap[f.Key] = f.Item.Item

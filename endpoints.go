@@ -15,13 +15,15 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/util"
-	"gopkg.in/launchdarkly/ld-relay.v6/logging"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
@@ -55,7 +57,7 @@ func flagsStreamHandler() http.Handler {
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
-	data, err := clientCtx.getStore().GetAll(interfaces.DataKindFeatures())
+	data, err := clientCtx.getStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		clientCtx.getLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
@@ -74,12 +76,12 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), interfaces.DataKindFeatures())(w, req)
+	pollFlagOrSegment(getClientContext(req), ldstoreimpl.Features())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), interfaces.DataKindSegments())(w, req)
+	pollFlagOrSegment(getClientContext(req), ldstoreimpl.Segments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -183,7 +185,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 
 	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.GetKey())
 
-	items, err := store.GetAll(interfaces.DataKindFeatures())
+	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
 		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -206,17 +208,19 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 			} else {
 				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
 				value := evalXResult{
-					Value:                detail.Value,
-					Version:              flag.Version,
-					TrackEvents:          flag.TrackEvents || isExperiment,
-					DebugEventsUntilDate: flag.DebugEventsUntilDate,
-					TrackReason:          isExperiment,
+					Value:       detail.Value,
+					Version:     flag.Version,
+					TrackEvents: flag.TrackEvents || isExperiment,
+					TrackReason: isExperiment,
 				}
 				if detail.VariationIndex >= 0 {
 					value.Variation = &detail.VariationIndex
 				}
 				if withReasons || isExperiment {
 					value.Reason = &detail.Reason
+				}
+				if flag.DebugEventsUntilDate != 0 {
+					value.DebugEventsUntilDate = &flag.DebugEventsUntilDate
 				}
 				result = value
 			}
@@ -235,7 +239,7 @@ type basicDataProvider struct {
 }
 
 func (p basicDataProvider) GetFeatureFlag(key string) *ldmodel.FeatureFlag {
-	data, err := p.store.Get(interfaces.DataKindFeatures(), key)
+	data, err := p.store.Get(ldstoreimpl.Features(), key)
 	if err == nil && data.Item != nil {
 		if f, ok := data.Item.(*ldmodel.FeatureFlag); ok {
 			return f
@@ -245,7 +249,7 @@ func (p basicDataProvider) GetFeatureFlag(key string) *ldmodel.FeatureFlag {
 }
 
 func (p basicDataProvider) GetSegment(key string) *ldmodel.Segment {
-	data, err := p.store.Get(interfaces.DataKindSegments(), key)
+	data, err := p.store.Get(ldstoreimpl.Segments(), key)
 	if err == nil && data.Item != nil {
 		if s, ok := data.Item.(*ldmodel.Segment); ok {
 			return s
@@ -254,7 +258,7 @@ func (p basicDataProvider) GetSegment(key string) *ldmodel.Segment {
 	return nil
 }
 
-func pollFlagOrSegment(clientContext clientContext, kind interfaces.StoreDataKind) func(http.ResponseWriter, *http.Request) {
+func pollFlagOrSegment(clientContext clientContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
 		item, err := clientContext.getStore().Get(kind, key)
@@ -318,7 +322,7 @@ func obscureKey(key string) string {
 	return key
 }
 
-func itemsCollectionToMap(coll []interfaces.StoreKeyedItemDescriptor) map[string]interface{} {
+func itemsCollectionToMap(coll []ldstoretypes.KeyedItemDescriptor) map[string]interface{} {
 	ret := make(map[string]interface{}, len(coll))
 	for _, item := range coll {
 		ret[item.Key] = item.Item.Item

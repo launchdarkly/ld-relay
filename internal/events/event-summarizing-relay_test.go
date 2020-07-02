@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/launchdarkly/ld-relay/v6/sharedtest"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/ld-relay.v6/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
@@ -16,7 +16,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
-	relaystore "gopkg.in/launchdarkly/ld-relay.v6/internal/store"
+	relaystore "github.com/launchdarkly/ld-relay/v6/internal/store"
 )
 
 func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
@@ -51,7 +51,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 	assert.Equal(t, 1, fe.Variation) // set by translateEvent based on flag.Variations
 	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.True(t, fe.TrackEvents) // set by translateEvent from flag.TrackEvents
-	assert.Equal(t, ldtime.UnixMillisecondTime(*flag.DebugEventsUntilDate), fe.DebugEventsUntilDate)
+	assert.Equal(t, flag.DebugEventsUntilDate, fe.DebugEventsUntilDate)
 }
 
 func TestTranslateFeatureEventWithSchemaVersion1AndUnknownFlag(t *testing.T) {
@@ -144,7 +144,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEvent
 	assert.Equal(t, 1, fe.Variation)
 	assert.Equal(t, ldvalue.String("c"), fe.Default)
 	assert.True(t, fe.TrackEvents) // set by translateEvent from flag.TrackEvents
-	assert.Equal(t, ldtime.UnixMillisecondTime(*flag.DebugEventsUntilDate), fe.DebugEventsUntilDate)
+	assert.Equal(t, flag.DebugEventsUntilDate, fe.DebugEventsUntilDate)
 	assert.Equal(t, ldreason.EvalReasonFallthrough, fe.Reason.GetKind())
 }
 

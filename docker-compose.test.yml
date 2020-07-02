@@ -28,17 +28,17 @@ services:
       - test.env
 
   test-centos:
-    image: circleci/golang:1.10.3
+    image: cimg/go:1.13
     command: bash -c "dockerize -wait http://relay-centos:8030/status -timeout 5s; curl http://relay-centos:8030/status"
 
   test-debian:
-    image: circleci/golang:1.10.3
+    image: cimg/go:1.13
     command: bash -c "dockerize -wait http://relay-debian:8030/status -timeout 5s; curl http://relay-debian:8030/status"
 
   test-docker:
-    image: circleci/golang:1.10.3
+    image: cimg/go:1.13
     command: bash -c "dockerize -wait http://relay-docker:8030/status -timeout 5s; curl http://relay-docker:8030/status"
 
   test-docker-standalone:
-    image: circleci/golang:1.10.3
+    image: cimg/go:1.13
     command: bash -c "dockerize -wait http://relay-docker:8030/status -timeout 5s; curl http://relay-docker-standalone:8030/status"

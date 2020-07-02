@@ -6,18 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
-	"gopkg.in/launchdarkly/ld-relay.v6/httpconfig"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
 )
 
 type eventSummarizingRelay struct {
@@ -91,7 +90,15 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 			er.loggers.Errorf("Error in event processing, event was discarded: %+v", err)
 		}
 		if evt != nil {
-			er.eventProcessor.SendEvent(evt)
+			switch e := evt.(type) {
+			case ldevents.FeatureRequestEvent:
+				er.eventProcessor.RecordFeatureRequestEvent(e)
+			case ldevents.IdentifyEvent:
+				er.eventProcessor.RecordIdentifyEvent(e)
+			case ldevents.CustomEvent:
+				er.eventProcessor.RecordCustomEvent(e)
+			}
+
 		}
 	}
 }
@@ -154,16 +161,14 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 			}
 			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
 			// to be set so we can't distinguish it from 2a and must look up the flag)
-			data, err := er.storeAdapter.Store.Get(interfaces.DataKindFeatures(), e.Key)
+			data, err := er.storeAdapter.Store.Get(ldstoreimpl.Features(), e.Key)
 			if err != nil {
 				return nil, err
 			}
 			if data.Item != nil {
 				flag := data.Item.(*ldmodel.FeatureFlag)
 				newEvent.TrackEvents = flag.TrackEvents
-				if flag.DebugEventsUntilDate != nil {
-					newEvent.DebugEventsUntilDate = *flag.DebugEventsUntilDate
-				}
+				newEvent.DebugEventsUntilDate = flag.DebugEventsUntilDate
 				if schemaVersion <= 1 && e.Variation == nil {
 					for i, value := range flag.Variations {
 						if value.Equal(e.Value) {

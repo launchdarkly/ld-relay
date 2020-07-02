@@ -533,6 +533,8 @@ You can also use the Relay Proxy to handle endpoints in your own application if 
 example using [Gorilla](https://github.com/gorilla/mux) of how you might instantiate a relay inside your web server beneath a path called "/relay":
 
 ```go
+import "github.com/launchdarkly/ld-relay/v6"
+
 router := mux.NewRouter()
 configFileName := "path/to/my-config-file"
 cfg := relay.DefaultConfig

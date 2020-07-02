@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/internal/version"
 )
 
 const (

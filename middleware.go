@@ -9,10 +9,10 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/metrics"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/version"
 )
 
 type corsContext interface {

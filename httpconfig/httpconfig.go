@@ -7,12 +7,12 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/logging"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldhttp"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldntlm"
-	"gopkg.in/launchdarkly/ld-relay.v6/internal/version"
-	"gopkg.in/launchdarkly/ld-relay.v6/logging"
 )
 
 // ProxyConfig represents all the supported proxy options. This is used in the Config struct in relay.go.
