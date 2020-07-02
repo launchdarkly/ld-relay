@@ -22,7 +22,7 @@ RUN sudo addgroup --gid 1000 --system ldr-user && \
 RUN sudo apt-get install \
     curl \
     ca-certificates \
- && update-ca-certificates
+ && sudo update-ca-certificates
 
 ARG SRC_DIR=~/ld-relay
 
