@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.11.0] - 2020-03-17
+### Added:
+- Relay now sets the header `X-Accel-Buffering: no` on all streaming responses. If you are using Nginx as a proxy in front of Relay, this tells Nginx to pass streaming data through without buffering; if you are not using Nginx, it has no effect. ([#90](https://github.com/launchdarkly/ld-relay/issues/90))
+
+### Fixed:
+- When using a persistent data store such as Redis, if the database was unavailable when Relay initially started and made its first stream connection, a bug caused Relay to give up on retrying and remain in a failed state. This has been fixed so that it will retry the stream connection once it detects that the database is available again (or, if using infinite caching mode, it will leave the same stream connection open and write the already-cached data to the database).
+- When Prometheus metrics were enabled, Relay was exposing `/debug/pprof/` endpoints from Go&#39;s `net/http/pprof` on the port used by the Prometheus exporter (prior to v5.6.0, these were also exposed on the main port). These were not part of the Prometheus integration and have been removed, and Relay no longer uses `net/http/pprof`.
+- CI builds now verify that Relay builds correctly in all supported Go versions (1.8 through 1.14).
+
 ## [5.10.0] - 2020-01-22
 ### Added:
 - When forwarding events, Relay is now able to forward diagnostic data that is sent by newer versions of the SDKs. This has no effect on its behavior with older SDKs.

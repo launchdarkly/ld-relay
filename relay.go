@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -102,7 +103,7 @@ type Relay struct {
 }
 
 type evalXResult struct {
-	Value                interface{}                 `json:"value"`
+	Value                ldvalue.Value               `json:"value"`
 	Variation            *int                        `json:"variation,omitempty"`
 	Version              int                         `json:"version"`
 	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
@@ -277,10 +278,9 @@ func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
 			err = errors.New("one or more environments failed to initialize")
 		}
 		return &r, err
-	} else {
-		r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
-		return &r, nil
 	}
+	r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
+	return &r, nil
 }
 
 func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
@@ -315,7 +315,8 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 		requestCountMiddleware(metrics.ServerRequests))
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
-	// TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
+	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
+	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
@@ -348,36 +349,37 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(mobileSdk)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
-	mobileStreamRouter.Use(mobileMiddlewareStack)
-	mobileStreamRouter.HandleFunc("", countMobileConns(pingStreamHandler)).Methods("REPORT")
-	mobileStreamRouter.HandleFunc("/{user}", countMobileConns(pingStreamHandler)).Methods("GET")
+	mobileStreamRouter.Use(mobileMiddlewareStack, streamingMiddleware)
+	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandler())).Methods("REPORT")
+	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandler())).Methods("GET")
 
-	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(countMobileConns(pingStreamHandler))).Methods("GET")
+	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(
+		countMobileConns(streamingMiddleware(pingStreamHandler())))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter))
-	clientSidePingRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
+	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), streamingMiddleware)
+	clientSidePingRouter.Handle("", countBrowserConns(pingStreamHandler())).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter))
+	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), streamingMiddleware)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.HandleFunc("/{user}", countBrowserConns(pingStreamHandler)).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.HandleFunc("", countBrowserConns(pingStreamHandler)).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(pingStreamHandler())).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", countBrowserConns(pingStreamHandler())).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
-	mobileEventsRouter.HandleFunc("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.HandleFunc("/events/diagnostic", bulkEventHandler(events.MobileSDKDiagnosticEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(events.MobileSDKDiagnosticEventsEndpoint)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
 	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideBulkEventsRouter.HandleFunc("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideBulkEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
 	clientSideDiagnosticEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideDiagnosticEventsRouter.HandleFunc("", bulkEventHandler(events.JavaScriptSDKDiagnosticEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKDiagnosticEventsEndpoint)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
 	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
@@ -385,10 +387,11 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(serverSideMiddlewareStack)
-	serverSideRouter.HandleFunc("/all", countServerConns(allStreamHandler)).Methods("GET")
-	serverSideRouter.HandleFunc("/flags", countServerConns(flagsStreamHandler)).Methods("GET")
-	serverSideRouter.HandleFunc("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
-	serverSideRouter.HandleFunc("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/all", countServerConns(streamingMiddleware(allStreamHandler()))).Methods("GET")
+	serverSideRouter.Handle("/flags", countServerConns(streamingMiddleware(flagsStreamHandler()))).Methods("GET")
+
 	return router
 }
 
@@ -498,9 +501,22 @@ func configureDataStore(
 ) (interfaces.DataStoreFactory, error) {
 	var dbFactory interfaces.DataStoreFactory
 
-	if c.Redis.Url != "" || c.Redis.Host != "" {
-		builder := ldredis.DataStore()
-
+	useRedis := c.Redis.Url != "" || c.Redis.Host != ""
+	useConsul := c.Consul.Host != ""
+	useDynamoDB := c.DynamoDB.Enabled
+	countTrue := func(values ...bool) int {
+		n := 0
+		for _, v := range values {
+			if v {
+				n++
+			}
+		}
+		return n
+	}
+	if countTrue(useRedis, useConsul, useDynamoDB) > 1 {
+		return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
+	}
+	if useRedis {
 		redisURL := c.Redis.Url
 		if c.Redis.Host != "" {
 			if redisURL != "" {
@@ -510,7 +526,7 @@ func configureDataStore(
 				if port == 0 {
 					port = 6379
 				}
-				redisURL = fmt.Sprintf("redis://%s:%d", c.Redis.Host, c.Redis.Port)
+				redisURL = fmt.Sprintf("redis://%s:%d", c.Redis.Host, port)
 			}
 		}
 		loggers.Infof("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
@@ -528,16 +544,14 @@ func configureDataStore(
 			}
 		}
 
-		builder.URL(redisURL)
-		builder.Prefix(envConfig.Prefix)
-		builder.DialOptions(dialOptions...)
+		builder := ldredis.DataStore().
+			URL(redisURL).
+			Prefix(envConfig.Prefix).
+			DialOptions(dialOptions...)
 		dbFactory = ldcomponents.PersistentDataStore(builder).
 			CacheTime(time.Duration(c.Redis.LocalTtl) * time.Millisecond)
 	}
-	if c.Consul.Host != "" {
-		if dbFactory != nil {
-			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
-		}
+	if useConsul {
 		loggers.Infof("Using Consul feature store: %s with prefix: %s", c.Consul.Host, envConfig.Prefix)
 		dbFactory = ldcomponents.PersistentDataStore(
 			ldconsul.DataStore().
@@ -545,10 +559,7 @@ func configureDataStore(
 				Prefix(envConfig.Prefix),
 		).CacheTime(time.Duration(c.Consul.LocalTtl) * time.Millisecond)
 	}
-	if c.DynamoDB.Enabled {
-		if dbFactory != nil {
-			return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
-		}
+	if useDynamoDB {
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
 		// (this is why we need an Enabled property here, since the other properties are all optional).
 		// You can also specify a prefix for each environment, as with the other databases.

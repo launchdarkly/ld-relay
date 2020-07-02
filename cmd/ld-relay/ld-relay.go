@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 
@@ -24,7 +23,7 @@ func main() {
 	//    unless you also specify --allow-missing-file.
 	// 2. If you specify --from-env, it creates a configuration from environment variables as described in README.
 	// 3. If you specify both, the file is loaded first, then it applies changes from variables if any.
-	// 4. Omitting all options is equivalent to explictly specifying --config /etc/ld-relay.conf.
+	// 4. Omitting all options is equivalent to explicitly specifying --config /etc/ld-relay.conf.
 
 	configFile := ""
 	allowMissingFile := false

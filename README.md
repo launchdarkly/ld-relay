@@ -11,18 +11,12 @@ The Relay Proxy can be configured to proxy multiple environment streams, even ac
 
 ## When should it be used?
 
-In most cases, the Relay Proxy is not required. However, there are some specific scenarios where we recommend deploying it to improve performance and reliability:
-
-1. **PHP.** PHP has a shared-nothing architecture that prevents the normal LaunchDarkly streaming API connection from being re-used across requests. While we do have a supported deployment mode for PHP that does not require the Relay Proxy, we strongly recommend using the Relay Proxy in daemon mode (see below) if you are using PHP in a high-throughput setting. This will offload the task of receiving feature flag updates to the Relay Proxy. We also recommend using the Relay Proxy to forward events to `events.launchdarkly.com`, and configuring the PHP client to send events to the Relay Proxy synchronously. This eliminates the curl/fork method that the PHP SDK uses by default to send events back to LaunchDarkly asynchronously.
-
-2. **Reducing outbound connections to LaunchDarkly.** At scale (thousands or tens of thousands of servers), the number of outbound persistent connections to LaunchDarkly's streaming API can be problematic for some proxies and firewalls. With the Relay Proxy in place in proxy mode, your servers can connect directly to hosts within your own datacenter instead of connecting directly to LaunchDarkly's streaming API. On an appropriately spec'd machine, each Relay Proxy can handle tens of thousands of concurrent connections, so the number of outbound connections to the LaunchDarkly streaming API can be reduced dramatically.
-
-3. **Reducing redundant database traffic.** If you are using Redis or another supported database as a shared persistence option for feature flags, and have a large number of servers (thousands or tens of thousands) connected to LaunchDarkly, each server will attempt to update the database when a flag update happens. This pattern is safe but inefficient. By deploying the Relay Proxy in daemon mode, and setting your LaunchDarkly SDKs to daemon mode, you can delegate flag updates to a small number of Relay Proxy instances and reduce the number of redundant update calls to the database.
+Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy#should-i-use-the-relay-proxy) for guidance on situations where the Relay Proxy should be used.
 
 
 ## Getting started
 
-Refer to [our documentation](https://docs.launchdarkly.com/docs/using-the-relay-proxy#section-starting-the-relay-proxy) for instructions on getting started with using the Relay Proxy.
+Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy/using#starting-the-relay-proxy) for instructions on getting started with using the Relay Proxy.
 
 
 ## Command-line arguments
@@ -288,7 +282,7 @@ This configuration will buffer events for all environments specified in the conf
 
 ## Persistent storage
 
-You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in case of (e.g.) a temporary network partition that prevents the Relay Proxy from communicating with LaunchDarkly's servers. See [Using a persistent feature store](https://docs.launchdarkly.com/v2.0/docs/using-a-persistent-feature-store).
+You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in case of (e.g.) a temporary network partition that prevents the Relay Proxy from communicating with LaunchDarkly's servers. See [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/feature-store).
 
 ```
 # Configuration file examples
@@ -333,7 +327,7 @@ In case the database becomes unavailable, Relay's behavior (based on its use of 
 - If the TTL is a positive number, then the last known flag data will remain cached in memory for that amount of time, after which Relay will be unable to serve flags to SDK clients. Once the database becomes available again, Relay will request all of the flags from LaunchDarkly again and write the latest values to the database.
 - If the TTL is a negative number, then the in-memory cache never expires. Relay will continue serving flags to SDK clients, and will update the cache if it receives any flag updates from LaunchDarkly. As Relay will only read from the database upon service startup, it is recommended that you avoid restarting Relay while detecting database downtime. Once the database becomes available again, Relay will write the contents of the cache back to the database. Use the "cached forever" mode with caution: it means that in a scenario where multiple Relay processes are sharing the database, and the current process loses connectivity to LaunchDarkly while other processes are still receiving updates and writing them to the database, the current process will have stale data.
 
-Note that the in-memory cache only helps SDKs using the Relay in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. [Learn more.](https://docs.launchdarkly.com/docs/using-the-relay-proxy#section-using-the-relay-proxy-in-different-modes)
+Note that the in-memory cache only helps SDKs using the Relay in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. [Learn more.](https://docs.launchdarkly.com/home/advanced/relay-proxy/using#using-the-relay-proxy-in-different-modes)
 
 ## Relay proxy mode
 
@@ -384,7 +378,7 @@ LD_PREFIX_Spree_Project_Test=ld:spree:test
 
 The `localTtl`/`CACHE_TTL` parameter controls the length of time (in milliseconds) that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database; see [persistent storage](#persistent-storage).
 
-You will then need to [configure your SDK](https://docs.launchdarkly.com/docs/using-a-persistent-feature-store#section-using-a-persistent-feature-store-without-connecting-to-launchdarkly) to connect to Redis directly.
+You will then need to [configure your SDK](https://docs.launchdarkly.com/sdk/concepts/feature-store#using-a-persistent-feature-store-without-connecting-to-launchdarkly) to connect to Redis directly.
 
 
 ## Flag evaluation endpoints
@@ -486,7 +480,7 @@ Metrics can be filtered by the following tags:
 
 The [PHP SDK](https://github.com/launchdarkly/php-server-sdk) communicates differently with LaunchDarkly than the other SDKs because it does not support long-lived streaming connections. It must either poll for flags on demand via HTTP, or get them from Redis or another database. The latter is much more efficient and is therefore the preferred approach, but if you are not using a database, the Relay Proxy can handle HTTP requests from PHP.
 
-However, it is highly recommended that if you do this, you use the `ttlMinutes` parameter in the [environment configuration](#file-section-environment-name). This is equivalent to the [TTL setting for the environment on your LaunchDarkly dashboard](https://docs.launchdarkly.com/docs/environments#section-ttl-settings), but must be set here separately because the Relay Proxy does not have access to those dashboard properties. This will cause HTTP responses from the PHP endpoints to have a `Cache-Control: max-age` so that the PHP SDK will not make additional HTTP requests for the same flag more often than that interval. Note that this may result in different PHP application instances receiving flag updates at slightly different times as their HTTP caches will not be exactly in sync. It does not affect any SDKs other than PHP.
+However, it is highly recommended that if you do this, you use the `ttlMinutes` parameter in the [environment configuration](#file-section-environment-name). This is equivalent to the [TTL setting for the environment on your LaunchDarkly dashboard](https://docs.launchdarkly.com/home/managing-flags/environments#ttl-settings), but must be set here separately because the Relay Proxy does not have access to those dashboard properties. This will cause HTTP responses from the PHP endpoints to have a `Cache-Control: max-age` so that the PHP SDK will not make additional HTTP requests for the same flag more often than that interval. Note that this may result in different PHP application instances receiving flag updates at slightly different times as their HTTP caches will not be exactly in sync. It does not affect any SDKs other than PHP.
 
 
 ## Docker
