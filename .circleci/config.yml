@@ -88,7 +88,9 @@ jobs:
                 # note that CircleCI doesn't let us use "when" for an environment variable like $CC_TEST_REPORTER_ID
                 command: |
                   if [[ -n "$CC_TEST_REPORTER_ID" ]]; then
-                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
+                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov \
+                      --prefix github.com/launchdarkly/ld-relay/v6 \
+                      --output $CIRCLE_ARTIFACTS/coverage.json
                     ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
                   fi
             - run:
