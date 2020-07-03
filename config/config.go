@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -16,6 +17,11 @@ const (
 	defaultRedisPort             = 6379
 	defaultPrometheusPort        = 8031
 )
+
+// DefaultLoggers is the default logging configuration used by Relay.
+//
+// Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
+var DefaultLoggers = logging.MakeDefaultLoggers()
 
 // Config describes the configuration for a relay instance.
 //

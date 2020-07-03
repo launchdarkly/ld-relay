@@ -143,6 +143,7 @@ github.com/launchdarkly/go-test-helpers v1.1.3 h1:SgliO/iURt4AgQwuu27HFsDCqRenUv
 github.com/launchdarkly/go-test-helpers v1.1.3/go.mod h1:bdm93TgmHJ/CbNIN5BpbZsaoIbd9ZVexRrINSBPz+DE=
 github.com/launchdarkly/go-test-helpers/v2 v2.0.0 h1:zoBisvj96XQpXmb8v+xHEgfPvWmRcdMnRvTqK65pzC4=
 github.com/launchdarkly/go-test-helpers/v2 v2.0.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
+github.com/launchdarkly/ld-relay v0.0.0-20200318010324-6b1ec632a605 h1:qJXMJ4Z6ansAWDK5Fp+ZHw+xgK1h6mSntqSCu80JeS4=
 github.com/mattn/go-colorable v0.0.9/go.mod h1:9vuHe8Xs5qXnSaW/c/ABM9alt+Vo+STaOChaDxuIBZU=
 github.com/mattn/go-isatty v0.0.3/go.mod h1:M+lRXTBqGeGNdLjl/ufCoiOlB5xdOkqRJdNxMWT7Zi4=
 github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0jegS5sx/RkqARlsWZ6pIwiU=

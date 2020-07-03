@@ -9,7 +9,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
-	"github.com/launchdarkly/ld-relay/v6/logging"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldhttp"
@@ -25,7 +25,7 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent("LDRelay/" + version.Version)
 
@@ -39,7 +39,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string) (HTTPConfig, e
 		if err != nil {
 			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
 		}
-		logging.GlobalLoggers.Infof("Using proxy server at %s", proxyConfig.Url)
+		loggers.Infof("Using proxy server at %s", proxyConfig.Url)
 		ret.ProxyURL = u
 	}
 
@@ -63,7 +63,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string) (HTTPConfig, e
 			return ret, err
 		}
 		configBuilder.HTTPClientFactory(factory)
-		logging.GlobalLoggers.Info("NTLM proxy authentication enabled")
+		loggers.Info("NTLM proxy authentication enabled")
 	} else {
 		if ret.ProxyURL != nil {
 			configBuilder.ProxyURL(*ret.ProxyURL)

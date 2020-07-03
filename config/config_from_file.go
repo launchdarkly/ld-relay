@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/gcfg"
-	"github.com/launchdarkly/ld-relay/v6/logging"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 // LoadConfigFile reads a configuration file into a Config struct and performs basic validation.
 //
 // The Config parameter should be initialized with default values first.
-func LoadConfigFile(c *Config, path string) error {
+func LoadConfigFile(c *Config, path string, loggers ldlog.Loggers) error {
 	if err := gcfg.ReadFileInto(c, path); err != nil {
 		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
 	}
@@ -22,9 +22,9 @@ func LoadConfigFile(c *Config, path string) error {
 			if envConfig.SdkKey == "" {
 				envConfig.SdkKey = envConfig.ApiKey
 				c.Environment[envName] = envConfig
-				logging.GlobalLoggers.Warn(`"apiKey" is deprecated, please use "sdkKey"`)
+				loggers.Warn(`"apiKey" is deprecated, please use "sdkKey"`)
 			} else {
-				logging.GlobalLoggers.Warn(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
+				loggers.Warn(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
 			}
 		}
 	}
