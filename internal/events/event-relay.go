@@ -15,7 +15,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
