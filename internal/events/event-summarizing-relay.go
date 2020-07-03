@@ -115,7 +115,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 		return nil, err
 	}
 	switch kindFieldOnly.Kind {
-	case "feature":
+	case ldevents.FeatureRequestEventKind:
 		var e receivedFeatureEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
@@ -194,7 +194,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 			}
 		}
 		return newEvent, nil
-	case "custom":
+	case ldevents.CustomEventKind:
 		var e receivedCustomEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
@@ -213,7 +213,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 			newEvent.MetricValue = *e.MetricValue
 		}
 		return newEvent, nil
-	case "identify":
+	case ldevents.IdentifyEventKind:
 		var e receivedIdentifyEvent
 		err := json.Unmarshal(rawEvent, &e)
 		if err != nil {
