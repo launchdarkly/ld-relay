@@ -7,7 +7,9 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
-const globalContextLoggersName = "GlobalContextLoggers"
+type contextLoggersName string
+
+const globalContextLoggersName contextLoggersName = "GlobalContextLoggers"
 
 // GetGlobalContextLoggers returns the Loggers associated with this HTTP request for Relay's global logging.
 // If no such context information was added to the request, it returns disabled loggers.

@@ -103,14 +103,18 @@ type SSERelayFeatureStore struct {
 	loggers        ldlog.Loggers
 }
 
-type baseRepository struct {
+type allRepository struct {
 	relayStore *SSERelayFeatureStore
 	loggers    ldlog.Loggers
 }
-
-type allRepository baseRepository
-type flagsRepository baseRepository
-type pingRepository baseRepository
+type flagsRepository struct {
+	relayStore *SSERelayFeatureStore
+	loggers    ldlog.Loggers
+}
+type pingRepository struct {
+	relayStore *SSERelayFeatureStore
+	loggers    ldlog.Loggers
+}
 
 // NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
 func NewSSERelayFeatureStore(
