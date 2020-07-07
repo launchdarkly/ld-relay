@@ -11,6 +11,14 @@ import (
 )
 
 var (
+	// For internal event exporter
+	privateConnMeasure    = stats.Int64("internal_connections", "current number of connections", stats.UnitDimensionless)
+	privateNewConnMeasure = stats.Int64("internal_newconnections", "total number of connections", stats.UnitDimensionless)
+
+	connMeasure    = stats.Int64("connections", "current number of connections", stats.UnitDimensionless)
+	newConnMeasure = stats.Int64("newconnections", "total number of connections", stats.UnitDimensionless)
+	requestMeasure = stats.Int64("requests", "Number of hits to a route", stats.UnitDimensionless)
+
 	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &browserTags}
 	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &mobileTags}
 	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &serverTags}
