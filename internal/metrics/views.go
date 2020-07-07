@@ -1,16 +1,10 @@
 package metrics
 
 import (
-	"sync"
-
 	"go.opencensus.io/stats/view"
 )
 
 var (
-	exporters                   = map[ExporterType]ExporterRegisterer{}
-	registerPublicExportersOnce sync.Once
-	registerPrivateViewsOnce    sync.Once
-
 	publicConnView     *view.View
 	publicNewConnView  *view.View
 	requestView        *view.View
