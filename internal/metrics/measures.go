@@ -11,30 +11,47 @@ import (
 )
 
 var (
+	// These measures are kept in global variables, instead of being constructed wherever they are used,
+	// because OpenCensus seems to track measures based on the actual measure instance used, rather than
+	// by the name. At least, that's one theory; the documentation is unclear on this, but it does seem
+	// that calling stats.Int64 with identical parameters in different parts of the code instead of reusing
+	// an instance causes things to stop working.
+	connMeasure    = stats.Int64(connMeasureName, "current number of connections", stats.UnitDimensionless)
+	newConnMeasure = stats.Int64(newConnMeasureName, "total number of connections", stats.UnitDimensionless)
+	requestMeasure = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
+
 	// For internal event exporter
-	privateConnMeasure    = stats.Int64("internal_connections", "current number of connections", stats.UnitDimensionless)
-	privateNewConnMeasure = stats.Int64("internal_newconnections", "total number of connections", stats.UnitDimensionless)
+	privateConnMeasure    = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
+	privateNewConnMeasure = stats.Int64(privateNewConnMeasureName, "total number of connections", stats.UnitDimensionless)
 
-	connMeasure    = stats.Int64("connections", "current number of connections", stats.UnitDimensionless)
-	newConnMeasure = stats.Int64("newconnections", "total number of connections", stats.UnitDimensionless)
-	requestMeasure = stats.Int64("requests", "Number of hits to a route", stats.UnitDimensionless)
+	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeBrowserTags()}
+	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeMobileTags()}
+	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeServerTags()}
 
-	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &browserTags}
-	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &mobileTags}
-	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &serverTags}
+	NewBrowserConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeBrowserTags()}
+	NewMobileConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeMobileTags()}
+	NewServerConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeServerTags()}
 
-	NewBrowserConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &browserTags}
-	NewMobileConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &mobileTags}
-	NewServerConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &serverTags}
-
-	BrowserRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &browserTags}
-	MobileRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &mobileTags}
-	ServerRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &serverTags}
+	BrowserRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeBrowserTags()}
+	MobileRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeMobileTags()}
+	ServerRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeServerTags()}
 )
 
 type Measure struct {
 	measures []*stats.Int64Measure
-	tags     *[]tag.Mutator
+	tags     []tag.Mutator
+}
+
+func makeBrowserTags() []tag.Mutator {
+	return []tag.Mutator{tag.Insert(platformCategoryTagKey, browserTagValue)}
+}
+
+func makeMobileTags() []tag.Mutator {
+	return []tag.Mutator{tag.Insert(platformCategoryTagKey, mobileTagValue)}
+}
+
+func makeServerTags() []tag.Mutator {
+	return []tag.Mutator{tag.Insert(platformCategoryTagKey, serverTagValue)}
 }
 
 func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
@@ -43,7 +60,7 @@ func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure)
 		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags: %s`, err)
 	} else {
 		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, *measure.tags...)
+			ctx, _ := tag.New(ctx, measure.tags...)
 			stats.Record(ctx, m.M(1))
 			defer stats.Record(ctx, m.M(-1))
 		}
@@ -57,7 +74,7 @@ func WithCount(ctx context.Context, userAgent string, f func(), measure Measure)
 		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for user agent : %s`, err)
 	} else {
 		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, *measure.tags...)
+			ctx, _ := tag.New(ctx, measure.tags...)
 			stats.Record(ctx, m.M(1))
 		}
 	}

@@ -14,8 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	userAgentValue = "my-agent"
+const (
+	testMetricsRelayID = "test-metrics-relay-id"
+	userAgentValue     = "my-agent"
 )
 
 type testExporter struct {
@@ -72,7 +73,7 @@ type privateMetricsArgs struct {
 }
 
 func (a privateMetricsArgs) getExpectedTags() []tag.Tag {
-	return append(a.args.getExpectedTags(), tag.Tag{Key: relayIdTagKey, Value: metricsRelayId})
+	return append(a.args.getExpectedTags(), tag.Tag{Key: relayIdTagKey, Value: testMetricsRelayID})
 }
 
 func TestConnectionMetrics(t *testing.T) {
@@ -87,7 +88,7 @@ func TestConnectionMetrics(t *testing.T) {
 			t.Run(fmt.Sprintf("generates %s connection metrics", tt.platform), func(*testing.T) {
 				view.Register(publicConnView)
 				defer view.Unregister(publicConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, testMetricsRelayID))
 				WithGauge(ctx, userAgentValue, func() {
 					expectedTags := tt.getExpectedTags()
 					rows, err := view.RetrieveData(publicConnView.Name)
@@ -103,11 +104,11 @@ func TestConnectionMetrics(t *testing.T) {
 
 	t.Run("private", func(t *testing.T) {
 		for _, tt := range specs {
-			ptt := privateMetricsArgs{args: tt, relayId: metricsRelayId}
+			ptt := privateMetricsArgs{args: tt, relayId: testMetricsRelayID}
 			t.Run(fmt.Sprintf("generates %s connection metrics", ptt.platform), func(*testing.T) {
 				view.Register(privateConnView)
 				defer view.Unregister(privateConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, testMetricsRelayID))
 				WithGauge(ctx, userAgentValue, func() {
 					expectedTags := ptt.getExpectedTags()
 					rows, err := view.RetrieveData(privateConnView.Name)
@@ -134,7 +135,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 			t.Run(fmt.Sprintf("generates %s new connection metrics", tt.platform), func(*testing.T) {
 				view.Register(publicNewConnView)
 				defer view.Unregister(publicNewConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, testMetricsRelayID))
 				WithCount(ctx, userAgentValue, func() {
 					expectedTags := tt.getExpectedTags()
 					rows, err := view.RetrieveData(publicNewConnView.Name)
@@ -150,11 +151,11 @@ func TestNewConnectionMetrics(t *testing.T) {
 
 	t.Run("private", func(t *testing.T) {
 		for _, tt := range specs {
-			ptt := privateMetricsArgs{args: tt, relayId: metricsRelayId}
+			ptt := privateMetricsArgs{args: tt, relayId: testMetricsRelayID}
 			t.Run(fmt.Sprintf("generates %s new connection metrics", ptt.platform), func(*testing.T) {
 				view.Register(privateNewConnView)
 				defer view.Unregister(privateNewConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+				ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, testMetricsRelayID))
 				WithCount(ctx, userAgentValue, func() {
 					expectedTags := ptt.getExpectedTags()
 					rows, err := view.RetrieveData(privateNewConnView.Name)
@@ -194,7 +195,7 @@ func TestWithRouteCount(t *testing.T) {
 	expected := routeArgs{args: args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
 
 	// Context has a relay Id, but we shouldn't get it back as a tag with public metrics
-	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, testMetricsRelayID))
 	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
 		expectedTags := getExpectedTags(expected)
 		rows, err := view.RetrieveData(requestView.Name)

@@ -3,20 +3,13 @@ package metrics
 import (
 	"sync"
 
-	"github.com/pborman/uuid"
 	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
 )
 
 var (
 	exporters                   = map[ExporterType]ExporterRegisterer{}
 	registerPublicExportersOnce sync.Once
 	registerPrivateViewsOnce    sync.Once
-	metricsRelayId              string
-
-	browserTags []tag.Mutator
-	mobileTags  []tag.Mutator
-	serverTags  []tag.Mutator
 
 	publicConnView     *view.View
 	publicNewConnView  *view.View
@@ -26,11 +19,6 @@ var (
 )
 
 func init() {
-	metricsRelayId = uuid.New()
-	browserTags = append(browserTags, tag.Insert(platformCategoryTagKey, browserTagValue))
-	mobileTags = append(mobileTags, tag.Insert(platformCategoryTagKey, mobileTagValue))
-	serverTags = append(serverTags, tag.Insert(platformCategoryTagKey, serverTagValue))
-
 	publicConnView = &view.View{
 		Measure:     connMeasure,
 		Aggregation: view.Sum(),
