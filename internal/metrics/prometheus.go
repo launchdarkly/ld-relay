@@ -52,9 +52,10 @@ func registerPrometheusExporter(options ExporterOptions) error {
 	if err != nil {
 		return err
 	}
-	http.Handle("/metrics", exporter)
+	exporterMux := http.NewServeMux()
+	exporterMux.Handle("/metrics", exporter)
 	go func() {
-		err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", port), exporterMux)
 		if err != nil {
 			logging.GlobalLoggers.Errorf("Failed to start Prometheus listener\n")
 		} else {
