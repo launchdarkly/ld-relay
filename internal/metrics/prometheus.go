@@ -62,5 +62,6 @@ func registerPrometheusExporter(options ExporterOptions) error {
 		}
 	}()
 	view.RegisterExporter(exporter)
+	// Note: we are not calling trace.RegisterExporter here as we do for the other exporters
 	return nil
 }
