@@ -19,10 +19,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 )
 
+// Manager is the top-level object that controls all of our metrics exporter activity. It should be
+// created and retained by the Relay instance, and closed when the Relay instance is closed.
 type Manager struct {
 	openCensusCtx  context.Context
 	metricsRelayID string
-	exporters      map[ExporterType]Exporter
+	exporters      exportersSet
 	environments   []*EnvironmentManager
 	flushInterval  time.Duration
 	loggers        ldlog.Loggers
@@ -31,12 +33,14 @@ type Manager struct {
 	lock           sync.Mutex
 }
 
+// EnvironmentManager controls the metrics exporter activity for a specific LD environment.
 type EnvironmentManager struct {
 	openCensusCtx  context.Context
 	eventsExporter *OpenCensusEventsExporter
 	closeOnce      sync.Once
 }
 
+// NewManager creates a Manager instance.
 func NewManager(
 	metricsConfig config.MetricsConfig,
 	flushInterval time.Duration,
@@ -78,6 +82,7 @@ func NewManager(
 	return m, nil
 }
 
+// Close shuts down the Manager and all of its EnvironmentManager instances.
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
 		m.lock.Lock()
@@ -95,6 +100,8 @@ func (m *Manager) Close() {
 	})
 }
 
+// AddEnvironment creates a new EnvironmentManager with its own OpenCensus context that includes
+// a tag for the environment name, and registers its exporter.
 func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher) (*EnvironmentManager, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -115,6 +122,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 	return em, nil
 }
 
+// RemoveEnvironment shuts down this EnvironmentManager and removes it from the Manager.
 func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
 	m.lock.Lock()
 	found := false
@@ -134,6 +142,7 @@ func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
 	}
 }
 
+// GetOpenCensusContext returns the Context for this EnvironmentManager's OpenCensus operations.
 func (em *EnvironmentManager) GetOpenCensusContext() context.Context {
 	return em.openCensusCtx
 }

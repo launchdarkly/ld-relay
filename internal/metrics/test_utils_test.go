@@ -52,7 +52,7 @@ func (t *testExporterTypeImpl) getName() string {
 func (t *testExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
 	loggers ldlog.Loggers,
-) (Exporter, error) {
+) (exporter, error) {
 	if t.errorOnCreate != nil {
 		return nil, t.errorOnCreate
 	}

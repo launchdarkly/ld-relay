@@ -32,7 +32,7 @@ func TestRegisterExporters(t *testing.T) {
 		mc.Prometheus.Enabled = true
 		mockLog := ldlogtest.NewMockLog()
 
-		exporters, err := registerExporters([]ExporterType{fakeDatadogType, fakePrometheusType},
+		exporters, err := registerExporters([]exporterType{fakeDatadogType, fakePrometheusType},
 			mc, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 1)
@@ -53,7 +53,7 @@ func TestRegisterExporters(t *testing.T) {
 		}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]ExporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
+		exporters, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.NotNil(t, err)
 		assert.Len(t, exporters, 0)
@@ -76,7 +76,7 @@ func TestRegisterExporters(t *testing.T) {
 		}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]ExporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
+		exporters, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.NotNil(t, err)
 		assert.Len(t, exporters, 0)
@@ -97,7 +97,7 @@ func TestCloseExporters(t *testing.T) {
 		fakeType2 := &testExporterTypeImpl{name: "B"}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]ExporterType{fakeType1, fakeType2},
+		exporters, err := registerExporters([]exporterType{fakeType1, fakeType2},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 2)
@@ -117,7 +117,7 @@ func TestCloseExporters(t *testing.T) {
 		fakeType2 := &testExporterTypeImpl{name: "B"}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]ExporterType{fakeType1, fakeType2},
+		exporters, err := registerExporters([]exporterType{fakeType1, fakeType2},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 2)

@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 )
 
-var stackdriverExporterType ExporterType = stackdriverExporterTypeImpl{}
+var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{}
 
 type stackdriverExporterTypeImpl struct{}
 
@@ -25,7 +25,7 @@ func (s stackdriverExporterTypeImpl) getName() string {
 func (s stackdriverExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
 	loggers ldlog.Loggers,
-) (Exporter, error) {
+) (exporter, error) {
 	if !mc.Stackdriver.Enabled {
 		return nil, nil
 	}

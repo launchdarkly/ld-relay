@@ -15,7 +15,7 @@ import (
 
 const defaultPrometheusPort = 8031
 
-var prometheusExporterType ExporterType = prometheusExporterTypeImpl{}
+var prometheusExporterType exporterType = prometheusExporterTypeImpl{}
 
 type prometheusExporterTypeImpl struct{}
 
@@ -31,7 +31,7 @@ func (p prometheusExporterTypeImpl) getName() string {
 func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
 	loggers ldlog.Loggers,
-) (Exporter, error) {
+) (exporter, error) {
 	if !mc.Prometheus.Enabled {
 		return nil, nil
 	}

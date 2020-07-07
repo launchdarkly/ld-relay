@@ -10,7 +10,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
-var datadogExporterType ExporterType = datadogExporterTypeImpl{}
+var datadogExporterType exporterType = datadogExporterTypeImpl{}
 
 type datadogExporterTypeImpl struct{}
 
@@ -25,7 +25,7 @@ func (d datadogExporterTypeImpl) getName() string {
 func (d datadogExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
 	loggers ldlog.Loggers,
-) (Exporter, error) {
+) (exporter, error) {
 	if !mc.Datadog.Enabled {
 		return nil, nil
 	}
