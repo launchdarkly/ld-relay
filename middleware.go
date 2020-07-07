@@ -120,7 +120,7 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
-		metrics.WithCount(ctx.getMetricsCtx(), userAgent, func() {
+		metrics.WithCount(ctx.getMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -145,7 +145,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.getMetricsCtx(), userAgent, route, req.Method, func() {
+			metrics.WithRouteCount(ctx.getMetricsContext(), userAgent, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})
@@ -156,7 +156,7 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
-		metrics.WithGauge(ctx.getMetricsCtx(), userAgent, func() {
+		metrics.WithGauge(ctx.getMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})

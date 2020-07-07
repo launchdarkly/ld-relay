@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"sync"
+
 	"go.opencensus.io/stats/view"
 )
 
@@ -10,6 +12,9 @@ var (
 	requestView        *view.View
 	privateConnView    *view.View
 	privateNewConnView *view.View
+
+	registerPublicViewsOnce  sync.Once
+	registerPrivateViewsOnce sync.Once
 )
 
 func init() {

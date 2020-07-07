@@ -7,62 +7,86 @@ import (
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"go.opencensus.io/stats/view"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
-func init() {
-	defineExporter(prometheusExporterType, registerPrometheusExporter)
+const defaultPrometheusPort = 8031
+
+var prometheusExporterType ExporterType = prometheusExporterTypeImpl{}
+
+type prometheusExporterTypeImpl struct{}
+
+type prometheusExporterImpl struct {
+	exporter *prometheus.Exporter
+	server   *http.Server
 }
 
-type PrometheusOptions struct {
-	Prefix string
-	Port   int
+func (p prometheusExporterTypeImpl) getName() string {
+	return "Prometheus"
 }
 
-func (p PrometheusOptions) getType() ExporterType {
-	return prometheusExporterType
-}
-
-type PrometheusConfig config.PrometheusConfig
-
-func (c PrometheusConfig) toOptions() ExporterOptions {
-	return PrometheusOptions{
-		Port:   c.Port,
-		Prefix: getPrefix(c.CommonMetricsConfig),
+func (p prometheusExporterTypeImpl) createExporterIfEnabled(
+	mc config.MetricsConfig,
+	loggers ldlog.Loggers,
+) (Exporter, error) {
+	if !mc.Prometheus.Enabled {
+		return nil, nil
 	}
-}
 
-func (c PrometheusConfig) enabled() bool {
-	return c.Enabled
-}
-
-func registerPrometheusExporter(options ExporterOptions) error {
-	o := options.(PrometheusOptions)
-	port := 8031
-	if o.Port != 0 {
-		port = o.Port
+	port := defaultPrometheusPort
+	if mc.Prometheus.Port != 0 {
+		port = mc.Prometheus.Port
 	}
 
 	logPrometheusError := func(e error) {
-		logging.MakeDefaultLoggers().Errorf("Prometheus exporter error: %s", e)
+		loggers.Errorf("Prometheus exporter error: %s", e)
 	}
 
-	exporter, err := prometheus.NewExporter(prometheus.Options{Namespace: o.Prefix, OnError: logPrometheusError})
-	if err != nil {
-		return err
+	options := prometheus.Options{
+		Namespace: getPrefix(mc.Prometheus.CommonMetricsConfig),
+		OnError:   logPrometheusError,
 	}
+	exporter, err := prometheus.NewExporter(options)
+
+	// The current implementation of prometheus.NewExporter() apparently can never return a non-nil error,
+	// but in case it does in the future, we should check it
+	if err != nil {
+		return nil, err
+	}
+
 	exporterMux := http.NewServeMux()
 	exporterMux.Handle("/metrics", exporter)
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: exporterMux,
+	}
+
+	return &prometheusExporterImpl{
+		exporter: exporter,
+		server:   server,
+	}, nil
+}
+
+func (p *prometheusExporterImpl) register() error {
 	go func() {
-		err := http.ListenAndServe(fmt.Sprintf(":%d", port), exporterMux)
-		if err != nil {
+		err := p.server.ListenAndServe()
+		if err != http.ErrServerClosed { // ListenAndServe never returns a nil error value
 			logging.MakeDefaultLoggers().Errorf("Failed to start Prometheus listener\n")
-		} else {
-			logging.MakeDefaultLoggers().Infof("Prometheus listening on port %d\n", port)
 		}
 	}()
-	view.RegisterExporter(exporter)
-	// Note: we are not calling trace.RegisterExporter here as we do for the other exporters
+
+	view.RegisterExporter(p.exporter)
+	// Note: we do not call trace.RegisterExporter for the Prometheus exporter, because the different
+	// semantics of Prometheus (their agent calls our endpoint) makes trace inapplicable.
+
 	return nil
+}
+
+func (p *prometheusExporterImpl) close() error {
+	view.UnregisterExporter(p.exporter)
+	return p.server.Close()
 }

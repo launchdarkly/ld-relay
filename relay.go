@@ -70,7 +70,8 @@ type clientContext interface {
 	getStore() interfaces.DataStore
 	getLoggers() ldlog.Loggers
 	getHandlers() clientHandlers
-	getMetricsCtx() context.Context
+	getMetricsEnvironment() *metrics.EnvironmentManager
+	getMetricsContext() context.Context
 	getTtl() time.Duration
 	getInitError() error
 }
@@ -85,7 +86,7 @@ type clientContextImpl struct {
 	envId        *string
 	mobileKey    *string
 	name         string
-	metricsCtx   context.Context
+	metricsEnv   *metrics.EnvironmentManager
 	ttl          time.Duration
 	initErr      error
 }
@@ -96,6 +97,7 @@ type Relay struct {
 	sdkClientMux    clientMux
 	mobileClientMux clientMux
 	clientSideMux   clientSideMux
+	metricsManager  *metrics.Manager
 	config          config.Config
 	loggers         ldlog.Loggers
 }
@@ -145,8 +147,12 @@ func (c *clientContextImpl) getHandlers() clientHandlers {
 	return c.handlers
 }
 
-func (c *clientContextImpl) getMetricsCtx() context.Context {
-	return c.metricsCtx
+func (c *clientContextImpl) getMetricsEnvironment() *metrics.EnvironmentManager {
+	return c.metricsEnv
+}
+
+func (c *clientContextImpl) getMetricsContext() context.Context {
+	return c.metricsEnv.GetOpenCensusContext()
 }
 
 func (c *clientContextImpl) getTtl() time.Duration {
@@ -164,10 +170,17 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 	return ld.MakeCustomClient(sdkKey, config, time.Second*10)
 }
 
-// NewRelay creates a new relay given a configuration and a method to create a client
+// NewRelay creates a new relay given a configuration and a method to create a client.
+//
+// If any metrics exporters are enabled in c.MetricsConfig, it also registers those in OpenCensus.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory clientFactoryFunc) (*Relay, error) {
 	if c.Main.LogLevel != "" {
 		loggers.SetMinLevel(c.Main.GetLogLevel())
+	}
+
+	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create metrics manager: %s", err)
 	}
 
 	allPublisher := eventsource.NewServer()
@@ -215,6 +228,7 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory clientFactor
 			allPublisher,
 			flagsPublisher,
 			pingPublisher,
+			metricsManager,
 			loggers,
 			clientReadyCh,
 		)
@@ -269,6 +283,7 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory clientFactor
 		sdkClientMux:    clientMux{clientContextByKey: clients},
 		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
+		metricsManager:  metricsManager,
 		config:          c,
 		loggers:         loggers,
 	}
@@ -296,10 +311,12 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory clientFactor
 	return &r, nil
 }
 
-// InitializeMetrics reads the MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
-func (r *Relay) InitializeMetrics() error {
-	mc := r.config.MetricsConfig
-	return metrics.RegisterExporters(metrics.ExporterOptionsFromConfig(mc), r.loggers)
+// Close shuts down components created by the Relay.
+//
+// Currently this includes only the metrics components; it does not close SDK clients.
+func (r *Relay) Close() error {
+	r.metricsManager.Close()
+	return nil
 }
 
 func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
@@ -422,6 +439,7 @@ func newClientContext(
 	clientFactory clientFactoryFunc,
 	httpConfig httpconfig.HTTPConfig,
 	allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
+	metricsManager *metrics.Manager,
 	loggers ldlog.Loggers,
 	readyCh chan<- clientContext,
 ) (*clientContextImpl, error) {
@@ -466,7 +484,7 @@ func newClientContext(
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
 	}
 
-	m, err := metrics.NewMetricsProcessor(eventsPublisher, metrics.OptionEnvName(envName))
+	em, err := metricsManager.AddEnvironment(envName, eventsPublisher)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create metrics processor: %s", err)
 	}
@@ -478,7 +496,7 @@ func newClientContext(
 		mobileKey:    envConfig.MobileKey,
 		storeAdapter: storeAdapter,
 		loggers:      envLoggers,
-		metricsCtx:   m.OpenCensusCtx,
+		metricsEnv:   em,
 		ttl:          time.Minute * time.Duration(envConfig.TtlMinutes),
 		handlers: clientHandlers{
 			eventDispatcher:    eventDispatcher,

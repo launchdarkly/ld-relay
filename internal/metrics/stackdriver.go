@@ -5,45 +5,51 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/launchdarkly/ld-relay/v6/config"
 )
 
-func init() {
-	defineExporter(stackdriverExporterType, registerStackdriverExporter)
+var stackdriverExporterType ExporterType = stackdriverExporterTypeImpl{}
+
+type stackdriverExporterTypeImpl struct{}
+
+type stackdriverExporterImpl struct {
+	exporter *stackdriver.Exporter
 }
 
-type StackdriverOptions struct {
-	Prefix    string
-	ProjectID string
+func (s stackdriverExporterTypeImpl) getName() string {
+	return "Stackdriver"
 }
 
-func (d StackdriverOptions) getType() ExporterType {
-	return stackdriverExporterType
-}
-
-type StackdriverConfig config.StackdriverConfig
-
-func (c StackdriverConfig) toOptions() ExporterOptions {
-	return StackdriverOptions{
-		ProjectID: c.ProjectID,
-		Prefix:    getPrefix(c.CommonMetricsConfig),
+func (s stackdriverExporterTypeImpl) createExporterIfEnabled(
+	mc config.MetricsConfig,
+	loggers ldlog.Loggers,
+) (Exporter, error) {
+	if !mc.Stackdriver.Enabled {
+		return nil, nil
 	}
-}
 
-func (c StackdriverConfig) enabled() bool {
-	return c.Enabled
-}
-
-func registerStackdriverExporter(options ExporterOptions) error {
-	o := options.(StackdriverOptions)
-	exporter, err := stackdriver.NewExporter(stackdriver.Options{
-		MetricPrefix: o.Prefix,
-		ProjectID:    o.ProjectID,
-	})
+	options := stackdriver.Options{
+		MetricPrefix: getPrefix(mc.Stackdriver.CommonMetricsConfig),
+		ProjectID:    mc.Stackdriver.ProjectID,
+	}
+	exporter, err := stackdriver.NewExporter(options)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	view.RegisterExporter(exporter)
-	trace.RegisterExporter(exporter)
+
+	return &stackdriverExporterImpl{exporter: exporter}, nil
+}
+
+func (s *stackdriverExporterImpl) register() error {
+	view.RegisterExporter(s.exporter)
+	trace.RegisterExporter(s.exporter)
+	return nil
+}
+
+func (s *stackdriverExporterImpl) close() error {
+	view.UnregisterExporter(s.exporter)
+	trace.UnregisterExporter(s.exporter)
 	return nil
 }
