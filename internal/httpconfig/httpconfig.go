@@ -19,7 +19,6 @@ import (
 // HTTPConfig encapsulates ProxyConfig plus any other HTTP options we may support in the future (currently none).
 type HTTPConfig struct {
 	config.ProxyConfig
-	ProxyURL             *url.URL
 	SDKHTTPConfigFactory interfaces.HTTPConfigurationFactory
 	SDKHTTPConfig        interfaces.HTTPConfiguration
 }
@@ -35,12 +34,11 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string) (HTTPConfig, e
 		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
 	}
 	if proxyConfig.Url != "" {
-		u, err := url.Parse(proxyConfig.Url)
+		_, err := url.Parse(proxyConfig.Url)
 		if err != nil {
 			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
 		}
 		logging.GlobalLoggers.Infof("Using proxy server at %s", proxyConfig.Url)
-		ret.ProxyURL = u
 	}
 
 	caCertFiles := strings.Split(strings.TrimSpace(proxyConfig.CaCertFiles), ",")
@@ -65,8 +63,8 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string) (HTTPConfig, e
 		configBuilder.HTTPClientFactory(factory)
 		logging.GlobalLoggers.Info("NTLM proxy authentication enabled")
 	} else {
-		if ret.ProxyURL != nil {
-			configBuilder.ProxyURL(*ret.ProxyURL)
+		if proxyConfig.Url != "" {
+			configBuilder.ProxyURL(proxyConfig.Url)
 		}
 		for _, filePath := range caCertFiles {
 			if filePath != "" {
