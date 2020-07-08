@@ -7,13 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
 	"github.com/stretchr/testify/assert"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
@@ -86,12 +85,6 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func makeStoreWithData(initialized bool) interfaces.DataStore {
-	store := sharedtest.NewInMemoryStore()
-	addAllFlags(store, initialized)
-	return store
-}
-
 func addAllFlags(store interfaces.DataStore, initialized bool) {
 	if initialized {
 		store.Init(nil)
@@ -108,14 +101,6 @@ func flagsMap(testFlags []testFlag) map[string]interface{} {
 		ret[f.flag.Key] = f.flag
 	}
 	return ret
-}
-
-func makeTestContextWithData() *clientContextImpl {
-	return &clientContextImpl{
-		client:       FakeLDClient{initialized: true},
-		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(true)),
-		loggers:      ldlog.NewDisabledLoggers(),
-	}
 }
 
 func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {

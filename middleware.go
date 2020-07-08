@@ -12,6 +12,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -36,7 +37,7 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 }
 
 type clientMux struct {
-	clientContextByKey map[string]*clientContextImpl
+	clientContextByKey map[string]relayenv.EnvContext
 }
 
 func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
@@ -46,21 +47,20 @@ func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	healthy := true
 	for _, clientCtx := range m.clientContextByKey {
 		var status environmentStatus
-		if clientCtx.envId != nil {
-			status.EnvId = *clientCtx.envId
+		creds := clientCtx.GetCredentials()
+		status.SdkKey = obscureKey(creds.SDKKey)
+		if mobileKey, ok := creds.MobileKey.Get(); ok {
+			status.MobileKey = obscureKey(mobileKey)
 		}
-		if clientCtx.mobileKey != nil {
-			status.MobileKey = obscureKey(*clientCtx.mobileKey)
-		}
-		status.SdkKey = obscureKey(clientCtx.sdkKey)
-		client := clientCtx.getClient()
+		status.EnvId = creds.EnvironmentID.StringValue()
+		client := clientCtx.GetClient()
 		if client == nil || !client.Initialized() {
 			status.Status = "disconnected"
 			healthy = false
 		} else {
 			status.Status = "connected"
 		}
-		envs[clientCtx.name] = status
+		envs[clientCtx.GetName()] = status
 	}
 
 	resp := struct {
@@ -101,7 +101,7 @@ func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 			return
 		}
 
-		if clientCtx.getClient() == nil {
+		if clientCtx.GetClient() == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("client was not initialized"))
 			return
@@ -112,15 +112,15 @@ func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handle
 	})
 }
 
-func getClientContext(req *http.Request) clientContext {
-	return req.Context().Value(contextKey).(clientContext)
+func getClientContext(req *http.Request) relayenv.EnvContext {
+	return req.Context().Value(contextKey).(relayenv.EnvContext)
 }
 
 func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
-		metrics.WithCount(ctx.getMetricsContext(), userAgent, func() {
+		metrics.WithCount(ctx.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -145,7 +145,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.getMetricsContext(), userAgent, route, req.Method, func() {
+			metrics.WithRouteCount(ctx.GetMetricsContext(), userAgent, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})
@@ -156,7 +156,7 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
-		metrics.WithGauge(ctx.getMetricsContext(), userAgent, func() {
+		metrics.WithGauge(ctx.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})

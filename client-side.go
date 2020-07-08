@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
 
@@ -22,7 +23,7 @@ type contextKeyType string
 const contextKey contextKeyType = "context"
 
 type clientSideContext struct {
-	clientContext
+	relayenv.EnvContext
 	allowedOrigins []string
 	proxy          *httputil.ReverseProxy
 }
@@ -45,7 +46,7 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 			return
 		}
 
-		if clientCtx.getClient() == nil {
+		if clientCtx.GetClient() == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("client was not initialized"))
 			return
@@ -93,12 +94,12 @@ func init() {
 func getEventsImage(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
 
-	if clientCtx.getHandlers().eventDispatcher == nil {
+	if clientCtx.GetHandlers().EventDispatcher == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
 		return
 	}
-	handler := clientCtx.getHandlers().eventDispatcher.GetHandler(events.JavaScriptSDKEventsEndpoint)
+	handler := clientCtx.GetHandlers().EventDispatcher.GetHandler(events.JavaScriptSDKEventsEndpoint)
 	if handler == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write(util.ErrorJsonMsg("Event proxy for browser clients is not enabled for this environment"))
