@@ -260,6 +260,20 @@ func makeTestEventBuffer(userKey string) []byte {
 	return data
 }
 
+func makeTestFeatureEventPayload(userKey string) []byte {
+	event := map[string]interface{}{
+		"kind":         "feature",
+		"creationDate": 0,
+		"key":          "flag-key",
+		"version":      1,
+		"variation":    0,
+		"value":        true,
+		"userKey":      userKey,
+	}
+	data, _ := json.Marshal([]interface{}{event})
+	return data
+}
+
 func TestRelay(t *testing.T) {
 	logging.InitLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 
@@ -628,7 +642,7 @@ func TestRelay(t *testing.T) {
 	t.Run("server-side events proxies", func(t *testing.T) {
 		t.Run("bulk post", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer("me")
+			body := makeTestFeatureEventPayload("me")
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/bulk", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
@@ -645,7 +659,7 @@ func TestRelay(t *testing.T) {
 
 		t.Run("diagnostics forwarding", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer("me")
+			body := makeTestFeatureEventPayload("me")
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/diagnostic", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
@@ -672,7 +686,7 @@ func TestRelay(t *testing.T) {
 
 		for i, s := range specs {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer(fmt.Sprintf("me%d", i))
+			body := makeTestFeatureEventPayload(fmt.Sprintf("me%d", i))
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
@@ -689,7 +703,7 @@ func TestRelay(t *testing.T) {
 
 		t.Run("diagnostics forwarding", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer("me")
+			body := makeTestFeatureEventPayload("me")
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/mobile/events/diagnostic", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
@@ -709,7 +723,7 @@ func TestRelay(t *testing.T) {
 
 		t.Run("bulk post", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer("me-post")
+			body := makeTestFeatureEventPayload("me-post")
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost/events/bulk/%s", envId), bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
@@ -725,7 +739,7 @@ func TestRelay(t *testing.T) {
 
 		t.Run("image", func(t *testing.T) {
 			w := httptest.NewRecorder()
-			body := makeTestEventBuffer("me-image")
+			body := makeTestFeatureEventPayload("me-image")
 			base64Body := base64.StdEncoding.EncodeToString(body)
 			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/a/%s.gif?d=%s", envId, base64Body), nil)
 			relay.ServeHTTP(w, r)
