@@ -77,9 +77,9 @@ func (a privateMetricsArgs) getExpectedTags() []tag.Tag {
 
 func TestConnectionMetrics(t *testing.T) {
 	specs := []args{
-		args{platform: browser, measure: BrowserConns, userAgent: userAgentValue},
-		args{platform: mobile, measure: MobileConns, userAgent: userAgentValue},
-		args{platform: server, measure: ServerConns, userAgent: userAgentValue},
+		args{platform: browserTagValue, measure: BrowserConns, userAgent: userAgentValue},
+		args{platform: mobileTagValue, measure: MobileConns, userAgent: userAgentValue},
+		args{platform: serverTagValue, measure: ServerConns, userAgent: userAgentValue},
 	}
 
 	t.Run("public", func(t *testing.T) {
@@ -124,9 +124,9 @@ func TestConnectionMetrics(t *testing.T) {
 
 func TestNewConnectionMetrics(t *testing.T) {
 	specs := []args{
-		args{platform: browser, measure: NewBrowserConns, userAgent: userAgentValue},
-		args{platform: mobile, measure: NewMobileConns, userAgent: userAgentValue},
-		args{platform: server, measure: NewServerConns, userAgent: userAgentValue},
+		args{platform: browserTagValue, measure: NewBrowserConns, userAgent: userAgentValue},
+		args{platform: mobileTagValue, measure: NewMobileConns, userAgent: userAgentValue},
+		args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue},
 	}
 
 	t.Run("public", func(t *testing.T) {
@@ -191,7 +191,7 @@ func TestWithRouteCount(t *testing.T) {
 	defer trace.UnregisterExporter(exporter)
 	defer view.Unregister(requestView)
 
-	expected := routeArgs{args: args{platform: server, measure: NewServerConns, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
+	expected := routeArgs{args: args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
 
 	// Context has a relay Id, but we shouldn't get it back as a tag with public metrics
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))

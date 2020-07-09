@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	defineExporter(prometheusExporter, registerPrometheusExporter)
+	defineExporter(prometheusExporterType, registerPrometheusExporter)
 }
 
 type PrometheusOptions struct {
@@ -21,7 +21,7 @@ type PrometheusOptions struct {
 }
 
 func (p PrometheusOptions) getType() ExporterType {
-	return prometheusExporter
+	return prometheusExporterType
 }
 
 type PrometheusConfig config.PrometheusConfig
@@ -63,5 +63,6 @@ func registerPrometheusExporter(options ExporterOptions) error {
 		}
 	}()
 	view.RegisterExporter(exporter)
+	// Note: we are not calling trace.RegisterExporter here as we do for the other exporters
 	return nil
 }

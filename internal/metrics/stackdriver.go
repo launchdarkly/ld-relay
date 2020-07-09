@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	defineExporter(stackdriverExporter, registerStackdriverExporter)
+	defineExporter(stackdriverExporterType, registerStackdriverExporter)
 }
 
 type StackdriverOptions struct {
@@ -18,7 +18,7 @@ type StackdriverOptions struct {
 }
 
 func (d StackdriverOptions) getType() ExporterType {
-	return stackdriverExporter
+	return stackdriverExporterType
 }
 
 type StackdriverConfig config.StackdriverConfig

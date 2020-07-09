@@ -7,133 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
-	"go.opencensus.io/trace"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-
-	"github.com/pborman/uuid"
-
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
-
-type ExporterType string
-
-const (
-	datadogExporter      ExporterType = "Datadog"
-	stackdriverExporter  ExporterType = "Stackdriver"
-	prometheusExporter   ExporterType = "Prometheus"
-	defaultMetricsPrefix              = "launchdarkly_relay"
-
-	browser = "browser"
-	mobile  = "mobile"
-	server  = "server"
-
-	defaultFlushInterval = time.Minute
-)
-
-type ExporterOptions interface {
-	getType() ExporterType
-}
-
-type ExporterRegisterer func(options ExporterOptions) error
-
-type Measure struct {
-	measures []*stats.Int64Measure
-	tags     *[]tag.Mutator
-}
-
-var (
-	exporters                   = map[ExporterType]ExporterRegisterer{}
-	registerPublicExportersOnce sync.Once
-	registerPrivateViewsOnce    sync.Once
-	metricsRelayId              string
-
-	relayIdTagKey, _          = tag.NewKey("relayId")
-	platformCategoryTagKey, _ = tag.NewKey("platformCategory")
-	userAgentTagKey, _        = tag.NewKey("userAgent")
-	routeTagKey, _            = tag.NewKey("route")
-	methodTagKey, _           = tag.NewKey("method")
-	envNameTagKey, _          = tag.NewKey("env")
-
-	// For internal event exporter
-	privateConnMeasure    = stats.Int64("internal_connections", "current number of connections", stats.UnitDimensionless)
-	privateNewConnMeasure = stats.Int64("internal_newconnections", "total number of connections", stats.UnitDimensionless)
-
-	connMeasure    = stats.Int64("connections", "current number of connections", stats.UnitDimensionless)
-	newConnMeasure = stats.Int64("newconnections", "total number of connections", stats.UnitDimensionless)
-	requestMeasure = stats.Int64("requests", "Number of hits to a route", stats.UnitDimensionless)
-
-	browserTags []tag.Mutator
-	mobileTags  []tag.Mutator
-	serverTags  []tag.Mutator
-
-	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, envNameTagKey}
-	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, relayIdTagKey, envNameTagKey}
-
-	publicConnView     *view.View
-	publicNewConnView  *view.View
-	requestView        *view.View
-	privateConnView    *view.View
-	privateNewConnView *view.View
-
-	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &browserTags}
-	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &mobileTags}
-	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: &serverTags}
-
-	NewBrowserConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &browserTags}
-	NewMobileConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &mobileTags}
-	NewServerConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: &serverTags}
-
-	BrowserRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &browserTags}
-	MobileRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &mobileTags}
-	ServerRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: &serverTags}
-)
-
-func init() {
-	metricsRelayId = uuid.New()
-	browserTags = append(browserTags, tag.Insert(platformCategoryTagKey, browser))
-	mobileTags = append(mobileTags, tag.Insert(platformCategoryTagKey, mobile))
-	serverTags = append(serverTags, tag.Insert(platformCategoryTagKey, server))
-
-	publicConnView = &view.View{
-		Measure:     connMeasure,
-		Aggregation: view.Sum(),
-		TagKeys:     publicTags,
-	}
-	publicNewConnView = &view.View{
-		Measure:     newConnMeasure,
-		Aggregation: view.Sum(),
-		TagKeys:     publicTags,
-	}
-	requestView = &view.View{
-		Measure:     requestMeasure,
-		Aggregation: view.Count(),
-		TagKeys:     append(publicTags, routeTagKey, methodTagKey),
-	}
-	privateConnView = &view.View{
-		Measure:     privateConnMeasure,
-		Aggregation: view.Sum(),
-		TagKeys:     privateTags,
-	}
-	privateNewConnView = &view.View{
-		Measure:     privateNewConnMeasure,
-		Aggregation: view.Sum(),
-		TagKeys:     privateTags,
-	}
-}
-
-func getPublicViews() []*view.View {
-	return []*view.View{publicConnView, publicNewConnView, requestView}
-}
-
-func getPrivateViews() []*view.View {
-	return []*view.View{privateConnView, privateNewConnView}
-}
 
 type Processor struct {
 	OpenCensusCtx context.Context
@@ -158,59 +36,6 @@ func (o OptionEnvName) apply(p *Processor) error {
 	p.OpenCensusCtx, _ = tag.New(p.OpenCensusCtx,
 		tag.Insert(envNameTagKey, sanitizeTagValue(string(o))))
 	return nil
-}
-
-// ExporterConfig is used internally to hold options for metrics integrations.
-type ExporterConfig interface {
-	toOptions() ExporterOptions
-	enabled() bool
-}
-
-func ExporterOptionsFromConfig(c config.MetricsConfig) (options []ExporterOptions) {
-	exporterConfigs := []ExporterConfig{
-		DatadogConfig(c.Datadog),
-		StackdriverConfig(c.Stackdriver),
-		PrometheusConfig(c.Prometheus)}
-	for _, e := range exporterConfigs {
-		if e.enabled() {
-			options = append(options, e.toOptions())
-		}
-	}
-	return options
-}
-
-func getPrefix(c config.CommonMetricsConfig) string {
-	if c.Prefix != "" {
-		return c.Prefix
-	}
-	return defaultMetricsPrefix
-}
-
-func defineExporter(exporterType ExporterType, registerer ExporterRegisterer) {
-	exporters[exporterType] = registerer
-}
-
-func RegisterExporters(options []ExporterOptions, loggers ldlog.Loggers) (registrationErr error) {
-	registerPublicExportersOnce.Do(func() {
-		for _, o := range options {
-			exporter := exporters[o.getType()]
-			if exporter == nil {
-				registrationErr = fmt.Errorf("Got unexpected exporter type: %s", o.getType())
-				return
-			} else if err := exporter(o); err != nil {
-				registrationErr = fmt.Errorf("Could not register %s exporter: %s", o.getType(), err)
-				return
-			} else {
-				loggers.Infof("Successfully registered %s exporter.", o.getType())
-			}
-		}
-
-		err := view.Register(getPublicViews()...)
-		if err != nil {
-			registrationErr = fmt.Errorf("Error registering metrics views")
-		}
-	})
-	return registrationErr
 }
 
 func registerPrivateViews() (err error) {
@@ -258,47 +83,6 @@ func (p *Processor) Close() {
 		p.exporter.close()
 		close(p.closer)
 	})
-}
-
-func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
-	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
-	if err != nil {
-		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags: %s`, err)
-	} else {
-		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, *measure.tags...)
-			stats.Record(ctx, m.M(1))
-			defer stats.Record(ctx, m.M(-1))
-		}
-	}
-	f()
-}
-
-func WithCount(ctx context.Context, userAgent string, f func(), measure Measure) {
-	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
-	if err != nil {
-		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for user agent : %s`, err)
-	} else {
-		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, *measure.tags...)
-			stats.Record(ctx, m.M(1))
-		}
-	}
-	f()
-}
-
-// WithRouteCount Records a route hit and starts a trace. For stream connections, the duration of the stream connection is recorded
-func WithRouteCount(ctx context.Context, userAgent, route, method string, f func(), measure Measure) {
-	tagCtx, err := tag.New(ctx, tag.Insert(routeTagKey, sanitizeTagValue(route)), tag.Insert(methodTagKey, sanitizeTagValue(method)))
-	if err != nil {
-		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags for route "%s %s": %s`, method, route, err)
-	} else {
-		ctx = tagCtx
-	}
-	ctx, span := trace.StartSpan(ctx, route)
-	defer span.End()
-
-	WithCount(ctx, userAgent, f, measure)
 }
 
 // Pad empty keys to match tag keyset cardinality since empty strings are dropped

@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	defineExporter(datadogExporter, registerDatadogExporter)
+	defineExporter(datadogExporterType, registerDatadogExporter)
 }
 
 type DatadogOptions struct {
@@ -23,7 +23,7 @@ type DatadogOptions struct {
 }
 
 func (d DatadogOptions) getType() ExporterType {
-	return datadogExporter
+	return datadogExporterType
 }
 
 type DatadogConfig config.DatadogConfig
