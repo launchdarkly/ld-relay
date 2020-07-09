@@ -27,9 +27,9 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 type FakeLDClient struct{ initialized bool }
@@ -279,8 +279,6 @@ func makeTestFeatureEventPayload(userKey string) []byte {
 }
 
 func TestRelay(t *testing.T) {
-	logging.InitLogging(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
-
 	publishedEvents := make(chan publishedEvent)
 
 	requirePublishedEvent := func(data []byte) publishedEvent {
@@ -359,7 +357,7 @@ func TestRelay(t *testing.T) {
 		return &FakeLDClient{true}, nil
 	}
 
-	relay, _ := NewRelay(config, createDummyClient)
+	relay, _ := NewRelay(config, logging.MakeDefaultLoggers(), createDummyClient)
 
 	expectedJSEvalBody := expectJSONBody(makeEvalBody(clientSideFlags, false, false))
 	expectedJSEvalxBody := expectJSONBody(makeEvalBody(clientSideFlags, true, false))
@@ -892,7 +890,7 @@ SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
 	tmpfile.Close()
 
 	var config c.Config
-	err = c.LoadConfigFile(&config, tmpfile.Name())
+	err = c.LoadConfigFile(&config, tmpfile.Name(), ldlog.NewDisabledLoggers())
 	if !assert.NoError(t, err) {
 		return
 	}

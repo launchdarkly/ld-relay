@@ -8,7 +8,7 @@ import (
 	"go.opencensus.io/stats/view"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
 func init() {
@@ -45,7 +45,7 @@ func registerPrometheusExporter(options ExporterOptions) error {
 	}
 
 	logPrometheusError := func(e error) {
-		logging.GlobalLoggers.Errorf("Prometheus exporter error: %s", e)
+		logging.MakeDefaultLoggers().Errorf("Prometheus exporter error: %s", e)
 	}
 
 	exporter, err := prometheus.NewExporter(prometheus.Options{Namespace: o.Prefix, OnError: logPrometheusError})
@@ -57,9 +57,9 @@ func registerPrometheusExporter(options ExporterOptions) error {
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf(":%d", port), exporterMux)
 		if err != nil {
-			logging.GlobalLoggers.Errorf("Failed to start Prometheus listener\n")
+			logging.MakeDefaultLoggers().Errorf("Failed to start Prometheus listener\n")
 		} else {
-			logging.GlobalLoggers.Infof("Prometheus listening on port %d\n", port)
+			logging.MakeDefaultLoggers().Infof("Prometheus listening on port %d\n", port)
 		}
 	}()
 	view.RegisterExporter(exporter)

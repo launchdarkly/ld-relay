@@ -12,11 +12,13 @@ import (
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/pborman/uuid"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
 type ExporterType string
@@ -188,7 +190,7 @@ func defineExporter(exporterType ExporterType, registerer ExporterRegisterer) {
 	exporters[exporterType] = registerer
 }
 
-func RegisterExporters(options []ExporterOptions) (registrationErr error) {
+func RegisterExporters(options []ExporterOptions, loggers ldlog.Loggers) (registrationErr error) {
 	registerPublicExportersOnce.Do(func() {
 		for _, o := range options {
 			exporter := exporters[o.getType()]
@@ -199,7 +201,7 @@ func RegisterExporters(options []ExporterOptions) (registrationErr error) {
 				registrationErr = fmt.Errorf("Could not register %s exporter: %s", o.getType(), err)
 				return
 			} else {
-				logging.GlobalLoggers.Infof("Successfully registered %s exporter.", o.getType())
+				loggers.Infof("Successfully registered %s exporter.", o.getType())
 			}
 		}
 
@@ -261,7 +263,7 @@ func (p *Processor) Close() {
 func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
-		logging.GlobalLoggers.Errorf(`Failed to create tags: %s`, err)
+		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags: %s`, err)
 	} else {
 		for _, m := range measure.measures {
 			ctx, _ := tag.New(ctx, *measure.tags...)
@@ -275,7 +277,7 @@ func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure)
 func WithCount(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
-		logging.GlobalLoggers.Errorf(`Failed to create tag for user agent : %s`, err)
+		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for user agent : %s`, err)
 	} else {
 		for _, m := range measure.measures {
 			ctx, _ := tag.New(ctx, *measure.tags...)
@@ -289,7 +291,7 @@ func WithCount(ctx context.Context, userAgent string, f func(), measure Measure)
 func WithRouteCount(ctx context.Context, userAgent, route, method string, f func(), measure Measure) {
 	tagCtx, err := tag.New(ctx, tag.Insert(routeTagKey, sanitizeTagValue(route)), tag.Insert(methodTagKey, sanitizeTagValue(method)))
 	if err != nil {
-		logging.GlobalLoggers.Errorf(`Failed to create tags for route "%s %s": %s`, method, route, err)
+		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags for route "%s %s": %s`, method, route, err)
 	} else {
 		ctx = tagCtx
 	}

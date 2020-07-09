@@ -35,20 +35,15 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 const (
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
-
-// InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
-func InitializeMetrics(c config.MetricsConfig) error {
-	return metrics.RegisterExporters(metrics.ExporterOptionsFromConfig(c))
-}
 
 type environmentStatus struct {
 	SdkKey    string `json:"sdkKey"`
@@ -73,7 +68,7 @@ type clientContext interface {
 	getClient() LdClientContext
 	setClient(LdClientContext)
 	getStore() interfaces.DataStore
-	getLoggers() *ldlog.Loggers
+	getLoggers() ldlog.Loggers
 	getHandlers() clientHandlers
 	getMetricsCtx() context.Context
 	getTtl() time.Duration
@@ -101,6 +96,8 @@ type Relay struct {
 	sdkClientMux    clientMux
 	mobileClientMux clientMux
 	clientSideMux   clientSideMux
+	config          config.Config
+	loggers         ldlog.Loggers
 }
 
 type evalXResult struct {
@@ -140,8 +137,8 @@ func (c *clientContextImpl) getStore() interfaces.DataStore {
 	return c.storeAdapter.GetStore()
 }
 
-func (c *clientContextImpl) getLoggers() *ldlog.Loggers {
-	return &c.loggers
+func (c *clientContextImpl) getLoggers() ldlog.Loggers {
+	return c.loggers
 }
 
 func (c *clientContextImpl) getHandlers() clientHandlers {
@@ -168,8 +165,10 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 }
 
 // NewRelay creates a new relay given a configuration and a method to create a client
-func NewRelay(c config.Config, clientFactory clientFactoryFunc) (*Relay, error) {
-	logging.InitLoggingWithLevel(c.Main.GetLogLevel())
+func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory clientFactoryFunc) (*Relay, error) {
+	if c.Main.LogLevel != "" {
+		loggers.SetMinLevel(c.Main.GetLogLevel())
+	}
 
 	allPublisher := eventsource.NewServer()
 	allPublisher.Gzip = false
@@ -202,12 +201,23 @@ func NewRelay(c config.Config, clientFactory clientFactoryFunc) (*Relay, error) 
 	clientReadyCh := make(chan clientContext, len(c.Environment))
 
 	for envName, envConfig := range c.Environment {
-		httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy, envConfig.SdkKey)
+		httpConfig, err := httpconfig.NewHTTPConfig(c.Proxy, envConfig.SdkKey, loggers)
 		if err != nil {
 			return nil, err
 		}
 
-		clientContext, err := newClientContext(envName, envConfig, c, clientFactory, httpConfig, allPublisher, flagsPublisher, pingPublisher, clientReadyCh)
+		clientContext, err := newClientContext(
+			envName,
+			envConfig,
+			c,
+			clientFactory,
+			httpConfig,
+			allPublisher,
+			flagsPublisher,
+			pingPublisher,
+			loggers,
+			clientReadyCh,
+		)
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
@@ -259,10 +269,12 @@ func NewRelay(c config.Config, clientFactory clientFactoryFunc) (*Relay, error) 
 		sdkClientMux:    clientMux{clientContextByKey: clients},
 		mobileClientMux: clientMux{clientContextByKey: mobileClients},
 		clientSideMux:   clientSideMux,
+		config:          c,
+		loggers:         loggers,
 	}
 
 	if c.Main.ExitAlways {
-		logging.GlobalLoggers.Info("Running in one-shot mode - will exit immediately after initializing environments")
+		loggers.Info("Running in one-shot mode - will exit immediately after initializing environments")
 		// Just wait until all clients have either started or failed, then exit without bothering
 		// to set up HTTP handlers.
 		numFinished := 0
@@ -284,10 +296,17 @@ func NewRelay(c config.Config, clientFactory clientFactoryFunc) (*Relay, error) 
 	return &r, nil
 }
 
+// InitializeMetrics reads the MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
+func (r *Relay) InitializeMetrics() error {
+	mc := r.config.MetricsConfig
+	return metrics.RegisterExporters(metrics.ExporterOptionsFromConfig(mc), r.loggers)
+}
+
 func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	router := mux.NewRouter()
+	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if withRequestLogging {
-		router.Use(logging.RequestLoggerMiddleware)
+		router.Use(logging.RequestLoggerMiddleware(r.loggers))
 	}
 	router.HandleFunc("/status", r.sdkClientMux.getStatus).Methods("GET")
 
@@ -396,14 +415,19 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	return router
 }
 
-func newClientContext(envName string, envConfig *config.EnvConfig, c config.Config, clientFactory clientFactoryFunc,
-	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
-	readyCh chan<- clientContext) (*clientContextImpl, error) {
-
-	envLoggers := logging.MakeLoggers(fmt.Sprintf("env: %s", envName))
-	if envConfig.LogLevel == "" {
-		envLoggers.SetMinLevel(c.Main.GetLogLevel())
-	} else {
+func newClientContext(
+	envName string,
+	envConfig *config.EnvConfig,
+	c config.Config,
+	clientFactory clientFactoryFunc,
+	httpConfig httpconfig.HTTPConfig,
+	allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
+	loggers ldlog.Loggers,
+	readyCh chan<- clientContext,
+) (*clientContextImpl, error) {
+	envLoggers := loggers
+	envLoggers.SetPrefix(fmt.Sprintf("[env: %s]", envName))
+	if envConfig.LogLevel != "" {
 		envLoggers.SetMinLevel(envConfig.GetLogLevel())
 	}
 
@@ -483,9 +507,9 @@ func newClientContext(envName string, envConfig *config.EnvConfig, c config.Conf
 				return
 			}
 
-			logging.GlobalLoggers.Errorf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
+			loggers.Errorf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
 		} else {
-			logging.GlobalLoggers.Infof("Initialized LaunchDarkly client for %s\n", envName)
+			loggers.Infof("Initialized LaunchDarkly client for %s\n", envName)
 		}
 		if readyCh != nil {
 			readyCh <- clientContext

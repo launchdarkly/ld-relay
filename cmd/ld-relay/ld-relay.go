@@ -3,17 +3,18 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 
 	_ "github.com/kardianos/minwinsvc"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	relay "github.com/launchdarkly/ld-relay/v6"
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
-	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
 const defaultConfigPath = "/etc/ld-relay.conf"
@@ -35,6 +36,7 @@ func main() {
 	flag.Parse()
 
 	c := config.DefaultConfig
+	loggers := logging.MakeDefaultLoggers()
 
 	if configFile == "" && !useEnvironment {
 		configFile = defaultConfigPath
@@ -56,22 +58,24 @@ func main() {
 			configDesc = "configuration from environment variables"
 		}
 	}
-	logging.GlobalLoggers.Infof("Starting LaunchDarkly relay version %s with %s\n", formatVersion(version.Version), configDesc)
+	loggers.Infof("Starting LaunchDarkly relay version %s with %s\n", formatVersion(version.Version), configDesc)
 
 	if configFile != "" {
-		if err := config.LoadConfigFile(&c, configFile); err != nil {
-			log.Fatalf("Error loading config file: %s", err)
+		if err := config.LoadConfigFile(&c, configFile, loggers); err != nil {
+			loggers.Errorf("Error loading config file: %s", err)
+			os.Exit(1)
 		}
 	}
 	if useEnvironment {
 		if err := config.LoadConfigFromEnvironment(&c); err != nil {
-			log.Fatalf("Configuration error: %s", err)
+			loggers.Errorf("Configuration error: %s", err)
+			os.Exit(1)
 		}
 	}
 
-	r, err := relay.NewRelay(c, relay.DefaultClientFactory)
+	r, err := relay.NewRelay(c, loggers, relay.DefaultClientFactory)
 	if err != nil {
-		logging.GlobalLoggers.Errorf("Unable to create relay: %s", err)
+		loggers.Errorf("Unable to create relay: %s", err)
 		os.Exit(1)
 	}
 
@@ -79,23 +83,23 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := relay.InitializeMetrics(c.MetricsConfig); err != nil {
-		logging.GlobalLoggers.Errorf("Error initializing metrics: %s", err)
+	if err := r.InitializeMetrics(); err != nil {
+		loggers.Errorf("Error initializing metrics: %s", err)
 	}
 
 	errs := make(chan error)
 	defer close(errs)
 
-	startHTTPServer(&c, r, errs)
+	startHTTPServer(&c, r, loggers, errs)
 
 	for err := range errs {
-		logging.GlobalLoggers.Errorf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+		loggers.Errorf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 		os.Exit(1)
 	}
 
 }
 
-func startHTTPServer(c *config.Config, r *relay.Relay, errs chan<- error) {
+func startHTTPServer(c *config.Config, r *relay.Relay, loggers ldlog.Loggers, errs chan<- error) {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", c.Main.Port),
 		Handler: r,
@@ -103,9 +107,9 @@ func startHTTPServer(c *config.Config, r *relay.Relay, errs chan<- error) {
 
 	go func() {
 		var err error
-		logging.GlobalLoggers.Infof("Starting server listening on port %d\n", c.Main.Port)
+		loggers.Infof("Starting server listening on port %d\n", c.Main.Port)
 		if c.Main.TLSEnabled {
-			logging.GlobalLoggers.Infof("TLS Enabled for server")
+			loggers.Infof("TLS Enabled for server")
 			err = srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
 		} else {
 			err = srv.ListenAndServe()

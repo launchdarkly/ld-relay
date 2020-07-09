@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/logging"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
@@ -106,12 +105,15 @@ type SSERelayFeatureStore struct {
 
 type allRepository struct {
 	relayStore *SSERelayFeatureStore
+	loggers    ldlog.Loggers
 }
 type flagsRepository struct {
 	relayStore *SSERelayFeatureStore
+	loggers    ldlog.Loggers
 }
 type pingRepository struct {
 	relayStore *SSERelayFeatureStore
+	loggers    ldlog.Loggers
 }
 
 // NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
@@ -133,9 +135,9 @@ func NewSSERelayFeatureStore(
 		loggers:        loggers,
 	}
 
-	allPublisher.Register(apiKey, allRepository{relayStore: relayStore})
-	flagsPublisher.Register(apiKey, flagsRepository{relayStore: relayStore})
-	pingPublisher.Register(apiKey, pingRepository{relayStore: relayStore})
+	allPublisher.Register(apiKey, allRepository{relayStore: relayStore, loggers: loggers})
+	flagsPublisher.Register(apiKey, flagsRepository{relayStore: relayStore, loggers: loggers})
+	pingPublisher.Register(apiKey, pingRepository{relayStore: relayStore, loggers: loggers})
 
 	if heartbeatInterval > 0 {
 		go func() {
@@ -258,7 +260,7 @@ func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
 
 			if err != nil {
-				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
+				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
 				out <- makeFlagsPutEvent(flags)
 			}
@@ -276,11 +278,11 @@ func (r allRepository) Replay(channel, id string) (out chan es.Event) {
 			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
 
 			if err != nil {
-				logging.GlobalLoggers.Errorf("Error getting all flags: %s\n", err.Error())
+				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
 				segments, err := r.relayStore.GetAll(ldstoreimpl.Segments())
 				if err != nil {
-					logging.GlobalLoggers.Errorf("Error getting all segments: %s\n", err.Error())
+					r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
 				} else {
 					allData := []ldstoretypes.Collection{
 						{Kind: ldstoreimpl.Features(), Items: flags},

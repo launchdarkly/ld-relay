@@ -16,8 +16,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
-	"github.com/launchdarkly/ld-relay/v6/logging"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
@@ -105,7 +105,7 @@ func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
-			logging.GlobalLoggers.Errorf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
+			logging.GetGlobalContextLoggers(req.Context()).Errorf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
 			return
 		}
 		handler(w, req)
@@ -192,7 +192,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		return
 	}
 
-	evaluator := ldeval.NewEvaluator(ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, *loggers))
+	evaluator := ldeval.NewEvaluator(ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, loggers))
 
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
