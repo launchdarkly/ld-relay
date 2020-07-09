@@ -8,15 +8,15 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
-	redigo "github.com/garyburd/redigo/redis"
+	redigo "github.com/gomodule/redigo/redis"
 
+	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldconsul"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/lddynamodb"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldredis"
 )
 
 // ConfigureDataStore provides the appropriate Go SDK data store factory (in-memory, Redis, etc.) based on
