@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 )

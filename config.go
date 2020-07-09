@@ -14,7 +14,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/logging"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 const (

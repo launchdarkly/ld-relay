@@ -22,9 +22,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/eventsource"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/logging"
 )
 
@@ -35,12 +38,12 @@ func (c FakeLDClient) Initialized() bool {
 }
 
 func handler() clientMux {
-	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
+	clients := map[string]*clientContextImpl{key(): {client: FakeLDClient{}, storeAdapter: emptyStoreAdapter, loggers: ldlog.NewDisabledLoggers()}}
 	return clientMux{clientContextByKey: clients}
 }
 
 func clientSideHandler(allowedOrigins []string) clientSideMux {
-	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, store: emptyStore, loggers: makeNullLoggers()}}
+	testClientSideContext := &clientSideContext{allowedOrigins: allowedOrigins, clientContext: &clientContextImpl{client: FakeLDClient{}, storeAdapter: emptyStoreAdapter, loggers: ldlog.NewDisabledLoggers()}}
 	contexts := map[string]*clientSideContext{key(): testClientSideContext}
 	return clientSideMux{contextByKey: contexts}
 }
@@ -157,9 +160,9 @@ func TestReportFlagEvalFailsWithMissingUserKey(t *testing.T) {
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client:  FakeLDClient{initialized: false},
-		store:   makeStoreWithData(false),
-		loggers: makeNullLoggers(),
+		client:       FakeLDClient{initialized: false},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(false)),
+		loggers:      ldlog.NewDisabledLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
@@ -175,9 +178,9 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 	ctx := &clientContextImpl{
-		client:  FakeLDClient{initialized: false},
-		store:   makeStoreWithData(true),
-		loggers: makeNullLoggers(),
+		client:       FakeLDClient{initialized: false},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(true)),
+		loggers:      ldlog.NewDisabledLoggers(),
 	}
 	req := buildRequest("REPORT", nil, headers, `{"key": "my-user"}`, ctx)
 	resp := httptest.NewRecorder()
@@ -349,7 +352,9 @@ func TestRelay(t *testing.T) {
 	config.Events.Capacity = defaultEventCapacity
 
 	createDummyClient := func(sdkKey string, config ld.Config) (LdClientContext, error) {
-		addAllFlags(config.FeatureStore, true)
+		store, _ := config.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
+			sharedtest.SDKContextImpl{}, nil)
+		addAllFlags(store, true)
 		return &FakeLDClient{true}, nil
 	}
 
@@ -755,7 +760,7 @@ func TestRelay(t *testing.T) {
 			w := httptest.NewRecorder()
 			body := makeTestEventBuffer("me")
 			bodyBuffer := bytes.NewBuffer(body)
-			expectedPath := fmt.Sprintf("/events/bulk/%s", envId)
+			expectedPath := fmt.Sprintf("/events/diagnostic/%s", envId)
 			r, _ := http.NewRequest("POST", "http://localhost"+expectedPath, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
 			relay.ServeHTTP(w, r)

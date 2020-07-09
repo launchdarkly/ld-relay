@@ -15,9 +15,9 @@ linters:
     - gocyclo
     - gofmt
     - gomnd # extremely aggressive linter that complains about all numeric literals, even just adding 1 to something (https://github.com/tommy-muehle/go-mnd)
+    - lll
     - maligned # don't really care about struct sizes
     - unparam
-    - lll
     - whitespace
     - wsl # enforces a very specific style with an idiosyncratic definition of what "cuddling" is
   fast: false

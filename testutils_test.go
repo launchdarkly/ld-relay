@@ -4,28 +4,28 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
-	"io/ioutil"
-	"log"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+
 	"github.com/stretchr/testify/assert"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
-	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
 
-var nullLogger = log.New(ioutil.Discard, "", 0)
-var emptyStore = ld.NewInMemoryFeatureStore(nullLogger)
+var emptyStore = sharedtest.NewInMemoryStore()
+var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
 var zero = 0
 
-func makeNullLoggers() ldlog.Loggers {
-	ls := ldlog.Loggers{}
-	ls.SetMinLevel(ldlog.None)
-	return ls
-}
-
 type testFlag struct {
-	flag              ld.FeatureFlag
+	flag              ldmodel.FeatureFlag
 	expectedValue     interface{}
 	expectedVariation int
 	expectedReason    map[string]interface{}
@@ -33,66 +33,40 @@ type testFlag struct {
 }
 
 var flag1ServerSide = testFlag{
-	flag:              ld.FeatureFlag{Key: "some-flag-key", OffVariation: &zero, Variations: []interface{}{true}, Version: 2},
+	flag:              ldbuilders.NewFlagBuilder("some-flag-key").OffVariation(0).Variations(ldvalue.Bool(true)).Version(2).Build(),
 	expectedValue:     true,
 	expectedVariation: 0,
 	expectedReason:    map[string]interface{}{"kind": "OFF"},
 }
 var flag2ServerSide = testFlag{
-	flag:              ld.FeatureFlag{Key: "another-flag-key", On: true, Fallthrough: ld.VariationOrRollout{Variation: &zero}, Variations: []interface{}{3}, Version: 1},
+	flag:              ldbuilders.NewFlagBuilder("another-flag-key").On(true).FallthroughVariation(0).Variations(ldvalue.Int(3)).Version(1).Build(),
 	expectedValue:     3,
 	expectedVariation: 0,
 	expectedReason:    map[string]interface{}{"kind": "FALLTHROUGH"},
 }
 var flag3ServerSide = testFlag{
-	flag:           ld.FeatureFlag{Key: "off-variation-key", Version: 3},
+	flag:           ldbuilders.NewFlagBuilder("off-variation-key").Version(3).Build(),
 	expectedValue:  nil,
 	expectedReason: map[string]interface{}{"kind": "OFF"},
 }
 var flag4ClientSide = testFlag{
-	flag:              ld.FeatureFlag{Key: "client-flag-key", OffVariation: &zero, Variations: []interface{}{5}, Version: 2, ClientSide: true},
+	flag:              ldbuilders.NewFlagBuilder("client-flag-key").OffVariation(0).Variations(ldvalue.Int(5)).Version(2).ClientSide(true).Build(),
 	expectedValue:     5,
 	expectedVariation: 0,
 	expectedReason:    map[string]interface{}{"kind": "OFF"},
 }
 var flag5ClientSide = testFlag{
-	flag: ld.FeatureFlag{
-		Key:                    "fallthrough-experiment-flag-key",
-		On:                     true,
-		Fallthrough:            ld.VariationOrRollout{Variation: &zero},
-		Variations:             []interface{}{3},
-		TrackEventsFallthrough: true,
-		Version:                1,
-		ClientSide:             true,
-	},
+	flag: ldbuilders.NewFlagBuilder("fallthrough-experiment-flag-key").On(true).FallthroughVariation(0).Variations(ldvalue.Int(3)).
+		TrackEventsFallthrough(true).ClientSide(true).Version(1).Build(),
 	expectedValue:  3,
 	expectedReason: map[string]interface{}{"kind": "FALLTHROUGH"},
 	isExperiment:   true,
 }
 var flag6ClientSide = testFlag{
-	flag: ld.FeatureFlag{
-		Key:         "rule-match-experiment-flag-key",
-		On:          true,
-		Fallthrough: ld.VariationOrRollout{},
-		Rules: []ld.Rule{
-			ld.Rule{
-				VariationOrRollout: ld.VariationOrRollout{Variation: &zero},
-				ID:                 "rule-id",
-				TrackEvents:        true,
-				Clauses: []ld.Clause{
-					ld.Clause{
-						Attribute: "key",
-						Op:        "in",
-						Values:    []interface{}{"not-a-real-user-key "},
-						Negate:    true,
-					},
-				},
-			},
-		},
-		Variations: []interface{}{4},
-		Version:    1,
-		ClientSide: true,
-	},
+	flag: ldbuilders.NewFlagBuilder("rule-match-experiment-flag-key").On(true).
+		AddRule(ldbuilders.NewRuleBuilder().ID("rule-id").Variation(0).TrackEvents(true).
+			Clauses(ldbuilders.Negate(ldbuilders.Clause(lduser.KeyAttribute, ldmodel.OperatorIn, ldvalue.String("not-a-real-user-key"))))).
+		Variations(ldvalue.Int(4)).ClientSide(true).Version(1).Build(),
 	expectedValue:  4,
 	expectedReason: map[string]interface{}{"kind": "RULE_MATCH", "ruleIndex": 0, "ruleId": "rule-id"},
 	isExperiment:   true,
@@ -101,7 +75,7 @@ var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, fla
 	flag5ClientSide, flag6ClientSide}
 var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSide}
 
-var segment1 = ld.Segment{Key: "segment-key"}
+var segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
 // Returns a key matching the UUID header pattern
 func key() string {
@@ -112,21 +86,20 @@ func user() string {
 	return "eyJrZXkiOiJ0ZXN0In0="
 }
 
-func makeStoreWithData(initialized bool) ld.FeatureStore {
-	store := ld.NewInMemoryFeatureStore(nullLogger)
+func makeStoreWithData(initialized bool) interfaces.DataStore {
+	store := sharedtest.NewInMemoryStore()
 	addAllFlags(store, initialized)
 	return store
 }
 
-func addAllFlags(store ld.FeatureStore, initialized bool) {
+func addAllFlags(store interfaces.DataStore, initialized bool) {
 	if initialized {
 		store.Init(nil)
 	}
 	for _, flag := range allFlags {
-		f := flag
-		store.Upsert(ld.Features, &f.flag)
+		sharedtest.UpsertFlag(store, flag.flag)
 	}
-	store.Upsert(ld.Segments, &segment1)
+	sharedtest.UpsertSegment(store, segment1)
 }
 
 func flagsMap(testFlags []testFlag) map[string]interface{} {
@@ -139,9 +112,9 @@ func flagsMap(testFlags []testFlag) map[string]interface{} {
 
 func makeTestContextWithData() *clientContextImpl {
 	return &clientContextImpl{
-		client:  FakeLDClient{initialized: true},
-		store:   makeStoreWithData(true),
-		loggers: makeNullLoggers(),
+		client:       FakeLDClient{initialized: true},
+		storeAdapter: store.NewSSERelayDataStoreAdapterWithExistingStore(makeStoreWithData(true)),
+		loggers:      ldlog.NewDisabledLoggers(),
 	}
 }
 
