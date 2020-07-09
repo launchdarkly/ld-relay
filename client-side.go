@@ -13,8 +13,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
-	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
 
 type contextKeyType string

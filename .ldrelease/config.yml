@@ -3,8 +3,9 @@ repo:
   private: ld-relay-private
 
 releasableBranches:
+  - name: v6
   - name: v5
 
 publications:
-  - url: https://godoc.org/github.com/launchdarkly/ld-relay
+  - url: https://pkg.go.dev/github.com/launchdarkly/ld-relay
     description: documentation

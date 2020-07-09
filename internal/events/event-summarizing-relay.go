@@ -10,7 +10,7 @@ import (
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 
-	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/httpconfig"
 )
 
 type eventSummarizingRelay struct {
