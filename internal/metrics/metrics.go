@@ -14,6 +14,7 @@ import (
 
 	"github.com/pborman/uuid"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/logging"
 )
@@ -21,9 +22,10 @@ import (
 type ExporterType string
 
 const (
-	datadogExporter     ExporterType = "Datadog"
-	stackdriverExporter ExporterType = "Stackdriver"
-	prometheusExporter  ExporterType = "Prometheus"
+	datadogExporter      ExporterType = "Datadog"
+	stackdriverExporter  ExporterType = "Stackdriver"
+	prometheusExporter   ExporterType = "Prometheus"
+	defaultMetricsPrefix              = "launchdarkly_relay"
 
 	browser = "browser"
 	mobile  = "mobile"
@@ -156,33 +158,30 @@ func (o OptionEnvName) apply(p *Processor) error {
 	return nil
 }
 
-type DatadogOptions struct {
-	Prefix    string
-	TraceAddr string
-	StatsAddr string
-	Tags      []string
+// ExporterConfig is used internally to hold options for metrics integrations.
+type ExporterConfig interface {
+	toOptions() ExporterOptions
+	enabled() bool
 }
 
-func (d DatadogOptions) getType() ExporterType {
-	return datadogExporter
+func ExporterOptionsFromConfig(c config.MetricsConfig) (options []ExporterOptions) {
+	exporterConfigs := []ExporterConfig{
+		DatadogConfig(c.Datadog),
+		StackdriverConfig(c.Stackdriver),
+		PrometheusConfig(c.Prometheus)}
+	for _, e := range exporterConfigs {
+		if e.enabled() {
+			options = append(options, e.toOptions())
+		}
+	}
+	return options
 }
 
-type StackdriverOptions struct {
-	Prefix    string
-	ProjectID string
-}
-
-func (d StackdriverOptions) getType() ExporterType {
-	return stackdriverExporter
-}
-
-type PrometheusOptions struct {
-	Prefix string
-	Port   int
-}
-
-func (p PrometheusOptions) getType() ExporterType {
-	return prometheusExporter
+func getPrefix(c config.CommonMetricsConfig) string {
+	if c.Prefix != "" {
+		return c.Prefix
+	}
+	return defaultMetricsPrefix
 }
 
 func defineExporter(exporterType ExporterType, registerer ExporterRegisterer) {

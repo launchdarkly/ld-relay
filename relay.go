@@ -32,8 +32,9 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/lddynamodb"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldredis"
 
-	"github.com/launchdarkly/ld-relay/v6/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/logging"
@@ -45,8 +46,8 @@ const (
 )
 
 // InitializeMetrics reads a MetricsConfig and registers OpenCensus exporters for all configured options. Will only initialize exporters on the first call to InitializeMetrics.
-func InitializeMetrics(c MetricsConfig) error {
-	return metrics.RegisterExporters(c.toOptions())
+func InitializeMetrics(c config.MetricsConfig) error {
+	return metrics.RegisterExporters(metrics.ExporterOptionsFromConfig(c))
 }
 
 type environmentStatus struct {
@@ -167,7 +168,7 @@ func DefaultClientFactory(sdkKey string, config ld.Config) (LdClientContext, err
 }
 
 // NewRelay creates a new relay given a configuration and a method to create a client
-func NewRelay(c Config, clientFactory clientFactoryFunc) (*Relay, error) {
+func NewRelay(c config.Config, clientFactory clientFactoryFunc) (*Relay, error) {
 	logging.InitLoggingWithLevel(c.Main.GetLogLevel())
 
 	allPublisher := eventsource.NewServer()
@@ -395,7 +396,7 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	return router
 }
 
-func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFactory clientFactoryFunc,
+func newClientContext(envName string, envConfig *config.EnvConfig, c config.Config, clientFactory clientFactoryFunc,
 	httpConfig httpconfig.HTTPConfig, allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
 	readyCh chan<- clientContext) (*clientContextImpl, error) {
 
@@ -464,7 +465,7 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 	}
 
 	// Connecting may take time, so do this in parallel
-	go func(envName string, envConfig EnvConfig) {
+	go func(envName string, envConfig config.EnvConfig) {
 		client, err := clientFactory(envConfig.SdkKey, clientConfig)
 		clientContext.setClient(client)
 
@@ -495,8 +496,8 @@ func newClientContext(envName string, envConfig *EnvConfig, c Config, clientFact
 }
 
 func configureDataStore(
-	c Config,
-	envConfig *EnvConfig,
+	c config.Config,
+	envConfig *config.EnvConfig,
 	loggers ldlog.Loggers,
 ) (interfaces.DataStoreFactory, error) {
 	var dbFactory interfaces.DataStoreFactory

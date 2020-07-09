@@ -11,6 +11,7 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 
 	relay "github.com/launchdarkly/ld-relay/v6"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"github.com/launchdarkly/ld-relay/v6/logging"
 )
@@ -33,7 +34,7 @@ func main() {
 	flag.BoolVar(&useEnvironment, "from-env", false, "read configuration from environment variables")
 	flag.Parse()
 
-	c := relay.DefaultConfig
+	c := config.DefaultConfig
 
 	if configFile == "" && !useEnvironment {
 		configFile = defaultConfigPath
@@ -58,12 +59,12 @@ func main() {
 	logging.GlobalLoggers.Infof("Starting LaunchDarkly relay version %s with %s\n", formatVersion(version.Version), configDesc)
 
 	if configFile != "" {
-		if err := relay.LoadConfigFile(&c, configFile); err != nil {
+		if err := config.LoadConfigFile(&c, configFile); err != nil {
 			log.Fatalf("Error loading config file: %s", err)
 		}
 	}
 	if useEnvironment {
-		if err := relay.LoadConfigFromEnvironment(&c); err != nil {
+		if err := config.LoadConfigFromEnvironment(&c); err != nil {
 			log.Fatalf("Configuration error: %s", err)
 		}
 	}
@@ -94,7 +95,7 @@ func main() {
 
 }
 
-func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan<- error) {
+func startHTTPServer(c *config.Config, r *relay.Relay, errs chan<- error) {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", c.Main.Port),
 		Handler: r,
