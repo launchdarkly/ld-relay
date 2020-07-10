@@ -2,60 +2,19 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
-	"go.opencensus.io/trace"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/launchdarkly/ld-relay/v6/config"
 )
-
-const (
-	testMetricsRelayID = "test-metrics-relay-id"
-	userAgentValue     = "my-agent"
-)
-
-type testExporter struct {
-	spans chan *trace.SpanData
-}
-
-func (e *testExporter) ExportSpan(s *trace.SpanData) {
-	e.spans <- s
-}
-
-func newTestExporter() *testExporter {
-	return &testExporter{spans: make(chan *trace.SpanData, 100)}
-}
-
-const testExporterType ExporterType = "test"
-
-type TestOptions int
-
-func (t TestOptions) getType() ExporterType {
-	return testExporterType
-}
-
-type testEventsPublisher struct {
-	events chan interface{}
-}
-
-func newTestEventsPublisher() *testEventsPublisher {
-	return &testEventsPublisher{
-		events: make(chan interface{}, 100),
-	}
-}
-
-func (p *testEventsPublisher) Publish(events ...interface{}) {
-	for _, e := range events {
-		p.events <- e
-	}
-}
-func (p *testEventsPublisher) PublishRaw(events ...json.RawMessage) {}
-func (p *testEventsPublisher) Flush()                               {}
 
 type args struct {
 	measure   Measure
@@ -182,14 +141,12 @@ func TestWithRouteCount(t *testing.T) {
 	}
 
 	exporter := newTestExporter()
-	defineExporter(testExporterType, func(o ExporterOptions) error {
-		trace.RegisterExporter(exporter)
-		return nil
-	})
+	exporterImpl, _ := (&testExporterTypeImpl{instance: exporter}).
+		createExporterIfEnabled(config.MetricsConfig{}, ldlog.NewDisabledLoggers())
+	_ = exporterImpl.register()
+	defer exporterImpl.close()
 
-	trace.RegisterExporter(exporter)
 	view.Register(requestView)
-	defer trace.UnregisterExporter(exporter)
 	defer view.Unregister(requestView)
 
 	expected := routeArgs{args: args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue}, method: "GET", route: "someRoute"}

@@ -1,5 +1,3 @@
-// +build go1.10
-
 package metrics
 
 import (
@@ -8,48 +6,53 @@ import (
 	"go.opencensus.io/trace"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
-func init() {
-	defineExporter(datadogExporterType, registerDatadogExporter)
+var datadogExporterType exporterType = datadogExporterTypeImpl{}
+
+type datadogExporterTypeImpl struct{}
+
+type datadogExporterImpl struct {
+	exporter *datadog.Exporter
 }
 
-type DatadogOptions struct {
-	Prefix    string
-	TraceAddr string
-	StatsAddr string
-	Tags      []string
+func (d datadogExporterTypeImpl) getName() string {
+	return "Datadog"
 }
 
-func (d DatadogOptions) getType() ExporterType {
-	return datadogExporterType
-}
-
-type DatadogConfig config.DatadogConfig
-
-func (c DatadogConfig) toOptions() ExporterOptions {
-	// For historical reasons, TraceAddr and StatsAddr were declared as pointers in DatadogConfig. However,
-	// if Datadog is enabled they must have non-nil values, so we have to change them to strings.
-	return DatadogOptions{
-		TraceAddr: ldvalue.NewOptionalStringFromPointer(c.TraceAddr).StringValue(),
-		StatsAddr: ldvalue.NewOptionalStringFromPointer(c.StatsAddr).StringValue(),
-		Tags:      c.Tag,
-		Prefix:    getPrefix(c.CommonMetricsConfig),
+func (d datadogExporterTypeImpl) createExporterIfEnabled(
+	mc config.MetricsConfig,
+	loggers ldlog.Loggers,
+) (exporter, error) {
+	if !mc.Datadog.Enabled {
+		return nil, nil
 	}
-}
 
-func (c DatadogConfig) enabled() bool {
-	return c.Enabled
-}
-
-func registerDatadogExporter(options ExporterOptions) error {
-	o := options.(DatadogOptions)
-	exporter, err := datadog.NewExporter(datadog.Options{Namespace: o.Prefix, Service: o.Prefix, TraceAddr: o.TraceAddr, StatsAddr: o.StatsAddr, Tags: o.Tags})
+	options := datadog.Options{
+		Namespace: getPrefix(mc.Datadog.CommonMetricsConfig),
+		Service:   getPrefix(mc.Datadog.CommonMetricsConfig),
+		TraceAddr: ldvalue.NewOptionalStringFromPointer(mc.Datadog.TraceAddr).StringValue(),
+		StatsAddr: ldvalue.NewOptionalStringFromPointer(mc.Datadog.StatsAddr).StringValue(),
+		Tags:      mc.Datadog.Tag,
+	}
+	exporter, err := datadog.NewExporter(options)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	view.RegisterExporter(exporter)
-	trace.RegisterExporter(exporter)
+	return &datadogExporterImpl{exporter: exporter}, nil
+}
+
+func (d *datadogExporterImpl) register() error {
+	view.RegisterExporter(d.exporter)
+	trace.RegisterExporter(d.exporter)
+	return nil
+}
+
+func (d *datadogExporterImpl) close() error {
+	d.exporter.Stop()
+	view.UnregisterExporter(d.exporter)
+	trace.UnregisterExporter(d.exporter)
 	return nil
 }

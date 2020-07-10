@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,84 +11,144 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/pborman/uuid"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 )
 
-type Processor struct {
-	OpenCensusCtx  context.Context
+// Manager is the top-level object that controls all of our metrics exporter activity. It should be
+// created and retained by the Relay instance, and closed when the Relay instance is closed.
+type Manager struct {
+	openCensusCtx  context.Context
 	metricsRelayID string
-	closer         chan<- struct{}
+	exporters      exportersSet
+	environments   []*EnvironmentManager
+	flushInterval  time.Duration
+	loggers        ldlog.Loggers
 	closeOnce      sync.Once
-	exporter       *OpenCensusEventsExporter
+	closed         bool
+	lock           sync.Mutex
 }
 
-type OptionType interface {
-	apply(p *Processor) error
+// EnvironmentManager controls the metrics exporter activity for a specific LD environment.
+type EnvironmentManager struct {
+	openCensusCtx  context.Context
+	eventsExporter *OpenCensusEventsExporter
+	closeOnce      sync.Once
 }
 
-type OptionFlushInterval time.Duration
-
-func (o OptionFlushInterval) apply(p *Processor) error {
-	return nil
-}
-
-type OptionEnvName string
-
-func (o OptionEnvName) apply(p *Processor) error {
-	p.OpenCensusCtx, _ = tag.New(p.OpenCensusCtx,
-		tag.Insert(envNameTagKey, sanitizeTagValue(string(o))))
-	return nil
-}
-
-func registerPrivateViews() (err error) {
-	registerPrivateViewsOnce.Do(func() {
-		err = view.Register(getPrivateViews()...)
-		if err != nil {
-			err = fmt.Errorf("Error registering metrics views")
-		}
-	})
-	return err
-}
-
-func NewMetricsProcessor(publisher events.EventPublisher, options ...OptionType) (*Processor, error) {
+// NewManager creates a Manager instance.
+func NewManager(
+	metricsConfig config.MetricsConfig,
+	flushInterval time.Duration,
+	loggers ldlog.Loggers,
+) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	closer := make(chan struct{})
+	exporters, err := registerExporters(allExporterTypes(), metricsConfig, loggers)
+	if err != nil {
+		return nil, err
+	}
+
+	registerPublicViewsOnce.Do(func() {
+		err = view.Register(getPublicViews()...)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error registering metrics views: %s", err)
+	}
+	registerPrivateViewsOnce.Do(func() {
+		err = view.Register(getPrivateViews()...)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error registering metrics views: %s", err)
+	}
+
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayID))
 
-	p := &Processor{
-		OpenCensusCtx:  ctx,
+	m := &Manager{
+		openCensusCtx:  ctx,
 		metricsRelayID: metricsRelayID,
-		closer:         closer,
+		exporters:      exporters,
+		flushInterval:  flushInterval,
+		loggers:        loggers,
+	}
+	if m.flushInterval <= 0 {
+		m.flushInterval = defaultFlushInterval
 	}
 
-	flushInterval := defaultFlushInterval
-	for _, o := range options {
-		if err := o.apply(p); err != nil {
-			return nil, err
-		}
-		switch o := o.(type) {
-		case OptionFlushInterval:
-			flushInterval = time.Duration(o)
-		}
-	}
-
-	p.exporter = newOpenCensusEventsExporter(metricsRelayID, publisher, flushInterval)
-	view.RegisterExporter(p.exporter)
-
-	if err := registerPrivateViews(); err != nil {
-		return p, err
-	}
-	return p, nil
+	return m, nil
 }
 
-func (p *Processor) Close() {
-	p.closeOnce.Do(func() {
-		view.UnregisterExporter(p.exporter)
-		p.exporter.close()
-		close(p.closer)
+// Close shuts down the Manager and all of its EnvironmentManager instances.
+func (m *Manager) Close() {
+	m.closeOnce.Do(func() {
+		m.lock.Lock()
+		exporters := m.exporters
+		environments := m.environments
+		m.exporters = nil
+		m.environments = nil
+		m.closed = true
+		m.lock.Unlock()
+
+		closeExporters(exporters, m.loggers)
+		for _, env := range environments {
+			env.close()
+		}
+	})
+}
+
+// AddEnvironment creates a new EnvironmentManager with its own OpenCensus context that includes
+// a tag for the environment name, and registers its exporter.
+func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher) (*EnvironmentManager, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if m.closed {
+		return nil, errors.New("tried to add new environment after closing metrics.Manager")
+	}
+
+	ctx, _ := tag.New(m.openCensusCtx, tag.Insert(envNameTagKey, sanitizeTagValue(envName)))
+
+	eventsExporter := newOpenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
+	view.RegisterExporter(eventsExporter)
+
+	em := &EnvironmentManager{
+		openCensusCtx:  ctx,
+		eventsExporter: eventsExporter,
+	}
+	m.environments = append(m.environments, em)
+	return em, nil
+}
+
+// RemoveEnvironment shuts down this EnvironmentManager and removes it from the Manager.
+func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
+	m.lock.Lock()
+	found := false
+	for i, em1 := range m.environments {
+		if em1 == em {
+			found = true
+			m.environments = append(m.environments[:i], m.environments[i+1:]...)
+			break
+		}
+	}
+	m.lock.Unlock()
+
+	if found {
+		em.close()
+	}
+}
+
+// GetOpenCensusContext returns the Context for this EnvironmentManager's OpenCensus operations.
+func (em *EnvironmentManager) GetOpenCensusContext() context.Context {
+	return em.openCensusCtx
+}
+
+func (em *EnvironmentManager) close() {
+	em.closeOnce.Do(func() {
+		view.UnregisterExporter(em.eventsExporter)
+		em.eventsExporter.close()
 	})
 }
 

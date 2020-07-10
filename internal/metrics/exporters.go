@@ -1,45 +1,72 @@
 package metrics
 
 import (
-	"fmt"
-
-	"go.opencensus.io/stats/view"
-
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
-type ExporterType string
+// exporterType represents one of the kinds of OpenCensus exporters that we support.
+type exporterType interface {
+	// Returns the human-readable name, like "Datadog".
+	getName() string
 
-const (
-	datadogExporterType     ExporterType = "Datadog"
-	stackdriverExporterType ExporterType = "Stackdriver"
-	prometheusExporterType  ExporterType = "Prometheus"
-)
-
-type ExporterOptions interface {
-	getType() ExporterType
+	// Checks the MetricsConfig and *if* this type of exporter is enabled in it, constructs an
+	// implementation of the exporter interface containing the relevant configuration (but does not
+	// register it yet). If this type of exporter is not enabled, returns (nil, nil).
+	createExporterIfEnabled(config.MetricsConfig, ldlog.Loggers) (exporter, error)
 }
 
-type ExporterRegisterer func(options ExporterOptions) error
+type exporter interface {
+	// Attempts to register this exporter with OpenCensus.
+	register() error
 
-// ExporterConfig is used internally to hold options for metrics integrations.
-type ExporterConfig interface {
-	toOptions() ExporterOptions
-	enabled() bool
+	// Attempts to unregister this exporter with OpenCensus and release any other resources it uses.
+	close() error
 }
 
-func ExporterOptionsFromConfig(c config.MetricsConfig) (options []ExporterOptions) {
-	exporterConfigs := []ExporterConfig{
-		DatadogConfig(c.Datadog),
-		StackdriverConfig(c.Stackdriver),
-		PrometheusConfig(c.Prometheus)}
-	for _, e := range exporterConfigs {
-		if e.enabled() {
-			options = append(options, e.toOptions())
+type exportersSet map[exporterType]exporter
+
+func allExporterTypes() []exporterType {
+	return []exporterType{datadogExporterType, prometheusExporterType, stackdriverExporterType}
+}
+
+// Attempts to create and register all of the types of exporters in exporterTypes that are actually
+// enabled in the configuration. An error in any of them causes the whole operation to fail and
+// unregisters any that have already been registered.
+func registerExporters(
+	exporterTypes []exporterType,
+	c config.MetricsConfig,
+	loggers ldlog.Loggers,
+) (exportersSet, error) {
+	registered := make(exportersSet)
+	for _, t := range exporterTypes {
+		exporter, err := t.createExporterIfEnabled(c, loggers)
+		if err != nil {
+			loggers.Errorf("Error creating %s metrics exporter: %s", t.getName(), err)
+			closeExporters(registered, loggers)
+			return nil, err
+		}
+		if exporter != nil {
+			err := exporter.register()
+			if err != nil {
+				loggers.Errorf("Error registering %s metrics exporter: %s", t.getName(), err)
+				closeExporters(registered, loggers)
+				return nil, err
+			}
+			loggers.Infof("Successfully registered %s metrics exporter", t.getName())
+			registered[t] = exporter
 		}
 	}
-	return options
+	return registered, nil
+}
+
+// Attempts to unregister and close a set of exporters. Errors are logged but do not stop the operation.
+func closeExporters(exporters exportersSet, loggers ldlog.Loggers) {
+	for t, e := range exporters {
+		if err := e.close(); err != nil {
+			loggers.Errorf("Error closing %s metrics exporter: %s", t.getName(), err)
+		}
+	}
 }
 
 func getPrefix(c config.CommonMetricsConfig) string {
@@ -47,31 +74,4 @@ func getPrefix(c config.CommonMetricsConfig) string {
 		return c.Prefix
 	}
 	return defaultMetricsPrefix
-}
-
-func defineExporter(exporterType ExporterType, registerer ExporterRegisterer) {
-	exporters[exporterType] = registerer
-}
-
-func RegisterExporters(options []ExporterOptions, loggers ldlog.Loggers) (registrationErr error) {
-	registerPublicExportersOnce.Do(func() {
-		for _, o := range options {
-			exporter := exporters[o.getType()]
-			if exporter == nil {
-				registrationErr = fmt.Errorf("Got unexpected exporter type: %s", o.getType())
-				return
-			} else if err := exporter(o); err != nil {
-				registrationErr = fmt.Errorf("Could not register %s exporter: %s", o.getType(), err)
-				return
-			} else {
-				loggers.Infof("Successfully registered %s exporter.", o.getType())
-			}
-		}
-
-		err := view.Register(getPublicViews()...)
-		if err != nil {
-			registrationErr = fmt.Errorf("Error registering metrics views")
-		}
-	})
-	return registrationErr
 }

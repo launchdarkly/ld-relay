@@ -83,10 +83,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := r.InitializeMetrics(); err != nil {
-		loggers.Errorf("Error initializing metrics: %s", err)
-	}
-
 	errs := make(chan error)
 	defer close(errs)
 
@@ -96,7 +92,6 @@ func main() {
 		loggers.Errorf("Error starting http listener on port: %d  %s", c.Main.Port, err)
 		os.Exit(1)
 	}
-
 }
 
 func startHTTPServer(c *config.Config, r *relay.Relay, loggers ldlog.Loggers, errs chan<- error) {

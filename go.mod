@@ -14,7 +14,7 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/eventsource v1.4.2
+	github.com/launchdarkly/eventsource v1.4.3
 	github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c
@@ -24,8 +24,9 @@ require (
 	go.opencensus.io v0.21.0
 	google.golang.org/api v0.0.0-20180717000714-0025a57598c0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
+	gopkg.in/launchdarkly/go-sdk-common.v1 v1.0.0-20200204015611-d48d1b4f4e70
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.0-beta.2
-	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0-beta.1
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.1
+	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0-beta.2
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.2
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0-beta.2
 )
