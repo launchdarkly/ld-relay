@@ -129,9 +129,7 @@ func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
 	for i, em1 := range m.environments {
 		if em1 == em {
 			found = true
-			copy(m.environments[i:], m.environments[i+1:])
-			m.environments[len(m.environments)-1] = nil
-			m.environments = m.environments[0 : len(m.environments)-1]
+			m.environments = append(m.environments[:i], m.environments[i+1:]...)
 			break
 		}
 	}
