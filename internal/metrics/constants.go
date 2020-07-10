@@ -13,6 +13,14 @@ const (
 	mobileTagValue  = "mobile"
 	serverTagValue  = "server"
 
+	connMeasureName        = "connections"
+	privateConnMeasureName = "internal_connections"
+
+	newConnMeasureName        = "newconnections"
+	privateNewConnMeasureName = "internal_newconnections"
+
+	requestMeasureName = "requests"
+
 	defaultFlushInterval = time.Minute
 )
 

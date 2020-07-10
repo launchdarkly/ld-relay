@@ -10,14 +10,17 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 
+	"github.com/pborman/uuid"
+
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 )
 
 type Processor struct {
-	OpenCensusCtx context.Context
-	closer        chan<- struct{}
-	closeOnce     sync.Once
-	exporter      *OpenCensusEventsExporter
+	OpenCensusCtx  context.Context
+	metricsRelayID string
+	closer         chan<- struct{}
+	closeOnce      sync.Once
+	exporter       *OpenCensusEventsExporter
 }
 
 type OptionType interface {
@@ -49,12 +52,15 @@ func registerPrivateViews() (err error) {
 }
 
 func NewMetricsProcessor(publisher events.EventPublisher, options ...OptionType) (*Processor, error) {
+	metricsRelayID := uuid.New()
+
 	closer := make(chan struct{})
-	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayId))
+	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayID))
 
 	p := &Processor{
-		OpenCensusCtx: ctx,
-		closer:        closer,
+		OpenCensusCtx:  ctx,
+		metricsRelayID: metricsRelayID,
+		closer:         closer,
 	}
 
 	flushInterval := defaultFlushInterval
@@ -68,7 +74,7 @@ func NewMetricsProcessor(publisher events.EventPublisher, options ...OptionType)
 		}
 	}
 
-	p.exporter = newOpenCensusEventsExporter(metricsRelayId, publisher, flushInterval)
+	p.exporter = newOpenCensusEventsExporter(metricsRelayID, publisher, flushInterval)
 	view.RegisterExporter(p.exporter)
 
 	if err := registerPrivateViews(); err != nil {
