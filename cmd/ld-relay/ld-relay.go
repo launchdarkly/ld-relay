@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 )
 
 const defaultConfigPath = "/etc/ld-relay.conf"
@@ -73,7 +74,7 @@ func main() {
 		}
 	}
 
-	r, err := relay.NewRelay(c, loggers, relay.DefaultClientFactory)
+	r, err := relay.NewRelay(c, loggers, sdkconfig.DefaultClientFactory)
 	if err != nil {
 		loggers.Errorf("Unable to create relay: %s", err)
 		os.Exit(1)

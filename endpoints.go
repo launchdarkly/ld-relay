@@ -17,6 +17,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
@@ -30,8 +31,8 @@ import (
 func pingStreamHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.getLoggers().Debug("Application requested client-side ping stream")
-		clientCtx.getHandlers().pingStreamHandler.ServeHTTP(w, req)
+		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
 	})
 }
 
@@ -39,8 +40,8 @@ func pingStreamHandler() http.Handler {
 func allStreamHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.getLoggers().Debug("Application requested server-side /all stream")
-		clientCtx.getHandlers().allStreamHandler.ServeHTTP(w, req)
+		clientCtx.GetLoggers().Debug("Application requested server-side /all stream")
+		clientCtx.GetHandlers().AllStreamHandler.ServeHTTP(w, req)
 	})
 }
 
@@ -48,17 +49,17 @@ func allStreamHandler() http.Handler {
 func flagsStreamHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.getLoggers().Debug("Application requested server-side /flags stream")
-		clientCtx.getHandlers().flagsStreamHandler.ServeHTTP(w, req)
+		clientCtx.GetLoggers().Debug("Application requested server-side /flags stream")
+		clientCtx.GetHandlers().FlagsStreamHandler.ServeHTTP(w, req)
 	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
-	data, err := clientCtx.getStore().GetAll(ldstoreimpl.Features())
+	data, err := clientCtx.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
-		clientCtx.getLoggers().Errorf("Error reading feature store: %s", err)
+		clientCtx.GetLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
 		return
 	}
@@ -93,7 +94,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		dispatcher := clientCtx.getHandlers().eventDispatcher
+		dispatcher := clientCtx.GetHandlers().EventDispatcher
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
@@ -159,9 +160,9 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	withReasons := req.URL.Query().Get("withReasons") == "true"
 
 	clientCtx := getClientContext(req)
-	client := clientCtx.getClient()
-	store := clientCtx.getStore()
-	loggers := clientCtx.getLoggers()
+	client := clientCtx.GetClient()
+	store := clientCtx.GetStore()
+	loggers := clientCtx.GetLoggers()
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -233,12 +234,12 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	w.Write(result)
 }
 
-func pollFlagOrSegment(clientContext clientContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
+func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
-		item, err := clientContext.getStore().Get(kind, key)
+		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {
-			clientContext.getLoggers().Errorf("Error reading feature store: %s", err)
+			clientContext.GetLoggers().Errorf("Error reading feature store: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -250,7 +251,7 @@ func pollFlagOrSegment(clientContext clientContext, kind ldstoretypes.DataKind) 
 	}
 }
 
-func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext clientContext,
+func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
 	entity interface{}, etagValue string) {
 	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
@@ -261,12 +262,12 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	}
 	bytes, err := json.Marshal(entity)
 	if err != nil {
-		clientContext.getLoggers().Errorf("Error marshaling JSON: %s", err)
+		clientContext.GetLoggers().Errorf("Error marshaling JSON: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Etag", etag)
-		ttl := clientContext.getTtl()
+		ttl := clientContext.GetTTL()
 		if ttl > 0 {
 			w.Header().Set("Vary", "Authorization")
 			expiresAt := time.Now().UTC().Add(ttl)
