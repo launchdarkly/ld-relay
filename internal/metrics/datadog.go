@@ -7,7 +7,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
 var datadogExporterType exporterType = datadogExporterTypeImpl{}
@@ -33,8 +32,8 @@ func (d datadogExporterTypeImpl) createExporterIfEnabled(
 	options := datadog.Options{
 		Namespace: getPrefix(mc.Datadog.CommonMetricsConfig),
 		Service:   getPrefix(mc.Datadog.CommonMetricsConfig),
-		TraceAddr: ldvalue.NewOptionalStringFromPointer(mc.Datadog.TraceAddr).StringValue(),
-		StatsAddr: ldvalue.NewOptionalStringFromPointer(mc.Datadog.StatsAddr).StringValue(),
+		TraceAddr: mc.Datadog.TraceAddr,
+		StatsAddr: mc.Datadog.StatsAddr,
 		Tags:      mc.Datadog.Tag,
 	}
 	exporter, err := datadog.NewExporter(options)

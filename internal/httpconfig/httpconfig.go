@@ -2,9 +2,7 @@ package httpconfig
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
@@ -24,26 +22,22 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent("LDRelay/" + version.Version)
 
 	ret := HTTPConfig{ProxyConfig: proxyConfig}
 
-	if proxyConfig.Url == "" && proxyConfig.NtlmAuth {
+	if !proxyConfig.URL.IsDefined() && proxyConfig.NTLMAuth {
 		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
 	}
-	if proxyConfig.Url != "" {
-		_, err := url.Parse(proxyConfig.Url)
-		if err != nil {
-			return ret, fmt.Errorf("Invalid proxy URL: %s", proxyConfig.Url)
-		}
-		loggers.Infof("Using proxy server at %s", proxyConfig.Url)
+	if proxyConfig.URL.IsDefined() {
+		loggers.Infof("Using proxy server at %s", proxyConfig.URL)
 	}
 
-	caCertFiles := strings.Split(strings.TrimSpace(proxyConfig.CaCertFiles), ",")
+	caCertFiles := strings.Split(strings.TrimSpace(proxyConfig.CACertFiles), ",")
 
-	if proxyConfig.NtlmAuth {
+	if proxyConfig.NTLMAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errors.New("NTLM proxy authentication requires username and password")
 		}
@@ -55,7 +49,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string, loggers ldlog.
 				transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
 			}
 		}
-		factory, err := ldntlm.NewNTLMProxyHTTPClientFactory(proxyConfig.Url,
+		factory, err := ldntlm.NewNTLMProxyHTTPClientFactory(proxyConfig.URL.String(),
 			proxyConfig.User, proxyConfig.Password, proxyConfig.Domain, transportOpts...)
 		if err != nil {
 			return ret, err
@@ -63,8 +57,8 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string, loggers ldlog.
 		configBuilder.HTTPClientFactory(factory)
 		loggers.Info("NTLM proxy authentication enabled")
 	} else {
-		if proxyConfig.Url != "" {
-			configBuilder.ProxyURL(proxyConfig.Url)
+		if proxyConfig.URL.IsDefined() {
+			configBuilder.ProxyURL(proxyConfig.URL.String())
 		}
 		for _, filePath := range caCertFiles {
 			if filePath != "" {
@@ -75,7 +69,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey string, loggers ldlog.
 
 	var err error
 	ret.SDKHTTPConfigFactory = configBuilder
-	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(interfaces.BasicConfiguration{SDKKey: sdkKey})
+	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(interfaces.BasicConfiguration{SDKKey: string(sdkKey)})
 	return ret, err
 }
 

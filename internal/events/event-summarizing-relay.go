@@ -16,7 +16,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 )
@@ -62,11 +62,11 @@ type receivedIdentifyEvent struct {
 	User         receivedEventUser          `json:"user"`
 }
 
-func newEventSummarizingRelay(sdkKey string, config config.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
+func newEventSummarizingRelay(authKey c.SDKCredential, config c.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
 	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
 	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
-	eventsURI := strings.TrimRight(config.EventsUri, "/") + remotePath
+	eventsURI := strings.TrimRight(config.EventsURI.StringOrElse(c.DefaultEventsURI), "/") + remotePath
 	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
 
 	eventsConfig := ldevents.EventsConfiguration{

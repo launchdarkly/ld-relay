@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
@@ -77,7 +78,7 @@ var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSi
 var segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
 // Returns a key matching the UUID header pattern
-func key() string {
+func key() config.MobileKey {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
 }
 
@@ -184,6 +185,6 @@ func NewStreamRecorder() (StreamRecorder, io.Reader) {
 	return StreamRecorder{
 		ResponseRecorder: recorder,
 		Writer:           bufio.NewWriter(writer),
-		closer:           make(chan bool),
+		closer:           make(chan bool, 1),
 	}, reader
 }

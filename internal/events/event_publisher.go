@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,20 +14,21 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 )
 
 const (
-	numAttempts              = 2
-	defaultFlushInterval     = time.Minute
-	defaultCapacity          = 1000
-	inputQueueSize           = 100
-	defaultEventsEndpointURI = "https://events.launchdarkly.com/bulk"
-	defaultEventsURIPath     = "/bulk"
+	numAttempts          = 2
+	defaultFlushInterval = time.Minute
+	defaultCapacity      = 1000
+	inputQueueSize       = 100
+	defaultEventsURIPath = "/bulk"
 )
 
 var (
-	defaultUserAgent = "LDRelay/" + version.Version
+	defaultUserAgent            = "LDRelay/" + version.Version
+	defaultEventsEndpointURI, _ = url.Parse("https://events.launchdarkly.com/bulk")
 )
 
 type EventPublisher interface {
@@ -36,10 +38,10 @@ type EventPublisher interface {
 }
 
 type HttpEventPublisher struct {
-	eventsURI  string
+	eventsURI  url.URL
 	loggers    ldlog.Loggers
 	client     *http.Client
-	authKey    string
+	authKey    config.SDKCredential
 	userAgent  string
 	closer     chan<- struct{}
 	closeOnce  sync.Once
@@ -88,15 +90,21 @@ type OptionType interface {
 type OptionUri string
 
 func (o OptionUri) apply(p *HttpEventPublisher) error {
-	p.eventsURI = strings.TrimRight(string(o), "/") + defaultEventsURIPath
+	u, err := url.Parse(strings.TrimRight(string(o), "/") + defaultEventsURIPath)
+	if err == nil {
+		p.eventsURI = *u
+	}
 	return nil
 }
 
 type OptionEndpointURI string
 
 func (o OptionEndpointURI) apply(p *HttpEventPublisher) error {
-	p.eventsURI = string(o)
-	return nil
+	u, err := url.Parse(string(o))
+	if err == nil {
+		p.eventsURI = *u
+	}
+	return err
 }
 
 type OptionFlushInterval time.Duration
@@ -128,14 +136,14 @@ func (o OptionCapacity) apply(p *HttpEventPublisher) error {
 	return nil
 }
 
-func NewHttpEventPublisher(authKey string, loggers ldlog.Loggers, options ...OptionType) (*HttpEventPublisher, error) {
+func NewHttpEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, options ...OptionType) (*HttpEventPublisher, error) {
 	closer := make(chan struct{})
 
 	inputQueue := make(chan interface{}, inputQueueSize)
 	p := &HttpEventPublisher{
 		client:     http.DefaultClient,
 		userAgent:  defaultUserAgent,
-		eventsURI:  defaultEventsEndpointURI,
+		eventsURI:  *defaultEventsEndpointURI,
 		authKey:    authKey,
 		closer:     closer,
 		capacity:   defaultCapacity,
@@ -250,13 +258,13 @@ PostAttempts:
 			p.loggers.Warn("Will retry posting events after 1 second")
 			time.Sleep(1 * time.Second)
 		}
-		req, reqErr := http.NewRequest("POST", p.eventsURI, bytes.NewReader(jsonPayload))
+		req, reqErr := http.NewRequest("POST", p.eventsURI.String(), bytes.NewReader(jsonPayload))
 		if reqErr != nil {
 			return reqErr
 		}
 
-		if p.authKey != "" {
-			req.Header.Add("Authorization", p.authKey)
+		if p.authKey.GetAuthorizationHeaderValue() != "" {
+			req.Header.Add("Authorization", p.authKey.GetAuthorizationHeaderValue())
 		}
 		req.Header.Add("Content-Type", "application/json")
 		req.Header.Add("User-Agent", "LDRelay/"+version.Version)
@@ -277,7 +285,7 @@ PostAttempts:
 		if statusCode/100 == 2 {
 			return nil
 		}
-		respErr = fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, p.eventsURI)
+		respErr = fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, p.eventsURI.String())
 
 		switch statusCode {
 		case http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusNotFound:

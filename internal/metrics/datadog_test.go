@@ -8,7 +8,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
 func TestDatadogExporterType(t *testing.T) {
@@ -41,7 +40,7 @@ func TestDatadogExporterType(t *testing.T) {
 	t.Run("returns error for invalid stats address", func(t *testing.T) {
 		var mc config.MetricsConfig
 		mc.Datadog.Enabled = true
-		mc.Datadog.StatsAddr = ldvalue.NewOptionalString("::").AsPointer()
+		mc.Datadog.StatsAddr = "::"
 		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
 		require.Error(t, err)
 		assert.Nil(t, e)

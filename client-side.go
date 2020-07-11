@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,8 +12,7 @@ import (
 
 	"net/http/httputil"
 
-	"github.com/gorilla/mux"
-
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
@@ -33,16 +33,21 @@ func (c *clientSideContext) AllowedOrigins() []string {
 }
 
 type clientSideMux struct {
-	contextByKey map[string]*clientSideContext
+	contextByKey map[config.SDKCredential]*clientSideContext
 }
 
 func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		envId := mux.Vars(req)["envId"]
+		envId, err := jsClientSdk.getSDKCredential(req)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("URL did not contain an environment ID"))
+			return
+		}
 		clientCtx := m.contextByKey[envId]
 		if clientCtx == nil {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("ld-relay is not configured for environment id " + envId))
+			w.Write([]byte(fmt.Sprintf("ld-relay is not configured for environment id %s", envId)))
 			return
 		}
 

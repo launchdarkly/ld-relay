@@ -24,18 +24,18 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 )
 
 func handler() clientMux {
-	return clientMux{clientContextByKey: map[string]relayenv.EnvContext{
+	return clientMux{clientContextByKey: map[c.SDKCredential]relayenv.EnvContext{
 		key(): newTestEnvContext("", true, nil),
 	}}
 }
@@ -45,7 +45,7 @@ func clientSideHandler(allowedOrigins []string) clientSideMux {
 		allowedOrigins: allowedOrigins,
 		EnvContext:     newTestEnvContext("", true, nil),
 	}
-	contexts := map[string]*clientSideContext{key(): testClientSideContext}
+	contexts := map[c.SDKCredential]*clientSideContext{key(): testClientSideContext}
 	return clientSideMux{contextByKey: contexts}
 }
 
@@ -130,7 +130,8 @@ func TestAuthorizeMethodFailsOnInvalidAuthKey(t *testing.T) {
 	headers := map[string]string{"Authorization": "mob-eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee", "Content-Type": "application/json"}
 	req := buildRequest("REPORT", vars, headers, `{"user":"key"}`, nil)
 	resp := httptest.NewRecorder()
-	handler().selectClientByAuthorizationKey(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
+	handler().selectClientByAuthorizationKey(mobileSdk)(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
 
 	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 }
@@ -235,7 +236,8 @@ func TestCorsMiddlewareSetsCorrectHeadersForInvalidOrigin(t *testing.T) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
 	})).ServeHTTP(resp, req)
 
-	handler().selectClientByAuthorizationKey(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
+	handler().selectClientByAuthorizationKey(serverSdk)(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fail() })).ServeHTTP(resp, req)
 
 }
 
@@ -291,32 +293,32 @@ func TestRelay(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	sdkKey := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0"
-	sdkKeyWithTTL := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"
-	sdkKeyClientSide := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"
-	sdkKeyMobile := "sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"
-	mobileKey := "mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"
+	sdkKey := c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0")
+	sdkKeyWithTTL := c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5")
+	sdkKeyClientSide := c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1")
+	sdkKeyMobile := c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2")
+	mobileKey := c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db")
 
-	envId := "507f1f77bcf86cd799439011"
+	envId := c.EnvironmentID("507f1f77bcf86cd799439011")
 	user := []byte(`{"key":"me"}`)
 	base64User := base64.StdEncoding.EncodeToString([]byte(user))
 
 	config := c.Config{
 		Environment: map[string]*c.EnvConfig{
 			"sdk test": {
-				SdkKey: sdkKey,
+				SDKKey: sdkKey,
 			},
 			"sdk test with TTL": {
-				SdkKey:     sdkKeyWithTTL,
-				TtlMinutes: 10,
+				SDKKey:     sdkKeyWithTTL,
+				TTLMinutes: 10,
 			},
 			"client-side test": {
-				SdkKey: sdkKeyClientSide,
-				EnvId:  &envId,
+				SDKKey: sdkKeyClientSide,
+				EnvID:  envId,
 			},
 			"mobile test": {
-				SdkKey:    sdkKeyMobile,
-				MobileKey: &mobileKey,
+				SDKKey:    sdkKeyMobile,
+				MobileKey: mobileKey,
 			},
 		},
 	}
@@ -326,7 +328,7 @@ func TestRelay(t *testing.T) {
 	fakeServerURL, _ := url.Parse(fakeServer.URL)
 	fakeApp.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
 		ioutil.ReadAll(req.Body)
-		if mux.Vars(req)["envId"] != envId {
+		if mux.Vars(req)["envId"] != string(envId) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -336,15 +338,15 @@ func TestRelay(t *testing.T) {
 	}).Methods("GET")
 	defer fakeServer.Close()
 
-	config.Main.BaseUri = fakeServer.URL
+	config.Main.BaseURI, _ = c.NewOptAbsoluteURLFromString(fakeServer.URL)
 	config.Events.SendEvents = true
-	config.Events.EventsUri = eventsServer.URL
+	config.Events.EventsURI, _ = c.NewOptAbsoluteURLFromString(eventsServer.URL)
 	config.Events.FlushIntervalSecs = 1
 	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
-	createDummyClient := func(sdkKey string, config ld.Config) (sdkconfig.LDClientContext, error) {
+	createDummyClient := func(sdkKey c.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
 		store, _ := config.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
-			sharedtest.SDKContextImpl{}, nil)
+			testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
 		addAllFlags(store, true)
 		return &fakeLDClient{true}, nil
 	}
@@ -413,7 +415,7 @@ func TestRelay(t *testing.T) {
 			name           string
 			method         string
 			path           string
-			authHeader     string
+			authHeader     c.SDKCredential
 			body           []byte
 			expectedStatus int
 			bodyMatcher    bodyMatcher
@@ -437,8 +439,8 @@ func TestRelay(t *testing.T) {
 				}
 				r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 				r.Header.Set("Content-Type", "application/json")
-				if s.authHeader != "" {
-					r.Header.Set("Authorization", s.authHeader)
+				if s.authHeader.GetAuthorizationHeaderValue() != "" {
+					r.Header.Set("Authorization", s.authHeader.GetAuthorizationHeaderValue())
 				}
 				relay.ServeHTTP(w, r)
 				result := w.Result()
@@ -457,7 +459,7 @@ func TestRelay(t *testing.T) {
 			name          string
 			method        string
 			path          string
-			authHeader    string
+			authHeader    c.SDKCredential
 			body          []byte
 			expectedEvent string
 			expectedData  []byte
@@ -475,8 +477,8 @@ func TestRelay(t *testing.T) {
 				bodyBuffer := bytes.NewBuffer(s.body)
 				r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 				r.Header.Set("Content-Type", "application/json")
-				if s.authHeader != "" {
-					r.Header.Set("Authorization", s.authHeader)
+				if s.authHeader.GetAuthorizationHeaderValue() != "" {
+					r.Header.Set("Authorization", s.authHeader.GetAuthorizationHeaderValue())
 				}
 				wg := sync.WaitGroup{}
 				wg.Add(1)
@@ -485,14 +487,24 @@ func TestRelay(t *testing.T) {
 					wg.Done()
 				}()
 				dec := eventsource.NewDecoder(bodyReader)
-				event, err := dec.Decode()
-				if assert.NoError(t, err) {
-					assert.Equal(t, s.expectedEvent, event.Event())
-					if s.expectedData != nil {
-						assert.JSONEq(t, string(s.expectedData), event.Data())
+				eventCh := make(chan eventsource.Event, 1)
+				go func() {
+					event, err := dec.Decode()
+					assert.NoError(t, err)
+					eventCh <- event
+				}()
+				select {
+				case event := <-eventCh:
+					if event != nil {
+						assert.Equal(t, s.expectedEvent, event.Event())
+						if s.expectedData != nil {
+							assert.JSONEq(t, string(s.expectedData), event.Data())
+						}
+						assertStreamingHeaders(t, w.Header())
 					}
+				case <-time.After(time.Second * 3):
+					assert.Fail(t, "timed out waiting for event")
 				}
-				assertStreamingHeaders(t, w.Header())
 				w.Close()
 				wg.Wait()
 			})
@@ -642,14 +654,14 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/bulk", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Authorization", sdkKey)
+			r.Header.Set("Authorization", string(sdkKey))
 			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := requirePublishedEvent(body)
 				assert.Equal(t, "/bulk", event.url)
-				assert.Equal(t, sdkKey, event.authKey)
+				assert.Equal(t, string(sdkKey), event.authKey)
 			}
 		})
 
@@ -659,13 +671,13 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/diagnostic", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Authorization", sdkKey)
+			r.Header.Set("Authorization", string(sdkKey))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := requirePublishedEvent(body)
 				assert.Equal(t, "/diagnostic", event.url)
-				assert.Equal(t, sdkKey, event.authKey)
+				assert.Equal(t, string(sdkKey), event.authKey)
 			}
 		})
 	})
@@ -686,14 +698,14 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest(s.method, "http://localhost"+s.path, bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Authorization", mobileKey)
+			r.Header.Set("Authorization", string(mobileKey))
 			r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := requirePublishedEvent(body)
 				assert.Equal(t, "/mobile", event.url)
-				assert.Equal(t, mobileKey, event.authKey)
+				assert.Equal(t, string(mobileKey), event.authKey)
 			}
 		}
 
@@ -703,19 +715,19 @@ func TestRelay(t *testing.T) {
 			bodyBuffer := bytes.NewBuffer(body)
 			r, _ := http.NewRequest("POST", "http://localhost/mobile/events/diagnostic", bodyBuffer)
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Authorization", mobileKey)
+			r.Header.Set("Authorization", string(mobileKey))
 			relay.ServeHTTP(w, r)
 			result := w.Result()
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := requirePublishedEvent(body)
 				assert.Equal(t, "/mobile/events/diagnostic", event.url)
-				assert.Equal(t, mobileKey, event.authKey)
+				assert.Equal(t, string(mobileKey), event.authKey)
 			}
 		})
 	})
 
 	t.Run("client-side events proxies", func(t *testing.T) {
-		expectedPath := "/events/bulk/" + envId
+		expectedPath := "/events/bulk/" + string(envId)
 
 		t.Run("bulk post", func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -767,7 +779,7 @@ func TestRelay(t *testing.T) {
 	t.Run("PHP endpoints", func(t *testing.T) {
 		makeRequest := func(url string) *http.Request {
 			r, _ := http.NewRequest("GET", url, nil)
-			r.Header.Set("Authorization", sdkKey)
+			r.Header.Set("Authorization", string(sdkKey))
 			return r
 		}
 
@@ -824,7 +836,7 @@ func TestRelay(t *testing.T) {
 		t.Run("get flag - environment has TTL", func(t *testing.T) {
 			w := httptest.NewRecorder()
 			r, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost/sdk/flags/%s", flag1ServerSide.flag.Key), nil)
-			r.Header.Set("Authorization", sdkKeyWithTTL)
+			r.Header.Set("Authorization", string(sdkKeyWithTTL))
 			relay.ServeHTTP(w, r)
 			assertOKResponseWithEntity(t, w.Result(), flag1ServerSide.flag)
 			assert.NotEqual(t, "", w.Result().Header.Get("Expires"))
@@ -887,9 +899,9 @@ SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
 		return
 	}
 
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", config.Environment["test api key"].SdkKey,
+	assert.Equal(t, c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"), config.Environment["test api key"].SDKKey,
 		"expected api key to be used as sdk key when api key is set")
-	assert.Equal(t, "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989", config.Environment["test api and sdk key"].SdkKey,
+	assert.Equal(t, c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"), config.Environment["test api and sdk key"].SDKKey,
 		"expected sdk key to be used as sdk key when both api key and sdk key are set")
 }
 

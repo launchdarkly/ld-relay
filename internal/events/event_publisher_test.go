@@ -12,13 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 func TestEventPublisher(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHttpEventPublisher("my-key", ldlog.NewDisabledLoggers(), OptionUri(server.URL))
+		publisher, _ := NewHttpEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionUri(server.URL))
 		defer publisher.Close()
 		publisher.Publish("hello")
 		publisher.Publish("hello again")
@@ -37,7 +38,7 @@ func TestEventPublisher(t *testing.T) {
 func TestEventPublishRaw(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHttpEventPublisher("my-key", ldlog.NewDisabledLoggers(), OptionUri(server.URL))
+		publisher, _ := NewHttpEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionUri(server.URL))
 		defer publisher.Close()
 		publisher.PublishRaw(json.RawMessage(`{"hello": 1}`))
 		publisher.Flush()
@@ -53,7 +54,7 @@ func TestEventPublishRaw(t *testing.T) {
 }
 
 func TestEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
-	publisher, _ := NewHttpEventPublisher("my-key", ldlog.NewDisabledLoggers())
+	publisher, _ := NewHttpEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers())
 	timeout := time.After(time.Second)
 	publisher.Close()
 	publisher.Close()
@@ -68,7 +69,7 @@ func TestPublisherAutomaticFlush(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", ldlog.NewDisabledLoggers(), OptionUri(server.URL), OptionFlushInterval(time.Millisecond))
+	publisher, _ := NewHttpEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionUri(server.URL), OptionFlushInterval(time.Millisecond))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	select {
@@ -87,7 +88,7 @@ func TestHttpEventPublisherCapacity(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHttpEventPublisher("my-key", ldlog.NewDisabledLoggers(), OptionUri(server.URL), OptionCapacity(1))
+	publisher, _ := NewHttpEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionUri(server.URL), OptionCapacity(1))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	publisher.Publish("goodbye")
