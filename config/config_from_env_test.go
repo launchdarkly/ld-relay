@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,102 @@ func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 			testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
 		})
 	}
+}
+
+func TestConfigFromEnvironmentDeprecatedUsage(t *testing.T) {
+	t.Run("HEARTBEAT_INTERVAL as number of seconds", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			map[string]string{"HEARTBEAT_INTERVAL": "3"},
+		)
+	})
+
+	t.Run("EVENTS_FLUSH_INTERVAL as number of seconds", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) { c.Events.FlushInterval = NewOptDuration(3 * time.Second) },
+			map[string]string{"EVENTS_FLUSH_INTERVAL": "3"}, // this property was formerly defined as seconds
+		)
+	})
+
+	t.Run("LD_TTL_MINUTES_env", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.Environment = make(map[string]*EnvConfig)
+				c.Environment["envname"] = &EnvConfig{
+					SDKKey: SDKKey("key"),
+					TTL:    NewOptDuration(3 * time.Minute),
+				}
+			},
+			map[string]string{
+				"LD_ENV_envname":         "key",
+				"LD_TTL_MINUTES_envname": "3",
+			},
+		)
+		testInvalidConfigVars(t,
+			map[string]string{
+				"LD_ENV_envname":         "key",
+				"LD_TTL_MINUTES_envname": "x",
+			},
+			"LD_TTL_MINUTES_envname: must be an integer",
+		)
+	})
+
+	t.Run("database CACHE_TTL as number of milliseconds", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.Redis.URL = defaultRedisURL
+				c.Redis.LocalTTL = NewOptDuration(500 * time.Millisecond)
+			},
+			map[string]string{
+				"USE_REDIS": "1",
+				"CACHE_TTL": "500",
+			},
+		)
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.DynamoDB.Enabled = true
+				c.DynamoDB.LocalTTL = NewOptDuration(500 * time.Millisecond)
+			},
+			map[string]string{
+				"USE_DYNAMODB": "1",
+				"CACHE_TTL":    "500",
+			},
+		)
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.Consul.Host = defaultConsulHost
+				c.Consul.LocalTTL = NewOptDuration(500 * time.Millisecond)
+			},
+			map[string]string{
+				"USE_CONSUL": "1",
+				"CACHE_TTL":  "500",
+			},
+		)
+	})
+
+	t.Run("REDIS_TTL as number of milliseconds", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.Redis.URL = defaultRedisURL
+				c.Redis.LocalTTL = NewOptDuration(500 * time.Millisecond)
+			},
+			map[string]string{
+				"USE_REDIS": "1",
+				"REDIS_TTL": "500",
+			},
+		)
+		testValidConfigVars(t,
+			func(c *Config) {
+				c.Redis.URL = defaultRedisURL
+				c.Redis.LocalTTL = NewOptDuration(300 * time.Millisecond)
+			},
+			map[string]string{
+				"USE_REDIS": "1",
+				"REDIS_TTL": "300",
+				"CACHE_TTL": "500",
+			},
+		)
+	})
 }
 
 func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
@@ -84,6 +181,20 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"BASE_URI": "not/absolute"},
 			"BASE_URI: must be an absolute URL/URI",
+		)
+	})
+
+	t.Run("parses valid duration", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			map[string]string{"HEARTBEAT_INTERVAL": "3s"},
+		)
+	})
+
+	t.Run("rejects invalid duration", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{"HEARTBEAT_INTERVAL": "x"},
+			"HEARTBEAT_INTERVAL: "+errBadDuration("x").Error(),
 		)
 	})
 

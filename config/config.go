@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
@@ -13,18 +15,28 @@ const (
 
 	// DefaultEventsURI is the default value for the base URI of LaunchDarkly services (event endpoints).
 	DefaultEventsURI = "https://events.launchdarkly.com"
+
+	// DefaultHeartbeatInterval is the default value for MainConfig.HeartBeatInterval if not specified.
+	DefaultHeartbeatInterval = time.Minute * 3
+
+	// DefaultEventsFlushInterval is the default value for EventsConfig.FlushInterval if not specified.
+	DefaultEventsFlushInterval = time.Second * 5
+
+	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
+	DefaultDatabaseCacheTTL = time.Second * 30
 )
 
 const (
-	defaultDatabaseLocalTTLMs    = 30000
-	defaultPort                  = 8030
-	defaultEventCapacity         = 1000
-	defaultHeartbeatIntervalSecs = 180
-	defaultFlushIntervalSecs     = 5
-	defaultRedisHost             = "localhost"
-	defaultRedisPort             = 6379
-	defaultConsulHost            = "localhost"
-	defaultPrometheusPort        = 8031
+	defaultPort           = 8030
+	defaultEventCapacity  = 1000
+	defaultRedisHost      = "localhost"
+	defaultRedisPort      = 6379
+	defaultConsulHost     = "localhost"
+	defaultPrometheusPort = 8031
+)
+
+var (
+	defaultRedisURL = newOptAbsoluteURLMustBeValid("redis://localhost:6379")
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -57,7 +69,7 @@ type MainConfig struct {
 	StreamURI              OptAbsoluteURL
 	BaseURI                OptAbsoluteURL
 	Port                   int
-	HeartbeatIntervalSecs  int
+	HeartbeatInterval      OptDuration
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
@@ -66,12 +78,12 @@ type MainConfig struct {
 
 // EventsConfig contains configuration parameters for proxying events.
 type EventsConfig struct {
-	EventsURI         OptAbsoluteURL
-	SendEvents        bool
-	FlushIntervalSecs int
-	SamplingInterval  int32
-	Capacity          int
-	InlineUsers       bool
+	EventsURI        OptAbsoluteURL
+	SendEvents       bool
+	FlushInterval    OptDuration
+	SamplingInterval int32
+	Capacity         int
+	InlineUsers      bool
 }
 
 // RedisConfig configures the optional Redis integration.
@@ -85,7 +97,7 @@ type RedisConfig struct {
 	Host     string
 	Port     int
 	URL      OptAbsoluteURL
-	LocalTTL int
+	LocalTTL OptDuration
 	TLS      bool
 	Password string
 }
@@ -97,7 +109,7 @@ type RedisConfig struct {
 // This corresponds to the [Consul] section in the configuration file.
 type ConsulConfig struct {
 	Host     string
-	LocalTTL int
+	LocalTTL OptDuration
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
@@ -107,7 +119,7 @@ type DynamoDBConfig struct {
 	Enabled   bool
 	TableName string
 	URL       OptAbsoluteURL
-	LocalTTL  int
+	LocalTTL  OptDuration
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.
@@ -124,7 +136,7 @@ type EnvConfig struct {
 	AllowedOrigin      []string
 	InsecureSkipVerify bool
 	LogLevel           OptLogLevel
-	TTLMinutes         int
+	TTL                OptDuration
 }
 
 // ProxyConfig represents all the supported proxy options.
@@ -184,24 +196,13 @@ type PrometheusConfig struct {
 // start by copying relay.DefaultConfig and then changing only the fields you need to change.
 var DefaultConfig = Config{
 	Main: MainConfig{
-		BaseURI:               newOptAbsoluteURLMustBeValid(DefaultBaseURI),
-		StreamURI:             newOptAbsoluteURLMustBeValid(DefaultStreamURI),
-		HeartbeatIntervalSecs: defaultHeartbeatIntervalSecs,
-		Port:                  defaultPort,
+		BaseURI:   newOptAbsoluteURLMustBeValid(DefaultBaseURI),
+		StreamURI: newOptAbsoluteURLMustBeValid(DefaultStreamURI),
+		Port:      defaultPort,
 	},
 	Events: EventsConfig{
-		Capacity:          defaultEventCapacity,
-		EventsURI:         newOptAbsoluteURLMustBeValid(DefaultEventsURI),
-		FlushIntervalSecs: defaultFlushIntervalSecs,
-	},
-	Redis: RedisConfig{
-		LocalTTL: defaultDatabaseLocalTTLMs,
-	},
-	Consul: ConsulConfig{
-		LocalTTL: defaultDatabaseLocalTTLMs,
-	},
-	DynamoDB: DynamoDBConfig{
-		LocalTTL: defaultDatabaseLocalTTLMs,
+		Capacity:  defaultEventCapacity,
+		EventsURI: newOptAbsoluteURLMustBeValid(DefaultEventsURI),
 	},
 	MetricsConfig: MetricsConfig{
 		Prometheus: PrometheusConfig{

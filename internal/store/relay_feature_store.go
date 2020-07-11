@@ -91,7 +91,7 @@ type SSERelayDataStoreParams struct {
 	AllPublisher      ESPublisher
 	FlagsPublisher    ESPublisher
 	PingPublisher     ESPublisher
-	HeartbeatInterval int
+	HeartbeatInterval time.Duration
 }
 
 type SSERelayFeatureStore struct {
@@ -124,7 +124,7 @@ func NewSSERelayFeatureStore(
 	pingPublisher ESPublisher,
 	baseFeatureStore interfaces.DataStore,
 	loggers ldlog.Loggers,
-	heartbeatInterval int,
+	heartbeatInterval time.Duration,
 ) *SSERelayFeatureStore {
 	relayStore := &SSERelayFeatureStore{
 		store:          baseFeatureStore,
@@ -141,7 +141,7 @@ func NewSSERelayFeatureStore(
 
 	if heartbeatInterval > 0 {
 		go func() {
-			t := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
+			t := time.NewTicker(heartbeatInterval)
 			for {
 				relayStore.heartbeat()
 				<-t.C

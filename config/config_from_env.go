@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -24,7 +25,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	maybeSetFromEnvBool(&c.Main.ExitOnError, "EXIT_ON_ERROR")
 	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
-	maybeSetFromEnvInt(&c.Main.HeartbeatIntervalSecs, "HEARTBEAT_INTERVAL", &errs)
+	maybeSetFromEnvDuration(&c.Main.HeartbeatInterval, "HEARTBEAT_INTERVAL", time.Second, "", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
@@ -32,7 +33,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnvAny(&c.Events.EventsURI, "EVENTS_HOST", &errs)
-	maybeSetFromEnvInt(&c.Events.FlushIntervalSecs, "EVENTS_FLUSH_INTERVAL", &errs)
+	maybeSetFromEnvDuration(&c.Events.FlushInterval, "EVENTS_FLUSH_INTERVAL", time.Second, "", &errs)
 	maybeSetFromEnvInt32(&c.Events.SamplingInterval, "EVENTS_SAMPLING_INTERVAL", &errs)
 	maybeSetFromEnvInt(&c.Events.Capacity, "EVENTS_CAPACITY", &errs)
 	maybeSetFromEnvBool(&c.Events.InlineUsers, "EVENTS_INLINE_USERS")
@@ -44,7 +45,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		ec.EnvID = EnvironmentID(maybeEnvStr("LD_CLIENT_SIDE_ID_"+envName, string(ec.EnvID)))
 		maybeSetFromEnv(&ec.Prefix, "LD_PREFIX_"+envName)
 		maybeSetFromEnv(&ec.TableName, "LD_TABLE_NAME_"+envName)
-		maybeSetFromEnvInt(&ec.TTLMinutes, "LD_TTL_MINUTES_"+envName, &errs)
+		maybeSetFromEnvDuration(&ec.TTL, "LD_TTL_"+envName, time.Minute, "LD_TTL_MINUTES_"+envName, &errs)
 		if s := os.Getenv("LD_ALLOWED_ORIGIN_" + envName); s != "" {
 			ec.AllowedOrigin = strings.Split(s, ",")
 		}
@@ -58,7 +59,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	useRedis := false
 	maybeSetFromEnvBool(&useRedis, "USE_REDIS")
-	if useRedis || (c.Redis.Host != "" || c.Redis.URL.IsDefined()) {
+	if useRedis || c.Redis.Host != "" || c.Redis.URL.IsDefined() {
 		portStr := ""
 		if c.Redis.Port > 0 {
 			portStr = fmt.Sprintf("%d", c.Redis.Port)
@@ -85,13 +86,20 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		}
 		if !c.Redis.URL.IsDefined() && c.Redis.Host == "" && c.Redis.Port == 0 {
 			// all they specified was USE_REDIS
-			c.Redis.URL = newOptAbsoluteURLMustBeValid(fmt.Sprintf(
-				"redis://%s:%d", defaultRedisHost, defaultRedisPort))
+			c.Redis.URL = defaultRedisURL
 		}
 		maybeSetFromEnvBool(&c.Redis.TLS, "REDIS_TLS")
 		maybeSetFromEnv(&c.Redis.Password, "REDIS_PASSWORD")
-		maybeSetFromEnvInt(&c.Redis.LocalTTL, "REDIS_TTL", &errs)
-		maybeSetFromEnvInt(&c.Redis.LocalTTL, "CACHE_TTL", &errs) // synonym
+		maybeSetFromEnvDuration(&c.Redis.LocalTTL, "CACHE_TTL", time.Millisecond, "", &errs)
+
+		// deprecated REDIS_TTL is always in milliseconds
+		ttlMS := 0
+		if maybeSetFromEnvInt(&ttlMS, "REDIS_TTL", &errs) {
+			if c.Redis.LocalTTL.IsDefined() {
+				loggers.Warn("both CACHE_TTL and the deprecated REDIS_TTL were set; using REDIS_TTL value")
+			}
+			c.Redis.LocalTTL = NewOptDuration(time.Duration(ttlMS) * time.Millisecond)
+		}
 	}
 
 	useConsul := false
@@ -99,14 +107,14 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	if useConsul {
 		c.Consul.Host = defaultConsulHost
 		maybeSetFromEnv(&c.Consul.Host, "CONSUL_HOST")
-		maybeSetFromEnvInt(&c.Consul.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvDuration(&c.Consul.LocalTTL, "CACHE_TTL", time.Millisecond, "", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.DynamoDB.Enabled, "USE_DYNAMODB")
 	if c.DynamoDB.Enabled {
 		maybeSetFromEnv(&c.DynamoDB.TableName, "DYNAMODB_TABLE")
 		maybeSetFromEnvAny(&c.DynamoDB.URL, "DYNAMODB_URL", &errs)
-		maybeSetFromEnvInt(&c.DynamoDB.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvDuration(&c.DynamoDB.LocalTTL, "CACHE_TTL", time.Millisecond, "", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.MetricsConfig.Datadog.Enabled, "USE_DATADOG")
@@ -212,6 +220,37 @@ func maybeSetFromEnvBool(prop *bool, name string) bool {
 			*prop = true
 		} else {
 			*prop = false
+		}
+		return true
+	}
+	return false
+}
+
+func maybeSetFromEnvDuration(prop *OptDuration, name string,
+	deprecatedUnit time.Duration,
+	deprecatedName string,
+	errs *[]error,
+) bool {
+	if deprecatedUnit != 0 {
+		if deprecatedName == "" {
+			deprecatedName = name
+		}
+		if s, found := os.LookupEnv(deprecatedName); found {
+			n, err := strconv.Atoi(s)
+			if err == nil {
+				*prop = NewOptDuration(time.Duration(n) * deprecatedUnit)
+				return true
+			}
+			if deprecatedName != name {
+				*errs = append(*errs, fmt.Errorf("%s: must be an integer", deprecatedName))
+				return true
+			}
+		}
+	}
+	if s, found := os.LookupEnv(name); found {
+		err := prop.UnmarshalText([]byte(s))
+		if err != nil {
+			*errs = append(*errs, fmt.Errorf("%s: %s", name, err.Error()))
 		}
 		return true
 	}

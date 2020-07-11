@@ -309,8 +309,8 @@ func TestRelay(t *testing.T) {
 				SDKKey: sdkKey,
 			},
 			"sdk test with TTL": {
-				SDKKey:     sdkKeyWithTTL,
-				TTLMinutes: 10,
+				SDKKey: sdkKeyWithTTL,
+				TTL:    c.NewOptDuration(10 * time.Minute),
 			},
 			"client-side test": {
 				SDKKey: sdkKeyClientSide,
@@ -341,7 +341,7 @@ func TestRelay(t *testing.T) {
 	config.Main.BaseURI, _ = c.NewOptAbsoluteURLFromString(fakeServer.URL)
 	config.Events.SendEvents = true
 	config.Events.EventsURI, _ = c.NewOptAbsoluteURLFromString(eventsServer.URL)
-	config.Events.FlushIntervalSecs = 1
+	config.Events.FlushInterval = c.NewOptDuration(time.Second)
 	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
 	createDummyClient := func(sdkKey c.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {

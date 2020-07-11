@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
@@ -73,7 +72,7 @@ func newEventSummarizingRelay(authKey c.SDKCredential, config c.EventsConfig, ht
 		Capacity:            config.Capacity,
 		InlineUsersInEvents: config.InlineUsers,
 		EventSender:         eventSender,
-		FlushInterval:       time.Duration(config.FlushIntervalSecs) * time.Second,
+		FlushInterval:       config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
 		Loggers:             loggers,
 	}
 	ep := ldevents.NewDefaultEventProcessor(eventsConfig)

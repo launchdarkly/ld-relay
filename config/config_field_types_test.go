@@ -3,6 +3,7 @@ package config
 import (
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -100,6 +101,62 @@ func TestOptAbsoluteURL(t *testing.T) {
 		var o OptAbsoluteURL
 		assert.Equal(t, errBadURLString(), o.UnmarshalText([]byte(malformedURLString)))
 		assert.Equal(t, OptAbsoluteURL{}, o)
+	})
+}
+
+func TestOptLogDuration(t *testing.T) {
+	t.Run("zero value", func(t *testing.T) {
+		o1 := OptDuration{}
+		assert.False(t, o1.IsDefined())
+		assert.Equal(t, time.Hour, o1.GetOrElse(time.Hour))
+
+		o2, err := NewOptDurationFromString("")
+		assert.NoError(t, err)
+		assert.Equal(t, o1, o2)
+
+		var o3 OptDuration
+		assert.NoError(t, o3.UnmarshalText([]byte("")))
+		assert.Equal(t, o1, o3)
+	})
+
+	t.Run("valid strings", func(t *testing.T) {
+		testValue := func(input string, result time.Duration) {
+			t.Run(input, func(t *testing.T) {
+				o1, err := NewOptDurationFromString(input)
+				if assert.NoError(t, err) {
+					assert.Equal(t, result, o1.GetOrElse(0))
+				}
+
+				var o2 OptDuration
+				err = o2.UnmarshalText([]byte(input))
+				if assert.NoError(t, err) {
+					assert.Equal(t, result, o2.GetOrElse(0))
+				}
+			})
+		}
+		testValue("3ms", 3*time.Millisecond)
+		testValue("3s", 3*time.Second)
+		testValue("3m", 3*time.Minute)
+		testValue("3h", 3*time.Hour)
+		testValue(":30", 30*time.Second)
+		testValue("1:30", time.Minute+30*time.Second)
+		testValue("1:10:30", time.Hour+10*time.Minute+30*time.Second)
+	})
+
+	t.Run("invalid strings", func(t *testing.T) {
+		testValue := func(input string) {
+			t.Run(input, func(t *testing.T) {
+				_, err := NewOptDurationFromString(input)
+				assert.Equal(t, errBadDuration(input), err)
+
+				var o2 OptDuration
+				err = o2.UnmarshalText([]byte(input))
+				assert.Equal(t, errBadDuration(input), err)
+			})
+		}
+		testValue("1")
+		testValue("1x")
+		testValue("00:30:")
 	})
 }
 

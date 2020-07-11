@@ -1,6 +1,10 @@
 package config
 
-import "gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+import (
+	"time"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+)
 
 type testDataValidConfig struct {
 	name        string
@@ -23,8 +27,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisURL(),
+		makeValidConfigRedisPortOnly(),
 		makeValidConfigRedisDockerPort(),
-		makeValidConfigRedisDeprecatedTTL(),
 		makeValidConfigConsulMinimal(),
 		makeValidConfigConsulAll(),
 		makeValidConfigDynamoDBMinimal(),
@@ -44,6 +48,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
+		makeInvalidConfigRedisInvalidHostname(),
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigMultipleDatabases(),
 	}
@@ -59,19 +64,19 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			ExitOnError:            true,
 			ExitAlways:             true,
 			IgnoreConnectionErrors: true,
-			HeartbeatIntervalSecs:  90,
+			HeartbeatInterval:      NewOptDuration(90 * time.Second),
 			TLSEnabled:             true,
 			TLSCert:                "cert",
 			TLSKey:                 "key",
 			LogLevel:               NewOptLogLevel(ldlog.Warn),
 		}
 		c.Events = EventsConfig{
-			SendEvents:        true,
-			EventsURI:         newOptAbsoluteURLMustBeValid("http://events"),
-			FlushIntervalSecs: 120,
-			SamplingInterval:  3,
-			Capacity:          500,
-			InlineUsers:       true,
+			SendEvents:       true,
+			EventsURI:        newOptAbsoluteURLMustBeValid("http://events"),
+			FlushInterval:    NewOptDuration(120 * time.Second),
+			SamplingInterval: 3,
+			Capacity:         500,
+			InlineUsers:      true,
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": &EnvConfig{
@@ -89,7 +94,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: []string{"https://oa", "https://rann"},
-				TTLMinutes:    5,
+				TTL:           NewOptDuration(5 * time.Minute),
 			},
 		}
 	}
@@ -100,14 +105,14 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"EXIT_ON_ERROR":             "1",
 		"EXIT_ALWAYS":               "1",
 		"IGNORE_CONNECTION_ERRORS":  "1",
-		"HEARTBEAT_INTERVAL":        "90",
+		"HEARTBEAT_INTERVAL":        "90s",
 		"TLS_ENABLED":               "1",
 		"TLS_CERT":                  "cert",
 		"TLS_KEY":                   "key",
 		"LOG_LEVEL":                 "warn",
 		"USE_EVENTS":                "1",
 		"EVENTS_HOST":               "http://events",
-		"EVENTS_FLUSH_INTERVAL":     "120",
+		"EVENTS_FLUSH_INTERVAL":     "120s",
 		"EVENTS_SAMPLING_INTERVAL":  "3",
 		"EVENTS_CAPACITY":           "500",
 		"EVENTS_INLINE_USERS":       "1",
@@ -123,7 +128,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_PREFIX_krypton":         "krypton-",
 		"LD_TABLE_NAME_krypton":     "krypton-table",
 		"LD_ALLOWED_ORIGIN_krypton": "https://oa,https://rann",
-		"LD_TTL_MINUTES_krypton":    "5",
+		"LD_TTL_krypton":            "5m",
 	}
 	c.fileContent = `
 [Main]
@@ -133,7 +138,7 @@ StreamUri = "http://stream"
 ExitOnError = 1
 ExitAlways = 1
 IgnoreConnectionErrors = 1
-HeartbeatIntervalSecs = 90
+HeartbeatInterval = 90s
 TLSEnabled = 1
 TLSCert = "cert"
 TLSKey = "key"
@@ -142,7 +147,7 @@ LogLevel = "warn"
 [Events]
 SendEvents = 1
 EventsUri = "http://events"
-FlushIntervalSecs = 120
+FlushInterval = 120s
 SamplingInterval = 3
 Capacity = 500
 InlineUsers = 1
@@ -163,7 +168,7 @@ Prefix = "krypton-"
 TableName = "krypton-table"
 AllowedOrigin = "https://oa"
 AllowedOrigin = "https://rann"
-TTLMinutes = 5
+TTL = 5m
 `
 	return c
 }
@@ -172,8 +177,7 @@ func makeValidConfigRedisMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("redis://localhost:6379"),
-			LocalTTL: defaultDatabaseLocalTTLMs,
+			URL: newOptAbsoluteURLMustBeValid("redis://localhost:6379"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -192,7 +196,7 @@ func makeValidConfigRedisAll() testDataValidConfig {
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
 			URL:      newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
-			LocalTTL: 3000,
+			LocalTTL: NewOptDuration(3 * time.Second),
 			TLS:      true,
 			Password: "pass",
 		}
@@ -203,7 +207,7 @@ func makeValidConfigRedisAll() testDataValidConfig {
 		"REDIS_PORT":     "6400",
 		"REDIS_TLS":      "1",
 		"REDIS_PASSWORD": "pass",
-		"CACHE_TTL":      "3000",
+		"CACHE_TTL":      "3s",
 	}
 	c.fileContent = `
 [Redis]
@@ -211,7 +215,7 @@ Host = "redishost"
 Port = 6400
 TLS = 1
 Password = "pass"
-LocalTTL = 3000
+LocalTTL = 3s
 `
 	return c
 }
@@ -220,8 +224,7 @@ func makeValidConfigRedisURL() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("rediss://redishost:6400"),
-			LocalTTL: defaultDatabaseLocalTTLMs,
+			URL: newOptAbsoluteURLMustBeValid("rediss://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -235,12 +238,29 @@ Url = "rediss://redishost:6400"
 	return c
 }
 
+func makeValidConfigRedisPortOnly() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL: newOptAbsoluteURLMustBeValid("redis://localhost:9999"),
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":  "1",
+		"REDIS_PORT": "9999",
+	}
+	c.fileContent = `
+[Redis]
+Port = 9999
+`
+	return c
+}
+
 func makeValidConfigRedisDockerPort() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - special Docker port syntax"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
-			LocalTTL: defaultDatabaseLocalTTLMs,
+			URL: newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -251,28 +271,11 @@ func makeValidConfigRedisDockerPort() testDataValidConfig {
 	return c
 }
 
-func makeValidConfigRedisDeprecatedTTL() testDataValidConfig {
-	c := testDataValidConfig{name: "Redis - deprecated TTL parameter"}
-	c.makeConfig = func(c *Config) {
-		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("redis://localhost:6379"),
-			LocalTTL: 3000,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_REDIS": "1",
-		"REDIS_TTL": "3000",
-	}
-	// not applicable for a config file
-	return c
-}
-
 func makeValidConfigConsulMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Consul - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Consul = ConsulConfig{
-			Host:     defaultConsulHost,
-			LocalTTL: defaultDatabaseLocalTTLMs,
+			Host: defaultConsulHost,
 		}
 	}
 	c.envVars = map[string]string{
@@ -291,18 +294,18 @@ func makeValidConfigConsulAll() testDataValidConfig {
 		func(c *Config) {
 			c.Consul = ConsulConfig{
 				Host:     "consulhost",
-				LocalTTL: 3000,
+				LocalTTL: NewOptDuration(3 * time.Second),
 			}
 		}
 	c.envVars = map[string]string{
 		"USE_CONSUL":  "1",
 		"CONSUL_HOST": "consulhost",
-		"CACHE_TTL":   "3000",
+		"CACHE_TTL":   "3s",
 	}
 	c.fileContent = `
 [Consul]
 Host = "consulhost"
-LocalTTL = 3000
+LocalTTL = 3s
 `
 	return c
 }
@@ -311,8 +314,7 @@ func makeValidConfigDynamoDBMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "DynamoDB - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.DynamoDB = DynamoDBConfig{
-			Enabled:  true,
-			LocalTTL: defaultDatabaseLocalTTLMs,
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -332,21 +334,21 @@ func makeValidConfigDynamoDBAll() testDataValidConfig {
 			Enabled:   true,
 			TableName: "table",
 			URL:       newOptAbsoluteURLMustBeValid("http://localhost:8000"),
-			LocalTTL:  3000,
+			LocalTTL:  NewOptDuration(3 * time.Second),
 		}
 	}
 	c.envVars = map[string]string{
 		"USE_DYNAMODB":   "1",
 		"DYNAMODB_TABLE": "table",
 		"DYNAMODB_URL":   "http://localhost:8000",
-		"CACHE_TTL":      "3000",
+		"CACHE_TTL":      "3s",
 	}
 	c.fileContent = `
 [DynamoDB]
 Enabled = true
 TableName = "table"
 URL = "http://localhost:8000"
-LocalTTL = 3000
+LocalTTL = 3s
 `
 	return c
 }
@@ -530,9 +532,23 @@ func makeInvalidConfigTLSWithNoKey() testDataInvalidConfig {
 	return c
 }
 
+func makeInvalidConfigRedisInvalidHostname() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - invalid hostname"}
+	c.envVarsError = "invalid Redis hostname"
+	c.envVars = map[string]string{
+		"USE_REDIS":  "1",
+		"REDIS_HOST": "\\",
+	}
+	c.fileContent = `
+[Redis]
+Host = "\\"
+`
+	return c
+}
+
 func makeInvalidConfigRedisConflictingParams() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "Redis - conflicting parameters"}
-	c.envVarsError = "Please specify Redis URL or host/port, but not both"
+	c.envVarsError = "please specify Redis URL or host/port, but not both"
 	c.envVars = map[string]string{
 		"USE_REDIS":  "1",
 		"REDIS_HOST": "redishost",
@@ -548,8 +564,7 @@ Url = "http://redishost:6400"
 
 func makeInvalidConfigMultipleDatabases() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "multiple databases are enabled"}
-	c.envVarsError = "Multiple databases are enabled (Redis, Consul, DynamoDB); only one is allowed"
-	c.fileError = "Multiple databases are enabled (Redis, Consul, DynamoDB); only one is allowed"
+	c.envVarsError = "multiple databases are enabled (Redis, Consul, DynamoDB); only one is allowed"
 	c.envVars = map[string]string{
 		"USE_REDIS":    "1",
 		"USE_CONSUL":   "1",

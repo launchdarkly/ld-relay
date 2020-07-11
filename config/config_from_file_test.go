@@ -3,6 +3,7 @@ package config
 import (
 	"io/ioutil"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,9 +32,42 @@ func TestConfigFromFileWithInvalidProperties(t *testing.T) {
 			continue
 		}
 		t.Run(tdc.name, func(t *testing.T) {
-			testFileWithInvalidConfig(t, tdc.fileContent, tdc.fileError)
+			e := tdc.fileError
+			if e == "" {
+				e = tdc.envVarsError
+			}
+			testFileWithInvalidConfig(t, tdc.fileContent, e)
 		})
 	}
+}
+
+func TestConfigFromFileDeprecatedUsage(t *testing.T) {
+	t.Run("apiKey is allowed instead of sdkKey", func(t *testing.T) {
+		testFileWithValidConfig(t,
+			func(c *Config) {
+				c.Environment = make(map[string]*EnvConfig)
+				c.Environment["envname"] = &EnvConfig{
+					SDKKey: SDKKey("key"),
+				}
+			},
+			`[Environment "envname"]
+apiKey = key`,
+		)
+	})
+
+	t.Run("if both apiKey and sdkKey are set, sdkKey is used", func(t *testing.T) {
+		testFileWithValidConfig(t,
+			func(c *Config) {
+				c.Environment = make(map[string]*EnvConfig)
+				c.Environment["envname"] = &EnvConfig{
+					SDKKey: SDKKey("key"),
+				}
+			},
+			`[Environment "envname"]
+sdkKey = key
+apiKey = wrong`,
+		)
+	})
 }
 
 func TestConfigFromFileBasicValidation(t *testing.T) {
@@ -102,6 +136,22 @@ BaseUri = "::"`,
 			`[Main]
 BaseUri = "not/absolute"`,
 			"must be an absolute URL/URI",
+		)
+	})
+
+	t.Run("parses valid duration", func(t *testing.T) {
+		testFileWithValidConfig(t,
+			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			`[Main]
+HeartbeatInterval = 3s`,
+		)
+	})
+
+	t.Run("rejects invalid duration", func(t *testing.T) {
+		testFileWithInvalidConfig(t,
+			`[Main]
+HeartbeatInterval = "x"`,
+			errBadDuration("x").Error(),
 		)
 	})
 
