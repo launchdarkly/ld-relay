@@ -68,7 +68,7 @@ func NewOptAbsoluteURLFromURL(url *url.URL) (OptAbsoluteURL, error) {
 	return OptAbsoluteURL{url: &u}, nil
 }
 
-// NewOptAbsoluteURLFromURL creates an OptAbsoluteURL from a string. It returns an error if the string is not
+// NewOptAbsoluteURLFromString creates an OptAbsoluteURL from a string. It returns an error if the string is not
 // a URL or is a relative URL. If the string is empty, it returns an empty OptAbsoluteURL{}.
 func NewOptAbsoluteURLFromString(urlString string) (OptAbsoluteURL, error) {
 	if urlString == "" {
