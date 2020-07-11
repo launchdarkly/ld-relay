@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -132,6 +133,84 @@ func errBadURLString() error {
 
 func errNotAbsoluteURL() error {
 	return errors.New("must be an absolute URL/URI")
+}
+
+// OptDuration represents an optional time.Duration parameter. It can be an integer followed by "ms", "s",
+// "m", or "h" (milliseconds/seconds/minutes/hours), or use a format of "hh:mm:ss" or "mm:ss".
+//
+// The zero value OptDuration{} is valid and undefined (IsDefined() is false).
+type OptDuration struct {
+	hasValue bool
+	value    time.Duration
+}
+
+// NewOptDuration creates an OptDuration containing the given value.
+func NewOptDuration(value time.Duration) OptDuration {
+	return OptDuration{hasValue: true, value: value}
+}
+
+// NewOptDurationFromString creates an OptDuration from a string. It returns an error if the string is not
+// in a supported format. If the string is empty, it returns an empty OptDuration{}.
+func NewOptDurationFromString(s string) (OptDuration, error) {
+	if s == "" {
+		return OptDuration{}, nil
+	}
+	var n, hh, mm, ss int
+	// note that the newlines in these format strings mean there should be no other characters after the format
+	if count, err := fmt.Sscanf(s, "%dms\n", &n); err == nil && count == 1 {
+		return NewOptDuration(time.Duration(n) * time.Millisecond), nil
+	}
+	if count, err := fmt.Sscanf(s, "%ds\n", &n); err == nil && count == 1 {
+		return NewOptDuration(time.Duration(n) * time.Second), nil
+	}
+	if count, err := fmt.Sscanf(s, "%dm\n", &n); err == nil && count == 1 {
+		return NewOptDuration(time.Duration(n) * time.Minute), nil
+	}
+	if count, err := fmt.Sscanf(s, "%dh\n", &n); err == nil && count == 1 {
+		return NewOptDuration(time.Duration(n) * time.Hour), nil
+	}
+	if count, err := fmt.Sscanf(s, ":%d\n", &ss); err == nil && count == 1 {
+		return NewOptDuration(time.Duration(ss) * time.Second), nil
+	}
+	if count, err := fmt.Sscanf(s, "%d:%d\n", &mm, &ss); err == nil && count == 2 {
+		secs := mm*60 + ss
+		return NewOptDuration(time.Duration(secs) * time.Second), nil
+	}
+	if count, err := fmt.Sscanf(s, "%d:%d:%d\n", &hh, &mm, &ss); err == nil && count == 3 {
+		secs := (hh*60+mm)*60 + ss
+		return NewOptDuration(time.Duration(secs) * time.Second), nil
+	}
+	return OptDuration{}, errBadDuration(s)
+}
+
+// IsDefined is true if this instance has a value (Get() is not nil).
+func (o OptDuration) IsDefined() bool {
+	return o.hasValue
+}
+
+// GetOrElse returns the wrapped value, or the alternative value if there is no value.
+func (o OptDuration) GetOrElse(orElseValue time.Duration) time.Duration {
+	if !o.hasValue {
+		return orElseValue
+	}
+	return o.value
+}
+
+// UnmarshalText attempts to parse the value from a byte string, using the same logic as
+// NewOptDurationFromString.
+func (o *OptDuration) UnmarshalText(data []byte) error {
+	opt, err := NewOptDurationFromString(string(data))
+	if err == nil {
+		*o = opt
+	}
+	return err
+}
+
+func errBadDuration(s string) error {
+	return fmt.Errorf(
+		`%q is not a valid duration (must use format "1ms", "1s", "1m", "1h", ":ss", "mm:ss", or "hh:mm:ss"`,
+		s,
+	)
 }
 
 // OptLogLevel represents an optional log level parameter. It must match one of the level names "debug",
