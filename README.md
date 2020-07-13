@@ -65,7 +65,7 @@ Every configuration file option has an equivalent environment variable. You may 
 
 For **Boolean** settings, a value of either `true` or `1` is considered true; `false`, `0`, or an empty value is considered false; any other value is invalid.
 
-For **Duration** settings, the value should be be an integer followed by `ms`, `s`, `m`, or `h` for milliseconds, seconds, minutes, or hours (example: `30s` for 30 seconds); or, you can use the format `:ss`, `mm:ss`, or `hh:mm:ss` (example: `1:30` for one minute and 30 seconds). For backward compatibility, some properties allow you to specify a number by itself, which is assumed to be in some default unit as described for each property.
+For **Duration** settings, the value should be be an integer followed by `ms`, `s`, `m`, or `h` for milliseconds, seconds, minutes, or hours (example: `30s` for 30 seconds); or, you can use the format `:ss`, `mm:ss`, or `hh:mm:ss` (example: `1:30` for one minute and 30 seconds). Specifying a number by itself without a unit is not allowed.
 
 **URI** settings will cause an error if you specify a value that is an invalid URI, or a relative URI.
 
@@ -95,7 +95,7 @@ Property in file    | Environment var            | Type    | Default | Descripti
 ------------------- | -------------------------- | :-----: | :------ | -----------
 `sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly.
 `eventsUri`         | `EVENTS_HOST`              | URI     | _(2)_   | URI for the LaunchDarkly events service
-`flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs. Assumed to be in seconds if no unit is specified.
+`flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
 `samplingInterval`  | `EVENTS_SAMPLING_INTERVAL` | Number  | `0`     | Sends one out of this many events as a random sampling.
 `capacity`          | `EVENTS_CAPACITY`          | Number  | `1000`  | Maximum number of events to accumulate for each flush interval.
 `inlineUsers`       | `EVENTS_INLINE_USERS`      | Boolean | `false` | When enabled, individual events (if full event tracking is enabled for the feature flag) will contain all non-private user attributes.
@@ -112,8 +112,7 @@ n/a              | `USE_REDIS`      | Boolean | `false`     | If you are using e
 `url`            | `REDIS_URL`      | String  |             | URL of the Redis database (overrides `host` & `port`).
 `tls`            | `REDIS_TLS`      | Boolean | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.
 `password`       | `REDIS_PASSWORD` | String  |             | Optional password if Redis require authentication.
-`localTtl`       | `CACHE_TTL`      | Duration | `30s`      | Length of time that database items can be cached in memory. Assumed to be in milliseconds if no unit is specified.
-                 | `REDIS_TTL`      | Number  |             | Deprecated alternative to `CACHE_TTL`. Assumed to be in milliseconds.
+`localTtl`       | `CACHE_TTL`      | Duration | `30s`      | Length of time that database items can be cached in memory.
 
 Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` enables TLS, and `redis://:password@host` instead of `redis://host` sets a password. You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
 
@@ -124,7 +123,7 @@ Property in file    | Environment var    | Type    | Default | Description
 `enabled`           | `USE_DYNAMODB`     | Boolean | `false` | Enables DynamoDB.
 `tableName`         | `DYNAMODB_TABLE`   | String  |         | The DynamoDB table name, if you are using the same table for all environments. Otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
 `url`               | `DYNAMODB_URL`     | String  |         | The service endpoint if you are using a local DynamoDB instance instead of the regular service.
-`localTtl`          | `CACHE_TTL`        | Duration | `30s`  | Length of time that database items can be cached in memory. Assumed to be in milliseconds if no unit is specified.
+`localTtl`          | `CACHE_TTL`        | Duration | `30s`  | Length of time that database items can be cached in memory.
 
 The AWS credentials and region for DynamoDB are not part of the Relay configuration; they should be set using either the standard AWS environment variables or a local AWS configuration file, as documented for [the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
 
@@ -134,7 +133,7 @@ Property in file | Environment var | Type    | Default     | Description
 ---------------- | --------------- | :-----: | :---------- | -----------
 n/a              | `USE_CONSUL`    | Boolean | `false`     | If you are using environment variables, set this to enable Consul.
 `host`           | `CONSUL_HOST`   | String  | `localhost` | Hostname of the Consul server. Consul is enabled if this is set.
-`localTtl`       | `CACHE_TTL`     | Duration | `30s`      | Length of time that database items can be cached in memory. Assumed to be in milliseconds if no unit is specified.
+`localTtl`       | `CACHE_TTL`     | Duration | `30s`      | Length of time that database items can be cached in memory.
 
 ### File section: `[Environment "NAME"]`
 
@@ -150,7 +149,6 @@ Property in file | Environment var               | Type   | Description
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
 `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
 `ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints (see [Using with PHP](#using-with-php))
-                 | `LD_TTL_MINUTES_MyEnvName`    | Number | Deprecated alternative to `LD_TTL_MyEnvName`
 
 In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 
