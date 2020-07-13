@@ -29,18 +29,7 @@ func ConfigureDataStore(
 	useRedis := allConfig.Redis.URL.IsDefined()
 	useConsul := allConfig.Consul.Host != ""
 	useDynamoDB := allConfig.DynamoDB.Enabled
-	countTrue := func(values ...bool) int {
-		n := 0
-		for _, v := range values {
-			if v {
-				n++
-			}
-		}
-		return n
-	}
-	if countTrue(useRedis, useConsul, useDynamoDB) > 1 {
-		return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
-	}
+
 	if useRedis {
 		dbConfig := allConfig.Redis
 		redisURL := dbConfig.URL.String()

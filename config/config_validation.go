@@ -9,6 +9,16 @@ import (
 )
 
 // ValidateConfig ensures that the configuration does not contain contradictory properties.
+//
+// This method covers validation rules that can't be enforced on a per-field basis (for instance, if
+// either field A or field B can be specified but it's invalid to specify both). It is allowed to modify
+// the Config struct in order to canonicalize settings in a way that simplifies things for the Relay code
+// (for instance, converting Redis host/port settings into a Redis URL, or converting deprecated fields to
+// non-deprecated ones).
+//
+// LoadConfigFromEnvironment and LoadConfigFromFile both call this method as a last step, but it is also
+// called again by the Relay constructor because it is possible for application code that uses Relay as a
+// library to construct a Config programmatically.
 func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
 		return errors.New("TLS cert and key are required if TLS is enabled")
