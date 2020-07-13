@@ -2,6 +2,7 @@ package relay
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,4 +45,23 @@ func TestRelayStatusEndpoint(t *testing.T) {
 		assertJSONPathMatch(t, version.Version, status, "version")
 		assertJSONPathMatch(t, ld.Version, status, "clientVersion")
 	})
+}
+
+func assertJSONPathMatch(t *testing.T, expected interface{}, inValue ldvalue.Value, path ...string) {
+	expectedValue := ldvalue.CopyArbitraryValue(expected)
+	value := inValue
+	for _, p := range path {
+		value = value.GetByKey(p)
+	}
+	if !expectedValue.Equal(value) {
+		assert.Fail(
+			t,
+			"did not find expected JSON value",
+			"at path [%s] in %s\nexpected: %s\nfound: %s",
+			strings.Join(path, "."),
+			inValue,
+			expectedValue,
+			value,
+		)
+	}
 }
