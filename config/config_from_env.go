@@ -24,7 +24,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	maybeSetFromEnvBool(&c.Main.ExitOnError, "EXIT_ON_ERROR")
 	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
-	maybeSetFromEnvDuration(&c.Main.HeartbeatInterval, "HEARTBEAT_INTERVAL", &errs)
+	maybeSetFromEnvAny(&c.Main.HeartbeatInterval, "HEARTBEAT_INTERVAL", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
@@ -32,7 +32,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnvAny(&c.Events.EventsURI, "EVENTS_HOST", &errs)
-	maybeSetFromEnvDuration(&c.Events.FlushInterval, "EVENTS_FLUSH_INTERVAL", &errs)
+	maybeSetFromEnvAny(&c.Events.FlushInterval, "EVENTS_FLUSH_INTERVAL", &errs)
 	maybeSetFromEnvInt32(&c.Events.SamplingInterval, "EVENTS_SAMPLING_INTERVAL", &errs)
 	maybeSetFromEnvInt(&c.Events.Capacity, "EVENTS_CAPACITY", &errs)
 	maybeSetFromEnvBool(&c.Events.InlineUsers, "EVENTS_INLINE_USERS")
@@ -44,7 +44,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		ec.EnvID = EnvironmentID(maybeEnvStr("LD_CLIENT_SIDE_ID_"+envName, string(ec.EnvID)))
 		maybeSetFromEnv(&ec.Prefix, "LD_PREFIX_"+envName)
 		maybeSetFromEnv(&ec.TableName, "LD_TABLE_NAME_"+envName)
-		maybeSetFromEnvDuration(&ec.TTL, "LD_TTL_"+envName, &errs)
+		maybeSetFromEnvAny(&ec.TTL, "LD_TTL_"+envName, &errs)
 		rejectObsoleteVariableName("LD_TTL_MINUTES_"+envName, "LD_TTL_"+envName, &errs)
 		if s := os.Getenv("LD_ALLOWED_ORIGIN_" + envName); s != "" {
 			ec.AllowedOrigin = strings.Split(s, ",")
@@ -90,7 +90,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		}
 		maybeSetFromEnvBool(&c.Redis.TLS, "REDIS_TLS")
 		maybeSetFromEnv(&c.Redis.Password, "REDIS_PASSWORD")
-		maybeSetFromEnvDuration(&c.Redis.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvAny(&c.Redis.LocalTTL, "CACHE_TTL", &errs)
 		rejectObsoleteVariableName("REDIS_TTL", "CACHE_TTL", &errs)
 	}
 
@@ -99,14 +99,14 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	if useConsul {
 		c.Consul.Host = defaultConsulHost
 		maybeSetFromEnv(&c.Consul.Host, "CONSUL_HOST")
-		maybeSetFromEnvDuration(&c.Consul.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvAny(&c.Consul.LocalTTL, "CACHE_TTL", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.DynamoDB.Enabled, "USE_DYNAMODB")
 	if c.DynamoDB.Enabled {
 		maybeSetFromEnv(&c.DynamoDB.TableName, "DYNAMODB_TABLE")
 		maybeSetFromEnvAny(&c.DynamoDB.URL, "DYNAMODB_URL", &errs)
-		maybeSetFromEnvDuration(&c.DynamoDB.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvAny(&c.DynamoDB.LocalTTL, "CACHE_TTL", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.MetricsConfig.Datadog.Enabled, "USE_DATADOG")
@@ -222,17 +222,6 @@ func maybeSetFromEnvBool(prop *bool, name string) bool {
 			*prop = true
 		} else {
 			*prop = false
-		}
-		return true
-	}
-	return false
-}
-
-func maybeSetFromEnvDuration(prop *OptDuration, name string, errs *[]error) bool {
-	if s, found := os.LookupEnv(name); found {
-		err := prop.UnmarshalText([]byte(s))
-		if err != nil {
-			*errs = append(*errs, fmt.Errorf("%s: %s", name, err.Error()))
 		}
 		return true
 	}
