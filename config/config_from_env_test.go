@@ -28,98 +28,24 @@ func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvironmentDeprecatedUsage(t *testing.T) {
-	t.Run("HEARTBEAT_INTERVAL as number of seconds", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
-			map[string]string{"HEARTBEAT_INTERVAL": "3"},
-		)
-	})
-
-	t.Run("EVENTS_FLUSH_INTERVAL as number of seconds", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Events.FlushInterval = NewOptDuration(3 * time.Second) },
-			map[string]string{"EVENTS_FLUSH_INTERVAL": "3"}, // this property was formerly defined as seconds
-		)
-	})
-
-	t.Run("LD_TTL_MINUTES_env", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.Environment = make(map[string]*EnvConfig)
-				c.Environment["envname"] = &EnvConfig{
-					SDKKey: SDKKey("key"),
-					TTL:    NewOptDuration(3 * time.Minute),
-				}
-			},
-			map[string]string{
-				"LD_ENV_envname":         "key",
-				"LD_TTL_MINUTES_envname": "3",
-			},
-		)
+func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
+	t.Run("REDIS_TTL", func(t *testing.T) {
 		testInvalidConfigVars(t,
-			map[string]string{
-				"LD_ENV_envname":         "key",
-				"LD_TTL_MINUTES_envname": "x",
-			},
-			"LD_TTL_MINUTES_envname: must be an integer",
-		)
-	})
-
-	t.Run("database CACHE_TTL as number of milliseconds", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.Redis.URL = defaultRedisURL
-				c.Redis.LocalTTL = NewOptDuration(500 * time.Millisecond)
-			},
-			map[string]string{
-				"USE_REDIS": "1",
-				"CACHE_TTL": "500",
-			},
-		)
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.DynamoDB.Enabled = true
-				c.DynamoDB.LocalTTL = NewOptDuration(500 * time.Millisecond)
-			},
-			map[string]string{
-				"USE_DYNAMODB": "1",
-				"CACHE_TTL":    "500",
-			},
-		)
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.Consul.Host = defaultConsulHost
-				c.Consul.LocalTTL = NewOptDuration(500 * time.Millisecond)
-			},
-			map[string]string{
-				"USE_CONSUL": "1",
-				"CACHE_TTL":  "500",
-			},
-		)
-	})
-
-	t.Run("REDIS_TTL as number of milliseconds", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.Redis.URL = defaultRedisURL
-				c.Redis.LocalTTL = NewOptDuration(500 * time.Millisecond)
-			},
 			map[string]string{
 				"USE_REDIS": "1",
 				"REDIS_TTL": "500",
 			},
+			"environment variable REDIS_TTL is no longer supported; use CACHE_TTL",
 		)
-		testValidConfigVars(t,
-			func(c *Config) {
-				c.Redis.URL = defaultRedisURL
-				c.Redis.LocalTTL = NewOptDuration(300 * time.Millisecond)
-			},
+	})
+
+	t.Run("LD_TTL_MINUTES_env", func(t *testing.T) {
+		testInvalidConfigVars(t,
 			map[string]string{
-				"USE_REDIS": "1",
-				"REDIS_TTL": "300",
-				"CACHE_TTL": "500",
+				"LD_ENV_envname":         "key",
+				"LD_TTL_MINUTES_envname": "3",
 			},
+			"environment variable LD_TTL_MINUTES_envname is no longer supported; use LD_TTL_envname",
 		)
 	})
 }
