@@ -134,6 +134,7 @@ type EnvConfig struct {
 	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      []string
+	SecureMode         bool
 	InsecureSkipVerify bool
 	LogLevel           OptLogLevel
 	TTL                OptDuration

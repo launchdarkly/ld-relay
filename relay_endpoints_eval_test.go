@@ -1,10 +1,13 @@
 package relay
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
@@ -125,7 +128,8 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 func TestRelayJSClientEvalRoutes(t *testing.T) {
 	env := testEnvClientSide
 	envID := env.config.EnvID
-	userJSON := []byte(`{"key":"me"}`)
+	user := lduser.NewUser("me")
+	userJSON, _ := json.Marshal(user)
 	expectedJSEvalBody := expectJSONBody(makeEvalBody(clientSideFlags, false, false))
 	expectedJSEvalxBody := expectJSONBody(makeEvalBody(clientSideFlags, true, false))
 	expectedJSEvalxBodyWithReasons := expectJSONBody(makeEvalBody(clientSideFlags, true, true))
@@ -142,7 +146,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 	}
 
 	config := c.DefaultConfig
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	relayTest(config, func(p relayTestParams) {
 		for _, s := range specs {
@@ -157,6 +161,38 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 							s.bodyMatcher(t, body)
 						}
 					}
+				})
+
+				t.Run("secure mode - hash matches", func(t *testing.T) {
+					s1 := s
+					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
+					result, body := doRequest(s1.request(), p.relay)
+
+					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
+						assertNonStreamingHeaders(t, result.Header)
+						assertExpectedCORSHeaders(t, result, s.method, "*")
+						if s.bodyMatcher != nil {
+							s.bodyMatcher(t, body)
+						}
+					}
+				})
+
+				t.Run("secure mode - hash does not match", func(t *testing.T) {
+					s1 := s
+					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					s1.path = addQueryParam(s1.path, "h=incorrect")
+					result, _ := doRequest(s1.request(), p.relay)
+
+					assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				})
+
+				t.Run("secure mode - hash not provided", func(t *testing.T) {
+					s1 := s
+					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					result, _ := doRequest(s1.request(), p.relay)
+
+					assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 				})
 
 				t.Run("unknown environment ID", func(t *testing.T) {

@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+
 	"github.com/launchdarkly/eventsource"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
@@ -18,8 +20,8 @@ type streamEndpointTestParams struct {
 	expectedData  []byte
 }
 
-func (s streamEndpointTestParams) assertRequestReceivesEvent(t *testing.T, r *http.Request, relay *Relay) *http.Response {
-	return withStreamRequest(t, r, relay, func(eventCh <-chan eventsource.Event) {
+func (s streamEndpointTestParams) assertRequestReceivesEvent(t *testing.T, relay *Relay) *http.Response {
+	return withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
 		select {
 		case event := <-eventCh:
 			if event != nil {
@@ -59,7 +61,7 @@ func TestRelayServerSideStreams(t *testing.T) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("success", func(t *testing.T) {
-					s.assertRequestReceivesEvent(t, s.request(), p.relay)
+					s.assertRequestReceivesEvent(t, p.relay)
 				})
 
 				t.Run("unknown SDK key", func(t *testing.T) {
@@ -95,7 +97,7 @@ func TestRelayMobileStreams(t *testing.T) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("success", func(t *testing.T) {
-					s.assertRequestReceivesEvent(t, s.request(), p.relay)
+					s.assertRequestReceivesEvent(t, p.relay)
 				})
 
 				t.Run("unknown mobile key", func(t *testing.T) {
@@ -113,7 +115,8 @@ func TestRelayMobileStreams(t *testing.T) {
 func TestRelayJSClientStreams(t *testing.T) {
 	env := testEnvClientSide
 	envID := env.config.EnvID
-	userJSON := []byte(`{"key":"me"}`)
+	user := lduser.NewUser("me")
+	userJSON, _ := json.Marshal(user)
 
 	specs := []streamEndpointTestParams{
 		{endpointTestParams{"client-side get ping", "GET", "/ping/$ENV", nil, envID, 200, nil},
@@ -125,16 +128,52 @@ func TestRelayJSClientStreams(t *testing.T) {
 	}
 
 	config := c.DefaultConfig
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	relayTest(config, func(p relayTestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("requests", func(t *testing.T) {
-					result := s.assertRequestReceivesEvent(t, s.request(), p.relay)
+					result := s.assertRequestReceivesEvent(t, p.relay)
 
 					assertStreamingHeaders(t, result.Header)
 					assertExpectedCORSHeaders(t, result, s.method, "*")
+				})
+
+				if s.data != nil {
+					t.Run("secure mode - hash matches", func(t *testing.T) {
+						s1 := s
+						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
+						result := s1.assertRequestReceivesEvent(t, p.relay)
+
+						assertStreamingHeaders(t, result.Header)
+						assertExpectedCORSHeaders(t, result, s.method, "*")
+					})
+
+					t.Run("secure mode - hash does not match", func(t *testing.T) {
+						s1 := s
+						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						s1.path = addQueryParam(s1.path, "h=incorrect")
+						result := doStreamRequestExpectingError(s1.request(), p.relay)
+
+						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+					})
+
+					t.Run("secure mode - hash not provided", func(t *testing.T) {
+						s1 := s
+						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						result := doStreamRequestExpectingError(s1.request(), p.relay)
+
+						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+					})
+				}
+
+				t.Run("unknown environment ID", func(t *testing.T) {
+					s1 := s
+					s1.credential = undefinedEnvID
+					result, _ := doRequest(s1.request(), p.relay)
+					assert.Equal(t, http.StatusNotFound, result.StatusCode)
 				})
 
 				t.Run("options", func(t *testing.T) {

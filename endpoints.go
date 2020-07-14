@@ -26,6 +26,52 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
+func getClientSideUserProperties(
+	clientCtx relayenv.EnvContext,
+	sdkKind sdkKind,
+	req *http.Request,
+	w http.ResponseWriter,
+) (lduser.User, bool) {
+	var user lduser.User
+	var userDecodeErr error
+
+	if req.Method == "REPORT" {
+		if req.Header.Get("Content-Type") != "application/json" {
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			w.Write([]byte("Content-Type must be application/json."))
+			return user, false
+		}
+		body, _ := ioutil.ReadAll(req.Body)
+		userDecodeErr = json.Unmarshal(body, &user)
+	} else {
+		base64User := mux.Vars(req)["user"]
+		user, userDecodeErr = UserV2FromBase64(base64User)
+	}
+	if userDecodeErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
+		return user, false
+	}
+
+	if clientCtx.IsSecureMode() && sdkKind == jsClientSdk {
+		hash := req.URL.Query().Get("h")
+		valid := false
+		if hash != "" {
+			validHash := clientCtx.GetClient().SecureModeHash(user)
+			valid = hash == validHash
+		}
+		if !valid {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(util.ErrorJsonMsg("Environment is in secure mode, and user hash does not match."))
+			return user, false
+		}
+	}
+
+	return user, true
+}
+
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
 func pingStreamHandler() http.Handler {
@@ -33,6 +79,19 @@ func pingStreamHandler() http.Handler {
 		clientCtx := getClientContext(req)
 		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
 		clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+	})
+}
+
+// This handler is used for client-side streaming endpoints that require user properties. Currently it is
+// implemented the same as the ping stream once we have validated the user.
+func pingStreamHandlerWithUser(sdkKind sdkKind) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := getClientContext(req)
+		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
+
+		if _, ok := getClientSideUserProperties(clientCtx, sdkKind, req, w); ok {
+			clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+		}
 	})
 }
 
@@ -136,33 +195,17 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWrite
 }
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
-	var user lduser.User
-	var userDecodeErr error
-	if req.Method == "REPORT" {
-		if req.Header.Get("Content-Type") != "application/json" {
-			w.WriteHeader(http.StatusUnsupportedMediaType)
-			w.Write([]byte("Content-Type must be application/json."))
-			return
-		}
-
-		body, _ := ioutil.ReadAll(req.Body)
-		userDecodeErr = json.Unmarshal(body, &user)
-	} else {
-		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = UserV2FromBase64(base64User)
-	}
-	if userDecodeErr != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
-		return
-	}
-
-	withReasons := req.URL.Query().Get("withReasons") == "true"
-
 	clientCtx := getClientContext(req)
 	client := clientCtx.GetClient()
 	store := clientCtx.GetStore()
 	loggers := clientCtx.GetLoggers()
+
+	user, ok := getClientSideUserProperties(clientCtx, sdkKind, req, w)
+	if !ok {
+		return
+	}
+
+	withReasons := req.URL.Query().Get("withReasons") == "true"
 
 	w.Header().Set("Content-Type", "application/json")
 

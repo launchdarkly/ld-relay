@@ -63,19 +63,28 @@ var testEnvWithTTL = testEnv{
 	},
 }
 
+var testEnvMobile = testEnv{
+	name: "mobile test",
+	config: config.EnvConfig{
+		SDKKey:    c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"),
+		MobileKey: c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"),
+	},
+}
+
 var testEnvClientSide = testEnv{
-	name: "client-side test",
+	name: "JS client-side test",
 	config: config.EnvConfig{
 		SDKKey: c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"),
 		EnvID:  c.EnvironmentID("507f1f77bcf86cd799439011"),
 	},
 }
 
-var testEnvMobile = testEnv{
-	name: "mobile test",
+var testEnvClientSideSecureMode = testEnv{
+	name: "JS client-side test with secure mode",
 	config: config.EnvConfig{
-		SDKKey:    c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"),
-		MobileKey: c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"),
+		SDKKey:     c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d9"),
+		EnvID:      c.EnvironmentID("507f1f77bcf86cd799439019"),
+		SecureMode: true,
 	},
 }
 
