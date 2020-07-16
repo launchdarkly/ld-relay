@@ -313,10 +313,5 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if !er.config.SendEvents {
 		return
 	}
-
-	if er.config.SamplingInterval > 0 && rGen.Int31n(er.config.SamplingInterval) != 0 {
-		return
-	}
-
 	er.publisher.PublishRaw(evts...)
 }

@@ -71,12 +71,11 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			LogLevel:               NewOptLogLevel(ldlog.Warn),
 		}
 		c.Events = EventsConfig{
-			SendEvents:       true,
-			EventsURI:        newOptAbsoluteURLMustBeValid("http://events"),
-			FlushInterval:    NewOptDuration(120 * time.Second),
-			SamplingInterval: 3,
-			Capacity:         500,
-			InlineUsers:      true,
+			SendEvents:    true,
+			EventsURI:     newOptAbsoluteURLMustBeValid("http://events"),
+			FlushInterval: NewOptDuration(120 * time.Second),
+			Capacity:      500,
+			InlineUsers:   true,
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": &EnvConfig{
@@ -113,7 +112,6 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"USE_EVENTS":                "1",
 		"EVENTS_HOST":               "http://events",
 		"EVENTS_FLUSH_INTERVAL":     "120s",
-		"EVENTS_SAMPLING_INTERVAL":  "3",
 		"EVENTS_CAPACITY":           "500",
 		"EVENTS_INLINE_USERS":       "1",
 		"LD_ENV_earth":              "earth-sdk",
@@ -148,7 +146,6 @@ LogLevel = "warn"
 SendEvents = 1
 EventsUri = "http://events"
 FlushInterval = 120s
-SamplingInterval = 3
 Capacity = 500
 InlineUsers = 1
 
