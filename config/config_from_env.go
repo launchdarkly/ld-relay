@@ -206,20 +206,6 @@ func setInt(prop *int, name string, value string, errs *[]error) {
 	}
 }
 
-func maybeSetFromEnvInt32(prop *int32, name string, errs *[]error) bool {
-	if s := os.Getenv(name); s != "" {
-		var n int64
-		var err error
-		if n, err = strconv.ParseInt(s, 10, 32); err != nil {
-			*errs = append(*errs, fmt.Errorf("%s: must be an integer", name))
-		} else {
-			*prop = int32(n)
-		}
-		return true
-	}
-	return false
-}
-
 func maybeSetFromEnvBool(prop *bool, name string) bool {
 	if s, found := os.LookupEnv(name); found {
 		if s == "1" || s == "true" {

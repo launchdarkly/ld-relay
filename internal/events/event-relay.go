@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,13 +45,6 @@ var (
 type eventVerbatimRelay struct {
 	config    c.EventsConfig
 	publisher EventPublisher
-}
-
-var rGen *rand.Rand
-
-func init() {
-	s1 := rand.NewSource(time.Now().UnixNano())
-	rGen = rand.New(s1)
 }
 
 const (
