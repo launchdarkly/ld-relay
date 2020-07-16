@@ -25,6 +25,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
 	maybeSetFromEnvAny(&c.Main.HeartbeatInterval, "HEARTBEAT_INTERVAL", &errs)
+	maybeSetFromEnvAny(&c.Main.MaxClientConnectionTime, "MAX_CLIENT_CONNECTION_TIME", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")

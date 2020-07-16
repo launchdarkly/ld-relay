@@ -58,17 +58,18 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c := testDataValidConfig{name: "all base properties"}
 	c.makeConfig = func(c *Config) {
 		c.Main = MainConfig{
-			Port:                   8333,
-			BaseURI:                newOptAbsoluteURLMustBeValid("http://base"),
-			StreamURI:              newOptAbsoluteURLMustBeValid("http://stream"),
-			ExitOnError:            true,
-			ExitAlways:             true,
-			IgnoreConnectionErrors: true,
-			HeartbeatInterval:      NewOptDuration(90 * time.Second),
-			TLSEnabled:             true,
-			TLSCert:                "cert",
-			TLSKey:                 "key",
-			LogLevel:               NewOptLogLevel(ldlog.Warn),
+			Port:                    8333,
+			BaseURI:                 newOptAbsoluteURLMustBeValid("http://base"),
+			StreamURI:               newOptAbsoluteURLMustBeValid("http://stream"),
+			ExitOnError:             true,
+			ExitAlways:              true,
+			IgnoreConnectionErrors:  true,
+			HeartbeatInterval:       NewOptDuration(90 * time.Second),
+			MaxClientConnectionTime: NewOptDuration(30 * time.Minute),
+			TLSEnabled:              true,
+			TLSCert:                 "cert",
+			TLSKey:                  "key",
+			LogLevel:                NewOptLogLevel(ldlog.Warn),
 		}
 		c.Events = EventsConfig{
 			SendEvents:       true,
@@ -100,37 +101,38 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		}
 	}
 	c.envVars = map[string]string{
-		"PORT":                      "8333",
-		"BASE_URI":                  "http://base",
-		"STREAM_URI":                "http://stream",
-		"EXIT_ON_ERROR":             "1",
-		"EXIT_ALWAYS":               "1",
-		"IGNORE_CONNECTION_ERRORS":  "1",
-		"HEARTBEAT_INTERVAL":        "90s",
-		"TLS_ENABLED":               "1",
-		"TLS_CERT":                  "cert",
-		"TLS_KEY":                   "key",
-		"LOG_LEVEL":                 "warn",
-		"USE_EVENTS":                "1",
-		"EVENTS_HOST":               "http://events",
-		"EVENTS_FLUSH_INTERVAL":     "120s",
-		"EVENTS_SAMPLING_INTERVAL":  "3",
-		"EVENTS_CAPACITY":           "500",
-		"EVENTS_INLINE_USERS":       "1",
-		"LD_ENV_earth":              "earth-sdk",
-		"LD_MOBILE_KEY_earth":       "earth-mob",
-		"LD_CLIENT_SIDE_ID_earth":   "earth-env",
-		"LD_PREFIX_earth":           "earth-",
-		"LD_TABLE_NAME_earth":       "earth-table",
-		"LD_LOG_LEVEL_earth":        "debug",
-		"LD_ENV_krypton":            "krypton-sdk",
-		"LD_MOBILE_KEY_krypton":     "krypton-mob",
-		"LD_CLIENT_SIDE_ID_krypton": "krypton-env",
-		"LD_SECURE_MODE_krypton":    "1",
-		"LD_PREFIX_krypton":         "krypton-",
-		"LD_TABLE_NAME_krypton":     "krypton-table",
-		"LD_ALLOWED_ORIGIN_krypton": "https://oa,https://rann",
-		"LD_TTL_krypton":            "5m",
+		"PORT":                       "8333",
+		"BASE_URI":                   "http://base",
+		"STREAM_URI":                 "http://stream",
+		"EXIT_ON_ERROR":              "1",
+		"EXIT_ALWAYS":                "1",
+		"IGNORE_CONNECTION_ERRORS":   "1",
+		"HEARTBEAT_INTERVAL":         "90s",
+		"MAX_CLIENT_CONNECTION_TIME": "30m",
+		"TLS_ENABLED":                "1",
+		"TLS_CERT":                   "cert",
+		"TLS_KEY":                    "key",
+		"LOG_LEVEL":                  "warn",
+		"USE_EVENTS":                 "1",
+		"EVENTS_HOST":                "http://events",
+		"EVENTS_FLUSH_INTERVAL":      "120s",
+		"EVENTS_SAMPLING_INTERVAL":   "3",
+		"EVENTS_CAPACITY":            "500",
+		"EVENTS_INLINE_USERS":        "1",
+		"LD_ENV_earth":               "earth-sdk",
+		"LD_MOBILE_KEY_earth":        "earth-mob",
+		"LD_CLIENT_SIDE_ID_earth":    "earth-env",
+		"LD_PREFIX_earth":            "earth-",
+		"LD_TABLE_NAME_earth":        "earth-table",
+		"LD_LOG_LEVEL_earth":         "debug",
+		"LD_ENV_krypton":             "krypton-sdk",
+		"LD_MOBILE_KEY_krypton":      "krypton-mob",
+		"LD_CLIENT_SIDE_ID_krypton":  "krypton-env",
+		"LD_SECURE_MODE_krypton":     "1",
+		"LD_PREFIX_krypton":          "krypton-",
+		"LD_TABLE_NAME_krypton":      "krypton-table",
+		"LD_ALLOWED_ORIGIN_krypton":  "https://oa,https://rann",
+		"LD_TTL_krypton":             "5m",
 	}
 	c.fileContent = `
 [Main]
@@ -141,6 +143,7 @@ ExitOnError = 1
 ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
+MaxClientConnectionTime = 30m
 TLSEnabled = 1
 TLSCert = "cert"
 TLSKey = "key"

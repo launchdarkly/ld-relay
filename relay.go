@@ -77,18 +77,17 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 		return nil, fmt.Errorf("unable to create metrics manager: %s", err)
 	}
 
-	allPublisher := eventsource.NewServer()
-	allPublisher.Gzip = false
-	allPublisher.AllowCORS = true
-	allPublisher.ReplayAll = true
-	flagsPublisher := eventsource.NewServer()
-	flagsPublisher.Gzip = false
-	flagsPublisher.AllowCORS = true
-	flagsPublisher.ReplayAll = true
-	pingPublisher := eventsource.NewServer()
-	pingPublisher.Gzip = false
-	pingPublisher.AllowCORS = true
-	pingPublisher.ReplayAll = true
+	makeSSEServer := func() *eventsource.Server {
+		s := eventsource.NewServer()
+		s.Gzip = false
+		s.AllowCORS = true
+		s.ReplayAll = true
+		s.MaxConnTime = c.Main.MaxClientConnectionTime.GetOrElse(0)
+		return s
+	}
+	allPublisher := makeSSEServer()
+	flagsPublisher := makeSSEServer()
+	pingPublisher := makeSSEServer()
 	clients := make(map[config.SDKCredential]relayenv.EnvContext)
 	mobileClients := make(map[config.SDKCredential]relayenv.EnvContext)
 

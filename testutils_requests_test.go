@@ -164,7 +164,8 @@ func NewStreamRecorder() (StreamRecorder, io.Reader) {
 }
 
 // Makes a request that should receive an SSE stream, and calls the given code with a channel that
-// will read from that stream.
+// will read from that stream. A nil value is pushed to the channel when the stream closes or
+// encounters an error.
 func withStreamRequest(
 	t *testing.T,
 	req *http.Request,
@@ -174,18 +175,30 @@ func withStreamRequest(
 	w, bodyReader := NewStreamRecorder()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
+	eventCh := make(chan eventsource.Event, 10)
 	go func() {
 		handler.ServeHTTP(w, req)
+		eventCh <- nil
 		assert.Equal(t, http.StatusOK, w.Code)
 		assertStreamingHeaders(t, w.Header())
 		wg.Done()
 	}()
 	dec := eventsource.NewDecoder(bodyReader)
-	eventCh := make(chan eventsource.Event)
 	go func() {
-		event, err := dec.Decode()
-		assert.NoError(t, err)
-		eventCh <- event
+		gotEvent := false
+		for {
+			event, err := dec.Decode()
+			if err == nil {
+				eventCh <- event
+				gotEvent = true
+			} else {
+				if !gotEvent {
+					assert.NoError(t, err)
+				}
+				eventCh <- nil
+				return
+			}
+		}
 	}()
 	action(eventCh)
 	w.Close()

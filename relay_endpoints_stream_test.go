@@ -20,18 +20,104 @@ type streamEndpointTestParams struct {
 	expectedData  []byte
 }
 
-func (s streamEndpointTestParams) assertRequestReceivesEvent(t *testing.T, relay *Relay) *http.Response {
-	return withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
+func (s streamEndpointTestParams) runBasicStreamTests(
+	t *testing.T,
+	baseConfig c.Config,
+	invalidCredential c.SDKCredential,
+	invalidCredentialExpectedStatus int,
+) {
+	configWithoutTimeLimit := baseConfig
+	configWithoutTimeLimit.Main.MaxClientConnectionTime = c.OptDuration{}
+
+	relayTest(configWithoutTimeLimit, func(p relayTestParams) {
+		t.Run("success", func(t *testing.T) {
+			s.assertRequestReceivesEvent(t, p.relay, 200*time.Millisecond)
+		})
+
+		t.Run("invalid credential", func(t *testing.T) {
+			s1 := s
+			s1.credential = invalidCredential
+			result, _ := doRequest(s1.request(), p.relay)
+
+			assert.Equal(t, invalidCredentialExpectedStatus, result.StatusCode)
+		})
+	})
+
+	maxConnTime := 100 * time.Millisecond
+	configWithTimeLimit := baseConfig
+	configWithTimeLimit.Main.MaxClientConnectionTime = c.NewOptDuration(maxConnTime)
+
+	relayTest(configWithTimeLimit, func(p relayTestParams) {
+		t.Run("connection time limit", func(t *testing.T) {
+			s.assertStreamClosesAutomatically(t, p.relay, maxConnTime)
+		})
+	})
+}
+
+func (s streamEndpointTestParams) assertRequestReceivesEvent(
+	t *testing.T,
+	relay *Relay,
+	timeToWaitAfterEvent time.Duration,
+) {
+	resp := withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
+		eventTimeout := time.NewTimer(time.Second * 3)
+		defer eventTimeout.Stop()
 		select {
 		case event := <-eventCh:
-			if event != nil {
-				assert.Equal(t, s.expectedEvent, event.Event())
-				if s.expectedData != nil {
-					assert.JSONEq(t, string(s.expectedData), event.Data())
+			if event == nil {
+				assert.Fail(t, "stream closed unexpectedly")
+				return
+			}
+			assert.Equal(t, s.expectedEvent, event.Event())
+			if s.expectedData != nil {
+				assert.JSONEq(t, string(s.expectedData), event.Data())
+			}
+			// Now wait a little longer to make sure the stream doesn't close unexpectedly, to verify that
+			// we did not mistakenly enable the max connection time feature.
+			if timeToWaitAfterEvent > 0 {
+				select {
+				case event := <-eventCh:
+					if event == nil {
+						assert.Fail(t, "stream closed unexpectedly")
+					} else {
+						assert.Fail(t, "received unexpected second event")
+					}
+				case <-time.After(timeToWaitAfterEvent):
 				}
 			}
-		case <-time.After(time.Second * 3):
+		case <-eventTimeout.C:
 			assert.Fail(t, "timed out waiting for event")
+		}
+	})
+	if _, ok := s.credential.(c.EnvironmentID); ok {
+		assertExpectedCORSHeaders(t, resp, s.method, "*")
+	}
+}
+
+func (s streamEndpointTestParams) assertStreamClosesAutomatically(
+	t *testing.T,
+	relay *Relay,
+	shouldCloseAfter time.Duration,
+) {
+	maxWait := time.NewTimer(shouldCloseAfter + time.Second)
+	defer maxWait.Stop()
+	startTime := time.Now()
+	_ = withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
+		for {
+			select {
+			case event := <-eventCh:
+				if event == nil { // stream was closed
+					timeUntilClosed := time.Now().Sub(startTime)
+					if timeUntilClosed < shouldCloseAfter {
+						assert.Fail(t, "stream closed too soon", "expected %s but closed after %s",
+							shouldCloseAfter, timeUntilClosed)
+					}
+					return
+				}
+			case <-maxWait.C:
+				assert.Fail(t, "timed out waiting for stream to close")
+				return
+			}
 		}
 	})
 }
@@ -57,24 +143,9 @@ func TestRelayServerSideStreams(t *testing.T) {
 	config := c.DefaultConfig
 	config.Environment = makeEnvConfigs(env)
 
-	relayTest(config, func(p relayTestParams) {
-		for _, s := range specs {
-			t.Run(s.name, func(t *testing.T) {
-				t.Run("success", func(t *testing.T) {
-					s.assertRequestReceivesEvent(t, p.relay)
-				})
-
-				t.Run("unknown SDK key", func(t *testing.T) {
-					s1 := s
-					s1.credential = undefinedSDKKey
-					result, _ := doRequest(s1.request(), p.relay)
-
-					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
-					// t.Fail()
-				})
-			})
-		}
-	})
+	for _, s := range specs {
+		s.runBasicStreamTests(t, config, undefinedSDKKey, http.StatusUnauthorized)
+	}
 }
 
 func TestRelayMobileStreams(t *testing.T) {
@@ -93,23 +164,9 @@ func TestRelayMobileStreams(t *testing.T) {
 	config := c.DefaultConfig
 	config.Environment = makeEnvConfigs(env)
 
-	relayTest(config, func(p relayTestParams) {
-		for _, s := range specs {
-			t.Run(s.name, func(t *testing.T) {
-				t.Run("success", func(t *testing.T) {
-					s.assertRequestReceivesEvent(t, p.relay)
-				})
-
-				t.Run("unknown mobile key", func(t *testing.T) {
-					s1 := s
-					s1.credential = undefinedMobileKey
-					result, _ := doRequest(s1.request(), p.relay)
-
-					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
-				})
-			})
-		}
-	})
+	for _, s := range specs {
+		s.runBasicStreamTests(t, config, undefinedMobileKey, http.StatusUnauthorized)
+	}
 }
 
 func TestRelayJSClientStreams(t *testing.T) {
@@ -130,25 +187,19 @@ func TestRelayJSClientStreams(t *testing.T) {
 	config := c.DefaultConfig
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
+	for _, s := range specs {
+		s.runBasicStreamTests(t, config, undefinedEnvID, http.StatusNotFound)
+	}
+
 	relayTest(config, func(p relayTestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
-				t.Run("requests", func(t *testing.T) {
-					result := s.assertRequestReceivesEvent(t, p.relay)
-
-					assertStreamingHeaders(t, result.Header)
-					assertExpectedCORSHeaders(t, result, s.method, "*")
-				})
-
 				if s.data != nil {
 					t.Run("secure mode - hash matches", func(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
 						s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
-						result := s1.assertRequestReceivesEvent(t, p.relay)
-
-						assertStreamingHeaders(t, result.Header)
-						assertExpectedCORSHeaders(t, result, s.method, "*")
+						s1.assertRequestReceivesEvent(t, p.relay, 0)
 					})
 
 					t.Run("secure mode - hash does not match", func(t *testing.T) {
@@ -168,13 +219,6 @@ func TestRelayJSClientStreams(t *testing.T) {
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
 				}
-
-				t.Run("unknown environment ID", func(t *testing.T) {
-					s1 := s
-					s1.credential = undefinedEnvID
-					result, _ := doRequest(s1.request(), p.relay)
-					assert.Equal(t, http.StatusNotFound, result.StatusCode)
-				})
 
 				t.Run("options", func(t *testing.T) {
 					assertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(), s.method)
