@@ -95,7 +95,7 @@ Property in file | Environment var               | Type   | Description
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
 `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`. **See: [Logging](./logging.md)**
-`ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints. **See: [Using with PHP](./php.md)**
+`ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints. **See: [Using PHP](./php.md)**
 
 In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 

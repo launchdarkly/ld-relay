@@ -1,4 +1,4 @@
-# LaunchDarkly Relay Proxy - Using with PHP
+# LaunchDarkly Relay Proxy - Using PHP
 
 [(back to README)](../README.md)
 
