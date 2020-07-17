@@ -94,9 +94,9 @@ We have done extensive load tests on the Relay Proxy in AWS/EC2. We have also co
 * If using an Elastic Load Balancer in front of the Relay Proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the Relay Proxy are cycled. This might happen when you deploy a large number of new servers that connect to the Relay Proxy, or upgrade the Relay Proxy itself.
 
 
-## Testing
+## Contributing
 
-After installing a compatible version of Go, run `make test` to build and run unit tests. To run integration runs, run `make integration-test`. To run the linter, run `make lint`.
+We encourage pull requests and other contributions from the community. Check out our [contributing guidelines](CONTRIBUTING.md) for instructions on how to contribute to this project.
 
 
 ## About LaunchDarkly
