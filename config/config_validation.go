@@ -33,12 +33,13 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 			} else {
 				loggers.Warn(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
 			}
+			envConfig.APIKey = "" // to avoid confusion if any other code sees this
 		}
 	}
 
 	if c.Redis.URL.IsDefined() {
 		if c.Redis.Host != "" || c.Redis.Port != 0 {
-			return errors.New("Please specify Redis URL or host/port, but not both")
+			return errors.New("please specify Redis URL or host/port, but not both")
 		}
 	} else if c.Redis.Host != "" || c.Redis.Port != 0 {
 		host, port := c.Redis.Host, c.Redis.Port
@@ -50,7 +51,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		}
 		url, err := NewOptAbsoluteURLFromString(fmt.Sprintf("redis://%s:%d", host, port))
 		if err != nil {
-			return err
+			return errors.New("invalid Redis hostname")
 		}
 		c.Redis.URL = url
 		c.Redis.Host = ""
@@ -68,7 +69,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		databases = append(databases, "DynamoDB")
 	}
 	if len(databases) > 1 {
-		return fmt.Errorf("Multiple databases are enabled (%s); only one is allowed",
+		return fmt.Errorf("multiple databases are enabled (%s); only one is allowed",
 			strings.Join(databases, ", "))
 	}
 

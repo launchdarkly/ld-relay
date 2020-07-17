@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,28 @@ func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 			testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
 		})
 	}
+}
+
+func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
+	t.Run("REDIS_TTL", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{
+				"USE_REDIS": "1",
+				"REDIS_TTL": "500",
+			},
+			"environment variable REDIS_TTL is no longer supported; use CACHE_TTL",
+		)
+	})
+
+	t.Run("LD_TTL_MINUTES_env", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{
+				"LD_ENV_envname":         "key",
+				"LD_TTL_MINUTES_envname": "3",
+			},
+			"environment variable LD_TTL_MINUTES_envname is no longer supported; use LD_TTL_envname",
+		)
+	})
 }
 
 func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
@@ -84,6 +107,20 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"BASE_URI": "not/absolute"},
 			"BASE_URI: must be an absolute URL/URI",
+		)
+	})
+
+	t.Run("parses valid duration", func(t *testing.T) {
+		testValidConfigVars(t,
+			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			map[string]string{"HEARTBEAT_INTERVAL": "3s"},
+		)
+	})
+
+	t.Run("rejects invalid duration", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{"HEARTBEAT_INTERVAL": "x"},
+			"HEARTBEAT_INTERVAL: "+errBadDuration("x").Error(),
 		)
 	})
 

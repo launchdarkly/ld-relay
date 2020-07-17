@@ -3,7 +3,6 @@ package sdkconfig
 import (
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -54,7 +53,7 @@ func ConfigureDataStore(
 			Prefix(envConfig.Prefix).
 			DialOptions(dialOptions...)
 		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
 	}
 	if useConsul {
 		dbConfig := allConfig.Consul
@@ -63,7 +62,7 @@ func ConfigureDataStore(
 			ldconsul.DataStore().
 				Address(dbConfig.Host).
 				Prefix(envConfig.Prefix),
-		).CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
+		).CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
 	}
 	if useDynamoDB {
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
@@ -89,7 +88,7 @@ func ConfigureDataStore(
 			builder.SessionOptions(awsOptions)
 		}
 		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
 	}
 
 	if dbFactory != nil {

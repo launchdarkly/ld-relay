@@ -79,7 +79,7 @@ func NewEnvContext(
 			AllPublisher:      allPublisher,
 			FlagsPublisher:    flagsPublisher,
 			PingPublisher:     pingPublisher,
-			HeartbeatInterval: allConfig.Main.HeartbeatIntervalSecs,
+			HeartbeatInterval: allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
 		})
 	clientConfig.DataStore = storeAdapter
 
@@ -115,7 +115,7 @@ func NewEnvContext(
 		storeAdapter: storeAdapter,
 		loggers:      envLoggers,
 		metricsEnv:   em,
-		ttl:          time.Minute * time.Duration(envConfig.TTLMinutes),
+		ttl:          envConfig.TTL.GetOrElse(0),
 		handlers: ClientHandlers{
 			EventDispatcher:    eventDispatcher,
 			AllStreamHandler:   allPublisher.Handler(string(envConfig.SDKKey)),

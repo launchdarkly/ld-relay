@@ -297,9 +297,7 @@ func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpC
 		OptionClient{Client: httpClient},
 	}
 
-	if config.FlushIntervalSecs > 0 {
-		opts = append(opts, OptionFlushInterval(time.Duration(config.FlushIntervalSecs)*time.Second))
-	}
+	opts = append(opts, OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)))
 
 	publisher, _ := NewHttpEventPublisher(authKey, loggers, opts...)
 

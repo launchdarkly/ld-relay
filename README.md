@@ -59,7 +59,15 @@ LD_ENV_firstenv={SDK key for firstenv} LD_PREFIX_firstenv={Redis prefix for firs
 
 The configuration file format is an INI-like one, based on [Git configuration format](https://git-scm.com/docs/git-config#_syntax) (as implemented by a [fork](https://github.com/launchdarkly/gcfg) of the [gcfg](https://github.com/go-gcfg/gcfg) package).
 
-Every configuration file option has an equivalent environment variable. You may use either method: see ["Specifying a configuration"](#specifying-a-configuration). Note that for boolean settings, a value of either `true` or `1` is considered true while any other value (or an empty value) is considered false.
+Every configuration file option has an equivalent environment variable. You may use either method: see ["Specifying a configuration"](#specifying-a-configuration).
+
+### Allowable values for types
+
+For **Boolean** settings, a value of either `true` or `1` is considered true; `false`, `0`, or an empty value is considered false; any other value is invalid.
+
+For **Duration** settings, the value should be be an integer followed by `ms`, `s`, `m`, or `h` for milliseconds, seconds, minutes, or hours (example: `30s` for 30 seconds); or, you can use the format `:ss`, `mm:ss`, or `hh:mm:ss` (example: `1:30` for one minute and 30 seconds). Specifying a number by itself without a unit is not allowed.
+
+**URI** settings will cause an error if you specify a value that is an invalid URI, or a relative URI.
 
 ### File section: `[Main]`
 
@@ -71,7 +79,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
-`heartbeatIntervalSecs`  | `HEARTBEAT_INTERVAL` | Number  | `180`   | Interval (in seconds) for heartbeat messages to prevent read timeouts on streaming connections.
+`heartbeatInterval`      | `HEARTBEAT_INTERVAL` | Number  | `3m`    | Interval for heartbeat messages to prevent read timeouts on streaming connections. Assumed to be in seconds if no unit is specified.
 `tlsEnabled`             | `TLS_ENABLED`        | Boolean | `false` | Enable TLS on the Relay Proxy.
 `tlsCert`                | `TLS_CERT`           | String  |         | Required if `tlsEnabled` is true. Path to TLS certificate file.
 `tlsKey`                 | `TLS_KEY`            | String  |         | Required if `tlsEnabled` is true. Path to TLS private key file.
@@ -87,7 +95,7 @@ Property in file    | Environment var            | Type    | Default | Descripti
 ------------------- | -------------------------- | :-----: | :------ | -----------
 `sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly.
 `eventsUri`         | `EVENTS_HOST`              | URI     | _(2)_   | URI for the LaunchDarkly events service
-`flushIntervalSecs` | `EVENTS_FLUSH_INTERVAL`    | Number  | `5`     | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
+`flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
 `samplingInterval`  | `EVENTS_SAMPLING_INTERVAL` | Number  | `0`     | Sends one out of this many events as a random sampling.
 `capacity`          | `EVENTS_CAPACITY`          | Number  | `1000`  | Maximum number of events to accumulate for each flush interval.
 `inlineUsers`       | `EVENTS_INLINE_USERS`      | Boolean | `false` | When enabled, individual events (if full event tracking is enabled for the feature flag) will contain all non-private user attributes.
@@ -104,7 +112,7 @@ n/a              | `USE_REDIS`      | Boolean | `false`     | If you are using e
 `url`            | `REDIS_URL`      | String  |             | URL of the Redis database (overrides `host` & `port`).
 `tls`            | `REDIS_TLS`      | Boolean | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.
 `password`       | `REDIS_PASSWORD` | String  |             | Optional password if Redis require authentication.
-`localTtl`       | `CACHE_TTL`      | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+`localTtl`       | `CACHE_TTL`      | Duration | `30s`      | Length of time that database items can be cached in memory.
 
 Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` enables TLS, and `redis://:password@host` instead of `redis://host` sets a password. You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
 
@@ -115,7 +123,7 @@ Property in file    | Environment var    | Type    | Default | Description
 `enabled`           | `USE_DYNAMODB`     | Boolean | `false` | Enables DynamoDB.
 `tableName`         | `DYNAMODB_TABLE`   | String  |         | The DynamoDB table name, if you are using the same table for all environments. Otherwise, omit this and specify it in each environment section. (Note, credentials and region are controlled by the usual AWS environment variables and/or local AWS configuration files.)
 `url`               | `DYNAMODB_URL`     | String  |         | The service endpoint if you are using a local DynamoDB instance instead of the regular service.
-`localTtl`          | `CACHE_TTL`        | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+`localTtl`          | `CACHE_TTL`        | Duration | `30s`  | Length of time that database items can be cached in memory.
 
 The AWS credentials and region for DynamoDB are not part of the Relay configuration; they should be set using either the standard AWS environment variables or a local AWS configuration file, as documented for [the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
 
@@ -125,7 +133,7 @@ Property in file | Environment var | Type    | Default     | Description
 ---------------- | --------------- | :-----: | :---------- | -----------
 n/a              | `USE_CONSUL`    | Boolean | `false`     | If you are using environment variables, set this to enable Consul.
 `host`           | `CONSUL_HOST`   | String  | `localhost` | Hostname of the Consul server. Consul is enabled if this is set.
-`localTtl`       | `CACHE_TTL`     | Number  | `30000`     | Length of time (in milliseconds) that database items can be cached in memory.
+`localTtl`       | `CACHE_TTL`     | Duration | `30s`      | Length of time that database items can be cached in memory.
 
 ### File section: `[Environment "NAME"]`
 
@@ -140,7 +148,7 @@ Property in file | Environment var               | Type   | Description
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
 `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`; see [Logging](#logging)
-`ttlMinutes`     | `LD_TTL_MINUTES_MyEnvName`    | Number | HTTP caching TTL for the PHP polling endpoints (see [Using with PHP](#using-with-php))
+`ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints (see [Using with PHP](#using-with-php))
 
 In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 
@@ -262,18 +270,15 @@ The Relay Proxy can also be used to forward events to `events.launchdarkly.com` 
 
 [Events]
     sendEvents = true
-    flushIntervalSecs = 5
-    samplingInterval = 0
+    flushInterval = 5s
     capacity = 1000
-    inlineUsers = false
 ```
 
 ```
 # Environment variables example
 
 USE_EVENTS=true
-EVENTS_FLUSH_INTERVAL=5
-EVENTS_SAMPLING_INTERVAL=0
+EVENTS_FLUSH_INTERVAL=5s
 EVENTS_CAPACITY=1000
 ```
 
@@ -290,15 +295,15 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 [Redis]
     host = "localhost"
     port = 6379
-    localTtl = 30000
+    localTtl = 30s
 
 [DynamoDB]
     tableName = "my-feature-flags"
-    localTtl = 30000
+    localTtl = 30s
 
 [Consul]
     host = "localhost"
-    localTtl = 30000
+    localTtl = 30s
 ```
 
 ```
@@ -307,15 +312,15 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 USE_REDIS=1
 REDIS_HOST=localhost
 REDIS_PORT=6379
-CACHE_TTL=30000
+CACHE_TTL=30s
 
 USE_DYNAMODB=1
 DYNAMODB_TABLE=my-feature-flags
-CACHE_TTL=30000
+CACHE_TTL=30s
 
 USE_CONSUL=1
 CONSUL_HOST=localhost
-CACHE_TTL=30000
+CACHE_TTL=30s
 ```
 
 Note that the Relay Proxy can only use _one_ of these at a time; for instance, enabling both Redis and DynamoDB is an error.
@@ -350,7 +355,7 @@ In this example, the persistent store is in Redis. To set up the Relay Proxy in 
 [Redis]
     host = "localhost"
     port = 6379
-    localTtl = 30000
+    localTtl = 30s
 
 [Environment "Spree Project Production"]
     prefix = "ld:spree:production"
@@ -367,7 +372,7 @@ In this example, the persistent store is in Redis. To set up the Relay Proxy in 
 USE_REDIS=1
 REDIS_HOST=localhost
 REDIS_PORT=6379
-CACHE_TTL=30000
+CACHE_TTL=30s
 LD_ENV_Spree_Project_Production=SPREE_PROD_SDK_KEY
 LD_PREFIX_Spree_Project_Production=ld:spree:production
 LD_ENV_Spree_Project_Test=SPREE_TEST_SDK_KEY
@@ -376,7 +381,7 @@ LD_PREFIX_Spree_Project_Test=ld:spree:test
 
 (The per-environment "prefix" setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate table name for each environment.)
 
-The `localTtl`/`CACHE_TTL` parameter controls the length of time (in milliseconds) that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database; see [persistent storage](#persistent-storage).
+The `localTtl`/`CACHE_TTL` parameter controls the length of time that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database; see [persistent storage](#persistent-storage).
 
 You will then need to [configure your SDK](https://docs.launchdarkly.com/sdk/concepts/feature-store#using-a-persistent-feature-store-without-connecting-to-launchdarkly) to connect to Redis directly.
 

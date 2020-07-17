@@ -24,7 +24,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	maybeSetFromEnvBool(&c.Main.ExitOnError, "EXIT_ON_ERROR")
 	maybeSetFromEnvBool(&c.Main.ExitAlways, "EXIT_ALWAYS")
 	maybeSetFromEnvBool(&c.Main.IgnoreConnectionErrors, "IGNORE_CONNECTION_ERRORS")
-	maybeSetFromEnvInt(&c.Main.HeartbeatIntervalSecs, "HEARTBEAT_INTERVAL", &errs)
+	maybeSetFromEnvAny(&c.Main.HeartbeatInterval, "HEARTBEAT_INTERVAL", &errs)
 	maybeSetFromEnvBool(&c.Main.TLSEnabled, "TLS_ENABLED")
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
@@ -32,7 +32,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnvAny(&c.Events.EventsURI, "EVENTS_HOST", &errs)
-	maybeSetFromEnvInt(&c.Events.FlushIntervalSecs, "EVENTS_FLUSH_INTERVAL", &errs)
+	maybeSetFromEnvAny(&c.Events.FlushInterval, "EVENTS_FLUSH_INTERVAL", &errs)
 	maybeSetFromEnvInt32(&c.Events.SamplingInterval, "EVENTS_SAMPLING_INTERVAL", &errs)
 	maybeSetFromEnvInt(&c.Events.Capacity, "EVENTS_CAPACITY", &errs)
 	maybeSetFromEnvBool(&c.Events.InlineUsers, "EVENTS_INLINE_USERS")
@@ -44,7 +44,8 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		ec.EnvID = EnvironmentID(maybeEnvStr("LD_CLIENT_SIDE_ID_"+envName, string(ec.EnvID)))
 		maybeSetFromEnv(&ec.Prefix, "LD_PREFIX_"+envName)
 		maybeSetFromEnv(&ec.TableName, "LD_TABLE_NAME_"+envName)
-		maybeSetFromEnvInt(&ec.TTLMinutes, "LD_TTL_MINUTES_"+envName, &errs)
+		maybeSetFromEnvAny(&ec.TTL, "LD_TTL_"+envName, &errs)
+		rejectObsoleteVariableName("LD_TTL_MINUTES_"+envName, "LD_TTL_"+envName, &errs)
 		if s := os.Getenv("LD_ALLOWED_ORIGIN_" + envName); s != "" {
 			ec.AllowedOrigin = strings.Split(s, ",")
 		}
@@ -58,7 +59,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	useRedis := false
 	maybeSetFromEnvBool(&useRedis, "USE_REDIS")
-	if useRedis || (c.Redis.Host != "" || c.Redis.URL.IsDefined()) {
+	if useRedis || c.Redis.Host != "" || c.Redis.URL.IsDefined() {
 		portStr := ""
 		if c.Redis.Port > 0 {
 			portStr = fmt.Sprintf("%d", c.Redis.Port)
@@ -85,13 +86,12 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		}
 		if !c.Redis.URL.IsDefined() && c.Redis.Host == "" && c.Redis.Port == 0 {
 			// all they specified was USE_REDIS
-			c.Redis.URL = newOptAbsoluteURLMustBeValid(fmt.Sprintf(
-				"redis://%s:%d", defaultRedisHost, defaultRedisPort))
+			c.Redis.URL = defaultRedisURL
 		}
 		maybeSetFromEnvBool(&c.Redis.TLS, "REDIS_TLS")
 		maybeSetFromEnv(&c.Redis.Password, "REDIS_PASSWORD")
-		maybeSetFromEnvInt(&c.Redis.LocalTTL, "REDIS_TTL", &errs)
-		maybeSetFromEnvInt(&c.Redis.LocalTTL, "CACHE_TTL", &errs) // synonym
+		maybeSetFromEnvAny(&c.Redis.LocalTTL, "CACHE_TTL", &errs)
+		rejectObsoleteVariableName("REDIS_TTL", "CACHE_TTL", &errs)
 	}
 
 	useConsul := false
@@ -99,14 +99,14 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	if useConsul {
 		c.Consul.Host = defaultConsulHost
 		maybeSetFromEnv(&c.Consul.Host, "CONSUL_HOST")
-		maybeSetFromEnvInt(&c.Consul.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvAny(&c.Consul.LocalTTL, "CACHE_TTL", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.DynamoDB.Enabled, "USE_DYNAMODB")
 	if c.DynamoDB.Enabled {
 		maybeSetFromEnv(&c.DynamoDB.TableName, "DYNAMODB_TABLE")
 		maybeSetFromEnvAny(&c.DynamoDB.URL, "DYNAMODB_URL", &errs)
-		maybeSetFromEnvInt(&c.DynamoDB.LocalTTL, "CACHE_TTL", &errs)
+		maybeSetFromEnvAny(&c.DynamoDB.LocalTTL, "CACHE_TTL", &errs)
 	}
 
 	maybeSetFromEnvBool(&c.MetricsConfig.Datadog.Enabled, "USE_DATADOG")
@@ -148,6 +148,16 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	}
 
 	return ValidateConfig(c, loggers)
+}
+
+func rejectObsoleteVariableName(oldName, preferredName string, errs *[]error) {
+	// Unrecognized environment variables are normally ignored, but if someone has set a variable that
+	// used to be used in configuration and is no longer used, we want to raise an error rather than just
+	// silently omitting part of the configuration that they thought they had set.
+	if os.Getenv(oldName) != "" {
+		*errs = append(*errs, fmt.Errorf("environment variable %s is no longer supported; use %s",
+			oldName, preferredName))
+	}
 }
 
 func maybeEnvStr(name string, defaultVal string) string {

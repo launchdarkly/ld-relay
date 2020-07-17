@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -132,6 +133,63 @@ func errBadURLString() error {
 
 func errNotAbsoluteURL() error {
 	return errors.New("must be an absolute URL/URI")
+}
+
+// OptDuration represents an optional time.Duration parameter. It can use any of the formats supported by
+// time.ParseDuration(): "9ms", "9s", "9m", "9h", "9m30s", etc.
+//
+// The zero value OptDuration{} is valid and undefined (IsDefined() is false).
+type OptDuration struct {
+	hasValue bool
+	value    time.Duration
+}
+
+// NewOptDuration creates an OptDuration containing the given value.
+func NewOptDuration(value time.Duration) OptDuration {
+	return OptDuration{hasValue: true, value: value}
+}
+
+// NewOptDurationFromString creates an OptDuration from a string. It returns an error if the string is not
+// in a supported format. If the string is empty, it returns an empty OptDuration{}.
+func NewOptDurationFromString(s string) (OptDuration, error) {
+	if s == "" {
+		return OptDuration{}, nil
+	}
+	value, err := time.ParseDuration(s)
+	if err == nil {
+		return NewOptDuration(value), nil
+	}
+	return OptDuration{}, errBadDuration(s)
+}
+
+// IsDefined is true if this instance has a value (Get() is not nil).
+func (o OptDuration) IsDefined() bool {
+	return o.hasValue
+}
+
+// GetOrElse returns the wrapped value, or the alternative value if there is no value.
+func (o OptDuration) GetOrElse(orElseValue time.Duration) time.Duration {
+	if !o.hasValue {
+		return orElseValue
+	}
+	return o.value
+}
+
+// UnmarshalText attempts to parse the value from a byte string, using the same logic as
+// NewOptDurationFromString.
+func (o *OptDuration) UnmarshalText(data []byte) error {
+	opt, err := NewOptDurationFromString(string(data))
+	if err == nil {
+		*o = opt
+	}
+	return err
+}
+
+func errBadDuration(s string) error {
+	return fmt.Errorf(
+		`%q is not a valid duration (must use format "1ms", "1s", "1m", "1h", ":ss", "mm:ss", or "hh:mm:ss"`,
+		s,
+	)
 }
 
 // OptLogLevel represents an optional log level parameter. It must match one of the level names "debug",

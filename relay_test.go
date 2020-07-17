@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/eventsource"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
 
@@ -309,8 +307,8 @@ func TestRelay(t *testing.T) {
 				SDKKey: sdkKey,
 			},
 			"sdk test with TTL": {
-				SDKKey:     sdkKeyWithTTL,
-				TTLMinutes: 10,
+				SDKKey: sdkKeyWithTTL,
+				TTL:    c.NewOptDuration(10 * time.Minute),
 			},
 			"client-side test": {
 				SDKKey: sdkKeyClientSide,
@@ -341,7 +339,7 @@ func TestRelay(t *testing.T) {
 	config.Main.BaseURI, _ = c.NewOptAbsoluteURLFromString(fakeServer.URL)
 	config.Events.SendEvents = true
 	config.Events.EventsURI, _ = c.NewOptAbsoluteURLFromString(eventsServer.URL)
-	config.Events.FlushIntervalSecs = 1
+	config.Events.FlushInterval = c.NewOptDuration(time.Second)
 	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
 	createDummyClient := func(sdkKey c.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
@@ -873,36 +871,6 @@ func TestRelay(t *testing.T) {
 	})
 
 	eventsServer.Close()
-}
-
-func TestLoadConfig(t *testing.T) {
-	tmpfile, err := ioutil.TempFile("", "relay-load-config")
-	defer os.Remove(tmpfile.Name()) // clean up
-
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	tmpfile.WriteString(`
-[environment "test api key"]
-ApiKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
-
-[environment "test api and sdk key"]
-ApiKey = "abc"
-SdkKey = "sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"
-`)
-	tmpfile.Close()
-
-	var config c.Config
-	err = c.LoadConfigFile(&config, tmpfile.Name(), ldlog.NewDisabledLoggers())
-	if !assert.NoError(t, err) {
-		return
-	}
-
-	assert.Equal(t, c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"), config.Environment["test api key"].SDKKey,
-		"expected api key to be used as sdk key when api key is set")
-	assert.Equal(t, c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d798989"), config.Environment["test api and sdk key"].SDKKey,
-		"expected sdk key to be used as sdk key when both api key and sdk key are set")
 }
 
 func TestGetUserAgent(t *testing.T) {
