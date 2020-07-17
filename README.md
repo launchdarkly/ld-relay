@@ -1,5 +1,7 @@
 # LaunchDarkly Relay Proxy
 
+[![Circle CI](https://circleci.com/gh/launchdarkly/ld-relay.svg?style=shield)](https://circleci.com/gh/launchdarkly/ld-relay)
+
 ## What is it?
 
 The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients.
