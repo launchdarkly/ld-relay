@@ -2,7 +2,6 @@ package sdkconfig
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -28,40 +27,18 @@ func ConfigureDataStore(
 ) (interfaces.DataStoreFactory, error) {
 	var dbFactory interfaces.DataStoreFactory
 
-	useRedis := allConfig.Redis.Url != "" || allConfig.Redis.Host != ""
+	useRedis := allConfig.Redis.URL.IsDefined()
 	useConsul := allConfig.Consul.Host != ""
 	useDynamoDB := allConfig.DynamoDB.Enabled
-	countTrue := func(values ...bool) int {
-		n := 0
-		for _, v := range values {
-			if v {
-				n++
-			}
-		}
-		return n
-	}
-	if countTrue(useRedis, useConsul, useDynamoDB) > 1 {
-		return nil, errors.New("Cannot enable more than one database at a time (Redis, DynamoDB, Consul)")
-	}
+
 	if useRedis {
 		dbConfig := allConfig.Redis
-		redisURL := dbConfig.Url
-		if dbConfig.Host != "" {
-			if redisURL != "" {
-				loggers.Warnf("Both a URL and a hostname were specified for Redis; will use the URL")
-			} else {
-				port := dbConfig.Port
-				if port == 0 {
-					port = 6379
-				}
-				redisURL = fmt.Sprintf("redis://%s:%d", dbConfig.Host, port)
-			}
-		}
+		redisURL := dbConfig.URL.String()
 		loggers.Infof("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
 
 		dialOptions := []redigo.DialOption{}
-		if dbConfig.Tls || (dbConfig.Password != "") {
-			if dbConfig.Tls {
+		if dbConfig.TLS || (dbConfig.Password != "") {
+			if dbConfig.TLS {
 				if strings.HasPrefix(redisURL, "redis:") {
 					// Redigo's DialUseTLS option will not work if you're specifying a URL.
 					redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
@@ -77,7 +54,7 @@ func ConfigureDataStore(
 			Prefix(envConfig.Prefix).
 			DialOptions(dialOptions...)
 		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(time.Duration(dbConfig.LocalTtl) * time.Millisecond)
+			CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
 	}
 	if useConsul {
 		dbConfig := allConfig.Consul
@@ -86,7 +63,7 @@ func ConfigureDataStore(
 			ldconsul.DataStore().
 				Address(dbConfig.Host).
 				Prefix(envConfig.Prefix),
-		).CacheTime(time.Duration(dbConfig.LocalTtl) * time.Millisecond)
+		).CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
 	}
 	if useDynamoDB {
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
@@ -103,16 +80,16 @@ func ConfigureDataStore(
 		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
 		builder := lddynamodb.DataStore(tableName).
 			Prefix(envConfig.Prefix)
-		if dbConfig.Url != "" {
+		if dbConfig.URL.IsDefined() {
 			awsOptions := session.Options{
 				Config: aws.Config{
-					Endpoint: aws.String(dbConfig.Url),
+					Endpoint: aws.String(dbConfig.URL.String()),
 				},
 			}
 			builder.SessionOptions(awsOptions)
 		}
 		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(time.Duration(dbConfig.LocalTtl) * time.Millisecond)
+			CacheTime(time.Duration(dbConfig.LocalTTL) * time.Millisecond)
 	}
 
 	if dbFactory != nil {

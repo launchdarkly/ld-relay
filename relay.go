@@ -60,20 +60,16 @@ type evalXResult struct {
 	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
 }
 
-type sdkKind string
-
-const (
-	serverSdk   sdkKind = "server"
-	jsClientSdk sdkKind = "js"
-	mobileSdk   sdkKind = "mobile"
-)
-
 // NewRelay creates a new relay given a configuration and a method to create a client.
 //
 // If any metrics exporters are enabled in c.MetricsConfig, it also registers those in OpenCensus.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.ClientFactoryFunc) (*Relay, error) {
-	if c.Main.LogLevel != "" {
-		loggers.SetMinLevel(c.Main.GetLogLevel())
+	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
+		return nil, err
+	}
+
+	if c.Main.LogLevel.IsDefined() {
+		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
 	}
 
 	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
@@ -93,20 +89,23 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 	pingPublisher.Gzip = false
 	pingPublisher.AllowCORS = true
 	pingPublisher.ReplayAll = true
-	clients := make(map[string]relayenv.EnvContext)
-	mobileClients := make(map[string]relayenv.EnvContext)
+	clients := make(map[config.SDKCredential]relayenv.EnvContext)
+	mobileClients := make(map[config.SDKCredential]relayenv.EnvContext)
 
 	clientSideMux := clientSideMux{
-		contextByKey: map[string]*clientSideContext{},
+		contextByKey: map[config.SDKCredential]*clientSideContext{},
 	}
 
 	if len(c.Environment) == 0 {
 		return nil, fmt.Errorf("you must specify at least one environment in your configuration")
 	}
 
-	baseUrl, err := url.Parse(c.Main.BaseUri)
-	if err != nil {
-		return nil, fmt.Errorf(`unable to parse baseUri "%s"`, c.Main.BaseUri)
+	baseUrl := c.Main.BaseURI.Get()
+	if baseUrl == nil {
+		baseUrl, err = url.Parse(config.DefaultBaseURI)
+		if err != nil {
+			return nil, errors.New("unexpected error: default base URI is invalid")
+		}
 	}
 
 	clientReadyCh := make(chan relayenv.EnvContext, len(c.Environment))
@@ -138,15 +137,15 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 		if err != nil {
 			return nil, fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
 		}
-		clients[envConfig.SdkKey] = clientContext
-		if envConfig.MobileKey != nil && *envConfig.MobileKey != "" {
-			mobileClients[*envConfig.MobileKey] = clientContext
+		clients[envConfig.SDKKey] = clientContext
+		if envConfig.MobileKey != "" {
+			mobileClients[envConfig.MobileKey] = clientContext
 		}
 
-		if envConfig.EnvId != nil && *envConfig.EnvId != "" {
+		if envConfig.EnvID != "" {
 			var allowedOrigins []string
-			if envConfig.AllowedOrigin != nil && len(*envConfig.AllowedOrigin) != 0 {
-				allowedOrigins = *envConfig.AllowedOrigin
+			if len(envConfig.AllowedOrigin) != 0 {
+				allowedOrigins = envConfig.AllowedOrigin
 			}
 			cachingTransport := httpcache.NewMemoryCacheTransport()
 			if envConfig.InsecureSkipVerify {
@@ -174,7 +173,7 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 				Transport: cachingTransport,
 			}
 
-			clientSideMux.contextByKey[*envConfig.EnvId] = &clientSideContext{
+			clientSideMux.contextByKey[envConfig.EnvID] = &clientSideContext{
 				EnvContext:     clientContext,
 				proxy:          proxy,
 				allowedOrigins: allowedOrigins,
@@ -210,7 +209,8 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 		}
 		return &r, err
 	}
-	r.Handler = r.makeHandler(c.Main.GetLogLevel() <= ldlog.Debug)
+	isDebugLoggingEnabled := c.Main.LogLevel.GetOrElse(ldlog.Info) <= ldlog.Debug
+	r.Handler = r.makeHandler(isDebugLoggingEnabled)
 	return &r, nil
 }
 
@@ -251,7 +251,7 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(jsClientSdk)).Methods("REPORT", "OPTIONS")
 
 	serverSideMiddlewareStack := chainMiddleware(
-		r.sdkClientMux.selectClientByAuthorizationKey,
+		r.sdkClientMux.selectClientByAuthorizationKey(serverSdk),
 		requestCountMiddleware(metrics.ServerRequests))
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
@@ -274,7 +274,7 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 
 	// Mobile evaluation
 	mobileMiddlewareStack := chainMiddleware(
-		r.mobileClientMux.selectClientByAuthorizationKey,
+		r.mobileClientMux.selectClientByAuthorizationKey(mobileSdk),
 		requestCountMiddleware(metrics.MobileRequests))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
@@ -293,7 +293,7 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandler())).Methods("REPORT")
 	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandler())).Methods("GET")
 
-	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(
+	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(mobileSdk)(
 		countMobileConns(streamingMiddleware(pingStreamHandler())))).Methods("GET")
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()

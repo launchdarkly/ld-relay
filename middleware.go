@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
@@ -37,7 +38,7 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 }
 
 type clientMux struct {
-	clientContextByKey map[string]relayenv.EnvContext
+	clientContextByKey map[config.SDKCredential]relayenv.EnvContext
 }
 
 func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
@@ -85,31 +86,33 @@ func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
-func (m clientMux) selectClientByAuthorizationKey(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		authKey, err := fetchAuthToken(req)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+func (m clientMux) selectClientByAuthorizationKey(sdkKind sdkKind) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			credential, err := sdkKind.getSDKCredential(req)
+			if err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 
-		clientCtx := m.clientContextByKey[authKey]
+			clientCtx := m.clientContextByKey[credential]
 
-		if clientCtx == nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("ld-relay is not configured for the provided key"))
-			return
-		}
+			if clientCtx == nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte("ld-relay is not configured for the provided key"))
+				return
+			}
 
-		if clientCtx.GetClient() == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("client was not initialized"))
-			return
-		}
+			if clientCtx.GetClient() == nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte("client was not initialized"))
+				return
+			}
 
-		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
-		next.ServeHTTP(w, req)
-	})
+			req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
+			next.ServeHTTP(w, req)
+		})
+	}
 }
 
 func getClientContext(req *http.Request) relayenv.EnvContext {
@@ -235,16 +238,4 @@ func base64urlDecode(base64String string) ([]byte, error) {
 	}
 
 	return idStr, nil
-}
-
-func fetchAuthToken(req *http.Request) (string, error) {
-	authHdr := req.Header.Get("Authorization")
-	match := uuidHeaderPattern.FindStringSubmatch(authHdr)
-
-	// successfully matched UUID from header
-	if len(match) == 2 {
-		return match[1], nil
-	}
-
-	return "", errors.New("No valid token found")
 }

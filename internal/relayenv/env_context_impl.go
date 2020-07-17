@@ -56,24 +56,26 @@ func NewEnvContext(
 ) (EnvContext, error) {
 	envLoggers := loggers
 	envLoggers.SetPrefix(fmt.Sprintf("[env: %s]", envName))
-	if envConfig.LogLevel != "" {
-		envLoggers.SetMinLevel(envConfig.GetLogLevel())
-	}
+	envLoggers.SetMinLevel(
+		envConfig.LogLevel.GetOrElse(
+			allConfig.Main.LogLevel.GetOrElse(ldlog.Info),
+		),
+	)
 
-	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SdkKey, loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, loggers)
 	if err != nil {
 		return nil, err
 	}
 
 	clientConfig := ld.Config{
-		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamUri),
+		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamURI.String()),
 		HTTP:       httpConfig.SDKHTTPConfigFactory,
 		Logging:    ldcomponents.Logging().Loggers(envLoggers),
 	}
 
 	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory,
 		store.SSERelayDataStoreParams{
-			SDKKey:            envConfig.SdkKey,
+			SDKKey:            envConfig.SDKKey,
 			AllPublisher:      allPublisher,
 			FlagsPublisher:    flagsPublisher,
 			PingPublisher:     pingPublisher,
@@ -84,12 +86,12 @@ func NewEnvContext(
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
 		envLoggers.Info("Proxying events for this environment")
-		eventDispatcher = events.NewEventDispatcher(envConfig.SdkKey, envConfig.MobileKey, envConfig.EnvId,
+		eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
 			envLoggers, allConfig.Events, httpConfig, storeAdapter)
 	}
 
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SdkKey, envLoggers,
-		events.OptionUri(allConfig.Events.EventsUri),
+	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SDKKey, envLoggers,
+		events.OptionUri(allConfig.Events.EventsURI.StringOrElse(config.DefaultEventsURI)),
 		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)
@@ -106,25 +108,25 @@ func NewEnvContext(
 	envContext := &envContextImpl{
 		name: envName,
 		credentials: Credentials{
-			SDKKey:        envConfig.SdkKey,
-			MobileKey:     ldvalue.NewOptionalStringFromPointer(envConfig.MobileKey).OnlyIfNonEmptyString(),
-			EnvironmentID: ldvalue.NewOptionalStringFromPointer(envConfig.EnvId).OnlyIfNonEmptyString(),
+			SDKKey:        string(envConfig.SDKKey),
+			MobileKey:     ldvalue.NewOptionalString(string(envConfig.MobileKey)).OnlyIfNonEmptyString(),
+			EnvironmentID: ldvalue.NewOptionalString(string(envConfig.EnvID)).OnlyIfNonEmptyString(),
 		},
 		storeAdapter: storeAdapter,
 		loggers:      envLoggers,
 		metricsEnv:   em,
-		ttl:          time.Minute * time.Duration(envConfig.TtlMinutes),
+		ttl:          time.Minute * time.Duration(envConfig.TTLMinutes),
 		handlers: ClientHandlers{
 			EventDispatcher:    eventDispatcher,
-			AllStreamHandler:   allPublisher.Handler(envConfig.SdkKey),
-			FlagsStreamHandler: flagsPublisher.Handler(envConfig.SdkKey),
-			PingStreamHandler:  pingPublisher.Handler(envConfig.SdkKey),
+			AllStreamHandler:   allPublisher.Handler(string(envConfig.SDKKey)),
+			FlagsStreamHandler: flagsPublisher.Handler(string(envConfig.SDKKey)),
+			PingStreamHandler:  pingPublisher.Handler(string(envConfig.SDKKey)),
 		},
 	}
 
 	// Connecting may take time, so do this in parallel
 	go func(envName string, envConfig config.EnvConfig) {
-		client, err := clientFactory(envConfig.SdkKey, clientConfig)
+		client, err := clientFactory(envConfig.SDKKey, clientConfig)
 		envContext.SetClient(client)
 
 		if err != nil {

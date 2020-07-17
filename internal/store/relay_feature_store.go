@@ -5,12 +5,12 @@ import (
 	"sync"
 	"time"
 
+	es "github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
-
-	es "github.com/launchdarkly/eventsource"
 )
 
 // ESPublisher defines an interface for publishing events to eventsource
@@ -87,7 +87,7 @@ func (a *SSERelayDataStoreAdapter) CreateDataStore(
 }
 
 type SSERelayDataStoreParams struct {
-	SDKKey            string
+	SDKKey            config.SDKKey
 	AllPublisher      ESPublisher
 	FlagsPublisher    ESPublisher
 	PingPublisher     ESPublisher
@@ -99,7 +99,7 @@ type SSERelayFeatureStore struct {
 	allPublisher   ESPublisher
 	flagsPublisher ESPublisher
 	pingPublisher  ESPublisher
-	apiKey         string
+	apiKey         config.SDKKey
 	loggers        ldlog.Loggers
 }
 
@@ -118,7 +118,7 @@ type pingRepository struct {
 
 // NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
 func NewSSERelayFeatureStore(
-	apiKey string,
+	apiKey config.SDKKey,
 	allPublisher ESPublisher,
 	flagsPublisher ESPublisher,
 	pingPublisher ESPublisher,
@@ -135,9 +135,9 @@ func NewSSERelayFeatureStore(
 		loggers:        loggers,
 	}
 
-	allPublisher.Register(apiKey, allRepository{relayStore: relayStore, loggers: loggers})
-	flagsPublisher.Register(apiKey, flagsRepository{relayStore: relayStore, loggers: loggers})
-	pingPublisher.Register(apiKey, pingRepository{relayStore: relayStore, loggers: loggers})
+	allPublisher.Register(string(apiKey), allRepository{relayStore: relayStore, loggers: loggers})
+	flagsPublisher.Register(string(apiKey), flagsRepository{relayStore: relayStore, loggers: loggers})
+	pingPublisher.Register(string(apiKey), pingRepository{relayStore: relayStore, loggers: loggers})
 
 	if heartbeatInterval > 0 {
 		go func() {
@@ -153,7 +153,7 @@ func NewSSERelayFeatureStore(
 }
 
 func (relay *SSERelayFeatureStore) keys() []string {
-	return []string{relay.apiKey}
+	return []string{string(relay.apiKey)}
 }
 
 func (relay *SSERelayFeatureStore) heartbeat() {

@@ -68,7 +68,7 @@ func main() {
 		}
 	}
 	if useEnvironment {
-		if err := config.LoadConfigFromEnvironment(&c); err != nil {
+		if err := config.LoadConfigFromEnvironment(&c, loggers); err != nil {
 			loggers.Errorf("Configuration error: %s", err)
 			os.Exit(1)
 		}

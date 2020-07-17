@@ -2,19 +2,28 @@ package config
 
 import (
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+)
+
+const (
+	// DefaultBaseURI is the default value for the base URI of LaunchDarkly services (polling endpoints).
+	DefaultBaseURI = "https://app.launchdarkly.com"
+
+	// DefaultStreamURI is the default value for the base URI of LaunchDarkly services (streaming endpoints).
+	DefaultStreamURI = "https://stream.launchdarkly.com"
+
+	// DefaultEventsURI is the default value for the base URI of LaunchDarkly services (event endpoints).
+	DefaultEventsURI = "https://events.launchdarkly.com"
 )
 
 const (
 	defaultDatabaseLocalTTLMs    = 30000
 	defaultPort                  = 8030
 	defaultEventCapacity         = 1000
-	defaultEventsURI             = "https://events.launchdarkly.com"
-	defaultBaseURI               = "https://app.launchdarkly.com"
-	defaultStreamURI             = "https://stream.launchdarkly.com"
 	defaultHeartbeatIntervalSecs = 180
 	defaultFlushIntervalSecs     = 5
+	defaultRedisHost             = "localhost"
 	defaultRedisPort             = 6379
+	defaultConsulHost            = "localhost"
 	defaultPrometheusPort        = 8031
 )
 
@@ -45,24 +54,19 @@ type MainConfig struct {
 	ExitOnError            bool
 	ExitAlways             bool
 	IgnoreConnectionErrors bool
-	StreamUri              string
-	BaseUri                string
+	StreamURI              OptAbsoluteURL
+	BaseURI                OptAbsoluteURL
 	Port                   int
 	HeartbeatIntervalSecs  int
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
-	LogLevel               string
-}
-
-func (c MainConfig) GetLogLevel() ldlog.LogLevel {
-	level, _ := getLogLevelByName(c.LogLevel)
-	return level
+	LogLevel               OptLogLevel
 }
 
 // EventsConfig contains configuration parameters for proxying events.
 type EventsConfig struct {
-	EventsUri         string
+	EventsURI         OptAbsoluteURL
 	SendEvents        bool
 	FlushIntervalSecs int
 	SamplingInterval  int32
@@ -70,24 +74,30 @@ type EventsConfig struct {
 	InlineUsers       bool
 }
 
-// RedisConfig configures the optional Redis integration, which is used only if Host is non-empty.
+// RedisConfig configures the optional Redis integration.
+//
+// Redis is enabled if URL or Host is non-empty or if Port is non-zero. If only Host or Port is set,
+// the other value is set to defaultRedisPort or defaultRedisHost. It is an error to set Host or
+// Port if URL is also set.
 //
 // This corresponds to the [Redis] section in the configuration file.
 type RedisConfig struct {
 	Host     string
 	Port     int
-	Url      string
-	LocalTtl int
-	Tls      bool
+	URL      OptAbsoluteURL
+	LocalTTL int
+	TLS      bool
 	Password string
 }
 
-// ConsulConfig configures the optional Consul integration, which is used only if Host is non-empty.
+// ConsulConfig configures the optional Consul integration.
+//
+// Consul is enabled if Host is non-empty.
 //
 // This corresponds to the [Consul] section in the configuration file.
 type ConsulConfig struct {
 	Host     string
-	LocalTtl int
+	LocalTTL int
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
@@ -96,8 +106,8 @@ type ConsulConfig struct {
 type DynamoDBConfig struct {
 	Enabled   bool
 	TableName string
-	Url       string
-	LocalTtl  int
+	URL       OptAbsoluteURL
+	LocalTTL  int
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.
@@ -105,31 +115,26 @@ type DynamoDBConfig struct {
 // This corresponds to one of the [environment "env-name"] sections in the configuration file. In the
 // Config.Environment map, each key is an environment name and each value is an EnvConfig.
 type EnvConfig struct {
-	SdkKey             string
-	ApiKey             string // deprecated, equivalent to SdkKey
-	MobileKey          *string
-	EnvId              *string
+	SDKKey             SDKKey
+	APIKey             string // deprecated, equivalent to SdkKey
+	MobileKey          MobileKey
+	EnvID              EnvironmentID
 	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
 	TableName          string // used only if DynamoDB is enabled
-	AllowedOrigin      *[]string
+	AllowedOrigin      []string
 	InsecureSkipVerify bool
-	LogLevel           string
-	TtlMinutes         int
-}
-
-func (c EnvConfig) GetLogLevel() ldlog.LogLevel {
-	level, _ := getLogLevelByName(c.LogLevel)
-	return level
+	LogLevel           OptLogLevel
+	TTLMinutes         int
 }
 
 // ProxyConfig represents all the supported proxy options.
 type ProxyConfig struct {
-	Url         string
-	NtlmAuth    bool
+	URL         OptAbsoluteURL
+	NTLMAuth    bool
 	User        string
 	Password    string
 	Domain      string
-	CaCertFiles string
+	CACertFiles string
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
@@ -151,8 +156,8 @@ type CommonMetricsConfig struct {
 //
 // This corresponds to the [Datadog] section in the configuration file.
 type DatadogConfig struct {
-	TraceAddr *string
-	StatsAddr *string
+	TraceAddr string
+	StatsAddr string
 	Tag       []string
 	CommonMetricsConfig
 }
@@ -179,24 +184,24 @@ type PrometheusConfig struct {
 // start by copying relay.DefaultConfig and then changing only the fields you need to change.
 var DefaultConfig = Config{
 	Main: MainConfig{
-		BaseUri:               defaultBaseURI,
-		StreamUri:             defaultStreamURI,
+		BaseURI:               newOptAbsoluteURLMustBeValid(DefaultBaseURI),
+		StreamURI:             newOptAbsoluteURLMustBeValid(DefaultStreamURI),
 		HeartbeatIntervalSecs: defaultHeartbeatIntervalSecs,
 		Port:                  defaultPort,
 	},
 	Events: EventsConfig{
 		Capacity:          defaultEventCapacity,
-		EventsUri:         defaultEventsURI,
+		EventsURI:         newOptAbsoluteURLMustBeValid(DefaultEventsURI),
 		FlushIntervalSecs: defaultFlushIntervalSecs,
 	},
 	Redis: RedisConfig{
-		LocalTtl: defaultDatabaseLocalTTLMs,
+		LocalTTL: defaultDatabaseLocalTTLMs,
 	},
 	Consul: ConsulConfig{
-		LocalTtl: defaultDatabaseLocalTTLMs,
+		LocalTTL: defaultDatabaseLocalTTLMs,
 	},
 	DynamoDB: DynamoDBConfig{
-		LocalTtl: defaultDatabaseLocalTTLMs,
+		LocalTTL: defaultDatabaseLocalTTLMs,
 	},
 	MetricsConfig: MetricsConfig{
 		Prometheus: PrometheusConfig{

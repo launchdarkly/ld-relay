@@ -23,7 +23,7 @@ func (c fakeLDClient) Initialized() bool {
 }
 
 func fakeLDClientFactory(shouldBeInitialized bool) sdkconfig.ClientFactoryFunc {
-	return func(sdkKey string, config ld.Config) (sdkconfig.LDClientContext, error) {
+	return func(sdkKey config.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
 		// We're not creating a real client, but we still need to invoke the DataStoreFactory as the
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
 		if config.DataStore != nil {
