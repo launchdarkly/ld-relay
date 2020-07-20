@@ -50,6 +50,10 @@ type EnvContext interface {
 
 	// GetInitError returns an error if initialization has failed, or nil otherwise.
 	GetInitError() error
+
+	// IsSecureMode returns true if client-side evaluation requests for this environment must have a valid
+	// secure mode hash.
+	IsSecureMode() bool
 }
 
 // Credentials encapsulates all the configured LD credentials for an environment. The SDK key is mandatory;

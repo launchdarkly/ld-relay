@@ -10,6 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
@@ -30,6 +31,14 @@ type fakeLDClient struct {
 
 func (c fakeLDClient) Initialized() bool {
 	return c.initialized
+}
+
+func (c fakeLDClient) SecureModeHash(user lduser.User) string {
+	return fakeHashForUser(user)
+}
+
+func fakeHashForUser(user lduser.User) string {
+	return "fake-hash-" + user.GetKey()
 }
 
 func fakeLDClientFactory(shouldBeInitialized bool) sdkconfig.ClientFactoryFunc {

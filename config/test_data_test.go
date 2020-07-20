@@ -91,6 +91,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				SDKKey:        "krypton-sdk",
 				MobileKey:     "krypton-mob",
 				EnvID:         "krypton-env",
+				SecureMode:    true,
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: []string{"https://oa", "https://rann"},
@@ -125,6 +126,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_ENV_krypton":            "krypton-sdk",
 		"LD_MOBILE_KEY_krypton":     "krypton-mob",
 		"LD_CLIENT_SIDE_ID_krypton": "krypton-env",
+		"LD_SECURE_MODE_krypton":    "1",
 		"LD_PREFIX_krypton":         "krypton-",
 		"LD_TABLE_NAME_krypton":     "krypton-table",
 		"LD_ALLOWED_ORIGIN_krypton": "https://oa,https://rann",
@@ -164,6 +166,7 @@ LogLevel = "debug"
 SdkKey = "krypton-sdk"
 MobileKey = "krypton-mob"
 EnvId = "krypton-env"
+SecureMode = true
 Prefix = "krypton-"
 TableName = "krypton-table"
 AllowedOrigin = "https://oa"

@@ -144,6 +144,7 @@ Property in file | Environment var               | Type   | Description
 `sdkKey`         | `LD_ENV_MyEnvName`            | String | Server-side SDK key for the environment. Required.
 `mobileKey`      | `LD_MOBILE_KEY_MyEnvName`     | String | Mobile key for the environment. Required if you are proxying mobile SDK functionality.
 `envId`          | `LD_CLIENT_SIDE_ID_MyEnvName` | String | Client-side ID for the environment. Required if you are proxying client-side JavaScript-based SDK functionality.
+`secureMode`     | `LD_SECURE_MODE_MyEnvName`    | Boolean | True if [secure mode](https://docs.launchdarkly.com/sdk/client-side/javascript#secure-mode) should be required for client-side JS SDK connections.
 `prefix`         | `LD_PREFIX_MyEnvName`         | String | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).

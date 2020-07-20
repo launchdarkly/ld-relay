@@ -35,6 +35,13 @@ func buildRequest(method, url string, body []byte, headers http.Header) *http.Re
 	return r
 }
 
+func addQueryParam(url, query string) string {
+	if strings.Contains(url, "?") {
+		return url + "&" + query
+	}
+	return url + "?" + query
+}
+
 // Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
 // going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
 func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx interface{}) *http.Request {
@@ -51,6 +58,15 @@ func doRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 	result := w.Result()
 	body, _ := ioutil.ReadAll(result.Body)
 	return result, body
+}
+
+func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *http.Response {
+	w, bodyReader := NewStreamRecorder()
+	handler.ServeHTTP(w, req)
+	go func() {
+		_, _ = ioutil.ReadAll(bodyReader)
+	}()
+	return w.Result()
 }
 
 func nullHandler() http.Handler {
