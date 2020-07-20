@@ -13,8 +13,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
-const defaultPrometheusPort = 8031
-
 var prometheusExporterType exporterType = prometheusExporterTypeImpl{}
 
 type prometheusExporterTypeImpl struct{}
