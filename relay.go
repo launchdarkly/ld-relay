@@ -142,10 +142,7 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 		}
 
 		if envConfig.EnvID != "" {
-			var allowedOrigins []string
-			if len(envConfig.AllowedOrigin) != 0 {
-				allowedOrigins = envConfig.AllowedOrigin
-			}
+			allowedOrigins := envConfig.AllowedOrigin.Values()
 			cachingTransport := httpcache.NewMemoryCacheTransport()
 			if envConfig.InsecureSkipVerify {
 				transport := &(*http.DefaultTransport.(*http.Transport))

@@ -64,28 +64,28 @@ type Config struct {
 //
 // This corresponds to the [Main] section in the configuration file.
 type MainConfig struct {
-	ExitOnError             bool
-	ExitAlways              bool
-	IgnoreConnectionErrors  bool
-	StreamURI               ct.OptURLAbsolute
-	BaseURI                 ct.OptURLAbsolute
-	Port                    int
-	HeartbeatInterval       ct.OptDuration
-	MaxClientConnectionTime ct.OptDuration
-	TLSEnabled              bool
-	TLSCert                 string
-	TLSKey                  string
-	LogLevel                OptLogLevel
+	ExitOnError             bool              `conf:"EXIT_ON_ERROR"`
+	ExitAlways              bool              `conf:"EXIT_ALWAYS"`
+	IgnoreConnectionErrors  bool              `conf:"IGNORE_CONNECTION_ERRORS"`
+	StreamURI               ct.OptURLAbsolute `conf:"STREAM_URI"`
+	BaseURI                 ct.OptURLAbsolute `conf:"BASE_URI"`
+	Port                    int               `conf:"PORT"`
+	HeartbeatInterval       ct.OptDuration    `conf:"HEARTBEAT_INTERVAL"`
+	MaxClientConnectionTime ct.OptDuration    `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	TLSEnabled              bool              `conf:"TLS_ENABLED"`
+	TLSCert                 string            `conf:"TLS_CERT"`
+	TLSKey                  string            `conf:"TLS_KEY"`
+	LogLevel                OptLogLevel       `conf:"LOG_LEVEL"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.
 type EventsConfig struct {
-	EventsURI        ct.OptURLAbsolute
-	SendEvents       bool
-	FlushInterval    ct.OptDuration
+	EventsURI        ct.OptURLAbsolute `conf:"EVENTS_HOST"`
+	SendEvents       bool              `conf:"USE_EVENTS"`
+	FlushInterval    ct.OptDuration    `conf:"EVENTS_FLUSH_INTERVAL"`
 	SamplingInterval int32
-	Capacity         int
-	InlineUsers      bool
+	Capacity         int  `conf:"EVENTS_CAPACITY"`
+	InlineUsers      bool `conf:"EVENTS_INLINE_USERS"`
 }
 
 // RedisConfig configures the optional Redis integration.
@@ -96,12 +96,12 @@ type EventsConfig struct {
 //
 // This corresponds to the [Redis] section in the configuration file.
 type RedisConfig struct {
-	Host     string
+	Host     string `conf:"REDIS_HOST"`
 	Port     int
-	URL      ct.OptURLAbsolute
-	LocalTTL ct.OptDuration
-	TLS      bool
-	Password string
+	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
+	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
+	TLS      bool              `conf:"REDIS_TLS"`
+	Password string            `conf:"REDIS_PASSWORD"`
 }
 
 // ConsulConfig configures the optional Consul integration.
@@ -110,18 +110,18 @@ type RedisConfig struct {
 //
 // This corresponds to the [Consul] section in the configuration file.
 type ConsulConfig struct {
-	Host     string
-	LocalTTL ct.OptDuration
+	Host     string         `conf:"CONSUL_HOST"`
+	LocalTTL ct.OptDuration `conf:"CACHE_TTL"`
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
 //
 // This corresponds to the [DynamoDB] section in the configuration file.
 type DynamoDBConfig struct {
-	Enabled   bool
-	TableName string
-	URL       ct.OptURLAbsolute
-	LocalTTL  ct.OptDuration
+	Enabled   bool              `conf:"USE_DYNAMODB"`
+	TableName string            `conf:"DYNAMODB_TABLE"`
+	URL       ct.OptURLAbsolute `conf:"DYNAMODB_URL"`
+	LocalTTL  ct.OptDuration    `conf:"CACHE_TTL"`
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.
@@ -133,23 +133,23 @@ type EnvConfig struct {
 	APIKey             string // deprecated, equivalent to SdkKey
 	MobileKey          MobileKey
 	EnvID              EnvironmentID
-	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
-	TableName          string // used only if DynamoDB is enabled
-	AllowedOrigin      []string
-	SecureMode         bool
+	Prefix             string           `conf:"LD_PREFIX_"`     // used only if Redis, Consul, or DynamoDB is enabled
+	TableName          string           `conf:"LD_TABLE_NAME_"` // used only if DynamoDB is enabled
+	AllowedOrigin      ct.OptStringList `conf:"LD_ALLOWED_ORIGIN_"`
+	SecureMode         bool             `conf:"LD_SECURE_MODE_"`
 	InsecureSkipVerify bool
-	LogLevel           OptLogLevel
-	TTL                ct.OptDuration
+	LogLevel           OptLogLevel    `conf:"LD_LOG_LEVEL_"`
+	TTL                ct.OptDuration `conf:"LD_TTL_"`
 }
 
 // ProxyConfig represents all the supported proxy options.
 type ProxyConfig struct {
-	URL         ct.OptURLAbsolute
-	NTLMAuth    bool
-	User        string
-	Password    string
-	Domain      string
-	CACertFiles string
+	URL         ct.OptURLAbsolute `conf:"PROXY_URL"`
+	NTLMAuth    bool              `conf:"PROXY_AUTH_NTLM"`
+	User        string            `conf:"PROXY_AUTH_USER"`
+	Password    string            `conf:"PROXY_AUTH_PASSWORD"`
+	Domain      string            `conf:"PROXY_AUTH_DOMAIN"`
+	CACertFiles ct.OptStringList  `conf:"PROXY_CA_CERTS"`
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
@@ -171,8 +171,8 @@ type CommonMetricsConfig struct {
 //
 // This corresponds to the [Datadog] section in the configuration file.
 type DatadogConfig struct {
-	TraceAddr string
-	StatsAddr string
+	TraceAddr string `conf:"DATADOG_TRACE_ADDR"`
+	StatsAddr string `conf:"DATADOG_STATS_ADDR"`
 	Tag       []string
 	CommonMetricsConfig
 }
@@ -181,7 +181,7 @@ type DatadogConfig struct {
 //
 // This corresponds to the [StackdriverConfig] section in the configuration file.
 type StackdriverConfig struct {
-	ProjectID string
+	ProjectID string `conf:"STACKDRIVER_PROJECT_ID"`
 	CommonMetricsConfig
 }
 
@@ -189,7 +189,7 @@ type StackdriverConfig struct {
 //
 // This corresponds to the [PrometheusConfig] section in the configuration file.
 type PrometheusConfig struct {
-	Port int
+	Port int `conf:"PROMETHEUS_PORT"`
 	CommonMetricsConfig
 }
 

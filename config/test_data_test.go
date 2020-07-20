@@ -96,7 +96,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				SecureMode:    true,
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
-				AllowedOrigin: []string{"https://oa", "https://rann"},
+				AllowedOrigin: ct.NewOptStringList([]string{"https://oa", "https://rann"}),
 				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
@@ -495,7 +495,7 @@ func makeValidConfigProxy() testDataValidConfig {
 			Password:    "pass",
 			Domain:      "domain",
 			NTLMAuth:    true,
-			CACertFiles: "cert",
+			CACertFiles: ct.NewOptStringList([]string{"cert"}),
 		}
 	}
 	c.envVars = map[string]string{

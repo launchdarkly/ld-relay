@@ -36,7 +36,7 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 				"USE_REDIS": "1",
 				"REDIS_TTL": "500",
 			},
-			"environment variable REDIS_TTL is no longer supported; use CACHE_TTL",
+			"REDIS_TTL: this variable is no longer supported; use CACHE_TTL",
 		)
 	})
 
@@ -46,7 +46,7 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 				"LD_ENV_envname":         "key",
 				"LD_TTL_MINUTES_envname": "3",
 			},
-			"environment variable LD_TTL_MINUTES_envname is no longer supported; use LD_TTL_envname",
+			"LD_TTL_MINUTES_envname: this variable is no longer supported; use LD_TTL_envname",
 		)
 	})
 }
@@ -71,11 +71,10 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 		)
 	})
 
-	t.Run("treats unrecognized boolean values as false", func(t *testing.T) {
-		// TODO: not sure this is desirable
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = false },
+	t.Run("rejects invalid boolean", func(t *testing.T) {
+		testInvalidConfigVars(t,
 			map[string]string{"EXIT_ON_ERROR": "not really"},
+			"EXIT_ON_ERROR: not a valid boolean",
 		)
 	})
 
@@ -89,7 +88,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("rejects invalid int", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"PORT": "not-numeric"},
-			"PORT: must be an integer",
+			"PORT: not a valid integer",
 		)
 	})
 
