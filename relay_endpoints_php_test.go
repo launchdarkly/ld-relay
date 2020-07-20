@@ -27,7 +27,7 @@ func TestRelayPHPPollingEndpoints(t *testing.T) {
 			http.StatusNotFound, nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvMain, testEnvWithTTL)
 
 	relayTest(config, func(p relayTestParams) {

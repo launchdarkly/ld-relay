@@ -22,6 +22,22 @@ type testDataInvalidConfig struct {
 	fileContent  string
 }
 
+func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
+	o, err := ct.NewOptIntGreaterThanZero(n)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
+func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
+	o, err := ct.NewOptURLAbsoluteFromString(urlString)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
 func makeValidConfigs() []testDataValidConfig {
 	return []testDataValidConfig{
 		makeValidConfigAllBaseProperties(),
@@ -51,6 +67,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
 		makeInvalidConfigRedisInvalidHostname(),
+		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigMultipleDatabases(),
 	}
@@ -60,7 +77,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c := testDataValidConfig{name: "all base properties"}
 	c.makeConfig = func(c *Config) {
 		c.Main = MainConfig{
-			Port:                    8333,
+			Port:                    mustOptIntGreaterThanZero(8333),
 			BaseURI:                 newOptURLAbsoluteMustBeValid("http://base"),
 			StreamURI:               newOptURLAbsoluteMustBeValid("http://stream"),
 			ExitOnError:             true,
@@ -74,12 +91,11 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			LogLevel:                NewOptLogLevel(ldlog.Warn),
 		}
 		c.Events = EventsConfig{
-			SendEvents:       true,
-			EventsURI:        newOptURLAbsoluteMustBeValid("http://events"),
-			FlushInterval:    ct.NewOptDuration(120 * time.Second),
-			SamplingInterval: 3,
-			Capacity:         500,
-			InlineUsers:      true,
+			SendEvents:    true,
+			EventsURI:     newOptURLAbsoluteMustBeValid("http://events"),
+			FlushInterval: ct.NewOptDuration(120 * time.Second),
+			Capacity:      mustOptIntGreaterThanZero(500),
+			InlineUsers:   true,
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": &EnvConfig{
@@ -118,7 +134,6 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"USE_EVENTS":                 "1",
 		"EVENTS_HOST":                "http://events",
 		"EVENTS_FLUSH_INTERVAL":      "120s",
-		"EVENTS_SAMPLING_INTERVAL":   "3",
 		"EVENTS_CAPACITY":            "500",
 		"EVENTS_INLINE_USERS":        "1",
 		"LD_ENV_earth":               "earth-sdk",
@@ -155,7 +170,6 @@ LogLevel = "warn"
 SendEvents = 1
 EventsUri = "http://events"
 FlushInterval = 120s
-SamplingInterval = 3
 Capacity = 500
 InlineUsers = 1
 
@@ -452,7 +466,6 @@ func makeValidConfigPrometheusMinimal() testDataValidConfig {
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
 			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
-			Port:                8031,
 		}
 	}
 	c.envVars = map[string]string{
@@ -470,7 +483,7 @@ func makeValidConfigPrometheusAll() testDataValidConfig {
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
 			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			Port:                8333,
+			Port:                mustOptIntGreaterThanZero(8333),
 		}
 	}
 	c.envVars = map[string]string{
@@ -575,6 +588,16 @@ func makeInvalidConfigRedisInvalidHostname() testDataInvalidConfig {
 [Redis]
 Host = "\\"
 `
+	return c
+}
+
+func makeInvalidConfigRedisInvalidDockerPort() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - Docker port syntax with invalid port"}
+	c.envVarsError = "REDIS_PORT: not a valid integer"
+	c.envVars = map[string]string{
+		"USE_REDIS":  "1",
+		"REDIS_PORT": "tcp://redishost:xxx",
+	}
 	return c
 }
 

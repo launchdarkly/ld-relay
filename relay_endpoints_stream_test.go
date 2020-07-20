@@ -141,7 +141,7 @@ func TestRelayServerSideStreams(t *testing.T) {
 		{endpointTestParams{"all stream", "GET", "/all", nil, sdkKey, 200, nil}, "put", expectedAllData},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
@@ -162,7 +162,7 @@ func TestRelayMobileStreams(t *testing.T) {
 			"ping", nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
@@ -185,7 +185,7 @@ func TestRelayJSClientStreams(t *testing.T) {
 			"ping", nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	for _, s := range specs {

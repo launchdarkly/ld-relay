@@ -73,7 +73,7 @@ func newEventSummarizingRelay(authKey c.SDKCredential, config c.EventsConfig, ht
 	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
 
 	eventsConfig := ldevents.EventsConfiguration{
-		Capacity:            config.Capacity,
+		Capacity:            config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		InlineUsersInEvents: config.InlineUsers,
 		EventSender:         eventSender,
 		FlushInterval:       config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),

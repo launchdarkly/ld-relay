@@ -36,10 +36,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 		return nil, nil
 	}
 
-	port := defaultPrometheusPort
-	if mc.Prometheus.Port != 0 {
-		port = mc.Prometheus.Port
-	}
+	port := mc.Prometheus.Port.GetOrElse(config.DefaultPrometheusPort)
 
 	logPrometheusError := func(e error) {
 		loggers.Errorf("Prometheus exporter error: %s", e)

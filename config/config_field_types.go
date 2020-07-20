@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -20,7 +19,7 @@ type MobileKey string
 // LaunchDarkly environment.
 type EnvironmentID string
 
-// SDKCredential is implemented by types that represent an SDK authorization credential (SDKKey, etc.)
+// SDKCredential is implemented by types that represent an SDK authorization credential (SDKKey, etc.).
 type SDKCredential interface {
 	// GetAuthorizationHeaderValue returns the value that should be passed in an HTTP Authorization header
 	// when using this credential, or "" if the header is not used.
@@ -61,14 +60,6 @@ func (k *MobileKey) UnmarshalText(data []byte) error {
 func (k *EnvironmentID) UnmarshalText(data []byte) error {
 	*k = EnvironmentID(string(data))
 	return nil
-}
-
-func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
-	o, err := ct.NewOptURLAbsoluteFromString(urlString)
-	if err != nil {
-		panic(err)
-	}
-	return o
 }
 
 // OptLogLevel represents an optional log level parameter. It must match one of the level names "debug",

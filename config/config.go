@@ -8,6 +8,9 @@ import (
 )
 
 const (
+	// DefaultPort is the port that Relay runs on if not otherwise specified.
+	DefaultPort = 8030
+
 	// DefaultBaseURI is the default value for the base URI of LaunchDarkly services (polling endpoints).
 	DefaultBaseURI = "https://app.launchdarkly.com"
 
@@ -17,6 +20,9 @@ const (
 	// DefaultEventsURI is the default value for the base URI of LaunchDarkly services (event endpoints).
 	DefaultEventsURI = "https://events.launchdarkly.com"
 
+	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
+	DefaultEventCapacity = 1000
+
 	// DefaultHeartbeatInterval is the default value for MainConfig.HeartBeatInterval if not specified.
 	DefaultHeartbeatInterval = time.Minute * 3
 
@@ -25,19 +31,19 @@ const (
 
 	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
 	DefaultDatabaseCacheTTL = time.Second * 30
+
+	// DefaultPrometheusPort is the default value for PrometheusConfig.Port if not specified.
+	DefaultPrometheusPort = 8031
 )
 
 const (
-	defaultPort           = 8030
-	defaultEventCapacity  = 1000
-	defaultRedisHost      = "localhost"
-	defaultRedisPort      = 6379
-	defaultConsulHost     = "localhost"
-	defaultPrometheusPort = 8031
+	defaultRedisHost  = "localhost"
+	defaultRedisPort  = 6379
+	defaultConsulHost = "localhost"
 )
 
 var (
-	defaultRedisURL = newOptURLAbsoluteMustBeValid("redis://localhost:6379")
+	defaultRedisURL, _ = ct.NewOptURLAbsoluteFromString("redis://localhost:6379")
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -47,8 +53,17 @@ var DefaultLoggers = logging.MakeDefaultLoggers()
 
 // Config describes the configuration for a relay instance.
 //
-// If you are incorporating Relay into your own code and configuring it programmatically, it is best to
-// start by copying relay.DefaultConfig and then changing only the fields you need to change.
+// Some fields use special types that enforce validation rules, such as URL fields which must
+// be absolute URLs, port numbers which must be greater than zero, or durations. This validation
+// is done automatically when reading the configuration from a file or from environment variables.
+//
+// If you are incorporating Relay into your own code and configuring it programmatically, you
+// may need to use functions from go-configtypes such as NewOptDuration to set fields that have
+// validation rules.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type Config struct {
 	Main        MainConfig
 	Events      EventsConfig
@@ -57,47 +72,62 @@ type Config struct {
 	DynamoDB    DynamoDBConfig
 	Environment map[string]*EnvConfig
 	Proxy       ProxyConfig
+
+	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
+	// MetricsConfig is not the name of a configuration file section; the actual sections are the
+	// structs within this struct (Datadog, etc.).
 	MetricsConfig
 }
 
 // MainConfig contains global configuration options for Relay.
 //
 // This corresponds to the [Main] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type MainConfig struct {
-	ExitOnError             bool              `conf:"EXIT_ON_ERROR"`
-	ExitAlways              bool              `conf:"EXIT_ALWAYS"`
-	IgnoreConnectionErrors  bool              `conf:"IGNORE_CONNECTION_ERRORS"`
-	StreamURI               ct.OptURLAbsolute `conf:"STREAM_URI"`
-	BaseURI                 ct.OptURLAbsolute `conf:"BASE_URI"`
-	Port                    int               `conf:"PORT"`
-	HeartbeatInterval       ct.OptDuration    `conf:"HEARTBEAT_INTERVAL"`
-	MaxClientConnectionTime ct.OptDuration    `conf:"MAX_CLIENT_CONNECTION_TIME"`
-	TLSEnabled              bool              `conf:"TLS_ENABLED"`
-	TLSCert                 string            `conf:"TLS_CERT"`
-	TLSKey                  string            `conf:"TLS_KEY"`
-	LogLevel                OptLogLevel       `conf:"LOG_LEVEL"`
+	ExitOnError             bool                     `conf:"EXIT_ON_ERROR"`
+	ExitAlways              bool                     `conf:"EXIT_ALWAYS"`
+	IgnoreConnectionErrors  bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
+	StreamURI               ct.OptURLAbsolute        `conf:"STREAM_URI"`
+	BaseURI                 ct.OptURLAbsolute        `conf:"BASE_URI"`
+	Port                    ct.OptIntGreaterThanZero `conf:"PORT"`
+	HeartbeatInterval       ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
+	MaxClientConnectionTime ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	TLSEnabled              bool                     `conf:"TLS_ENABLED"`
+	TLSCert                 string                   `conf:"TLS_CERT"`
+	TLSKey                  string                   `conf:"TLS_KEY"`
+	LogLevel                OptLogLevel              `conf:"LOG_LEVEL"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type EventsConfig struct {
-	EventsURI        ct.OptURLAbsolute `conf:"EVENTS_HOST"`
-	SendEvents       bool              `conf:"USE_EVENTS"`
-	FlushInterval    ct.OptDuration    `conf:"EVENTS_FLUSH_INTERVAL"`
-	SamplingInterval int32
-	Capacity         int  `conf:"EVENTS_CAPACITY"`
-	InlineUsers      bool `conf:"EVENTS_INLINE_USERS"`
+	EventsURI     ct.OptURLAbsolute        `conf:"EVENTS_HOST"`
+	SendEvents    bool                     `conf:"USE_EVENTS"`
+	FlushInterval ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
+	Capacity      ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
+	InlineUsers   bool                     `conf:"EVENTS_INLINE_USERS"`
 }
 
 // RedisConfig configures the optional Redis integration.
 //
-// Redis is enabled if URL or Host is non-empty or if Port is non-zero. If only Host or Port is set,
+// Redis is enabled if URL or Host is non-empty or if Port is set. If only Host or Port is set,
 // the other value is set to defaultRedisPort or defaultRedisHost. It is an error to set Host or
 // Port if URL is also set.
 //
 // This corresponds to the [Redis] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type RedisConfig struct {
 	Host     string `conf:"REDIS_HOST"`
-	Port     int
+	Port     ct.OptIntGreaterThanZero
 	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
 	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
 	TLS      bool              `conf:"REDIS_TLS"`
@@ -109,6 +139,10 @@ type RedisConfig struct {
 // Consul is enabled if Host is non-empty.
 //
 // This corresponds to the [Consul] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type ConsulConfig struct {
 	Host     string         `conf:"CONSUL_HOST"`
 	LocalTTL ct.OptDuration `conf:"CACHE_TTL"`
@@ -117,6 +151,10 @@ type ConsulConfig struct {
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
 //
 // This corresponds to the [DynamoDB] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type DynamoDBConfig struct {
 	Enabled   bool              `conf:"USE_DYNAMODB"`
 	TableName string            `conf:"DYNAMODB_TABLE"`
@@ -128,6 +166,10 @@ type DynamoDBConfig struct {
 //
 // This corresponds to one of the [environment "env-name"] sections in the configuration file. In the
 // Config.Environment map, each key is an environment name and each value is an EnvConfig.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type EnvConfig struct {
 	SDKKey             SDKKey           // set from env var LD_ENV_envname
 	MobileKey          MobileKey        `conf:"LD_MOBILE_KEY_"`
@@ -142,6 +184,10 @@ type EnvConfig struct {
 }
 
 // ProxyConfig represents all the supported proxy options.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type ProxyConfig struct {
 	URL         ct.OptURLAbsolute `conf:"PROXY_URL"`
 	NTLMAuth    bool              `conf:"PROXY_AUTH_NTLM"`
@@ -169,6 +215,10 @@ type CommonMetricsConfig struct {
 // DatadogConfig configures the optional Datadog integration, which is used only if Enabled is true.
 //
 // This corresponds to the [Datadog] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type DatadogConfig struct {
 	TraceAddr string `conf:"DATADOG_TRACE_ADDR"`
 	StatsAddr string `conf:"DATADOG_STATS_ADDR"`
@@ -179,6 +229,10 @@ type DatadogConfig struct {
 // StackdriverConfig configures the optional Stackdriver integration, which is used only if Enabled is true.
 //
 // This corresponds to the [StackdriverConfig] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
 type StackdriverConfig struct {
 	ProjectID string `conf:"STACKDRIVER_PROJECT_ID"`
 	CommonMetricsConfig
@@ -187,28 +241,11 @@ type StackdriverConfig struct {
 // PrometheusConfig configures the optional Prometheus integration, which is used only if Enabled is true.
 //
 // This corresponds to the [PrometheusConfig] section in the configuration file.
-type PrometheusConfig struct {
-	Port int `conf:"PROMETHEUS_PORT"`
-	CommonMetricsConfig
-}
-
-// DefaultConfig contains defaults for all relay configuration sections.
 //
-// If you are incorporating Relay into your own code and configuring it programmatically, it is best to
-// start by copying relay.DefaultConfig and then changing only the fields you need to change.
-var DefaultConfig = Config{
-	Main: MainConfig{
-		BaseURI:   newOptURLAbsoluteMustBeValid(DefaultBaseURI),
-		StreamURI: newOptURLAbsoluteMustBeValid(DefaultStreamURI),
-		Port:      defaultPort,
-	},
-	Events: EventsConfig{
-		Capacity:  defaultEventCapacity,
-		EventsURI: newOptURLAbsoluteMustBeValid(DefaultEventsURI),
-	},
-	MetricsConfig: MetricsConfig{
-		Prometheus: PrometheusConfig{
-			Port: defaultPrometheusPort,
-		},
-	},
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
+type PrometheusConfig struct {
+	Port ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
+	CommonMetricsConfig
 }

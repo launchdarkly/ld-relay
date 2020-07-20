@@ -76,7 +76,7 @@ ExitOnError = "x"`,
 
 	t.Run("parses valid int", func(t *testing.T) {
 		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.Port = 222 },
+			func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
 			`[Main]
 Port = 222`,
 		)
@@ -86,7 +86,20 @@ Port = 222`,
 		testFileWithInvalidConfig(t,
 			`[Main]
 Port = "x"`,
-			"failed to parse \"x\" as int: expected integer",
+			"not a valid integer",
+		)
+	})
+
+	t.Run("rejects <=0 value for int that must be >0", func(t *testing.T) {
+		testFileWithInvalidConfig(t,
+			`[Main]
+Port = "0"`,
+			"value must be greater than zero",
+		)
+		testFileWithInvalidConfig(t,
+			`[Main]
+Port = "-1"`,
+			"value must be greater than zero",
 		)
 	})
 
@@ -150,13 +163,13 @@ LogLevel = "wrong"`,
 }
 
 func testFileWithValidConfig(t *testing.T, buildConfig func(c *Config), fileContent string) {
-	expectedConfig := DefaultConfig
+	var expectedConfig Config
 	buildConfig(&expectedConfig)
 
 	helpers.WithTempFile(func(filename string) {
 		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
 
-		c := DefaultConfig
+		var c Config
 		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
 		assert.Equal(t, expectedConfig, c)
@@ -167,7 +180,7 @@ func testFileWithInvalidConfig(t *testing.T, fileContent string, errMessage stri
 	helpers.WithTempFile(func(filename string) {
 		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
 
-		c := DefaultConfig
+		var c Config
 		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), errMessage)

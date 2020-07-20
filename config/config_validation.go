@@ -33,24 +33,22 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	}
 
 	if c.Redis.URL.IsDefined() {
-		if c.Redis.Host != "" || c.Redis.Port != 0 {
+		if c.Redis.Host != "" || c.Redis.Port.IsDefined() {
 			result.AddError(nil, errors.New("please specify Redis URL or host/port, but not both"))
 		}
-	} else if c.Redis.Host != "" || c.Redis.Port != 0 {
-		host, port := c.Redis.Host, c.Redis.Port
+	} else if c.Redis.Host != "" || c.Redis.Port.IsDefined() {
+		host := c.Redis.Host
 		if host == "" {
 			host = defaultRedisHost
 		}
-		if port <= 0 {
-			port = defaultRedisPort
-		}
+		port := c.Redis.Port.GetOrElse(defaultRedisPort)
 		url, err := ct.NewOptURLAbsoluteFromString(fmt.Sprintf("redis://%s:%d", host, port))
 		if err != nil {
 			result.AddError(nil, errors.New("invalid Redis hostname"))
 		}
 		c.Redis.URL = url
 		c.Redis.Host = ""
-		c.Redis.Port = 0
+		c.Redis.Port = ct.OptIntGreaterThanZero{}
 	}
 
 	databases := []string{}

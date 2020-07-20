@@ -300,7 +300,7 @@ func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpC
 		eventsURI = c.DefaultEventsURI
 	}
 	opts := []OptionType{
-		OptionCapacity(config.Capacity),
+		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionEndpointURI(strings.TrimRight(eventsURI, "/") + remotePath),
 		OptionClient{Client: httpClient},
 	}
@@ -319,10 +319,6 @@ func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpC
 
 func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if !er.config.SendEvents {
-		return
-	}
-
-	if er.config.SamplingInterval > 0 && rGen.Int31n(er.config.SamplingInterval) != 0 {
 		return
 	}
 

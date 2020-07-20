@@ -57,7 +57,6 @@ func relayEventsTest(config config.Config, action func(relayEventsTestParams)) {
 	config.Events.SendEvents = true
 	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
 	config.Events.FlushInterval = ct.NewOptDuration(time.Second)
-	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
 	relayTest(config, func(pBase relayTestParams) {
 		p := relayEventsTestParams{
@@ -96,7 +95,7 @@ func makeTestFeatureEventPayload(userKey string) []byte {
 func TestRelayServerSideEventProxy(t *testing.T) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 	body := makeTestFeatureEventPayload("me")
 
@@ -145,7 +144,7 @@ func TestRelayServerSideEventProxy(t *testing.T) {
 func TestRelayMobileEventProxy(t *testing.T) {
 	env := testEnvMobile
 	mobileKey := env.config.MobileKey
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayEventsTest(config, func(p relayEventsTestParams) {
@@ -206,7 +205,7 @@ func TestRelayJSClientEventProxy(t *testing.T) {
 			expectBody(string(transparent1PixelImg))},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayEventsTest(config, func(p relayEventsTestParams) {

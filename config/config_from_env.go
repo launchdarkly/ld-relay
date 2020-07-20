@@ -1,11 +1,9 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -21,10 +19,12 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	reader.ReadStruct(&c.Main, false)
 	reader.ReadStruct(&c.Events, false)
 
-	maybeSetFromEnvInt32(&c.Events.SamplingInterval, "EVENTS_SAMPLING_INTERVAL", reader)
-
 	for envName, envKey := range reader.FindPrefixedValues("LD_ENV_") {
-		ec := EnvConfig{SDKKey: SDKKey(envKey)}
+		var ec EnvConfig
+		if c.Environment[envName] != nil {
+			ec = *c.Environment[envName]
+		}
+		ec.SDKKey = SDKKey(envKey)
 		subReader := reader.WithVarNameSuffix(envName)
 		subReader.ReadStruct(&ec, false)
 		rejectObsoleteVariableName("LD_TTL_MINUTES_"+envName, "LD_TTL_"+envName, reader)
@@ -39,8 +39,8 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	reader.Read("USE_REDIS", &useRedis)
 	if useRedis || c.Redis.Host != "" || c.Redis.URL.IsDefined() {
 		portStr := ""
-		if c.Redis.Port > 0 {
-			portStr = fmt.Sprintf("%d", c.Redis.Port)
+		if c.Redis.Port.IsDefined() {
+			portStr = fmt.Sprintf("%d", c.Redis.Port.GetOrElse(0))
 		}
 		reader.ReadStruct(&c.Redis, false)
 		reader.Read("REDIS_PORT", &portStr) // handled separately because it could be a string or a number
@@ -52,7 +52,9 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 				fields := strings.Split(hostAndPort, ":")
 				c.Redis.Host = fields[0]
 				if len(fields) > 0 {
-					setInt(&c.Redis.Port, "REDIS_PORT", fields[1], reader)
+					if err := c.Redis.Port.UnmarshalText([]byte(fields[1])); err != nil {
+						reader.AddError(ct.ValidationPath{"REDIS_PORT"}, err)
+					}
 				}
 			} else {
 				if c.Redis.Host == "" {
@@ -61,7 +63,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 				reader.Read("REDIS_PORT", &c.Redis.Port)
 			}
 		}
-		if !c.Redis.URL.IsDefined() && c.Redis.Host == "" && c.Redis.Port == 0 {
+		if !c.Redis.URL.IsDefined() && c.Redis.Host == "" && !c.Redis.Port.IsDefined() {
 			// all they specified was USE_REDIS
 			c.Redis.URL = defaultRedisURL
 		}
@@ -118,20 +120,5 @@ func rejectObsoleteVariableName(oldName, preferredName string, reader *ct.VarRea
 	if os.Getenv(oldName) != "" {
 		reader.AddError(ct.ValidationPath{oldName},
 			fmt.Errorf("this variable is no longer supported; use %s", preferredName))
-	}
-}
-
-func setInt(prop *int, name string, value string, reader *ct.VarReader) {
-	if n, err := strconv.Atoi(value); err != nil {
-		reader.AddError(ct.ValidationPath{name}, errors.New("not a valid integer"))
-	} else {
-		*prop = n
-	}
-}
-
-func maybeSetFromEnvInt32(prop *int32, name string, reader *ct.VarReader) {
-	var n int
-	if reader.Read(name, &n) {
-		*prop = int32(n)
 	}
 }

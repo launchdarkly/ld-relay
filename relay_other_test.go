@@ -75,7 +75,7 @@ func TestRelayJSClientGoalsRoute(t *testing.T) {
 	fakeServerWithGoalsEndpoint := httptest.NewServer(fakeGoalsEndpoint)
 	defer fakeServerWithGoalsEndpoint.Close()
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
 	config.Environment = makeEnvConfigs(env)
 
