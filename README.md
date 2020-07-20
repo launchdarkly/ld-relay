@@ -99,7 +99,6 @@ Property in file    | Environment var            | Type    | Default | Descripti
 `sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly.
 `eventsUri`         | `EVENTS_HOST`              | URI     | _(2)_   | URI for the LaunchDarkly events service
 `flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
-`samplingInterval`  | `EVENTS_SAMPLING_INTERVAL` | Number  | `0`     | Sends one out of this many events as a random sampling.
 `capacity`          | `EVENTS_CAPACITY`          | Number  | `1000`  | Maximum number of events to accumulate for each flush interval.
 `inlineUsers`       | `EVENTS_INLINE_USERS`      | Boolean | `false` | When enabled, individual events (if full event tracking is enabled for the feature flag) will contain all non-private user attributes.
 

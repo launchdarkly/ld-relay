@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,13 +45,6 @@ var (
 type eventVerbatimRelay struct {
 	config    c.EventsConfig
 	publisher EventPublisher
-}
-
-var rGen *rand.Rand
-
-func init() {
-	s1 := rand.NewSource(time.Now().UnixNano())
-	rGen = rand.New(s1)
 }
 
 const (
@@ -313,10 +305,5 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if !er.config.SendEvents {
 		return
 	}
-
-	if er.config.SamplingInterval > 0 && rGen.Int31n(er.config.SamplingInterval) != 0 {
-		return
-	}
-
 	er.publisher.PublishRaw(evts...)
 }

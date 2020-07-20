@@ -29,6 +29,15 @@ func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 }
 
 func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
+	t.Run("EVENTS_SAMPLING_INTERVAL", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{
+				"EVENTS_SAMPLING_INTERVAL": "5",
+			},
+			"environment variable EVENTS_SAMPLING_INTERVAL is no longer supported",
+		)
+	})
+
 	t.Run("REDIS_TTL", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{
