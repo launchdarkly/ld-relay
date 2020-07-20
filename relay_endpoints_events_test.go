@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
@@ -54,8 +55,8 @@ func relayEventsTest(config config.Config, action func(relayEventsTestParams)) {
 	defer eventsServer.Close()
 
 	config.Events.SendEvents = true
-	config.Events.EventsURI, _ = c.NewOptAbsoluteURLFromString(eventsServer.URL)
-	config.Events.FlushInterval = c.NewOptDuration(time.Second)
+	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
+	config.Events.FlushInterval = ct.NewOptDuration(time.Second)
 	config.Events.Capacity = c.DefaultConfig.Events.Capacity
 
 	relayTest(config, func(pBase relayTestParams) {

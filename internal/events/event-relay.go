@@ -270,9 +270,13 @@ func NewEventDispatcher(
 }
 
 func newDiagnosticEventEndpointDispatcher(config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *diagnosticEventEndpointDispatcher {
+	eventsURI := config.EventsURI.String()
+	if eventsURI == "" {
+		eventsURI = c.DefaultEventsURI
+	}
 	return &diagnosticEventEndpointDispatcher{
 		httpClient:        httpClient,
-		remoteEndpointURI: strings.TrimRight(config.EventsURI.StringOrElse(c.DefaultEventsURI), "/") + remotePath,
+		remoteEndpointURI: strings.TrimRight(eventsURI, "/") + remotePath,
 		loggers:           loggers,
 	}
 }
@@ -291,9 +295,13 @@ func newAnalyticsEventEndpointDispatcher(authKey c.SDKCredential, config c.Event
 }
 
 func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *eventVerbatimRelay {
+	eventsURI := config.EventsURI.String()
+	if eventsURI == "" {
+		eventsURI = c.DefaultEventsURI
+	}
 	opts := []OptionType{
 		OptionCapacity(config.Capacity),
-		OptionEndpointURI(strings.TrimRight(config.EventsURI.StringOrElse(c.DefaultEventsURI), "/") + remotePath),
+		OptionEndpointURI(strings.TrimRight(eventsURI, "/") + remotePath),
 		OptionClient{Client: httpClient},
 	}
 

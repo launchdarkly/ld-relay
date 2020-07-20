@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -49,7 +50,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		if port <= 0 {
 			port = defaultRedisPort
 		}
-		url, err := NewOptAbsoluteURLFromString(fmt.Sprintf("redis://%s:%d", host, port))
+		url, err := ct.NewOptURLAbsoluteFromString(fmt.Sprintf("redis://%s:%d", host, port))
 		if err != nil {
 			return errors.New("invalid Redis hostname")
 		}

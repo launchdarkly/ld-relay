@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -94,7 +95,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("parses valid URI", func(t *testing.T) {
 		testValidConfigVars(t,
-			func(c *Config) { c.Main.BaseURI = newOptAbsoluteURLMustBeValid("http://some/uri") },
+			func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
 			map[string]string{"BASE_URI": "http://some/uri"},
 		)
 	})
@@ -112,7 +113,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("parses valid duration", func(t *testing.T) {
 		testValidConfigVars(t,
-			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
 			map[string]string{"HEARTBEAT_INTERVAL": "3s"},
 		)
 	})
@@ -120,7 +121,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("rejects invalid duration", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"HEARTBEAT_INTERVAL": "x"},
-			"HEARTBEAT_INTERVAL: "+errBadDuration("x").Error(),
+			"HEARTBEAT_INTERVAL: not a valid duration",
 		)
 	})
 
@@ -161,7 +162,7 @@ func testInvalidConfigVars(t *testing.T, vars map[string]string, errMessage stri
 		c := DefaultConfig
 		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
 		require.Error(t, err)
-		assert.Equal(t, errMessage, err.Error())
+		assert.Contains(t, err.Error(), errMessage)
 	})
 }
 

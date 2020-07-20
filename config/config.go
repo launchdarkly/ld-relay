@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
@@ -36,7 +37,7 @@ const (
 )
 
 var (
-	defaultRedisURL = newOptAbsoluteURLMustBeValid("redis://localhost:6379")
+	defaultRedisURL = newOptURLAbsoluteMustBeValid("redis://localhost:6379")
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -66,11 +67,11 @@ type MainConfig struct {
 	ExitOnError             bool
 	ExitAlways              bool
 	IgnoreConnectionErrors  bool
-	StreamURI               OptAbsoluteURL
-	BaseURI                 OptAbsoluteURL
+	StreamURI               ct.OptURLAbsolute
+	BaseURI                 ct.OptURLAbsolute
 	Port                    int
-	HeartbeatInterval       OptDuration
-	MaxClientConnectionTime OptDuration
+	HeartbeatInterval       ct.OptDuration
+	MaxClientConnectionTime ct.OptDuration
 	TLSEnabled              bool
 	TLSCert                 string
 	TLSKey                  string
@@ -79,9 +80,9 @@ type MainConfig struct {
 
 // EventsConfig contains configuration parameters for proxying events.
 type EventsConfig struct {
-	EventsURI        OptAbsoluteURL
+	EventsURI        ct.OptURLAbsolute
 	SendEvents       bool
-	FlushInterval    OptDuration
+	FlushInterval    ct.OptDuration
 	SamplingInterval int32
 	Capacity         int
 	InlineUsers      bool
@@ -97,8 +98,8 @@ type EventsConfig struct {
 type RedisConfig struct {
 	Host     string
 	Port     int
-	URL      OptAbsoluteURL
-	LocalTTL OptDuration
+	URL      ct.OptURLAbsolute
+	LocalTTL ct.OptDuration
 	TLS      bool
 	Password string
 }
@@ -110,7 +111,7 @@ type RedisConfig struct {
 // This corresponds to the [Consul] section in the configuration file.
 type ConsulConfig struct {
 	Host     string
-	LocalTTL OptDuration
+	LocalTTL ct.OptDuration
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
@@ -119,8 +120,8 @@ type ConsulConfig struct {
 type DynamoDBConfig struct {
 	Enabled   bool
 	TableName string
-	URL       OptAbsoluteURL
-	LocalTTL  OptDuration
+	URL       ct.OptURLAbsolute
+	LocalTTL  ct.OptDuration
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.
@@ -138,12 +139,12 @@ type EnvConfig struct {
 	SecureMode         bool
 	InsecureSkipVerify bool
 	LogLevel           OptLogLevel
-	TTL                OptDuration
+	TTL                ct.OptDuration
 }
 
 // ProxyConfig represents all the supported proxy options.
 type ProxyConfig struct {
-	URL         OptAbsoluteURL
+	URL         ct.OptURLAbsolute
 	NTLMAuth    bool
 	User        string
 	Password    string
@@ -198,13 +199,13 @@ type PrometheusConfig struct {
 // start by copying relay.DefaultConfig and then changing only the fields you need to change.
 var DefaultConfig = Config{
 	Main: MainConfig{
-		BaseURI:   newOptAbsoluteURLMustBeValid(DefaultBaseURI),
-		StreamURI: newOptAbsoluteURLMustBeValid(DefaultStreamURI),
+		BaseURI:   newOptURLAbsoluteMustBeValid(DefaultBaseURI),
+		StreamURI: newOptURLAbsoluteMustBeValid(DefaultStreamURI),
 		Port:      defaultPort,
 	},
 	Events: EventsConfig{
 		Capacity:  defaultEventCapacity,
-		EventsURI: newOptAbsoluteURLMustBeValid(DefaultEventsURI),
+		EventsURI: newOptURLAbsoluteMustBeValid(DefaultEventsURI),
 	},
 	MetricsConfig: MetricsConfig{
 		Prometheus: PrometheusConfig{

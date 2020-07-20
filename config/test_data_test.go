@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -59,13 +60,13 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c.makeConfig = func(c *Config) {
 		c.Main = MainConfig{
 			Port:                    8333,
-			BaseURI:                 newOptAbsoluteURLMustBeValid("http://base"),
-			StreamURI:               newOptAbsoluteURLMustBeValid("http://stream"),
+			BaseURI:                 newOptURLAbsoluteMustBeValid("http://base"),
+			StreamURI:               newOptURLAbsoluteMustBeValid("http://stream"),
 			ExitOnError:             true,
 			ExitAlways:              true,
 			IgnoreConnectionErrors:  true,
-			HeartbeatInterval:       NewOptDuration(90 * time.Second),
-			MaxClientConnectionTime: NewOptDuration(30 * time.Minute),
+			HeartbeatInterval:       ct.NewOptDuration(90 * time.Second),
+			MaxClientConnectionTime: ct.NewOptDuration(30 * time.Minute),
 			TLSEnabled:              true,
 			TLSCert:                 "cert",
 			TLSKey:                  "key",
@@ -73,8 +74,8 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		}
 		c.Events = EventsConfig{
 			SendEvents:       true,
-			EventsURI:        newOptAbsoluteURLMustBeValid("http://events"),
-			FlushInterval:    NewOptDuration(120 * time.Second),
+			EventsURI:        newOptURLAbsoluteMustBeValid("http://events"),
+			FlushInterval:    ct.NewOptDuration(120 * time.Second),
 			SamplingInterval: 3,
 			Capacity:         500,
 			InlineUsers:      true,
@@ -96,7 +97,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: []string{"https://oa", "https://rann"},
-				TTL:           NewOptDuration(5 * time.Minute),
+				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
 	}
@@ -183,7 +184,7 @@ func makeValidConfigRedisMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://localhost:6379"),
+			URL: newOptURLAbsoluteMustBeValid("redis://localhost:6379"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -201,8 +202,8 @@ func makeValidConfigRedisAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
-			LocalTTL: NewOptDuration(3 * time.Second),
+			URL:      newOptURLAbsoluteMustBeValid("redis://redishost:6400"),
+			LocalTTL: ct.NewOptDuration(3 * time.Second),
 			TLS:      true,
 			Password: "pass",
 		}
@@ -230,7 +231,7 @@ func makeValidConfigRedisURL() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("rediss://redishost:6400"),
+			URL: newOptURLAbsoluteMustBeValid("rediss://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -248,7 +249,7 @@ func makeValidConfigRedisPortOnly() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://localhost:9999"),
+			URL: newOptURLAbsoluteMustBeValid("redis://localhost:9999"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -266,7 +267,7 @@ func makeValidConfigRedisDockerPort() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - special Docker port syntax"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
+			URL: newOptURLAbsoluteMustBeValid("redis://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -300,7 +301,7 @@ func makeValidConfigConsulAll() testDataValidConfig {
 		func(c *Config) {
 			c.Consul = ConsulConfig{
 				Host:     "consulhost",
-				LocalTTL: NewOptDuration(3 * time.Second),
+				LocalTTL: ct.NewOptDuration(3 * time.Second),
 			}
 		}
 	c.envVars = map[string]string{
@@ -339,8 +340,8 @@ func makeValidConfigDynamoDBAll() testDataValidConfig {
 		c.DynamoDB = DynamoDBConfig{
 			Enabled:   true,
 			TableName: "table",
-			URL:       newOptAbsoluteURLMustBeValid("http://localhost:8000"),
-			LocalTTL:  NewOptDuration(3 * time.Second),
+			URL:       newOptURLAbsoluteMustBeValid("http://localhost:8000"),
+			LocalTTL:  ct.NewOptDuration(3 * time.Second),
 		}
 	}
 	c.envVars = map[string]string{
@@ -489,7 +490,7 @@ func makeValidConfigProxy() testDataValidConfig {
 	c := testDataValidConfig{name: "proxy"}
 	c.makeConfig = func(c *Config) {
 		c.Proxy = ProxyConfig{
-			URL:         newOptAbsoluteURLMustBeValid("http://proxy"),
+			URL:         newOptURLAbsoluteMustBeValid("http://proxy"),
 			User:        "user",
 			Password:    "pass",
 			Domain:      "domain",

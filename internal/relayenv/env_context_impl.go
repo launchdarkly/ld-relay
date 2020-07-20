@@ -91,8 +91,12 @@ func NewEnvContext(
 			envLoggers, allConfig.Events, httpConfig, storeAdapter)
 	}
 
+	eventsURI := allConfig.Events.EventsURI.String()
+	if eventsURI == "" {
+		eventsURI = config.DefaultEventsURI
+	}
 	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SDKKey, envLoggers,
-		events.OptionUri(allConfig.Events.EventsURI.StringOrElse(config.DefaultEventsURI)),
+		events.OptionUri(eventsURI),
 		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %s", err)

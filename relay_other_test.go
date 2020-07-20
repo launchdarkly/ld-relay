@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
 
@@ -75,7 +76,7 @@ func TestRelayJSClientGoalsRoute(t *testing.T) {
 	defer fakeServerWithGoalsEndpoint.Close()
 
 	config := c.DefaultConfig
-	config.Main.BaseURI, _ = c.NewOptAbsoluteURLFromString(fakeServerWithGoalsEndpoint.URL)
+	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
 	config.Environment = makeEnvConfigs(env)
 
 	relayTest(config, func(p relayTestParams) {

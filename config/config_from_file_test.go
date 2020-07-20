@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
@@ -120,7 +121,7 @@ Port = "x"`,
 
 	t.Run("parses valid URI", func(t *testing.T) {
 		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.BaseURI = newOptAbsoluteURLMustBeValid("http://some/uri") },
+			func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
 			`[Main]
 BaseUri = "http://some/uri"`,
 		)
@@ -141,7 +142,7 @@ BaseUri = "not/absolute"`,
 
 	t.Run("parses valid duration", func(t *testing.T) {
 		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
 			`[Main]
 HeartbeatInterval = 3s`,
 		)
@@ -151,7 +152,7 @@ HeartbeatInterval = 3s`,
 		testFileWithInvalidConfig(t,
 			`[Main]
 HeartbeatInterval = "x"`,
-			errBadDuration("x").Error(),
+			"not a valid duration",
 		)
 	})
 
