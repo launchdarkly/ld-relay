@@ -80,6 +80,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
 `heartbeatInterval`      | `HEARTBEAT_INTERVAL` | Number  | `3m`    | Interval for heartbeat messages to prevent read timeouts on streaming connections. Assumed to be in seconds if no unit is specified.
+`maxClientConnectionTime` | `MAX_CLIENT_CONNECTION_TIME` | Duration | none | Maximum amount of time that Relay will allow a streaming connection from an SDK client to remain open. _(3)_
 `tlsEnabled`             | `TLS_ENABLED`        | Boolean | `false` | Enable TLS on the Relay Proxy.
 `tlsCert`                | `TLS_CERT`           | String  |         | Required if `tlsEnabled` is true. Path to TLS certificate file.
 `tlsKey`                 | `TLS_KEY`            | String  |         | Required if `tlsEnabled` is true. Path to TLS private key file.
@@ -88,6 +89,8 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 _(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
 
 _(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags; this is only useful if you have enabled Redis or another database, so that it will store the flags there.
+
+_(3)_ The optional `maxClientConnectionTime` setting may be useful in load-balanced environments, to avoid having stream connections pile up excessively on one instance when other instances are removed or restarted. If you tell Relay to automatically close every stream connection after some amount of time, this will cause the SDK client that made the connection to reconnect, so that the load balancer can potentially direct it to a different instance.
 
 ### File section: `[Events]`
 
