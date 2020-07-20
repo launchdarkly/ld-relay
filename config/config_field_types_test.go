@@ -104,7 +104,7 @@ func TestOptAbsoluteURL(t *testing.T) {
 	})
 }
 
-func TestOptLogDuration(t *testing.T) {
+func TestOptDuration(t *testing.T) {
 	t.Run("zero value", func(t *testing.T) {
 		o1 := OptDuration{}
 		assert.False(t, o1.IsDefined())
@@ -138,9 +138,8 @@ func TestOptLogDuration(t *testing.T) {
 		testValue("3s", 3*time.Second)
 		testValue("3m", 3*time.Minute)
 		testValue("3h", 3*time.Hour)
-		testValue(":30", 30*time.Second)
-		testValue("1:30", time.Minute+30*time.Second)
-		testValue("1:10:30", time.Hour+10*time.Minute+30*time.Second)
+		testValue("1m30s", time.Minute+30*time.Second)
+		testValue("1h10m30s", time.Hour+10*time.Minute+30*time.Second)
 	})
 
 	t.Run("invalid strings", func(t *testing.T) {
@@ -156,7 +155,7 @@ func TestOptLogDuration(t *testing.T) {
 		}
 		testValue("1")
 		testValue("1x")
-		testValue("00:30:")
+		testValue(":30")
 	})
 }
 

@@ -34,9 +34,9 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnvAny(&c.Events.EventsURI, "EVENTS_HOST", &errs)
 	maybeSetFromEnvAny(&c.Events.FlushInterval, "EVENTS_FLUSH_INTERVAL", &errs)
-	maybeSetFromEnvInt32(&c.Events.SamplingInterval, "EVENTS_SAMPLING_INTERVAL", &errs)
 	maybeSetFromEnvInt(&c.Events.Capacity, "EVENTS_CAPACITY", &errs)
 	maybeSetFromEnvBool(&c.Events.InlineUsers, "EVENTS_INLINE_USERS")
+	rejectObsoleteVariableName("EVENTS_SAMPLING_INTERVAL", "", &errs)
 
 	envNames, envKeys := getEnvVarsWithPrefix("LD_ENV_")
 	for _, envName := range envNames {
@@ -157,8 +157,12 @@ func rejectObsoleteVariableName(oldName, preferredName string, errs *[]error) {
 	// used to be used in configuration and is no longer used, we want to raise an error rather than just
 	// silently omitting part of the configuration that they thought they had set.
 	if os.Getenv(oldName) != "" {
-		*errs = append(*errs, fmt.Errorf("environment variable %s is no longer supported; use %s",
-			oldName, preferredName))
+		if preferredName == "" {
+			*errs = append(*errs, fmt.Errorf("environment variable %s is no longer supported", oldName))
+		} else {
+			*errs = append(*errs, fmt.Errorf("environment variable %s is no longer supported; use %s",
+				oldName, preferredName))
+		}
 	}
 }
 
@@ -202,20 +206,6 @@ func setInt(prop *int, name string, value string, errs *[]error) {
 	} else {
 		*prop = n
 	}
-}
-
-func maybeSetFromEnvInt32(prop *int32, name string, errs *[]error) bool {
-	if s := os.Getenv(name); s != "" {
-		var n int64
-		var err error
-		if n, err = strconv.ParseInt(s, 10, 32); err != nil {
-			*errs = append(*errs, fmt.Errorf("%s: must be an integer", name))
-		} else {
-			*prop = int32(n)
-		}
-		return true
-	}
-	return false
 }
 
 func maybeSetFromEnvBool(prop *bool, name string) bool {

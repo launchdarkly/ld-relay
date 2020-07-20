@@ -79,12 +79,11 @@ type MainConfig struct {
 
 // EventsConfig contains configuration parameters for proxying events.
 type EventsConfig struct {
-	EventsURI        OptAbsoluteURL
-	SendEvents       bool
-	FlushInterval    OptDuration
-	SamplingInterval int32
-	Capacity         int
-	InlineUsers      bool
+	EventsURI     OptAbsoluteURL
+	SendEvents    bool
+	FlushInterval OptDuration
+	Capacity      int
+	InlineUsers   bool
 }
 
 // RedisConfig configures the optional Redis integration.
