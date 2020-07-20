@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -17,7 +18,9 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 	reader := ct.NewVarReaderFromEnvironment()
 
 	reader.ReadStruct(&c.Main, false)
+
 	reader.ReadStruct(&c.Events, false)
+	rejectObsoleteVariableName("EVENTS_SAMPLING_INTERVAL", "", reader)
 
 	for envName, envKey := range reader.FindPrefixedValues("LD_ENV_") {
 		var ec EnvConfig
@@ -118,7 +121,11 @@ func rejectObsoleteVariableName(oldName, preferredName string, reader *ct.VarRea
 	// used to be used in configuration and is no longer used, we want to raise an error rather than just
 	// silently omitting part of the configuration that they thought they had set.
 	if os.Getenv(oldName) != "" {
-		reader.AddError(ct.ValidationPath{oldName},
-			fmt.Errorf("this variable is no longer supported; use %s", preferredName))
+		if preferredName == "" {
+			reader.AddError(ct.ValidationPath{oldName}, errors.New("this variable is no longer supported"))
+		} else {
+			reader.AddError(ct.ValidationPath{oldName},
+				fmt.Errorf("this variable is no longer supported; use %s", preferredName))
+		}
 	}
 }

@@ -313,6 +313,5 @@ func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
 	if !er.config.SendEvents {
 		return
 	}
-
 	er.publisher.PublishRaw(evts...)
 }
