@@ -1,28 +1,23 @@
 package relay
 
 import (
-	"bufio"
 	"encoding/json"
-	"io"
-	"net/http/httptest"
-	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-
-	"github.com/stretchr/testify/assert"
-
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
 
-var emptyStore = sharedtest.NewInMemoryStore()
-var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
-var zero = 0
+type testEnv struct {
+	name   string
+	config config.EnvConfig
+}
 
 type testFlag struct {
 	flag              ldmodel.FeatureFlag
@@ -30,6 +25,67 @@ type testFlag struct {
 	expectedVariation int
 	expectedReason    map[string]interface{}
 	isExperiment      bool
+}
+
+// Returns a key matching the UUID header pattern
+func key() config.MobileKey {
+	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
+}
+
+func user() string {
+	return "eyJrZXkiOiJ0ZXN0In0="
+}
+
+const (
+	// The "undefined" values are well-formed, but do not match any environment in our test data.
+	undefinedSDKKey    = config.SDKKey("sdk-99999999-9999-4999-8999-999999999999")
+	undefinedMobileKey = config.MobileKey("mob-99999999-9999-4999-8999-999999999999")
+	undefinedEnvID     = config.EnvironmentID("999999999999999999999999")
+
+	// The "malformed" values do not pass the basic regex match for their types.
+	malformedSDKKey    = config.SDKKey("sdk-no")
+	malformedMobileKey = config.MobileKey("mob-no")
+	malformedEnvId     = config.EnvironmentID("env-no")
+)
+
+var testEnvMain = testEnv{
+	name: "sdk test",
+	config: config.EnvConfig{
+		SDKKey: config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0"),
+	},
+}
+
+var testEnvWithTTL = testEnv{
+	name: "sdk test with TTL",
+	config: config.EnvConfig{
+		SDKKey: c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
+		TTL:    config.NewOptDuration(10 * time.Minute),
+	},
+}
+
+var testEnvClientSide = testEnv{
+	name: "client-side test",
+	config: config.EnvConfig{
+		SDKKey: c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"),
+		EnvID:  c.EnvironmentID("507f1f77bcf86cd799439011"),
+	},
+}
+
+var testEnvMobile = testEnv{
+	name: "mobile test",
+	config: config.EnvConfig{
+		SDKKey:    c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"),
+		MobileKey: c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"),
+	},
+}
+
+func makeEnvConfigs(envs ...testEnv) map[string]*config.EnvConfig {
+	ret := make(map[string]*config.EnvConfig)
+	for _, e := range envs {
+		c := e.config
+		ret[e.name] = &c
+	}
+	return ret
 }
 
 var flag1ServerSide = testFlag{
@@ -77,15 +133,6 @@ var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSi
 
 var segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
-// Returns a key matching the UUID header pattern
-func key() config.MobileKey {
-	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
-}
-
-func user() string {
-	return "eyJrZXkiOiJ0ZXN0In0="
-}
-
 func addAllFlags(store interfaces.DataStore, initialized bool) {
 	if initialized {
 		store.Init(nil)
@@ -128,63 +175,4 @@ func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {
 	}
 	out, _ := json.Marshal(obj)
 	return string(out)
-}
-
-// jsonFind returns the nested entity at a path in a json obj
-func jsonFind(obj map[string]interface{}, paths ...string) interface{} {
-	var value interface{} = obj
-	for _, p := range paths {
-		if v, ok := value.(map[string]interface{}); !ok {
-			return nil
-		} else {
-			value = v[p]
-		}
-	}
-	return value
-}
-
-type bodyMatcher func(t *testing.T, body []byte)
-
-func expectBody(expectedBody string) bodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.EqualValues(t, expectedBody, body)
-	}
-}
-
-func expectJSONBody(expectedBody string) bodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.JSONEq(t, expectedBody, string(body))
-	}
-}
-
-type StreamRecorder struct {
-	*bufio.Writer
-	*httptest.ResponseRecorder
-	closer chan bool
-}
-
-func (r StreamRecorder) CloseNotify() <-chan bool {
-	return r.closer
-}
-
-func (r StreamRecorder) Close() {
-	r.closer <- true
-}
-
-func (r StreamRecorder) Write(data []byte) (int, error) {
-	return r.Writer.Write(data)
-}
-
-func (r StreamRecorder) Flush() {
-	r.Writer.Flush()
-}
-
-func NewStreamRecorder() (StreamRecorder, io.Reader) {
-	reader, writer := io.Pipe()
-	recorder := httptest.NewRecorder()
-	return StreamRecorder{
-		ResponseRecorder: recorder,
-		Writer:           bufio.NewWriter(writer),
-		closer:           make(chan bool, 1),
-	}, reader
 }
