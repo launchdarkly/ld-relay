@@ -23,9 +23,11 @@ func TestConfigFromEnvironmentWithValidProperties(t *testing.T) {
 
 func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 	for _, tdc := range makeInvalidConfigs() {
-		t.Run(tdc.name, func(t *testing.T) {
-			testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
-		})
+		if len(tdc.envVars) != 0 {
+			t.Run(tdc.name, func(t *testing.T) {
+				testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
+			})
+		}
 	}
 }
 

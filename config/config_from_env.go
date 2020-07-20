@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -26,9 +27,6 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		ec := EnvConfig{SDKKey: SDKKey(envKey)}
 		subReader := reader.WithVarNameSuffix(envName)
 		subReader.ReadStruct(&ec, false)
-
-		ec.MobileKey = MobileKey(maybeEnvStr("LD_MOBILE_KEY_"+envName, string(ec.MobileKey)))
-		ec.EnvID = EnvironmentID(maybeEnvStr("LD_CLIENT_SIDE_ID_"+envName, string(ec.EnvID)))
 		rejectObsoleteVariableName("LD_TTL_MINUTES_"+envName, "LD_TTL_"+envName, reader)
 		// Not supported: EnvConfig.InsecureSkipVerify (that flag should only be used for testing, never in production)
 		if c.Environment == nil {
@@ -60,7 +58,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 				if c.Redis.Host == "" {
 					c.Redis.Host = defaultRedisHost
 				}
-				setInt(&c.Redis.Port, "REDIS_PORT", portStr, reader)
+				reader.Read("REDIS_PORT", &c.Redis.Port)
 			}
 		}
 		if !c.Redis.URL.IsDefined() && c.Redis.Host == "" && c.Redis.Port == 0 {
@@ -89,6 +87,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		for tagName, tagVal := range reader.FindPrefixedValues("DATADOG_TAG_") {
 			c.MetricsConfig.Datadog.Tag = append(c.MetricsConfig.Datadog.Tag, tagName+":"+tagVal)
 		}
+		sort.Strings(c.MetricsConfig.Datadog.Tag) // for test determinacy
 	}
 
 	reader.Read("USE_STACKDRIVER", &c.MetricsConfig.Stackdriver.Enabled)
@@ -120,13 +119,6 @@ func rejectObsoleteVariableName(oldName, preferredName string, reader *ct.VarRea
 		reader.AddError(ct.ValidationPath{oldName},
 			fmt.Errorf("this variable is no longer supported; use %s", preferredName))
 	}
-}
-
-func maybeEnvStr(name string, defaultVal string) string {
-	if s := os.Getenv(name); s != "" {
-		return s
-	}
-	return defaultVal
 }
 
 func setInt(prop *int, name string, value string, reader *ct.VarReader) {

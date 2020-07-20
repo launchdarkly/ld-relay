@@ -21,26 +21,20 @@ import (
 // called again by the Relay constructor because it is possible for application code that uses Relay as a
 // library to construct a Config programmatically.
 func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
+	var result ct.ValidationResult
 	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
-		return errors.New("TLS cert and key are required if TLS is enabled")
+		result.AddError(nil, errors.New("TLS cert and key are required if TLS is enabled"))
 	}
 
 	for envName, envConfig := range c.Environment {
-		if envConfig.APIKey != "" {
-			if envConfig.SDKKey == "" {
-				envConfig.SDKKey = SDKKey(envConfig.APIKey)
-				c.Environment[envName] = envConfig
-				loggers.Warn(`"apiKey" is deprecated, please use "sdkKey"`)
-			} else {
-				loggers.Warn(`"apiKey" and "sdkKey" were both specified; "apiKey" is deprecated, will use "sdkKey" value`)
-			}
-			envConfig.APIKey = "" // to avoid confusion if any other code sees this
+		if envConfig.SDKKey == "" {
+			result.AddError(nil, fmt.Errorf("SDK key is required for environment %q", envName))
 		}
 	}
 
 	if c.Redis.URL.IsDefined() {
 		if c.Redis.Host != "" || c.Redis.Port != 0 {
-			return errors.New("please specify Redis URL or host/port, but not both")
+			result.AddError(nil, errors.New("please specify Redis URL or host/port, but not both"))
 		}
 	} else if c.Redis.Host != "" || c.Redis.Port != 0 {
 		host, port := c.Redis.Host, c.Redis.Port
@@ -52,7 +46,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		}
 		url, err := ct.NewOptURLAbsoluteFromString(fmt.Sprintf("redis://%s:%d", host, port))
 		if err != nil {
-			return errors.New("invalid Redis hostname")
+			result.AddError(nil, errors.New("invalid Redis hostname"))
 		}
 		c.Redis.URL = url
 		c.Redis.Host = ""
@@ -70,9 +64,9 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		databases = append(databases, "DynamoDB")
 	}
 	if len(databases) > 1 {
-		return fmt.Errorf("multiple databases are enabled (%s); only one is allowed",
-			strings.Join(databases, ", "))
+		result.AddError(nil, fmt.Errorf("multiple databases are enabled (%s); only one is allowed",
+			strings.Join(databases, ", ")))
 	}
 
-	return nil
+	return result.GetError()
 }

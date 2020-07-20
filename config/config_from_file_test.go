@@ -42,35 +42,6 @@ func TestConfigFromFileWithInvalidProperties(t *testing.T) {
 	}
 }
 
-func TestConfigFromFileDeprecatedUsage(t *testing.T) {
-	t.Run("apiKey is allowed instead of sdkKey", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) {
-				c.Environment = make(map[string]*EnvConfig)
-				c.Environment["envname"] = &EnvConfig{
-					SDKKey: SDKKey("key"),
-				}
-			},
-			`[Environment "envname"]
-apiKey = key`,
-		)
-	})
-
-	t.Run("if both apiKey and sdkKey are set, sdkKey is used", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) {
-				c.Environment = make(map[string]*EnvConfig)
-				c.Environment["envname"] = &EnvConfig{
-					SDKKey: SDKKey("key"),
-				}
-			},
-			`[Environment "envname"]
-sdkKey = key
-apiKey = wrong`,
-		)
-	})
-}
-
 func TestConfigFromFileBasicValidation(t *testing.T) {
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
 		testFileWithValidConfig(t,

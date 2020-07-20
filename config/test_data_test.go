@@ -46,6 +46,7 @@ func makeValidConfigs() []testDataValidConfig {
 
 func makeInvalidConfigs() []testDataInvalidConfig {
 	return []testDataInvalidConfig{
+		makeInvalidConfigMissingSDKKey(),
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
@@ -518,10 +519,24 @@ CaCertFiles = "cert"
 	return c
 }
 
+func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "environment without SDK key"}
+	c.fileContent = `
+[Environment "envname"]
+MobileKey = mob-xxx
+`
+	c.fileError = `SDK key is required for environment "envname"`
+	return c
+}
+
 func makeInvalidConfigTLSWithNoCertOrKey() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without cert/key"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+`
 	return c
 }
 
@@ -529,6 +544,11 @@ func makeInvalidConfigTLSWithNoCert() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without cert"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_KEY": "key"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+TLSKey = keyfile
+`
 	return c
 }
 
@@ -536,6 +556,11 @@ func makeInvalidConfigTLSWithNoKey() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without key"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_CERT": "cert"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+TLSCert = certfile
+`
 	return c
 }
 

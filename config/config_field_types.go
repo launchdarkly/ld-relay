@@ -45,6 +45,24 @@ func (k EnvironmentID) GetAuthorizationHeaderValue() string {
 	return ""
 }
 
+// UnmarshalText allows the SDKKey type to be set from environment variables.
+func (k *SDKKey) UnmarshalText(data []byte) error {
+	*k = SDKKey(string(data))
+	return nil
+}
+
+// UnmarshalText allows the MobileKey type to be set from environment variables.
+func (k *MobileKey) UnmarshalText(data []byte) error {
+	*k = MobileKey(string(data))
+	return nil
+}
+
+// UnmarshalText allows the EnvironmentID type to be set from environment variables.
+func (k *EnvironmentID) UnmarshalText(data []byte) error {
+	*k = EnvironmentID(string(data))
+	return nil
+}
+
 func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
 	o, err := ct.NewOptURLAbsoluteFromString(urlString)
 	if err != nil {
