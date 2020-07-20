@@ -63,17 +63,18 @@ type Config struct {
 //
 // This corresponds to the [Main] section in the configuration file.
 type MainConfig struct {
-	ExitOnError            bool
-	ExitAlways             bool
-	IgnoreConnectionErrors bool
-	StreamURI              OptAbsoluteURL
-	BaseURI                OptAbsoluteURL
-	Port                   int
-	HeartbeatInterval      OptDuration
-	TLSEnabled             bool
-	TLSCert                string
-	TLSKey                 string
-	LogLevel               OptLogLevel
+	ExitOnError             bool
+	ExitAlways              bool
+	IgnoreConnectionErrors  bool
+	StreamURI               OptAbsoluteURL
+	BaseURI                 OptAbsoluteURL
+	Port                    int
+	HeartbeatInterval       OptDuration
+	MaxClientConnectionTime OptDuration
+	TLSEnabled              bool
+	TLSCert                 string
+	TLSKey                  string
+	LogLevel                OptLogLevel
 }
 
 // EventsConfig contains configuration parameters for proxying events.
@@ -133,6 +134,7 @@ type EnvConfig struct {
 	Prefix             string // used only if Redis, Consul, or DynamoDB is enabled
 	TableName          string // used only if DynamoDB is enabled
 	AllowedOrigin      []string
+	SecureMode         bool
 	InsecureSkipVerify bool
 	LogLevel           OptLogLevel
 	TTL                OptDuration

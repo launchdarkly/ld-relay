@@ -29,6 +29,7 @@ type envContextImpl struct {
 	handlers     ClientHandlers
 	credentials  Credentials
 	name         string
+	secureMode   bool
 	metricsEnv   *metrics.EnvironmentManager
 	ttl          time.Duration
 	initErr      error
@@ -114,6 +115,7 @@ func NewEnvContext(
 		},
 		storeAdapter: storeAdapter,
 		loggers:      envLoggers,
+		secureMode:   envConfig.SecureMode,
 		metricsEnv:   em,
 		ttl:          envConfig.TTL.GetOrElse(0),
 		handlers: ClientHandlers{
@@ -203,4 +205,8 @@ func (c *envContextImpl) GetTTL() time.Duration {
 
 func (c *envContextImpl) GetInitError() error {
 	return c.initErr
+}
+
+func (c *envContextImpl) IsSecureMode() bool {
+	return c.secureMode
 }

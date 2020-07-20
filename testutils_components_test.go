@@ -7,12 +7,23 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
+
+var emptyStore = sharedtest.NewInMemoryStore()
+var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
+
+func clientFactoryThatFails(err error) sdkconfig.ClientFactoryFunc {
+	return func(sdkKey config.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
+		return nil, err
+	}
+}
 
 type fakeLDClient struct {
 	initialized bool
@@ -20,6 +31,14 @@ type fakeLDClient struct {
 
 func (c fakeLDClient) Initialized() bool {
 	return c.initialized
+}
+
+func (c fakeLDClient) SecureModeHash(user lduser.User) string {
+	return fakeHashForUser(user)
+}
+
+func fakeHashForUser(user lduser.User) string {
+	return "fake-hash-" + user.GetKey()
 }
 
 func fakeLDClientFactory(shouldBeInitialized bool) sdkconfig.ClientFactoryFunc {
@@ -51,6 +70,14 @@ func (f existingDataStoreFactory) CreateDataStore(
 }
 
 func newTestEnvContext(name string, shouldBeInitialized bool, store interfaces.DataStore) relayenv.EnvContext {
+	return newTestEnvContextWithClientFactory(name, fakeLDClientFactory(shouldBeInitialized), store)
+}
+
+func newTestEnvContextWithClientFactory(
+	name string,
+	f sdkconfig.ClientFactoryFunc,
+	store interfaces.DataStore,
+) relayenv.EnvContext {
 	dataStoreFactory := ldcomponents.InMemoryDataStore()
 	if store != nil {
 		dataStoreFactory = existingDataStoreFactory{instance: store}
@@ -62,7 +89,7 @@ func newTestEnvContext(name string, shouldBeInitialized bool, store interfaces.D
 		name,
 		config.EnvConfig{},
 		config.Config{},
-		fakeLDClientFactory(shouldBeInitialized),
+		f,
 		dataStoreFactory,
 		fakeServer,
 		fakeServer,

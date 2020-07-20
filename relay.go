@@ -77,18 +77,17 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.Cl
 		return nil, fmt.Errorf("unable to create metrics manager: %s", err)
 	}
 
-	allPublisher := eventsource.NewServer()
-	allPublisher.Gzip = false
-	allPublisher.AllowCORS = true
-	allPublisher.ReplayAll = true
-	flagsPublisher := eventsource.NewServer()
-	flagsPublisher.Gzip = false
-	flagsPublisher.AllowCORS = true
-	flagsPublisher.ReplayAll = true
-	pingPublisher := eventsource.NewServer()
-	pingPublisher.Gzip = false
-	pingPublisher.AllowCORS = true
-	pingPublisher.ReplayAll = true
+	makeSSEServer := func() *eventsource.Server {
+		s := eventsource.NewServer()
+		s.Gzip = false
+		s.AllowCORS = true
+		s.ReplayAll = true
+		s.MaxConnTime = c.Main.MaxClientConnectionTime.GetOrElse(0)
+		return s
+	}
+	allPublisher := makeSSEServer()
+	flagsPublisher := makeSSEServer()
+	pingPublisher := makeSSEServer()
 	clients := make(map[config.SDKCredential]relayenv.EnvContext)
 	mobileClients := make(map[config.SDKCredential]relayenv.EnvContext)
 
@@ -290,8 +289,8 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack, streamingMiddleware)
-	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandler())).Methods("REPORT")
-	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandler())).Methods("GET")
+	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandlerWithUser(mobileSdk))).Methods("REPORT")
+	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandlerWithUser(mobileSdk))).Methods("GET")
 
 	router.Handle("/mping", r.mobileClientMux.selectClientByAuthorizationKey(mobileSdk)(
 		countMobileConns(streamingMiddleware(pingStreamHandler())))).Methods("GET")
@@ -303,8 +302,8 @@ func (r *Relay) makeHandler(withRequestLogging bool) http.Handler {
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
 	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), streamingMiddleware)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(pingStreamHandler())).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.Handle("", countBrowserConns(pingStreamHandler())).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(pingStreamHandlerWithUser(jsClientSdk))).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", countBrowserConns(pingStreamHandlerWithUser(jsClientSdk))).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
