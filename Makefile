@@ -44,7 +44,7 @@ DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
 test-centos test-debian test-docker test-docker-standalone: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
-	docker-compose logs -f -t
+	$(DOCKER_COMPOSE_TEST) logs -f -t
 	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
 integration-test: test-centos test-debian test-docker test-docker-standalone
