@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.11.1] - 2020-07-07
+### Changed:
+- Updated the README to have updated usage guidance and to fix outdated links.
+
+### Fixed:
+- When proxying events, events that were received from JavaScript browser clients via the special image-loading endpoint (used if the browser does not support CORS) could be lost.
+- When Prometheus metrics are enabled, the `/metrics` endpoint that Relay provides for the Prometheus agent to query was being added globally using `http.Handle`; that meant that if an application used Relay as a library, and used `http.ListenAndServe` with the default handler, it would have a `/metrics` endpoint on its own port. This has been fixed so the endpoint is only defined on the Prometheus exporter&#39;s port.
+- Stream reconnections now use a backoff delay with jitter, instead of a fixed delay.
+
+
 ## [5.11.0] - 2020-03-17
 ### Added:
 - Relay now sets the header `X-Accel-Buffering: no` on all streaming responses. If you are using Nginx as a proxy in front of Relay, this tells Nginx to pass streaming data through without buffering; if you are not using Nginx, it has no effect. ([#90](https://github.com/launchdarkly/ld-relay/issues/90))
