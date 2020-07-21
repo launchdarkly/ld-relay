@@ -436,9 +436,9 @@ The table below describes the endpoints proxied by the Relay Proxy.  In this tab
 Endpoint                           | Method        | Auth Header | Description
 -----------------                  |:-------------:|:-----------:| -----------
 /sdk/eval/*clientId*/users/*user*  | GET           | n/a         | Returns flag evaluation results for a user
-/sdk/eval/*clientId*/users         | REPORT        | n/a         | Same as above but request body is user JSON object
+/sdk/eval/*clientId*/user          | REPORT        | n/a         | Same as above but request body is user JSON object
 /sdk/evalx/*clientId*/users/*user* | GET           | n/a         | Returns flag evaluation results and additional metadata
-/sdk/evalx/*clientId*/users        | REPORT        | n/a         | Same as above but request body is user JSON object
+/sdk/evalx/*clientId*/user         | REPORT        | n/a         | Same as above but request body is user JSON object
 /sdk/flags                         | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/flags/*flagKey*               | GET           | sdk         | For [PHP SDK](#using-with-php)
 /sdk/segments/*segmentKey*         | GET           | sdk         | For [PHP SDK](#using-with-php)
