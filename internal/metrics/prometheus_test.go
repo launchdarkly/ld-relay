@@ -86,7 +86,7 @@ func TestPrometheusExporterType(t *testing.T) {
 		defer e.close()
 		require.NoError(t, e.register())
 
-		verifyPrometheusEndpointIsReachable(t, defaultPrometheusPort, time.Second)
+		verifyPrometheusEndpointIsReachable(t, config.DefaultPrometheusPort, time.Second)
 	})
 
 	t.Run("listens on custom port", func(t *testing.T) {
