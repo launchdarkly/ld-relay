@@ -379,7 +379,7 @@ func makeValidConfigDatadogMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Datadog - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Datadog = DatadogConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -396,10 +396,11 @@ func makeValidConfigDatadogAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Datadog - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Datadog = DatadogConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			TraceAddr:           "trace",
-			StatsAddr:           "stats",
-			Tag:                 []string{"tag1:value1", "tag2:value2"},
+			Enabled:   true,
+			Prefix:    "pre-",
+			TraceAddr: "trace",
+			StatsAddr: "stats",
+			Tag:       []string{"tag1:value1", "tag2:value2"},
 		}
 	}
 	c.envVars = map[string]string{
@@ -426,7 +427,7 @@ func makeValidConfigStackdriverMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Stackdriver - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Stackdriver = StackdriverConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -443,8 +444,9 @@ func makeValidConfigStackdriverAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Stackdriver - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Stackdriver = StackdriverConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			ProjectID:           "proj",
+			Enabled:   true,
+			Prefix:    "pre-",
+			ProjectID: "proj",
 		}
 	}
 	c.envVars = map[string]string{
@@ -465,7 +467,7 @@ func makeValidConfigPrometheusMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Prometheus - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -482,8 +484,9 @@ func makeValidConfigPrometheusAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Prometheus - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			Port:                mustOptIntGreaterThanZero(8333),
+			Enabled: true,
+			Prefix:  "pre-",
+			Port:    mustOptIntGreaterThanZero(8333),
 		}
 	}
 	c.envVars = map[string]string{

@@ -85,27 +85,16 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 		reader.ReadStruct(&c.DynamoDB, false)
 	}
 
-	reader.Read("USE_DATADOG", &c.MetricsConfig.Datadog.Enabled)
+	reader.ReadStruct(&c.MetricsConfig.Datadog, false)
 	if c.MetricsConfig.Datadog.Enabled {
-		reader.Read("DATADOG_PREFIX", &c.MetricsConfig.Datadog.Prefix)
-		reader.ReadStruct(&c.MetricsConfig.Datadog, false)
 		for tagName, tagVal := range reader.FindPrefixedValues("DATADOG_TAG_") {
 			c.MetricsConfig.Datadog.Tag = append(c.MetricsConfig.Datadog.Tag, tagName+":"+tagVal)
 		}
 		sort.Strings(c.MetricsConfig.Datadog.Tag) // for test determinacy
 	}
 
-	reader.Read("USE_STACKDRIVER", &c.MetricsConfig.Stackdriver.Enabled)
-	if c.MetricsConfig.Stackdriver.Enabled {
-		reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
-		reader.Read("STACKDRIVER_PREFIX", &c.MetricsConfig.Stackdriver.Prefix)
-	}
-
-	reader.Read("USE_PROMETHEUS", &c.MetricsConfig.Prometheus.Enabled)
-	if c.MetricsConfig.Prometheus.Enabled {
-		reader.ReadStruct(&c.MetricsConfig.Prometheus, false)
-		reader.Read("PROMETHEUS_PREFIX", &c.MetricsConfig.Prometheus.Prefix)
-	}
+	reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
+	reader.ReadStruct(&c.MetricsConfig.Prometheus, false)
 
 	reader.ReadStruct(&c.Proxy, false)
 

@@ -206,12 +206,6 @@ type MetricsConfig struct {
 	Prometheus  PrometheusConfig
 }
 
-// CommonMetricsConfig contains fields that are common to DatadogCOnfig, StackdriverConfig, and PrometheusConfig.
-type CommonMetricsConfig struct {
-	Enabled bool
-	Prefix  string
-}
-
 // DatadogConfig configures the optional Datadog integration, which is used only if Enabled is true.
 //
 // This corresponds to the [Datadog] section in the configuration file.
@@ -220,10 +214,11 @@ type CommonMetricsConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type DatadogConfig struct {
-	TraceAddr string `conf:"DATADOG_TRACE_ADDR"`
-	StatsAddr string `conf:"DATADOG_STATS_ADDR"`
-	Tag       []string
-	CommonMetricsConfig
+	Enabled   bool     `conf:"USE_DATADOG"`
+	Prefix    string   `conf:"DATADOG_PREFIX"`
+	TraceAddr string   `conf:"DATADOG_TRACE_ADDR"`
+	StatsAddr string   `conf:"DATADOG_STATS_ADDR"`
+	Tag       []string // special handling in LoadConfigFromEnvironment
 }
 
 // StackdriverConfig configures the optional Stackdriver integration, which is used only if Enabled is true.
@@ -234,8 +229,9 @@ type DatadogConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type StackdriverConfig struct {
+	Enabled   bool   `conf:"USE_STACKDRIVER"`
+	Prefix    string `conf:"STACKDRIVER_PREFIX"`
 	ProjectID string `conf:"STACKDRIVER_PROJECT_ID"`
-	CommonMetricsConfig
 }
 
 // PrometheusConfig configures the optional Prometheus integration, which is used only if Enabled is true.
@@ -246,6 +242,7 @@ type StackdriverConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type PrometheusConfig struct {
-	Port ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
-	CommonMetricsConfig
+	Enabled bool                     `conf:"USE_PROMETHEUS"`
+	Prefix  string                   `conf:"PROMETHEUS_PREFIX"`
+	Port    ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
 }

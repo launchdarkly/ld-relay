@@ -41,7 +41,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	}
 
 	options := prometheus.Options{
-		Namespace: getPrefix(mc.Prometheus.CommonMetricsConfig),
+		Namespace: getPrefix(mc.Prometheus.Prefix),
 		OnError:   logPrometheusError,
 	}
 	exporter, err := prometheus.NewExporter(options)

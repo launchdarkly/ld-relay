@@ -31,7 +31,7 @@ func (s stackdriverExporterTypeImpl) createExporterIfEnabled(
 	}
 
 	options := stackdriver.Options{
-		MetricPrefix: getPrefix(mc.Stackdriver.CommonMetricsConfig),
+		MetricPrefix: getPrefix(mc.Stackdriver.Prefix),
 		ProjectID:    mc.Stackdriver.ProjectID,
 	}
 	exporter, err := stackdriver.NewExporter(options)
