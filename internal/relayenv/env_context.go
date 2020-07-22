@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
@@ -44,9 +43,6 @@ type EnvContext interface {
 
 	// GetHandlers returns the HTTP handlers for servicing requests for this environment.
 	GetHandlers() ClientHandlers
-
-	// GetMetricsEnvironment returns the metrics.EnvironmentManager associated with this environment.
-	GetMetricsEnvironment() *metrics.EnvironmentManager
 
 	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
 	// environment.

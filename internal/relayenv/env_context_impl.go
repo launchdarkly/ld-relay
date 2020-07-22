@@ -196,10 +196,6 @@ func (c *envContextImpl) GetHandlers() ClientHandlers {
 	return c.handlers
 }
 
-func (c *envContextImpl) GetMetricsEnvironment() *metrics.EnvironmentManager {
-	return c.metricsEnv
-}
-
 func (c *envContextImpl) GetMetricsContext() context.Context {
 	if c.metricsEnv == nil {
 		return context.Background()
