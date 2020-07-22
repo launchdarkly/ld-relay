@@ -19,61 +19,100 @@ func buildPreRoutedRequestWithAuth(key config.SDKCredential) *http.Request {
 	return buildPreRoutedRequest("GET", nil, headers, nil, nil)
 }
 
-func TestClientMuxRejectsMalformedSDKKeyOrMobileKey(t *testing.T) {
-	mux := clientMux{
-		clientContextByKey: map[config.SDKCredential]relayenv.EnvContext{
+func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
+	env1 := newTestEnvContext("env1", false, nil)
+	env2 := newTestEnvContext("env2", false, nil)
+
+	handlerThatDetectsEnvironment := func(outCh chan<- relayenv.EnvContext) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			outCh <- getClientContext(req)
+		})
+	}
+
+	t.Run("finds by SDK key", func(t *testing.T) {
+		envs := testEnvironments{
+			testEnvMain.config.SDKKey:   env1,
+			testEnvMobile.config.SDKKey: env2,
+		}
+		selector := selectEnvironmentByAuthorizationKey(serverSdk, envs)
+		envCh := make(chan relayenv.EnvContext, 1)
+
+		req := buildPreRoutedRequestWithAuth(testEnvMain.config.SDKKey)
+		resp, _ := doRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, env1, <-envCh)
+	})
+
+	t.Run("finds by mobile key", func(t *testing.T) {
+		envs := testEnvironments{
+			testEnvMain.config.SDKKey:      env1,
+			testEnvMobile.config.SDKKey:    env2,
+			testEnvMobile.config.MobileKey: env2,
+		}
+		selector := selectEnvironmentByAuthorizationKey(mobileSdk, envs)
+		envCh := make(chan relayenv.EnvContext, 1)
+
+		req := buildPreRoutedRequestWithAuth(testEnvMobile.config.MobileKey)
+		resp, _ := doRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, env2, <-envCh)
+	})
+
+	t.Run("rejects unknown SDK key", func(t *testing.T) {
+		envs := testEnvironments{testEnvMain.config.SDKKey: env1}
+		selector := selectEnvironmentByAuthorizationKey(serverSdk, envs)
+
+		req1 := buildPreRoutedRequestWithAuth(undefinedSDKKey)
+		resp1, _ := doRequest(req1, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
+	})
+
+	t.Run("rejects unknown mobile key", func(t *testing.T) {
+		envs := testEnvironments{testEnvMain.config.MobileKey: env1}
+		selector := selectEnvironmentByAuthorizationKey(mobileSdk, envs)
+
+		req1 := buildPreRoutedRequestWithAuth(undefinedMobileKey)
+		resp1, _ := doRequest(req1, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
+	})
+
+	t.Run("rejects malformed SDK key", func(t *testing.T) {
+		envs := testEnvironments{malformedSDKKey: newTestEnvContext("server", false, nil)}
+		selector := selectEnvironmentByAuthorizationKey(serverSdk, envs)
+
+		req1 := buildPreRoutedRequestWithAuth(malformedSDKKey)
+		resp1, _ := doRequest(req1, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
+	})
+
+	t.Run("rejects malformed mobile key", func(t *testing.T) {
+		envs := testEnvironments{
 			malformedSDKKey:    newTestEnvContext("server", false, nil),
-			malformedMobileKey: newTestEnvContext("mobile", false, nil),
-		},
-	}
+			malformedMobileKey: newTestEnvContext("server", false, nil),
+		}
+		selector := selectEnvironmentByAuthorizationKey(mobileSdk, envs)
 
-	req1 := buildPreRoutedRequestWithAuth(malformedSDKKey)
-	resp1, _ := doRequest(req1, mux.selectClientByAuthorizationKey(serverSdk)(nullHandler()))
+		req1 := buildPreRoutedRequestWithAuth(malformedMobileKey)
+		resp1, _ := doRequest(req1, selector(nullHandler()))
 
-	assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
+		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
+	})
 
-	req2 := buildPreRoutedRequestWithAuth(malformedMobileKey)
-	resp2, _ := doRequest(req2, mux.selectClientByAuthorizationKey(serverSdk)(nullHandler()))
+	t.Run("returns 503 if client has not been created", func(t *testing.T) {
+		notReadyEnv := newTestEnvContextWithClientFactory("env", clientFactoryThatFails(errors.New("sorry")), nil)
+		envs := testEnvironments{testEnvMain.config.SDKKey: notReadyEnv}
+		selector := selectEnvironmentByAuthorizationKey(serverSdk, envs)
 
-	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
-}
+		req := buildPreRoutedRequestWithAuth(testEnvMain.config.SDKKey)
+		resp, _ := doRequest(req, selector(nullHandler()))
 
-func TestClientMuxRejectsUnknownSDKKeyOrMobileKey(t *testing.T) {
-	mux := clientMux{}
-
-	req1 := buildPreRoutedRequestWithAuth(undefinedSDKKey)
-	resp1, _ := doRequest(req1, mux.selectClientByAuthorizationKey(serverSdk)(nullHandler()))
-
-	assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
-
-	req2 := buildPreRoutedRequestWithAuth(undefinedMobileKey)
-	resp2, _ := doRequest(req2, mux.selectClientByAuthorizationKey(serverSdk)(nullHandler()))
-
-	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
-}
-
-func TestClientMuxReturns503IfClientHasNotBeenCreated(t *testing.T) {
-	ctx := newTestEnvContextWithClientFactory("env", clientFactoryThatFails(errors.New("sorry")), nil)
-	serverSideMux := clientMux{
-		clientContextByKey: map[config.SDKCredential]relayenv.EnvContext{
-			testEnvMain.config.SDKKey: ctx,
-		},
-	}
-	mobileMux := clientMux{
-		clientContextByKey: map[config.SDKCredential]relayenv.EnvContext{
-			testEnvMobile.config.MobileKey: ctx,
-		},
-	}
-
-	req1 := buildPreRoutedRequestWithAuth(testEnvMain.config.SDKKey)
-	resp1, _ := doRequest(req1, serverSideMux.selectClientByAuthorizationKey(serverSdk)(nullHandler()))
-
-	assert.Equal(t, http.StatusServiceUnavailable, resp1.StatusCode)
-
-	req2 := buildPreRoutedRequestWithAuth(testEnvMobile.config.MobileKey)
-	resp2, _ := doRequest(req2, mobileMux.selectClientByAuthorizationKey(mobileSdk)(nullHandler()))
-
-	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	})
 }
 
 func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {

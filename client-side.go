@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 
 	"net/http/httputil"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
@@ -57,7 +57,11 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 			return
 		}
 
-		req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
+		reqContext := context.WithValue(req.Context(), contextKey, clientCtx)
+		// Even though the clientCtx also serves as a CORSContext, we attach it separately here just to keep
+		// the CORS implementation less reliant on other unrelated implementation details
+		reqContext = cors.WithCORSContext(reqContext, clientCtx)
+		req = req.WithContext(reqContext)
 		next.ServeHTTP(w, req)
 	})
 }
@@ -65,27 +69,6 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req).(*clientSideContext)
 	clientCtx.proxy.ServeHTTP(w, req)
-}
-
-var allowedHeadersList = []string{
-	"Cache-Control",
-	"Content-Type",
-	"Content-Length",
-	"Accept-Encoding",
-	"X-LaunchDarkly-User-Agent",
-	"X-LaunchDarkly-Payload-ID",
-	"X-LaunchDarkly-Wrapper",
-	events.EventSchemaHeader,
-}
-
-var allowedHeaders = strings.Join(allowedHeadersList, ",")
-
-func setCorsHeaders(w http.ResponseWriter, origin string) {
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Credentials", "false")
-	w.Header().Set("Access-Control-Max-Age", "300")
-	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
-	w.Header().Set("Access-Control-Expose-Headers", "Date")
 }
 
 const transparent1PixelImgBase64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7="

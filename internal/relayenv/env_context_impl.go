@@ -196,6 +196,10 @@ func (c *envContextImpl) GetHandlers() ClientHandlers {
 	return c.handlers
 }
 
+func (c *envContextImpl) GetMetricsEnvironment() *metrics.EnvironmentManager {
+	return c.metricsEnv
+}
+
 func (c *envContextImpl) GetMetricsContext() context.Context {
 	if c.metricsEnv == nil {
 		return context.Background()
@@ -213,4 +217,9 @@ func (c *envContextImpl) GetInitError() error {
 
 func (c *envContextImpl) IsSecureMode() bool {
 	return c.secureMode
+}
+
+func (c *envContextImpl) Close() error {
+	// This currently isn't used, but will be used in the future when we can dynamically change environments
+	return nil
 }

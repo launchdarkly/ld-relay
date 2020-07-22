@@ -19,6 +19,22 @@ import (
 var emptyStore = sharedtest.NewInMemoryStore()
 var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
 
+type testEnvironments map[config.SDKCredential]relayenv.EnvContext
+
+func (t testEnvironments) GetEnvironment(c config.SDKCredential) relayenv.EnvContext {
+	return t[c]
+}
+
+func (t testEnvironments) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
+	ret := make(map[config.SDKKey]relayenv.EnvContext)
+	for k, v := range t {
+		if sk, ok := k.(config.SDKKey); ok {
+			ret[sk] = v
+		}
+	}
+	return ret
+}
+
 func clientFactoryThatFails(err error) sdkconfig.ClientFactoryFunc {
 	return func(sdkKey config.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
 		return nil, err

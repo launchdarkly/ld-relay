@@ -1,0 +1,49 @@
+package relay
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	c "github.com/launchdarkly/ld-relay/v6/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+)
+
+func TestRequestLogging(t *testing.T) {
+	url := "http://localhost/status" // must be a route that exists - not-found paths currently aren't logged
+
+	t.Run("requests are not logged by default", func(t *testing.T) {
+		config := c.Config{
+			Environment: makeEnvConfigs(testEnvMain),
+		}
+		mockLog := ldlogtest.NewMockLog()
+		core, err := NewRelayCore(config, mockLog.Loggers, fakeLDClientFactory(true))
+		require.NoError(t, err)
+		defer core.Close()
+
+		handler := core.MakeRouter()
+		req, _ := http.NewRequest("GET", url, nil)
+		_, _ = doRequest(req, handler)
+
+		mockLog.AssertMessageMatch(t, false, ldlog.Debug, "method=GET url="+url)
+	})
+
+	t.Run("requests are logged when debug logging is enabled", func(t *testing.T) {
+		config := c.Config{
+			Main:        c.MainConfig{LogLevel: c.NewOptLogLevel(ldlog.Debug)},
+			Environment: makeEnvConfigs(testEnvMain),
+		}
+		mockLog := ldlogtest.NewMockLog()
+		core, err := NewRelayCore(config, mockLog.Loggers, fakeLDClientFactory(true))
+		require.NoError(t, err)
+		defer core.Close()
+
+		handler := core.MakeRouter()
+		req, _ := http.NewRequest("GET", url, nil)
+		_, _ = doRequest(req, handler)
+
+		mockLog.AssertMessageMatch(t, true, ldlog.Debug, "method=GET url="+url)
+	})
+}

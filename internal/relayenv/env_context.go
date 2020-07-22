@@ -2,10 +2,12 @@ package relayenv
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
@@ -19,6 +21,8 @@ import (
 // connection may take a while, so it is possible for the client and store references to be nil if initialization
 // is not yet complete.
 type EnvContext interface {
+	io.Closer
+
 	// GetName returns the configured name of the environment.
 	GetName() string
 
@@ -40,6 +44,9 @@ type EnvContext interface {
 
 	// GetHandlers returns the HTTP handlers for servicing requests for this environment.
 	GetHandlers() ClientHandlers
+
+	// GetMetricsEnvironment returns the metrics.EnvironmentManager associated with this environment.
+	GetMetricsEnvironment() *metrics.EnvironmentManager
 
 	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
 	// environment.

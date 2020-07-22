@@ -6,26 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"regexp"
 
 	"github.com/gorilla/mux"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
-
-var (
-	uuidHeaderPattern = regexp.MustCompile(`^(?:api_key )?((?:[a-z]{3}-)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12})$`)
-)
-
-type corsContext interface {
-	AllowedOrigins() []string
-}
 
 func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
@@ -37,56 +25,7 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	}
 }
 
-type clientMux struct {
-	clientContextByKey map[config.SDKCredential]relayenv.EnvContext
-}
-
-func (m clientMux) getStatus(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	envs := make(map[string]environmentStatus)
-
-	healthy := true
-	for _, clientCtx := range m.clientContextByKey {
-		var status environmentStatus
-		creds := clientCtx.GetCredentials()
-		status.SdkKey = obscureKey(creds.SDKKey)
-		if mobileKey, ok := creds.MobileKey.Get(); ok {
-			status.MobileKey = obscureKey(mobileKey)
-		}
-		status.EnvId = creds.EnvironmentID.StringValue()
-		client := clientCtx.GetClient()
-		if client == nil || !client.Initialized() {
-			status.Status = "disconnected"
-			healthy = false
-		} else {
-			status.Status = "connected"
-		}
-		envs[clientCtx.GetName()] = status
-	}
-
-	resp := struct {
-		Environments  map[string]environmentStatus `json:"environments"`
-		Status        string                       `json:"status"`
-		Version       string                       `json:"version"`
-		ClientVersion string                       `json:"clientVersion"`
-	}{
-		Environments:  envs,
-		Version:       version.Version,
-		ClientVersion: ld.Version,
-	}
-
-	if healthy {
-		resp.Status = "healthy"
-	} else {
-		resp.Status = "degraded"
-	}
-
-	data, _ := json.Marshal(resp)
-
-	w.Write(data)
-}
-
-func (m clientMux) selectClientByAuthorizationKey(sdkKind sdkKind) func(http.Handler) http.Handler {
+func selectEnvironmentByAuthorizationKey(sdkKind sdkKind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			credential, err := sdkKind.getSDKCredential(req)
@@ -95,7 +34,7 @@ func (m clientMux) selectClientByAuthorizationKey(sdkKind sdkKind) func(http.Han
 				return
 			}
 
-			clientCtx := m.clientContextByKey[credential]
+			clientCtx := envs.GetEnvironment(credential)
 
 			if clientCtx == nil {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -168,24 +107,24 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
-		if context, ok := r.Context().Value(contextKey).(corsContext); ok {
-			domains = context.AllowedOrigins()
+		if corsContext := cors.GetCORSContext(r.Context()); corsContext != nil {
+			domains = corsContext.AllowedOrigins()
 		}
 		if len(domains) > 0 {
 			for _, d := range domains {
 				if r.Header.Get("Origin") == d {
-					setCorsHeaders(w, d)
+					cors.SetCORSHeaders(w, d)
 					return
 				}
 			}
 			// Not a valid origin, set allowed origin to any allowed origin
-			setCorsHeaders(w, domains[0])
+			cors.SetCORSHeaders(w, domains[0])
 		} else {
 			origin := cors.DefaultAllowedOrigin
 			if r.Header.Get("Origin") != "" {
 				origin = r.Header.Get("Origin")
 			}
-			setCorsHeaders(w, origin)
+			cors.SetCORSHeaders(w, origin)
 		}
 		next.ServeHTTP(w, r)
 	})
