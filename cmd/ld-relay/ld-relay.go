@@ -17,7 +17,7 @@ func main() {
 	var c config.Config
 	loggers := logging.MakeDefaultLoggers()
 
-	opts, err := application.ReadOptions()
+	opts, err := application.ReadOptions(os.Args, os.Stderr)
 	if err != nil {
 		loggers.Errorf("Error: %s", err)
 		os.Exit(1)
