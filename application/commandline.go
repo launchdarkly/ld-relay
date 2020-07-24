@@ -52,7 +52,7 @@ func ReadOptions() (Options, error) {
 	fs.StringVar(&o.ConfigFile, "config", "", "configuration file location")
 	fs.BoolVar(&o.AllowMissingFile, "allow-missing-file", false, "suppress error if config file is not found")
 	fs.BoolVar(&o.UseEnvironment, "from-env", false, "read configuration from environment variables")
-	err := fs.Parse(os.Args)
+	err := fs.Parse(os.Args[1:])
 	if err != nil {
 		return o, err
 	}
