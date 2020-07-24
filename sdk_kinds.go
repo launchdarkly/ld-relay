@@ -18,6 +18,12 @@ const (
 	mobileSdk   sdkKind = "mobile"
 )
 
+var (
+	errNoAuthToken    = errors.New("no valid token found")
+	errNoEnvID        = errors.New("environment ID not found in URL")
+	errUnknownSDKKind = errors.New("unknown SDK kind")
+)
+
 func (s sdkKind) getSDKCredential(req *http.Request) (config.SDKCredential, error) {
 	switch s {
 	case serverSdk:
@@ -35,11 +41,11 @@ func (s sdkKind) getSDKCredential(req *http.Request) (config.SDKCredential, erro
 	case jsClientSdk:
 		value := mux.Vars(req)["envId"]
 		if value == "" {
-			return nil, errors.New("environment ID not found in URL")
+			return nil, errNoEnvID
 		}
 		return config.EnvironmentID(value), nil
 	}
-	return nil, errors.New("unknown SDK kind")
+	return nil, errUnknownSDKKind
 }
 
 func fetchAuthToken(req *http.Request) (string, error) {
@@ -48,7 +54,7 @@ func fetchAuthToken(req *http.Request) (string, error) {
 		authHdr = strings.TrimSpace(strings.TrimPrefix(authHdr, "api_key "))
 	}
 	if authHdr == "" || strings.Contains(authHdr, " ") {
-		return "", errors.New("no valid token found")
+		return "", errNoAuthToken
 	}
 	return authHdr, nil
 }

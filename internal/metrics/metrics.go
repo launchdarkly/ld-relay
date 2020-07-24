@@ -57,13 +57,13 @@ func NewManager(
 		err = view.Register(getPublicViews()...)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics views: %s", err)
+		return nil, fmt.Errorf("error registering metrics views: %w", err)
 	}
 	registerPrivateViewsOnce.Do(func() {
 		err = view.Register(getPrivateViews()...)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics views: %s", err)
+		return nil, fmt.Errorf("error registering metrics views: %w", err)
 	}
 
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayID))

@@ -12,7 +12,7 @@ import (
 // The Config parameter should be initialized with default values first.
 func LoadConfigFile(c *Config, path string, loggers ldlog.Loggers) error {
 	if err := gcfg.ReadFileInto(c, path); err != nil {
-		return fmt.Errorf(`failed to read configuration file "%s": %s`, path, err)
+		return fmt.Errorf(`failed to read configuration file "%s": %w`, path, err)
 	}
 
 	return ValidateConfig(c, loggers)
