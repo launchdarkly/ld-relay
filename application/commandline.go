@@ -3,6 +3,7 @@ package application
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -45,14 +46,15 @@ func (o Options) DescribeConfigSource() string {
 // 2. If you specify --from-env, it creates a configuration from environment variables as described in README.
 // 3. If you specify both, the file is loaded first, then it applies changes from variables if any.
 // 4. Omitting all options is equivalent to explicitly specifying --config /etc/ld-relay.conf.
-func ReadOptions() (Options, error) {
+func ReadOptions(osArgs []string, errorOutput io.Writer) (Options, error) {
 	var o Options
 
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
+	fs.SetOutput(errorOutput)
 	fs.StringVar(&o.ConfigFile, "config", "", "configuration file location")
 	fs.BoolVar(&o.AllowMissingFile, "allow-missing-file", false, "suppress error if config file is not found")
 	fs.BoolVar(&o.UseEnvironment, "from-env", false, "read configuration from environment variables")
-	err := fs.Parse(os.Args[1:])
+	err := fs.Parse(osArgs[1:])
 	if err != nil {
 		return o, err
 	}
