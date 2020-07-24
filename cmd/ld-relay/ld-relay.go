@@ -6,7 +6,7 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 
 	relay "github.com/launchdarkly/ld-relay/v6"
-	"github.com/launchdarkly/ld-relay/v6/commandline"
+	"github.com/launchdarkly/ld-relay/v6/application"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
@@ -17,7 +17,7 @@ func main() {
 	var c config.Config
 	loggers := logging.MakeDefaultLoggers()
 
-	opts, err := commandline.ReadOptions()
+	opts, err := application.ReadOptions()
 	if err != nil {
 		loggers.Errorf("Error: %s", err)
 		os.Exit(1)
@@ -25,7 +25,7 @@ func main() {
 
 	loggers.Infof(
 		"Starting LaunchDarkly relay version %s with %s\n",
-		commandline.DescribeRelayVersion(version.Version),
+		application.DescribeRelayVersion(version.Version),
 		opts.DescribeConfigSource(),
 	)
 
@@ -54,7 +54,7 @@ func main() {
 
 	port := c.Main.Port.GetOrElse(config.DefaultPort)
 
-	errs := commandline.StartHTTPServer(c.Main, port, r, loggers)
+	errs := application.StartHTTPServer(c.Main, port, r, loggers)
 
 	for err := range errs {
 		loggers.Errorf("Error starting http listener on port: %d  %s", port, err)
