@@ -17,6 +17,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -67,6 +68,9 @@ func NewRelayCore(
 	loggers ldlog.Loggers,
 	clientFactory sdkconfig.ClientFactoryFunc,
 ) (*RelayCore, error) {
+	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
+	defer thingsToCleanUp.Run()
+
 	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
 		return nil, err
 	}
@@ -83,6 +87,7 @@ func NewRelayCore(
 	if err != nil {
 		return nil, errNewMetricsManagerFailed(err)
 	}
+	thingsToCleanUp.AddFunc(metricsManager.Close)
 
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
@@ -113,18 +118,18 @@ func NewRelayCore(
 			loggers.Warnf("environment config was nil for environment %q; ignoring", envName)
 			continue
 		}
-		resultCh, err := r.AddEnvironment(envName, *envConfig)
+		env, resultCh, err := r.AddEnvironment(envName, *envConfig)
 		if err != nil {
-			for _, env := range r.allEnvironments {
-				_ = env.Close()
-			}
 			return nil, err
 		}
+		thingsToCleanUp.AddCloser(env)
 		go func() {
 			env := <-resultCh
 			r.clientInitCh <- env
 		}()
 	}
+
+	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return &r, nil
 }
@@ -161,17 +166,20 @@ func (r *RelayCore) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
 
 // AddEnvironment attempts to add a new environment. It returns an error only if the configuration
 // is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
-func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (<-chan relayenv.EnvContext, error) {
+func (r *RelayCore) AddEnvironment(
+	envName string,
+	envConfig config.EnvConfig,
+) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
 	if r.closed {
-		return nil, errAlreadyClosed
+		return nil, nil, errAlreadyClosed
 	}
 
 	dataStoreFactory, err := sdkconfig.ConfigureDataStore(r.config, envConfig, r.loggers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resultCh := make(chan relayenv.EnvContext, 1)
@@ -188,7 +196,7 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 		resultCh,
 	)
 	if err != nil {
-		return nil, errNewClientContextFailed(envName, err)
+		return nil, nil, errNewClientContextFailed(envName, err)
 	}
 	r.allEnvironments[envConfig.SDKKey] = clientContext
 	if envConfig.MobileKey != "" {
@@ -240,7 +248,7 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 		}
 	}
 
-	return resultCh, nil
+	return clientContext, resultCh, nil
 }
 
 // RemoveEnvironment shuts down and removes an existing environment. All network connections, metrics

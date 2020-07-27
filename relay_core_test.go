@@ -91,12 +91,14 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 
-	resultCh, err := core.AddEnvironment(testEnvMobile.name, testEnvMobile.config)
+	env, resultCh, err := core.AddEnvironment(testEnvMobile.name, testEnvMobile.config)
 	require.NoError(t, err)
+	require.NotNil(t, env)
 	require.NotNil(t, resultCh)
+	assert.Equal(t, testEnvMobile.name, env.GetName())
 
 	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
-		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.SDKKey).GetName())
+		assert.Equal(t, env, core.GetEnvironment(testEnvMobile.config.SDKKey))
 	}
 
 	select {

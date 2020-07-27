@@ -40,6 +40,8 @@ type envContextImpl struct {
 	initErr        error
 }
 
+// Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
+// accessing our data store.
 type envContextStoreQueries struct {
 	context *envContextImpl
 }
@@ -180,7 +182,7 @@ func NewEnvContext(
 		}
 	}(envName, envConfig)
 
-	thingsToCleanUp.Clear()
+	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return envContext, nil
 }
