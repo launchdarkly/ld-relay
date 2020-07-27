@@ -14,6 +14,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 )
 
 type streamEndpointTestParams struct {
@@ -158,15 +159,8 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 func TestRelayServerSideStreams(t *testing.T) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
-	expectedFlagsData, _ := json.Marshal(flagsMap(allFlags))
-	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{
-		"data": {
-			"flags": flagsMap(allFlags),
-			"segments": map[string]interface{}{
-				segment1.Key: &segment1,
-			},
-		},
-	})
+	expectedAllData := []byte(streams.MakeServerSidePutEvent(allData).Data())
+	expectedFlagsData := []byte(streams.MakeServerSideFlagsOnlyPutEvent(allData).Data())
 
 	specs := []streamEndpointTestParams{
 		{endpointTestParams{"flags stream", "GET", "/flags", nil, sdkKey, 200, nil}, "put", expectedFlagsData},

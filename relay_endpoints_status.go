@@ -24,11 +24,11 @@ func statusHandler(core *RelayCore) http.Handler {
 		for _, clientCtx := range core.GetAllEnvironments() {
 			var status environmentStatus
 			creds := clientCtx.GetCredentials()
-			status.SdkKey = obscureKey(creds.SDKKey)
-			if mobileKey, ok := creds.MobileKey.Get(); ok {
-				status.MobileKey = obscureKey(mobileKey)
+			status.SdkKey = obscureKey(string(creds.SDKKey))
+			if creds.MobileKey != "" {
+				status.MobileKey = obscureKey(string(creds.MobileKey))
 			}
-			status.EnvId = creds.EnvironmentID.StringValue()
+			status.EnvId = string(creds.EnvironmentID)
 			client := clientCtx.GetClient()
 			if client == nil || !client.Initialized() {
 				status.Status = "disconnected"

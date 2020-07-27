@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
@@ -19,10 +21,16 @@ import (
 	relaystore "github.com/launchdarkly/ld-relay/v6/internal/store"
 )
 
+func makeStoreAdapterWithExistingStore(store interfaces.DataStore) *store.SSERelayDataStoreAdapter {
+	a := relaystore.NewSSERelayDataStoreAdapter(sharedtest.ExistingDataStoreFactory{Instance: store}, nil)
+	_, _ = a.CreateDataStore(sharedtest.SDKContextImpl{}, nil) // ensure the wrapped store has been created
+	return a
+}
+
 func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22). // deliberately different version from event - we should use the version from the event
@@ -57,7 +65,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndExistingFlag(t *testing.T) {
 func TestTranslateFeatureEventWithSchemaVersion1AndUnknownFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{
@@ -86,7 +94,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *te
 	// look up the flag, but the lookup will fail.
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{
@@ -113,7 +121,7 @@ func TestTranslateFeatureEventWithSchemaVersion1AndUnexpectedlyUnknownFlag(t *te
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEventsInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -151,7 +159,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithoutTrackEvent
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -188,7 +196,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithTrackEventsIn
 func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUntilDateInEvent(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 	flag := ldbuilders.NewFlagBuilder("flagkey").
 		Version(22).                                          // deliberately different version from event - we should use the version from the event
@@ -225,7 +233,7 @@ func TestTranslateFeatureEventWithSchemaVersion2AndExistingFlagWithDebugEventsUn
 func TestTranslateFeatureEventWithSchemaVersion2AndUnknownFlag(t *testing.T) {
 	store := sharedtest.NewInMemoryStore()
 	er := &eventSummarizingRelay{
-		storeAdapter: relaystore.NewSSERelayDataStoreAdapterWithExistingStore(store),
+		storeAdapter: makeStoreAdapterWithExistingStore(store),
 	}
 
 	eventIn := `{

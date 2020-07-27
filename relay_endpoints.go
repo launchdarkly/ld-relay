@@ -74,11 +74,11 @@ func getClientSideUserProperties(
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
-func pingStreamHandler() http.Handler {
+func pingStreamHandler(sdkKind sdkKind) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
 		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
-		clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+		getPingHandler(clientCtx, sdkKind).ServeHTTP(w, req)
 	})
 }
 
@@ -90,9 +90,16 @@ func pingStreamHandlerWithUser(sdkKind sdkKind) http.Handler {
 		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
 
 		if _, ok := getClientSideUserProperties(clientCtx, sdkKind, req, w); ok {
-			clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+			getPingHandler(clientCtx, sdkKind).ServeHTTP(w, req)
 		}
 	})
+}
+
+func getPingHandler(env relayenv.EnvContext, sdkKind sdkKind) http.Handler {
+	if sdkKind == mobileSdk {
+		return env.GetHandlers().MobileStreamHandler
+	}
+	return env.GetHandlers().JSClientStreamHandler
 }
 
 // Server-side SDK streaming endpoint for both flags and segments: stream.ld.com/all

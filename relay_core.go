@@ -13,10 +13,10 @@ import (
 
 	"github.com/gregjones/httpcache"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -51,9 +51,7 @@ type RelayCore struct { //nolint:golint // yes, we know the package name is also
 	envsByEnvID     map[config.EnvironmentID]*clientSideContext
 	metricsManager  *metrics.Manager
 	clientFactory   sdkconfig.ClientFactoryFunc
-	allPublisher    *eventsource.Server
-	flagsPublisher  *eventsource.Server
-	pingPublisher   *eventsource.Server
+	publishers      *streams.Publishers
 	clientInitCh    chan relayenv.EnvContext
 	config          config.Config
 	baseURL         url.URL
@@ -73,6 +71,10 @@ func NewRelayCore(
 		return nil, err
 	}
 
+	if len(c.Environment) == 0 {
+		return nil, errNoEnvironments
+	}
+
 	if c.Main.LogLevel.IsDefined() {
 		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
 	}
@@ -88,27 +90,12 @@ func NewRelayCore(
 		allEnvironments: make(map[config.SDKKey]relayenv.EnvContext),
 		envsByMobileKey: make(map[config.MobileKey]relayenv.EnvContext),
 		envsByEnvID:     make(map[config.EnvironmentID]*clientSideContext),
+		publishers:      streams.NewPublishers(c.Main.MaxClientConnectionTime.GetOrElse(0)),
 		metricsManager:  metricsManager,
 		clientFactory:   clientFactory,
 		clientInitCh:    clientInitCh,
 		config:          c,
 		loggers:         loggers,
-	}
-
-	makeSSEServer := func() *eventsource.Server {
-		s := eventsource.NewServer()
-		s.Gzip = false
-		s.AllowCORS = true
-		s.ReplayAll = true
-		s.MaxConnTime = c.Main.MaxClientConnectionTime.GetOrElse(0)
-		return s
-	}
-	r.allPublisher = makeSSEServer()
-	r.flagsPublisher = makeSSEServer()
-	r.pingPublisher = makeSSEServer()
-
-	if len(c.Environment) == 0 {
-		return nil, errNoEnvironments
 	}
 
 	if c.Main.BaseURI.IsDefined() {
@@ -195,9 +182,7 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 		r.config,
 		r.clientFactory,
 		dataStoreFactory,
-		r.allPublisher,
-		r.flagsPublisher,
-		r.pingPublisher,
+		r.publishers,
 		r.metricsManager,
 		r.loggers,
 		resultCh,
@@ -266,14 +251,10 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 func (r *RelayCore) RemoveEnvironment(sdkKey config.SDKKey) bool {
 	r.lock.Lock()
 	env := r.allEnvironments[sdkKey]
-	var mobileKey config.MobileKey
-	var envID config.EnvironmentID
 	if env != nil {
 		delete(r.allEnvironments, sdkKey)
-		mobileKey = config.MobileKey(env.GetCredentials().MobileKey.StringValue())
-		delete(r.envsByMobileKey, mobileKey)
-		envID = config.EnvironmentID(env.GetCredentials().EnvironmentID.StringValue())
-		delete(r.envsByEnvID, envID)
+		delete(r.envsByMobileKey, env.GetCredentials().MobileKey)
+		delete(r.envsByEnvID, env.GetCredentials().EnvironmentID)
 	}
 	r.lock.Unlock()
 
@@ -344,15 +325,13 @@ func (r *RelayCore) Close() {
 	r.envsByMobileKey = nil
 	r.envsByEnvID = nil
 
-	metricsManager := r.metricsManager
-	r.metricsManager = nil
-
 	r.lock.Unlock()
 
-	metricsManager.Close()
+	r.metricsManager.Close()
 	for _, env := range envs {
 		if err := env.Close(); err != nil {
 			r.loggers.Warnf("unexpected error when closing environment: %s", err)
 		}
 	}
+	r.publishers.Close()
 }

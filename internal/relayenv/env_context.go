@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
 
@@ -62,9 +62,9 @@ type EnvContext interface {
 // Credentials encapsulates all the configured LD credentials for an environment. The SDK key is mandatory;
 // the mobile key and environment ID may be omitted.
 type Credentials struct {
-	SDKKey        string
-	MobileKey     ldvalue.OptionalString
-	EnvironmentID ldvalue.OptionalString
+	SDKKey        config.SDKKey
+	MobileKey     config.MobileKey
+	EnvironmentID config.EnvironmentID
 }
 
 // ClientHandlers encapsulates all of the HTTP handlers and related objects for servicing requests for an
@@ -78,9 +78,13 @@ type ClientHandlers struct {
 	// that is used by current server-side SDKs.
 	AllStreamHandler http.Handler
 
-	// PingStreamHandler handles the client-side streaming endpoint (normally provided by stream.launchdarkly.com)
+	// MobileStreamHandler handles the mobile streaming endpoint (normally provided by stream.launchdarkly.com)
 	// which, in this version of Relay, only sends "ping" events.
-	PingStreamHandler http.Handler
+	MobileStreamHandler http.Handler
+
+	// JSClientStreamHandler handles the client-side JS streaming endpoint (normally provided by stream.launchdarkly.com)
+	// which, in this version of Relay, only sends "ping" events.
+	JSClientStreamHandler http.Handler
 
 	// EventDispatcher is the object that proxies events for this environment.
 	EventDispatcher *events.EventDispatcher

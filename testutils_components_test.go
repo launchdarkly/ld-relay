@@ -3,11 +3,11 @@ package relay
 import (
 	"time"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
@@ -17,7 +17,7 @@ import (
 )
 
 var emptyStore = sharedtest.NewInMemoryStore()
-var emptyStoreAdapter = store.NewSSERelayDataStoreAdapterWithExistingStore(emptyStore)
+var emptyStoreAdapter = store.NewSSERelayDataStoreAdapter(sharedtest.ExistingDataStoreFactory{emptyStore}, nil)
 
 type testEnvironments map[config.SDKCredential]relayenv.EnvContext
 
@@ -74,17 +74,6 @@ func fakeLDClientFactory(shouldBeInitialized bool) sdkconfig.ClientFactoryFunc {
 	}
 }
 
-type existingDataStoreFactory struct {
-	instance interfaces.DataStore
-}
-
-func (f existingDataStoreFactory) CreateDataStore(
-	interfaces.ClientContext,
-	interfaces.DataStoreUpdates,
-) (interfaces.DataStore, error) {
-	return f.instance, nil
-}
-
 func newTestEnvContext(name string, shouldBeInitialized bool, store interfaces.DataStore) relayenv.EnvContext {
 	return newTestEnvContextWithClientFactory(name, fakeLDClientFactory(shouldBeInitialized), store)
 }
@@ -96,9 +85,9 @@ func newTestEnvContextWithClientFactory(
 ) relayenv.EnvContext {
 	dataStoreFactory := ldcomponents.InMemoryDataStore()
 	if store != nil {
-		dataStoreFactory = existingDataStoreFactory{instance: store}
+		dataStoreFactory = sharedtest.ExistingDataStoreFactory{Instance: store}
 	}
-	fakeServer := eventsource.NewServer()
+	publishers := streams.NewPublishers(0)
 
 	readyCh := make(chan relayenv.EnvContext)
 	c, err := relayenv.NewEnvContext(
@@ -107,9 +96,7 @@ func newTestEnvContextWithClientFactory(
 		config.Config{},
 		f,
 		dataStoreFactory,
-		fakeServer,
-		fakeServer,
-		fakeServer,
+		publishers,
 		nil,
 		ldlog.NewDisabledLoggers(),
 		readyCh,
@@ -131,6 +118,11 @@ func makeTestContextWithData() relayenv.EnvContext {
 
 func makeStoreWithData(initialized bool) interfaces.DataStore {
 	store := sharedtest.NewInMemoryStore()
-	addAllFlags(store, initialized)
+	if initialized {
+		err := store.Init(allData)
+		if err != nil {
+			panic(err)
+		}
+	}
 	return store
 }

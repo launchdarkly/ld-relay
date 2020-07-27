@@ -27,7 +27,10 @@ func relayTest(config c.Config, action func(relayTestParams)) {
 	createDummyClient := func(sdkKey c.SDKKey, sdkConfig ld.Config) (sdkconfig.LDClientContext, error) {
 		store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
 			testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
-		addAllFlags(store, true)
+		err := store.Init(allData)
+		if err != nil {
+			panic(err)
+		}
 		return &fakeLDClient{true}, nil
 	}
 

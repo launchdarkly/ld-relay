@@ -7,15 +7,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/eventsource"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
@@ -30,13 +32,16 @@ type envContextImpl struct {
 	credentials    Credentials
 	name           string
 	secureMode     bool
-	allPublisher   *eventsource.Server
-	flagsPublisher *eventsource.Server
-	pingPublisher  *eventsource.Server
+	publishers     *streams.Publishers
+	envStreams     *streams.EnvStreams
 	metricsManager *metrics.Manager
 	metricsEnv     *metrics.EnvironmentManager
 	ttl            time.Duration
 	initErr        error
+}
+
+type envContextStoreQueries struct {
+	context *envContextImpl
 }
 
 // NewEnvContext creates the internal implementation of EnvContext.
@@ -54,13 +59,16 @@ func NewEnvContext(
 	allConfig config.Config,
 	clientFactory sdkconfig.ClientFactoryFunc,
 	dataStoreFactory interfaces.DataStoreFactory,
-	allPublisher, flagsPublisher, pingPublisher *eventsource.Server,
+	publishers *streams.Publishers,
 	metricsManager *metrics.Manager,
 	loggers ldlog.Loggers,
 	readyCh chan<- EnvContext,
 ) (EnvContext, error) {
+	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
+	defer thingsToCleanUp.Run()
+
 	envLoggers := loggers
-	envLoggers.SetPrefix(fmt.Sprintf("[env: %s]", envName))
+	envLoggers.SetPrefix(makeLogPrefix(envName))
 	envLoggers.SetMinLevel(
 		envConfig.LogLevel.GetOrElse(
 			allConfig.Main.LogLevel.GetOrElse(ldlog.Info),
@@ -72,27 +80,48 @@ func NewEnvContext(
 		return nil, err
 	}
 
-	clientConfig := ld.Config{
-		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamURI.String()),
-		HTTP:       httpConfig.SDKHTTPConfigFactory,
-		Logging:    ldcomponents.Logging().Loggers(envLoggers),
+	envContext := &envContextImpl{
+		name: envName,
+		credentials: Credentials{
+			SDKKey:        envConfig.SDKKey,
+			MobileKey:     envConfig.MobileKey,
+			EnvironmentID: envConfig.EnvID,
+		},
+		loggers:        envLoggers,
+		secureMode:     envConfig.SecureMode,
+		publishers:     publishers,
+		metricsManager: metricsManager,
+		ttl:            envConfig.TTL.GetOrElse(0),
 	}
 
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory,
-		store.SSERelayDataStoreParams{
-			SDKKey:            envConfig.SDKKey,
-			AllPublisher:      allPublisher,
-			FlagsPublisher:    flagsPublisher,
-			PingPublisher:     pingPublisher,
-			HeartbeatInterval: allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
-		})
-	clientConfig.DataStore = storeAdapter
+	envStreams := streams.NewEnvStreams(
+		publishers,
+		envContextStoreQueries{envContext},
+		envConfig.SDKKey,
+		envConfig.MobileKey,
+		envConfig.EnvID,
+		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
+		envLoggers,
+	)
+	envContext.envStreams = envStreams
+	thingsToCleanUp.AddCloser(envStreams)
+
+	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreams)
+	envContext.storeAdapter = storeAdapter
 
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
 		envLoggers.Info("Proxying events for this environment")
 		eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
 			envLoggers, allConfig.Events, httpConfig, storeAdapter)
+	}
+
+	envContext.handlers = ClientHandlers{
+		EventDispatcher:       eventDispatcher,
+		AllStreamHandler:      publishers.ServerSideAll.Handler(string(envConfig.SDKKey)),
+		FlagsStreamHandler:    publishers.ServerSideFlags.Handler(string(envConfig.SDKKey)),
+		MobileStreamHandler:   publishers.Mobile.Handler(string(envConfig.MobileKey)),
+		JSClientStreamHandler: publishers.JSClient.Handler(string(envConfig.EnvID)),
 	}
 
 	eventsURI := allConfig.Events.EventsURI.String()
@@ -113,29 +142,14 @@ func NewEnvContext(
 			return nil, fmt.Errorf("unable to create metrics processor: %w", err)
 		}
 	}
+	envContext.metricsEnv = em
+	thingsToCleanUp.AddFunc(func() { metricsManager.RemoveEnvironment(em) })
 
-	envContext := &envContextImpl{
-		name: envName,
-		credentials: Credentials{
-			SDKKey:        string(envConfig.SDKKey),
-			MobileKey:     ldvalue.NewOptionalString(string(envConfig.MobileKey)).OnlyIfNonEmptyString(),
-			EnvironmentID: ldvalue.NewOptionalString(string(envConfig.EnvID)).OnlyIfNonEmptyString(),
-		},
-		storeAdapter:   storeAdapter,
-		loggers:        envLoggers,
-		secureMode:     envConfig.SecureMode,
-		allPublisher:   allPublisher,
-		flagsPublisher: flagsPublisher,
-		pingPublisher:  pingPublisher,
-		metricsManager: metricsManager,
-		metricsEnv:     em,
-		ttl:            envConfig.TTL.GetOrElse(0),
-		handlers: ClientHandlers{
-			EventDispatcher:    eventDispatcher,
-			AllStreamHandler:   allPublisher.Handler(string(envConfig.SDKKey)),
-			FlagsStreamHandler: flagsPublisher.Handler(string(envConfig.SDKKey)),
-			PingStreamHandler:  pingPublisher.Handler(string(envConfig.SDKKey)),
-		},
+	clientConfig := ld.Config{
+		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamURI.String()),
+		DataStore:  storeAdapter,
+		HTTP:       httpConfig.SDKHTTPConfigFactory,
+		Logging:    ldcomponents.Logging().Loggers(envLoggers),
 	}
 
 	// Connecting may take time, so do this in parallel
@@ -166,10 +180,15 @@ func NewEnvContext(
 		}
 	}(envName, envConfig)
 
+	thingsToCleanUp.Clear()
+
 	return envContext, nil
 }
 
 func (c *envContextImpl) GetName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.name
 }
 
@@ -212,6 +231,9 @@ func (c *envContextImpl) GetMetricsContext() context.Context {
 }
 
 func (c *envContextImpl) GetTTL() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.ttl
 }
 
@@ -220,17 +242,34 @@ func (c *envContextImpl) GetInitError() error {
 }
 
 func (c *envContextImpl) IsSecureMode() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.secureMode
 }
 
 func (c *envContextImpl) Close() error {
-	channel := c.credentials.SDKKey
-	c.allPublisher.Unregister(channel, true) // "true" here means disconnect all current clients of this channel
-	c.flagsPublisher.Unregister(channel, true)
-	c.pingPublisher.Unregister(channel, true)
-
+	_ = c.envStreams.Close()
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)
 	}
 	return nil
+}
+
+func (q envContextStoreQueries) IsInitialized() bool {
+	if s := q.context.storeAdapter.GetStore(); s != nil {
+		return s.IsInitialized()
+	}
+	return false
+}
+
+func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+	if s := q.context.storeAdapter.GetStore(); s != nil {
+		return s.GetAll(kind)
+	}
+	return nil, nil
+}
+
+func makeLogPrefix(envName string) string {
+	return fmt.Sprintf("[env: %s]", envName)
 }
