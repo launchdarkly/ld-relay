@@ -5,11 +5,11 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	relay "github.com/launchdarkly/ld-relay/v6"
 	"github.com/launchdarkly/ld-relay/v6/application"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/relay"
 )
 
 func main() {

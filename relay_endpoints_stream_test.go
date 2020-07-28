@@ -17,6 +17,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 )
 
+func DoStreamEndpointsTests(t *testing.T, constructor TestConstructor) {
+	constructor.RunTest(t, "server-side", DoServerSideStreamsTest)
+	constructor.RunTest(t, "mobile", DoMobileStreamsTest)
+	constructor.RunTest(t, "JS client", DoJSClientStreamsTest)
+}
+
 type streamEndpointTestParams struct {
 	endpointTestParams
 	expectedEvent string
@@ -26,32 +32,33 @@ type streamEndpointTestParams struct {
 func (s streamEndpointTestParams) runBasicStreamTests(
 	t *testing.T,
 	baseConfig c.Config,
+	constructor TestConstructor,
 	invalidCredential c.SDKCredential,
 	invalidCredentialExpectedStatus int,
 ) {
 	configWithoutTimeLimit := baseConfig
 	configWithoutTimeLimit.Main.MaxClientConnectionTime = ct.OptDuration{}
 
-	relayTest(configWithoutTimeLimit, func(p relayTestParams) {
+	DoTest(configWithoutTimeLimit, constructor, func(p TestParams) {
 		t.Run("success", func(t *testing.T) {
-			s.assertRequestReceivesEvent(t, p.relay, 200*time.Millisecond)
+			s.assertRequestReceivesEvent(t, p.Handler, 200*time.Millisecond)
 		})
 
 		t.Run("invalid credential", func(t *testing.T) {
 			s1 := s
 			s1.credential = invalidCredential
-			result, _ := doRequest(s1.request(), p.relay)
+			result, _ := doRequest(s1.request(), p.Handler)
 
 			assert.Equal(t, invalidCredentialExpectedStatus, result.StatusCode)
 		})
 	})
 
-	relayTest(configWithoutTimeLimit, func(p relayTestParams) {
+	DoTest(configWithoutTimeLimit, constructor, func(p TestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env := p.relay.core.GetEnvironment(s.credential)
+			env := p.Core.GetEnvironment(s.credential)
 			require.NotNil(t, env)
 
-			withStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
+			withStreamRequest(t, s.request(), p.Handler, func(eventCh <-chan eventsource.Event) {
 				select {
 				case event := <-eventCh:
 					if event == nil {
@@ -63,7 +70,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 					return
 				}
 
-				p.relay.core.RemoveEnvironment(c.SDKKey(env.GetCredentials().SDKKey))
+				p.Core.RemoveEnvironment(c.SDKKey(env.GetCredentials().SDKKey))
 
 				select {
 				case event := <-eventCh:
@@ -81,19 +88,19 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 	configWithTimeLimit := baseConfig
 	configWithTimeLimit.Main.MaxClientConnectionTime = ct.NewOptDuration(maxConnTime)
 
-	relayTest(configWithTimeLimit, func(p relayTestParams) {
+	DoTest(configWithTimeLimit, constructor, func(p TestParams) {
 		t.Run("connection time limit", func(t *testing.T) {
-			s.assertStreamClosesAutomatically(t, p.relay, maxConnTime)
+			s.assertStreamClosesAutomatically(t, p.Handler, maxConnTime)
 		})
 	})
 }
 
 func (s streamEndpointTestParams) assertRequestReceivesEvent(
 	t *testing.T,
-	relay *Relay,
+	handler http.Handler,
 	timeToWaitAfterEvent time.Duration,
 ) {
-	resp := withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
+	resp := withStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
 		eventTimeout := time.NewTimer(time.Second * 3)
 		defer eventTimeout.Stop()
 		select {
@@ -130,13 +137,13 @@ func (s streamEndpointTestParams) assertRequestReceivesEvent(
 
 func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 	t *testing.T,
-	relay *Relay,
+	handler http.Handler,
 	shouldCloseAfter time.Duration,
 ) {
 	maxWait := time.NewTimer(shouldCloseAfter + time.Second)
 	defer maxWait.Stop()
 	startTime := time.Now()
-	_ = withStreamRequest(t, s.request(), relay, func(eventCh <-chan eventsource.Event) {
+	_ = withStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
 		for {
 			select {
 			case event := <-eventCh:
@@ -156,7 +163,7 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 	})
 }
 
-func TestRelayServerSideStreams(t *testing.T) {
+func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
 	expectedAllData := []byte(streams.MakeServerSidePutEvent(allData).Data())
@@ -172,12 +179,12 @@ func TestRelayServerSideStreams(t *testing.T) {
 
 	for _, s := range specs {
 		t.Run(s.name, func(t *testing.T) {
-			s.runBasicStreamTests(t, config, undefinedSDKKey, http.StatusUnauthorized)
+			s.runBasicStreamTests(t, config, constructor, undefinedSDKKey, http.StatusUnauthorized)
 		})
 	}
 }
 
-func TestRelayMobileStreams(t *testing.T) {
+func DoMobileStreamsTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvMobile
 	userJSON := []byte(`{"key":"me"}`)
 
@@ -194,11 +201,11 @@ func TestRelayMobileStreams(t *testing.T) {
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
-		s.runBasicStreamTests(t, config, undefinedMobileKey, http.StatusUnauthorized)
+		s.runBasicStreamTests(t, config, constructor, undefinedMobileKey, http.StatusUnauthorized)
 	}
 }
 
-func TestRelayJSClientStreams(t *testing.T) {
+func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvClientSide
 	envID := env.config.EnvID
 	user := lduser.NewUser("me")
@@ -217,10 +224,10 @@ func TestRelayJSClientStreams(t *testing.T) {
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	for _, s := range specs {
-		s.runBasicStreamTests(t, config, undefinedEnvID, http.StatusNotFound)
+		s.runBasicStreamTests(t, config, constructor, undefinedEnvID, http.StatusNotFound)
 	}
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				if s.data != nil {
@@ -228,14 +235,14 @@ func TestRelayJSClientStreams(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
 						s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
-						s1.assertRequestReceivesEvent(t, p.relay, 0)
+						s1.assertRequestReceivesEvent(t, p.Handler, 0)
 					})
 
 					t.Run("secure mode - hash does not match", func(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
 						s1.path = addQueryParam(s1.path, "h=incorrect")
-						result := doStreamRequestExpectingError(s1.request(), p.relay)
+						result := doStreamRequestExpectingError(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
@@ -243,14 +250,14 @@ func TestRelayJSClientStreams(t *testing.T) {
 					t.Run("secure mode - hash not provided", func(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
-						result := doStreamRequestExpectingError(s1.request(), p.relay)
+						result := doStreamRequestExpectingError(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
 				}
 
 				t.Run("options", func(t *testing.T) {
-					assertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(), s.method)
+					assertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
 				})
 			})
 		}
