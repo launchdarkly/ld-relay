@@ -14,12 +14,13 @@ import (
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
 var (
@@ -51,7 +52,7 @@ type RelayCore struct { //nolint:golint // yes, we know the package name is also
 	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
 	envsByEnvID                   map[config.EnvironmentID]relayenv.EnvContext
 	metricsManager                *metrics.Manager
-	clientFactory                 sdkconfig.ClientFactoryFunc
+	clientFactory                 sdks.ClientFactoryFunc
 	serverSideStreamProvider      streams.StreamProvider
 	serverSideFlagsStreamProvider streams.StreamProvider
 	mobileStreamProvider          streams.StreamProvider
@@ -64,12 +65,26 @@ type RelayCore struct { //nolint:golint // yes, we know the package name is also
 	lock                          sync.RWMutex
 }
 
+// ClientFactoryFromLDClientFactory translates from the client factory type that we expose to host
+// applications, which uses the real LDClient type, to the more general factory type that we use
+// internally which uses the sdks.ClientFactoryFunc abstraction. The latter makes our code a bit
+// cleaner and easier to test, but isn't of any use when hosting Relay in an application.
+func ClientFactoryFromLDClientFactory(fn func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error)) sdks.ClientFactoryFunc {
+	if fn == nil {
+		return nil
+	}
+	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+		client, err := fn(sdkKey, config)
+		return client, err
+	}
+}
+
 // NewRelayCore creates and configures an instance of RelayCore, and immediately starts initializing
 // all configured environments.
 func NewRelayCore(
 	c config.Config,
 	loggers ldlog.Loggers,
-	clientFactory sdkconfig.ClientFactoryFunc,
+	clientFactory sdks.ClientFactoryFunc,
 ) (*RelayCore, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
@@ -80,6 +95,10 @@ func NewRelayCore(
 
 	if len(c.Environment) == 0 {
 		return nil, errNoEnvironments
+	}
+
+	if clientFactory == nil {
+		clientFactory = sdks.DefaultClientFactory
 	}
 
 	if c.Main.LogLevel.IsDefined() {
@@ -185,7 +204,7 @@ func (r *RelayCore) AddEnvironment(
 		return nil, nil, errAlreadyClosed
 	}
 
-	dataStoreFactory, err := sdkconfig.ConfigureDataStore(r.config, envConfig, r.loggers)
+	dataStoreFactory, err := sdks.ConfigureDataStore(r.config, envConfig, r.loggers)
 	if err != nil {
 		return nil, nil, err
 	}

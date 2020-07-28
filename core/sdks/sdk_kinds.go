@@ -1,4 +1,4 @@
-package relay
+package sdks
 
 import (
 	"errors"
@@ -10,12 +10,21 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 )
 
-type sdkKind string
+// Kind represents any of the supported SDK categories that has distinct behavior from the others.
+type Kind string
 
 const (
-	serverSdk   sdkKind = "server"
-	jsClientSdk sdkKind = "js"
-	mobileSdk   sdkKind = "mobile"
+	// Server represents server-side SDKs, which use server-side endpoints and authenticate their requests
+	// with an SDK key.
+	Server Kind = "server"
+
+	// Mobile represents mobile SDKs, which use mobile endpoints and authenticate their requests with a
+	// mobile key.
+	Mobile Kind = "mobile"
+
+	// JSClient represents client-side JavaScript-based SDKs, which use client-side endpoints and
+	// authenticate their requests insecurely with an environment ID.
+	JSClient Kind = "js"
 )
 
 var (
@@ -24,21 +33,24 @@ var (
 	errUnknownSDKKind = errors.New("unknown SDK kind")
 )
 
-func (s sdkKind) getSDKCredential(req *http.Request) (config.SDKCredential, error) {
-	switch s {
-	case serverSdk:
+// GetCredential attempts to get the appropriate kind of authentication credential for this SDK kind
+// from an HTTP request. For Server and Mobile, this uses the Authorization header; for JSClient, it
+// is in a path parameter.
+func (k Kind) GetCredential(req *http.Request) (config.SDKCredential, error) {
+	switch k {
+	case Server:
 		value, err := fetchAuthToken(req)
 		if err == nil {
 			return config.SDKKey(value), nil
 		}
 		return nil, err
-	case mobileSdk:
+	case Mobile:
 		value, err := fetchAuthToken(req)
 		if err == nil {
 			return config.MobileKey(value), nil
 		}
 		return nil, err
-	case jsClientSdk:
+	case JSClient:
 		value := mux.Vars(req)["envId"]
 		if value == "" {
 			return nil, errNoEnvID

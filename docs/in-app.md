@@ -10,7 +10,6 @@ Here is an example of how you might run the Relay Proxy endpoints inside your we
 import (
     relay "github.com/launchdarkly/ld-relay/v6"
     "github.com/launchdarkly/ld-relay/v6/config"
-    "github.com/launchdarkly/ld-relay/v6/sdkconfig"
 )
 
 func createRelayConfig() config.Config {
@@ -21,7 +20,7 @@ func createRelayConfig() config.Config {
     return cfg
 }
 
-r, err := relay.NewRelay(createRelayConfig, sdkconfig.DefaultClientFactory)
+r, err := relay.NewRelay(createRelayConfig, nil)
 if err != nil {
     log.Fatalf("Error creating relay: %s", err)
 }

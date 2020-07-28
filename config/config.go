@@ -4,7 +4,7 @@ import (
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
 )
 
 const (

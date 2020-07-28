@@ -10,9 +10,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 )
 
 // Environment that is passed to test code with relayTest.
@@ -24,7 +24,7 @@ type relayTestParams struct {
 func relayTest(config c.Config, action func(relayTestParams)) {
 	p := relayTestParams{}
 
-	createDummyClient := func(sdkKey c.SDKKey, sdkConfig ld.Config) (sdkconfig.LDClientContext, error) {
+	createDummyClient := func(sdkKey c.SDKKey, sdkConfig ld.Config) (sdks.LDClientContext, error) {
 		store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
 			testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
 		err := store.Init(allData)
@@ -34,7 +34,7 @@ func relayTest(config c.Config, action func(relayTestParams)) {
 		return &fakeLDClient{true}, nil
 	}
 
-	relay, _ := NewRelay(config, logging.MakeDefaultLoggers(), createDummyClient)
+	relay, _ := newRelayInternal(config, logging.MakeDefaultLoggers(), createDummyClient)
 	defer relay.Close()
 	p.relay = relay
 

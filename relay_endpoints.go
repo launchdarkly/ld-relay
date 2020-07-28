@@ -15,8 +15,9 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
@@ -29,7 +30,7 @@ import (
 
 func getClientSideUserProperties(
 	clientCtx relayenv.EnvContext,
-	sdkKind sdkKind,
+	sdkKind sdks.Kind,
 	req *http.Request,
 	w http.ResponseWriter,
 ) (lduser.User, bool) {
@@ -55,7 +56,7 @@ func getClientSideUserProperties(
 		return user, false
 	}
 
-	if clientCtx.IsSecureMode() && sdkKind == jsClientSdk {
+	if clientCtx.IsSecureMode() && sdkKind == sdks.JSClient {
 		hash := req.URL.Query().Get("h")
 		valid := false
 		if hash != "" {
@@ -85,7 +86,7 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 
 // This handler is used for client-side streaming endpoints that require user properties. Currently it is
 // implemented the same as the ping stream once we have validated the user.
-func pingStreamHandlerWithUser(sdkKind sdkKind, streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
@@ -170,7 +171,7 @@ func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 // app.ld.com/sdk/evalx/{envId}/user (REPORT)
 // app.ld/com/sdk/evalx/users/{user} (GET - with SDK key auth)
 // app.ld/com/sdk/evalx/user (REPORT - with SDK key auth)
-func evaluateAllFeatureFlags(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlags(sdkKind sdks.Kind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, false, sdkKind)
 	}
@@ -181,13 +182,13 @@ func evaluateAllFeatureFlags(sdkKind sdkKind) func(w http.ResponseWriter, req *h
 // app.ld.com/sdk/eval/{envId}/user (REPORT)
 // app.ld/com/sdk/eval/users/{user} (GET - with SDK key auth)
 // app.ld/com/sdk/eval/user (REPORT - with SDK key auth)
-func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlagsValueOnly(sdkKind sdks.Kind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, true, sdkKind)
 	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdks.Kind) {
 	clientCtx := GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
@@ -234,7 +235,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
-			if sdkKind == jsClientSdk && !flag.ClientSide {
+			if sdkKind == sdks.JSClient && !flag.ClientSide {
 				continue
 			}
 			detail := evaluator.Evaluate(flag, user, nil)
