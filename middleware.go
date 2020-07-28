@@ -9,11 +9,17 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 )
+
+type clientContextInfo struct {
+	env        relayenv.EnvContext
+	credential config.SDKCredential
+}
 
 func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
@@ -48,19 +54,23 @@ func selectEnvironmentByAuthorizationKey(sdkKind sdkKind, envs RelayEnvironments
 				return
 			}
 
-			req = req.WithContext(context.WithValue(req.Context(), contextKey, clientCtx))
+			contextInfo := clientContextInfo{
+				env:        clientCtx,
+				credential: credential,
+			}
+			req = req.WithContext(context.WithValue(req.Context(), contextKey, contextInfo))
 			next.ServeHTTP(w, req)
 		})
 	}
 }
 
-func getClientContext(req *http.Request) relayenv.EnvContext {
-	return req.Context().Value(contextKey).(relayenv.EnvContext)
+func getClientContext(req *http.Request) clientContextInfo {
+	return req.Context().Value(contextKey).(clientContextInfo)
 }
 
 func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := getClientContext(req)
+		ctx := getClientContext(req).env
 		userAgent := getUserAgent(req)
 		metrics.WithCount(ctx.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
@@ -87,7 +97,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.GetMetricsContext(), userAgent, route, req.Method, func() {
+			metrics.WithRouteCount(ctx.env.GetMetricsContext(), userAgent, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})
@@ -98,7 +108,7 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := getClientContext(req)
 		userAgent := getUserAgent(req)
-		metrics.WithGauge(ctx.GetMetricsContext(), userAgent, func() {
+		metrics.WithGauge(ctx.env.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})

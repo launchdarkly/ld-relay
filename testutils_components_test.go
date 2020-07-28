@@ -7,7 +7,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
@@ -87,8 +86,12 @@ func newTestEnvContextWithClientFactory(
 	if store != nil {
 		dataStoreFactory = sharedtest.ExistingDataStoreFactory{Instance: store}
 	}
-	publishers := streams.NewPublishers(0)
-
+	// streamProviders := []streams.StreamProvider{
+	// 	streams.NewServerSideStreamProvider(0),
+	// 	streams.NewServerSideFlagsOnlyStreamProvider(0),
+	// 	streams.NewMobilePingStreamProvider(0),
+	// 	streams.NewJSClientPingStreamProvider(0),
+	// }
 	readyCh := make(chan relayenv.EnvContext)
 	c, err := relayenv.NewEnvContext(
 		name,
@@ -96,7 +99,7 @@ func newTestEnvContextWithClientFactory(
 		config.Config{},
 		f,
 		dataStoreFactory,
-		publishers,
+		nil, //streamProviders,
 		nil,
 		ldlog.NewDisabledLoggers(),
 		readyCh,

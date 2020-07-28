@@ -1,193 +1,231 @@
 package streams
 
 import (
+	"net/http"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
-func TestConstructorRegistersChannels(t *testing.T) {
-	store := makeMockStore(nil, nil)
-
-	t.Run("with all credentials", func(t *testing.T) {
-		testPubs := &sharedtest.TestPublishers{}
-		es := NewEnvStreams(makePublishers(testPubs), store,
-			testSDKKey, testMobileKey, testEnvID,
-			0, ldlog.NewDisabledLoggers(),
-		)
-		require.NotNil(t, es)
-		defer es.Close()
-
-		assert.Len(t, testPubs.ServerSideAll.Repos, 1)
-		assert.NotNil(t, testPubs.ServerSideAll.Repos[string(testSDKKey)])
-
-		assert.Len(t, testPubs.ServerSideFlags.Repos, 1)
-		assert.NotNil(t, testPubs.ServerSideFlags.Repos[string(testSDKKey)])
-
-		assert.Len(t, testPubs.Mobile.Repos, 1)
-		assert.NotNil(t, testPubs.Mobile.Repos[string(testMobileKey)])
-
-		assert.Len(t, testPubs.JSClient.Repos, 1)
-		assert.NotNil(t, testPubs.JSClient.Repos[string(testEnvID)])
-	})
-
-	t.Run("with SDK key only", func(t *testing.T) {
-		testPubs := &sharedtest.TestPublishers{}
-		es := NewEnvStreams(makePublishers(testPubs), store,
-			testSDKKey, "", "",
-			0, ldlog.NewDisabledLoggers(),
-		)
-		require.NotNil(t, es)
-		defer es.Close()
-
-		assert.Len(t, testPubs.ServerSideAll.Repos, 1)
-		assert.NotNil(t, testPubs.ServerSideAll.Repos[string(testSDKKey)])
-
-		assert.Len(t, testPubs.ServerSideFlags.Repos, 1)
-		assert.NotNil(t, testPubs.ServerSideFlags.Repos[string(testSDKKey)])
-
-		assert.Len(t, testPubs.Mobile.Repos, 0)
-		assert.Len(t, testPubs.JSClient.Repos, 0)
-	})
+type mockStreamProvider struct {
+	credentialOfDesiredType config.SDKCredential
+	createdStreams          []*mockEnvStreamProvider
 }
 
-func TestSendAllDataUpdate(t *testing.T) {
+type mockEnvStreamProvider struct {
+	parent         *mockStreamProvider
+	credential     config.SDKCredential
+	store          EnvStoreQueries
+	allDataUpdates [][]ldstoretypes.Collection
+	itemUpdates    []sharedtest.ReceivedItemUpdate
+	numHeartbeats  int
+	closed         bool
+	lock           sync.Mutex
+}
+
+func (p *mockStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
+	return nil
+}
+
+func (p *mockStreamProvider) Register(
+	credential config.SDKCredential,
+	store EnvStoreQueries,
+	loggers ldlog.Loggers,
+) EnvStreamProvider {
+	if reflect.TypeOf(credential) != reflect.TypeOf(p.credentialOfDesiredType) {
+		return nil
+	}
+	esp := &mockEnvStreamProvider{parent: p, credential: credential, store: store}
+	p.createdStreams = append(p.createdStreams, esp)
+	return esp
+}
+
+func (p *mockStreamProvider) Close() {}
+
+func (e *mockEnvStreamProvider) SendAllDataUpdate(allData []ldstoretypes.Collection) {
+	e.allDataUpdates = append(e.allDataUpdates, allData)
+}
+
+func (e *mockEnvStreamProvider) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
+	e.itemUpdates = append(e.itemUpdates, sharedtest.ReceivedItemUpdate{kind, key, item})
+}
+
+func (e *mockEnvStreamProvider) SendHeartbeat() {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.numHeartbeats++
+}
+
+func (e *mockEnvStreamProvider) Close() {
+	e.closed = true
+}
+
+func (e *mockEnvStreamProvider) getNumHeartbeats() int {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	return e.numHeartbeats
+}
+
+func TestAddCredential(t *testing.T) {
+	sp1 := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+	sp2 := &mockStreamProvider{credentialOfDesiredType: config.MobileKey("")}
+
 	store := makeMockStore(nil, nil)
-	testPubs := &sharedtest.TestPublishers{}
-	es := NewEnvStreams(makePublishers(testPubs), store,
-		testSDKKey, testMobileKey, testEnvID,
-		time.Hour,
-		ldlog.NewDisabledLoggers(),
-	)
-	require.NotNil(t, es)
+	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
+
+	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key1")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+
+	mobileKey := config.MobileKey("mobile-key")
+	es.AddCredential(mobileKey)
+
+	unsupportedKey := config.EnvironmentID("x")
+	es.AddCredential(unsupportedKey)
+
+	es.AddCredential(nil)
+
+	require.Len(t, sp1.createdStreams, 2)
+	esp1, esp2 := sp1.createdStreams[0], sp1.createdStreams[1]
+	assert.Equal(t, sdkKey1, esp1.credential)
+	assert.Equal(t, sdkKey2, esp2.credential)
+	assert.Equal(t, store, esp1.store)
+	assert.Equal(t, store, esp2.store)
+
+	require.Len(t, sp2.createdStreams, 1)
+	esp3 := sp2.createdStreams[0]
+	assert.Equal(t, mobileKey, esp3.credential)
+	assert.Equal(t, store, esp3.store)
+}
+
+func TestRemoveCredential(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
+	defer es.Close()
+
+	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+
+	require.Len(t, sp.createdStreams, 2)
+	esp1, esp2 := sp.createdStreams[0], sp.createdStreams[1]
+	assert.Equal(t, sdkKey1, esp1.credential)
+	assert.Equal(t, sdkKey2, esp2.credential)
+	assert.False(t, esp1.closed)
+	assert.False(t, esp2.closed)
+
+	es.RemoveCredential(sdkKey2)
+	assert.False(t, esp1.closed)
+	assert.True(t, esp2.closed)
+}
+
+func TestCloseEnvStreamsClosesAll(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
+
+	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+	es.AddCredential(sdkKey3)
+
+	require.Len(t, sp.createdStreams, 3)
+	esp1, esp2, esp3 := sp.createdStreams[0], sp.createdStreams[1], sp.createdStreams[2]
+
+	es.RemoveCredential(sdkKey2)
+	esp2.closed = false
+	assert.False(t, esp1.closed)
+	assert.False(t, esp3.closed)
+
+	es.Close()
+
+	assert.True(t, esp1.closed)
+	assert.True(t, esp3.closed)
+	assert.False(t, esp2.closed)
+}
+
+func TestSendAllDataUpdateGoesToAllStreams(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
+	defer es.Close()
+
+	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+	es.AddCredential(sdkKey3)
+
+	require.Len(t, sp.createdStreams, 3)
+	esp1, esp2, esp3 := sp.createdStreams[0], sp.createdStreams[1], sp.createdStreams[2]
+
+	es.RemoveCredential(sdkKey2)
 
 	es.SendAllDataUpdate(allData)
+	expected := [][]ldstoretypes.Collection{allData}
 
-	assert.Equal(t, []sharedtest.PublishedEvent{{
-		Channel: string(testSDKKey),
-		Event:   MakeServerSidePutEvent(allData),
-	}}, testPubs.ServerSideAll.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{{
-		Channel: string(testSDKKey),
-		Event:   MakeServerSideFlagsOnlyPutEvent(allData),
-	}}, testPubs.ServerSideFlags.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testMobileKey), Event: MakePingEvent()},
-	}, testPubs.Mobile.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testEnvID), Event: MakePingEvent()},
-	}, testPubs.JSClient.Events)
+	assert.Equal(t, expected, esp1.allDataUpdates)
+	assert.Len(t, esp2.allDataUpdates, 0)
+	assert.Equal(t, expected, esp3.allDataUpdates)
 }
 
-func TestSendSingleItemUpdate(t *testing.T) {
+func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
 	store := makeMockStore(nil, nil)
-	testPubs := &sharedtest.TestPublishers{}
-	es := NewEnvStreams(makePublishers(testPubs), store,
-		testSDKKey, testMobileKey, testEnvID,
-		time.Hour,
-		ldlog.NewDisabledLoggers(),
-	)
-	require.NotNil(t, es)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
+
+	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+	es.AddCredential(sdkKey3)
+
+	require.Len(t, sp.createdStreams, 3)
+	esp1, esp2, esp3 := sp.createdStreams[0], sp.createdStreams[1], sp.createdStreams[2]
+
+	es.RemoveCredential(sdkKey2)
 
 	es.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
-	es.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
+	expected := []sharedtest.ReceivedItemUpdate{{ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1)}}
 
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{
-			Channel: string(testSDKKey),
-			Event:   MakeServerSidePatchEvent(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1)),
-		},
-		{
-			Channel: string(testSDKKey),
-			Event:   MakeServerSidePatchEvent(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1)),
-		},
-	}, testPubs.ServerSideAll.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{{
-		Channel: string(testSDKKey),
-		Event:   MakeServerSideFlagsOnlyPatchEvent(testFlag1.Key, sharedtest.FlagDesc(testFlag1)),
-	}}, testPubs.ServerSideFlags.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testMobileKey), Event: MakePingEvent()},
-		{Channel: string(testMobileKey), Event: MakePingEvent()},
-	}, testPubs.Mobile.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testEnvID), Event: MakePingEvent()},
-		{Channel: string(testEnvID), Event: MakePingEvent()},
-	}, testPubs.JSClient.Events)
+	assert.Equal(t, expected, esp1.itemUpdates)
+	assert.Len(t, esp2.itemUpdates, 0)
+	assert.Equal(t, expected, esp3.itemUpdates)
 }
 
-func TestSendSingleItemDelete(t *testing.T) {
-	store := makeMockStore(nil, nil)
-	testPubs := &sharedtest.TestPublishers{}
-	es := NewEnvStreams(makePublishers(testPubs), store,
-		testSDKKey, testMobileKey, testEnvID,
-		time.Hour,
-		ldlog.NewDisabledLoggers(),
-	)
-	require.NotNil(t, es)
-	defer es.Close()
-
-	es.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.DeletedItem(1))
-	es.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.DeletedItem(2))
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{
-			Channel: string(testSDKKey),
-			Event:   MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, 1),
-		},
-		{
-			Channel: string(testSDKKey),
-			Event:   MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, 2),
-		},
-	}, testPubs.ServerSideAll.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{{
-		Channel: string(testSDKKey),
-		Event:   MakeServerSideFlagsOnlyDeleteEvent(testFlag1.Key, 1),
-	}}, testPubs.ServerSideFlags.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testMobileKey), Event: MakePingEvent()},
-		{Channel: string(testMobileKey), Event: MakePingEvent()},
-	}, testPubs.Mobile.Events)
-
-	assert.Equal(t, []sharedtest.PublishedEvent{
-		{Channel: string(testEnvID), Event: MakePingEvent()},
-		{Channel: string(testEnvID), Event: MakePingEvent()},
-	}, testPubs.JSClient.Events)
-}
-
-func TestHeartbeats(t *testing.T) {
+func TestHeartbeatsGoToAllStreams(t *testing.T) {
 	heartbeatInterval := time.Millisecond * 20
 
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
 	store := makeMockStore(nil, nil)
-	testPubs := &sharedtest.TestPublishers{}
-	es := NewEnvStreams(makePublishers(testPubs), store,
-		testSDKKey, testMobileKey, testEnvID,
-		heartbeatInterval,
-		ldlog.NewDisabledLoggers(),
-	)
-	require.NotNil(t, es)
+	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, ldlog.NewDisabledLoggers())
 	defer es.Close()
+
+	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+
+	require.Len(t, sp.createdStreams, 2)
+	esp1, esp2 := sp.createdStreams[0], sp.createdStreams[1]
 
 	<-time.After(heartbeatInterval * 4)
 
-	assert.GreaterOrEqual(t, len(testPubs.ServerSideAll.GetComments()), 2)
-	assert.GreaterOrEqual(t, len(testPubs.ServerSideFlags.GetComments()), 2)
-	assert.GreaterOrEqual(t, len(testPubs.Mobile.GetComments()), 2)
-	assert.GreaterOrEqual(t, len(testPubs.JSClient.GetComments()), 2)
+	assert.GreaterOrEqual(t, esp1.getNumHeartbeats(), 2)
+	assert.GreaterOrEqual(t, esp2.getNumHeartbeats(), 2)
 }

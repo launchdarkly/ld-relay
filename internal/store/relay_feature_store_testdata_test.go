@@ -55,15 +55,9 @@ type mockStoreFactory struct {
 	receivedStoreUpdates interfaces.DataStoreUpdates
 }
 
-type receivedItemUpdate struct {
-	Kind ldstoretypes.DataKind
-	Key  string
-	Item ldstoretypes.ItemDescriptor
-}
-
 type mockEnvStreamsUpdates struct {
 	allData    [][]ldstoretypes.Collection
-	singleItem []receivedItemUpdate
+	singleItem []sharedtest.ReceivedItemUpdate
 }
 
 func (s *mockStore) Init(allData []ldstoretypes.Collection) error {
@@ -124,7 +118,7 @@ func (m *mockEnvStreamsUpdates) SendAllDataUpdate(allData []ldstoretypes.Collect
 }
 
 func (m *mockEnvStreamsUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
-	m.singleItem = append(m.singleItem, receivedItemUpdate{kind, key, item})
+	m.singleItem = append(m.singleItem, sharedtest.ReceivedItemUpdate{kind, key, item})
 }
 
 func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []ldstoretypes.Collection {
@@ -139,7 +133,7 @@ func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []ldstoretypes
 	return nil
 }
 
-func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) receivedItemUpdate {
+func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) sharedtest.ReceivedItemUpdate {
 	switch {
 	case len(m.singleItem) == 1:
 		return m.singleItem[0]
@@ -148,7 +142,7 @@ func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) receivedItemUpdat
 	default:
 		require.Fail(t, "did not receive expected update")
 	}
-	return receivedItemUpdate{}
+	return sharedtest.ReceivedItemUpdate{}
 }
 
 func (m *mockEnvStreamsUpdates) expectNoAllDataUpdate(t *testing.T) {

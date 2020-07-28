@@ -8,6 +8,12 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
+type ReceivedItemUpdate struct {
+	Kind ldstoretypes.DataKind
+	Key  string
+	Item ldstoretypes.ItemDescriptor
+}
+
 type ExistingDataStoreFactory struct {
 	Instance interfaces.DataStore
 }

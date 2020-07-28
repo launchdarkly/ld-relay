@@ -57,7 +57,10 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 			return
 		}
 
-		reqContext := context.WithValue(req.Context(), contextKey, clientCtx)
+		reqContext := context.WithValue(req.Context(), contextKey, clientContextInfo{
+			env:        clientCtx,
+			credential: envId,
+		})
 		// Even though the clientCtx also serves as a CORSContext, we attach it separately here just to keep
 		// the CORS implementation less reliant on other unrelated implementation details
 		reqContext = cors.WithCORSContext(reqContext, clientCtx)
@@ -67,7 +70,7 @@ func (m clientSideMux) selectClientByUrlParam(next http.Handler) http.Handler {
 }
 
 func (m clientSideMux) getGoals(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req).(*clientSideContext)
+	clientCtx := getClientContext(req).env.(*clientSideContext)
 	clientCtx.proxy.ServeHTTP(w, req)
 }
 
@@ -82,12 +85,12 @@ func init() {
 func getEventsImage(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
 
-	if clientCtx.GetHandlers().EventDispatcher == nil {
+	if clientCtx.env.GetEventDispatcher() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
 		return
 	}
-	handler := clientCtx.GetHandlers().EventDispatcher.GetHandler(events.JavaScriptSDKEventsEndpoint)
+	handler := clientCtx.env.GetEventDispatcher().GetHandler(events.JavaScriptSDKEventsEndpoint)
 	if handler == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write(util.ErrorJsonMsg("Event proxy for browser clients is not enabled for this environment"))

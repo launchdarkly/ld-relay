@@ -47,18 +47,21 @@ type RelayEnvironments interface { //nolint:golint // yes, we know the package n
 
 // RelayCore encapsulates the core logic for all variants of Relay Proxy.
 type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
-	allEnvironments map[config.SDKKey]relayenv.EnvContext
-	envsByMobileKey map[config.MobileKey]relayenv.EnvContext
-	envsByEnvID     map[config.EnvironmentID]*clientSideContext
-	metricsManager  *metrics.Manager
-	clientFactory   sdkconfig.ClientFactoryFunc
-	publishers      *streams.Publishers
-	clientInitCh    chan relayenv.EnvContext
-	config          config.Config
-	baseURL         url.URL
-	loggers         ldlog.Loggers
-	closed          bool
-	lock            sync.RWMutex
+	allEnvironments               map[config.SDKKey]relayenv.EnvContext
+	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
+	envsByEnvID                   map[config.EnvironmentID]*clientSideContext
+	metricsManager                *metrics.Manager
+	clientFactory                 sdkconfig.ClientFactoryFunc
+	serverSideStreamProvider      streams.StreamProvider
+	serverSideFlagsStreamProvider streams.StreamProvider
+	mobileStreamProvider          streams.StreamProvider
+	jsClientStreamProvider        streams.StreamProvider
+	clientInitCh                  chan relayenv.EnvContext
+	config                        config.Config
+	baseURL                       url.URL
+	loggers                       ldlog.Loggers
+	closed                        bool
+	lock                          sync.RWMutex
 }
 
 // NewRelayCore creates and configures an instance of RelayCore, and immediately starts initializing
@@ -91,16 +94,21 @@ func NewRelayCore(
 
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
+	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
+
 	r := RelayCore{
-		allEnvironments: make(map[config.SDKKey]relayenv.EnvContext),
-		envsByMobileKey: make(map[config.MobileKey]relayenv.EnvContext),
-		envsByEnvID:     make(map[config.EnvironmentID]*clientSideContext),
-		publishers:      streams.NewPublishers(c.Main.MaxClientConnectionTime.GetOrElse(0)),
-		metricsManager:  metricsManager,
-		clientFactory:   clientFactory,
-		clientInitCh:    clientInitCh,
-		config:          c,
-		loggers:         loggers,
+		allEnvironments:               make(map[config.SDKKey]relayenv.EnvContext),
+		envsByMobileKey:               make(map[config.MobileKey]relayenv.EnvContext),
+		envsByEnvID:                   make(map[config.EnvironmentID]*clientSideContext),
+		serverSideStreamProvider:      streams.NewServerSideStreamProvider(maxConnTime),
+		serverSideFlagsStreamProvider: streams.NewServerSideFlagsOnlyStreamProvider(maxConnTime),
+		mobileStreamProvider:          streams.NewMobilePingStreamProvider(maxConnTime),
+		jsClientStreamProvider:        streams.NewJSClientPingStreamProvider(maxConnTime),
+		metricsManager:                metricsManager,
+		clientFactory:                 clientFactory,
+		clientInitCh:                  clientInitCh,
+		config:                        c,
+		loggers:                       loggers,
 	}
 
 	if c.Main.BaseURI.IsDefined() {
@@ -190,7 +198,7 @@ func (r *RelayCore) AddEnvironment(
 		r.config,
 		r.clientFactory,
 		dataStoreFactory,
-		r.publishers,
+		r.allStreamProviders(),
 		r.metricsManager,
 		r.loggers,
 		resultCh,
@@ -341,5 +349,17 @@ func (r *RelayCore) Close() {
 			r.loggers.Warnf("unexpected error when closing environment: %s", err)
 		}
 	}
-	r.publishers.Close()
+
+	for _, sp := range r.allStreamProviders() {
+		sp.Close()
+	}
+}
+
+func (r *RelayCore) allStreamProviders() []streams.StreamProvider {
+	return []streams.StreamProvider{
+		r.serverSideStreamProvider,
+		r.serverSideFlagsStreamProvider,
+		r.mobileStreamProvider,
+		r.jsClientStreamProvider,
+	}
 }

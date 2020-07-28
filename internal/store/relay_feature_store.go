@@ -26,7 +26,7 @@ import (
 type SSERelayDataStoreAdapter struct {
 	store          interfaces.DataStore
 	wrappedFactory interfaces.DataStoreFactory
-	updates        streams.EnvStreamsUpdates
+	updates        streams.EnvStreamUpdates
 	mu             sync.RWMutex
 }
 
@@ -46,7 +46,7 @@ func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
 
 func NewSSERelayDataStoreAdapter(
 	wrappedFactory interfaces.DataStoreFactory,
-	updates streams.EnvStreamsUpdates,
+	updates streams.EnvStreamUpdates,
 ) *SSERelayDataStoreAdapter {
 	return &SSERelayDataStoreAdapter{
 		wrappedFactory: wrappedFactory,
@@ -79,12 +79,12 @@ func (a *SSERelayDataStoreAdapter) CreateDataStore(
 // but also publishes stream updates when the store is modified.
 type streamUpdatesStoreWrapper struct {
 	store   interfaces.DataStore
-	updates streams.EnvStreamsUpdates
+	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
 }
 
 func newStreamUpdatesStoreWrapper(
-	updates streams.EnvStreamsUpdates,
+	updates streams.EnvStreamUpdates,
 	baseFeatureStore interfaces.DataStore,
 	loggers ldlog.Loggers,
 ) *streamUpdatesStoreWrapper {

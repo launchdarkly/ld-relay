@@ -106,7 +106,7 @@ func TestStoreUpsertNewItem(t *testing.T) {
 		assert.Equal(t, sharedtest.FlagDesc(testFlag1), flag)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Features(),
 				Key:  testFlag1.Key,
 				Item: sharedtest.FlagDesc(testFlag1),
@@ -123,7 +123,7 @@ func TestStoreUpsertNewItem(t *testing.T) {
 		assert.Equal(t, sharedtest.SegmentDesc(testSegment1), segment)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Segments(),
 				Key:  testSegment1.Key,
 				Item: sharedtest.SegmentDesc(testSegment1),
@@ -141,7 +141,7 @@ func TestStoreUpsertExistingItemWithNewVersion(t *testing.T) {
 		_, _ = sharedtest.UpsertFlag(store, testFlag1v2)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Features(),
 				Key:  testFlag1.Key,
 				Item: sharedtest.FlagDesc(testFlag1v2),
@@ -157,7 +157,7 @@ func TestStoreUpsertExistingItemWithNewVersion(t *testing.T) {
 		_, _ = sharedtest.UpsertSegment(store, testSegment1v2)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Segments(),
 				Key:  testSegment1.Key,
 				Item: sharedtest.SegmentDesc(testSegment1v2),
@@ -195,7 +195,7 @@ func TestStoreDeleteItemWithNewVersion(t *testing.T) {
 		_, _ = store.Upsert(ldstoreimpl.Features(), testFlag1.Key, deletedItem)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Features(),
 				Key:  testFlag1.Key,
 				Item: deletedItem,
@@ -211,7 +211,7 @@ func TestStoreDeleteItemWithNewVersion(t *testing.T) {
 		_, _ = store.Upsert(ldstoreimpl.Segments(), testSegment1.Key, deletedItem)
 
 		assert.Equal(t,
-			receivedItemUpdate{
+			sharedtest.ReceivedItemUpdate{
 				Kind: ldstoreimpl.Segments(),
 				Key:  testSegment1.Key,
 				Item: deletedItem,

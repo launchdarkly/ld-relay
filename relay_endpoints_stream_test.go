@@ -171,7 +171,9 @@ func TestRelayServerSideStreams(t *testing.T) {
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
-		s.runBasicStreamTests(t, config, undefinedSDKKey, http.StatusUnauthorized)
+		t.Run(s.name, func(t *testing.T) {
+			s.runBasicStreamTests(t, config, undefinedSDKKey, http.StatusUnauthorized)
+		})
 	}
 }
 

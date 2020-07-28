@@ -87,12 +87,3 @@ func readAllEvents(ch <-chan eventsource.Event) []eventsource.Event {
 	}
 	return ret
 }
-
-func makePublishers(tp *sharedtest.TestPublishers) *Publishers {
-	return &Publishers{
-		ServerSideAll:   &tp.ServerSideAll,
-		ServerSideFlags: &tp.ServerSideFlags,
-		Mobile:          &tp.Mobile,
-		JSClient:        &tp.JSClient,
-	}
-}

@@ -3,6 +3,7 @@ package relayenv
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -24,20 +25,21 @@ import (
 )
 
 type envContextImpl struct {
-	mu             sync.RWMutex
-	client         sdkconfig.LDClientContext
-	storeAdapter   *store.SSERelayDataStoreAdapter
-	loggers        ldlog.Loggers
-	handlers       ClientHandlers
-	credentials    Credentials
-	name           string
-	secureMode     bool
-	publishers     *streams.Publishers
-	envStreams     *streams.EnvStreams
-	metricsManager *metrics.Manager
-	metricsEnv     *metrics.EnvironmentManager
-	ttl            time.Duration
-	initErr        error
+	mu              sync.RWMutex
+	client          sdkconfig.LDClientContext
+	storeAdapter    *store.SSERelayDataStoreAdapter
+	loggers         ldlog.Loggers
+	credentials     Credentials
+	name            string
+	secureMode      bool
+	envStreams      *streams.EnvStreams
+	streamProviders []streams.StreamProvider
+	handlers        map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	eventDispatcher *events.EventDispatcher
+	metricsManager  *metrics.Manager
+	metricsEnv      *metrics.EnvironmentManager
+	ttl             time.Duration
+	initErr         error
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -61,7 +63,7 @@ func NewEnvContext(
 	allConfig config.Config,
 	clientFactory sdkconfig.ClientFactoryFunc,
 	dataStoreFactory interfaces.DataStoreFactory,
-	publishers *streams.Publishers,
+	streamProviders []streams.StreamProvider,
 	metricsManager *metrics.Manager,
 	loggers ldlog.Loggers,
 	readyCh chan<- EnvContext,
@@ -89,24 +91,44 @@ func NewEnvContext(
 			MobileKey:     envConfig.MobileKey,
 			EnvironmentID: envConfig.EnvID,
 		},
-		loggers:        envLoggers,
-		secureMode:     envConfig.SecureMode,
-		publishers:     publishers,
-		metricsManager: metricsManager,
-		ttl:            envConfig.TTL.GetOrElse(0),
+		loggers:         envLoggers,
+		secureMode:      envConfig.SecureMode,
+		streamProviders: streamProviders,
+		handlers:        make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
+		metricsManager:  metricsManager,
+		ttl:             envConfig.TTL.GetOrElse(0),
+	}
+
+	credentials := []config.SDKCredential{envConfig.SDKKey}
+	if envConfig.MobileKey != "" {
+		credentials = append(credentials, envConfig.MobileKey)
+	}
+	if envConfig.EnvID != "" {
+		credentials = append(credentials, envConfig.EnvID)
 	}
 
 	envStreams := streams.NewEnvStreams(
-		publishers,
+		streamProviders,
 		envContextStoreQueries{envContext},
-		envConfig.SDKKey,
-		envConfig.MobileKey,
-		envConfig.EnvID,
 		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
 		envLoggers,
 	)
 	envContext.envStreams = envStreams
 	thingsToCleanUp.AddCloser(envStreams)
+
+	for _, c := range credentials {
+		envStreams.AddCredential(c)
+	}
+	for _, sp := range streamProviders {
+		handlers := make(map[config.SDKCredential]http.Handler)
+		for _, c := range credentials {
+			h := sp.Handler(c)
+			if h != nil {
+				handlers[c] = h
+			}
+		}
+		envContext.handlers[sp] = handlers
+	}
 
 	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreams)
 	envContext.storeAdapter = storeAdapter
@@ -117,14 +139,7 @@ func NewEnvContext(
 		eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
 			envLoggers, allConfig.Events, httpConfig, storeAdapter)
 	}
-
-	envContext.handlers = ClientHandlers{
-		EventDispatcher:       eventDispatcher,
-		AllStreamHandler:      publishers.ServerSideAll.Handler(string(envConfig.SDKKey)),
-		FlagsStreamHandler:    publishers.ServerSideFlags.Handler(string(envConfig.SDKKey)),
-		MobileStreamHandler:   publishers.Mobile.Handler(string(envConfig.MobileKey)),
-		JSClientStreamHandler: publishers.JSClient.Handler(string(envConfig.EnvID)),
-	}
+	envContext.eventDispatcher = eventDispatcher
 
 	eventsURI := allConfig.Events.EventsURI.String()
 	if eventsURI == "" {
@@ -136,6 +151,7 @@ func NewEnvContext(
 	if err != nil {
 		return nil, fmt.Errorf("unable to create publisher: %w", err)
 	}
+	thingsToCleanUp.AddFunc(eventsPublisher.Close)
 
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
@@ -221,8 +237,22 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
 
-func (c *envContextImpl) GetHandlers() ClientHandlers {
-	return c.handlers
+func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential config.SDKCredential) http.Handler {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	h := c.handlers[streamProvider][credential]
+	if h == nil {
+		return http.HandlerFunc(invalidStreamHandler)
+	}
+	return h
+}
+
+func invalidStreamHandler(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+}
+
+func (c *envContextImpl) GetEventDispatcher() *events.EventDispatcher {
+	return c.eventDispatcher
 }
 
 func (c *envContextImpl) GetMetricsContext() context.Context {

@@ -13,6 +13,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 )
 
+const (
+	serverSideStreamLogMessage          = "Application requested server-side /all stream"
+	serverSideFlagsOnlyStreamLogMessage = "Application requested server-side /flags stream"
+)
+
 func (r *RelayCore) MakeRouter() *mux.Router {
 	clientSideMux := clientSideMux{contextByKey: map[config.SDKCredential]*clientSideContext{}}
 	for envID, csc := range r.envsByEnvID {
@@ -89,21 +94,25 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack, streamingMiddleware)
-	mobileStreamRouter.Handle("", countMobileConns(pingStreamHandlerWithUser(mobileSdk))).Methods("REPORT")
-	mobileStreamRouter.Handle("/{user}", countMobileConns(pingStreamHandlerWithUser(mobileSdk))).Methods("GET")
+	mobilePingWithUser := pingStreamHandlerWithUser(mobileSdk, r.mobileStreamProvider)
+	mobileStreamRouter.Handle("", countMobileConns(mobilePingWithUser)).Methods("REPORT")
+	mobileStreamRouter.Handle("/{user}", countMobileConns(mobilePingWithUser)).Methods("GET")
 
 	router.Handle("/mping", mobileKeySelector(
-		countMobileConns(streamingMiddleware(pingStreamHandler(mobileSdk))))).Methods("GET")
+		countMobileConns(streamingMiddleware(pingStreamHandler(r.mobileStreamProvider))))).Methods("GET")
+
+	jsPing := pingStreamHandler(r.jsClientStreamProvider)
+	jsPingWithUser := pingStreamHandlerWithUser(jsClientSdk, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
 	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), streamingMiddleware)
-	clientSidePingRouter.Handle("", countBrowserConns(pingStreamHandler(jsClientSdk))).Methods("GET", "OPTIONS")
+	clientSidePingRouter.Handle("", countBrowserConns(jsPing)).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
 	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), streamingMiddleware)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(pingStreamHandlerWithUser(jsClientSdk))).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.Handle("", countBrowserConns(pingStreamHandlerWithUser(jsClientSdk))).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(jsPingWithUser)).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", countBrowserConns(jsPingWithUser)).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
@@ -128,8 +137,12 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	serverSideRouter.Use(serverSideMiddlewareStack)
 	serverSideRouter.Handle("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
 	serverSideRouter.Handle("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
-	serverSideRouter.Handle("/all", countServerConns(streamingMiddleware(allStreamHandler()))).Methods("GET")
-	serverSideRouter.Handle("/flags", countServerConns(streamingMiddleware(flagsStreamHandler()))).Methods("GET")
+	serverSideRouter.Handle("/all", countServerConns(streamingMiddleware(
+		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
+	))).Methods("GET")
+	serverSideRouter.Handle("/flags", countServerConns(streamingMiddleware(
+		streamHandler(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
+	))).Methods("GET")
 
 	return router
 }
