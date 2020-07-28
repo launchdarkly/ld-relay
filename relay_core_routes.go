@@ -7,7 +7,6 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
@@ -19,11 +18,6 @@ const (
 )
 
 func (r *RelayCore) MakeRouter() *mux.Router {
-	clientSideMux := clientSideMux{contextByKey: map[config.SDKCredential]*clientSideContext{}}
-	for envID, csc := range r.envsByEnvID {
-		clientSideMux.contextByKey[envID] = csc
-	}
-
 	router := mux.NewRouter()
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if r.loggers.GetMinLevel() == ldlog.Debug {
@@ -33,16 +27,17 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 
 	sdkKeySelector := selectEnvironmentByAuthorizationKey(serverSdk, r)
 	mobileKeySelector := selectEnvironmentByAuthorizationKey(mobileSdk, r)
+	jsClientSelector := selectEnvironmentByEnvIDUrlParam(r)
 
 	// Client-side evaluation
 	clientSideMiddlewareStack := chainMiddleware(
 		corsMiddleware,
-		clientSideMux.selectClientByUrlParam,
+		jsClientSelector,
 		requestCountMiddleware(metrics.BrowserRequests))
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
 	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
-	goalsRouter.HandleFunc("/{envId}", clientSideMux.getGoals).Methods("GET", "OPTIONS")
+	goalsRouter.HandleFunc("/{envId}", getGoals).Methods("GET", "OPTIONS")
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
 	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))

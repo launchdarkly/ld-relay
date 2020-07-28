@@ -4,7 +4,6 @@ package relay
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -47,7 +46,7 @@ func addQueryParam(url, query string) string {
 func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
 	req := buildRequest(verb, "", body, headers)
 	req = mux.SetURLVars(req, vars)
-	req = req.WithContext(context.WithValue(req.Context(), contextKey, clientContextInfo{env: ctx}))
+	req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: ctx}))
 	return req
 }
 

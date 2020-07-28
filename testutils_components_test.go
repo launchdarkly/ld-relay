@@ -100,6 +100,7 @@ func newTestEnvContextWithClientFactory(
 		f,
 		dataStoreFactory,
 		nil, //streamProviders,
+		relayenv.JSClientContext{},
 		nil,
 		ldlog.NewDisabledLoggers(),
 		readyCh,

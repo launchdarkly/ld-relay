@@ -49,7 +49,7 @@ type RelayEnvironments interface { //nolint:golint // yes, we know the package n
 type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
 	allEnvironments               map[config.SDKKey]relayenv.EnvContext
 	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
-	envsByEnvID                   map[config.EnvironmentID]*clientSideContext
+	envsByEnvID                   map[config.EnvironmentID]relayenv.EnvContext
 	metricsManager                *metrics.Manager
 	clientFactory                 sdkconfig.ClientFactoryFunc
 	serverSideStreamProvider      streams.StreamProvider
@@ -99,7 +99,7 @@ func NewRelayCore(
 	r := RelayCore{
 		allEnvironments:               make(map[config.SDKKey]relayenv.EnvContext),
 		envsByMobileKey:               make(map[config.MobileKey]relayenv.EnvContext),
-		envsByEnvID:                   make(map[config.EnvironmentID]*clientSideContext),
+		envsByEnvID:                   make(map[config.EnvironmentID]relayenv.EnvContext),
 		serverSideStreamProvider:      streams.NewServerSideStreamProvider(maxConnTime),
 		serverSideFlagsStreamProvider: streams.NewServerSideFlagsOnlyStreamProvider(maxConnTime),
 		mobileStreamProvider:          streams.NewMobilePingStreamProvider(maxConnTime),
@@ -192,27 +192,11 @@ func (r *RelayCore) AddEnvironment(
 
 	resultCh := make(chan relayenv.EnvContext, 1)
 
-	clientContext, err := relayenv.NewEnvContext(
-		envName,
-		envConfig,
-		r.config,
-		r.clientFactory,
-		dataStoreFactory,
-		r.allStreamProviders(),
-		r.metricsManager,
-		r.loggers,
-		resultCh,
-	)
-	if err != nil {
-		return nil, nil, errNewClientContextFailed(envName, err)
-	}
-	r.allEnvironments[envConfig.SDKKey] = clientContext
-	if envConfig.MobileKey != "" {
-		r.envsByMobileKey[envConfig.MobileKey] = clientContext
-	}
+	var jsClientContext relayenv.JSClientContext
 
 	if envConfig.EnvID != "" {
-		allowedOrigins := envConfig.AllowedOrigin.Values()
+		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
+
 		cachingTransport := httpcache.NewMemoryCacheTransport()
 		if envConfig.InsecureSkipVerify {
 			tlsConfig := &tls.Config{InsecureSkipVerify: envConfig.InsecureSkipVerify} // nolint:gas // allow this because the user has to explicitly enable it
@@ -229,8 +213,7 @@ func (r *RelayCore) AddEnvironment(
 			}
 			cachingTransport.Transport = transport
 		}
-
-		proxy := &httputil.ReverseProxy{
+		jsClientContext.Proxy = &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				url := req.URL
 				url.Scheme = r.baseURL.Scheme
@@ -248,12 +231,29 @@ func (r *RelayCore) AddEnvironment(
 			},
 			Transport: cachingTransport,
 		}
+	}
 
-		r.envsByEnvID[envConfig.EnvID] = &clientSideContext{
-			EnvContext:     clientContext,
-			proxy:          proxy,
-			allowedOrigins: allowedOrigins,
-		}
+	clientContext, err := relayenv.NewEnvContext(
+		envName,
+		envConfig,
+		r.config,
+		r.clientFactory,
+		dataStoreFactory,
+		r.allStreamProviders(),
+		jsClientContext,
+		r.metricsManager,
+		r.loggers,
+		resultCh,
+	)
+	if err != nil {
+		return nil, nil, errNewClientContextFailed(envName, err)
+	}
+	r.allEnvironments[envConfig.SDKKey] = clientContext
+	if envConfig.MobileKey != "" {
+		r.envsByMobileKey[envConfig.MobileKey] = clientContext
+	}
+	if envConfig.EnvID != "" {
+		r.envsByEnvID[envConfig.EnvID] = clientContext
 	}
 
 	return clientContext, resultCh, nil

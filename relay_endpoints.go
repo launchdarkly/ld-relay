@@ -77,9 +77,9 @@ func getClientSideUserProperties(
 // or clientstream.ld.com/ping/{envId} (JS)
 func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		clientCtx.env.GetLoggers().Debug("Application requested client-side ping stream")
-		clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
+		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
 
@@ -87,11 +87,11 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 // implemented the same as the ping stream once we have validated the user.
 func pingStreamHandlerWithUser(sdkKind sdkKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		clientCtx.env.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
-		if _, ok := getClientSideUserProperties(clientCtx.env, sdkKind, req, w); ok {
-			clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
+		if _, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w); ok {
+			clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
 	})
 }
@@ -100,18 +100,18 @@ func pingStreamHandlerWithUser(sdkKind sdkKind, streamProvider streams.StreamPro
 // abstracted in StreamProvider and EnvStreams
 func streamHandler(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		clientCtx.env.GetLoggers().Debug(logMessage)
-		clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
+		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx.Env.GetLoggers().Debug(logMessage)
+		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := getClientContext(req)
-	data, err := clientCtx.env.GetStore().GetAll(ldstoreimpl.Features())
+	clientCtx := GetEnvContextInfo(req.Context())
+	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
-		clientCtx.env.GetLoggers().Errorf("Error reading feature store: %s", err)
+		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
 		return
 	}
@@ -123,17 +123,17 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
 	}
 	etag := hex.EncodeToString(hash.Sum(nil))[:15]
-	writeCacheableJSONResponse(w, req, clientCtx.env, respData, etag)
+	writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req).env, ldstoreimpl.Features())(w, req)
+	pollFlagOrSegment(GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Features())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req).env, ldstoreimpl.Segments())(w, req)
+	pollFlagOrSegment(GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Segments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -145,8 +145,8 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/events/diagnostic/{envId} (JS)
 func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		dispatcher := clientCtx.env.GetEventDispatcher()
+		clientCtx := GetEnvContextInfo(req.Context())
+		dispatcher := clientCtx.Env.GetEventDispatcher()
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
@@ -188,12 +188,12 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWrite
 }
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
-	clientCtx := getClientContext(req)
-	client := clientCtx.env.GetClient()
-	store := clientCtx.env.GetStore()
-	loggers := clientCtx.env.GetLoggers()
+	clientCtx := GetEnvContextInfo(req.Context())
+	client := clientCtx.Env.GetClient()
+	store := clientCtx.Env.GetStore()
+	loggers := clientCtx.Env.GetLoggers()
 
-	user, ok := getClientSideUserProperties(clientCtx.env, sdkKind, req, w)
+	user, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w)
 	if !ok {
 		return
 	}
