@@ -16,7 +16,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 )
 

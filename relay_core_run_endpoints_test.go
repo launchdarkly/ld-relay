@@ -4,11 +4,8 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
 )
 
 // The test suites in coretest will be run for all Relay distributions, so that we can be sure that the
@@ -19,17 +16,7 @@ import (
 // circular package reference.
 
 func relayCoreForEndpointTests(c config.Config) TestParams {
-	createDummyClient := func(sdkKey config.SDKKey, sdkConfig ld.Config) (sdks.LDClientContext, error) {
-		store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
-			testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
-		err := store.Init(allData)
-		if err != nil {
-			panic(err)
-		}
-		return &fakeLDClient{true}, nil
-	}
-
-	core, err := NewRelayCore(c, ldlog.NewDisabledLoggers(), createDummyClient)
+	core, err := NewRelayCore(c, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
 	if err != nil {
 		panic(err)
 	}

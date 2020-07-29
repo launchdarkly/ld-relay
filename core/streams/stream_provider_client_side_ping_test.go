@@ -7,21 +7,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
-
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 )
 
-func TestStreamProviderServerSide(t *testing.T) {
-	validCredential := testSDKKey
-	invalidCredential1 := testMobileKey
+// The only difference between the mobile ping stream and the JS client ping stream is which kind of
+// authorization credential they support.
+
+func TestStreamProviderMobilePing(t *testing.T) {
+	validCredential := testMobileKey
+	invalidCredential1 := testSDKKey
 	invalidCredential2 := testEnvID
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewServerSideStreamProvider(maxConnTime)
+		sp := NewMobilePingStreamProvider(maxConnTime)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -30,8 +33,9 @@ func TestStreamProviderServerSide(t *testing.T) {
 	t.Run("constructor", func(t *testing.T) {
 		maxConnTime := time.Hour
 		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
-			require.IsType(t, &serverSideStreamProvider{}, sp)
-			verifyServerProperties(t, sp.(*serverSideStreamProvider).server, maxConnTime)
+			require.IsType(t, &clientSidePingStreamProvider{}, sp)
+			assert.False(t, sp.(*clientSidePingStreamProvider).isJSClient)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
 		})
 	})
 
@@ -52,61 +56,76 @@ func TestStreamProviderServerSide(t *testing.T) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
-			require.IsType(t, &serverSideEnvStreamProvider{}, esp)
+			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
 		})
 	})
+}
+
+func TestStreamProviderJSClientPing(t *testing.T) {
+	validCredential := testEnvID
+	invalidCredential1 := testSDKKey
+	invalidCredential2 := testMobileKey
+
+	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
+		sp := NewJSClientPingStreamProvider(maxConnTime)
+		require.NotNil(t, sp)
+		defer sp.Close()
+		action(sp)
+	}
+
+	t.Run("constructor", func(t *testing.T) {
+		maxConnTime := time.Hour
+		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
+			require.IsType(t, &clientSidePingStreamProvider{}, sp)
+			assert.True(t, sp.(*clientSidePingStreamProvider).isJSClient)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
+		})
+	})
+
+	t.Run("Handler", func(t *testing.T) {
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			assert.NotNil(t, sp.Handler(validCredential))
+			assert.Nil(t, sp.Handler(invalidCredential1))
+			assert.Nil(t, sp.Handler(invalidCredential2))
+		})
+	})
+
+	t.Run("Register", func(t *testing.T) {
+		store := makeMockStore(nil, nil)
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+
+			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			require.NotNil(t, esp)
+			defer esp.Close()
+			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
+		})
+	})
+}
+
+func TestStreamProviderAllClientSidePing(t *testing.T) {
+	// This uses only the mobile ping stream to test the event behavior, because we are using the same
+	// implementation type for both mobile and JS client and we've already tested the individual
+	// constructors above.
+
+	validCredential := testMobileKey
+	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
+		sp := NewMobilePingStreamProvider(maxConnTime)
+		require.NotNil(t, sp)
+		defer sp.Close()
+		action(sp)
+	}
 
 	t.Run("initial event", func(t *testing.T) {
 		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		allData := []ldstoretypes.Collection{
-			{Kind: ldstoreimpl.Features(), Items: store.flags},
-			{Kind: ldstoreimpl.Segments(), Items: store.segments},
-		}
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, MakeServerSidePutEvent(allData))
-		})
-	})
-
-	t.Run("initial event - store not initialized", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
-		})
-	})
-
-	t.Run("initial event - store error for flags", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.fakeFlagsError = fakeError
-
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
-		})
-	})
-
-	t.Run("initial event - store error for segments", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.fakeSegmentsError = fakeError
-
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
+			verifyHandlerInitialEvent(t, sp, validCredential, MakePingEvent())
 		})
 	})
 
@@ -123,11 +142,11 @@ func TestStreamProviderServerSide(t *testing.T) {
 				{Kind: ldstoreimpl.Segments(), Items: store.segments},
 			}
 
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
+			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
 					esp.SendAllDataUpdate(newData)
 				},
-				MakeServerSidePutEvent(newData),
+				MakePingEvent(),
 			)
 		})
 	})
@@ -140,32 +159,18 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
+			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
 					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
 				},
-				MakeServerSidePatchEvent(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1)),
+				MakePingEvent(),
 			)
 
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
+			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
 					esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
 				},
-				MakeServerSidePatchEvent(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1)),
-			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.DeletedItem(1))
-				},
-				MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, 1),
-			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.DeletedItem(1))
-				},
-				MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, 1),
+				MakePingEvent(),
 			)
 		})
 	})

@@ -13,12 +13,15 @@ import (
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
 )
 
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
-	ctx := newTestEnvContext("", false, makeStoreWithData(false))
+	ctx := testenv.NewTestEnvContext("", false, sharedtest.MakeStoreWithData(false))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
 	evaluateAllFeatureFlags(sdks.JSClient)(resp, req)
@@ -33,7 +36,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
-	ctx := newTestEnvContext("", false, makeStoreWithData(true))
+	ctx := testenv.NewTestEnvContext("", false, sharedtest.MakeStoreWithData(true))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
 	evaluateAllFeatureFlagsValueOnly(sdks.JSClient)(resp, req)
@@ -41,7 +44,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
-	assert.JSONEq(t, makeEvalBody(clientSideFlags, false, false), string(b))
+	assert.JSONEq(t, makeEvalBody(st.ClientSideFlags, false, false), string(b))
 }
 
 func TestGetUserAgent(t *testing.T) {
@@ -84,8 +87,8 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 		url := fmt.Sprintf("http://localhost/sdk/goals/%s", envID)
 
 		t.Run("requests", func(t *testing.T) {
-			r := buildRequest("GET", url, nil, nil)
-			result, body := doRequest(r, p.Handler)
+			r := st.BuildRequest("GET", url, nil, nil)
+			result, body := st.DoRequest(r, p.Handler)
 			assertNonStreamingHeaders(t, result.Header)
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
 				assertExpectedCORSHeaders(t, result, "GET", "*")

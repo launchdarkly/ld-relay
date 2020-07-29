@@ -12,7 +12,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 
 func TestStreamProviderServerSideFlagsOnly(t *testing.T) {

@@ -15,11 +15,12 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -96,7 +97,7 @@ func getClientSideUserProperties(
 // or clientstream.ld.com/ping/{envId} (JS)
 func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx := core.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
@@ -106,7 +107,7 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 // implemented the same as the ping stream once we have validated the user.
 func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx := core.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
 		if _, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w); ok {
@@ -119,7 +120,7 @@ func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamP
 // abstracted in StreamProvider and EnvStreams
 func streamHandler(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx := core.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug(logMessage)
 		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
@@ -127,7 +128,7 @@ func streamHandler(streamProvider streams.StreamProvider, logMessage string) htt
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := GetEnvContextInfo(req.Context())
+	clientCtx := core.GetEnvContextInfo(req.Context())
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
@@ -147,12 +148,12 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Features())(w, req)
+	pollFlagOrSegment(core.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Features())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Segments())(w, req)
+	pollFlagOrSegment(core.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Segments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -164,7 +165,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/events/diagnostic/{envId} (JS)
 func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := GetEnvContextInfo(req.Context())
+		clientCtx := core.GetEnvContextInfo(req.Context())
 		dispatcher := clientCtx.Env.GetEventDispatcher()
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -207,7 +208,7 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdks.Kind) func(w http.ResponseWri
 }
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdks.Kind) {
-	clientCtx := GetEnvContextInfo(req.Context())
+	clientCtx := core.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	loggers := clientCtx.Env.GetLoggers()

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 
 func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
@@ -15,14 +16,14 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 	sdkKeyWithTTL := testEnvWithTTL.config.SDKKey
 
 	specs := []endpointTestParams{
-		{"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", flag1ServerSide.flag.Key), nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(flag1ServerSide.flag)},
+		{"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", st.Flag1ServerSide.Flag.Key), nil, sdkKeyMain,
+			http.StatusOK, expectJSONEntity(st.Flag1ServerSide.Flag)},
 		{"get unknown flag", "GET", "/sdk/flags/no-such-flag", nil, sdkKeyMain,
 			http.StatusNotFound, nil},
 		{"get all flags", "GET", "/sdk/flags", nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(flagsMap(allFlags))},
-		{"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", segment1.Key), nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(segment1)},
+			http.StatusOK, expectJSONEntity(flagsMap(st.AllFlags))},
+		{"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", st.Segment1.Key), nil, sdkKeyMain,
+			http.StatusOK, expectJSONEntity(st.Segment1)},
 		{"get unknown segment", "GET", "/sdk/segments/no-such-segment", nil, sdkKeyMain,
 			http.StatusNotFound, nil},
 	}
@@ -37,7 +38,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 					etag := ""
 
 					t.Run("success", func(t *testing.T) {
-						result, body := doRequest(s.request(), p.Handler)
+						result, body := st.DoRequest(s.request(), p.Handler)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							assertNonStreamingHeaders(t, result.Header)
@@ -52,7 +53,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 					t.Run("success - environment has TTL", func(t *testing.T) {
 						s1 := s
 						s1.credential = sdkKeyWithTTL
-						result, _ := doRequest(s1.request(), p.Handler)
+						result, _ := st.DoRequest(s1.request(), p.Handler)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							assert.NotEqual(t, "", result.Header.Get("Expires"))
@@ -63,7 +64,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 						t.Run("query with same ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", etag)
-							result, _ := doRequest(r, p.Handler)
+							result, _ := st.DoRequest(r, p.Handler)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
 						})
@@ -71,7 +72,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 						t.Run("query with different ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", "different-from-"+etag)
-							result, _ := doRequest(r, p.Handler)
+							result, _ := st.DoRequest(r, p.Handler)
 
 							assert.Equal(t, http.StatusOK, result.StatusCode)
 						})

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 
+	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 )
@@ -20,7 +21,7 @@ func init() {
 }
 
 func getEventsImage(w http.ResponseWriter, req *http.Request) {
-	clientCtx := GetEnvContextInfo(req.Context())
+	clientCtx := core.GetEnvContextInfo(req.Context())
 
 	if clientCtx.Env.GetEventDispatcher() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -52,6 +53,6 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 }
 
 func getGoals(w http.ResponseWriter, req *http.Request) {
-	clientCtx := GetEnvContextInfo(req.Context())
+	clientCtx := core.GetEnvContextInfo(req.Context())
 	clientCtx.Env.GetJSClientContext().Proxy.ServeHTTP(w, req)
 }

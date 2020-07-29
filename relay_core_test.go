@@ -10,6 +10,7 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
@@ -17,7 +18,7 @@ import (
 func TestNewRelayCoreRejectsConfigWithContradictoryProperties(t *testing.T) {
 	// it is an error to enable TLS but not provide a cert or key
 	config := c.Config{Main: c.MainConfig{TLSEnabled: true}}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TLS cert")
 	assert.Nil(t, core)
@@ -25,7 +26,7 @@ func TestNewRelayCoreRejectsConfigWithContradictoryProperties(t *testing.T) {
 
 func TestNewRelayCoreRejectsConfigWithNoEnvironments(t *testing.T) {
 	config := c.Config{}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "you must specify at least one environment")
 	assert.Nil(t, core)
@@ -35,7 +36,7 @@ func TestRelayCoreGetEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain, testEnvMobile, testEnvClientSide),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -66,7 +67,7 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain, testEnvMobile, testEnvClientSide),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -87,7 +88,7 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -113,7 +114,7 @@ func TestRelayCoreRemoveEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain, testEnvMobile),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -131,7 +132,7 @@ func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -144,7 +145,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	}
 
 	t.Run("returns nil if all environments initialize successfully", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 		require.NoError(t, err)
 		defer core.Close()
 
@@ -156,9 +157,9 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 		oneEnvFails := func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
 			shouldFail := sdkKey == testEnvMobile.config.SDKKey
 			if shouldFail {
-				return clientFactoryThatFails(errors.New("sorry"))(sdkKey, config)
+				return testclient.ClientFactoryThatFails(errors.New("sorry"))(sdkKey, config)
 			}
-			return fakeLDClientFactory(true)(sdkKey, config)
+			return testclient.FakeLDClientFactory(true)(sdkKey, config)
 		}
 		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), oneEnvFails)
 		require.NoError(t, err)

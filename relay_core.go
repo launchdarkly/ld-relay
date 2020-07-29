@@ -14,10 +14,10 @@ import (
 	"github.com/gregjones/httpcache"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"

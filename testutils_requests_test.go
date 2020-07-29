@@ -3,12 +3,9 @@ package relay
 // This file contains test helpers for dealing with HTTP requests.
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"io/ioutil"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -16,47 +13,19 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
-
-// Simple shortcut for creating a request that may or may not have a body.
-func buildRequest(method, url string, body []byte, headers http.Header) *http.Request {
-	var bodyBuffer io.Reader
-	if body != nil {
-		bodyBuffer = bytes.NewBuffer(body)
-	}
-	r, err := http.NewRequest(method, url, bodyBuffer)
-	if err != nil {
-		panic(err)
-	}
-	r.Header = headers
-	return r
-}
-
-func addQueryParam(url, query string) string {
-	if strings.Contains(url, "?") {
-		return url + "&" + query
-	}
-	return url + "?" + query
-}
 
 // Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
 // going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
 func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
-	req := buildRequest(verb, "", body, headers)
+	req := sharedtest.BuildRequest(verb, "", body, headers)
 	req = mux.SetURLVars(req, vars)
-	req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: ctx}))
+	req = req.WithContext(core.WithEnvContextInfo(req.Context(), core.EnvContextInfo{Env: ctx}))
 	return req
-}
-
-// Shortcut for executing an endpoint handler against a request and getting the response.
-func doRequest(req *http.Request, handler http.Handler) (*http.Response, []byte) {
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	result := w.Result()
-	body, _ := ioutil.ReadAll(result.Body)
-	return result, body
 }
 
 func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *http.Response {
@@ -110,14 +79,14 @@ func assertEndpointSupportsOptionsRequest(
 	host := "my-host.com"
 
 	r1, _ := http.NewRequest("OPTIONS", url, nil)
-	result1, _ := doRequest(r1, handler)
+	result1, _ := st.DoRequest(r1, handler)
 	if assert.Equal(t, http.StatusOK, result1.StatusCode) {
 		assertExpectedCORSHeaders(t, result1, usualMethod, "*")
 	}
 
 	r2, _ := http.NewRequest("OPTIONS", url, nil)
 	r2.Header.Set("Origin", host)
-	result2, _ := doRequest(r2, handler)
+	result2, _ := st.DoRequest(r2, handler)
 	if assert.Equal(t, http.StatusOK, result2.StatusCode) {
 		assertExpectedCORSHeaders(t, result2, usualMethod, host)
 	}
