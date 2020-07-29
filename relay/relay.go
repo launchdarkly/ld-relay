@@ -5,8 +5,8 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	main "github.com/launchdarkly/ld-relay/v6"
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -15,7 +15,7 @@ import (
 // Relay relays endpoints to and from the LaunchDarkly service
 type Relay struct {
 	http.Handler
-	core    *main.RelayCore
+	core    *core.RelayCore
 	config  config.Config
 	loggers ldlog.Loggers
 }
@@ -31,11 +31,11 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClien
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
-	return newRelayInternal(c, loggers, main.ClientFactoryFromLDClientFactory(clientFactory))
+	return newRelayInternal(c, loggers, core.ClientFactoryFromLDClientFactory(clientFactory))
 }
 
 func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
-	core, err := main.NewRelayCore(c, loggers, clientFactory)
+	core, err := core.NewRelayCore(c, loggers, clientFactory)
 	if err != nil {
 		return nil, err
 	}

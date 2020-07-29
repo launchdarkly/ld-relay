@@ -4,7 +4,7 @@ import (
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 )
 
 type TestEnv struct {

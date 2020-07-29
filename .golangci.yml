@@ -31,6 +31,10 @@ issues:
     - path: core/sharedtest/
       linters:
         - golint  # don't need linter warnings about comment formatting etc. on our test helpers
+    - path: core/sharedtest/testsuites/
+      linters:
+        - bodyclose
+        - goconst
   exclude:
     # golint exclusions
     - "(const|func|method|struct field|type|var) .* should be " # golint errors about variable names (don't want to fix them because they're in a public interface)

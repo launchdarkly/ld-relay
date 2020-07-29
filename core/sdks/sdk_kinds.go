@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 )
 
 // Kind represents any of the supported SDK categories that has distinct behavior from the others.

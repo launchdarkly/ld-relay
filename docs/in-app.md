@@ -8,13 +8,13 @@ Here is an example of how you might run the Relay Proxy endpoints inside your we
 
 ```go
 import (
-    relay "github.com/launchdarkly/ld-relay/v6"
-    "github.com/launchdarkly/ld-relay/v6/config"
+    "github.com/launchdarkly/ld-relay/v6/core/config"
+    "github.com/launchdarkly/ld-relay/v6/relay"
 )
 
 func createRelayConfig() config.Config {
     cfg := config.DefaultConfig
-    if err := relay.LoadConfigFile(&cfg, "path/to/my.config"); err != nil {
+    if err := config.LoadConfigFile(&cfg, "path/to/my.config"); err != nil {
         log.Fatalf("Error loading config file: %s", err)
     }
     return cfg

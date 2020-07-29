@@ -30,7 +30,7 @@ else
   nc -l ${FAKE_LD_PORT} <"${TEMP_FILE_STREAM_DATA}" >/dev/null &
 fi
 
-go build ./cmd/ld-relay
+go build
 
 # start Relay as a background process
 echo "starting Relay"

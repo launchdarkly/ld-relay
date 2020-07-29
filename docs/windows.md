@@ -5,7 +5,7 @@
 To run the Relay Proxy as a Windows service, you will first need to build it with the Go compiler:
 
 ```shell
-go build cmd/ld-relay
+go build
 ```
 
 This will create the executable `ld-relay.exe`.
