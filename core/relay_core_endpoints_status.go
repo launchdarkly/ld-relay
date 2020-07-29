@@ -11,12 +11,12 @@ import (
 
 type environmentStatus struct {
 	SdkKey    string `json:"sdkKey"`
-	EnvId     string `json:"envId,omitempty"`
+	EnvID     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
 }
 
-var hexdigit = regexp.MustCompile(`[a-fA-F\d]`)
+var hexdigit = regexp.MustCompile(`[a-fA-F\d]`) //nolint:gochecknoglobals
 
 func obscureKey(key string) string {
 	if len(key) > 8 {
@@ -38,7 +38,7 @@ func statusHandler(core *RelayCore) http.Handler {
 			if creds.MobileKey != "" {
 				status.MobileKey = obscureKey(string(creds.MobileKey))
 			}
-			status.EnvId = string(creds.EnvironmentID)
+			status.EnvID = string(creds.EnvironmentID)
 			client := clientCtx.GetClient()
 			if client == nil || !client.Initialized() {
 				status.Status = "disconnected"
@@ -68,6 +68,6 @@ func statusHandler(core *RelayCore) http.Handler {
 
 		data, _ := json.Marshal(resp)
 
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 }

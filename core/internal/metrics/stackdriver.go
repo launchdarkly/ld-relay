@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 )
 
-var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{}
+var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{} //nolint:gochecknoglobals
 
 type stackdriverExporterTypeImpl struct{}
 

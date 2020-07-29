@@ -21,11 +21,11 @@ type newConnectionsMetric struct {
 	Count            int64  `json:"count"`
 }
 
-const RelayMetricsKind = "relayMetrics"
+const relayMetricsKind = "relayMetrics"
 
-type RelayMetricsEvent struct {
+type relayMetricsEvent struct {
 	Kind           string                     `json:"kind"`
-	RelayId        string                     `json:"relayId"`
+	RelayID        string                     `json:"relayId"`
 	StartDate      int64                      `json:"startDate"`
 	EndDate        int64                      `json:"endDate"`
 	Connections    []currentConnectionsMetric `json:"connections,omitempty"`
@@ -37,8 +37,8 @@ type connectionsKeyType struct {
 	platformCategory string
 }
 
-type OpenCensusEventsExporter struct {
-	relayId            string
+type openCensusEventsExporter struct {
+	relayID            string
 	publisher          events.EventPublisher
 	intervalStartTime  time.Time
 	currentConnections map[connectionsKeyType]int64
@@ -47,11 +47,11 @@ type OpenCensusEventsExporter struct {
 	closer             chan<- struct{}
 }
 
-func newOpenCensusEventsExporter(relayId string, publisher events.EventPublisher, flushInterval time.Duration) *OpenCensusEventsExporter {
+func newopenCensusEventsExporter(relayID string, publisher events.EventPublisher, flushInterval time.Duration) *openCensusEventsExporter {
 	closer := make(chan struct{})
 
-	e := &OpenCensusEventsExporter{
-		relayId:            relayId,
+	e := &openCensusEventsExporter{
+		relayID:            relayID,
 		publisher:          publisher,
 		closer:             closer,
 		intervalStartTime:  time.Now(),
@@ -77,18 +77,18 @@ func newOpenCensusEventsExporter(relayId string, publisher events.EventPublisher
 	return e
 }
 
-func (e *OpenCensusEventsExporter) ExportView(viewData *view.Data) {
+func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 	if viewData != nil && viewData.View != nil {
 	NextRow:
 		for _, r := range viewData.Rows {
 			var platformCategory string
 			var userAgent string
-			relayIdFound := false
+			relayIDFound := false
 			for _, t := range r.Tags {
 				switch t.Key {
-				case relayIdTagKey:
-					if t.Value == e.relayId {
-						relayIdFound = true
+				case relayIDTagKey:
+					if t.Value == e.relayID {
+						relayIDFound = true
 					} else {
 						continue NextRow
 					}
@@ -98,12 +98,11 @@ func (e *OpenCensusEventsExporter) ExportView(viewData *view.Data) {
 					platformCategory = t.Value
 				}
 			}
-			if !relayIdFound {
+			if !relayIDFound {
 				continue NextRow
 			}
 			var v int64
-			switch data := r.Data.(type) {
-			case *view.SumData:
+			if data, ok := r.Data.(*view.SumData); ok {
 				v = int64(data.Value)
 			}
 			e.updateValue(viewData.View.Name, platformCategory, userAgent, v)
@@ -111,7 +110,7 @@ func (e *OpenCensusEventsExporter) ExportView(viewData *view.Data) {
 	}
 }
 
-func (e *OpenCensusEventsExporter) updateValue(name string, platformCategory string, userAgent string, value int64) {
+func (e *openCensusEventsExporter) updateValue(name string, platformCategory string, userAgent string, value int64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch name {
@@ -132,7 +131,7 @@ func (e *OpenCensusEventsExporter) updateValue(name string, platformCategory str
 	}
 }
 
-func (e *OpenCensusEventsExporter) flush() {
+func (e *openCensusEventsExporter) flush() {
 	e.mu.Lock()
 	startTime := e.intervalStartTime
 	stopTime := time.Now()
@@ -141,9 +140,9 @@ func (e *OpenCensusEventsExporter) flush() {
 		e.mu.Unlock()
 		return
 	}
-	event := RelayMetricsEvent{
-		Kind:      RelayMetricsKind,
-		RelayId:   e.relayId,
+	event := relayMetricsEvent{
+		Kind:      relayMetricsKind,
+		RelayID:   e.relayID,
 		StartDate: unixMillis(startTime),
 		EndDate:   unixMillis(stopTime),
 	}
@@ -166,7 +165,7 @@ func (e *OpenCensusEventsExporter) flush() {
 	e.publisher.Publish(event)
 }
 
-func (e *OpenCensusEventsExporter) close() {
+func (e *openCensusEventsExporter) close() {
 	close(e.closer)
 }
 

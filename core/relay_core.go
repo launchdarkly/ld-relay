@@ -40,7 +40,7 @@ func errNewMetricsManagerFailed(err error) error {
 }
 
 // RelayCore encapsulates the core logic for all variants of Relay Proxy.
-type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
+type RelayCore struct {
 	allEnvironments               map[config.SDKKey]relayenv.EnvContext
 	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
 	envsByEnvID                   map[config.EnvironmentID]relayenv.EnvContext

@@ -15,7 +15,6 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
@@ -168,7 +167,7 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 }
 
 func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *http.Response {
-	w, bodyReader := sharedtest.NewStreamRecorder()
+	w, bodyReader := st.NewStreamRecorder()
 	handler.ServeHTTP(w, req)
 	go func() {
 		_, _ = ioutil.ReadAll(bodyReader)

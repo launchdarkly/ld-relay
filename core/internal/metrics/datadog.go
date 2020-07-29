@@ -9,7 +9,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
-var datadogExporterType exporterType = datadogExporterTypeImpl{}
+var datadogExporterType exporterType = datadogExporterTypeImpl{} //nolint:gochecknoglobals
 
 type datadogExporterTypeImpl struct{}
 

@@ -11,20 +11,23 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 
-// Environment that is passed to test code with DoTest.
+// TestParams is information that is passed to test code with DoTest.
 type TestParams struct {
 	Core    *core.RelayCore
 	Handler http.Handler
 	Closer  func()
 }
 
+// TestConstructor is provided by whatever Relay variant is calling the test suite, to provide the appropriate
+// setup and teardown for that variant.
 type TestConstructor func(config.Config) TestParams
 
+// RunTest is a shortcut for running a subtest method with this parameter.
 func (c TestConstructor) RunTest(t *testing.T, name string, testFn func(*testing.T, TestConstructor)) {
 	t.Run(name, func(t *testing.T) { testFn(t, c) })
 }
 
-// Runs some code against a new Relay instance that is set up with the specified configuration.
+// DoTest some code against a new Relay instance that is set up with the specified configuration.
 func DoTest(c config.Config, constructor TestConstructor, action func(TestParams)) {
 	p := constructor(c)
 	defer p.Closer()

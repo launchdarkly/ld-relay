@@ -21,9 +21,16 @@ const (
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
 
+var (
+	errInvalidBase64     = errors.New("string did not decode as valid base64")
+	errInvalidUserBase64 = errors.New("user part of URL path did not decode as valid base64")
+	errInvalidUserJSON   = errors.New("user part of URL path did not decode to valid user as JSON")
+	errUserWithNoKey     = errors.New(`user must have a "key" attribute`)
+)
+
 // RelayEnvironments defines the methods for looking up environments. This is represented as an interface
 // so that test code can mock that capability.
-type RelayEnvironments interface { //nolint:golint // yes, we know the package name is also "relay"
+type RelayEnvironments interface {
 	GetEnvironment(config.SDKCredential) relayenv.EnvContext
 	GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext
 }
@@ -36,6 +43,7 @@ func getUserAgent(req *http.Request) string {
 	return req.Header.Get(userAgentHeader)
 }
 
+// Chain combines a series of middleware functions that will be applied in the same order.
 func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		handler := next
@@ -46,6 +54,9 @@ func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	}
 }
 
+// SelectEnvironmentByAuthorizationKey creates a middleware function that attempts to authenticate the request
+// using the appropriate kind of credential for the sdks.Kind. If successful, it updates the request context
+// so GetEnvContextInfo will return environment information. If not successful, it returns an error response.
 func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -61,17 +72,17 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == sdks.JSClient {
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte("URL did not contain an environment ID"))
+					_, _ = w.Write([]byte("URL did not contain an environment ID"))
 				} else {
 					w.WriteHeader(http.StatusUnauthorized)
-					w.Write([]byte("ld-relay is not configured for the provided key"))
+					_, _ = w.Write([]byte("ld-relay is not configured for the provided key"))
 				}
 				return
 			}
 
 			if clientCtx.GetClient() == nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte("client was not initialized"))
+				_, _ = w.Write([]byte("client was not initialized"))
 				return
 			}
 
@@ -85,7 +96,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 	}
 }
 
-func WithCount(handler http.Handler, measure metrics.Measure) http.Handler {
+func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
@@ -95,18 +106,25 @@ func WithCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
+// CountMobileConns is a middleware function that increments the total number of mobile connections,
+// and also increments the number of active mobile connections until the handler ends.
 func CountMobileConns(handler http.Handler) http.Handler {
-	return WithCount(WithGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
+	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
 }
 
+// CountBrowserConns is a middleware function that increments the total number of browser connections,
+// and also increments the number of active browser connections until the handler ends.
 func CountBrowserConns(handler http.Handler) http.Handler {
-	return WithCount(WithGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
+	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
 }
 
+// CountServerConns is a middleware function that increments the total number of server-side connections,
+// and also increments the number of active server-side connections until the handler ends.
 func CountServerConns(handler http.Handler) http.Handler {
-	return WithCount(WithGauge(handler, metrics.ServerConns), metrics.NewServerConns)
+	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
+// RequestCount is a middleware function that increments the specified metric for each request.
 func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -121,7 +139,7 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	}
 }
 
-func WithGauge(handler http.Handler, measure metrics.Measure) http.Handler {
+func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
@@ -131,6 +149,7 @@ func WithGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
+// CORS is a middleware function that sets the appropriate CORS headers on a browser response.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
@@ -157,6 +176,7 @@ func CORS(next http.Handler) http.Handler {
 	})
 }
 
+// Streaming is a middleware function that sets the appropriate headers on a streaming response.
 func Streaming(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// If Nginx is being used as a proxy/load balancer, adding this header tells it not to buffer this response because
@@ -167,23 +187,22 @@ func Streaming(next http.Handler) http.Handler {
 }
 
 // UserV2FromBase64 decodes a base64-encoded go-server-sdk v2 user.
-// If any decoding/unmarshaling errors occur or
-// the user is missing the 'key' attribute an error is returned.
+// If any decoding/unmarshaling errors occur or the user is missing the "key" attribute an error is returned.
 func UserV2FromBase64(base64User string) (lduser.User, error) {
 	var user lduser.User
 	idStr, decodeErr := base64urlDecode(base64User)
 	if decodeErr != nil {
-		return user, errors.New("User part of url path did not decode as valid base64")
+		return user, errInvalidUserBase64
 	}
 
 	jsonErr := json.Unmarshal(idStr, &user)
 
 	if jsonErr != nil {
-		return user, errors.New("User part of url path did not decode to valid user as json")
+		return user, errInvalidUserJSON
 	}
 
 	if user.GetKey() == "" {
-		return user, errors.New("User must have a 'key' attribute")
+		return user, errUserWithNoKey
 	}
 	return user, nil
 }
@@ -197,7 +216,7 @@ func base64urlDecode(base64String string) ([]byte, error) {
 		idStrRaw, decodeErrRaw := base64.RawURLEncoding.DecodeString(base64String)
 
 		if decodeErrRaw != nil {
-			return nil, errors.New("String did not decode as valid base64")
+			return nil, errInvalidBase64
 		}
 
 		return idStrRaw, nil

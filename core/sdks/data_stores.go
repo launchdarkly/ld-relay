@@ -17,6 +17,10 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
+var (
+	errDynamoDBWithNoTableName = errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
+)
+
 // ConfigureDataStore provides the appropriate Go SDK data store factory (in-memory, Redis, etc.) based on
 // the Relay configuration, or returns an error if the configuration is invalid.
 func ConfigureDataStore(
@@ -74,7 +78,7 @@ func ConfigureDataStore(
 			tableName = dbConfig.TableName
 		}
 		if tableName == "" {
-			return nil, errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
+			return nil, errDynamoDBWithNoTableName
 		}
 		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
 		builder := lddynamodb.DataStore(tableName).

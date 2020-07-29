@@ -27,17 +27,28 @@ const (
 )
 
 var (
-	defaultUserAgent            = "LDRelay/" + version.Version
-	defaultEventsEndpointURI, _ = url.Parse("https://events.launchdarkly.com/bulk")
+	defaultUserAgent            = "LDRelay/" + version.Version                      //nolint:gochecknoglobals
+	defaultEventsEndpointURI, _ = url.Parse("https://events.launchdarkly.com/bulk") //nolint:gochecknoglobals
 )
 
+func errHTTPErrorResponse(statusCode int, url string) error {
+	return fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, url)
+}
+
+// EventPublisher is the interface for queueing and flushing proxied events.
 type EventPublisher interface {
+	// Publish adds any number of arbitrary JSON-serializable objects to the queue.
 	Publish(...interface{})
+
+	// PublishRaw adds any number of JSON elements to the queue.
 	PublishRaw(...json.RawMessage)
+
+	// Flush attempst to deliver all queued events.
 	Flush()
 }
 
-type HttpEventPublisher struct {
+// HTTPEventPublisher is the standard implementation of EventPublisher.
+type HTTPEventPublisher struct {
 	eventsURI  url.URL
 	loggers    ldlog.Loggers
 	client     *http.Client
@@ -83,13 +94,15 @@ func (b rawBatch) append(q *[]interface{}, max int, loggers *ldlog.Loggers, reac
 	}
 }
 
+// OptionType defines optional parameters for NewHTTPEventPublisher.
 type OptionType interface {
-	apply(*HttpEventPublisher) error
+	apply(*HTTPEventPublisher) error
 }
 
-type OptionUri string
+// OptionURI specifies a custom base URI for the events service.
+type OptionURI string
 
-func (o OptionUri) apply(p *HttpEventPublisher) error {
+func (o OptionURI) apply(p *HTTPEventPublisher) error { //nolint:unparam
 	u, err := url.Parse(strings.TrimRight(string(o), "/") + defaultEventsURIPath)
 	if err == nil {
 		p.eventsURI = *u
@@ -97,9 +110,10 @@ func (o OptionUri) apply(p *HttpEventPublisher) error {
 	return nil
 }
 
+// OptionEndpointURI specifies a complete custom URI for the events service (not a base URI).
 type OptionEndpointURI string
 
-func (o OptionEndpointURI) apply(p *HttpEventPublisher) error {
+func (o OptionEndpointURI) apply(p *HTTPEventPublisher) error {
 	u, err := url.Parse(string(o))
 	if err == nil {
 		p.eventsURI = *u
@@ -107,40 +121,45 @@ func (o OptionEndpointURI) apply(p *HttpEventPublisher) error {
 	return err
 }
 
+// OptionFlushInterval specifies the interval for automatic flushes.
 type OptionFlushInterval time.Duration
 
-func (o OptionFlushInterval) apply(p *HttpEventPublisher) error {
+func (o OptionFlushInterval) apply(p *HTTPEventPublisher) error {
 	return nil
 }
 
+// OptionClient specifies a preconfigured HTTP client.
 type OptionClient struct {
 	Client *http.Client
 }
 
-func (o OptionClient) apply(p *HttpEventPublisher) error {
+func (o OptionClient) apply(p *HTTPEventPublisher) error {
 	p.client = o.Client
 	return nil
 }
 
+// OptionUserAgent specifies the user-agent header.
 type OptionUserAgent string
 
-func (o OptionUserAgent) apply(p *HttpEventPublisher) error {
+func (o OptionUserAgent) apply(p *HTTPEventPublisher) error { //nolint:unparam
 	p.userAgent = string(o)
 	return nil
 }
 
+// OptionCapacity specifies the event queue capacity.
 type OptionCapacity int
 
-func (o OptionCapacity) apply(p *HttpEventPublisher) error {
+func (o OptionCapacity) apply(p *HTTPEventPublisher) error {
 	p.capacity = int(o)
 	return nil
 }
 
-func NewHttpEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, options ...OptionType) (*HttpEventPublisher, error) {
+// NewHTTPEventPublisher creates a new HTTPEventPublisher.
+func NewHTTPEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
 	closer := make(chan struct{})
 
 	inputQueue := make(chan interface{}, inputQueueSize)
-	p := &HttpEventPublisher{
+	p := &HTTPEventPublisher{
 		client:     http.DefaultClient,
 		userAgent:  defaultUserAgent,
 		eventsURI:  *defaultEventsEndpointURI,
@@ -150,7 +169,7 @@ func NewHttpEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, 
 		inputQueue: inputQueue,
 		loggers:    loggers,
 	}
-	p.loggers.SetPrefix("HttpEventPublisher:")
+	p.loggers.SetPrefix("HTTPEventPublisher:")
 
 	flushInterval := defaultFlushInterval
 
@@ -159,8 +178,7 @@ func NewHttpEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, 
 		if err != nil {
 			return nil, err
 		}
-		switch o := o.(type) {
-		case OptionFlushInterval:
+		if o, ok := o.(OptionFlushInterval); ok {
 			if o > 0 {
 				flushInterval = time.Duration(o)
 			}
@@ -207,19 +225,19 @@ func NewHttpEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, 
 	return p, nil
 }
 
-func (p *HttpEventPublisher) Publish(events ...interface{}) {
+func (p *HTTPEventPublisher) Publish(events ...interface{}) { //nolint:golint // method is already documented in interface
 	p.inputQueue <- batch(events)
 }
 
-func (p *HttpEventPublisher) PublishRaw(events ...json.RawMessage) {
+func (p *HTTPEventPublisher) PublishRaw(events ...json.RawMessage) { //nolint:golint // method is already documented in interface
 	p.inputQueue <- rawBatch(events)
 }
 
-func (p *HttpEventPublisher) Flush() {
+func (p *HTTPEventPublisher) Flush() { //nolint:golint // method is already documented in interface
 	p.inputQueue <- flush{}
 }
 
-func (p *HttpEventPublisher) flush() {
+func (p *HTTPEventPublisher) flush() {
 	if len(p.queue) == 0 {
 		return
 	}
@@ -239,14 +257,14 @@ func (p *HttpEventPublisher) flush() {
 	}()
 }
 
-func (p *HttpEventPublisher) Close() {
+func (p *HTTPEventPublisher) Close() { //nolint:golint // method is already documented in interface
 	p.closeOnce.Do(func() {
 		close(p.closer)
 		p.wg.Wait()
 	})
 }
 
-func (p *HttpEventPublisher) postEvents(jsonPayload []byte) error {
+func (p *HTTPEventPublisher) postEvents(jsonPayload []byte) error {
 	var resp *http.Response
 	var respErr error
 PostAttempts:
@@ -285,7 +303,7 @@ PostAttempts:
 		if statusCode/100 == 2 {
 			return nil
 		}
-		respErr = fmt.Errorf("unexpected response code: %d when accessing URL: %s", statusCode, p.eventsURI.String())
+		respErr = errHTTPErrorResponse(statusCode, p.eventsURI.String())
 
 		switch statusCode {
 		case http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusNotFound:

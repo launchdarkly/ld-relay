@@ -1,3 +1,5 @@
+// Package testenv contains test helpers that reference the relayenv package. These are in sharedtest/testenv
+// rather than just sharedtest so that sharedtest can be used by relayenv itself without a circular reference.
 package testenv
 
 import (
@@ -12,9 +14,6 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
-
-// This file is in a separate package because if it were in sharedtest, test code in the relayenv package
-// could not use sharedtest.
 
 func NewTestEnvContext(name string, shouldBeInitialized bool, store interfaces.DataStore) relayenv.EnvContext {
 	return NewTestEnvContextWithClientFactory(name, testclient.FakeLDClientFactory(shouldBeInitialized), store)

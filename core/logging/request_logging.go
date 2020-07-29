@@ -11,14 +11,14 @@ import (
 func RequestLoggerMiddleware(loggers ldlog.Loggers) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			wrappedWriter := loggingHttpResponseWriter{loggers: loggers, writer: w, request: req}
+			wrappedWriter := loggingHTTPResponseWriter{loggers: loggers, writer: w, request: req}
 			next.ServeHTTP(&wrappedWriter, req)
 			wrappedWriter.logRequest()
 		})
 	}
 }
 
-type loggingHttpResponseWriter struct {
+type loggingHTTPResponseWriter struct {
 	loggers      ldlog.Loggers
 	writer       http.ResponseWriter
 	request      *http.Request
@@ -27,11 +27,11 @@ type loggingHttpResponseWriter struct {
 	bytesWritten uint64
 }
 
-func (w *loggingHttpResponseWriter) Header() http.Header {
+func (w *loggingHTTPResponseWriter) Header() http.Header {
 	return w.writer.Header()
 }
 
-func (w *loggingHttpResponseWriter) Write(data []byte) (int, error) {
+func (w *loggingHTTPResponseWriter) Write(data []byte) (int, error) {
 	if w.statusCode == 0 {
 		w.WriteHeader(200)
 	}
@@ -39,7 +39,7 @@ func (w *loggingHttpResponseWriter) Write(data []byte) (int, error) {
 	return w.writer.Write(data)
 }
 
-func (w *loggingHttpResponseWriter) WriteHeader(statusCode int) {
+func (w *loggingHTTPResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 	if strings.Contains(w.writer.Header().Get("Content-Type"), "text/event-stream") {
 		w.streaming = true
@@ -48,7 +48,7 @@ func (w *loggingHttpResponseWriter) WriteHeader(statusCode int) {
 	w.writer.WriteHeader(statusCode)
 }
 
-func (w *loggingHttpResponseWriter) logRequest() {
+func (w *loggingHTTPResponseWriter) logRequest() {
 	authStr := "n/a"
 	if authHeader := w.request.Header.Get("Authorization"); authHeader != "" {
 		if len(authHeader) > 5 {
@@ -85,16 +85,16 @@ func (w *loggingHttpResponseWriter) logRequest() {
 	}
 }
 
-// In order to substitute loggingHttpResponseWriter for the default http.ResponseWriter,
+// In order to substitute loggingHTTPResponseWriter for the default http.ResponseWriter,
 // it has to also implement http.Flusher and http.CloseNotifier
 
-func (w *loggingHttpResponseWriter) Flush() {
+func (w *loggingHTTPResponseWriter) Flush() {
 	if f, ok := w.writer.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-func (w *loggingHttpResponseWriter) CloseNotify() <-chan bool {
+func (w *loggingHTTPResponseWriter) CloseNotify() <-chan bool {
 	if c, ok := w.writer.(http.CloseNotifier); ok { //nolint
 		return c.CloseNotify()
 	}

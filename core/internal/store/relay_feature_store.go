@@ -37,6 +37,7 @@ type DataStoreProvider interface {
 	GetStore() interfaces.DataStore
 }
 
+// GetStore returns the current data store, or nil if it has not been created.
 func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
 	a.mu.RLock()
 	store := a.store
@@ -44,6 +45,7 @@ func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
 	return store
 }
 
+// NewSSERelayDataStoreAdapter creates a new instance where the store has not yet been created.
 func NewSSERelayDataStoreAdapter(
 	wrappedFactory interfaces.DataStoreFactory,
 	updates streams.EnvStreamUpdates,
@@ -54,6 +56,7 @@ func NewSSERelayDataStoreAdapter(
 	}
 }
 
+// CreateDataStore is called by the SDK when the LDClient is being created.
 func (a *SSERelayDataStoreAdapter) CreateDataStore(
 	context interfaces.ClientContext,
 	dataStoreUpdates interfaces.DataStoreUpdates,

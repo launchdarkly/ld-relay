@@ -28,7 +28,7 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write(fakeGoalsData)
+		_, _ = w.Write(fakeGoalsData)
 	}).Methods("GET")
 	fakeServerWithGoalsEndpoint := httptest.NewServer(fakeGoalsEndpoint)
 	defer fakeServerWithGoalsEndpoint.Close()

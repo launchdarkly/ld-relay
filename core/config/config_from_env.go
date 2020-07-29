@@ -11,6 +11,14 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
+var (
+	errObsoleteVariable = errors.New("this variable is no longer supported")
+)
+
+func errObsoleteVariableWithReplacement(preferredName string) error {
+	return fmt.Errorf("this variable is no longer supported; use %s", preferredName)
+}
+
 // LoadConfigFromEnvironment sets parameters in a Config struct from environment variables.
 //
 // The Config parameter should be initialized with default values first.
@@ -111,10 +119,9 @@ func rejectObsoleteVariableName(oldName, preferredName string, reader *ct.VarRea
 	// silently omitting part of the configuration that they thought they had set.
 	if os.Getenv(oldName) != "" {
 		if preferredName == "" {
-			reader.AddError(ct.ValidationPath{oldName}, errors.New("this variable is no longer supported"))
+			reader.AddError(ct.ValidationPath{oldName}, errObsoleteVariable)
 		} else {
-			reader.AddError(ct.ValidationPath{oldName},
-				fmt.Errorf("this variable is no longer supported; use %s", preferredName))
+			reader.AddError(ct.ValidationPath{oldName}, errObsoleteVariableWithReplacement(preferredName))
 		}
 	}
 }

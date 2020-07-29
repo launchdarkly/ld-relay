@@ -7,43 +7,35 @@ import (
 )
 
 var (
-	publicConnView     *view.View
-	publicNewConnView  *view.View
-	requestView        *view.View
-	privateConnView    *view.View
-	privateNewConnView *view.View
-
-	registerPublicViewsOnce  sync.Once
-	registerPrivateViewsOnce sync.Once
-)
-
-func init() {
-	publicConnView = &view.View{
+	publicConnView *view.View = &view.View{ //nolint:gochecknoglobals
 		Measure:     connMeasure,
 		Aggregation: view.Sum(),
 		TagKeys:     publicTags,
 	}
-	publicNewConnView = &view.View{
+	publicNewConnView *view.View = &view.View{ //nolint:gochecknoglobals
 		Measure:     newConnMeasure,
 		Aggregation: view.Sum(),
 		TagKeys:     publicTags,
 	}
-	requestView = &view.View{
+	requestView *view.View = &view.View{ //nolint:gochecknoglobals
 		Measure:     requestMeasure,
 		Aggregation: view.Count(),
 		TagKeys:     append(publicTags, routeTagKey, methodTagKey),
 	}
-	privateConnView = &view.View{
+	privateConnView *view.View = &view.View{ //nolint:gochecknoglobals
 		Measure:     privateConnMeasure,
 		Aggregation: view.Sum(),
 		TagKeys:     privateTags,
 	}
-	privateNewConnView = &view.View{
+	privateNewConnView *view.View = &view.View{ //nolint:gochecknoglobals
 		Measure:     privateNewConnMeasure,
 		Aggregation: view.Sum(),
 		TagKeys:     privateTags,
 	}
-}
+
+	registerPublicViewsOnce  sync.Once //nolint:gochecknoglobals
+	registerPrivateViewsOnce sync.Once //nolint:gochecknoglobals
+)
 
 func getPublicViews() []*view.View {
 	return []*view.View{publicConnView, publicNewConnView, requestView}

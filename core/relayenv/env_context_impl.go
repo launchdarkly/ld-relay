@@ -24,6 +24,14 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
+func errInitPublisher(err error) error {
+	return fmt.Errorf("failed to initialize event publisher: %w", err)
+}
+
+func errInitMetrics(err error) error {
+	return fmt.Errorf("failed to initialize metrics for environment: %w", err)
+}
+
 type envContextImpl struct {
 	mu              sync.RWMutex
 	client          sdks.LDClientContext
@@ -148,11 +156,11 @@ func NewEnvContext(
 	if eventsURI == "" {
 		eventsURI = config.DefaultEventsURI
 	}
-	eventsPublisher, err := events.NewHttpEventPublisher(envConfig.SDKKey, envLoggers,
-		events.OptionUri(eventsURI),
+	eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, envLoggers,
+		events.OptionURI(eventsURI),
 		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
-		return nil, fmt.Errorf("unable to create publisher: %w", err)
+		return nil, errInitPublisher(err)
 	}
 	thingsToCleanUp.AddFunc(eventsPublisher.Close)
 
@@ -160,7 +168,7 @@ func NewEnvContext(
 	if metricsManager != nil {
 		em, err = metricsManager.AddEnvironment(envName, eventsPublisher)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create metrics processor: %w", err)
+			return nil, errInitMetrics(err)
 		}
 	}
 	envContext.metricsEnv = em

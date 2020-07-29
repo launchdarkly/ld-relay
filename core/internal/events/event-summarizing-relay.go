@@ -20,6 +20,14 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
 )
 
+var (
+	errEventsBeforeClientInitialized = errors.New("Relay is not ready to process events yet (data store not yet created)") //nolint:stylecheck
+)
+
+func errUnknownEventKind(kind string) error {
+	return fmt.Errorf("unexpected event kind: %s", kind)
+}
+
 type eventSummarizingRelay struct {
 	eventProcessor ldevents.EventProcessor
 	storeAdapter   *store.SSERelayDataStoreAdapter
@@ -61,7 +69,7 @@ type receivedIdentifyEvent struct {
 	User         receivedEventUser          `json:"user"`
 }
 
-func newEventSummarizingRelay(authKey c.SDKCredential, config c.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
+func newEventSummarizingRelay(config c.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
 	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
 	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
@@ -104,7 +112,6 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 			case ldevents.CustomEvent:
 				er.eventProcessor.RecordCustomEvent(e)
 			}
-
 		}
 	}
 	return true
@@ -173,7 +180,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				// if we receive events very early during startup. There's nothing we can do about this, and it's not
 				// terribly significant because if the SDK had sent the events a few milliseconds earlier, Relay
 				// would've been even less ready to receive them.
-				return nil, errors.New("Relay is not ready to process events yet (data store not yet created)")
+				return nil, errEventsBeforeClientInitialized
 			}
 			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
 			// to be set so we can't distinguish it from 2a and must look up the flag)
@@ -229,5 +236,5 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 			},
 		}, nil
 	}
-	return nil, fmt.Errorf("unexpected event kind: %s", kindFieldOnly.Kind)
+	return nil, errUnknownEventKind(kindFieldOnly.Kind)
 }
