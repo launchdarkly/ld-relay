@@ -61,22 +61,6 @@ func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential
 			assert.Fail(t, "timed out waiting for event")
 		}
 	})
-
-	// httpServer := httptest.NewServer(handler)
-	// defer httpServer.Close()
-
-	// resp, err := http.Get(httpServer.URL)
-	// require.NoError(t, err)
-	// defer resp.Body.Close()
-
-	// event := testEvent{event: "put", data: "data"}
-	// <-server.PublishWithAcknowledgment([]string{key}, event)
-	// server.Unregister(key, true)
-
-	// body, _ := ioutil.ReadAll(resp.Body)
-	// expected := bytes.NewBuffer(nil)
-	// eventsource.NewEncoder(expected, false).Encode(event)
-	// assert.Equal(t, expected.Bytes(), body)
 }
 
 func expectEvent(t *testing.T, eventCh <-chan eventsource.Event, expected eventsource.Event) {

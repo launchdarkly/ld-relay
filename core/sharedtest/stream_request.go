@@ -102,7 +102,7 @@ func WithStreamRequestLines(
 		handler.ServeHTTP(w, reqWithContext)
 		linesCh <- ""
 		assert.Equal(t, http.StatusOK, w.Code)
-		AssertStreamingHeaders(t, w.Header())
+		AssertStreamingContentType(t, w.Header())
 		wg.Done()
 	}()
 	r := bufio.NewReader(bodyReader)
