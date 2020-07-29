@@ -1,4 +1,4 @@
-package relay
+package middleware
 
 import (
 	"errors"
@@ -6,22 +6,66 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 )
 
+// Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
+// going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
+func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
+	req := sharedtest.BuildRequest(verb, "", body, headers)
+	req = mux.SetURLVars(req, vars)
+	req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: ctx}))
+	return req
+}
+
 func buildPreRoutedRequestWithAuth(key config.SDKCredential) *http.Request {
 	headers := make(http.Header)
 	headers.Set("Authorization", key.GetAuthorizationHeaderValue())
 	return buildPreRoutedRequest("GET", nil, headers, nil, nil)
+}
+
+type testEnvironments map[config.SDKCredential]relayenv.EnvContext
+
+func (t testEnvironments) GetEnvironment(c config.SDKCredential) relayenv.EnvContext {
+	return t[c]
+}
+
+func (t testEnvironments) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
+	ret := make(map[config.SDKKey]relayenv.EnvContext)
+	for k, v := range t {
+		if sk, ok := k.(config.SDKKey); ok {
+			ret[sk] = v
+		}
+	}
+	return ret
+}
+
+func nullHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+}
+
+func TestGetUserAgent(t *testing.T) {
+	t.Run("X-LaunchDarkly-User-Agent takes precedence", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header.Set(ldUserAgentHeader, "my-agent")
+		req.Header.Set(userAgentHeader, "something-else")
+		assert.Equal(t, "my-agent", getUserAgent(req))
+	})
+	t.Run("User-Agent is the fallback", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header.Set(userAgentHeader, "my-agent")
+		assert.Equal(t, "my-agent", getUserAgent(req))
+	})
 }
 
 func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
@@ -30,19 +74,19 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	handlerThatDetectsEnvironment := func(outCh chan<- relayenv.EnvContext) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			outCh <- core.GetEnvContextInfo(req.Context()).Env
+			outCh <- GetEnvContextInfo(req.Context()).Env
 		})
 	}
 
 	t.Run("finds by SDK key", func(t *testing.T) {
 		envs := testEnvironments{
-			testEnvMain.config.SDKKey:   env1,
-			testEnvMobile.config.SDKKey: env2,
+			st.EnvMain.Config.SDKKey:   env1,
+			st.EnvMobile.Config.SDKKey: env2,
 		}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
 
-		req := buildPreRoutedRequestWithAuth(testEnvMain.config.SDKKey)
+		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
 		resp, _ := st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -51,14 +95,14 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("finds by mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			testEnvMain.config.SDKKey:      env1,
-			testEnvMobile.config.SDKKey:    env2,
-			testEnvMobile.config.MobileKey: env2,
+			st.EnvMain.Config.SDKKey:      env1,
+			st.EnvMobile.Config.SDKKey:    env2,
+			st.EnvMobile.Config.MobileKey: env2,
 		}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
 
-		req := buildPreRoutedRequestWithAuth(testEnvMobile.config.MobileKey)
+		req := buildPreRoutedRequestWithAuth(st.EnvMobile.Config.MobileKey)
 		resp, _ := st.DoRequest(req, selector(handlerThatDetectsEnvironment(envCh)))
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -66,30 +110,30 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 
 	t.Run("rejects unknown SDK key", func(t *testing.T) {
-		envs := testEnvironments{testEnvMain.config.SDKKey: env1}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		envs := testEnvironments{st.EnvMain.Config.SDKKey: env1}
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
-		req1 := buildPreRoutedRequestWithAuth(undefinedSDKKey)
+		req1 := buildPreRoutedRequestWithAuth(st.UndefinedSDKKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
 	})
 
 	t.Run("rejects unknown mobile key", func(t *testing.T) {
-		envs := testEnvironments{testEnvMain.config.MobileKey: env1}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		envs := testEnvironments{st.EnvMain.Config.MobileKey: env1}
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 
-		req1 := buildPreRoutedRequestWithAuth(undefinedMobileKey)
+		req1 := buildPreRoutedRequestWithAuth(st.UndefinedMobileKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
 	})
 
 	t.Run("rejects malformed SDK key", func(t *testing.T) {
-		envs := testEnvironments{malformedSDKKey: testenv.NewTestEnvContext("server", false, nil)}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		envs := testEnvironments{st.MalformedSDKKey: testenv.NewTestEnvContext("server", false, nil)}
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
-		req1 := buildPreRoutedRequestWithAuth(malformedSDKKey)
+		req1 := buildPreRoutedRequestWithAuth(st.MalformedSDKKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
@@ -97,12 +141,12 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects malformed mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			malformedSDKKey:    testenv.NewTestEnvContext("server", false, nil),
-			malformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
+			st.MalformedSDKKey:    testenv.NewTestEnvContext("server", false, nil),
+			st.MalformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
 		}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 
-		req1 := buildPreRoutedRequestWithAuth(malformedMobileKey)
+		req1 := buildPreRoutedRequestWithAuth(st.MalformedMobileKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusUnauthorized, resp1.StatusCode)
@@ -110,10 +154,10 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("returns 503 if client has not been created", func(t *testing.T) {
 		notReadyEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(errors.New("sorry")), nil)
-		envs := testEnvironments{testEnvMain.config.SDKKey: notReadyEnv}
-		selector := selectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		envs := testEnvironments{st.EnvMain.Config.SDKKey: notReadyEnv}
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
-		req := buildPreRoutedRequestWithAuth(testEnvMain.config.SDKKey)
+		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
 		resp, _ := st.DoRequest(req, selector(nullHandler()))
 
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
@@ -123,7 +167,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
 	resp := httptest.NewRecorder()
-	corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
 		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
@@ -138,7 +182,7 @@ func TestCorsMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.
 	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
 	resp := httptest.NewRecorder()
 
-	corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
 	})).ServeHTTP(resp, req)
 }

@@ -100,10 +100,10 @@ func makeTestFeatureEventPayload(userKey string) []byte {
 }
 
 func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMain
-	sdkKey := env.config.SDKKey
+	env := st.EnvMain
+	sdkKey := env.Config.SDKKey
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 	body := makeTestFeatureEventPayload("me")
 
 	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
@@ -123,7 +123,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 
 		t.Run("unknown SDK key", func(t *testing.T) {
 			header := make(http.Header)
-			header.Set("Authorization", string(undefinedSDKKey))
+			header.Set("Authorization", string(st.UndefinedSDKKey))
 			header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			r := st.BuildRequest("POST", "http://localhost/bulk", body, header)
 			result, _ := st.DoRequest(r, p.Handler)
@@ -149,10 +149,10 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 }
 
 func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMobile
-	mobileKey := env.config.MobileKey
+	env := st.EnvMobile
+	mobileKey := env.Config.MobileKey
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
 		bulkEndpoints := []string{"/mobile/events", "/mobile/events/bulk"}
@@ -176,7 +176,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 
 			t.Run("unknown SDK key", func(t *testing.T) {
 				header := make(http.Header)
-				header.Set("Authorization", string(undefinedSDKKey))
+				header.Set("Authorization", string(st.UndefinedSDKKey))
 				header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 				r := st.BuildRequest("POST", url, body, header)
 				result, _ := st.DoRequest(r, p.Handler)
@@ -202,18 +202,18 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 }
 
 func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvClientSide
-	envID := env.config.EnvID
+	env := st.EnvClientSide
+	envID := env.Config.EnvID
 	eventData := makeTestFeatureEventPayload("me")
 
 	specs := []endpointTestParams{
 		{"post events", "POST", "/events/bulk/$ENV", eventData, envID, http.StatusAccepted, nil},
 		{"get events image", "GET", "/a/$ENV.gif?d=$DATA", eventData, envID, http.StatusOK,
-			expectBody(string(transparent1PixelImg))},
+			st.ExpectBody(string(transparent1PixelImg))},
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
 		for _, s := range specs {
@@ -226,8 +226,8 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					result, body := st.DoRequest(r, p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
-						assertNonStreamingHeaders(t, result.Header)
-						assertExpectedCORSHeaders(t, result, s.method, "*")
+						st.AssertNonStreamingHeaders(t, result.Header)
+						st.AssertExpectedCORSHeaders(t, result, s.method, "*")
 
 						if s.bodyMatcher != nil {
 							s.bodyMatcher(t, body)
@@ -241,7 +241,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("unknown environment ID", func(t *testing.T) {
 					s1 := s
-					s1.credential = undefinedEnvID
+					s1.credential = st.UndefinedEnvID
 					r := s1.request()
 					if s1.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
@@ -252,7 +252,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 				})
 
 				t.Run("options", func(t *testing.T) {
-					assertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
+					st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
 				})
 			})
 		}

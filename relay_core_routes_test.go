@@ -18,7 +18,7 @@ func TestRequestLogging(t *testing.T) {
 
 	t.Run("requests are not logged by default", func(t *testing.T) {
 		config := c.Config{
-			Environment: makeEnvConfigs(testEnvMain),
+			Environment: st.MakeEnvConfigs(st.EnvMain),
 		}
 		mockLog := ldlogtest.NewMockLog()
 		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true))
@@ -35,7 +35,7 @@ func TestRequestLogging(t *testing.T) {
 	t.Run("requests are logged when debug logging is enabled", func(t *testing.T) {
 		config := c.Config{
 			Main:        c.MainConfig{LogLevel: c.NewOptLogLevel(ldlog.Debug)},
-			Environment: makeEnvConfigs(testEnvMain),
+			Environment: st.MakeEnvConfigs(st.EnvMain),
 		}
 		mockLog := ldlogtest.NewMockLog()
 		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true))

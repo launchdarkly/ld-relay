@@ -12,24 +12,24 @@ import (
 )
 
 func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
-	sdkKeyMain := testEnvMain.config.SDKKey
-	sdkKeyWithTTL := testEnvWithTTL.config.SDKKey
+	sdkKeyMain := st.EnvMain.Config.SDKKey
+	sdkKeyWithTTL := st.EnvWithTTL.Config.SDKKey
 
 	specs := []endpointTestParams{
 		{"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", st.Flag1ServerSide.Flag.Key), nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(st.Flag1ServerSide.Flag)},
+			http.StatusOK, st.ExpectJSONEntity(st.Flag1ServerSide.Flag)},
 		{"get unknown flag", "GET", "/sdk/flags/no-such-flag", nil, sdkKeyMain,
 			http.StatusNotFound, nil},
 		{"get all flags", "GET", "/sdk/flags", nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(flagsMap(st.AllFlags))},
+			http.StatusOK, st.ExpectJSONEntity(st.FlagsMap(st.AllFlags))},
 		{"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", st.Segment1.Key), nil, sdkKeyMain,
-			http.StatusOK, expectJSONEntity(st.Segment1)},
+			http.StatusOK, st.ExpectJSONEntity(st.Segment1)},
 		{"get unknown segment", "GET", "/sdk/segments/no-such-segment", nil, sdkKeyMain,
 			http.StatusNotFound, nil},
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(testEnvMain, testEnvWithTTL)
+	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvWithTTL)
 
 	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
@@ -41,7 +41,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 						result, body := st.DoRequest(s.request(), p.Handler)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
-							assertNonStreamingHeaders(t, result.Header)
+							st.AssertNonStreamingHeaders(t, result.Header)
 							if s.bodyMatcher != nil {
 								s.bodyMatcher(t, body)
 							}

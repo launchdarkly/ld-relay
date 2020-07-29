@@ -15,8 +15,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
@@ -30,11 +30,6 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
-)
-
-const (
-	userAgentHeader   = "user-agent"
-	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 )
 
 type evalXResult struct {
@@ -66,7 +61,7 @@ func getClientSideUserProperties(
 		userDecodeErr = json.Unmarshal(body, &user)
 	} else {
 		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = UserV2FromBase64(base64User)
+		user, userDecodeErr = middleware.UserV2FromBase64(base64User)
 	}
 	if userDecodeErr != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -97,7 +92,7 @@ func getClientSideUserProperties(
 // or clientstream.ld.com/ping/{envId} (JS)
 func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := core.GetEnvContextInfo(req.Context())
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
@@ -107,7 +102,7 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 // implemented the same as the ping stream once we have validated the user.
 func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := core.GetEnvContextInfo(req.Context())
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
 		if _, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w); ok {
@@ -120,7 +115,7 @@ func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamP
 // abstracted in StreamProvider and EnvStreams
 func streamHandler(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := core.GetEnvContextInfo(req.Context())
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug(logMessage)
 		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
@@ -128,7 +123,7 @@ func streamHandler(streamProvider streams.StreamProvider, logMessage string) htt
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
-	clientCtx := core.GetEnvContextInfo(req.Context())
+	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
@@ -148,12 +143,12 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(core.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Features())(w, req)
+	pollFlagOrSegment(middleware.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Features())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(core.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Segments())(w, req)
+	pollFlagOrSegment(middleware.GetEnvContextInfo(req.Context()).Env, ldstoreimpl.Segments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -165,7 +160,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/events/diagnostic/{envId} (JS)
 func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := core.GetEnvContextInfo(req.Context())
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		dispatcher := clientCtx.Env.GetEventDispatcher()
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -208,7 +203,7 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdks.Kind) func(w http.ResponseWri
 }
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdks.Kind) {
-	clientCtx := core.GetEnvContextInfo(req.Context())
+	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	loggers := clientCtx.Env.GetLoggers()
@@ -335,14 +330,6 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(bytes)
 	}
-}
-
-// getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
-func getUserAgent(req *http.Request) string {
-	if agent := req.Header.Get(ldUserAgentHeader); agent != "" {
-		return agent
-	}
-	return req.Header.Get(userAgentHeader)
 }
 
 var hexdigit = regexp.MustCompile(`[a-fA-F\d]`)

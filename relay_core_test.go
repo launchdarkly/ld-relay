@@ -10,6 +10,7 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -34,38 +35,38 @@ func TestNewRelayCoreRejectsConfigWithNoEnvironments(t *testing.T) {
 
 func TestRelayCoreGetEnvironment(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain, testEnvMobile, testEnvClientSide),
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
 	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
-	if assert.NotNil(t, core.GetEnvironment(testEnvMain.config.SDKKey)) {
-		assert.Equal(t, testEnvMain.name, core.GetEnvironment(testEnvMain.config.SDKKey).GetName())
+	if assert.NotNil(t, core.GetEnvironment(st.EnvMain.Config.SDKKey)) {
+		assert.Equal(t, st.EnvMain.Name, core.GetEnvironment(st.EnvMain.Config.SDKKey).GetName())
 	}
-	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
-		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.SDKKey).GetName())
+	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
+		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetName())
 	}
-	if assert.NotNil(t, core.GetEnvironment(testEnvClientSide.config.SDKKey)) {
-		assert.Equal(t, testEnvClientSide.name, core.GetEnvironment(testEnvClientSide.config.SDKKey).GetName())
-	}
-
-	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.MobileKey)) {
-		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.MobileKey).GetName())
+	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.SDKKey)) {
+		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.SDKKey).GetName())
 	}
 
-	if assert.NotNil(t, core.GetEnvironment(testEnvClientSide.config.EnvID)) {
-		assert.Equal(t, testEnvClientSide.name, core.GetEnvironment(testEnvClientSide.config.EnvID).GetName())
+	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.MobileKey)) {
+		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.MobileKey).GetName())
 	}
 
-	assert.Nil(t, core.GetEnvironment(undefinedSDKKey))
+	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.EnvID)) {
+		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.EnvID).GetName())
+	}
 
-	assert.Nil(t, core.GetEnvironment(unsupportedSDKCredential{}))
+	assert.Nil(t, core.GetEnvironment(st.UndefinedSDKKey))
+
+	assert.Nil(t, core.GetEnvironment(st.UnsupportedSDKCredential{}))
 }
 
 func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain, testEnvMobile, testEnvClientSide),
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
 	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
@@ -73,38 +74,38 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 
 	envs := core.GetAllEnvironments()
 	assert.Len(t, envs, 3)
-	if assert.NotNil(t, envs[testEnvMain.config.SDKKey]) {
-		assert.Equal(t, testEnvMain.name, envs[testEnvMain.config.SDKKey].GetName())
+	if assert.NotNil(t, envs[st.EnvMain.Config.SDKKey]) {
+		assert.Equal(t, st.EnvMain.Name, envs[st.EnvMain.Config.SDKKey].GetName())
 	}
-	if assert.NotNil(t, envs[testEnvMobile.config.SDKKey]) {
-		assert.Equal(t, testEnvMobile.name, envs[testEnvMobile.config.SDKKey].GetName())
+	if assert.NotNil(t, envs[st.EnvMobile.Config.SDKKey]) {
+		assert.Equal(t, st.EnvMobile.Name, envs[st.EnvMobile.Config.SDKKey].GetName())
 	}
-	if assert.NotNil(t, envs[testEnvClientSide.config.SDKKey]) {
-		assert.Equal(t, testEnvClientSide.name, envs[testEnvClientSide.config.SDKKey].GetName())
+	if assert.NotNil(t, envs[st.EnvClientSide.Config.SDKKey]) {
+		assert.Equal(t, st.EnvClientSide.Name, envs[st.EnvClientSide.Config.SDKKey].GetName())
 	}
 }
 
 func TestRelayCoreAddEnvironment(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain),
+		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
 	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
-	env, resultCh, err := core.AddEnvironment(testEnvMobile.name, testEnvMobile.config)
+	env, resultCh, err := core.AddEnvironment(st.EnvMobile.Name, st.EnvMobile.Config)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 	require.NotNil(t, resultCh)
-	assert.Equal(t, testEnvMobile.name, env.GetName())
+	assert.Equal(t, st.EnvMobile.Name, env.GetName())
 
-	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
-		assert.Equal(t, env, core.GetEnvironment(testEnvMobile.config.SDKKey))
+	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
+		assert.Equal(t, env, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
 	}
 
 	select {
 	case env := <-resultCh:
-		assert.Equal(t, core.GetEnvironment(testEnvMobile.config.SDKKey), env)
+		assert.Equal(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey), env)
 	case <-time.After(time.Second):
 		assert.Fail(t, "timed out waiting for new environment to initialize")
 	}
@@ -112,36 +113,36 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 
 func TestRelayCoreRemoveEnvironment(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain, testEnvMobile),
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
 	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
-	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
-		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.SDKKey).GetName())
+	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
+		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetName())
 	}
 
-	removed := core.RemoveEnvironment(testEnvMobile.config.SDKKey)
+	removed := core.RemoveEnvironment(st.EnvMobile.Config.SDKKey)
 	assert.True(t, removed)
 
-	assert.Nil(t, core.GetEnvironment(testEnvMobile.config.SDKKey))
+	assert.Nil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
 }
 
 func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain),
+		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
 	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
 	require.NoError(t, err)
 	defer core.Close()
 
-	assert.False(t, core.RemoveEnvironment(testEnvMobile.config.SDKKey))
+	assert.False(t, core.RemoveEnvironment(st.EnvMobile.Config.SDKKey))
 }
 
 func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	config := c.Config{
-		Environment: makeEnvConfigs(testEnvMain, testEnvMobile),
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
 
 	t.Run("returns nil if all environments initialize successfully", func(t *testing.T) {
@@ -155,7 +156,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 
 	t.Run("returns error if any environment does not initialize successfully", func(t *testing.T) {
 		oneEnvFails := func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-			shouldFail := sdkKey == testEnvMobile.config.SDKKey
+			shouldFail := sdkKey == st.EnvMobile.Config.SDKKey
 			if shouldFail {
 				return testclient.ClientFactoryThatFails(errors.New("sorry"))(sdkKey, config)
 			}
