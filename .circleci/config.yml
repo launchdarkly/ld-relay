@@ -114,6 +114,9 @@ jobs:
                 name: Generate coverage report
                 command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
       - run:
+          name: Run TLS version test
+          command: ./scripts/test-tls.sh
+      - run:
           name: Run Prometheus endpoint test
           command: ./scripts/test-prometheus-endpoint.sh
       - store_test_results:
