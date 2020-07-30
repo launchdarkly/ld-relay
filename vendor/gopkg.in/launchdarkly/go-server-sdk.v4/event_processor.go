@@ -69,6 +69,7 @@ type sendEventsTask struct {
 	sdkKey        string
 	config        Config
 	formatter     eventOutputFormatter
+	disableSend   bool // for benchmarking
 }
 
 // Payload of the inboxCh channel.
@@ -113,11 +114,15 @@ func (n *nullEventProcessor) Close() error {
 // This is normally only used internally; it is public because the Go SDK code is reused by other LaunchDarkly
 // components.
 func NewDefaultEventProcessor(sdkKey string, config Config, client *http.Client) EventProcessor {
+	return newDefaultEventProcessorInternal(sdkKey, config, client, false)
+}
+
+func newDefaultEventProcessorInternal(sdkKey string, config Config, client *http.Client, disableSend bool) EventProcessor {
 	if client == nil {
 		client = config.newHTTPClient()
 	}
 	inboxCh := make(chan eventDispatcherMessage, config.Capacity)
-	startEventDispatcher(sdkKey, config, client, inboxCh)
+	startEventDispatcher(sdkKey, config, client, inboxCh, disableSend)
 	if config.SamplingInterval > 0 {
 		config.Loggers.Warn("Config.SamplingInterval is deprecated")
 	}
@@ -169,6 +174,7 @@ func startEventDispatcher(
 	config Config,
 	client *http.Client,
 	inboxCh <-chan eventDispatcherMessage,
+	disableSend bool,
 ) {
 	ed := &eventDispatcher{
 		sdkKey: sdkKey,
@@ -181,7 +187,7 @@ func startEventDispatcher(
 	var workersGroup sync.WaitGroup
 	for i := 0; i < maxFlushWorkers; i++ {
 		startFlushTask(sdkKey, config, client, flushCh, &workersGroup,
-			func(r *http.Response) { ed.handleResponse(r) })
+			func(r *http.Response) { ed.handleResponse(r) }, disableSend)
 	}
 	if config.diagnosticsManager != nil {
 		event := config.diagnosticsManager.CreateInitEvent()
@@ -457,7 +463,7 @@ func (b *eventBuffer) clear() {
 }
 
 func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <-chan *flushPayload,
-	workersGroup *sync.WaitGroup, responseFn func(*http.Response)) {
+	workersGroup *sync.WaitGroup, responseFn func(*http.Response), disableSend bool) {
 	ef := eventOutputFormatter{
 		userFilter:  newUserFilter(config),
 		inlineUsers: config.InlineUsersInEvents,
@@ -474,6 +480,7 @@ func startFlushTask(sdkKey string, config Config, client *http.Client, flushCh <
 		sdkKey:        sdkKey,
 		config:        config,
 		formatter:     ef,
+		disableSend:   disableSend,
 	}
 	go t.run(flushCh, responseFn, workersGroup)
 }
@@ -507,6 +514,11 @@ func (t *sendEventsTask) postEvents(uri string, outputData interface{}, descript
 		t.config.Loggers.Errorf("Unexpected error marshalling event json: %+v", marshalErr)
 		return nil
 	}
+
+	if t.disableSend {
+		return nil
+	}
+
 	payloadUUID, _ := uuid.NewRandom()
 	payloadID := payloadUUID.String() // if NewRandom somehow failed, we'll just proceed with an empty string
 

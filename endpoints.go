@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/util"
@@ -194,8 +195,16 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.(*ld.FeatureFlag); ok {
-			if sdkKind == jsClientSdk && !flag.ClientSide {
-				continue
+			switch sdkKind {
+			case mobileSdk:
+				if flag.ClientSideAvailability != nil && !flag.ClientSideAvailability.UsingMobileKey {
+					continue
+				}
+			case jsClientSdk:
+				if (flag.ClientSideAvailability == nil && !flag.ClientSide) ||
+					(flag.ClientSideAvailability != nil && !flag.ClientSideAvailability.UsingEnvironmentID) {
+					continue
+				}
 			}
 			detail, _ := flag.EvaluateDetail(*user, store, false)
 			var result interface{}

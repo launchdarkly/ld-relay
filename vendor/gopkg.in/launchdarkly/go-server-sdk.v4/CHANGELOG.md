@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Go SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [4.17.3] - 2020-07-29
+### Added:
+- The SDK now recognizes a `clientSideAvailability` property which may be sent by LaunchDarkly services as an alternate way of indicating whether a flag is enabled for use by client-side JavaScript SDKs. This change does not introduce any new SDK functionality.
+
 ## [4.17.2] - 2020-05-13
 ### Fixed:
 - Updated the version of [`go-yaml`](https://github.com/go-yaml/yaml) that is optionally used by the file data source feature, to version 2.3.0, due to a [vulnerability warning](https://vuln.whitesourcesoftware.com/vulnerability/CVE-2019-11254/) on version 2.2.1. Note that this is just the dependency version used when building the SDK; an application that uses the SDK may get different versions of its transitive dependencies depending on the package management system being used. The vulnerability would not affect normal usage of the SDK without the file data source, or with YAML files in the SDK&#39;s correct documented format.

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	ld "gopkg.in/launchdarkly/go-server-sdk.v4"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 )
@@ -44,8 +45,14 @@ var flag2ServerSide = testFlag{
 	expectedVariation: 0,
 	expectedReason:    map[string]interface{}{"kind": "FALLTHROUGH"},
 }
-var flag3ServerSide = testFlag{
-	flag:           ld.FeatureFlag{Key: "off-variation-key", Version: 3},
+var flag3ServerSideNotMobile = testFlag{
+	flag: ld.FeatureFlag{
+		Key:     "off-variation-key",
+		Version: 3,
+		ClientSideAvailability: &ld.ClientSideAvailability{
+			UsingMobileKey: false,
+		},
+	},
 	expectedValue:  nil,
 	expectedReason: map[string]interface{}{"kind": "OFF"},
 }
@@ -69,7 +76,7 @@ var flag5ClientSide = testFlag{
 	expectedReason: map[string]interface{}{"kind": "FALLTHROUGH"},
 	isExperiment:   true,
 }
-var flag6ClientSide = testFlag{
+var flag6ClientSideNotMobile = testFlag{
 	flag: ld.FeatureFlag{
 		Key:         "rule-match-experiment-flag-key",
 		On:          true,
@@ -91,15 +98,34 @@ var flag6ClientSide = testFlag{
 		},
 		Variations: []interface{}{4},
 		Version:    1,
-		ClientSide: true,
+		ClientSideAvailability: &ld.ClientSideAvailability{
+			UsingEnvironmentID: true,
+			UsingMobileKey:     false,
+		},
 	},
 	expectedValue:  4,
 	expectedReason: map[string]interface{}{"kind": "RULE_MATCH", "ruleIndex": 0, "ruleId": "rule-id"},
 	isExperiment:   true,
 }
-var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide,
-	flag5ClientSide, flag6ClientSide}
-var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSide}
+var flag7Mobile = testFlag{
+	flag: ld.FeatureFlag{
+		Key:          "mobile-flag-key",
+		OffVariation: &zero,
+		Variations:   []interface{}{5},
+		Version:      2,
+		ClientSideAvailability: &ld.ClientSideAvailability{
+			UsingMobileKey: true,
+		},
+	},
+	expectedValue:     5,
+	expectedVariation: 0,
+	expectedReason:    map[string]interface{}{"kind": "OFF"},
+}
+
+var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSideNotMobile, flag4ClientSide,
+	flag5ClientSide, flag6ClientSideNotMobile, flag7Mobile}
+var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSideNotMobile}
+var mobileFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag4ClientSide, flag5ClientSide, flag7Mobile}
 
 var segment1 = ld.Segment{Key: "segment-key"}
 
