@@ -5,7 +5,7 @@ set -eu
 # Verifies that Relay can enforce a minimum TLS version in secure mode.
 
 TEMP_DIR=$(mktemp -d -t ld-relay-XXXXXXXXX)
-trap "rm -rf $TEMP_DIR" EXIT
+trap "rm -rf ${TEMP_DIR}" EXIT
 
 CA_KEY_FILE=${TEMP_DIR}/ca.key
 CA_CERT_FILE=${TEMP_DIR}/ca.crt
@@ -30,12 +30,20 @@ STATUS_ENDPOINT=https://localhost:${RELAY_PORT}/status
 
 go build ./cmd/ld-relay
 
+# On some of the hosts used in our CI build, the global OpenSSL configuration specifies a minimum TLS version.
+# That'll interfere with our tests so we need to override that.
+if [ -f "/usr/lib/ssl/openssl.cnf" ]; then
+  TEMP_CONF=${TEMP_DIR}/openssl.cnf
+  sed </usr/lib/ssl/openssl.cnf >${TEMP_CONF} -e 's/^MinProtocol.*//' -e 's/^CipherString.*//'
+  export OPENSSL_CONF=${TEMP_CONF}
+fi
+
 echo
 echo "starting Relay with TLS_MIN_VERSION=1.2"
 echo
 
 RELAY_PID=$($(dirname $0)/start-relay.sh ${TEMP_DIR}/relay1.out ${RELAY_BASE_VARS} TLS_MIN_VERSION=1.2)
-trap "kill ${RELAY_PID}" EXIT
+trap "rm -rf ${TEMP_DIR} && kill ${RELAY_PID}" EXIT
 
 # Note, for unknown reasons these curl tests do not work reliably with HTTP2, hence --http1.1
 
@@ -54,7 +62,7 @@ echo
 echo "starting Relay with TLS_MIN_VERSION not set"
 echo
 RELAY_PID=$($(dirname $0)/start-relay.sh ${TEMP_DIR}/relay2.out ${RELAY_BASE_VARS})
-trap "kill ${RELAY_PID}" EXIT
+trap "rm -rf ${TEMP_DIR} && kill ${RELAY_PID}" EXIT
 
 echo
 echo "verifying that a TLS 1.2 request succeeds"
@@ -62,7 +70,7 @@ curl -s --insecure --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.2 req
 echo "...correct"
 
 echo "verifying that a TLS 1.1 request succeeds"
-curl -s --insecure --tls-max 1.1 --tlsv1.1 --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
+curl -s --insecure --tls-max 1.1 --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
 echo "...correct"
 
 echo

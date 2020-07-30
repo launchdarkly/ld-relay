@@ -11,19 +11,23 @@ workflows:
     jobs:
       - go-test:
           name: Go 1.14
-          docker-image: circleci/golang:1.14
+          docker-image: cimg/go:1.14
           run-lint: true
           test-coverage: true
+          test-tls: true
       - go-test:
           name: Go 1.13
-          docker-image: circleci/golang:1.13
+          docker-image: cimg/go:1.13
           run-lint: true
+          test-tls: true
       - go-test:
           name: Go 1.12
-          docker-image: circleci/golang:1.12
+          docker-image: cimg/go:1.12
+          test-tls: true
       - go-test:
           name: Go 1.11
-          docker-image: circleci/golang:1.11
+          docker-image: cimg/go:1.11
+          test-tls: true
       - go-test:
           name: Go 1.10
           docker-image: circleci/golang:1.10
@@ -54,7 +58,10 @@ jobs:
       test-coverage:
         type: boolean
         default: false
-  
+      test-tls:
+        type: boolean
+        default: false  # older CircleCI images don't support using a recent enough curl version
+    
     docker:
       - image: <<parameters.docker-image>>
         environment: &environment
@@ -113,9 +120,12 @@ jobs:
             - run:
                 name: Generate coverage report
                 command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
-      - run:
-          name: Run TLS version test
-          command: ./scripts/test-tls.sh
+      - when:
+          condition: <<parameters.test-tls>>
+          steps:
+            - run:
+                name: Run TLS version test
+                command: ./scripts/test-tls.sh
       - run:
           name: Run Prometheus endpoint test
           command: ./scripts/test-prometheus-endpoint.sh
