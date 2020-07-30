@@ -1,8 +1,6 @@
-// +build go1.12
+// +build !go1.12
 
 package internal
-
-// TLS 1.3 is supported in Go 1.12 and above
 
 import "crypto/tls"
 
@@ -14,8 +12,6 @@ func ParseTLSVersion(name string) (uint16, bool) {
 		return tls.VersionTLS11, true
 	case "1.2":
 		return tls.VersionTLS12, true
-	case "1.3":
-		return tls.VersionTLS13, true
 	default:
 		return 0, false
 	}
