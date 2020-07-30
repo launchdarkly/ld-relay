@@ -28,6 +28,8 @@ RELAY_BASE_VARS="\
 "
 STATUS_ENDPOINT=https://localhost:${RELAY_PORT}/status
 
+go build ./cmd/ld-relay
+
 echo
 echo "starting Relay with TLS_MIN_VERSION=1.2"
 echo
