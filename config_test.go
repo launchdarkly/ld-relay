@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 )
@@ -115,7 +116,7 @@ func TestConfigFromEnvironmentWithInvalidInt(t *testing.T) {
 	)
 }
 
-func TestConfigFromEnvironmentRequiresCertAndKeyForTLS(t *testing.T) {
+func TestConfigFromEnvironmentTLSValidation(t *testing.T) {
 	testInvalidConfigVars(t,
 		map[string]string{"TLS_ENABLED": "1"},
 		"TLS cert and key are required if TLS is enabled",
@@ -127,6 +128,10 @@ func TestConfigFromEnvironmentRequiresCertAndKeyForTLS(t *testing.T) {
 	testInvalidConfigVars(t,
 		map[string]string{"TLS_ENABLED": "1", "TLS_KEY": "key"},
 		"TLS cert and key are required if TLS is enabled",
+	)
+	testInvalidConfigVars(t,
+		map[string]string{"TLS_ENABLED": "1", "TLS_CERT": "cert", "TLS_KEY": "key", "TLS_MIN_VERSION": "1"},
+		"invalid minimum TLS version",
 	)
 }
 

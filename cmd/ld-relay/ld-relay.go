@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	_ "github.com/kardianos/minwinsvc"
 
 	relay "gopkg.in/launchdarkly/ld-relay.v5"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/version"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
 )
@@ -100,11 +102,25 @@ func startHTTPServer(c *relay.Config, r *relay.Relay, errs chan<- error) {
 		Handler: r,
 	}
 
+	if c.Main.TLSEnabled {
+		if c.Main.TLSMinVersion != "" {
+			if min, ok := internal.ParseTLSVersion(c.Main.TLSMinVersion); ok {
+				srv.TLSConfig = &tls.Config{
+					MinVersion: min,
+				}
+			}
+		}
+	}
+
 	go func() {
 		var err error
 		logging.GlobalLoggers.Infof("Starting server listening on port %d\n", c.Main.Port)
 		if c.Main.TLSEnabled {
-			logging.GlobalLoggers.Infof("TLS Enabled for server")
+			message := "TLS enabled for server"
+			if c.Main.TLSMinVersion != "" {
+				message += fmt.Sprintf(" (minimum TLS version: %s)", c.Main.TLSMinVersion)
+			}
+			logging.GlobalLoggers.Info(message)
 			err = srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
 		} else {
 			err = srv.ListenAndServe()
