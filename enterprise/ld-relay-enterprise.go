@@ -1,4 +1,4 @@
-package main
+package enterprise
 
 import (
 	"os"
@@ -8,12 +8,13 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/application"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entrelay"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
-	"github.com/launchdarkly/ld-relay/v6/relay"
 )
 
 func main() {
-	var c config.Config
+	var c entconfig.EnterpriseConfig
 	loggers := logging.MakeDefaultLoggers()
 
 	opts, err := application.ReadOptions(os.Args, os.Stderr)
@@ -23,25 +24,25 @@ func main() {
 	}
 
 	loggers.Infof(
-		"Starting LaunchDarkly relay version %s with %s\n",
+		"Starting LaunchDarkly Relay Proxy Enterprise version %s with %s\n",
 		application.DescribeRelayVersion(version.Version),
 		opts.DescribeConfigSource(),
 	)
 
 	if opts.ConfigFile != "" {
-		if err := config.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
+		if err := entconfig.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
 			loggers.Errorf("Error loading config file: %s", err)
 			os.Exit(1)
 		}
 	}
 	if opts.UseEnvironment {
-		if err := config.LoadConfigFromEnvironment(&c, loggers); err != nil {
+		if err := entconfig.LoadConfigFromEnvironment(&c, loggers); err != nil {
 			loggers.Errorf("Configuration error: %s", err)
 			os.Exit(1)
 		}
 	}
 
-	r, err := relay.NewRelay(c, loggers, nil)
+	r, err := entrelay.NewRelayEnterprise(c, loggers, nil)
 	if err != nil {
 		loggers.Errorf("Unable to create relay: %s", err)
 		os.Exit(1)
@@ -55,7 +56,7 @@ func main() {
 
 	errs := application.StartHTTPServer(
 		port,
-		r,
+		r.GetHandler(),
 		c.Main.TLSEnabled,
 		c.Main.TLSCert,
 		c.Main.TLSKey,
@@ -63,7 +64,7 @@ func main() {
 	)
 
 	for err := range errs {
-		loggers.Errorf("Error starting http listener on port: %d  %s", port, err)
+		loggers.Errorf("Error starting HTTP listener on port: %d  %s", port, err)
 		os.Exit(1)
 	}
 }
