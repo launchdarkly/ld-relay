@@ -358,9 +358,12 @@ func TestRelay(t *testing.T) {
 	expectedJSEvalBody := expectJSONBody(makeEvalBody(clientSideFlags, false, false))
 	expectedJSEvalxBody := expectJSONBody(makeEvalBody(clientSideFlags, true, false))
 	expectedJSEvalxBodyWithReasons := expectJSONBody(makeEvalBody(clientSideFlags, true, true))
-	expectedMobileEvalBody := expectJSONBody(makeEvalBody(allFlags, false, false))
-	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(allFlags, true, false))
-	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(allFlags, true, true))
+	expectedMobileEvalBody := expectJSONBody(makeEvalBody(mobileFlags, false, false))
+	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(mobileFlags, true, false))
+	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(mobileFlags, true, true))
+	expectedServerEvalBody := expectJSONBody(makeEvalBody(allFlags, false, false))
+	expectedServerEvalxBody := expectJSONBody(makeEvalBody(allFlags, true, false))
+	expectedServerEvalxBodyWithReasons := expectJSONBody(makeEvalBody(allFlags, true, true))
 	expectedFlagsData, _ := json.Marshal(flagsMap(allFlags))
 	expectedAllData, _ := json.Marshal(map[string]map[string]interface{}{
 		"data": {
@@ -422,9 +425,9 @@ func TestRelay(t *testing.T) {
 			expectedStatus int
 			bodyMatcher    bodyMatcher
 		}{
-			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedMobileEvalBody},
-			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedMobileEvalxBody},
-			{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey, user, http.StatusOK, expectedMobileEvalxBodyWithReasons},
+			{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey, user, http.StatusOK, expectedServerEvalBody},
+			{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey, user, http.StatusOK, expectedServerEvalxBody},
+			{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey, user, http.StatusOK, expectedServerEvalxBodyWithReasons},
 			{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey, user, http.StatusOK, expectedMobileEvalBody},
 			{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey, user, http.StatusOK, expectedMobileEvalxBody},
 			{"mobile report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey, user, http.StatusOK, expectedMobileEvalxBodyWithReasons},

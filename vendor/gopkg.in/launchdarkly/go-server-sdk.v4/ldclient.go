@@ -21,7 +21,7 @@ import (
 )
 
 // Version is the client version.
-const Version = "4.17.2"
+const Version = "4.17.3"
 
 // LDClient is the LaunchDarkly client. Client instances are thread-safe.
 // Applications should instantiate a single instance for the lifetime
@@ -375,7 +375,11 @@ func (client *LDClient) AllFlagsState(user User, options ...FlagsStateOption) Fe
 	detailsOnlyIfTracked := hasFlagsStateOption(options, DetailsOnlyForTrackedFlags)
 	for _, item := range items {
 		if flag, ok := item.(*FeatureFlag); ok {
-			if clientSideOnly && !flag.ClientSide {
+			clientSideFlag := flag.ClientSide
+			if flag.ClientSideAvailability != nil {
+				clientSideFlag = flag.ClientSideAvailability.UsingEnvironmentID
+			}
+			if clientSideOnly && !clientSideFlag {
 				continue
 			}
 			result, _ := flag.EvaluateDetail(user, client.store, false)
