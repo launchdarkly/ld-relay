@@ -32,9 +32,10 @@ fi
 
 export $@
 export STREAM_URI=http://localhost:${FAKE_LD_PORT}
-./ld-relay --from-env >${OUT_FILE} 2>&1 &
+touch ${OUT_FILE}
+./ld-relay --from-env >>${OUT_FILE} 2>&1 &
 PID=$!
 
-tail -f $OUT_FILE | sed '/Successfully initialized/ q' 1>&2
+( tail -f -n +1 $OUT_FILE & ) | sed '/Successfully initialized/ q' 1>&2
 
 echo $PID
