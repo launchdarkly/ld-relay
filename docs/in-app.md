@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy - Building Within an Application
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
 If you need to customize the Relay Proxy's behavior and runtime environment in ways that the usual configuration settings don't support, you can incorporate the Relay Proxy code into your own application and let it provide service endpoints on a server that you configure.
 

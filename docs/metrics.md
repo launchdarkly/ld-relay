@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy - Metrics Integrations
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
 The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. See [Configuration](./docs/configuration.md) for the available settings for each of these.
 

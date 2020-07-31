@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy - Configuration
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
 Configuration options may be passed in a file, or in environment variables, or both. The command-line arguments for these work as follows:
 

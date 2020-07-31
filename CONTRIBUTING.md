@@ -8,7 +8,7 @@ The LaunchDarkly SDK team monitors the [issue tracker](https://github.com/launch
  
 ## Submitting pull requests
  
-We encourage pull requests and other contributions from the community. Before submitting pull requests, ensure that all temporary or unintended code is removed. Don't worry about adding reviewers to the pull request; the LaunchDarkly SDK team will add themselves. The SDK team will acknowledge all pull requests within two business days.
+We encourage pull requests and other contributions from the community. Before you submit a pull request, verify that you've removed that all temporary or unintended code. Don't worry about adding reviewers to the pull request; the LaunchDarkly SDK team will add themselves. The SDK team will acknowledge all pull requests within two business days.
  
 ## Build instructions
  

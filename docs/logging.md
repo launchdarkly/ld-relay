@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy - Logging
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
 Like the Go SDK, the Relay Proxy supports four logging levels: Debug, Info, Warn, and Error, with Debug being the most verbose. Setting the minimum level to Info (the default) means Debug is disabled; setting it to Warn means Debug and Info are disabled; etc.
 
