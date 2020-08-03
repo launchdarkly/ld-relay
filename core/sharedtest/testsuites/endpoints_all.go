@@ -1,6 +1,8 @@
 package testsuites
 
-import "testing"
+import (
+	"testing"
+)
 
 func DoAllCoreEndpointTests(t *testing.T, constructor TestConstructor) {
 	constructor.RunTest(t, "evaluation endpoints", DoEvalEndpointsTests)

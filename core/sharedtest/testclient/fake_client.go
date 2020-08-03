@@ -4,6 +4,11 @@
 package testclient
 
 import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
@@ -20,19 +25,37 @@ func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config) (sdks.LDClient
 	if err != nil {
 		panic(err)
 	}
-	return fakeLDClient{true}, nil
+	return &FakeLDClient{sdkKey, make(chan struct{}), true}, nil
 }
 
-type fakeLDClient struct {
+type FakeLDClient struct {
+	Key         config.SDKKey
+	CloseCh     chan struct{}
 	initialized bool
 }
 
-func (c fakeLDClient) Initialized() bool {
+func (c *FakeLDClient) Initialized() bool {
 	return c.initialized
 }
 
-func (c fakeLDClient) SecureModeHash(user lduser.User) string {
+func (c *FakeLDClient) SecureModeHash(user lduser.User) string {
 	return FakeHashForUser(user)
+}
+
+func (c *FakeLDClient) Close() error {
+	if c.CloseCh != nil {
+		close(c.CloseCh)
+	}
+	return nil
+}
+
+func (c *FakeLDClient) AwaitClose(t *testing.T, timeout time.Duration) {
+	select {
+	case <-c.CloseCh:
+		return
+	case <-time.After(timeout):
+		require.Fail(t, "timed out waiting for SDK client to be closed")
+	}
 }
 
 func FakeHashForUser(user lduser.User) string {
@@ -40,6 +63,10 @@ func FakeHashForUser(user lduser.User) string {
 }
 
 func FakeLDClientFactory(shouldBeInitialized bool) sdks.ClientFactoryFunc {
+	return FakeLDClientFactoryWithChannel(shouldBeInitialized, nil)
+}
+
+func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *FakeLDClient) sdks.ClientFactoryFunc {
 	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
 		// We're not creating a real client, but we still need to invoke the DataStoreFactory as the
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
@@ -52,7 +79,11 @@ func FakeLDClientFactory(shouldBeInitialized bool) sdks.ClientFactoryFunc {
 				return nil, err
 			}
 		}
-		return fakeLDClient{initialized: shouldBeInitialized}, nil
+		c := &FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{}), initialized: shouldBeInitialized}
+		if createdCh != nil {
+			createdCh <- c
+		}
+		return c, nil
 	}
 }
 

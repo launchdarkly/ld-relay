@@ -21,7 +21,7 @@ func TestRequestLogging(t *testing.T) {
 			Environment: st.MakeEnvConfigs(st.EnvMain),
 		}
 		mockLog := ldlogtest.NewMockLog()
-		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true))
+		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true), "", "")
 		require.NoError(t, err)
 		defer core.Close()
 
@@ -38,7 +38,7 @@ func TestRequestLogging(t *testing.T) {
 			Environment: st.MakeEnvConfigs(st.EnvMain),
 		}
 		mockLog := ldlogtest.NewMockLog()
-		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true))
+		core, err := NewRelayCore(config, mockLog.Loggers, testclient.FakeLDClientFactory(true), "", "")
 		require.NoError(t, err)
 		defer core.Close()
 

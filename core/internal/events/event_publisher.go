@@ -15,7 +15,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 )
 
 const (
@@ -27,7 +27,6 @@ const (
 )
 
 var (
-	defaultUserAgent            = "LDRelay/" + version.Version                      //nolint:gochecknoglobals
 	defaultEventsEndpointURI, _ = url.Parse("https://events.launchdarkly.com/bulk") //nolint:gochecknoglobals
 )
 
@@ -53,7 +52,7 @@ type HTTPEventPublisher struct {
 	loggers    ldlog.Loggers
 	client     *http.Client
 	authKey    config.SDKCredential
-	userAgent  string
+	headers    http.Header
 	closer     chan<- struct{}
 	closeOnce  sync.Once
 	wg         sync.WaitGroup
@@ -128,24 +127,6 @@ func (o OptionFlushInterval) apply(p *HTTPEventPublisher) error {
 	return nil
 }
 
-// OptionClient specifies a preconfigured HTTP client.
-type OptionClient struct {
-	Client *http.Client
-}
-
-func (o OptionClient) apply(p *HTTPEventPublisher) error {
-	p.client = o.Client
-	return nil
-}
-
-// OptionUserAgent specifies the user-agent header.
-type OptionUserAgent string
-
-func (o OptionUserAgent) apply(p *HTTPEventPublisher) error { //nolint:unparam
-	p.userAgent = string(o)
-	return nil
-}
-
 // OptionCapacity specifies the event queue capacity.
 type OptionCapacity int
 
@@ -155,13 +136,13 @@ func (o OptionCapacity) apply(p *HTTPEventPublisher) error {
 }
 
 // NewHTTPEventPublisher creates a new HTTPEventPublisher.
-func NewHTTPEventPublisher(authKey config.SDKCredential, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
+func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.HTTPConfig, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
 	closer := make(chan struct{})
 
 	inputQueue := make(chan interface{}, inputQueueSize)
 	p := &HTTPEventPublisher{
-		client:     http.DefaultClient,
-		userAgent:  defaultUserAgent,
+		client:     httpConfig.Client(),
+		headers:    httpConfig.SDKHTTPConfig.GetDefaultHeaders(),
 		eventsURI:  *defaultEventsEndpointURI,
 		authKey:    authKey,
 		closer:     closer,
@@ -281,12 +262,14 @@ PostAttempts:
 			return reqErr
 		}
 
-		if p.authKey.GetAuthorizationHeaderValue() != "" {
-			req.Header.Add("Authorization", p.authKey.GetAuthorizationHeaderValue())
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range p.headers {
+			req.Header[k] = v
 		}
-		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("User-Agent", "LDRelay/"+version.Version)
-		req.Header.Add(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))
+		// The headers come from HTTPConfig, which may provide an Authorization header with an SDK key. We
+		// will override that with whatever auth key is appropriate for this particular event endpoint
+		req.Header.Set("Authorization", p.authKey.GetAuthorizationHeaderValue())
+		req.Header.Set(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))
 
 		resp, respErr = p.client.Do(req)
 		if respErr != nil {

@@ -73,7 +73,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 					return
 				}
 
-				p.Core.RemoveEnvironment(env.GetCredentials().SDKKey)
+				p.Core.RemoveEnvironment(env)
 
 				select {
 				case event := <-eventCh:

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,6 @@ var (
 	errAlreadyClosed         = errors.New("this Relay was already shut down")
 	errDefaultBaseURLInvalid = errors.New("unexpected error: default base URL is invalid")
 	errInitializationTimeout = errors.New("timed out waiting for environments to initialize")
-	errNoEnvironments        = errors.New("you must specify at least one environment in your configuration")
 	errSomeEnvironmentFailed = errors.New("one or more environments failed to initialize")
 )
 
@@ -41,9 +41,8 @@ func errNewMetricsManagerFailed(err error) error {
 
 // RelayCore encapsulates the core logic for all variants of Relay Proxy.
 type RelayCore struct {
-	allEnvironments               map[config.SDKKey]relayenv.EnvContext
-	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
-	envsByEnvID                   map[config.EnvironmentID]relayenv.EnvContext
+	allEnvironments               []relayenv.EnvContext
+	envsByCredential              map[config.SDKCredential]relayenv.EnvContext
 	metricsManager                *metrics.Manager
 	clientFactory                 sdks.ClientFactoryFunc
 	serverSideStreamProvider      streams.StreamProvider
@@ -53,7 +52,9 @@ type RelayCore struct {
 	clientInitCh                  chan relayenv.EnvContext
 	config                        config.Config
 	baseURL                       url.URL
-	loggers                       ldlog.Loggers
+	Version                       string
+	userAgent                     string
+	Loggers                       ldlog.Loggers
 	closed                        bool
 	lock                          sync.RWMutex
 }
@@ -78,16 +79,14 @@ func NewRelayCore(
 	c config.Config,
 	loggers ldlog.Loggers,
 	clientFactory sdks.ClientFactoryFunc,
+	version string,
+	userAgent string,
 ) (*RelayCore, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
 	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
 		return nil, err
-	}
-
-	if len(c.Environment) == 0 {
-		return nil, errNoEnvironments
 	}
 
 	if clientFactory == nil {
@@ -109,9 +108,7 @@ func NewRelayCore(
 	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
 
 	r := RelayCore{
-		allEnvironments:               make(map[config.SDKKey]relayenv.EnvContext),
-		envsByMobileKey:               make(map[config.MobileKey]relayenv.EnvContext),
-		envsByEnvID:                   make(map[config.EnvironmentID]relayenv.EnvContext),
+		envsByCredential:              make(map[config.SDKCredential]relayenv.EnvContext),
 		serverSideStreamProvider:      streams.NewServerSideStreamProvider(maxConnTime),
 		serverSideFlagsStreamProvider: streams.NewServerSideFlagsOnlyStreamProvider(maxConnTime),
 		mobileStreamProvider:          streams.NewMobilePingStreamProvider(maxConnTime),
@@ -120,7 +117,8 @@ func NewRelayCore(
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,
 		config:                        c,
-		loggers:                       loggers,
+		Version:                       version,
+		Loggers:                       loggers,
 	}
 
 	if c.Main.BaseURI.IsDefined() {
@@ -160,27 +158,16 @@ func (r *RelayCore) GetEnvironment(credential config.SDKCredential) relayenv.Env
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	switch c := credential.(type) {
-	case config.SDKKey:
-		return r.allEnvironments[c]
-	case config.MobileKey:
-		return r.envsByMobileKey[c]
-	case config.EnvironmentID:
-		return r.envsByEnvID[c]
-	default:
-		return nil
-	}
+	return r.envsByCredential[credential]
 }
 
-// GetAllEnvironments returns all currently configured environments, indexed by SDK key.
-func (r *RelayCore) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
+// GetAllEnvironments returns all currently configured environments.
+func (r *RelayCore) GetAllEnvironments() []relayenv.EnvContext {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	ret := make(map[config.SDKKey]relayenv.EnvContext, len(r.allEnvironments))
-	for k, v := range r.allEnvironments {
-		ret[k] = v
-	}
+	ret := make([]relayenv.EnvContext, len(r.allEnvironments))
+	copy(ret, r.allEnvironments)
 	return ret
 }
 
@@ -197,7 +184,7 @@ func (r *RelayCore) AddEnvironment(
 		return nil, nil, errAlreadyClosed
 	}
 
-	dataStoreFactory, err := sdks.ConfigureDataStore(r.config, envConfig, r.loggers)
+	dataStoreFactory, err := sdks.ConfigureDataStore(r.config, envConfig, r.Loggers)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -254,18 +241,21 @@ func (r *RelayCore) AddEnvironment(
 		r.allStreamProviders(),
 		jsClientContext,
 		r.metricsManager,
-		r.loggers,
+		r.userAgent,
+		r.Loggers,
 		resultCh,
 	)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(envName, err)
 	}
-	r.allEnvironments[envConfig.SDKKey] = clientContext
+
+	r.allEnvironments = append(r.allEnvironments, clientContext)
+	r.envsByCredential[envConfig.SDKKey] = clientContext
 	if envConfig.MobileKey != "" {
-		r.envsByMobileKey[envConfig.MobileKey] = clientContext
+		r.envsByCredential[envConfig.MobileKey] = clientContext
 	}
 	if envConfig.EnvID != "" {
-		r.envsByEnvID[envConfig.EnvID] = clientContext
+		r.envsByCredential[envConfig.EnvID] = clientContext
 	}
 
 	return clientContext, resultCh, nil
@@ -276,17 +266,27 @@ func (r *RelayCore) AddEnvironment(
 // Subsequent requests using credentials for this environment will be rejected.
 //
 // It returns true if successful, or false if there was no such environment.
-func (r *RelayCore) RemoveEnvironment(sdkKey config.SDKKey) bool {
+func (r *RelayCore) RemoveEnvironment(env relayenv.EnvContext) bool {
 	r.lock.Lock()
-	env := r.allEnvironments[sdkKey]
-	if env != nil {
-		delete(r.allEnvironments, sdkKey)
-		delete(r.envsByMobileKey, env.GetCredentials().MobileKey)
-		delete(r.envsByEnvID, env.GetCredentials().EnvironmentID)
+
+	found := false
+	for i, e := range r.allEnvironments {
+		if e == env {
+			r.allEnvironments = append(r.allEnvironments[:i], r.allEnvironments[i+1:]...)
+			found = true
+			break
+		}
 	}
+
+	if found {
+		for _, c := range env.GetCredentials() {
+			delete(r.envsByCredential, c)
+		}
+	}
+
 	r.lock.Unlock()
 
-	if env == nil {
+	if !found {
 		return false
 	}
 
@@ -294,10 +294,30 @@ func (r *RelayCore) RemoveEnvironment(sdkKey config.SDKKey) bool {
 	// be rejected, since it's already been removed from all of our maps above. Now, calling Close()
 	// on the environment will do the rest of the cleanup and disconnect any current clients.
 	if err := env.Close(); err != nil {
-		r.loggers.Warnf("unexpected error when closing environment: %s", err)
+		r.Loggers.Warnf("unexpected error when closing environment: %s", err)
 	}
 
 	return true
+}
+
+// AddedEnvironmentCredential updates the RelayCore's environment mapping to reflect that a new
+// credential is now enabled for this EnvContext. This should be done only *after* calling
+// EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
+// credential immediately after this, it will work.
+func (r *RelayCore) AddedEnvironmentCredential(env relayenv.EnvContext, newCredential config.SDKCredential) {
+	r.lock.Lock()
+	r.envsByCredential[newCredential] = env
+	r.lock.Unlock()
+}
+
+// RemovingEnvironmentCredential updates the RelayCore's environment mapping to reflect that this
+// credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
+// because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
+// reconnect using the same credential we want it to be rejected.
+func (r *RelayCore) RemovingEnvironmentCredential(oldCredential config.SDKCredential) {
+	r.lock.Lock()
+	delete(r.envsByCredential, oldCredential)
+	r.lock.Unlock()
 }
 
 // WaitForAllClients blocks until all environments that were in the initial configuration have
@@ -323,6 +343,9 @@ func (r *RelayCore) WaitForAllClients(timeout time.Duration) error {
 			if ctx.GetInitError() != nil {
 				failed = true
 			}
+			if r.config.Main.ExitOnError {
+				break // ExitOnError implies we shouldn't wait for more than one error
+			}
 		}
 		resultCh <- failed
 	}()
@@ -330,6 +353,9 @@ func (r *RelayCore) WaitForAllClients(timeout time.Duration) error {
 	select {
 	case failed := <-resultCh:
 		if failed {
+			if r.config.Main.ExitOnError {
+				os.Exit(1)
+			}
 			return errSomeEnvironmentFailed
 		}
 		return nil
@@ -350,15 +376,14 @@ func (r *RelayCore) Close() {
 
 	envs := r.allEnvironments
 	r.allEnvironments = nil
-	r.envsByMobileKey = nil
-	r.envsByEnvID = nil
+	r.envsByCredential = nil
 
 	r.lock.Unlock()
 
 	r.metricsManager.Close()
 	for _, env := range envs {
 		if err := env.Close(); err != nil {
-			r.loggers.Warnf("unexpected error when closing environment: %s", err)
+			r.Loggers.Warnf("unexpected error when closing environment: %s", err)
 		}
 	}
 

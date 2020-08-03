@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -33,22 +32,25 @@ func errInitMetrics(err error) error {
 }
 
 type envContextImpl struct {
-	mu              sync.RWMutex
-	client          sdks.LDClientContext
-	storeAdapter    *store.SSERelayDataStoreAdapter
-	loggers         ldlog.Loggers
-	credentials     Credentials
-	name            string
-	secureMode      bool
-	envStreams      *streams.EnvStreams
-	streamProviders []streams.StreamProvider
-	handlers        map[streams.StreamProvider]map[config.SDKCredential]http.Handler
-	jsContext       JSClientContext
-	eventDispatcher *events.EventDispatcher
-	metricsManager  *metrics.Manager
-	metricsEnv      *metrics.EnvironmentManager
-	ttl             time.Duration
-	initErr         error
+	mu               sync.RWMutex
+	clients          map[config.SDKKey]sdks.LDClientContext
+	storeAdapter     *store.SSERelayDataStoreAdapter
+	loggers          ldlog.Loggers
+	credentials      map[config.SDKCredential]bool // true if not deprecated
+	name             string
+	secureMode       bool
+	envStreams       *streams.EnvStreams
+	streamProviders  []streams.StreamProvider
+	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	jsContext        JSClientContext
+	eventDispatcher  *events.EventDispatcher
+	sdkConfig        ld.Config
+	sdkClientFactory sdks.ClientFactoryFunc
+	metricsManager   *metrics.Manager
+	metricsEnv       *metrics.EnvironmentManager
+	globalLoggers    ldlog.Loggers
+	ttl              time.Duration
+	initErr          error
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -75,6 +77,7 @@ func NewEnvContext(
 	streamProviders []streams.StreamProvider,
 	jsClientContext JSClientContext,
 	metricsManager *metrics.Manager,
+	userAgent string,
 	loggers ldlog.Loggers,
 	readyCh chan<- EnvContext,
 ) (EnvContext, error) {
@@ -89,33 +92,33 @@ func NewEnvContext(
 		),
 	)
 
-	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, userAgent, loggers)
 	if err != nil {
 		return nil, err
 	}
 
-	envContext := &envContextImpl{
-		name: envName,
-		credentials: Credentials{
-			SDKKey:        envConfig.SDKKey,
-			MobileKey:     envConfig.MobileKey,
-			EnvironmentID: envConfig.EnvID,
-		},
-		loggers:         envLoggers,
-		secureMode:      envConfig.SecureMode,
-		streamProviders: streamProviders,
-		handlers:        make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
-		jsContext:       jsClientContext,
-		metricsManager:  metricsManager,
-		ttl:             envConfig.TTL.GetOrElse(0),
-	}
-
-	credentials := []config.SDKCredential{envConfig.SDKKey}
+	credentials := make(map[config.SDKCredential]bool, 3)
+	credentials[envConfig.SDKKey] = true
 	if envConfig.MobileKey != "" {
-		credentials = append(credentials, envConfig.MobileKey)
+		credentials[envConfig.MobileKey] = true
 	}
 	if envConfig.EnvID != "" {
-		credentials = append(credentials, envConfig.EnvID)
+		credentials[envConfig.EnvID] = true
+	}
+
+	envContext := &envContextImpl{
+		name:             envName,
+		clients:          make(map[config.SDKKey]sdks.LDClientContext),
+		credentials:      credentials,
+		loggers:          envLoggers,
+		secureMode:       envConfig.SecureMode,
+		streamProviders:  streamProviders,
+		handlers:         make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
+		jsContext:        jsClientContext,
+		sdkClientFactory: clientFactory,
+		metricsManager:   metricsManager,
+		globalLoggers:    loggers,
+		ttl:              envConfig.TTL.GetOrElse(0),
 	}
 
 	envStreams := streams.NewEnvStreams(
@@ -127,12 +130,12 @@ func NewEnvContext(
 	envContext.envStreams = envStreams
 	thingsToCleanUp.AddCloser(envStreams)
 
-	for _, c := range credentials {
+	for c := range credentials {
 		envStreams.AddCredential(c)
 	}
 	for _, sp := range streamProviders {
 		handlers := make(map[config.SDKCredential]http.Handler)
-		for _, c := range credentials {
+		for c := range credentials {
 			h := sp.Handler(c)
 			if h != nil {
 				handlers[c] = h
@@ -156,9 +159,8 @@ func NewEnvContext(
 	if eventsURI == "" {
 		eventsURI = config.DefaultEventsURI
 	}
-	eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, envLoggers,
-		events.OptionURI(eventsURI),
-		events.OptionClient{Client: httpConfig.Client()})
+	eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLoggers,
+		events.OptionURI(eventsURI))
 	if err != nil {
 		return nil, errInitPublisher(err)
 	}
@@ -174,7 +176,7 @@ func NewEnvContext(
 	envContext.metricsEnv = em
 	thingsToCleanUp.AddFunc(func() { metricsManager.RemoveEnvironment(em) })
 
-	clientConfig := ld.Config{
+	envContext.sdkConfig = ld.Config{
 		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamURI.String()),
 		DataStore:  storeAdapter,
 		HTTP:       httpConfig.SDKHTTPConfigFactory,
@@ -182,36 +184,38 @@ func NewEnvContext(
 	}
 
 	// Connecting may take time, so do this in parallel
-	go func(envName string, envConfig config.EnvConfig) {
-		client, err := clientFactory(envConfig.SDKKey, clientConfig)
-		envContext.SetClient(client)
-
-		if err != nil {
-			envContext.initErr = err
-			if !allConfig.Main.IgnoreConnectionErrors {
-				envLoggers.Errorf("Error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-
-				if allConfig.Main.ExitOnError {
-					os.Exit(1)
-				}
-				if readyCh != nil {
-					readyCh <- envContext
-				}
-				return
-			}
-
-			loggers.Errorf("Ignoring error initializing LaunchDarkly client for %s: %+v\n", envName, err)
-		} else {
-			loggers.Infof("Initialized LaunchDarkly client for %s\n", envName)
-		}
-		if readyCh != nil {
-			readyCh <- envContext
-		}
-	}(envName, envConfig)
+	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
 	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return envContext, nil
+}
+
+func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
+	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
+	if err == nil {
+		c.mu.Lock()
+		c.clients[sdkKey] = client
+		c.mu.Unlock()
+	}
+
+	if err != nil {
+		c.initErr = err
+		if suppressErrors {
+			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v", c.name, err)
+		} else {
+			c.globalLoggers.Errorf("Error initializing LaunchDarkly client for %q: %+v", c.name, err)
+			if readyCh != nil {
+				readyCh <- c
+			}
+			return
+		}
+	} else {
+		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", c.name)
+	}
+	if readyCh != nil {
+		readyCh <- c
+	}
 }
 
 func (c *envContextImpl) GetName() string {
@@ -221,20 +225,79 @@ func (c *envContextImpl) GetName() string {
 	return c.name
 }
 
-func (c *envContextImpl) GetCredentials() Credentials {
-	return c.credentials
+func (c *envContextImpl) SetName(newName string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if newName == c.name {
+		return
+	}
+	c.name = newName
+}
+
+func (c *envContextImpl) GetCredentials() []config.SDKCredential {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	ret := make([]config.SDKCredential, 0, len(c.credentials))
+	for c, nonDeprecated := range c.credentials {
+		if nonDeprecated {
+			ret = append(ret, c)
+		}
+	}
+	return ret
+}
+
+func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, found := c.credentials[newCredential]; found {
+		return
+	}
+	c.credentials[newCredential] = true
+	c.envStreams.AddCredential(newCredential)
+
+	// A new SDK key means a new SDK client
+	if sdkKey, ok := newCredential.(config.SDKKey); ok {
+		go c.startSDKClient(sdkKey, nil, false)
+	}
+}
+
+func (c *envContextImpl) RemoveCredential(oldCredential config.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, found := c.credentials[oldCredential]; found {
+		delete(c.credentials, oldCredential)
+		c.envStreams.RemoveCredential(oldCredential)
+		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
+			// The SDK client instance is tied to the SDK key, so get rid of it
+			if client := c.clients[sdkKey]; client != nil {
+				delete(c.clients, sdkKey)
+				_ = client.Close()
+			}
+		}
+	}
+}
+
+func (c *envContextImpl) DeprecateCredential(credential config.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, found := c.credentials[credential]; found {
+		c.credentials[credential] = false
+	}
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.client
-}
-
-func (c *envContextImpl) SetClient(client sdks.LDClientContext) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.client = client
+	// There might be multiple clients if there's an expiring SDK key. Find the SDK key that has a true
+	// value in our map (meaning it's not deprecated) and return that client.
+	for cred, valid := range c.credentials {
+		if sdkKey, ok := cred.(config.SDKKey); ok && valid {
+			return c.clients[sdkKey]
+		}
+	}
+	return nil
 }
 
 func (c *envContextImpl) GetStore() interfaces.DataStore {
@@ -284,6 +347,13 @@ func (c *envContextImpl) GetTTL() time.Duration {
 	return c.ttl
 }
 
+func (c *envContextImpl) SetTTL(newTTL time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ttl = newTTL
+}
+
 func (c *envContextImpl) GetInitError() error {
 	return c.initErr
 }
@@ -295,7 +365,20 @@ func (c *envContextImpl) IsSecureMode() bool {
 	return c.secureMode
 }
 
+func (c *envContextImpl) SetSecureMode(secureMode bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.secureMode = secureMode
+}
+
 func (c *envContextImpl) Close() error {
+	c.mu.Lock()
+	for _, client := range c.clients {
+		_ = client.Close()
+	}
+	c.clients = make(map[config.SDKKey]sdks.LDClientContext)
+	c.mu.Unlock()
 	_ = c.envStreams.Close()
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)

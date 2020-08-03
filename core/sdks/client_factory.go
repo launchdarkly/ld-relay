@@ -16,6 +16,7 @@ import (
 type LDClientContext interface {
 	Initialized() bool
 	SecureModeHash(lduser.User) string
+	Close() error
 }
 
 // ClientFactoryFunc is a function that creates the LaunchDarkly client. This is normally

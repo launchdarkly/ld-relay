@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
@@ -27,11 +26,16 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey config.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
-	configBuilder.UserAgent("LDRelay/" + version.Version)
+	configBuilder.UserAgent(userAgent)
 
 	ret := HTTPConfig{ProxyConfig: proxyConfig}
+
+	authKeyStr := ""
+	if authKey != nil {
+		authKeyStr = authKey.GetAuthorizationHeaderValue()
+	}
 
 	if !proxyConfig.URL.IsDefined() && proxyConfig.NTLMAuth {
 		return ret, errProxyAuthWithoutProxyURL
@@ -74,7 +78,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers
 
 	var err error
 	ret.SDKHTTPConfigFactory = configBuilder
-	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(interfaces.BasicConfiguration{SDKKey: string(sdkKey)})
+	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(interfaces.BasicConfiguration{SDKKey: authKeyStr})
 	return ret, err
 }
 

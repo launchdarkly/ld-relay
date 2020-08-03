@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"net/http"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -8,8 +9,13 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+)
+
+var (
+	errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
 )
 
 // Relay relays endpoints to and from the LaunchDarkly service
@@ -35,7 +41,19 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactor
 }
 
 func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
-	core, err := core.NewRelayCore(c, loggers, clientFactory)
+	// The "must have at least one environment" check is not included in config.Validate because it will not
+	// always be applicable for all Relay variants
+	if len(c.Environment) == 0 {
+		return nil, errNoEnvironments
+	}
+
+	core, err := core.NewRelayCore(
+		c,
+		loggers,
+		clientFactory,
+		version.Version,
+		"LDRelay/"+version.Version,
+	)
 	if err != nil {
 		return nil, err
 	}
