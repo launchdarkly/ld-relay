@@ -2,6 +2,7 @@ package testsuites
 
 import (
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
@@ -25,6 +26,7 @@ func relayCoreForEndpointTests(c config.Config) TestParams {
 	if err != nil {
 		panic(err)
 	}
+	core.WaitForAllClients(time.Second)
 	return TestParams{
 		Core:    core,
 		Handler: core.MakeRouter(),
