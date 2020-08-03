@@ -301,9 +301,6 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 }
 
 func (c *envContextImpl) GetStore() interfaces.DataStore {
-	if c.storeAdapter == nil {
-		return nil
-	}
 	return c.storeAdapter.GetStore()
 }
 

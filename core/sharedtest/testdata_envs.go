@@ -67,6 +67,15 @@ var EnvClientSideSecureMode = TestEnv{
 	},
 }
 
+var EnvWithAllCredentials = TestEnv{
+	Name: "env with all credentials",
+	Config: config.EnvConfig{
+		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52e9"),
+		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ec"),
+		EnvID:     config.EnvironmentID("507f1f77bcf86cd79943902a"),
+	},
+}
+
 func MakeEnvConfigs(envs ...TestEnv) map[string]*config.EnvConfig {
 	ret := make(map[string]*config.EnvConfig)
 	for _, e := range envs {
