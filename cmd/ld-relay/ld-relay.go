@@ -8,9 +8,8 @@ import (
 	relay "github.com/launchdarkly/ld-relay/v6"
 	"github.com/launchdarkly/ld-relay/v6/application"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 )
 
 func main() {
@@ -42,7 +41,7 @@ func main() {
 		}
 	}
 
-	r, err := relay.NewRelay(c, loggers, sdkconfig.DefaultClientFactory)
+	r, err := relay.NewRelay(c, loggers, nil)
 	if err != nil {
 		loggers.Errorf("Unable to create relay: %s", err)
 		os.Exit(1)

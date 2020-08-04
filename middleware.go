@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
@@ -25,10 +26,10 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	}
 }
 
-func selectEnvironmentByAuthorizationKey(sdkKind sdkKind, envs RelayEnvironments) mux.MiddlewareFunc {
+func selectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			credential, err := sdkKind.getSDKCredential(req)
+			credential, err := sdkKind.GetCredential(req)
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
@@ -61,7 +62,7 @@ func selectEnvironmentByAuthorizationKey(sdkKind sdkKind, envs RelayEnvironments
 func selectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			envId, err := jsClientSdk.getSDKCredential(req)
+			envId, err := sdks.JSClient.GetCredential(req)
 			if err != nil {
 				w.WriteHeader(http.StatusNotFound)
 				w.Write([]byte("URL did not contain an environment ID"))

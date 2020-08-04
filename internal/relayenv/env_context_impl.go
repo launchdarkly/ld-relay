@@ -11,13 +11,13 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
@@ -26,7 +26,7 @@ import (
 
 type envContextImpl struct {
 	mu              sync.RWMutex
-	client          sdkconfig.LDClientContext
+	client          sdks.LDClientContext
 	storeAdapter    *store.SSERelayDataStoreAdapter
 	loggers         ldlog.Loggers
 	credentials     Credentials
@@ -62,7 +62,7 @@ func NewEnvContext(
 	envName string,
 	envConfig config.EnvConfig,
 	allConfig config.Config,
-	clientFactory sdkconfig.ClientFactoryFunc,
+	clientFactory sdks.ClientFactoryFunc,
 	dataStoreFactory interfaces.DataStoreFactory,
 	streamProviders []streams.StreamProvider,
 	jsClientContext JSClientContext,
@@ -217,13 +217,13 @@ func (c *envContextImpl) GetCredentials() Credentials {
 	return c.credentials
 }
 
-func (c *envContextImpl) GetClient() sdkconfig.LDClientContext {
+func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.client
 }
 
-func (c *envContextImpl) SetClient(client sdkconfig.LDClientContext) {
+func (c *envContextImpl) SetClient(client sdks.LDClientContext) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.client = client

@@ -1,4 +1,4 @@
-package sdkconfig
+package sdks
 
 import (
 	"errors"

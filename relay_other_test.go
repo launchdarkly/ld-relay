@@ -12,6 +12,7 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 )
 
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
@@ -20,7 +21,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 	ctx := newTestEnvContext("", false, makeStoreWithData(false))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(jsClientSdk)(resp, req)
+	evaluateAllFeatureFlags(sdks.JSClient)(resp, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
 
@@ -35,7 +36,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	ctx := newTestEnvContext("", false, makeStoreWithData(true))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(jsClientSdk)(resp, req)
+	evaluateAllFeatureFlagsValueOnly(sdks.JSClient)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 

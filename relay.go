@@ -3,14 +3,15 @@ package relay
 import (
 	"net/http"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
-
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
 const (
@@ -36,10 +37,21 @@ type evalXResult struct {
 	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
 }
 
-// NewRelay creates a new relay given a configuration and a method to create a client.
+// ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
+// Relay needs to create a Go SDK client instance.
+type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error)
+
+// NewRelay creates a new Relay given a configuration and a method to create a client.
 //
 // If any metrics exporters are enabled in c.MetricsConfig, it also registers those in OpenCensus.
-func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory sdkconfig.ClientFactoryFunc) (*Relay, error) {
+//
+// The clientFactory parameter can be nil and is only needed if you want to customize how Relay
+// creates the Go SDK client instance.
+func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
+	return newRelayInternal(c, loggers, ClientFactoryFromLDClientFactory(clientFactory))
+}
+
+func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
 	core, err := NewRelayCore(c, loggers, clientFactory)
 	if err != nil {
 		return nil, err

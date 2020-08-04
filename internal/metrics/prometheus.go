@@ -10,7 +10,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
 )
 
 var prometheusExporterType exporterType = prometheusExporterTypeImpl{}

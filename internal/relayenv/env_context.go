@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
@@ -30,9 +30,9 @@ type EnvContext interface {
 	GetCredentials() Credentials
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
-	// complete. Rather than providing the full client object, we use the simpler sdkconfig.LDClientContext
-	// which includes only the operations Relay needs to do.
-	GetClient() sdkconfig.LDClientContext
+	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
+	// includes only the operations Relay needs to do.
+	GetClient() sdks.LDClientContext
 
 	// GetStore returns the SDK data store instance for this environment. This is nil if initialization is not
 	// yet complete.

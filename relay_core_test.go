@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
@@ -153,7 +153,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	})
 
 	t.Run("returns error if any environment does not initialize successfully", func(t *testing.T) {
-		oneEnvFails := func(sdkKey c.SDKKey, config ld.Config) (sdkconfig.LDClientContext, error) {
+		oneEnvFails := func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
 			shouldFail := sdkKey == testEnvMobile.config.SDKKey
 			if shouldFail {
 				return clientFactoryThatFails(errors.New("sorry"))(sdkKey, config)
