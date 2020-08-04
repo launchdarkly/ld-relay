@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -19,7 +20,7 @@ func DoStatusEndpointTest(t *testing.T, constructor TestConstructor) {
 
 	DoTest(config, constructor, func(p TestParams) {
 		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-		result, body := doRequest(r, p.Handler)
+		result, body := st.DoRequest(r, p.Handler)
 		assert.Equal(t, http.StatusOK, result.StatusCode)
 		status := ldvalue.Parse(body)
 

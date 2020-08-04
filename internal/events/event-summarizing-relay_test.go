@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/store"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"

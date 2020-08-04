@@ -52,3 +52,14 @@ func SegmentDesc(segment ldmodel.Segment) ldstoretypes.ItemDescriptor {
 func DeletedItem(version int) ldstoretypes.ItemDescriptor {
 	return ldstoretypes.ItemDescriptor{Version: version, Item: nil}
 }
+
+func MakeStoreWithData(initialized bool) interfaces.DataStore {
+	store := NewInMemoryStore()
+	if initialized {
+		err := store.Init(AllData)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return store
+}

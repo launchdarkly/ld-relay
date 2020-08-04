@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"

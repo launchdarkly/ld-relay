@@ -14,7 +14,9 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/streams"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/core/streams"
 )
 
 func DoStreamEndpointsTests(t *testing.T, constructor TestConstructor) {
@@ -47,7 +49,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 		t.Run("invalid credential", func(t *testing.T) {
 			s1 := s
 			s1.credential = invalidCredential
-			result, _ := doRequest(s1.request(), p.Handler)
+			result, _ := st.DoRequest(s1.request(), p.Handler)
 
 			assert.Equal(t, invalidCredentialExpectedStatus, result.StatusCode)
 		})
@@ -166,8 +168,8 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
-	expectedAllData := []byte(streams.MakeServerSidePutEvent(allData).Data())
-	expectedFlagsData := []byte(streams.MakeServerSideFlagsOnlyPutEvent(allData).Data())
+	expectedAllData := []byte(streams.MakeServerSidePutEvent(st.AllData).Data())
+	expectedFlagsData := []byte(streams.MakeServerSideFlagsOnlyPutEvent(st.AllData).Data())
 
 	specs := []streamEndpointTestParams{
 		{endpointTestParams{"flags stream", "GET", "/flags", nil, sdkKey, 200, nil}, "put", expectedFlagsData},
@@ -234,14 +236,14 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 					t.Run("secure mode - hash matches", func(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
-						s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
+						s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForUser(user))
 						s1.assertRequestReceivesEvent(t, p.Handler, 0)
 					})
 
 					t.Run("secure mode - hash does not match", func(t *testing.T) {
 						s1 := s
 						s1.credential = testEnvClientSideSecureMode.config.EnvID
-						s1.path = addQueryParam(s1.path, "h=incorrect")
+						s1.path = st.AddQueryParam(s1.path, "h=incorrect")
 						result := doStreamRequestExpectingError(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)

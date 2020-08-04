@@ -1,10 +1,10 @@
-package relay
+package core
 
 import (
 	"context"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 
 type contextKeyType string

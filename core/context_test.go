@@ -1,4 +1,4 @@
-package relay
+package core
 
 import (
 	"context"
@@ -6,11 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
 )
 
 func TestEnvContextInfo(t *testing.T) {
-	env := newTestEnvContext("env", true, sharedtest.NewInMemoryStore())
+	env := testenv.NewTestEnvContext("env", true, sharedtest.NewInMemoryStore())
 	ec := EnvContextInfo{
 		Env: env,
 	}

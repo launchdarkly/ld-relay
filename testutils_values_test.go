@@ -7,26 +7,12 @@ import (
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 
 type testEnv struct {
 	name   string
 	config config.EnvConfig
-}
-
-type testFlag struct {
-	flag              ldmodel.FeatureFlag
-	expectedValue     interface{}
-	expectedVariation int
-	expectedReason    map[string]interface{}
-	isExperiment      bool
 }
 
 type unsupportedSDKCredential struct{} // implements config.SDKCredential
@@ -102,100 +88,35 @@ func makeEnvConfigs(envs ...testEnv) map[string]*config.EnvConfig {
 	return ret
 }
 
-var flag1ServerSide = testFlag{
-	flag:              ldbuilders.NewFlagBuilder("some-flag-key").OffVariation(0).Variations(ldvalue.Bool(true)).Version(2).Build(),
-	expectedValue:     true,
-	expectedVariation: 0,
-	expectedReason:    map[string]interface{}{"kind": "OFF"},
-}
-var flag2ServerSide = testFlag{
-	flag:              ldbuilders.NewFlagBuilder("another-flag-key").On(true).FallthroughVariation(0).Variations(ldvalue.Int(3)).Version(1).Build(),
-	expectedValue:     3,
-	expectedVariation: 0,
-	expectedReason:    map[string]interface{}{"kind": "FALLTHROUGH"},
-}
-var flag3ServerSide = testFlag{
-	flag:           ldbuilders.NewFlagBuilder("off-variation-key").Version(3).Build(),
-	expectedValue:  nil,
-	expectedReason: map[string]interface{}{"kind": "OFF"},
-}
-var flag4ClientSide = testFlag{
-	flag:              ldbuilders.NewFlagBuilder("client-flag-key").OffVariation(0).Variations(ldvalue.Int(5)).Version(2).ClientSide(true).Build(),
-	expectedValue:     5,
-	expectedVariation: 0,
-	expectedReason:    map[string]interface{}{"kind": "OFF"},
-}
-var flag5ClientSide = testFlag{
-	flag: ldbuilders.NewFlagBuilder("fallthrough-experiment-flag-key").On(true).FallthroughVariation(0).Variations(ldvalue.Int(3)).
-		TrackEventsFallthrough(true).ClientSide(true).Version(1).Build(),
-	expectedValue:  3,
-	expectedReason: map[string]interface{}{"kind": "FALLTHROUGH"},
-	isExperiment:   true,
-}
-var flag6ClientSide = testFlag{
-	flag: ldbuilders.NewFlagBuilder("rule-match-experiment-flag-key").On(true).
-		AddRule(ldbuilders.NewRuleBuilder().ID("rule-id").Variation(0).TrackEvents(true).
-			Clauses(ldbuilders.Negate(ldbuilders.Clause(lduser.KeyAttribute, ldmodel.OperatorIn, ldvalue.String("not-a-real-user-key"))))).
-		Variations(ldvalue.Int(4)).ClientSide(true).Version(1).Build(),
-	expectedValue:  4,
-	expectedReason: map[string]interface{}{"kind": "RULE_MATCH", "ruleIndex": 0, "ruleId": "rule-id"},
-	isExperiment:   true,
-}
-var allFlags = []testFlag{flag1ServerSide, flag2ServerSide, flag3ServerSide, flag4ClientSide,
-	flag5ClientSide, flag6ClientSide}
-var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSide}
-
-var segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
-
-var allData = []ldstoretypes.Collection{
-	{
-		Kind: ldstoreimpl.Features(),
-		Items: []ldstoretypes.KeyedItemDescriptor{
-			{Key: flag1ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag1ServerSide.flag)},
-			{Key: flag2ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag2ServerSide.flag)},
-			{Key: flag3ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag3ServerSide.flag)},
-			{Key: flag4ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag4ClientSide.flag)},
-			{Key: flag5ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag5ClientSide.flag)},
-			{Key: flag6ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag6ClientSide.flag)},
-		},
-	},
-	{
-		Kind: ldstoreimpl.Segments(),
-		Items: []ldstoretypes.KeyedItemDescriptor{
-			{Key: segment1.Key, Item: sharedtest.SegmentDesc(segment1)},
-		},
-	},
-}
-
-func flagsMap(testFlags []testFlag) map[string]interface{} {
+func flagsMap(testFlags []st.TestFlag) map[string]interface{} {
 	ret := make(map[string]interface{})
 	for _, f := range testFlags {
-		ret[f.flag.Key] = f.flag
+		ret[f.Flag.Key] = f.Flag
 	}
 	return ret
 }
 
-func makeEvalBody(flags []testFlag, fullData bool, reasons bool) string {
+func makeEvalBody(flags []st.TestFlag, fullData bool, reasons bool) string {
 	obj := make(map[string]interface{})
 	for _, f := range flags {
-		value := f.expectedValue
+		value := f.ExpectedValue
 		if fullData {
-			m := map[string]interface{}{"value": value, "version": f.flag.Version}
+			m := map[string]interface{}{"value": value, "version": f.Flag.Version}
 			if value != nil {
-				m["variation"] = f.expectedVariation
+				m["variation"] = f.ExpectedVariation
 			}
-			if reasons || f.isExperiment {
-				m["reason"] = f.expectedReason
+			if reasons || f.IsExperiment {
+				m["reason"] = f.ExpectedReason
 			}
-			if f.flag.TrackEvents || f.isExperiment {
+			if f.Flag.TrackEvents || f.IsExperiment {
 				m["trackEvents"] = true
 			}
-			if f.isExperiment {
+			if f.IsExperiment {
 				m["trackReason"] = true
 			}
 			value = m
 		}
-		obj[f.flag.Key] = value
+		obj[f.Flag.Key] = value
 	}
 	out, _ := json.Marshal(obj)
 	return string(out)

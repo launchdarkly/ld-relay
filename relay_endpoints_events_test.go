@@ -16,6 +16,7 @@ import (
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 )
 
@@ -110,8 +111,8 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header := make(http.Header)
 			header.Set("Authorization", string(sdkKey))
 			header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-			r := buildRequest("POST", "http://localhost/bulk", body, header)
-			result, _ := doRequest(r, p.Handler)
+			r := st.BuildRequest("POST", "http://localhost/bulk", body, header)
+			result, _ := st.DoRequest(r, p.Handler)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, body)
@@ -124,8 +125,8 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header := make(http.Header)
 			header.Set("Authorization", string(undefinedSDKKey))
 			header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-			r := buildRequest("POST", "http://localhost/bulk", body, header)
-			result, _ := doRequest(r, p.Handler)
+			r := st.BuildRequest("POST", "http://localhost/bulk", body, header)
+			result, _ := st.DoRequest(r, p.Handler)
 
 			assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 		})
@@ -135,8 +136,8 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header := make(http.Header)
 			header.Set("Content-Type", "application/json")
 			header.Set("Authorization", string(sdkKey))
-			r := buildRequest("POST", "http://localhost/diagnostic", eventData, header)
-			result, _ := doRequest(r, p.Handler)
+			r := st.BuildRequest("POST", "http://localhost/diagnostic", eventData, header)
+			result, _ := st.DoRequest(r, p.Handler)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)
@@ -163,8 +164,8 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 				header := make(http.Header)
 				header.Set("Authorization", string(mobileKey))
 				header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-				r := buildRequest("POST", url, body, header)
-				result, _ := doRequest(r, p.Handler)
+				r := st.BuildRequest("POST", url, body, header)
+				result, _ := st.DoRequest(r, p.Handler)
 
 				if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 					event := p.requirePublishedEvent(t, body)
@@ -177,8 +178,8 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 				header := make(http.Header)
 				header.Set("Authorization", string(undefinedSDKKey))
 				header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-				r := buildRequest("POST", url, body, header)
-				result, _ := doRequest(r, p.Handler)
+				r := st.BuildRequest("POST", url, body, header)
+				result, _ := st.DoRequest(r, p.Handler)
 
 				assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 			})
@@ -188,8 +189,8 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 			eventData := []byte(`{"kind":"diagnostic"}`)
 			header := make(http.Header)
 			header.Set("Authorization", string(mobileKey))
-			r := buildRequest("POST", "http://localhost/mobile/events/diagnostic", eventData, header)
-			result, _ := doRequest(r, p.Handler)
+			r := st.BuildRequest("POST", "http://localhost/mobile/events/diagnostic", eventData, header)
+			result, _ := st.DoRequest(r, p.Handler)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)
@@ -222,7 +223,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if s.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 					}
-					result, body := doRequest(r, p.Handler)
+					result, body := st.DoRequest(r, p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						assertNonStreamingHeaders(t, result.Header)
@@ -245,7 +246,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if s1.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 					}
-					result, _ := doRequest(r, p.Handler)
+					result, _ := st.DoRequest(r, p.Handler)
 
 					assert.Equal(t, http.StatusNotFound, result.StatusCode)
 				})
@@ -261,8 +262,8 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 			eventData := []byte(`{"kind":"diagnostic"}`)
 			header := make(http.Header)
 			header.Set("Content-Type", "application/json")
-			r := buildRequest("POST", "http://localhost"+expectedPath, eventData, header)
-			result, _ := doRequest(r, p.Handler)
+			r := st.BuildRequest("POST", "http://localhost"+expectedPath, eventData, header)
+			result, _ := st.DoRequest(r, p.Handler)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)

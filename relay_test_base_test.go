@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 
 // Environment that is passed to test code with DoTest.
@@ -43,7 +44,7 @@ type endpointTestParams struct {
 }
 
 func (e endpointTestParams) request() *http.Request {
-	return buildRequest(e.method, e.localURL(), e.data, e.header())
+	return st.BuildRequest(e.method, e.localURL(), e.data, e.header())
 }
 
 func (e endpointTestParams) header() http.Header {

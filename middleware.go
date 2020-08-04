@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
@@ -49,11 +49,11 @@ func selectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				return
 			}
 
-			contextInfo := EnvContextInfo{
+			contextInfo := core.EnvContextInfo{
 				Env:        clientCtx,
 				Credential: credential,
 			}
-			req = req.WithContext(context.WithValue(req.Context(), contextKey, contextInfo))
+			req = req.WithContext(core.WithEnvContextInfo(req.Context(), contextInfo))
 			next.ServeHTTP(w, req)
 		})
 	}
@@ -81,11 +81,11 @@ func selectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc
 				return
 			}
 
-			contextInfo := EnvContextInfo{
+			contextInfo := core.EnvContextInfo{
 				Env:        env,
 				Credential: envId,
 			}
-			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
+			req = req.WithContext(core.WithEnvContextInfo(req.Context(), contextInfo))
 			req = req.WithContext(cors.WithCORSContext(req.Context(), env.GetJSClientContext()))
 			next.ServeHTTP(w, req)
 		})
@@ -94,7 +94,7 @@ func selectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc
 
 func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := GetEnvContextInfo(req.Context()).Env
+		ctx := core.GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
 		metrics.WithCount(ctx.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
@@ -117,7 +117,7 @@ func countServerConns(handler http.Handler) http.Handler {
 func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := GetEnvContextInfo(req.Context())
+			ctx := core.GetEnvContextInfo(req.Context())
 			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
@@ -130,7 +130,7 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 
 func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := GetEnvContextInfo(req.Context())
+		ctx := core.GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
 		metrics.WithGauge(ctx.Env.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
