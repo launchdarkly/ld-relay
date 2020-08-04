@@ -49,6 +49,9 @@ type EnvContext interface {
 	// GetEventDispatcher returns the object that proxies events for this environment.
 	GetEventDispatcher() *events.EventDispatcher
 
+	// GetJSClientContext returns the JSClientContext that is used for browser endpoints.
+	GetJSClientContext() JSClientContext
+
 	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
 	// environment.
 	GetMetricsContext() context.Context

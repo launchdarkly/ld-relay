@@ -25,7 +25,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	handlerThatDetectsEnvironment := func(outCh chan<- relayenv.EnvContext) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			outCh <- getClientContext(req).env
+			outCh <- GetEnvContextInfo(req.Context()).Env
 		})
 	}
 

@@ -13,10 +13,10 @@ LINTER=./bin/golangci-lint
 TEST_COVERAGE_REPORT_FILE ?= coverage.txt
 
 test:
-	go test -race -v $$(go list ./... | grep -v /vendor/)
+	go test -race -v ./...
 
 test-with-coverage:
-	go test -race -v -covermode=atomic -coverpkg=./... -coverprofile $(TEST_COVERAGE_REPORT_FILE) $$(go list ./... | grep -v /vendor/)
+	go test -race -v -covermode=atomic -coverpkg=./... -coverprofile $(TEST_COVERAGE_REPORT_FILE) ./...
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)

@@ -35,6 +35,7 @@ type envContextImpl struct {
 	envStreams      *streams.EnvStreams
 	streamProviders []streams.StreamProvider
 	handlers        map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	jsContext       JSClientContext
 	eventDispatcher *events.EventDispatcher
 	metricsManager  *metrics.Manager
 	metricsEnv      *metrics.EnvironmentManager
@@ -64,6 +65,7 @@ func NewEnvContext(
 	clientFactory sdkconfig.ClientFactoryFunc,
 	dataStoreFactory interfaces.DataStoreFactory,
 	streamProviders []streams.StreamProvider,
+	jsClientContext JSClientContext,
 	metricsManager *metrics.Manager,
 	loggers ldlog.Loggers,
 	readyCh chan<- EnvContext,
@@ -95,6 +97,7 @@ func NewEnvContext(
 		secureMode:      envConfig.SecureMode,
 		streamProviders: streamProviders,
 		handlers:        make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
+		jsContext:       jsClientContext,
 		metricsManager:  metricsManager,
 		ttl:             envConfig.TTL.GetOrElse(0),
 	}
@@ -253,6 +256,10 @@ func invalidStreamHandler(w http.ResponseWriter, req *http.Request) {
 
 func (c *envContextImpl) GetEventDispatcher() *events.EventDispatcher {
 	return c.eventDispatcher
+}
+
+func (c *envContextImpl) GetJSClientContext() JSClientContext {
+	return c.jsContext
 }
 
 func (c *envContextImpl) GetMetricsContext() context.Context {
