@@ -214,3 +214,8 @@ func (c *envContextImpl) GetInitError() error {
 func (c *envContextImpl) IsSecureMode() bool {
 	return c.secureMode
 }
+
+func (c *envContextImpl) Close() error {
+	// This currently isn't used, but will be used in the future when we can dynamically change environments
+	return nil
+}

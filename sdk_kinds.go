@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -43,12 +44,11 @@ func (s sdkKind) getSDKCredential(req *http.Request) (config.SDKCredential, erro
 
 func fetchAuthToken(req *http.Request) (string, error) {
 	authHdr := req.Header.Get("Authorization")
-	match := uuidHeaderPattern.FindStringSubmatch(authHdr)
-
-	// successfully matched UUID from header
-	if len(match) == 2 {
-		return match[1], nil
+	if strings.HasPrefix(authHdr, "api_key ") {
+		authHdr = strings.TrimSpace(strings.TrimPrefix(authHdr, "api_key "))
 	}
-
-	return "", errors.New("no valid token found")
+	if authHdr == "" || strings.Contains(authHdr, " ") {
+		return "", errors.New("no valid token found")
+	}
+	return authHdr, nil
 }

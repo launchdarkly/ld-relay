@@ -28,6 +28,10 @@ type testFlag struct {
 	isExperiment      bool
 }
 
+type unsupportedSDKCredential struct{} // implements config.SDKCredential
+
+func (k unsupportedSDKCredential) GetAuthorizationHeaderValue() string { return "" }
+
 // Returns a key matching the UUID header pattern
 func key() config.MobileKey {
 	return "mob-ffffffff-ffff-4fff-afff-ffffffffffff"
@@ -43,10 +47,9 @@ const (
 	undefinedMobileKey = config.MobileKey("mob-99999999-9999-4999-8999-999999999999")
 	undefinedEnvID     = config.EnvironmentID("999999999999999999999999")
 
-	// The "malformed" values do not pass the basic regex match for their types.
-	malformedSDKKey    = config.SDKKey("sdk-no")
-	malformedMobileKey = config.MobileKey("mob-no")
-	malformedEnvId     = config.EnvironmentID("env-no")
+	// The "malformed" values contain an unsupported authorization scheme.
+	malformedSDKKey    = config.SDKKey("fake_key sdk-99999999-9999-4999-8999-999999999999")
+	malformedMobileKey = config.MobileKey("fake_key mob-99999999-9999-4999-8999-999999999999")
 )
 
 var testEnvMain = testEnv{

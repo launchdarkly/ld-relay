@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 // connection may take a while, so it is possible for the client and store references to be nil if initialization
 // is not yet complete.
 type EnvContext interface {
+	io.Closer
+
 	// GetName returns the configured name of the environment.
 	GetName() string
 
