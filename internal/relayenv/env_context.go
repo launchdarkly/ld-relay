@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
 
@@ -41,8 +42,12 @@ type EnvContext interface {
 	// have its own prefix string and, optionally, its own log level.
 	GetLoggers() ldlog.Loggers
 
-	// GetHandlers returns the HTTP handlers for servicing requests for this environment.
-	GetHandlers() ClientHandlers
+	// GetHandler returns the HTTP handler for the specified kind of stream requests and credential for this
+	// environment. If there is none, it returns a handler for a 404 status (not nil).
+	GetStreamHandler(streams.StreamProvider, config.SDKCredential) http.Handler
+
+	// GetEventDispatcher returns the object that proxies events for this environment.
+	GetEventDispatcher() *events.EventDispatcher
 
 	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
 	// environment.
@@ -62,26 +67,7 @@ type EnvContext interface {
 // Credentials encapsulates all the configured LD credentials for an environment. The SDK key is mandatory;
 // the mobile key and environment ID may be omitted.
 type Credentials struct {
-	SDKKey        string
-	MobileKey     ldvalue.OptionalString
-	EnvironmentID ldvalue.OptionalString
-}
-
-// ClientHandlers encapsulates all of the HTTP handlers and related objects for servicing requests for an
-// environment.
-type ClientHandlers struct {
-	// FlagsStreamHandler handles the /flags streaming endpoint (normally provided by stream.launchdarkly.com)
-	// that is used by older server-side SDKs.
-	FlagsStreamHandler http.Handler
-
-	// AllStreamHandler handles the /all streaming endpoint (normally provided by stream.launchdarkly.com)
-	// that is used by current server-side SDKs.
-	AllStreamHandler http.Handler
-
-	// PingStreamHandler handles the client-side streaming endpoint (normally provided by stream.launchdarkly.com)
-	// which, in this version of Relay, only sends "ping" events.
-	PingStreamHandler http.Handler
-
-	// EventDispatcher is the object that proxies events for this environment.
-	EventDispatcher *events.EventDispatcher
+	SDKKey        config.SDKKey
+	MobileKey     config.MobileKey
+	EnvironmentID config.EnvironmentID
 }

@@ -8,6 +8,23 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
+type ReceivedItemUpdate struct {
+	Kind ldstoretypes.DataKind
+	Key  string
+	Item ldstoretypes.ItemDescriptor
+}
+
+type ExistingDataStoreFactory struct {
+	Instance interfaces.DataStore
+}
+
+func (f ExistingDataStoreFactory) CreateDataStore(
+	interfaces.ClientContext,
+	interfaces.DataStoreUpdates,
+) (interfaces.DataStore, error) {
+	return f.Instance, nil
+}
+
 func NewInMemoryStore() interfaces.DataStore {
 	store, err := ldcomponents.InMemoryDataStore().CreateDataStore(SDKContextImpl{}, nil)
 	if err != nil {
@@ -17,11 +34,21 @@ func NewInMemoryStore() interfaces.DataStore {
 }
 
 func UpsertFlag(store interfaces.DataStore, flag ldmodel.FeatureFlag) (bool, error) {
-	return store.Upsert(ldstoreimpl.Features(), flag.Key,
-		ldstoretypes.ItemDescriptor{Version: flag.Version, Item: &flag})
+	return store.Upsert(ldstoreimpl.Features(), flag.Key, FlagDesc(flag))
 }
 
 func UpsertSegment(store interfaces.DataStore, segment ldmodel.Segment) (bool, error) {
-	return store.Upsert(ldstoreimpl.Segments(), segment.Key,
-		ldstoretypes.ItemDescriptor{Version: segment.Version, Item: &segment})
+	return store.Upsert(ldstoreimpl.Segments(), segment.Key, SegmentDesc(segment))
+}
+
+func FlagDesc(flag ldmodel.FeatureFlag) ldstoretypes.ItemDescriptor {
+	return ldstoretypes.ItemDescriptor{Version: flag.Version, Item: &flag}
+}
+
+func SegmentDesc(segment ldmodel.Segment) ldstoretypes.ItemDescriptor {
+	return ldstoretypes.ItemDescriptor{Version: segment.Version, Item: &segment}
+}
+
+func DeletedItem(version int) ldstoretypes.ItemDescriptor {
+	return ldstoretypes.ItemDescriptor{Version: version, Item: nil}
 }

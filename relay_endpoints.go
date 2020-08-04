@@ -18,6 +18,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
@@ -74,51 +75,43 @@ func getClientSideUserProperties(
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
-func pingStreamHandler() http.Handler {
+func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
-		clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+		clientCtx.env.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
 	})
 }
 
 // This handler is used for client-side streaming endpoints that require user properties. Currently it is
 // implemented the same as the ping stream once we have validated the user.
-func pingStreamHandlerWithUser(sdkKind sdkKind) http.Handler {
+func pingStreamHandlerWithUser(sdkKind sdkKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.env.GetLoggers().Debug("Application requested client-side ping stream")
 
-		if _, ok := getClientSideUserProperties(clientCtx, sdkKind, req, w); ok {
-			clientCtx.GetHandlers().PingStreamHandler.ServeHTTP(w, req)
+		if _, ok := getClientSideUserProperties(clientCtx.env, sdkKind, req, w); ok {
+			clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
 		}
 	})
 }
 
-// Server-side SDK streaming endpoint for both flags and segments: stream.ld.com/all
-func allStreamHandler() http.Handler {
+// Multi-purpose streaming handler; all details of the behavior of the particular type of stream are
+// abstracted in StreamProvider and EnvStreams
+func streamHandler(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		clientCtx.GetLoggers().Debug("Application requested server-side /all stream")
-		clientCtx.GetHandlers().AllStreamHandler.ServeHTTP(w, req)
-	})
-}
-
-// Old server-side SDK streaming endpoint for just flags: stream.ld.com/flags
-func flagsStreamHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		clientCtx := getClientContext(req)
-		clientCtx.GetLoggers().Debug("Application requested server-side /flags stream")
-		clientCtx.GetHandlers().FlagsStreamHandler.ServeHTTP(w, req)
+		clientCtx.env.GetLoggers().Debug(logMessage)
+		clientCtx.env.GetStreamHandler(streamProvider, clientCtx.credential).ServeHTTP(w, req)
 	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := getClientContext(req)
-	data, err := clientCtx.GetStore().GetAll(ldstoreimpl.Features())
+	data, err := clientCtx.env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
-		clientCtx.GetLoggers().Errorf("Error reading feature store: %s", err)
+		clientCtx.env.GetLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(500)
 		return
 	}
@@ -130,17 +123,17 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
 	}
 	etag := hex.EncodeToString(hash.Sum(nil))[:15]
-	writeCacheableJSONResponse(w, req, clientCtx, respData, etag)
+	writeCacheableJSONResponse(w, req, clientCtx.env, respData, etag)
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
 func pollFlagHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), ldstoreimpl.Features())(w, req)
+	pollFlagOrSegment(getClientContext(req).env, ldstoreimpl.Features())(w, req)
 }
 
 // PHP SDK polling endpoint for a segment: app.ld.com/sdk/segments/{key}
 func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
-	pollFlagOrSegment(getClientContext(req), ldstoreimpl.Segments())(w, req)
+	pollFlagOrSegment(getClientContext(req).env, ldstoreimpl.Segments())(w, req)
 }
 
 // Event-recorder endpoints:
@@ -153,7 +146,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := getClientContext(req)
-		dispatcher := clientCtx.GetHandlers().EventDispatcher
+		dispatcher := clientCtx.env.GetEventDispatcher()
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
@@ -196,11 +189,11 @@ func evaluateAllFeatureFlagsValueOnly(sdkKind sdkKind) func(w http.ResponseWrite
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdkKind) {
 	clientCtx := getClientContext(req)
-	client := clientCtx.GetClient()
-	store := clientCtx.GetStore()
-	loggers := clientCtx.GetLoggers()
+	client := clientCtx.env.GetClient()
+	store := clientCtx.env.GetStore()
+	loggers := clientCtx.env.GetLoggers()
 
-	user, ok := getClientSideUserProperties(clientCtx, sdkKind, req, w)
+	user, ok := getClientSideUserProperties(clientCtx.env, sdkKind, req, w)
 	if !ok {
 		return
 	}

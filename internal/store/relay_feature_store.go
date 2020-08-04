@@ -1,34 +1,24 @@
 package store
 
 import (
-	"encoding/json"
 	"sync"
-	"time"
 
-	es "github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
-// ESPublisher defines an interface for publishing events to eventsource
-type ESPublisher interface {
-	Publish(channels []string, event es.Event)
-	PublishComment(channels []string, text string)
-	Register(channel string, repo es.Repository)
-}
-
-// SSERelayDataStoreAdapter is used to create the SSERelayDataStore.
+// SSERelayDataStoreAdapter is used to create the data store wrapper that manages updates. When data is
+// updated in the underlying store, it calls methods of EnvStreams to broadcast the updates.
 //
 // Because the SDK normally wants to manage the lifecycle of its components, it requires you to provide
 // a factory for any custom component, rather than an instance of the component itself. Then it asks the
 // factory to create the instance when the LDClient is created. However, in this case we want to be able
 // to access the instance externally.
 //
-// Also, since SSERelayDataStore is a wrapper for an underlying data store that could be a database, we
-// need to be able to specify which data store implementation is being used - also as a factory.
+// Also, since streamUpdatesStoreWrapper is a wrapper for an underlying data store that could be a database,
+// we need to be able to specify which data store implementation is being used - also as a factory.
 //
 // So, this factory implementation - which should only be used for a single client at a time - calls the
 // wrapped factory to produce the underlying data store, then creates our own store instance, and then
@@ -36,436 +26,126 @@ type ESPublisher interface {
 type SSERelayDataStoreAdapter struct {
 	store          interfaces.DataStore
 	wrappedFactory interfaces.DataStoreFactory
-	params         SSERelayDataStoreParams
-	mu             sync.Mutex
+	updates        streams.EnvStreamUpdates
+	mu             sync.RWMutex
+}
+
+// DataStoreProvider is an interface implemented by SSERelayDataStoreAdapter, describing a component that
+// may or may not yet have a data store.
+type DataStoreProvider interface {
+	// GetStore returns the current data store, or nil if it has not been created.
+	GetStore() interfaces.DataStore
 }
 
 func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
-	return a.store
+	a.mu.RLock()
+	store := a.store
+	a.mu.RUnlock()
+	return store
 }
 
 func NewSSERelayDataStoreAdapter(
 	wrappedFactory interfaces.DataStoreFactory,
-	params SSERelayDataStoreParams,
+	updates streams.EnvStreamUpdates,
 ) *SSERelayDataStoreAdapter {
-	return &SSERelayDataStoreAdapter{wrappedFactory: wrappedFactory, params: params}
-}
-
-func NewSSERelayDataStoreAdapterWithExistingStore( // used only in testing
-	store interfaces.DataStore,
-) *SSERelayDataStoreAdapter {
-	return &SSERelayDataStoreAdapter{store: store}
+	return &SSERelayDataStoreAdapter{
+		wrappedFactory: wrappedFactory,
+		updates:        updates,
+	}
 }
 
 func (a *SSERelayDataStoreAdapter) CreateDataStore(
 	context interfaces.ClientContext,
 	dataStoreUpdates interfaces.DataStoreUpdates,
 ) (interfaces.DataStore, error) {
-	var s *SSERelayFeatureStore
-	if a.wrappedFactory != nil {
-		wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
-		if err != nil {
-			return nil, err // this will cause client initialization to fail immediately
-		}
-		s = NewSSERelayFeatureStore(
-			a.params.SDKKey,
-			a.params.AllPublisher,
-			a.params.FlagsPublisher,
-			a.params.PingPublisher,
-			wrappedStore,
-			context.GetLogging().GetLoggers(),
-			a.params.HeartbeatInterval,
-		)
+	var sw *streamUpdatesStoreWrapper
+	wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
+	if err != nil {
+		return nil, err // this will cause client initialization to fail immediately
 	}
+	sw = newStreamUpdatesStoreWrapper(
+		a.updates,
+		wrappedStore,
+		context.GetLogging().GetLoggers(),
+	)
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if s == nil {
-		return a.store, nil
-	}
-	a.store = s
-	return s, nil
+	a.store = sw
+	return sw, nil
 }
 
-type SSERelayDataStoreParams struct {
-	SDKKey            config.SDKKey
-	AllPublisher      ESPublisher
-	FlagsPublisher    ESPublisher
-	PingPublisher     ESPublisher
-	HeartbeatInterval time.Duration
+// A DataStore implementation that delegates to an underlying store but also publish
+// but also publishes stream updates when the store is modified.
+type streamUpdatesStoreWrapper struct {
+	store   interfaces.DataStore
+	updates streams.EnvStreamUpdates
+	loggers ldlog.Loggers
 }
 
-type SSERelayFeatureStore struct {
-	store          interfaces.DataStore
-	allPublisher   ESPublisher
-	flagsPublisher ESPublisher
-	pingPublisher  ESPublisher
-	apiKey         config.SDKKey
-	loggers        ldlog.Loggers
-}
-
-type allRepository struct {
-	relayStore *SSERelayFeatureStore
-	loggers    ldlog.Loggers
-}
-type flagsRepository struct {
-	relayStore *SSERelayFeatureStore
-	loggers    ldlog.Loggers
-}
-type pingRepository struct {
-	relayStore *SSERelayFeatureStore
-	loggers    ldlog.Loggers
-}
-
-// NewSSERelayFeatureStore creates a new feature store that relays different kinds of updates
-func NewSSERelayFeatureStore(
-	apiKey config.SDKKey,
-	allPublisher ESPublisher,
-	flagsPublisher ESPublisher,
-	pingPublisher ESPublisher,
+func newStreamUpdatesStoreWrapper(
+	updates streams.EnvStreamUpdates,
 	baseFeatureStore interfaces.DataStore,
 	loggers ldlog.Loggers,
-	heartbeatInterval time.Duration,
-) *SSERelayFeatureStore {
-	relayStore := &SSERelayFeatureStore{
-		store:          baseFeatureStore,
-		apiKey:         apiKey,
-		allPublisher:   allPublisher,
-		flagsPublisher: flagsPublisher,
-		pingPublisher:  pingPublisher,
-		loggers:        loggers,
+) *streamUpdatesStoreWrapper {
+	relayStore := &streamUpdatesStoreWrapper{
+		store:   baseFeatureStore,
+		updates: updates,
+		loggers: loggers,
 	}
-
-	allPublisher.Register(string(apiKey), allRepository{relayStore: relayStore, loggers: loggers})
-	flagsPublisher.Register(string(apiKey), flagsRepository{relayStore: relayStore, loggers: loggers})
-	pingPublisher.Register(string(apiKey), pingRepository{relayStore: relayStore, loggers: loggers})
-
-	if heartbeatInterval > 0 {
-		go func() {
-			t := time.NewTicker(heartbeatInterval)
-			for {
-				relayStore.heartbeat()
-				<-t.C
-			}
-		}()
-	}
-
 	return relayStore
 }
 
-func (relay *SSERelayFeatureStore) keys() []string {
-	return []string{string(relay.apiKey)}
+func (sw *streamUpdatesStoreWrapper) Close() error {
+	return sw.store.Close()
 }
 
-func (relay *SSERelayFeatureStore) heartbeat() {
-	relay.allPublisher.PublishComment(relay.keys(), "")
-	relay.flagsPublisher.PublishComment(relay.keys(), "")
-	relay.pingPublisher.PublishComment(relay.keys(), "")
+func (sw *streamUpdatesStoreWrapper) IsStatusMonitoringEnabled() bool {
+	return sw.store.IsStatusMonitoringEnabled()
 }
 
-func (relay *SSERelayFeatureStore) Close() error {
-	return relay.store.Close()
+func (sw *streamUpdatesStoreWrapper) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
+	return sw.store.Get(kind, key)
 }
 
-func (relay *SSERelayFeatureStore) IsStatusMonitoringEnabled() bool {
-	return relay.store.IsStatusMonitoringEnabled()
+func (sw *streamUpdatesStoreWrapper) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+	return sw.store.GetAll(kind)
 }
 
-// Get returns a single item from the feature store
-func (relay *SSERelayFeatureStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
-	return relay.store.Get(kind, key)
-}
-
-// All returns all items in the feature store
-func (relay *SSERelayFeatureStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	return relay.store.GetAll(kind)
-}
-
-// Init initializes the feature store
-func (relay *SSERelayFeatureStore) Init(allData []ldstoretypes.Collection) error {
-	relay.loggers.Debug("Received all feature flags")
-	err := relay.store.Init(allData)
+func (sw *streamUpdatesStoreWrapper) Init(allData []ldstoretypes.Collection) error {
+	sw.loggers.Debug("Received all feature flags")
+	err := sw.store.Init(allData)
 
 	if err != nil {
 		return err
 	}
 
-	relay.allPublisher.Publish(relay.keys(), makePutEvent(allData))
-	relay.flagsPublisher.Publish(relay.keys(), makeFlagsPutEvent(getFlagsData(allData)))
-	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
+	sw.updates.SendAllDataUpdate(allData)
 
 	return nil
 }
 
-func getFlagsData(allData []ldstoretypes.Collection) []ldstoretypes.KeyedItemDescriptor {
-	for _, coll := range allData {
-		if coll.Kind == ldstoreimpl.Features() {
-			return coll.Items
-		}
-	}
-	return nil
-}
-
-// Upsert inserts or updates a single item in the feature store
-func (relay *SSERelayFeatureStore) Upsert(
+func (sw *streamUpdatesStoreWrapper) Upsert(
 	kind ldstoretypes.DataKind,
 	key string,
 	item ldstoretypes.ItemDescriptor,
 ) (bool, error) {
-	relay.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
-	updated, err := relay.store.Upsert(kind, key, item)
+	sw.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
+	updated, err := sw.store.Upsert(kind, key, item)
 
 	if err != nil {
 		return false, err
 	}
 
-	// If updated is false, it means that there was already a higher-versioned item in the store.
-	newItem := item
-	if !updated {
-		newItem, err = relay.store.Get(kind, key)
-		if err != nil {
-			return false, nil
-		}
-		if newItem.Item == nil {
-			// For consistency with past behavior, we do not re-publish deleted items to clients
-			return false, nil
-		}
+	// If updated is false, it means that there was already a higher-versioned item in the store
+	// so no update was done.
+	if updated {
+		sw.updates.SendSingleItemUpdate(kind, key, item)
 	}
-	if item.Item == nil {
-		relay.allPublisher.Publish(relay.keys(), makeDeleteEvent(kind, key, newItem.Version))
-		if kind == ldstoreimpl.Features() {
-			relay.flagsPublisher.Publish(relay.keys(), makeFlagsDeleteEvent(key, newItem.Version))
-		}
-	} else {
-		relay.allPublisher.Publish(relay.keys(), makeUpsertEvent(kind, key, newItem))
-		if kind == ldstoreimpl.Features() {
-			relay.flagsPublisher.Publish(relay.keys(), makeFlagsUpsertEvent(key, newItem))
-		}
-	}
-	relay.pingPublisher.Publish(relay.keys(), makePingEvent())
 
 	return updated, nil
 }
 
-// IsInitialized returns true after the feature store has been initialized the first time
-func (relay *SSERelayFeatureStore) IsInitialized() bool {
-	return relay.store.IsInitialized()
-}
-
-// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
-func (r flagsRepository) Replay(channel, id string) (out chan es.Event) {
-	out = make(chan es.Event)
-	go func() {
-		defer close(out)
-		if r.relayStore.IsInitialized() {
-			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
-
-			if err != nil {
-				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-			} else {
-				out <- makeFlagsPutEvent(flags)
-			}
-		}
-	}()
-	return
-}
-
-// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
-func (r allRepository) Replay(channel, id string) (out chan es.Event) {
-	out = make(chan es.Event)
-	go func() {
-		defer close(out)
-		if r.relayStore.IsInitialized() {
-			flags, err := r.relayStore.GetAll(ldstoreimpl.Features())
-
-			if err != nil {
-				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-			} else {
-				segments, err := r.relayStore.GetAll(ldstoreimpl.Segments())
-				if err != nil {
-					r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
-				} else {
-					allData := []ldstoretypes.Collection{
-						{Kind: ldstoreimpl.Features(), Items: flags},
-						{Kind: ldstoreimpl.Segments(), Items: segments},
-					}
-					out <- makePutEvent(allData)
-				}
-			}
-
-		}
-	}()
-	return
-}
-
-// Replay allows the feature store to act as an SSE repository (to send bootstrap events)
-func (r pingRepository) Replay(channel, id string) (out chan es.Event) {
-	out = make(chan es.Event)
-	go func() {
-		defer close(out)
-		out <- makePingEvent()
-	}()
-	return
-}
-
-var dataKindApiName = map[ldstoretypes.DataKind]string{
-	ldstoreimpl.Features(): "flags",
-	ldstoreimpl.Segments(): "segments",
-}
-
-type flagsPutEvent map[string]interface{}
-type allPutEvent struct {
-	D map[string]map[string]interface{} `json:"data"`
-}
-type deleteEvent struct {
-	Path    string `json:"path"`
-	Version int    `json:"version"`
-}
-
-type upsertEvent struct {
-	Path string      `json:"path"`
-	D    interface{} `json:"data"`
-}
-
-type pingEvent struct{}
-
-func (t flagsPutEvent) Id() string {
-	return ""
-}
-
-func (t flagsPutEvent) Event() string {
-	return "put"
-}
-
-func (t flagsPutEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t flagsPutEvent) Comment() string {
-	return ""
-}
-
-func (t allPutEvent) Id() string {
-	return ""
-}
-
-func (t allPutEvent) Event() string {
-	return "put"
-}
-
-func (t allPutEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t allPutEvent) Comment() string {
-	return ""
-}
-
-func (t upsertEvent) Id() string {
-	return ""
-}
-
-func (t upsertEvent) Event() string {
-	return "patch"
-}
-
-func (t upsertEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t upsertEvent) Comment() string {
-	return ""
-}
-
-func (t deleteEvent) Id() string {
-	return ""
-}
-
-func (t deleteEvent) Event() string {
-	return "delete"
-}
-
-func (t deleteEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t deleteEvent) Comment() string {
-	return ""
-}
-
-func (t pingEvent) Id() string {
-	return ""
-}
-
-func (t pingEvent) Event() string {
-	return "ping"
-}
-
-func (t pingEvent) Data() string {
-	return " " // We need something or the data field is not published by eventsource causing the event to be ignored
-}
-
-func (t pingEvent) Comment() string {
-	return ""
-}
-
-func makeUpsertEvent(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) es.Event {
-	return upsertEvent{
-		Path: "/" + dataKindApiName[kind] + "/" + key,
-		D:    item.Item,
-	}
-}
-
-func makeFlagsUpsertEvent(key string, item ldstoretypes.ItemDescriptor) es.Event {
-	return upsertEvent{
-		Path: "/" + key,
-		D:    item.Item,
-	}
-}
-
-func makeDeleteEvent(kind ldstoretypes.DataKind, key string, version int) es.Event {
-	return deleteEvent{
-		Path:    "/" + dataKindApiName[kind] + "/" + key,
-		Version: version,
-	}
-}
-
-func makeFlagsDeleteEvent(key string, version int) es.Event {
-	return deleteEvent{
-		Path:    "/" + key,
-		Version: version,
-	}
-}
-
-func makePutEvent(allData []ldstoretypes.Collection) es.Event {
-	var allDataMap = map[string]map[string]interface{}{
-		"flags":    {},
-		"segments": {},
-	}
-	for _, coll := range allData {
-		name := dataKindApiName[coll.Kind]
-		for _, item := range coll.Items {
-			allDataMap[name][item.Key] = item.Item.Item
-		}
-	}
-	return allPutEvent{D: allDataMap}
-}
-
-func makeFlagsPutEvent(flags []ldstoretypes.KeyedItemDescriptor) es.Event {
-	flagsMap := make(map[string]interface{}, len(flags))
-	for _, f := range flags {
-		flagsMap[f.Key] = f.Item.Item
-	}
-	return flagsPutEvent(flagsMap)
-}
-
-func makePingEvent() es.Event {
-	return pingEvent{}
+func (sw *streamUpdatesStoreWrapper) IsInitialized() bool {
+	return sw.store.IsInitialized()
 }

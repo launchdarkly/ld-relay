@@ -12,7 +12,8 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 type testEnv struct {
@@ -146,14 +147,24 @@ var clientSideFlags = []testFlag{flag4ClientSide, flag5ClientSide, flag6ClientSi
 
 var segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
-func addAllFlags(store interfaces.DataStore, initialized bool) {
-	if initialized {
-		store.Init(nil)
-	}
-	for _, flag := range allFlags {
-		sharedtest.UpsertFlag(store, flag.flag)
-	}
-	sharedtest.UpsertSegment(store, segment1)
+var allData = []ldstoretypes.Collection{
+	{
+		Kind: ldstoreimpl.Features(),
+		Items: []ldstoretypes.KeyedItemDescriptor{
+			{Key: flag1ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag1ServerSide.flag)},
+			{Key: flag2ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag2ServerSide.flag)},
+			{Key: flag3ServerSide.flag.Key, Item: sharedtest.FlagDesc(flag3ServerSide.flag)},
+			{Key: flag4ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag4ClientSide.flag)},
+			{Key: flag5ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag5ClientSide.flag)},
+			{Key: flag6ClientSide.flag.Key, Item: sharedtest.FlagDesc(flag6ClientSide.flag)},
+		},
+	},
+	{
+		Kind: ldstoreimpl.Segments(),
+		Items: []ldstoretypes.KeyedItemDescriptor{
+			{Key: segment1.Key, Item: sharedtest.SegmentDesc(segment1)},
+		},
+	},
 }
 
 func flagsMap(testFlags []testFlag) map[string]interface{} {

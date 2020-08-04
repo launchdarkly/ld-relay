@@ -3,7 +3,6 @@ package relay
 // This file contains test helpers for dealing with HTTP requests.
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,13 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 )
 
 // Simple shortcut for creating a request that may or may not have a body.
@@ -44,10 +44,10 @@ func addQueryParam(url, query string) string {
 
 // Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
 // going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
-func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx interface{}) *http.Request {
+func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
 	req := buildRequest(verb, "", body, headers)
 	req = mux.SetURLVars(req, vars)
-	req = req.WithContext(context.WithValue(req.Context(), contextKey, ctx))
+	req = req.WithContext(context.WithValue(req.Context(), contextKey, clientContextInfo{env: ctx}))
 	return req
 }
 
@@ -61,7 +61,7 @@ func doRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 }
 
 func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *http.Response {
-	w, bodyReader := NewStreamRecorder()
+	w, bodyReader := sharedtest.NewStreamRecorder()
 	handler.ServeHTTP(w, req)
 	go func() {
 		_, _ = ioutil.ReadAll(bodyReader)
@@ -130,29 +130,6 @@ func assertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod
 	assert.Equal(t, host, resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
-// Extension of ResponseRecorder to handle streaming content.
-type StreamRecorder struct {
-	*bufio.Writer
-	*httptest.ResponseRecorder
-}
-
-func (r StreamRecorder) Write(data []byte) (int, error) {
-	return r.Writer.Write(data)
-}
-
-func (r StreamRecorder) Flush() {
-	r.Writer.Flush()
-}
-
-func NewStreamRecorder() (StreamRecorder, io.Reader) {
-	reader, writer := io.Pipe()
-	recorder := httptest.NewRecorder()
-	return StreamRecorder{
-		ResponseRecorder: recorder,
-		Writer:           bufio.NewWriter(writer),
-	}, reader
-}
-
 // Makes a request that should receive an SSE stream, and calls the given code with a channel that
 // will read from that stream. A nil value is pushed to the channel when the stream closes or
 // encounters an error.
@@ -162,40 +139,9 @@ func withStreamRequest(
 	handler http.Handler,
 	action func(<-chan eventsource.Event),
 ) *http.Response {
-	w, bodyReader := NewStreamRecorder()
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	eventCh := make(chan eventsource.Event, 10)
-
-	ctx, cancelRequest := context.WithCancel(context.Background())
-	reqWithContext := req.WithContext(ctx)
-
-	go func() {
-		handler.ServeHTTP(w, reqWithContext)
-		eventCh <- nil
-		assert.Equal(t, http.StatusOK, w.Code)
-		assertStreamingHeaders(t, w.Header())
-		wg.Done()
-	}()
-	dec := eventsource.NewDecoder(bodyReader)
-	go func() {
-		gotEvent := false
-		for {
-			event, err := dec.Decode()
-			if err == nil {
-				eventCh <- event
-				gotEvent = true
-			} else {
-				if !gotEvent {
-					assert.NoError(t, err)
-				}
-				eventCh <- nil
-				return
-			}
-		}
-	}()
-	action(eventCh)
-	cancelRequest()
-	wg.Wait()
-	return w.Result()
+	resp := sharedtest.WithStreamRequest(t, req, handler, action)
+	if resp != nil {
+		assertStreamingHeaders(t, resp.Header)
+	}
+	return resp
 }

@@ -13,10 +13,11 @@ import (
 
 	"github.com/gregjones/httpcache"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/sdkconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -46,20 +47,21 @@ type RelayEnvironments interface { //nolint:golint // yes, we know the package n
 
 // RelayCore encapsulates the core logic for all variants of Relay Proxy.
 type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
-	allEnvironments map[config.SDKKey]relayenv.EnvContext
-	envsByMobileKey map[config.MobileKey]relayenv.EnvContext
-	envsByEnvID     map[config.EnvironmentID]*clientSideContext
-	metricsManager  *metrics.Manager
-	clientFactory   sdkconfig.ClientFactoryFunc
-	allPublisher    *eventsource.Server
-	flagsPublisher  *eventsource.Server
-	pingPublisher   *eventsource.Server
-	clientInitCh    chan relayenv.EnvContext
-	config          config.Config
-	baseURL         url.URL
-	loggers         ldlog.Loggers
-	closed          bool
-	lock            sync.RWMutex
+	allEnvironments               map[config.SDKKey]relayenv.EnvContext
+	envsByMobileKey               map[config.MobileKey]relayenv.EnvContext
+	envsByEnvID                   map[config.EnvironmentID]*clientSideContext
+	metricsManager                *metrics.Manager
+	clientFactory                 sdkconfig.ClientFactoryFunc
+	serverSideStreamProvider      streams.StreamProvider
+	serverSideFlagsStreamProvider streams.StreamProvider
+	mobileStreamProvider          streams.StreamProvider
+	jsClientStreamProvider        streams.StreamProvider
+	clientInitCh                  chan relayenv.EnvContext
+	config                        config.Config
+	baseURL                       url.URL
+	loggers                       ldlog.Loggers
+	closed                        bool
+	lock                          sync.RWMutex
 }
 
 // NewRelayCore creates and configures an instance of RelayCore, and immediately starts initializing
@@ -69,8 +71,15 @@ func NewRelayCore(
 	loggers ldlog.Loggers,
 	clientFactory sdkconfig.ClientFactoryFunc,
 ) (*RelayCore, error) {
+	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
+	defer thingsToCleanUp.Run()
+
 	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
 		return nil, err
+	}
+
+	if len(c.Environment) == 0 {
+		return nil, errNoEnvironments
 	}
 
 	if c.Main.LogLevel.IsDefined() {
@@ -81,34 +90,25 @@ func NewRelayCore(
 	if err != nil {
 		return nil, errNewMetricsManagerFailed(err)
 	}
+	thingsToCleanUp.AddFunc(metricsManager.Close)
 
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
+	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
+
 	r := RelayCore{
-		allEnvironments: make(map[config.SDKKey]relayenv.EnvContext),
-		envsByMobileKey: make(map[config.MobileKey]relayenv.EnvContext),
-		envsByEnvID:     make(map[config.EnvironmentID]*clientSideContext),
-		metricsManager:  metricsManager,
-		clientFactory:   clientFactory,
-		clientInitCh:    clientInitCh,
-		config:          c,
-		loggers:         loggers,
-	}
-
-	makeSSEServer := func() *eventsource.Server {
-		s := eventsource.NewServer()
-		s.Gzip = false
-		s.AllowCORS = true
-		s.ReplayAll = true
-		s.MaxConnTime = c.Main.MaxClientConnectionTime.GetOrElse(0)
-		return s
-	}
-	r.allPublisher = makeSSEServer()
-	r.flagsPublisher = makeSSEServer()
-	r.pingPublisher = makeSSEServer()
-
-	if len(c.Environment) == 0 {
-		return nil, errNoEnvironments
+		allEnvironments:               make(map[config.SDKKey]relayenv.EnvContext),
+		envsByMobileKey:               make(map[config.MobileKey]relayenv.EnvContext),
+		envsByEnvID:                   make(map[config.EnvironmentID]*clientSideContext),
+		serverSideStreamProvider:      streams.NewServerSideStreamProvider(maxConnTime),
+		serverSideFlagsStreamProvider: streams.NewServerSideFlagsOnlyStreamProvider(maxConnTime),
+		mobileStreamProvider:          streams.NewMobilePingStreamProvider(maxConnTime),
+		jsClientStreamProvider:        streams.NewJSClientPingStreamProvider(maxConnTime),
+		metricsManager:                metricsManager,
+		clientFactory:                 clientFactory,
+		clientInitCh:                  clientInitCh,
+		config:                        c,
+		loggers:                       loggers,
 	}
 
 	if c.Main.BaseURI.IsDefined() {
@@ -126,18 +126,18 @@ func NewRelayCore(
 			loggers.Warnf("environment config was nil for environment %q; ignoring", envName)
 			continue
 		}
-		resultCh, err := r.AddEnvironment(envName, *envConfig)
+		env, resultCh, err := r.AddEnvironment(envName, *envConfig)
 		if err != nil {
-			for _, env := range r.allEnvironments {
-				_ = env.Close()
-			}
 			return nil, err
 		}
+		thingsToCleanUp.AddCloser(env)
 		go func() {
 			env := <-resultCh
 			r.clientInitCh <- env
 		}()
 	}
+
+	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return &r, nil
 }
@@ -174,17 +174,20 @@ func (r *RelayCore) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
 
 // AddEnvironment attempts to add a new environment. It returns an error only if the configuration
 // is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
-func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (<-chan relayenv.EnvContext, error) {
+func (r *RelayCore) AddEnvironment(
+	envName string,
+	envConfig config.EnvConfig,
+) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
 	if r.closed {
-		return nil, errAlreadyClosed
+		return nil, nil, errAlreadyClosed
 	}
 
 	dataStoreFactory, err := sdkconfig.ConfigureDataStore(r.config, envConfig, r.loggers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resultCh := make(chan relayenv.EnvContext, 1)
@@ -195,15 +198,13 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 		r.config,
 		r.clientFactory,
 		dataStoreFactory,
-		r.allPublisher,
-		r.flagsPublisher,
-		r.pingPublisher,
+		r.allStreamProviders(),
 		r.metricsManager,
 		r.loggers,
 		resultCh,
 	)
 	if err != nil {
-		return nil, errNewClientContextFailed(envName, err)
+		return nil, nil, errNewClientContextFailed(envName, err)
 	}
 	r.allEnvironments[envConfig.SDKKey] = clientContext
 	if envConfig.MobileKey != "" {
@@ -255,7 +256,7 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 		}
 	}
 
-	return resultCh, nil
+	return clientContext, resultCh, nil
 }
 
 // RemoveEnvironment shuts down and removes an existing environment. All network connections, metrics
@@ -266,14 +267,10 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (
 func (r *RelayCore) RemoveEnvironment(sdkKey config.SDKKey) bool {
 	r.lock.Lock()
 	env := r.allEnvironments[sdkKey]
-	var mobileKey config.MobileKey
-	var envID config.EnvironmentID
 	if env != nil {
 		delete(r.allEnvironments, sdkKey)
-		mobileKey = config.MobileKey(env.GetCredentials().MobileKey.StringValue())
-		delete(r.envsByMobileKey, mobileKey)
-		envID = config.EnvironmentID(env.GetCredentials().EnvironmentID.StringValue())
-		delete(r.envsByEnvID, envID)
+		delete(r.envsByMobileKey, env.GetCredentials().MobileKey)
+		delete(r.envsByEnvID, env.GetCredentials().EnvironmentID)
 	}
 	r.lock.Unlock()
 
@@ -344,15 +341,25 @@ func (r *RelayCore) Close() {
 	r.envsByMobileKey = nil
 	r.envsByEnvID = nil
 
-	metricsManager := r.metricsManager
-	r.metricsManager = nil
-
 	r.lock.Unlock()
 
-	metricsManager.Close()
+	r.metricsManager.Close()
 	for _, env := range envs {
 		if err := env.Close(); err != nil {
 			r.loggers.Warnf("unexpected error when closing environment: %s", err)
 		}
+	}
+
+	for _, sp := range r.allStreamProviders() {
+		sp.Close()
+	}
+}
+
+func (r *RelayCore) allStreamProviders() []streams.StreamProvider {
+	return []streams.StreamProvider{
+		r.serverSideStreamProvider,
+		r.serverSideFlagsStreamProvider,
+		r.mobileStreamProvider,
+		r.jsClientStreamProvider,
 	}
 }
