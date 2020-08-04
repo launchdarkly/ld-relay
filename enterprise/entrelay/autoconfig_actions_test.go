@@ -327,6 +327,52 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 	})
 }
 
+func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
+	briefExpiryMillis := 300
+	oldKey := testAutoConfEnv1.sdkKey
+	newKey := c.SDKKey("newsdkkey")
+
+	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
+
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		client1 := p.awaitClient()
+
+		env := p.awaitEnvironment(testAutoConfEnv1.id)
+		assertEnvProps(t, testAutoConfEnv1, env)
+
+		modified := testAutoConfEnv1
+		modified.sdkKey = newKey
+		modified.sdkKeyExpiryValue = oldKey
+		modified.sdkKeyExpiryTime = ldtime.UnixMillisNow() + ldtime.UnixMillisecondTime(briefExpiryMillis)
+		modified.version++
+
+		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
+
+		client2 := p.awaitClient()
+		assert.Equal(t, newKey, client2.Key)
+
+		expectedCredentials := credentialsAsSet(modified.id, modified.mobKey, newKey)
+		sdkKeyChanged := func() bool {
+			return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
+		}
+		require.Eventually(p.t, sdkKeyChanged, time.Second, time.Millisecond*5)
+		assertEnvLookup(t, p.relay, env, modified)
+		assert.Equal(t, env, p.relay.core.GetEnvironment(oldKey))
+
+		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
+
+		select {
+		case <-client1.CloseCh:
+			break
+		case <-time.After(time.Millisecond * 300):
+			require.Fail(t, "timed out waiting for client with old key to close")
+		}
+
+		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
+		assert.Nil(t, p.relay.core.GetEnvironment(oldKey))
+	})
+}
+
 func TestAutoConfigDeleteEnvironment(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1, testAutoConfEnv2)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
