@@ -9,6 +9,14 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
+func errEnvironmentWithNoSDKKey(envName string) error {
+	return fmt.Errorf("SDK key is required for environment %q", envName)
+}
+
+func errMultipleDatabases(databases []string) error {
+	return fmt.Errorf("multiple databases are enabled (%s); only one is allowed", strings.Join(databases, ", "))
+}
+
 // ValidateConfig ensures that the configuration does not contain contradictory properties.
 //
 // This method covers validation rules that can't be enforced on a per-field basis (for instance, if
@@ -28,7 +36,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 
 	for envName, envConfig := range c.Environment {
 		if envConfig.SDKKey == "" {
-			result.AddError(nil, fmt.Errorf("SDK key is required for environment %q", envName))
+			result.AddError(nil, errEnvironmentWithNoSDKKey(envName))
 		}
 	}
 
@@ -62,8 +70,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 		databases = append(databases, "DynamoDB")
 	}
 	if len(databases) > 1 {
-		result.AddError(nil, fmt.Errorf("multiple databases are enabled (%s); only one is allowed",
-			strings.Join(databases, ", ")))
+		result.AddError(nil, errMultipleDatabases(databases))
 	}
 
 	return result.GetError()

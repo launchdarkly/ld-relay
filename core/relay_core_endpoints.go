@@ -53,7 +53,7 @@ func getClientSideUserProperties(
 	if req.Method == "REPORT" {
 		if req.Header.Get("Content-Type") != "application/json" {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
-			w.Write([]byte("Content-Type must be application/json."))
+			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return user, false
 		}
 		body, _ := ioutil.ReadAll(req.Body)
@@ -65,7 +65,7 @@ func getClientSideUserProperties(
 	if userDecodeErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg(userDecodeErr.Error()))
+		_, _ = w.Write(util.ErrorJSONMsg(userDecodeErr.Error()))
 		return user, false
 	}
 
@@ -79,7 +79,7 @@ func getClientSideUserProperties(
 		if !valid {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write(util.ErrorJsonMsg("Environment is in secure mode, and user hash does not match."))
+			_, _ = w.Write(util.ErrorJSONMsg("Environment is in secure mode, and user hash does not match."))
 			return user, false
 		}
 	}
@@ -163,7 +163,7 @@ func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 		dispatcher := clientCtx.Env.GetEventDispatcher()
 		if dispatcher == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
+			_, _ = w.Write(util.ErrorJSONMsg("Event proxy is not enabled for this environment"))
 			return
 		}
 		handler := dispatcher.GetHandler(endpoint)
@@ -171,7 +171,7 @@ func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 			// Note, if this ever happens, it is a programming error since we are only supposed to
 			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(util.ErrorJsonMsg("Internal error in event proxy"))
+			_, _ = w.Write(util.ErrorJSONMsg("Internal error in event proxy"))
 			logging.GetGlobalContextLoggers(req.Context()).Errorf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
 			return
 		}
@@ -222,14 +222,14 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			loggers.Warn("Called before client initialization. Feature store not available")
-			w.Write(util.ErrorJsonMsg("Service not initialized"))
+			_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
 			return
 		}
 	}
 
 	if user.GetKey() == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg("User must have a 'key' attribute"))
+		_, _ = w.Write(util.ErrorJSONMsg("User must have a 'key' attribute"))
 		return
 	}
 
@@ -239,7 +239,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	if err != nil {
 		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(util.ErrorJsonMsgf("Error fetching flags from feature store: %s", err))
+		_, _ = w.Write(util.ErrorJSONMsgf("Error fetching flags from feature store: %s", err))
 		return
 	}
 
@@ -281,7 +281,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	result, _ := json.Marshal(response)
 
 	w.WriteHeader(http.StatusOK)
-	w.Write(result)
+	_, _ = w.Write(result)
 }
 
 func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {

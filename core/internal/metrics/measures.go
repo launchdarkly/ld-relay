@@ -16,6 +16,9 @@ var (
 	// by the name. At least, that's one theory; the documentation is unclear on this, but it does seem
 	// that calling stats.Int64 with identical parameters in different parts of the code instead of reusing
 	// an instance causes things to stop working.
+	//
+	// To avoid having to put nolint:gochecknoglobals on everything here, that linter is excluded
+	// specifically for this file in .golangci-lint.yml.
 	connMeasure    = stats.Int64(connMeasureName, "current number of connections", stats.UnitDimensionless)
 	newConnMeasure = stats.Int64(newConnMeasureName, "total number of connections", stats.UnitDimensionless)
 	requestMeasure = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
@@ -24,19 +27,35 @@ var (
 	privateConnMeasure    = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
 	privateNewConnMeasure = stats.Int64(privateNewConnMeasureName, "total number of connections", stats.UnitDimensionless)
 
+	// BrowserConns is a Measure representing the current number of active stream connections from browsers.
 	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeBrowserTags()}
-	MobileConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeMobileTags()}
-	ServerConns  = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeServerTags()}
 
+	// MobileConns is a Measure representing the current number of active stream connections from mobile SDKs.
+	MobileConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeMobileTags()}
+
+	// ServerConns is a is a Measure representing the current number of active stream connections from server-side SDKs.
+	ServerConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeServerTags()}
+
+	// NewBrowserConns is a Measure representing the cumulative number of stream connections from browsers.
 	NewBrowserConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeBrowserTags()}
-	NewMobileConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeMobileTags()}
-	NewServerConns  = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeServerTags()}
 
+	// NewMobileConns is a Measure representing the cumulative number of stream connections from mobile SDKs.
+	NewMobileConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeMobileTags()}
+
+	// NewServerConns is a Measure representing the cumulative number of stream connections from server-side SDKs.
+	NewServerConns = Measure{measures: []*stats.Int64Measure{newConnMeasure, privateNewConnMeasure}, tags: makeServerTags()}
+
+	// BrowserRequests is a Measure representing the number of HTTP requests from browsers.
 	BrowserRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeBrowserTags()}
-	MobileRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeMobileTags()}
-	ServerRequests  = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeServerTags()}
+
+	// MobileRequests is a Measure representing the number of HTTP requests from mobile SDKs.
+	MobileRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeMobileTags()}
+
+	// ServerRequests is a Measure representing the number of HTTP requests from server-side SDKs.
+	ServerRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeServerTags()}
 )
 
+// Measure represents one of the types of metrics that can be passed to WithCount, WithGauge, or WithRouteCount.
 type Measure struct {
 	measures []*stats.Int64Measure
 	tags     []tag.Mutator
@@ -54,6 +73,8 @@ func makeServerTags() []tag.Mutator {
 	return []tag.Mutator{tag.Insert(platformCategoryTagKey, serverTagValue)}
 }
 
+// WithGauge increments the specified metric before running the function and then decrements it (for use with
+// the active connection metrics).
 func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
@@ -68,6 +89,7 @@ func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure)
 	f()
 }
 
+// WithCount runs a function and records a single-unit increment for the specified metric.
 func WithCount(ctx context.Context, userAgent string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil {
@@ -81,7 +103,7 @@ func WithCount(ctx context.Context, userAgent string, f func(), measure Measure)
 	f()
 }
 
-// WithRouteCount Records a route hit and starts a trace. For stream connections, the duration of the stream connection is recorded
+// WithRouteCount records a route hit and starts a trace. For stream connections, the duration of the stream connection is recorded
 func WithRouteCount(ctx context.Context, userAgent, route, method string, f func(), measure Measure) {
 	tagCtx, err := tag.New(ctx, tag.Insert(routeTagKey, sanitizeTagValue(route)), tag.Insert(methodTagKey, sanitizeTagValue(method)))
 	if err != nil {

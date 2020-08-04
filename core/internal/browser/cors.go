@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	// The default origin string to use in CORS response headers.
+	// DefaultAllowedOrigin is the default origin string to use in CORS response headers.
 	DefaultAllowedOrigin = "*"
 )
 
@@ -20,7 +20,7 @@ const (
 	maxAge         string             = "300"
 )
 
-var allowedHeadersList = []string{
+var allowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 	"Cache-Control",
 	"Content-Type",
 	"Content-Length",
@@ -29,9 +29,7 @@ var allowedHeadersList = []string{
 	"X-LaunchDarkly-Payload-ID",
 	"X-LaunchDarkly-Wrapper",
 	events.EventSchemaHeader,
-}
-
-var allowedHeaders = strings.Join(allowedHeadersList, ",")
+}, ",")
 
 // CORSContext represents a scope that has a specific set of allowed origins for CORS requests. This
 // can be attached to a request context with WithCORSContext().

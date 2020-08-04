@@ -18,13 +18,13 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 
 	if clientCtx.Env.GetEventDispatcher() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write(util.ErrorJsonMsg("Event proxy is not enabled for this environment"))
+		_, _ = w.Write(util.ErrorJSONMsg("Event proxy is not enabled for this environment"))
 		return
 	}
 	handler := clientCtx.Env.GetEventDispatcher().GetHandler(events.JavaScriptSDKEventsEndpoint)
 	if handler == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write(util.ErrorJsonMsg("Event proxy for browser clients is not enabled for this environment"))
+		_, _ = w.Write(util.ErrorJSONMsg("Event proxy for browser clients is not enabled for this environment"))
 		return
 	}
 
@@ -42,7 +42,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "image/gif")
-	w.Write(browser.Transparent1PixelImageData)
+	_, _ = w.Write(browser.Transparent1PixelImageData)
 }
 
 func getGoals(w http.ResponseWriter, req *http.Request) {

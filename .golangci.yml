@@ -5,21 +5,42 @@ run:
   tests: false
 
 linters:
-  enable-all: true
-  disable:
-    - funlen # allow long/complex functions for now
+  enable:
+    - bodyclose
+    - deadcode
+    - depguard
+    - dupl
+    - errcheck
+    - goconst
     - gochecknoglobals
     - gochecknoinits
-    - gocognit # allow long/complex functions for now
-    - gocritic # very aggressive about preferring switch statements to if/else
+    - goconst
+    - gocritic
     - gocyclo
+    - godox
     - gofmt
-    - gomnd # extremely aggressive linter that complains about all numeric literals, even just adding 1 to something (https://github.com/tommy-muehle/go-mnd)
-    - lll
-    - maligned # don't really care about struct sizes
+    - goimports
+    - golint
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - interfacer
+    #- lll  # no need to break up long lines at present
+    - megacheck
+    - misspell
+    - nakedret
+    - nolintlint
+    - prealloc
+    - staticcheck
+    - structcheck
+    - stylecheck
+    - typecheck
+    - unconvert
     - unparam
+    - unused
+    - varcheck
     - whitespace
-    - wsl # enforces a very specific style with an idiosyncratic definition of what "cuddling" is
   fast: false
 
 linter-settings:
@@ -28,21 +49,15 @@ linter-settings:
 
 issues:
   exclude-rules:
-    - path: core/sharedtest/
+    - path: core/internal/metrics/measures.go  # see explanation in that file
       linters:
-        - golint  # don't need linter warnings about comment formatting etc. on our test helpers
-    - path: core/sharedtest/testsuites/
+        - gochecknoglobals
+    - path: core/sharedtest/
       linters:
         - bodyclose
         - goconst
-  exclude:
-    # golint exclusions
-    - "(const|func|method|struct field|type|var) .* should be " # golint errors about variable names (don't want to fix them because they're in a public interface)
-    - "G104: Errors unhandled." # Let errcheck handle these
-    - "Error return value of `w.Write` is not checked"
-    - "should have comment or be unexported" # TODO: label everything that is exported when relay becomes a library
-    - "ST1005: error strings should not be capitalized"
-    - "ST1000: at least one file in a package should have a package comment"
+        - gochecknoglobals
+        - golint
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

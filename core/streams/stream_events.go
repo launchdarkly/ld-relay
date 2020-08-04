@@ -11,7 +11,7 @@ import (
 // This file defines the format for all SSE events published by Relay. Its functions are normally only
 // used by the streams package, but they are exported for testing.
 
-var dataKindApiName = map[ldstoretypes.DataKind]string{
+var dataKindAPIName = map[ldstoretypes.DataKind]string{ //nolint:gochecknoglobals
 	ldstoreimpl.Features(): "flags",
 	ldstoreimpl.Segments(): "segments",
 }
@@ -39,7 +39,7 @@ func MakeServerSidePutEvent(allData []ldstoretypes.Collection) eventsource.Event
 		"segments": {},
 	}
 	for _, coll := range allData {
-		name := dataKindApiName[coll.Kind]
+		name := dataKindAPIName[coll.Kind]
 		for _, item := range coll.Items {
 			allDataMap[name][item.Key] = item.Item.Item
 		}
@@ -71,7 +71,7 @@ func MakeServerSidePatchEvent(
 	item ldstoretypes.ItemDescriptor,
 ) eventsource.Event {
 	return upsertEvent{
-		Path: "/" + dataKindApiName[kind] + "/" + key,
+		Path: "/" + dataKindAPIName[kind] + "/" + key,
 		D:    item.Item,
 	}
 }
@@ -88,7 +88,7 @@ func MakeServerSideFlagsOnlyPatchEvent(key string, item ldstoretypes.ItemDescrip
 // MakeServerSideDeleteEvent creates a "delete" event for server-side SDKs.
 func MakeServerSideDeleteEvent(kind ldstoretypes.DataKind, key string, version int) eventsource.Event {
 	return deleteEvent{
-		Path:    "/" + dataKindApiName[kind] + "/" + key,
+		Path:    "/" + dataKindAPIName[kind] + "/" + key,
 		Version: version,
 	}
 }
@@ -107,7 +107,7 @@ func MakePingEvent() eventsource.Event {
 	return pingEvent{}
 }
 
-func (t flagsPutEvent) Id() string {
+func (t flagsPutEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
 	return ""
 }
 
@@ -121,7 +121,7 @@ func (t flagsPutEvent) Data() string {
 	return string(data)
 }
 
-func (t allPutEvent) Id() string {
+func (t allPutEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
 	return ""
 }
 
@@ -135,7 +135,7 @@ func (t allPutEvent) Data() string {
 	return string(data)
 }
 
-func (t upsertEvent) Id() string {
+func (t upsertEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
 	return ""
 }
 
@@ -149,7 +149,7 @@ func (t upsertEvent) Data() string {
 	return string(data)
 }
 
-func (t deleteEvent) Id() string {
+func (t deleteEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
 	return ""
 }
 
@@ -163,7 +163,7 @@ func (t deleteEvent) Data() string {
 	return string(data)
 }
 
-func (t pingEvent) Id() string {
+func (t pingEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
 	return ""
 }
 

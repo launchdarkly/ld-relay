@@ -43,13 +43,13 @@ const (
 )
 
 var (
-	defaultRedisURL, _ = ct.NewOptURLAbsoluteFromString("redis://localhost:6379")
+	defaultRedisURL, _ = ct.NewOptURLAbsoluteFromString("redis://localhost:6379") //nolint:gochecknoglobals
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
 //
 // Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
-var DefaultLoggers = logging.MakeDefaultLoggers()
+var DefaultLoggers = logging.MakeDefaultLoggers() //nolint:gochecknoglobals
 
 // Config describes the configuration for a relay instance.
 //

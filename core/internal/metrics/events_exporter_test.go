@@ -24,10 +24,10 @@ func init() {
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 }
 
-func TestOpenCensusEventsExporter(t *testing.T) {
-	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *OpenCensusEventsExporter)) {
+func TestopenCensusEventsExporter(t *testing.T) {
+	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *openCensusEventsExporter)) {
 		relayId := uuid.New()
-		exporter := newOpenCensusEventsExporter(relayId, publisher, time.Millisecond)
+		exporter := newopenCensusEventsExporter(relayId, publisher, time.Millisecond)
 		view.RegisterExporter(exporter)
 		defer func() {
 			view.UnregisterExporter(exporter)
@@ -36,14 +36,14 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		}()
 		ctx, err := tag.New(
 			context.Background(),
-			tag.Insert(relayIdTagKey, relayId),
+			tag.Insert(relayIDTagKey, relayId),
 			tag.Insert(platformCategoryTagKey, "gameConsole"),
 			tag.Insert(userAgentTagKey, "my-agent"))
 		require.NoError(t, err)
 		metricView := &view.View{
 			Measure:     privateConnMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIdTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
 		require.NoError(t, view.Register(metricView))
 		defer view.Unregister(metricView)
@@ -53,7 +53,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 	t.Run("exporter generates events", func(*testing.T) {
 		publisher := newTestEventsPublisher()
 		start := nowInUnixMillis()
-		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
 			stats.Record(ctx, privateConnMeasure.M(1))
 			var event interface{}
 			select {
@@ -62,14 +62,14 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			case <-time.After(time.Second):
 				require.Fail(t, "timed out")
 			}
-			require.IsType(t, RelayMetricsEvent{}, event)
-			metricsEvent := event.(RelayMetricsEvent)
-			require.Equal(t, RelayMetricsKind, metricsEvent.Kind)
+			require.IsType(t, relayMetricsEvent{}, event)
+			metricsEvent := event.(relayMetricsEvent)
+			require.Equal(t, relayMetricsKind, metricsEvent.Kind)
 			assert.True(t, metricsEvent.StartDate >= start/int64(time.Millisecond))
 			assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
 			assert.True(t, metricsEvent.EndDate <= nowInUnixMillis())
-			expectedRelayId, _ := tag.FromContext(ctx).Value(relayIdTagKey)
-			assert.Equal(t, expectedRelayId, metricsEvent.RelayId)
+			expectedRelayId, _ := tag.FromContext(ctx).Value(relayIDTagKey)
+			assert.Equal(t, expectedRelayId, metricsEvent.RelayID)
 			if !assert.ElementsMatch(t, []currentConnectionsMetric{{
 				UserAgent:        "my-agent",
 				PlatformCategory: "gameConsole",
@@ -82,7 +82,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 
 	t.Run("empty metrics generate no events", func(*testing.T) {
 		publisher := newTestEventsPublisher()
-		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
 			stats.Record(ctx, privateConnMeasure.M(0))
 			select {
 			case event := <-publisher.events:
@@ -94,7 +94,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 
 	t.Run("the event start time still shifts when events are not sent", func(*testing.T) {
 		publisher := newTestEventsPublisher()
-		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
 			time.Sleep(time.Millisecond * 10)
 			startTime := nowInUnixMillis()
 			// Wait an extra moment to let any export operation that has already started complete
@@ -107,26 +107,26 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			case <-time.After(time.Second):
 				require.Fail(t, "timed out")
 			}
-			require.IsType(t, RelayMetricsEvent{}, event)
-			metricsEvent := event.(RelayMetricsEvent)
+			require.IsType(t, relayMetricsEvent{}, event)
+			metricsEvent := event.(relayMetricsEvent)
 			assert.True(t, metricsEvent.StartDate >= startTime)
 		})
 	})
 
 	t.Run("it ignores metrics for other relays", func(*testing.T) {
 		publisher := newTestEventsPublisher()
-		withTestView(publisher, func(ctx context.Context, exporter *OpenCensusEventsExporter) {
-			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIdTagKey, uuid.New()))
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
+			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIDTagKey, uuid.New()))
 			stats.Record(ctxForDifferentRelay, privateConnMeasure.M(1))
 			stats.Record(ctx, privateConnMeasure.M(1))
 			timeout := time.After(time.Second)
 			for {
 				select {
 				case event := <-publisher.events:
-					metricsEvent := event.(RelayMetricsEvent)
-					require.Equal(t, RelayMetricsKind, metricsEvent.Kind)
-					expectedRelayId, _ := tag.FromContext(ctx).Value(relayIdTagKey)
-					assert.Equal(t, expectedRelayId, metricsEvent.RelayId)
+					metricsEvent := event.(relayMetricsEvent)
+					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+					expectedRelayId, _ := tag.FromContext(ctx).Value(relayIDTagKey)
+					assert.Equal(t, expectedRelayId, metricsEvent.RelayID)
 				case <-timeout:
 					return
 				}

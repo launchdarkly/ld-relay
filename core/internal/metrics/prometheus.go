@@ -13,7 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
 )
 
-var prometheusExporterType exporterType = prometheusExporterTypeImpl{}
+var prometheusExporterType exporterType = prometheusExporterTypeImpl{} //nolint:gochecknoglobals
 
 type prometheusExporterTypeImpl struct{}
 

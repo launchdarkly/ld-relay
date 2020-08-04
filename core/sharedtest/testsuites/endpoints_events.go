@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
@@ -52,7 +51,7 @@ func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) 
 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a
 // test server to receie any events that are proxied by Relay.
-func relayEventsTest(config config.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
+func relayEventsTest(config c.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
 	eventsCh := make(chan publishedEvent)
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

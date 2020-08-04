@@ -25,13 +25,13 @@ const (
 )
 
 var (
-	relayIdTagKey, _          = tag.NewKey("relayId")
-	platformCategoryTagKey, _ = tag.NewKey("platformCategory")
-	userAgentTagKey, _        = tag.NewKey("userAgent")
-	routeTagKey, _            = tag.NewKey("route")
-	methodTagKey, _           = tag.NewKey("method")
-	envNameTagKey, _          = tag.NewKey("env")
+	relayIDTagKey, _          = tag.NewKey("relayId")          //nolint:gochecknoglobals
+	platformCategoryTagKey, _ = tag.NewKey("platformCategory") //nolint:gochecknoglobals
+	userAgentTagKey, _        = tag.NewKey("userAgent")        //nolint:gochecknoglobals
+	routeTagKey, _            = tag.NewKey("route")            //nolint:gochecknoglobals
+	methodTagKey, _           = tag.NewKey("method")           //nolint:gochecknoglobals
+	envNameTagKey, _          = tag.NewKey("env")              //nolint:gochecknoglobals
 
-	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, envNameTagKey}
-	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, relayIdTagKey, envNameTagKey}
+	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, envNameTagKey}                //nolint:gochecknoglobals
+	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, relayIDTagKey, envNameTagKey} //nolint:gochecknoglobals
 )

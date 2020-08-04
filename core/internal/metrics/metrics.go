@@ -19,6 +19,14 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 )
 
+var (
+	errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
+)
+
+func errInitMetricsViews(err error) error {
+	return fmt.Errorf("error registering metrics views: %w", err)
+}
+
 // Manager is the top-level object that controls all of our metrics exporter activity. It should be
 // created and retained by the Relay instance, and closed when the Relay instance is closed.
 type Manager struct {
@@ -36,7 +44,7 @@ type Manager struct {
 // EnvironmentManager controls the metrics exporter activity for a specific LD environment.
 type EnvironmentManager struct {
 	openCensusCtx  context.Context
-	eventsExporter *OpenCensusEventsExporter
+	eventsExporter *openCensusEventsExporter
 	closeOnce      sync.Once
 }
 
@@ -57,16 +65,16 @@ func NewManager(
 		err = view.Register(getPublicViews()...)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics views: %w", err)
+		return nil, errInitMetricsViews(err)
 	}
 	registerPrivateViewsOnce.Do(func() {
 		err = view.Register(getPrivateViews()...)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics views: %w", err)
+		return nil, errInitMetricsViews(err)
 	}
 
-	ctx, _ := tag.New(context.Background(), tag.Insert(relayIdTagKey, metricsRelayID))
+	ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, metricsRelayID))
 
 	m := &Manager{
 		openCensusCtx:  ctx,
@@ -106,12 +114,12 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.closed {
-		return nil, errors.New("tried to add new environment after closing metrics.Manager")
+		return nil, errAddEnvironmentAfterClosed
 	}
 
 	ctx, _ := tag.New(m.openCensusCtx, tag.Insert(envNameTagKey, sanitizeTagValue(envName)))
 
-	eventsExporter := newOpenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
+	eventsExporter := newopenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
 	view.RegisterExporter(eventsExporter)
 
 	em := &EnvironmentManager{

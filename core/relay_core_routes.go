@@ -19,6 +19,8 @@ const (
 	serverSideFlagsOnlyStreamLogMessage = "Application requested server-side /flags stream"
 )
 
+// MakeRouter creates and configures a Router containing all of the standard routes for RelayCore. The Relay
+// or RelayEnterprise code may add additional routes.
 func (r *RelayCore) MakeRouter() *mux.Router {
 	router := mux.NewRouter()
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))

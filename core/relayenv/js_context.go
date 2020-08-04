@@ -14,6 +14,7 @@ type JSClientContext struct {
 	Proxy *httputil.ReverseProxy
 }
 
+// AllowedOrigins implements the internal interface for getting CORS allowed origins.
 func (c JSClientContext) AllowedOrigins() []string {
 	return c.Origins
 }

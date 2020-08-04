@@ -19,7 +19,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
 )
 
-// Describes one of the possible endpoints (on both events.launchdarkly.com and the relay) for posting events
+// Endpoint describes one of the possible endpoints (on both events.launchdarkly.com and Relay) for posting events.
 type Endpoint interface {
 	fmt.Stringer
 }
@@ -34,12 +34,23 @@ type (
 )
 
 var (
-	ServerSDKEventsEndpoint               = &serverSDKEventsEndpoint{}
-	MobileSDKEventsEndpoint               = &mobileSDKEventsEndpoint{}
-	JavaScriptSDKEventsEndpoint           = &javaScriptSDKEventsEndpoint{}
-	ServerSDKDiagnosticEventsEndpoint     = &serverDiagnosticEventsEndpoint{}
-	MobileSDKDiagnosticEventsEndpoint     = &mobileDiagnosticEventsEndpoint{}
-	JavaScriptSDKDiagnosticEventsEndpoint = &javaScriptDiagnosticEventsEndpoint{}
+	// ServerSDKEventsEndpoint describes the endpoint for server-side SDK analytics events.
+	ServerSDKEventsEndpoint = &serverSDKEventsEndpoint{} //nolint:gochecknoglobals
+
+	// MobileSDKEventsEndpoint describes the endpoint for mobile SDK analytics events.
+	MobileSDKEventsEndpoint = &mobileSDKEventsEndpoint{} //nolint:gochecknoglobals
+
+	// JavaScriptSDKEventsEndpoint describes the endpoint for JS/browser SDK analytics events.
+	JavaScriptSDKEventsEndpoint = &javaScriptSDKEventsEndpoint{} //nolint:gochecknoglobals
+
+	// ServerSDKDiagnosticEventsEndpoint describes the endpoint for server-side SDK diagnostic events.
+	ServerSDKDiagnosticEventsEndpoint = &serverDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
+
+	// MobileSDKDiagnosticEventsEndpoint describes the endpoint for mobile SDK diagnostic events.
+	MobileSDKDiagnosticEventsEndpoint = &mobileDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
+
+	// JavaScriptSDKDiagnosticEventsEndpoint describes the endpoint for JS/browser SDK diagnostic events.
+	JavaScriptSDKDiagnosticEventsEndpoint = &javaScriptDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
 )
 
 type eventVerbatimRelay struct {
@@ -107,6 +118,7 @@ func (e *javaScriptDiagnosticEventsEndpoint) String() string {
 	return "JavaScriptDiagnosticEventsEndpoint"
 }
 
+// GetHandler returns the HTTP handler for an endpoint.
 func (r *EventDispatcher) GetHandler(endpoint Endpoint) func(w http.ResponseWriter, req *http.Request) {
 	d := r.endpoints[endpoint]
 	if d != nil {
@@ -171,12 +183,13 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 				_, _ = ioutil.ReadAll(resp.Body)
 				_ = resp.Body.Close()
 			}
-			if respErr != nil {
+			switch {
+			case respErr != nil:
 				d.loggers.Warnf("Unexpected error while sending events: %+v", respErr)
-			} else if resp.StatusCode >= 400 {
+			case resp.StatusCode >= 400:
 				d.loggers.Warnf("Received error status %d when sending events", resp.StatusCode)
-			} else {
-				break
+			default:
+				return
 			}
 		}
 	})
@@ -188,13 +201,13 @@ func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Logge
 	if bodyErr != nil {
 		loggers.Errorf("Error reading event post body: %+v", bodyErr)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg("unable to read request body"))
+		_, _ = w.Write(util.ErrorJSONMsg("unable to read request body"))
 		return
 	}
 
 	if len(body) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write(util.ErrorJsonMsg("body may not be empty"))
+		_, _ = w.Write(util.ErrorJSONMsg("body may not be empty"))
 		return
 	}
 
@@ -224,7 +237,7 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.authKey, r.config, r.httpConfig, r.storeAdapter, r.loggers, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.storeAdapter, r.loggers, r.remotePath)
 	}
 	return r.summarizingRelay
 }
@@ -299,7 +312,7 @@ func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpC
 
 	opts = append(opts, OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)))
 
-	publisher, _ := NewHttpEventPublisher(authKey, loggers, opts...)
+	publisher, _ := NewHTTPEventPublisher(authKey, loggers, opts...)
 
 	res := &eventVerbatimRelay{
 		config:    config,

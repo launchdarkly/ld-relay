@@ -1,3 +1,4 @@
+// Package httpconfig provides helpers for special types of HTTP client configuration supported by Relay.
 package httpconfig
 
 import (
@@ -11,6 +12,11 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldhttp"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldntlm"
+)
+
+var (
+	errNTLMProxyAuthWithoutCredentials = errors.New("NTLM proxy authentication requires username and password")
+	errProxyAuthWithoutProxyURL        = errors.New("cannot specify proxy authentication without a proxy URL")
 )
 
 // HTTPConfig encapsulates ProxyConfig plus any other HTTP options we may support in the future (currently none).
@@ -28,7 +34,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers
 	ret := HTTPConfig{ProxyConfig: proxyConfig}
 
 	if !proxyConfig.URL.IsDefined() && proxyConfig.NTLMAuth {
-		return ret, errors.New("Cannot specify proxy authentication without a proxy URL")
+		return ret, errProxyAuthWithoutProxyURL
 	}
 	if proxyConfig.URL.IsDefined() {
 		loggers.Infof("Using proxy server at %s", proxyConfig.URL)
@@ -38,7 +44,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers
 
 	if proxyConfig.NTLMAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
-			return ret, errors.New("NTLM proxy authentication requires username and password")
+			return ret, errNTLMProxyAuthWithoutCredentials
 		}
 		transportOpts := []ldhttp.TransportOption{
 			ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),

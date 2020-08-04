@@ -7,6 +7,10 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
+func errBadLogLevel(s string) error {
+	return fmt.Errorf("%q is not a valid log level", s)
+}
+
 // SDKKey is a type tag to indicate when a string is used as a server-side SDK key for a LaunchDarkly
 // environment.
 type SDKKey string
@@ -110,8 +114,4 @@ func (o *OptLogLevel) UnmarshalText(data []byte) error {
 		*o = opt
 	}
 	return err
-}
-
-func errBadLogLevel(s string) error {
-	return fmt.Errorf("%q is not a valid log level", s)
 }

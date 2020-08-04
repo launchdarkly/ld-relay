@@ -14,7 +14,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 )
 
-// Extension of ResponseRecorder to handle streaming content.
+// StreamRecorder is an extension of ResponseRecorder to handle streaming content.
 type StreamRecorder struct {
 	*bufio.Writer
 	*httptest.ResponseRecorder

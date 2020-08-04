@@ -1,3 +1,6 @@
+// Package testclient contains test helpers that reference the SDK-related packages. These are in
+// sharedtest/testclient rather than just sharedtest so that sharedtest can be used by those packages
+// without a circular reference.
 package testclient
 
 import (
