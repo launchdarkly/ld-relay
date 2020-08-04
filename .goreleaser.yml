@@ -3,7 +3,7 @@ project_name: ld-relay
 builds:
 - env:
   - CGO_ENABLED=0
-  main: ./cmd/ld-relay/
+  main: .
   binary: ld-relay
   # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}`.
   ldflags:

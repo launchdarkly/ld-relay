@@ -4,16 +4,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/core/internal/cors"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/browser"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 )
 
@@ -59,8 +58,14 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 			clientCtx := envs.GetEnvironment(credential)
 
 			if clientCtx == nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte("ld-relay is not configured for the provided key"))
+				// Our error behavior here is slightly different for JS/browser clients
+				if sdkKind == sdks.JSClient {
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte("URL did not contain an environment ID"))
+				} else {
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte("ld-relay is not configured for the provided key"))
+				}
 				return
 			}
 
@@ -75,39 +80,6 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				Credential: credential,
 			}
 			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
-			next.ServeHTTP(w, req)
-		})
-	}
-}
-
-func SelectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			envId, err := sdks.JSClient.GetCredential(req)
-			if err != nil {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte("URL did not contain an environment ID"))
-				return
-			}
-			env := envs.GetEnvironment(envId)
-			if env == nil {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(fmt.Sprintf("ld-relay is not configured for environment id %s", envId)))
-				return
-			}
-
-			if env.GetClient() == nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte("client was not initialized"))
-				return
-			}
-
-			contextInfo := EnvContextInfo{
-				Env:        env,
-				Credential: envId,
-			}
-			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
-			req = req.WithContext(cors.WithCORSContext(req.Context(), env.GetJSClientContext()))
 			next.ServeHTTP(w, req)
 		})
 	}
@@ -162,24 +134,24 @@ func WithGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
-		if corsContext := cors.GetCORSContext(r.Context()); corsContext != nil {
+		if corsContext := browser.GetCORSContext(r.Context()); corsContext != nil {
 			domains = corsContext.AllowedOrigins()
 		}
 		if len(domains) > 0 {
 			for _, d := range domains {
 				if r.Header.Get("Origin") == d {
-					cors.SetCORSHeaders(w, d)
+					browser.SetCORSHeaders(w, d)
 					return
 				}
 			}
 			// Not a valid origin, set allowed origin to any allowed origin
-			cors.SetCORSHeaders(w, domains[0])
+			browser.SetCORSHeaders(w, domains[0])
 		} else {
-			origin := cors.DefaultAllowedOrigin
+			origin := browser.DefaultAllowedOrigin
 			if r.Header.Get("Origin") != "" {
 				origin = r.Header.Get("Origin")
 			}
-			cors.SetCORSHeaders(w, origin)
+			browser.SetCORSHeaders(w, origin)
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -199,7 +171,7 @@ func Streaming(next http.Handler) http.Handler {
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (lduser.User, error) {
 	var user lduser.User
-	idStr, decodeErr := Base64urlDecode(base64User)
+	idStr, decodeErr := base64urlDecode(base64User)
 	if decodeErr != nil {
 		return user, errors.New("User part of url path did not decode as valid base64")
 	}
@@ -216,7 +188,7 @@ func UserV2FromBase64(base64User string) (lduser.User, error) {
 	return user, nil
 }
 
-func Base64urlDecode(base64String string) ([]byte, error) {
+func base64urlDecode(base64String string) ([]byte, error) {
 	idStr, decodeErr := base64.URLEncoding.DecodeString(base64String)
 
 	if decodeErr != nil {

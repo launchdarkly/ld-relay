@@ -18,7 +18,7 @@ ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOPATH=/go
 
-RUN go build -a -o ldr ./cmd/ld-relay
+RUN go build -a -o ldr .
 
 FROM golang:1.13.12-alpine
 
