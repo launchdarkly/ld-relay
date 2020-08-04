@@ -15,7 +15,7 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/eventsource v1.5.0
+	github.com/launchdarkly/eventsource v1.6.1
 	github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb
 	github.com/launchdarkly/go-configtypes v1.0.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0-beta.1

@@ -83,6 +83,59 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	}
 }
 
+func TestRelayCoreAddEnvironment(t *testing.T) {
+	config := c.Config{
+		Environment: makeEnvConfigs(testEnvMain),
+	}
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	require.NoError(t, err)
+	defer core.Close()
+
+	resultCh, err := core.AddEnvironment(testEnvMobile.name, testEnvMobile.config)
+	require.NoError(t, err)
+	require.NotNil(t, resultCh)
+
+	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
+		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.SDKKey).GetName())
+	}
+
+	select {
+	case env := <-resultCh:
+		assert.Equal(t, core.GetEnvironment(testEnvMobile.config.SDKKey), env)
+	case <-time.After(time.Second):
+		assert.Fail(t, "timed out waiting for new environment to initialize")
+	}
+}
+
+func TestRelayCoreRemoveEnvironment(t *testing.T) {
+	config := c.Config{
+		Environment: makeEnvConfigs(testEnvMain, testEnvMobile),
+	}
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	require.NoError(t, err)
+	defer core.Close()
+
+	if assert.NotNil(t, core.GetEnvironment(testEnvMobile.config.SDKKey)) {
+		assert.Equal(t, testEnvMobile.name, core.GetEnvironment(testEnvMobile.config.SDKKey).GetName())
+	}
+
+	removed := core.RemoveEnvironment(testEnvMobile.config.SDKKey)
+	assert.True(t, removed)
+
+	assert.Nil(t, core.GetEnvironment(testEnvMobile.config.SDKKey))
+}
+
+func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
+	config := c.Config{
+		Environment: makeEnvConfigs(testEnvMain),
+	}
+	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), fakeLDClientFactory(true))
+	require.NoError(t, err)
+	defer core.Close()
+
+	assert.False(t, core.RemoveEnvironment(testEnvMobile.config.SDKKey))
+}
+
 func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	config := c.Config{
 		Environment: makeEnvConfigs(testEnvMain, testEnvMobile),

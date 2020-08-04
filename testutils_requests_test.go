@@ -134,15 +134,6 @@ func assertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod
 type StreamRecorder struct {
 	*bufio.Writer
 	*httptest.ResponseRecorder
-	closer chan bool
-}
-
-func (r StreamRecorder) CloseNotify() <-chan bool {
-	return r.closer
-}
-
-func (r StreamRecorder) Close() {
-	r.closer <- true
 }
 
 func (r StreamRecorder) Write(data []byte) (int, error) {
@@ -159,7 +150,6 @@ func NewStreamRecorder() (StreamRecorder, io.Reader) {
 	return StreamRecorder{
 		ResponseRecorder: recorder,
 		Writer:           bufio.NewWriter(writer),
-		closer:           make(chan bool, 1),
 	}, reader
 }
 
@@ -176,8 +166,12 @@ func withStreamRequest(
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	eventCh := make(chan eventsource.Event, 10)
+
+	ctx, cancelRequest := context.WithCancel(context.Background())
+	reqWithContext := req.WithContext(ctx)
+
 	go func() {
-		handler.ServeHTTP(w, req)
+		handler.ServeHTTP(w, reqWithContext)
 		eventCh <- nil
 		assert.Equal(t, http.StatusOK, w.Code)
 		assertStreamingHeaders(t, w.Header())
@@ -201,7 +195,7 @@ func withStreamRequest(
 		}
 	}()
 	action(eventCh)
-	w.Close()
+	cancelRequest()
 	wg.Wait()
 	return w.Result()
 }

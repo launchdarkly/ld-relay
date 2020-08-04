@@ -21,11 +21,30 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
+var (
+	errAlreadyClosed         = errors.New("this Relay was already shut down")
+	errDefaultBaseURLInvalid = errors.New("unexpected error: default base URL is invalid")
+	errInitializationTimeout = errors.New("timed out waiting for environments to initialize")
+	errNoEnvironments        = errors.New("you must specify at least one environment in your configuration")
+	errSomeEnvironmentFailed = errors.New("one or more environments failed to initialize")
+)
+
+func errNewClientContextFailed(envName string, err error) error {
+	return fmt.Errorf(`unable to create client context for "%s": %w`, envName, err)
+}
+
+func errNewMetricsManagerFailed(err error) error {
+	return fmt.Errorf("unable to create metrics manager: %w", err)
+}
+
+// RelayEnvironments defines the methods for looking up environments. This is represented as an interface
+// so that test code can mock that capability.
 type RelayEnvironments interface { //nolint:golint // yes, we know the package name is also "relay"
 	GetEnvironment(config.SDKCredential) relayenv.EnvContext
 	GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext
 }
 
+// RelayCore encapsulates the core logic for all variants of Relay Proxy.
 type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
 	allEnvironments map[config.SDKKey]relayenv.EnvContext
 	envsByMobileKey map[config.MobileKey]relayenv.EnvContext
@@ -39,9 +58,12 @@ type RelayCore struct { //nolint:golint // yes, we know the package name is also
 	config          config.Config
 	baseURL         url.URL
 	loggers         ldlog.Loggers
+	closed          bool
 	lock            sync.RWMutex
 }
 
+// NewRelayCore creates and configures an instance of RelayCore, and immediately starts initializing
+// all configured environments.
 func NewRelayCore(
 	c config.Config,
 	loggers ldlog.Loggers,
@@ -57,7 +79,7 @@ func NewRelayCore(
 
 	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create metrics manager: %s", err)
+		return nil, errNewMetricsManagerFailed(err)
 	}
 
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
@@ -86,7 +108,7 @@ func NewRelayCore(
 	r.pingPublisher = makeSSEServer()
 
 	if len(c.Environment) == 0 {
-		return nil, fmt.Errorf("you must specify at least one environment in your configuration")
+		return nil, errNoEnvironments
 	}
 
 	if c.Main.BaseURI.IsDefined() {
@@ -94,7 +116,7 @@ func NewRelayCore(
 	} else {
 		u, err := url.Parse(config.DefaultBaseURI)
 		if err != nil {
-			return nil, errors.New("unexpected error: default base URI is invalid")
+			return nil, errDefaultBaseURLInvalid
 		}
 		r.baseURL = *u
 	}
@@ -104,26 +126,68 @@ func NewRelayCore(
 			loggers.Warnf("environment config was nil for environment %q; ignoring", envName)
 			continue
 		}
-		err := r.AddEnvironment(envName, *envConfig)
+		resultCh, err := r.AddEnvironment(envName, *envConfig)
 		if err != nil {
 			for _, env := range r.allEnvironments {
 				_ = env.Close()
 			}
 			return nil, err
 		}
+		go func() {
+			env := <-resultCh
+			r.clientInitCh <- env
+		}()
 	}
 
 	return &r, nil
 }
 
-func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) error {
+// GetEnvironment returns the environment object corresponding to the given credential, or nil
+// if not found. The credential can be an SDK key, a mobile key, or an environment ID.
+func (r *RelayCore) GetEnvironment(credential config.SDKCredential) relayenv.EnvContext {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	switch c := credential.(type) {
+	case config.SDKKey:
+		return r.allEnvironments[c]
+	case config.MobileKey:
+		return r.envsByMobileKey[c]
+	case config.EnvironmentID:
+		return r.envsByEnvID[c]
+	default:
+		return nil
+	}
+}
+
+// GetAllEnvironments returns all currently configured environments, indexed by SDK key.
+func (r *RelayCore) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	ret := make(map[config.SDKKey]relayenv.EnvContext, len(r.allEnvironments))
+	for k, v := range r.allEnvironments {
+		ret[k] = v
+	}
+	return ret
+}
+
+// AddEnvironment attempts to add a new environment. It returns an error only if the configuration
+// is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
+func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) (<-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
+	if r.closed {
+		return nil, errAlreadyClosed
+	}
+
 	dataStoreFactory, err := sdkconfig.ConfigureDataStore(r.config, envConfig, r.loggers)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	resultCh := make(chan relayenv.EnvContext, 1)
 
 	clientContext, err := relayenv.NewEnvContext(
 		envName,
@@ -136,10 +200,10 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) e
 		r.pingPublisher,
 		r.metricsManager,
 		r.loggers,
-		r.clientInitCh,
+		resultCh,
 	)
 	if err != nil {
-		return fmt.Errorf(`unable to create client context for "%s": %s`, envName, err)
+		return nil, errNewClientContextFailed(envName, err)
 	}
 	r.allEnvironments[envConfig.SDKKey] = clientContext
 	if envConfig.MobileKey != "" {
@@ -191,36 +255,45 @@ func (r *RelayCore) AddEnvironment(envName string, envConfig config.EnvConfig) e
 		}
 	}
 
-	return nil
+	return resultCh, nil
 }
 
-func (r *RelayCore) GetEnvironment(credential config.SDKCredential) relayenv.EnvContext {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	switch c := credential.(type) {
-	case config.SDKKey:
-		return r.allEnvironments[c]
-	case config.MobileKey:
-		return r.envsByMobileKey[c]
-	case config.EnvironmentID:
-		return r.envsByEnvID[c]
-	default:
-		return nil
+// RemoveEnvironment shuts down and removes an existing environment. All network connections, metrics
+// resources, and (if applicable) database connections, are immediately closed for this environment.
+// Subsequent requests using credentials for this environment will be rejected.
+//
+// It returns true if successful, or false if there was no such environment.
+func (r *RelayCore) RemoveEnvironment(sdkKey config.SDKKey) bool {
+	r.lock.Lock()
+	env := r.allEnvironments[sdkKey]
+	var mobileKey config.MobileKey
+	var envID config.EnvironmentID
+	if env != nil {
+		delete(r.allEnvironments, sdkKey)
+		mobileKey = config.MobileKey(env.GetCredentials().MobileKey.StringValue())
+		delete(r.envsByMobileKey, mobileKey)
+		envID = config.EnvironmentID(env.GetCredentials().EnvironmentID.StringValue())
+		delete(r.envsByEnvID, envID)
 	}
-}
+	r.lock.Unlock()
 
-func (r *RelayCore) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	ret := make(map[config.SDKKey]relayenv.EnvContext, len(r.allEnvironments))
-	for k, v := range r.allEnvironments {
-		ret[k] = v
+	if env == nil {
+		return false
 	}
-	return ret
+
+	// At this point any more incoming requests that try to use this environment's credentials will
+	// be rejected, since it's already been removed from all of our maps above. Now, calling Close()
+	// on the environment will do the rest of the cleanup and disconnect any current clients.
+	if err := env.Close(); err != nil {
+		r.loggers.Warnf("unexpected error when closing environment: %s", err)
+	}
+
+	return true
 }
 
+// WaitForAllClients blocks until all environments that were in the initial configuration have
+// reported back as either successfully connected or failed, or until the specified timeout (if the
+// timeout is non-zero).
 func (r *RelayCore) WaitForAllClients(timeout time.Duration) error {
 	numEnvironments := len(r.allEnvironments)
 	numFinished := 0
@@ -248,17 +321,38 @@ func (r *RelayCore) WaitForAllClients(timeout time.Duration) error {
 	select {
 	case failed := <-resultCh:
 		if failed {
-			return errors.New("one or more environments failed to initialize")
+			return errSomeEnvironmentFailed
 		}
 		return nil
 	case <-timeoutCh:
-		return errors.New("timed out waiting for environments to initialize")
+		return errInitializationTimeout
 	}
 }
 
+// Close shuts down all existing environments and releases all resources used by RelayCore.
 func (r *RelayCore) Close() {
-	r.metricsManager.Close()
-	for _, env := range r.allEnvironments {
-		_ = env.Close()
+	r.lock.Lock()
+	if r.closed {
+		r.lock.Unlock()
+		return
+	}
+
+	r.closed = true
+
+	envs := r.allEnvironments
+	r.allEnvironments = nil
+	r.envsByMobileKey = nil
+	r.envsByEnvID = nil
+
+	metricsManager := r.metricsManager
+	r.metricsManager = nil
+
+	r.lock.Unlock()
+
+	metricsManager.Close()
+	for _, env := range envs {
+		if err := env.Close(); err != nil {
+			r.loggers.Warnf("unexpected error when closing environment: %s", err)
+		}
 	}
 }

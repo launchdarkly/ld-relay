@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
@@ -41,6 +42,37 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 			result, _ := doRequest(s1.request(), p.relay)
 
 			assert.Equal(t, invalidCredentialExpectedStatus, result.StatusCode)
+		})
+	})
+
+	relayTest(configWithoutTimeLimit, func(p relayTestParams) {
+		t.Run("stream is closed if environment is removed", func(t *testing.T) {
+			env := p.relay.core.GetEnvironment(s.credential)
+			require.NotNil(t, env)
+
+			withStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
+				select {
+				case event := <-eventCh:
+					if event == nil {
+						assert.Fail(t, "stream closed unexpectedly")
+						return
+					}
+				case <-time.After(time.Second * 3):
+					assert.Fail(t, "timed out waiting for initial event")
+					return
+				}
+
+				p.relay.core.RemoveEnvironment(c.SDKKey(env.GetCredentials().SDKKey))
+
+				select {
+				case event := <-eventCh:
+					if event != nil {
+						assert.Fail(t, "expected end of stream, got another event")
+					}
+				case <-time.After(time.Second):
+					assert.Fail(t, "timed out waiting for stream to be closed")
+				}
+			})
 		})
 	})
 

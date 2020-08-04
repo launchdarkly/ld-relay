@@ -22,17 +22,21 @@ import (
 )
 
 type envContextImpl struct {
-	mu           sync.RWMutex
-	client       sdkconfig.LDClientContext
-	storeAdapter *store.SSERelayDataStoreAdapter
-	loggers      ldlog.Loggers
-	handlers     ClientHandlers
-	credentials  Credentials
-	name         string
-	secureMode   bool
-	metricsEnv   *metrics.EnvironmentManager
-	ttl          time.Duration
-	initErr      error
+	mu             sync.RWMutex
+	client         sdkconfig.LDClientContext
+	storeAdapter   *store.SSERelayDataStoreAdapter
+	loggers        ldlog.Loggers
+	handlers       ClientHandlers
+	credentials    Credentials
+	name           string
+	secureMode     bool
+	allPublisher   *eventsource.Server
+	flagsPublisher *eventsource.Server
+	pingPublisher  *eventsource.Server
+	metricsManager *metrics.Manager
+	metricsEnv     *metrics.EnvironmentManager
+	ttl            time.Duration
+	initErr        error
 }
 
 // NewEnvContext creates the internal implementation of EnvContext.
@@ -99,14 +103,14 @@ func NewEnvContext(
 		events.OptionUri(eventsURI),
 		events.OptionClient{Client: httpConfig.Client()})
 	if err != nil {
-		return nil, fmt.Errorf("unable to create publisher: %s", err)
+		return nil, fmt.Errorf("unable to create publisher: %w", err)
 	}
 
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
 		em, err = metricsManager.AddEnvironment(envName, eventsPublisher)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create metrics processor: %s", err)
+			return nil, fmt.Errorf("unable to create metrics processor: %w", err)
 		}
 	}
 
@@ -117,11 +121,15 @@ func NewEnvContext(
 			MobileKey:     ldvalue.NewOptionalString(string(envConfig.MobileKey)).OnlyIfNonEmptyString(),
 			EnvironmentID: ldvalue.NewOptionalString(string(envConfig.EnvID)).OnlyIfNonEmptyString(),
 		},
-		storeAdapter: storeAdapter,
-		loggers:      envLoggers,
-		secureMode:   envConfig.SecureMode,
-		metricsEnv:   em,
-		ttl:          envConfig.TTL.GetOrElse(0),
+		storeAdapter:   storeAdapter,
+		loggers:        envLoggers,
+		secureMode:     envConfig.SecureMode,
+		allPublisher:   allPublisher,
+		flagsPublisher: flagsPublisher,
+		pingPublisher:  pingPublisher,
+		metricsManager: metricsManager,
+		metricsEnv:     em,
+		ttl:            envConfig.TTL.GetOrElse(0),
 		handlers: ClientHandlers{
 			EventDispatcher:    eventDispatcher,
 			AllStreamHandler:   allPublisher.Handler(string(envConfig.SDKKey)),
@@ -216,6 +224,13 @@ func (c *envContextImpl) IsSecureMode() bool {
 }
 
 func (c *envContextImpl) Close() error {
-	// This currently isn't used, but will be used in the future when we can dynamically change environments
+	channel := c.credentials.SDKKey
+	c.allPublisher.Unregister(channel, true) // "true" here means disconnect all current clients of this channel
+	c.flagsPublisher.Unregister(channel, true)
+	c.pingPublisher.Unregister(channel, true)
+
+	if c.metricsManager != nil && c.metricsEnv != nil {
+		c.metricsManager.RemoveEnvironment(c.metricsEnv)
+	}
 	return nil
 }
