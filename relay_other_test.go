@@ -58,7 +58,7 @@ func TestGetUserAgent(t *testing.T) {
 	})
 }
 
-func TestRelayJSClientGoalsRoute(t *testing.T) {
+func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvClientSide
 	envID := env.config.EnvID
 	fakeGoalsData := []byte(`["got some goals"]`)
@@ -80,12 +80,12 @@ func TestRelayJSClientGoalsRoute(t *testing.T) {
 	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
 	config.Environment = makeEnvConfigs(env)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		url := fmt.Sprintf("http://localhost/sdk/goals/%s", envID)
 
 		t.Run("requests", func(t *testing.T) {
 			r := buildRequest("GET", url, nil, nil)
-			result, body := doRequest(r, p.relay)
+			result, body := doRequest(r, p.Handler)
 			assertNonStreamingHeaders(t, result.Header)
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
 				assertExpectedCORSHeaders(t, result, "GET", "*")
@@ -94,7 +94,7 @@ func TestRelayJSClientGoalsRoute(t *testing.T) {
 		})
 
 		t.Run("options", func(t *testing.T) {
-			assertEndpointSupportsOptionsRequest(t, p.relay, url, "GET")
+			assertEndpointSupportsOptionsRequest(t, p.Handler, url, "GET")
 		})
 	})
 }

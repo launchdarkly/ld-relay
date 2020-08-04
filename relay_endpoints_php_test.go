@@ -10,7 +10,7 @@ import (
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
 
-func TestRelayPHPPollingEndpoints(t *testing.T) {
+func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 	sdkKeyMain := testEnvMain.config.SDKKey
 	sdkKeyWithTTL := testEnvWithTTL.config.SDKKey
 
@@ -30,14 +30,14 @@ func TestRelayPHPPollingEndpoints(t *testing.T) {
 	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvMain, testEnvWithTTL)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				if s.expectedStatus == http.StatusOK {
 					etag := ""
 
 					t.Run("success", func(t *testing.T) {
-						result, body := doRequest(s.request(), p.relay)
+						result, body := doRequest(s.request(), p.Handler)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							assertNonStreamingHeaders(t, result.Header)
@@ -52,7 +52,7 @@ func TestRelayPHPPollingEndpoints(t *testing.T) {
 					t.Run("success - environment has TTL", func(t *testing.T) {
 						s1 := s
 						s1.credential = sdkKeyWithTTL
-						result, _ := doRequest(s1.request(), p.relay)
+						result, _ := doRequest(s1.request(), p.Handler)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							assert.NotEqual(t, "", result.Header.Get("Expires"))
@@ -63,7 +63,7 @@ func TestRelayPHPPollingEndpoints(t *testing.T) {
 						t.Run("query with same ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", etag)
-							result, _ := doRequest(r, p.relay)
+							result, _ := doRequest(r, p.Handler)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
 						})
@@ -71,7 +71,7 @@ func TestRelayPHPPollingEndpoints(t *testing.T) {
 						t.Run("query with different ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", "different-from-"+etag)
-							result, _ := doRequest(r, p.relay)
+							result, _ := doRequest(r, p.Handler)
 
 							assert.Equal(t, http.StatusOK, result.StatusCode)
 						})

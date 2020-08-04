@@ -21,12 +21,30 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
+
+const (
+	userAgentHeader   = "user-agent"
+	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
+)
+
+type evalXResult struct {
+	Value                ldvalue.Value               `json:"value"`
+	Variation            *int                        `json:"variation,omitempty"`
+	Version              int                         `json:"version"`
+	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
+	TrackEvents          bool                        `json:"trackEvents,omitempty"`
+	TrackReason          bool                        `json:"trackReason,omitempty"`
+	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
+}
 
 func getClientSideUserProperties(
 	clientCtx relayenv.EnvContext,

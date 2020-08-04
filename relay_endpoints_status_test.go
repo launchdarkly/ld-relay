@@ -13,13 +13,13 @@ import (
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
-func TestRelayStatusEndpoint(t *testing.T) {
+func DoStatusEndpointTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvMain, testEnvClientSide, testEnvMobile)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-		result, body := doRequest(r, p.relay)
+		result, body := doRequest(r, p.Handler)
 		assert.Equal(t, http.StatusOK, result.StatusCode)
 		status := ldvalue.Parse(body)
 

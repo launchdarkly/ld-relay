@@ -12,7 +12,13 @@ import (
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
 
-func TestRelayServerSideEvalRoutes(t *testing.T) {
+func DoEvalEndpointsTests(t *testing.T, constructor TestConstructor) {
+	constructor.RunTest(t, "server-side", DoServerSideEvalRoutesTest)
+	constructor.RunTest(t, "mobile", DoMobileEvalRoutesTest)
+	constructor.RunTest(t, "JS client", DoJSClientEvalRoutesTest)
+}
+
+func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
 	userJSON := []byte(`{"key":"me"}`)
@@ -31,11 +37,11 @@ func TestRelayServerSideEvalRoutes(t *testing.T) {
 	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("success", func(t *testing.T) {
-					result, body := doRequest(s.request(), p.relay)
+					result, body := doRequest(s.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						assertNonStreamingHeaders(t, result.Header)
@@ -48,7 +54,7 @@ func TestRelayServerSideEvalRoutes(t *testing.T) {
 				t.Run("unknown SDK key", func(t *testing.T) {
 					s1 := s
 					s1.credential = undefinedSDKKey
-					result, _ := doRequest(s1.request(), p.relay)
+					result, _ := doRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 				})
@@ -57,7 +63,7 @@ func TestRelayServerSideEvalRoutes(t *testing.T) {
 					t.Run(u.name, func(t *testing.T) {
 						s1 := s
 						s1.data = u.userJSON
-						result, _ := doRequest(s1.request(), p.relay)
+						result, _ := doRequest(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
@@ -67,7 +73,7 @@ func TestRelayServerSideEvalRoutes(t *testing.T) {
 	})
 }
 
-func TestRelayMobileEvalRoutes(t *testing.T) {
+func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvMobile
 	mobileKey := env.config.MobileKey
 	userJSON := []byte(`{"key":"me"}`)
@@ -89,11 +95,11 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("success", func(t *testing.T) {
-					result, body := doRequest(s.request(), p.relay)
+					result, body := doRequest(s.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						if s.bodyMatcher != nil {
@@ -106,7 +112,7 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 				t.Run("unknown mobile key", func(t *testing.T) {
 					s1 := s
 					s1.credential = undefinedMobileKey
-					result, _ := doRequest(s1.request(), p.relay)
+					result, _ := doRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 				})
@@ -115,7 +121,7 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 					t.Run(u.name, func(t *testing.T) {
 						s1 := s
 						s1.data = u.userJSON
-						result, _ := doRequest(s1.request(), p.relay)
+						result, _ := doRequest(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
@@ -125,7 +131,7 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 	})
 }
 
-func TestRelayJSClientEvalRoutes(t *testing.T) {
+func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	env := testEnvClientSide
 	envID := env.config.EnvID
 	user := lduser.NewUser("me")
@@ -148,11 +154,11 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
-	relayTest(config, func(p relayTestParams) {
+	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
 			t.Run(s.name, func(t *testing.T) {
 				t.Run("success", func(t *testing.T) {
-					result, body := doRequest(s.request(), p.relay)
+					result, body := doRequest(s.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						assertNonStreamingHeaders(t, result.Header)
@@ -167,7 +173,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 					s1 := s
 					s1.credential = testEnvClientSideSecureMode.config.EnvID
 					s1.path = addQueryParam(s1.path, "h="+fakeHashForUser(user))
-					result, body := doRequest(s1.request(), p.relay)
+					result, body := doRequest(s1.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						assertNonStreamingHeaders(t, result.Header)
@@ -182,7 +188,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 					s1 := s
 					s1.credential = testEnvClientSideSecureMode.config.EnvID
 					s1.path = addQueryParam(s1.path, "h=incorrect")
-					result, _ := doRequest(s1.request(), p.relay)
+					result, _ := doRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 				})
@@ -190,7 +196,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 				t.Run("secure mode - hash not provided", func(t *testing.T) {
 					s1 := s
 					s1.credential = testEnvClientSideSecureMode.config.EnvID
-					result, _ := doRequest(s1.request(), p.relay)
+					result, _ := doRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 				})
@@ -198,7 +204,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 				t.Run("unknown environment ID", func(t *testing.T) {
 					s1 := s
 					s1.credential = undefinedEnvID
-					result, _ := doRequest(s1.request(), p.relay)
+					result, _ := doRequest(s1.request(), p.Handler)
 					assert.Equal(t, http.StatusNotFound, result.StatusCode)
 				})
 
@@ -206,14 +212,14 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 					t.Run(u.name, func(t *testing.T) {
 						s1 := s
 						s1.data = u.userJSON
-						result, _ := doRequest(s1.request(), p.relay)
+						result, _ := doRequest(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
 				}
 
 				t.Run("options", func(t *testing.T) {
-					assertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(), s.method)
+					assertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
 				})
 			})
 		}

@@ -4,37 +4,20 @@ import (
 	"net/http"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
+	main "github.com/launchdarkly/ld-relay/v6"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
-const (
-	userAgentHeader   = "user-agent"
-	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
-)
-
 // Relay relays endpoints to and from the LaunchDarkly service
 type Relay struct {
 	http.Handler
-	core    *RelayCore
+	core    *main.RelayCore
 	config  config.Config
 	loggers ldlog.Loggers
-}
-
-type evalXResult struct {
-	Value                ldvalue.Value               `json:"value"`
-	Variation            *int                        `json:"variation,omitempty"`
-	Version              int                         `json:"version"`
-	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool                        `json:"trackEvents,omitempty"`
-	TrackReason          bool                        `json:"trackReason,omitempty"`
-	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -48,11 +31,11 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClien
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
-	return newRelayInternal(c, loggers, ClientFactoryFromLDClientFactory(clientFactory))
+	return newRelayInternal(c, loggers, main.ClientFactoryFromLDClientFactory(clientFactory))
 }
 
 func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
-	core, err := NewRelayCore(c, loggers, clientFactory)
+	core, err := main.NewRelayCore(c, loggers, clientFactory)
 	if err != nil {
 		return nil, err
 	}

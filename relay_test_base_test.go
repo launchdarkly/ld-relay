@@ -4,40 +4,28 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strings"
-
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
+	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
-	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
 )
 
-// Environment that is passed to test code with relayTest.
-type relayTestParams struct {
-	relay *Relay
+// Environment that is passed to test code with DoTest.
+type TestParams struct {
+	Core    *RelayCore
+	Handler http.Handler
+	Closer  func()
+}
+
+type TestConstructor func(config.Config) TestParams
+
+func (c TestConstructor) RunTest(t *testing.T, name string, testFn func(*testing.T, TestConstructor)) {
+	t.Run(name, func(t *testing.T) { testFn(t, c) })
 }
 
 // Runs some code against a new Relay instance that is set up with the specified configuration.
-func relayTest(config c.Config, action func(relayTestParams)) {
-	p := relayTestParams{}
-
-	createDummyClient := func(sdkKey c.SDKKey, sdkConfig ld.Config) (sdks.LDClientContext, error) {
-		store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
-			testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
-		err := store.Init(allData)
-		if err != nil {
-			panic(err)
-		}
-		return &fakeLDClient{true}, nil
-	}
-
-	relay, _ := newRelayInternal(config, logging.MakeDefaultLoggers(), createDummyClient)
-	defer relay.Close()
-	p.relay = relay
-
+func DoTest(c config.Config, constructor TestConstructor, action func(TestParams)) {
+	p := constructor(c)
+	defer p.Closer()
 	action(p)
 }
 

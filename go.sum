@@ -95,8 +95,6 @@ github.com/launchdarkly-labs/go-coverage-enforcer v0.0.0-20200610003341-8bc77dea
 github.com/launchdarkly-labs/go-coverage-enforcer v1.1.0/go.mod h1:fJXIR7UJYgdXVmLM40NGl/dbs2Smv+iESsaT9uC4v/s=
 github.com/launchdarkly/eventsource v1.4.3 h1:G0s/nlctuI6Vz/BKpNLE2L/S4U0lQ/ghYqecPjUuQIA=
 github.com/launchdarkly/eventsource v1.4.3/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
-github.com/launchdarkly/eventsource v1.5.0 h1:2XEm/6CLedcdXnHP1Dyy7o+baiw4fZ2+1KOvWSZYg/A=
-github.com/launchdarkly/eventsource v1.5.0/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
 github.com/launchdarkly/eventsource v1.6.1 h1:T3Thx+3T5iuXTuDPCC+/GdiAM/lpBww1bLFp6Birmis=
 github.com/launchdarkly/eventsource v1.6.1/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
 github.com/launchdarkly/gcfg v0.0.0-20160218190638-83c3f001aeeb h1:a+uuDT3nURKt4laWk3PF7gxUuQfZ3XNE51AiOKjj5GA=
