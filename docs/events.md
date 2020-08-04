@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-You can use the Relay Proxy to forward analytics events from SDKs to `events.launchdarkly.com`. This does not apply if you have specified a different URL for the events service in your configuration.
+You can use the Relay Proxy to forward analytics events from SDKs to `events.launchdarkly.com`. Alternatively, you can specify a different URL to forward the events to a different destination.
 
 One use case for this is PHP environments, where the performance of a local proxy makes it possible to synchronously flush analytics events, but you can use it with any SDK as long as you configure the SDK to send events to the Relay Proxy. The setting for this is usually called `eventsUri`.
 

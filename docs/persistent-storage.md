@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in uses cases like a temporary network partition that prevents the Relay Proxy from communicating with LaunchDarkly's servers.
+You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in use cases like a temporary network partition that prevents the Relay Proxy from communicating with LaunchDarkly's servers.
 
 To learn more, read [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/feature-store), and the Relay Proxy documentation on [Configuration](./configuration.md).
 

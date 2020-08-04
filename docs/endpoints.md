@@ -73,7 +73,7 @@ curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H 
 
 ## Proxies for LaunchDarkly services
 
-### Endpoints server-side SDKs use
+### Endpoints that server-side SDKs use
 
 All of these require an `Authorization` header whose value is the SDK key.
 
@@ -90,7 +90,7 @@ Endpoint                     | Method | Proxied Subdomain | Description
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
 
-### Endpoints mobile SDKs use
+### Endpoints that mobile SDKs use
 
 All of these require an `Authorization` header whose value is the mobile key. 
 
@@ -111,8 +111,7 @@ Endpoint                     | Method   | Proxied Subdomain | Description
 `/msdk/evalx/user`           | `REPORT` | `app.`          | Same as above but request body is user JSON object
 
 
-### Endpoints client-side JavaScript SDKs use
-
+### Endpoints that client-side JavaScript SDKs use
 
 `{clientId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
 
