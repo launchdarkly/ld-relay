@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -222,9 +221,4 @@ func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
 
 func (h *testMessageHandler) KeyExpired(envID config.EnvironmentID, key config.SDKKey) {
 	h.received <- testMessage{expired: &expiredKey{envID, key}}
-}
-
-func stripNewlines(s string) string {
-	// The httphelpers SSE fixture doesn't deal correctly with newlines in event data
-	return strings.ReplaceAll(s, "\n", "")
 }

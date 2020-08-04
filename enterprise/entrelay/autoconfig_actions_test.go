@@ -3,7 +3,6 @@ package entrelay
 import (
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -413,9 +412,4 @@ func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {
 		ret[c] = struct{}{}
 	}
 	return ret
-}
-
-func stripNewlines(s string) string {
-	// The httphelpers SSE fixture doesn't deal correctly with newlines in event data
-	return strings.ReplaceAll(s, "\n", "")
 }
