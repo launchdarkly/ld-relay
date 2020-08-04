@@ -2,6 +2,7 @@ package relay
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
@@ -60,7 +62,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 			env := p.Core.GetEnvironment(s.credential)
 			require.NotNil(t, env)
 
-			withStreamRequest(t, s.request(), p.Handler, func(eventCh <-chan eventsource.Event) {
+			st.WithStreamRequest(t, s.request(), p.Handler, func(eventCh <-chan eventsource.Event) {
 				select {
 				case event := <-eventCh:
 					if event == nil {
@@ -102,7 +104,7 @@ func (s streamEndpointTestParams) assertRequestReceivesEvent(
 	handler http.Handler,
 	timeToWaitAfterEvent time.Duration,
 ) {
-	resp := withStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
+	resp := st.WithStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
 		eventTimeout := time.NewTimer(time.Second * 3)
 		defer eventTimeout.Stop()
 		select {
@@ -133,7 +135,7 @@ func (s streamEndpointTestParams) assertRequestReceivesEvent(
 		}
 	})
 	if _, ok := s.credential.(c.EnvironmentID); ok {
-		assertExpectedCORSHeaders(t, resp, s.method, "*")
+		st.AssertExpectedCORSHeaders(t, resp, s.method, "*")
 	}
 }
 
@@ -145,7 +147,7 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 	maxWait := time.NewTimer(shouldCloseAfter + time.Second)
 	defer maxWait.Stop()
 	startTime := time.Now()
-	_ = withStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
+	_ = st.WithStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
 		for {
 			select {
 			case event := <-eventCh:
@@ -165,9 +167,18 @@ func (s streamEndpointTestParams) assertStreamClosesAutomatically(
 	})
 }
 
+func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *http.Response {
+	w, bodyReader := sharedtest.NewStreamRecorder()
+	handler.ServeHTTP(w, req)
+	go func() {
+		_, _ = ioutil.ReadAll(bodyReader)
+	}()
+	return w.Result()
+}
+
 func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMain
-	sdkKey := env.config.SDKKey
+	env := st.EnvMain
+	sdkKey := env.Config.SDKKey
 	expectedAllData := []byte(streams.MakeServerSidePutEvent(st.AllData).Data())
 	expectedFlagsData := []byte(streams.MakeServerSideFlagsOnlyPutEvent(st.AllData).Data())
 
@@ -177,39 +188,39 @@ func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	for _, s := range specs {
 		t.Run(s.name, func(t *testing.T) {
-			s.runBasicStreamTests(t, config, constructor, undefinedSDKKey, http.StatusUnauthorized)
+			s.runBasicStreamTests(t, config, constructor, st.UndefinedSDKKey, http.StatusUnauthorized)
 		})
 	}
 }
 
 func DoMobileStreamsTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMobile
+	env := st.EnvMobile
 	userJSON := []byte(`{"key":"me"}`)
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"mobile ping", "GET", "/mping", nil, env.config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile ping", "GET", "/mping", nil, env.Config.MobileKey, 200, nil},
 			"ping", nil},
-		{endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.Config.MobileKey, 200, nil},
 			"ping", nil},
-		{endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.Config.MobileKey, 200, nil},
 			"ping", nil},
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	for _, s := range specs {
-		s.runBasicStreamTests(t, config, constructor, undefinedMobileKey, http.StatusUnauthorized)
+		s.runBasicStreamTests(t, config, constructor, st.UndefinedMobileKey, http.StatusUnauthorized)
 	}
 }
 
 func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvClientSide
-	envID := env.config.EnvID
+	env := st.EnvClientSide
+	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
 	userJSON, _ := json.Marshal(user)
 
@@ -223,10 +234,10 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
+	config.Environment = st.MakeEnvConfigs(st.EnvClientSide, st.EnvClientSideSecureMode)
 
 	for _, s := range specs {
-		s.runBasicStreamTests(t, config, constructor, undefinedEnvID, http.StatusNotFound)
+		s.runBasicStreamTests(t, config, constructor, st.UndefinedEnvID, http.StatusNotFound)
 	}
 
 	DoTest(config, constructor, func(p TestParams) {
@@ -235,14 +246,14 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 				if s.data != nil {
 					t.Run("secure mode - hash matches", func(t *testing.T) {
 						s1 := s
-						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 						s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForUser(user))
 						s1.assertRequestReceivesEvent(t, p.Handler, 0)
 					})
 
 					t.Run("secure mode - hash does not match", func(t *testing.T) {
 						s1 := s
-						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 						s1.path = st.AddQueryParam(s1.path, "h=incorrect")
 						result := doStreamRequestExpectingError(s1.request(), p.Handler)
 
@@ -251,7 +262,7 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 
 					t.Run("secure mode - hash not provided", func(t *testing.T) {
 						s1 := s
-						s1.credential = testEnvClientSideSecureMode.config.EnvID
+						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 						result := doStreamRequestExpectingError(s1.request(), p.Handler)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
@@ -259,7 +270,7 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 				}
 
 				t.Run("options", func(t *testing.T) {
-					assertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
+					st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
 				})
 			})
 		}

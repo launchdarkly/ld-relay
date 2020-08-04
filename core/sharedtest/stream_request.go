@@ -37,10 +37,6 @@ func NewStreamRecorder() (StreamRecorder, io.Reader) {
 	}, reader
 }
 
-func AssertStreamingHeaders(t *testing.T, h http.Header) {
-	assert.Regexp(t, "^text/event-stream", h.Get("Content-Type"))
-}
-
 // WithStreamRequest makes a request that should receive an SSE stream, and calls the given code
 // with a channel that will read from that stream. A nil value is pushed to the channel when the
 // stream closes or encounters an error.
@@ -62,7 +58,7 @@ func WithStreamRequest(
 		handler.ServeHTTP(w, reqWithContext)
 		eventCh <- nil
 		assert.Equal(t, http.StatusOK, w.Code)
-		AssertStreamingHeaders(t, w.Header())
+		AssertStreamingContentType(t, w.Header())
 		wg.Done()
 	}()
 	dec := eventsource.NewDecoder(bodyReader)
@@ -106,7 +102,7 @@ func WithStreamRequestLines(
 		handler.ServeHTTP(w, reqWithContext)
 		linesCh <- ""
 		assert.Equal(t, http.StatusOK, w.Code)
-		AssertStreamingHeaders(t, w.Header())
+		AssertStreamingContentType(t, w.Header())
 		wg.Done()
 	}()
 	r := bufio.NewReader(bodyReader)

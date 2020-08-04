@@ -1,4 +1,4 @@
-package relay
+package middleware
 
 import (
 	"encoding/base64"
@@ -9,14 +9,35 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/launchdarkly/ld-relay/v6/core"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/cors"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/cors"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 )
 
-func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
+const (
+	userAgentHeader   = "user-agent"
+	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
+)
+
+// RelayEnvironments defines the methods for looking up environments. This is represented as an interface
+// so that test code can mock that capability.
+type RelayEnvironments interface { //nolint:golint // yes, we know the package name is also "relay"
+	GetEnvironment(config.SDKCredential) relayenv.EnvContext
+	GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext
+}
+
+// getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
+func getUserAgent(req *http.Request) string {
+	if agent := req.Header.Get(ldUserAgentHeader); agent != "" {
+		return agent
+	}
+	return req.Header.Get(userAgentHeader)
+}
+
+func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		handler := next
 		for i := len(middlewares) - 1; i >= 0; i-- {
@@ -26,7 +47,7 @@ func chainMiddleware(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 	}
 }
 
-func selectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironments) mux.MiddlewareFunc {
+func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			credential, err := sdkKind.GetCredential(req)
@@ -49,17 +70,17 @@ func selectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				return
 			}
 
-			contextInfo := core.EnvContextInfo{
+			contextInfo := EnvContextInfo{
 				Env:        clientCtx,
 				Credential: credential,
 			}
-			req = req.WithContext(core.WithEnvContextInfo(req.Context(), contextInfo))
+			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
 			next.ServeHTTP(w, req)
 		})
 	}
 }
 
-func selectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc {
+func SelectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			envId, err := sdks.JSClient.GetCredential(req)
@@ -81,20 +102,20 @@ func selectEnvironmentByEnvIDUrlParam(envs RelayEnvironments) mux.MiddlewareFunc
 				return
 			}
 
-			contextInfo := core.EnvContextInfo{
+			contextInfo := EnvContextInfo{
 				Env:        env,
 				Credential: envId,
 			}
-			req = req.WithContext(core.WithEnvContextInfo(req.Context(), contextInfo))
+			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
 			req = req.WithContext(cors.WithCORSContext(req.Context(), env.GetJSClientContext()))
 			next.ServeHTTP(w, req)
 		})
 	}
 }
 
-func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
+func WithCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := core.GetEnvContextInfo(req.Context()).Env
+		ctx := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
 		metrics.WithCount(ctx.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
@@ -102,22 +123,22 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
-func countMobileConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
+func CountMobileConns(handler http.Handler) http.Handler {
+	return WithCount(WithGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
 }
 
-func countBrowserConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
+func CountBrowserConns(handler http.Handler) http.Handler {
+	return WithCount(WithGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
 }
 
-func countServerConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
+func CountServerConns(handler http.Handler) http.Handler {
+	return WithCount(WithGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
-func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
+func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := core.GetEnvContextInfo(req.Context())
+			ctx := GetEnvContextInfo(req.Context())
 			userAgent := getUserAgent(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
@@ -128,9 +149,9 @@ func requestCountMiddleware(measure metrics.Measure) mux.MiddlewareFunc {
 	}
 }
 
-func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
+func WithGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := core.GetEnvContextInfo(req.Context())
+		ctx := GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
 		metrics.WithGauge(ctx.Env.GetMetricsContext(), userAgent, func() {
 			handler.ServeHTTP(w, req)
@@ -138,7 +159,7 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
 		if corsContext := cors.GetCORSContext(r.Context()); corsContext != nil {
@@ -164,7 +185,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func streamingMiddleware(next http.Handler) http.Handler {
+func Streaming(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// If Nginx is being used as a proxy/load balancer, adding this header tells it not to buffer this response because
 		// it is a streaming response. If Nginx is not being used, this header has no effect.
@@ -178,7 +199,7 @@ func streamingMiddleware(next http.Handler) http.Handler {
 // the user is missing the 'key' attribute an error is returned.
 func UserV2FromBase64(base64User string) (lduser.User, error) {
 	var user lduser.User
-	idStr, decodeErr := base64urlDecode(base64User)
+	idStr, decodeErr := Base64urlDecode(base64User)
 	if decodeErr != nil {
 		return user, errors.New("User part of url path did not decode as valid base64")
 	}
@@ -195,7 +216,7 @@ func UserV2FromBase64(base64User string) (lduser.User, error) {
 	return user, nil
 }
 
-func base64urlDecode(base64String string) ([]byte, error) {
+func Base64urlDecode(base64String string) ([]byte, error) {
 	idStr, decodeErr := base64.URLEncoding.DecodeString(base64String)
 
 	if decodeErr != nil {

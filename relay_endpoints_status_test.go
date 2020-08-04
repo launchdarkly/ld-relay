@@ -16,7 +16,7 @@ import (
 
 func DoStatusEndpointTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
-	config.Environment = makeEnvConfigs(testEnvMain, testEnvClientSide, testEnvMobile)
+	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvClientSide, st.EnvMobile)
 
 	DoTest(config, constructor, func(p TestParams) {
 		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
@@ -25,22 +25,22 @@ func DoStatusEndpointTest(t *testing.T, constructor TestConstructor) {
 		status := ldvalue.Parse(body)
 
 		assertJSONPathMatch(t, "sdk-********-****-****-****-*******e42d0",
-			status, "environments", testEnvMain.name, "sdkKey")
-		assertJSONPathMatch(t, "connected", status, "environments", testEnvMain.name, "status")
+			status, "environments", st.EnvMain.Name, "sdkKey")
+		assertJSONPathMatch(t, "connected", status, "environments", st.EnvMain.Name, "status")
 
 		assertJSONPathMatch(t, "sdk-********-****-****-****-*******e42d1",
-			status, "environments", testEnvClientSide.name, "sdkKey")
+			status, "environments", st.EnvClientSide.Name, "sdkKey")
 		assertJSONPathMatch(t, "507f1f77bcf86cd799439011",
-			status, "environments", testEnvClientSide.name, "envId")
+			status, "environments", st.EnvClientSide.Name, "envId")
 		assertJSONPathMatch(t, "connected",
-			status, "environments", testEnvClientSide.name, "status")
+			status, "environments", st.EnvClientSide.Name, "status")
 
 		assertJSONPathMatch(t, "sdk-********-****-****-****-*******e42d2",
-			status, "environments", testEnvMobile.name, "sdkKey")
+			status, "environments", st.EnvMobile.Name, "sdkKey")
 		assertJSONPathMatch(t, "mob-********-****-****-****-*******e42db",
-			status, "environments", testEnvMobile.name, "mobileKey")
+			status, "environments", st.EnvMobile.Name, "mobileKey")
 		assertJSONPathMatch(t, "connected",
-			status, "environments", testEnvMobile.name, "status")
+			status, "environments", st.EnvMobile.Name, "status")
 
 		assertJSONPathMatch(t, "healthy", status, "status")
 		assertJSONPathMatch(t, version.Version, status, "version")

@@ -21,12 +21,12 @@ func DoEvalEndpointsTests(t *testing.T, constructor TestConstructor) {
 }
 
 func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMain
-	sdkKey := env.config.SDKKey
+	env := st.EnvMain
+	sdkKey := env.Config.SDKKey
 	userJSON := []byte(`{"key":"me"}`)
-	expectedMobileEvalBody := expectJSONBody(makeEvalBody(st.AllFlags, false, false))
-	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(st.AllFlags, true, false))
-	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(st.AllFlags, true, true))
+	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
+	expectedMobileEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, false))
+	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
 
 	specs := []endpointTestParams{
 		{"server-side report eval", "REPORT", "/sdk/eval/user", userJSON, sdkKey,
@@ -37,7 +37,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 			http.StatusOK, expectedMobileEvalxBodyWithReasons},
 	}
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
@@ -46,7 +46,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 					result, body := st.DoRequest(s.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
-						assertNonStreamingHeaders(t, result.Header)
+						st.AssertNonStreamingHeaders(t, result.Header)
 						if s.bodyMatcher != nil {
 							s.bodyMatcher(t, body)
 						}
@@ -55,7 +55,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("unknown SDK key", func(t *testing.T) {
 					s1 := s
-					s1.credential = undefinedSDKKey
+					s1.credential = st.UndefinedSDKKey
 					result, _ := st.DoRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
@@ -76,12 +76,12 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 }
 
 func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvMobile
-	mobileKey := env.config.MobileKey
+	env := st.EnvMobile
+	mobileKey := env.Config.MobileKey
 	userJSON := []byte(`{"key":"me"}`)
-	expectedMobileEvalBody := expectJSONBody(makeEvalBody(st.AllFlags, false, false))
-	expectedMobileEvalxBody := expectJSONBody(makeEvalBody(st.AllFlags, true, false))
-	expectedMobileEvalxBodyWithReasons := expectJSONBody(makeEvalBody(st.AllFlags, true, true))
+	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
+	expectedMobileEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, false))
+	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
 
 	specs := []endpointTestParams{
 		{"mobile report eval", "REPORT", "/msdk/eval/user", userJSON, mobileKey,
@@ -95,7 +95,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
@@ -107,13 +107,13 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 						if s.bodyMatcher != nil {
 							s.bodyMatcher(t, body)
 						}
-						assertNonStreamingHeaders(t, result.Header)
+						st.AssertNonStreamingHeaders(t, result.Header)
 					}
 				})
 
 				t.Run("unknown mobile key", func(t *testing.T) {
 					s1 := s
-					s1.credential = undefinedMobileKey
+					s1.credential = st.UndefinedMobileKey
 					result, _ := st.DoRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
@@ -134,13 +134,13 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 }
 
 func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvClientSide
-	envID := env.config.EnvID
+	env := st.EnvClientSide
+	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
 	userJSON, _ := json.Marshal(user)
-	expectedJSEvalBody := expectJSONBody(makeEvalBody(st.ClientSideFlags, false, false))
-	expectedJSEvalxBody := expectJSONBody(makeEvalBody(st.ClientSideFlags, true, false))
-	expectedJSEvalxBodyWithReasons := expectJSONBody(makeEvalBody(st.ClientSideFlags, true, true))
+	expectedJSEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, false, false))
+	expectedJSEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, true, false))
+	expectedJSEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, true, true))
 
 	specs := []endpointTestParams{
 		{"report eval", "REPORT", "/sdk/eval/$ENV/user", userJSON, envID, http.StatusOK, expectedJSEvalBody},
@@ -154,7 +154,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	}
 
 	var config c.Config
-	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
+	config.Environment = st.MakeEnvConfigs(st.EnvClientSide, st.EnvClientSideSecureMode)
 
 	DoTest(config, constructor, func(p TestParams) {
 		for _, s := range specs {
@@ -163,8 +163,8 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 					result, body := st.DoRequest(s.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
-						assertNonStreamingHeaders(t, result.Header)
-						assertExpectedCORSHeaders(t, result, s.method, "*")
+						st.AssertNonStreamingHeaders(t, result.Header)
+						st.AssertExpectedCORSHeaders(t, result, s.method, "*")
 						if s.bodyMatcher != nil {
 							s.bodyMatcher(t, body)
 						}
@@ -173,13 +173,13 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("secure mode - hash matches", func(t *testing.T) {
 					s1 := s
-					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 					s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForUser(user))
 					result, body := st.DoRequest(s1.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
-						assertNonStreamingHeaders(t, result.Header)
-						assertExpectedCORSHeaders(t, result, s.method, "*")
+						st.AssertNonStreamingHeaders(t, result.Header)
+						st.AssertExpectedCORSHeaders(t, result, s.method, "*")
 						if s.bodyMatcher != nil {
 							s.bodyMatcher(t, body)
 						}
@@ -188,7 +188,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("secure mode - hash does not match", func(t *testing.T) {
 					s1 := s
-					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 					s1.path = st.AddQueryParam(s1.path, "h=incorrect")
 					result, _ := st.DoRequest(s1.request(), p.Handler)
 
@@ -197,7 +197,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("secure mode - hash not provided", func(t *testing.T) {
 					s1 := s
-					s1.credential = testEnvClientSideSecureMode.config.EnvID
+					s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 					result, _ := st.DoRequest(s1.request(), p.Handler)
 
 					assert.Equal(t, http.StatusBadRequest, result.StatusCode)
@@ -205,7 +205,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 
 				t.Run("unknown environment ID", func(t *testing.T) {
 					s1 := s
-					s1.credential = undefinedEnvID
+					s1.credential = st.UndefinedEnvID
 					result, _ := st.DoRequest(s1.request(), p.Handler)
 					assert.Equal(t, http.StatusNotFound, result.StatusCode)
 				})
@@ -221,7 +221,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 				}
 
 				t.Run("options", func(t *testing.T) {
-					assertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
+					st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
 				})
 			})
 		}

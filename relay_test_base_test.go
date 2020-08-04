@@ -40,7 +40,7 @@ type endpointTestParams struct {
 	data           []byte
 	credential     config.SDKCredential
 	expectedStatus int
-	bodyMatcher    bodyMatcher
+	bodyMatcher    st.BodyMatcher
 }
 
 func (e endpointTestParams) request() *http.Request {

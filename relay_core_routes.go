@@ -8,6 +8,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
@@ -26,15 +27,15 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
 
-	sdkKeySelector := selectEnvironmentByAuthorizationKey(sdks.Server, r)
-	mobileKeySelector := selectEnvironmentByAuthorizationKey(sdks.Mobile, r)
-	jsClientSelector := selectEnvironmentByEnvIDUrlParam(r)
+	sdkKeySelector := middleware.SelectEnvironmentByAuthorizationKey(sdks.Server, r)
+	mobileKeySelector := middleware.SelectEnvironmentByAuthorizationKey(sdks.Mobile, r)
+	jsClientSelector := middleware.SelectEnvironmentByEnvIDUrlParam(r)
 
 	// Client-side evaluation
-	clientSideMiddlewareStack := chainMiddleware(
-		corsMiddleware,
+	clientSideMiddlewareStack := middleware.Chain(
+		middleware.CORS,
 		jsClientSelector,
-		requestCountMiddleware(metrics.BrowserRequests))
+		middleware.RequestCount(metrics.BrowserRequests))
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
 	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
@@ -50,9 +51,9 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(sdks.JSClient)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(sdks.JSClient)).Methods("REPORT", "OPTIONS")
 
-	serverSideMiddlewareStack := chainMiddleware(
+	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
-		requestCountMiddleware(metrics.ServerRequests))
+		middleware.RequestCount(metrics.ServerRequests))
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
@@ -73,9 +74,9 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollSegmentHandler))).Methods("GET")
 
 	// Mobile evaluation
-	mobileMiddlewareStack := chainMiddleware(
+	mobileMiddlewareStack := middleware.Chain(
 		mobileKeySelector,
-		requestCountMiddleware(metrics.MobileRequests))
+		middleware.RequestCount(metrics.MobileRequests))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
 	msdkRouter.Use(mobileMiddlewareStack)
@@ -89,26 +90,26 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(sdks.Mobile)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
-	mobileStreamRouter.Use(mobileMiddlewareStack, streamingMiddleware)
+	mobileStreamRouter.Use(mobileMiddlewareStack, middleware.Streaming)
 	mobilePingWithUser := pingStreamHandlerWithUser(sdks.Mobile, r.mobileStreamProvider)
-	mobileStreamRouter.Handle("", countMobileConns(mobilePingWithUser)).Methods("REPORT")
-	mobileStreamRouter.Handle("/{user}", countMobileConns(mobilePingWithUser)).Methods("GET")
+	mobileStreamRouter.Handle("", middleware.CountMobileConns(mobilePingWithUser)).Methods("REPORT")
+	mobileStreamRouter.Handle("/{user}", middleware.CountMobileConns(mobilePingWithUser)).Methods("GET")
 
 	router.Handle("/mping", mobileKeySelector(
-		countMobileConns(streamingMiddleware(pingStreamHandler(r.mobileStreamProvider))))).Methods("GET")
+		middleware.CountMobileConns(middleware.Streaming(pingStreamHandler(r.mobileStreamProvider))))).Methods("GET")
 
 	jsPing := pingStreamHandler(r.jsClientStreamProvider)
 	jsPingWithUser := pingStreamHandlerWithUser(sdks.JSClient, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), streamingMiddleware)
-	clientSidePingRouter.Handle("", countBrowserConns(jsPing)).Methods("GET", "OPTIONS")
+	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), middleware.CORS)
+	clientSidePingRouter.Handle("", middleware.CountBrowserConns(jsPing)).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), streamingMiddleware)
+	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), middleware.Streaming)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.Handle("/{user}", countBrowserConns(jsPingWithUser)).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.Handle("", countBrowserConns(jsPingWithUser)).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{user}", middleware.CountBrowserConns(jsPingWithUser)).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", middleware.CountBrowserConns(jsPingWithUser)).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
@@ -133,10 +134,10 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	serverSideRouter.Use(serverSideMiddlewareStack)
 	serverSideRouter.Handle("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
 	serverSideRouter.Handle("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
-	serverSideRouter.Handle("/all", countServerConns(streamingMiddleware(
+	serverSideRouter.Handle("/all", middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))).Methods("GET")
-	serverSideRouter.Handle("/flags", countServerConns(streamingMiddleware(
+	serverSideRouter.Handle("/flags", middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
 	))).Methods("GET")
 

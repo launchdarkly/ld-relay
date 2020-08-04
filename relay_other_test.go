@@ -12,11 +12,22 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/core/middleware"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
 )
+
+// Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
+// going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
+func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
+	req := sharedtest.BuildRequest(verb, "", body, headers)
+	req = mux.SetURLVars(req, vars)
+	req = req.WithContext(middleware.WithEnvContextInfo(req.Context(), middleware.EnvContextInfo{Env: ctx}))
+	return req
+}
 
 func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
 	headers := make(http.Header)
@@ -44,26 +55,12 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := ioutil.ReadAll(resp.Body)
-	assert.JSONEq(t, makeEvalBody(st.ClientSideFlags, false, false), string(b))
-}
-
-func TestGetUserAgent(t *testing.T) {
-	t.Run("X-LaunchDarkly-User-Agent takes precedence", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.Header.Set(ldUserAgentHeader, "my-agent")
-		req.Header.Set(userAgentHeader, "something-else")
-		assert.Equal(t, "my-agent", getUserAgent(req))
-	})
-	t.Run("User-Agent is the fallback", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.Header.Set(userAgentHeader, "my-agent")
-		assert.Equal(t, "my-agent", getUserAgent(req))
-	})
+	assert.JSONEq(t, st.MakeEvalBody(st.ClientSideFlags, false, false), string(b))
 }
 
 func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
-	env := testEnvClientSide
-	envID := env.config.EnvID
+	env := st.EnvClientSide
+	envID := env.Config.EnvID
 	fakeGoalsData := []byte(`["got some goals"]`)
 
 	fakeGoalsEndpoint := mux.NewRouter()
@@ -81,7 +78,7 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 
 	var config c.Config
 	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
-	config.Environment = makeEnvConfigs(env)
+	config.Environment = st.MakeEnvConfigs(env)
 
 	DoTest(config, constructor, func(p TestParams) {
 		url := fmt.Sprintf("http://localhost/sdk/goals/%s", envID)
@@ -89,15 +86,15 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 		t.Run("requests", func(t *testing.T) {
 			r := st.BuildRequest("GET", url, nil, nil)
 			result, body := st.DoRequest(r, p.Handler)
-			assertNonStreamingHeaders(t, result.Header)
+			st.AssertNonStreamingHeaders(t, result.Header)
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
-				assertExpectedCORSHeaders(t, result, "GET", "*")
+				st.AssertExpectedCORSHeaders(t, result, "GET", "*")
 			}
-			expectBody(string(fakeGoalsData))(t, body)
+			st.ExpectBody(string(fakeGoalsData))(t, body)
 		})
 
 		t.Run("options", func(t *testing.T) {
-			assertEndpointSupportsOptionsRequest(t, p.Handler, url, "GET")
+			st.AssertEndpointSupportsOptionsRequest(t, p.Handler, url, "GET")
 		})
 	})
 }

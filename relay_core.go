@@ -39,13 +39,6 @@ func errNewMetricsManagerFailed(err error) error {
 	return fmt.Errorf("unable to create metrics manager: %w", err)
 }
 
-// RelayEnvironments defines the methods for looking up environments. This is represented as an interface
-// so that test code can mock that capability.
-type RelayEnvironments interface { //nolint:golint // yes, we know the package name is also "relay"
-	GetEnvironment(config.SDKCredential) relayenv.EnvContext
-	GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext
-}
-
 // RelayCore encapsulates the core logic for all variants of Relay Proxy.
 type RelayCore struct { //nolint:golint // yes, we know the package name is also "relay"
 	allEnvironments               map[config.SDKKey]relayenv.EnvContext
