@@ -67,7 +67,7 @@ _(3)_ The optional `maxClientConnectionTime` setting may be useful in load-balan
 
 ### File section: `[Events]`
 
-**See: [Forwarding Events](./events.md)**
+To learn more, read [Forwarding events](./events.md)
 
 Property in file    | Environment var            | Type    | Default | Description
 ------------------- | -------------------------- | :-----: | :------ | -----------
@@ -123,7 +123,7 @@ LD_MOBILE_KEY_Spree_Project_Test=SPREE_TEST_MOBILE_KEY
 
 ### File section: `[Redis]`
 
-**See: [Persistent Storage](./persistent-storage.md)**
+To learn more, read [Persistent storage](./persistent-storage.md).
 
 Property in file | Environment var  | Type    | Default | Description
 ---------------- | ---------------- | :-----: | :------ | -----------
@@ -140,7 +140,7 @@ Note that the TLS and password options can also be specified as part of the URL:
 
 ### File section: `[DynamoDB]`
 
-**See: [Persistent Storage](./persistent-storage.md)**
+To learn more, read [Persistent storage](./persistent-storage.md).
 
 Property in file    | Environment var    | Type    | Default | Description
 ------------------- | ------------------ | :-----: | :------ | -----------
@@ -154,7 +154,7 @@ The AWS credentials and region for DynamoDB are not part of the Relay configurat
 
 ### File section: `[Consul]`
 
-**See: [Persistent Storage](./persistent-storage.md)**
+To learn more, read [Persistent storage](./persistent-storage.md).
 
 Property in file | Environment var | Type    | Default     | Description
 ---------------- | --------------- | :-----: | :---------- | -----------
@@ -165,7 +165,7 @@ n/a              | `USE_CONSUL`    | Boolean | `false`     | If you are using en
 
 ### File section: `[Datadog]`
 
-**See: [Metrics Integrations](./metrics.md)**
+To learn more, read [Metrics integrations](./metrics.md)
 
 Property in file | Environment var       | Type    | Default | Description
 ---------------- | --------------------- | :-----: | :------ | -----------
@@ -197,7 +197,7 @@ DATADOG_TAG_secondTagName=secondTagValue
 
 ### File section: `[Stackdriver]`
 
-**See: [Metrics Integrations](./metrics.md)**
+To learn more, read [Metrics integrations](./metrics.md)
 
 Property in file | Environment var          | Type    | Default | Description
 ---------------- | ------------------------ | :-----: | :------ | -----------
@@ -208,7 +208,7 @@ Property in file | Environment var          | Type    | Default | Description
 
 ### File section: `[Prometheus]`
 
-**See: [Metrics Integrations](./metrics.md)**
+To learn more, read [Metrics integrations](./metrics.md)
 
 Property in file | Environment var     | Type    | Default | Description
 ---------------- | ------------------- | :-----: | :------ | -----------

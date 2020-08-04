@@ -1,13 +1,4 @@
-# LaunchDarkly Relay Proxy - Service e
-
-
-
-
-
-
-
-
-ndpoints
+# LaunchDarkly Relay Proxy - Service endpoints
 
 [(Back to README)](../README.md)
 

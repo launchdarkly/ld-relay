@@ -1,4 +1,4 @@
-# LaunchDarkly Relay Proxy - Building Within an Application
+# LaunchDarkly Relay Proxy - Building within an application
 
 [(Back to README)](../README.md)
 
@@ -45,7 +45,7 @@ func createRelayConfig() config.Config {
 }
 ```
 
-Or, you can parse the configuration from a string that is in the same format as the configuration file, using the same `gcfg` package that ld-relay uses:
+Alternatively, you can parse the configuration from a string that is in the same format as the configuration file, using the same `gcfg` package that ld-relay uses:
 
 ```go
 import "github.com/launchdarkly/gcfg"
