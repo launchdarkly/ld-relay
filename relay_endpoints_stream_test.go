@@ -11,6 +11,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
 	"github.com/launchdarkly/eventsource"
+	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 )
 
@@ -27,7 +28,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 	invalidCredentialExpectedStatus int,
 ) {
 	configWithoutTimeLimit := baseConfig
-	configWithoutTimeLimit.Main.MaxClientConnectionTime = c.OptDuration{}
+	configWithoutTimeLimit.Main.MaxClientConnectionTime = ct.OptDuration{}
 
 	relayTest(configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("success", func(t *testing.T) {
@@ -45,7 +46,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 
 	maxConnTime := 100 * time.Millisecond
 	configWithTimeLimit := baseConfig
-	configWithTimeLimit.Main.MaxClientConnectionTime = c.NewOptDuration(maxConnTime)
+	configWithTimeLimit.Main.MaxClientConnectionTime = ct.NewOptDuration(maxConnTime)
 
 	relayTest(configWithTimeLimit, func(p relayTestParams) {
 		t.Run("connection time limit", func(t *testing.T) {
@@ -140,7 +141,7 @@ func TestRelayServerSideStreams(t *testing.T) {
 		{endpointTestParams{"all stream", "GET", "/all", nil, sdkKey, 200, nil}, "put", expectedAllData},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
@@ -161,7 +162,7 @@ func TestRelayMobileStreams(t *testing.T) {
 			"ping", nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	for _, s := range specs {
@@ -184,7 +185,7 @@ func TestRelayJSClientStreams(t *testing.T) {
 			"ping", nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	for _, s := range specs {

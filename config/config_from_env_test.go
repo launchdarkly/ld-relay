@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -22,10 +23,72 @@ func TestConfigFromEnvironmentWithValidProperties(t *testing.T) {
 
 func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 	for _, tdc := range makeInvalidConfigs() {
-		t.Run(tdc.name, func(t *testing.T) {
-			testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
-		})
+		if len(tdc.envVars) != 0 {
+			t.Run(tdc.name, func(t *testing.T) {
+				testInvalidConfigVars(t, tdc.envVars, tdc.envVarsError)
+			})
+		}
 	}
+}
+
+func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
+	t.Run("can add SDK key to existing environment", func(t *testing.T) {
+		var startingConfig, expectedConfig Config
+		startingConfig.Environment = map[string]*EnvConfig{
+			"envname": &EnvConfig{
+				Prefix: "p",
+			},
+		}
+		vars := map[string]string{
+			"LD_ENV_envname": "my-key",
+		}
+		expectedConfig.Environment = map[string]*EnvConfig{
+			"envname": &EnvConfig{
+				SDKKey: SDKKey("my-key"),
+				Prefix: "p",
+			},
+		}
+		withEnvironment(vars, func() {
+			c := startingConfig
+			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedConfig, c)
+		})
+	})
+
+	t.Run("can change REDIS_PORT when REDIS_HOST was set", func(t *testing.T) {
+		var startingConfig, expectedConfig Config
+		startingConfig.Redis.Host = "redishost"
+		vars := map[string]string{
+			"REDIS_PORT": "2222",
+		}
+		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
+		withEnvironment(vars, func() {
+			c := startingConfig
+			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedConfig, c)
+		})
+	})
+
+	t.Run("can change REDIS_HOST when REDIS_PORT was set", func(t *testing.T) {
+		var startingConfig, expectedConfig Config
+		startingConfig.Redis.Port = mustOptIntGreaterThanZero(2222)
+		vars := map[string]string{
+			"USE_REDIS":  "1",
+			"REDIS_HOST": "redishost",
+		}
+		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
+		withEnvironment(vars, func() {
+			c := startingConfig
+			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedConfig, c)
+		})
+	})
 }
 
 func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
@@ -34,7 +97,7 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 			map[string]string{
 				"EVENTS_SAMPLING_INTERVAL": "5",
 			},
-			"environment variable EVENTS_SAMPLING_INTERVAL is no longer supported",
+			"EVENTS_SAMPLING_INTERVAL: this variable is no longer supported",
 		)
 	})
 
@@ -44,7 +107,7 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 				"USE_REDIS": "1",
 				"REDIS_TTL": "500",
 			},
-			"environment variable REDIS_TTL is no longer supported; use CACHE_TTL",
+			"REDIS_TTL: this variable is no longer supported; use CACHE_TTL",
 		)
 	})
 
@@ -54,7 +117,7 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 				"LD_ENV_envname":         "key",
 				"LD_TTL_MINUTES_envname": "3",
 			},
-			"environment variable LD_TTL_MINUTES_envname is no longer supported; use LD_TTL_envname",
+			"LD_TTL_MINUTES_envname: this variable is no longer supported; use LD_TTL_envname",
 		)
 	})
 }
@@ -79,17 +142,16 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 		)
 	})
 
-	t.Run("treats unrecognized boolean values as false", func(t *testing.T) {
-		// TODO: not sure this is desirable
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = false },
+	t.Run("rejects invalid boolean", func(t *testing.T) {
+		testInvalidConfigVars(t,
 			map[string]string{"EXIT_ON_ERROR": "not really"},
+			"EXIT_ON_ERROR: not a valid boolean",
 		)
 	})
 
 	t.Run("parses valid int", func(t *testing.T) {
 		testValidConfigVars(t,
-			func(c *Config) { c.Main.Port = 222 },
+			func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
 			map[string]string{"PORT": "222"},
 		)
 	})
@@ -97,13 +159,24 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("rejects invalid int", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"PORT": "not-numeric"},
-			"PORT: must be an integer",
+			"PORT: not a valid integer",
+		)
+	})
+
+	t.Run("rejects <=0 value for int that must be >0", func(t *testing.T) {
+		testInvalidConfigVars(t,
+			map[string]string{"PORT": "0"},
+			"PORT: value must be greater than zero",
+		)
+		testInvalidConfigVars(t,
+			map[string]string{"PORT": "-1"},
+			"PORT: value must be greater than zero",
 		)
 	})
 
 	t.Run("parses valid URI", func(t *testing.T) {
 		testValidConfigVars(t,
-			func(c *Config) { c.Main.BaseURI = newOptAbsoluteURLMustBeValid("http://some/uri") },
+			func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
 			map[string]string{"BASE_URI": "http://some/uri"},
 		)
 	})
@@ -121,7 +194,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("parses valid duration", func(t *testing.T) {
 		testValidConfigVars(t,
-			func(c *Config) { c.Main.HeartbeatInterval = NewOptDuration(3 * time.Second) },
+			func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
 			map[string]string{"HEARTBEAT_INTERVAL": "3s"},
 		)
 	})
@@ -129,7 +202,7 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("rejects invalid duration", func(t *testing.T) {
 		testInvalidConfigVars(t,
 			map[string]string{"HEARTBEAT_INTERVAL": "x"},
-			"HEARTBEAT_INTERVAL: "+errBadDuration("x").Error(),
+			"HEARTBEAT_INTERVAL: not a valid duration",
 		)
 	})
 
@@ -154,10 +227,10 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 func testValidConfigVars(t *testing.T, buildConfig func(c *Config), vars map[string]string) {
 	withEnvironment(vars, func() {
-		expectedConfig := DefaultConfig
+		var expectedConfig Config
 		buildConfig(&expectedConfig)
 
-		c := DefaultConfig
+		var c Config
 		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
 
@@ -167,10 +240,10 @@ func testValidConfigVars(t *testing.T, buildConfig func(c *Config), vars map[str
 
 func testInvalidConfigVars(t *testing.T, vars map[string]string, errMessage string) {
 	withEnvironment(vars, func() {
-		c := DefaultConfig
+		var c Config
 		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
 		require.Error(t, err)
-		assert.Equal(t, errMessage, err.Error())
+		assert.Contains(t, err.Error(), errMessage)
 	})
 }
 

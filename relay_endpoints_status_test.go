@@ -14,7 +14,7 @@ import (
 )
 
 func TestRelayStatusEndpoint(t *testing.T) {
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvMain, testEnvClientSide, testEnvMobile)
 
 	relayTest(config, func(p relayTestParams) {

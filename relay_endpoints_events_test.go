@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
@@ -54,9 +55,8 @@ func relayEventsTest(config config.Config, action func(relayEventsTestParams)) {
 	defer eventsServer.Close()
 
 	config.Events.SendEvents = true
-	config.Events.EventsURI, _ = c.NewOptAbsoluteURLFromString(eventsServer.URL)
-	config.Events.FlushInterval = c.NewOptDuration(time.Second)
-	config.Events.Capacity = c.DefaultConfig.Events.Capacity
+	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
+	config.Events.FlushInterval = ct.NewOptDuration(time.Second)
 
 	relayTest(config, func(pBase relayTestParams) {
 		p := relayEventsTestParams{
@@ -95,7 +95,7 @@ func makeTestFeatureEventPayload(userKey string) []byte {
 func TestRelayServerSideEventProxy(t *testing.T) {
 	env := testEnvMain
 	sdkKey := env.config.SDKKey
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 	body := makeTestFeatureEventPayload("me")
 
@@ -144,7 +144,7 @@ func TestRelayServerSideEventProxy(t *testing.T) {
 func TestRelayMobileEventProxy(t *testing.T) {
 	env := testEnvMobile
 	mobileKey := env.config.MobileKey
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayEventsTest(config, func(p relayEventsTestParams) {
@@ -205,7 +205,7 @@ func TestRelayJSClientEventProxy(t *testing.T) {
 			expectBody(string(transparent1PixelImg))},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayEventsTest(config, func(p relayEventsTestParams) {

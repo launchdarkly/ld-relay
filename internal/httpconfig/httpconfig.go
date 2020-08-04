@@ -3,7 +3,6 @@ package httpconfig
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/version"
@@ -35,7 +34,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, sdkKey config.SDKKey, loggers
 		loggers.Infof("Using proxy server at %s", proxyConfig.URL)
 	}
 
-	caCertFiles := strings.Split(strings.TrimSpace(proxyConfig.CACertFiles), ",")
+	caCertFiles := proxyConfig.CACertFiles.Values()
 
 	if proxyConfig.NTLMAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {

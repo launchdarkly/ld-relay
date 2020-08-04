@@ -65,11 +65,15 @@ func newEventSummarizingRelay(authKey c.SDKCredential, config c.EventsConfig, ht
 	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
 	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
 	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
-	eventsURI := strings.TrimRight(config.EventsURI.StringOrElse(c.DefaultEventsURI), "/") + remotePath
+	eventsURI := config.EventsURI.String()
+	if eventsURI == "" {
+		eventsURI = c.DefaultEventsURI
+	}
+	eventsURI = strings.TrimRight(eventsURI, "/") + remotePath
 	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
 
 	eventsConfig := ldevents.EventsConfiguration{
-		Capacity:            config.Capacity,
+		Capacity:            config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		InlineUsersInEvents: config.InlineUsers,
 		EventSender:         eventSender,
 		FlushInterval:       config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),

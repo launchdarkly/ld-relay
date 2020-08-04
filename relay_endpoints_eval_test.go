@@ -28,7 +28,7 @@ func TestRelayServerSideEvalRoutes(t *testing.T) {
 		{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", userJSON, sdkKey,
 			http.StatusOK, expectedMobileEvalxBodyWithReasons},
 	}
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayTest(config, func(p relayTestParams) {
@@ -86,7 +86,7 @@ func TestRelayMobileEvalRoutes(t *testing.T) {
 		{"mobile get evalx", "GET", "/msdk/evalx/users/$USER", userJSON, mobileKey, http.StatusOK, nil},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(env)
 
 	relayTest(config, func(p relayTestParams) {
@@ -145,7 +145,7 @@ func TestRelayJSClientEvalRoutes(t *testing.T) {
 			http.StatusOK, expectedJSEvalxBodyWithReasons},
 	}
 
-	config := c.DefaultConfig
+	var config c.Config
 	config.Environment = makeEnvConfigs(testEnvClientSide, testEnvClientSideSecureMode)
 
 	relayTest(config, func(p relayTestParams) {

@@ -30,8 +30,8 @@ func (d datadogExporterTypeImpl) createExporterIfEnabled(
 	}
 
 	options := datadog.Options{
-		Namespace: getPrefix(mc.Datadog.CommonMetricsConfig),
-		Service:   getPrefix(mc.Datadog.CommonMetricsConfig),
+		Namespace: getPrefix(mc.Datadog.Prefix),
+		Service:   getPrefix(mc.Datadog.Prefix),
 		TraceAddr: mc.Datadog.TraceAddr,
 		StatsAddr: mc.Datadog.StatsAddr,
 		Tags:      mc.Datadog.Tag,

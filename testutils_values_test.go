@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
@@ -59,7 +60,7 @@ var testEnvWithTTL = testEnv{
 	name: "sdk test with TTL",
 	config: config.EnvConfig{
 		SDKKey: c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
-		TTL:    config.NewOptDuration(10 * time.Minute),
+		TTL:    ct.NewOptDuration(10 * time.Minute),
 	},
 }
 

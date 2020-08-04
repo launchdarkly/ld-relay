@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -19,6 +20,22 @@ type testDataInvalidConfig struct {
 	fileError    string
 	envVars      map[string]string
 	fileContent  string
+}
+
+func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
+	o, err := ct.NewOptIntGreaterThanZero(n)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
+func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
+	o, err := ct.NewOptURLAbsoluteFromString(urlString)
+	if err != nil {
+		panic(err)
+	}
+	return o
 }
 
 func makeValidConfigs() []testDataValidConfig {
@@ -45,10 +62,12 @@ func makeValidConfigs() []testDataValidConfig {
 
 func makeInvalidConfigs() []testDataInvalidConfig {
 	return []testDataInvalidConfig{
+		makeInvalidConfigMissingSDKKey(),
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
 		makeInvalidConfigRedisInvalidHostname(),
+		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigMultipleDatabases(),
 	}
@@ -58,14 +77,14 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c := testDataValidConfig{name: "all base properties"}
 	c.makeConfig = func(c *Config) {
 		c.Main = MainConfig{
-			Port:                    8333,
-			BaseURI:                 newOptAbsoluteURLMustBeValid("http://base"),
-			StreamURI:               newOptAbsoluteURLMustBeValid("http://stream"),
+			Port:                    mustOptIntGreaterThanZero(8333),
+			BaseURI:                 newOptURLAbsoluteMustBeValid("http://base"),
+			StreamURI:               newOptURLAbsoluteMustBeValid("http://stream"),
 			ExitOnError:             true,
 			ExitAlways:              true,
 			IgnoreConnectionErrors:  true,
-			HeartbeatInterval:       NewOptDuration(90 * time.Second),
-			MaxClientConnectionTime: NewOptDuration(30 * time.Minute),
+			HeartbeatInterval:       ct.NewOptDuration(90 * time.Second),
+			MaxClientConnectionTime: ct.NewOptDuration(30 * time.Minute),
 			TLSEnabled:              true,
 			TLSCert:                 "cert",
 			TLSKey:                  "key",
@@ -73,9 +92,9 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		}
 		c.Events = EventsConfig{
 			SendEvents:    true,
-			EventsURI:     newOptAbsoluteURLMustBeValid("http://events"),
-			FlushInterval: NewOptDuration(120 * time.Second),
-			Capacity:      500,
+			EventsURI:     newOptURLAbsoluteMustBeValid("http://events"),
+			FlushInterval: ct.NewOptDuration(120 * time.Second),
+			Capacity:      mustOptIntGreaterThanZero(500),
 			InlineUsers:   true,
 		}
 		c.Environment = map[string]*EnvConfig{
@@ -94,8 +113,8 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				SecureMode:    true,
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
-				AllowedOrigin: []string{"https://oa", "https://rann"},
-				TTL:           NewOptDuration(5 * time.Minute),
+				AllowedOrigin: ct.NewOptStringList([]string{"https://oa", "https://rann"}),
+				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
 	}
@@ -180,7 +199,7 @@ func makeValidConfigRedisMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://localhost:6379"),
+			URL: newOptURLAbsoluteMustBeValid("redis://localhost:6379"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -198,8 +217,8 @@ func makeValidConfigRedisAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL:      newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
-			LocalTTL: NewOptDuration(3 * time.Second),
+			URL:      newOptURLAbsoluteMustBeValid("redis://redishost:6400"),
+			LocalTTL: ct.NewOptDuration(3 * time.Second),
 			TLS:      true,
 			Password: "pass",
 		}
@@ -227,7 +246,7 @@ func makeValidConfigRedisURL() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("rediss://redishost:6400"),
+			URL: newOptURLAbsoluteMustBeValid("rediss://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -245,7 +264,7 @@ func makeValidConfigRedisPortOnly() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - URL instead of host/port"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://localhost:9999"),
+			URL: newOptURLAbsoluteMustBeValid("redis://localhost:9999"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -263,7 +282,7 @@ func makeValidConfigRedisDockerPort() testDataValidConfig {
 	c := testDataValidConfig{name: "Redis - special Docker port syntax"}
 	c.makeConfig = func(c *Config) {
 		c.Redis = RedisConfig{
-			URL: newOptAbsoluteURLMustBeValid("redis://redishost:6400"),
+			URL: newOptURLAbsoluteMustBeValid("redis://redishost:6400"),
 		}
 	}
 	c.envVars = map[string]string{
@@ -297,7 +316,7 @@ func makeValidConfigConsulAll() testDataValidConfig {
 		func(c *Config) {
 			c.Consul = ConsulConfig{
 				Host:     "consulhost",
-				LocalTTL: NewOptDuration(3 * time.Second),
+				LocalTTL: ct.NewOptDuration(3 * time.Second),
 			}
 		}
 	c.envVars = map[string]string{
@@ -336,8 +355,8 @@ func makeValidConfigDynamoDBAll() testDataValidConfig {
 		c.DynamoDB = DynamoDBConfig{
 			Enabled:   true,
 			TableName: "table",
-			URL:       newOptAbsoluteURLMustBeValid("http://localhost:8000"),
-			LocalTTL:  NewOptDuration(3 * time.Second),
+			URL:       newOptURLAbsoluteMustBeValid("http://localhost:8000"),
+			LocalTTL:  ct.NewOptDuration(3 * time.Second),
 		}
 	}
 	c.envVars = map[string]string{
@@ -360,7 +379,7 @@ func makeValidConfigDatadogMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Datadog - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Datadog = DatadogConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -377,10 +396,11 @@ func makeValidConfigDatadogAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Datadog - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Datadog = DatadogConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			TraceAddr:           "trace",
-			StatsAddr:           "stats",
-			Tag:                 []string{"tag1:value1", "tag2:value2"},
+			Enabled:   true,
+			Prefix:    "pre-",
+			TraceAddr: "trace",
+			StatsAddr: "stats",
+			Tag:       []string{"tag1:value1", "tag2:value2"},
 		}
 	}
 	c.envVars = map[string]string{
@@ -407,7 +427,7 @@ func makeValidConfigStackdriverMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Stackdriver - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Stackdriver = StackdriverConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -424,8 +444,9 @@ func makeValidConfigStackdriverAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Stackdriver - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Stackdriver = StackdriverConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			ProjectID:           "proj",
+			Enabled:   true,
+			Prefix:    "pre-",
+			ProjectID: "proj",
 		}
 	}
 	c.envVars = map[string]string{
@@ -446,8 +467,7 @@ func makeValidConfigPrometheusMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Prometheus - minimal parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: ""},
-			Port:                8031,
+			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
@@ -464,8 +484,9 @@ func makeValidConfigPrometheusAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Prometheus - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.Prometheus = PrometheusConfig{
-			CommonMetricsConfig: CommonMetricsConfig{Enabled: true, Prefix: "pre-"},
-			Port:                8333,
+			Enabled: true,
+			Prefix:  "pre-",
+			Port:    mustOptIntGreaterThanZero(8333),
 		}
 	}
 	c.envVars = map[string]string{
@@ -486,12 +507,12 @@ func makeValidConfigProxy() testDataValidConfig {
 	c := testDataValidConfig{name: "proxy"}
 	c.makeConfig = func(c *Config) {
 		c.Proxy = ProxyConfig{
-			URL:         newOptAbsoluteURLMustBeValid("http://proxy"),
+			URL:         newOptURLAbsoluteMustBeValid("http://proxy"),
 			User:        "user",
 			Password:    "pass",
 			Domain:      "domain",
 			NTLMAuth:    true,
-			CACertFiles: "cert",
+			CACertFiles: ct.NewOptStringList([]string{"cert"}),
 		}
 	}
 	c.envVars = map[string]string{
@@ -514,10 +535,24 @@ CaCertFiles = "cert"
 	return c
 }
 
+func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "environment without SDK key"}
+	c.fileContent = `
+[Environment "envname"]
+MobileKey = mob-xxx
+`
+	c.fileError = `SDK key is required for environment "envname"`
+	return c
+}
+
 func makeInvalidConfigTLSWithNoCertOrKey() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without cert/key"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+`
 	return c
 }
 
@@ -525,6 +560,11 @@ func makeInvalidConfigTLSWithNoCert() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without cert"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_KEY": "key"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+TLSKey = keyfile
+`
 	return c
 }
 
@@ -532,6 +572,11 @@ func makeInvalidConfigTLSWithNoKey() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "TLS without key"}
 	c.envVarsError = "TLS cert and key are required if TLS is enabled"
 	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_CERT": "cert"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+TLSCert = certfile
+`
 	return c
 }
 
@@ -546,6 +591,16 @@ func makeInvalidConfigRedisInvalidHostname() testDataInvalidConfig {
 [Redis]
 Host = "\\"
 `
+	return c
+}
+
+func makeInvalidConfigRedisInvalidDockerPort() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - Docker port syntax with invalid port"}
+	c.envVarsError = "REDIS_PORT: not a valid integer"
+	c.envVars = map[string]string{
+		"USE_REDIS":  "1",
+		"REDIS_PORT": "tcp://redishost:xxx",
+	}
 	return c
 }
 

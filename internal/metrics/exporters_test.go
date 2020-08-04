@@ -134,6 +134,6 @@ func TestCloseExporters(t *testing.T) {
 }
 
 func TestGetPrefix(t *testing.T) {
-	assert.Equal(t, "x", getPrefix(config.CommonMetricsConfig{Prefix: "x"}))
-	assert.Equal(t, defaultMetricsPrefix, getPrefix(config.CommonMetricsConfig{}))
+	assert.Equal(t, "x", getPrefix("x"))
+	assert.Equal(t, defaultMetricsPrefix, getPrefix(""))
 }

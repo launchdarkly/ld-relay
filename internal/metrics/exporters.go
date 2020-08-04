@@ -69,9 +69,9 @@ func closeExporters(exporters exportersSet, loggers ldlog.Loggers) {
 	}
 }
 
-func getPrefix(c config.CommonMetricsConfig) string {
-	if c.Prefix != "" {
-		return c.Prefix
+func getPrefix(configuredPrefix string) string {
+	if configuredPrefix != "" {
+		return configuredPrefix
 	}
 	return defaultMetricsPrefix
 }

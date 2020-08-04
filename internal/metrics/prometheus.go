@@ -13,8 +13,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 )
 
-const defaultPrometheusPort = 8031
-
 var prometheusExporterType exporterType = prometheusExporterTypeImpl{}
 
 type prometheusExporterTypeImpl struct{}
@@ -36,17 +34,14 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 		return nil, nil
 	}
 
-	port := defaultPrometheusPort
-	if mc.Prometheus.Port != 0 {
-		port = mc.Prometheus.Port
-	}
+	port := mc.Prometheus.Port.GetOrElse(config.DefaultPrometheusPort)
 
 	logPrometheusError := func(e error) {
 		loggers.Errorf("Prometheus exporter error: %s", e)
 	}
 
 	options := prometheus.Options{
-		Namespace: getPrefix(mc.Prometheus.CommonMetricsConfig),
+		Namespace: getPrefix(mc.Prometheus.Prefix),
 		OnError:   logPrometheusError,
 	}
 	exporter, err := prometheus.NewExporter(options)

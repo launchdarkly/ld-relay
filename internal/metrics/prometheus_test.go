@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -85,7 +86,7 @@ func TestPrometheusExporterType(t *testing.T) {
 		defer e.close()
 		require.NoError(t, e.register())
 
-		verifyPrometheusEndpointIsReachable(t, defaultPrometheusPort, time.Second)
+		verifyPrometheusEndpointIsReachable(t, config.DefaultPrometheusPort, time.Second)
 	})
 
 	t.Run("listens on custom port", func(t *testing.T) {
@@ -101,7 +102,7 @@ func TestPrometheusExporterType(t *testing.T) {
 
 		var mc config.MetricsConfig
 		mc.Prometheus.Enabled = true
-		mc.Prometheus.Port = availablePort
+		mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(availablePort)
 		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
 		require.NotNil(t, e)

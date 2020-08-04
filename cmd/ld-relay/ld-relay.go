@@ -36,7 +36,7 @@ func main() {
 	flag.BoolVar(&useEnvironment, "from-env", false, "read configuration from environment variables")
 	flag.Parse()
 
-	c := config.DefaultConfig
+	var c config.Config
 	loggers := logging.MakeDefaultLoggers()
 
 	if configFile == "" && !useEnvironment {
@@ -87,23 +87,25 @@ func main() {
 	errs := make(chan error)
 	defer close(errs)
 
-	startHTTPServer(&c, r, loggers, errs)
+	port := c.Main.Port.GetOrElse(config.DefaultPort)
+
+	startHTTPServer(&c, port, r, loggers, errs)
 
 	for err := range errs {
-		loggers.Errorf("Error starting http listener on port: %d  %s", c.Main.Port, err)
+		loggers.Errorf("Error starting http listener on port: %d  %s", port, err)
 		os.Exit(1)
 	}
 }
 
-func startHTTPServer(c *config.Config, r *relay.Relay, loggers ldlog.Loggers, errs chan<- error) {
+func startHTTPServer(c *config.Config, port int, r *relay.Relay, loggers ldlog.Loggers, errs chan<- error) {
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", c.Main.Port),
+		Addr:    fmt.Sprintf(":%d", port),
 		Handler: r,
 	}
 
 	go func() {
 		var err error
-		loggers.Infof("Starting server listening on port %d\n", c.Main.Port)
+		loggers.Infof("Starting server listening on port %d\n", port)
 		if c.Main.TLSEnabled {
 			loggers.Infof("TLS Enabled for server")
 			err = srv.ListenAndServeTLS(c.Main.TLSCert, c.Main.TLSKey)
