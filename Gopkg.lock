@@ -612,7 +612,7 @@
   version = "1.0.0"
 
 [[projects]]
-  digest = "1:e8234318e293d42204e56fbdcfcbb479863799a441885041a734dc3a6bc1ff45"
+  digest = "1:54554394f090e2848e005ae9660203c2a89d3c50b8e6ece3d441ff3a2d94eaba"
   name = "gopkg.in/launchdarkly/go-server-sdk.v4"
   packages = [
     ".",
@@ -626,8 +626,8 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "5d022ad40612fec40d5315a68e1b20467599f158"
-  version = "4.17.2"
+  revision = "2a44fb3618958f849648319cc1a500ed0b52d6b9"
+  version = "4.17.3"
 
 [solve-meta]
   analyzer-name = "dep"

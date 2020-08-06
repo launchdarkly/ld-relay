@@ -21,22 +21,23 @@ const (
 //
 // Deprecated: this type is for internal use and will be moved to another package in a future version.
 type FeatureFlag struct {
-	Key                    string             `json:"key" bson:"key"`
-	Version                int                `json:"version" bson:"version"`
-	On                     bool               `json:"on" bson:"on"`
-	TrackEvents            bool               `json:"trackEvents" bson:"trackEvents"`
-	TrackEventsFallthrough bool               `json:"trackEventsFallthrough" bson:"trackEventsFallthrough"`
-	Deleted                bool               `json:"deleted" bson:"deleted"`
-	Prerequisites          []Prerequisite     `json:"prerequisites" bson:"prerequisites"`
-	Salt                   string             `json:"salt" bson:"salt"`
-	Sel                    string             `json:"sel" bson:"sel"`
-	Targets                []Target           `json:"targets" bson:"targets"`
-	Rules                  []Rule             `json:"rules" bson:"rules"`
-	Fallthrough            VariationOrRollout `json:"fallthrough" bson:"fallthrough"`
-	OffVariation           *int               `json:"offVariation" bson:"offVariation"`
-	Variations             []interface{}      `json:"variations" bson:"variations"`
-	DebugEventsUntilDate   *uint64            `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
-	ClientSide             bool               `json:"clientSide" bson:"-"`
+	Key                    string                  `json:"key" bson:"key"`
+	Version                int                     `json:"version" bson:"version"`
+	On                     bool                    `json:"on" bson:"on"`
+	TrackEvents            bool                    `json:"trackEvents" bson:"trackEvents"`
+	TrackEventsFallthrough bool                    `json:"trackEventsFallthrough" bson:"trackEventsFallthrough"`
+	Deleted                bool                    `json:"deleted" bson:"deleted"`
+	Prerequisites          []Prerequisite          `json:"prerequisites" bson:"prerequisites"`
+	Salt                   string                  `json:"salt" bson:"salt"`
+	Sel                    string                  `json:"sel" bson:"sel"`
+	Targets                []Target                `json:"targets" bson:"targets"`
+	Rules                  []Rule                  `json:"rules" bson:"rules"`
+	Fallthrough            VariationOrRollout      `json:"fallthrough" bson:"fallthrough"`
+	OffVariation           *int                    `json:"offVariation" bson:"offVariation"`
+	Variations             []interface{}           `json:"variations" bson:"variations"`
+	DebugEventsUntilDate   *uint64                 `json:"debugEventsUntilDate" bson:"debugEventsUntilDate"`
+	ClientSide             bool                    `json:"clientSide" bson:"-"`
+	ClientSideAvailability *ClientSideAvailability `json:"clientSideAvailability,omitempty" bson:"clientSideAvailability,omitempty"`
 }
 
 // GetKey returns the string key for the feature flag
@@ -150,6 +151,20 @@ type Target struct {
 type Prerequisite struct {
 	Key       string `json:"key"`
 	Variation int    `json:"variation"`
+}
+
+// ClientSideAvailability describes what types of SDKs can use this flag.
+//
+// This information may not always be provided by LaunchDarkly services and/or Relay Proxy instances, and it
+// may not be present if a flag is retrieved from a database that was populated by an older SDK. If this
+// struct does not exist, we will fall back to using the ClientSide field of FeatureFlag.
+type ClientSideAvailability struct {
+	// UsingMobileKey indicates that this flag is available to clients using the mobile key for authorization
+	// (includes most desktop and mobile clients).
+	UsingMobileKey bool `json:"usingMobileKey" bson:"usingMobileKey"`
+	// UsingEnvironmentID indicates that this flag is available to clients using the environment ID to identify an
+	// environment (includes client-side JavaScript clients).
+	UsingEnvironmentID bool `json:"usingEnvironmentId" bson:"usingEnvironmentId"`
 }
 
 func bucketUser(user User, key, attr, salt string) float32 {
