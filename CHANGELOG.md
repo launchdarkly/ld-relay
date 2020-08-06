@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.12.0] - 2020-08-06
+### Added:
+- There is a new configuration option for specifying the lowest allowable TLS version, when using the Relay Proxy as a secure server. This is `MinTlsVersion` in the `[Main]` section of the configuration file, or the variable `MIN_TLS_VERSION` if using environment variables. For instance, setting this option to `1.2` means that all requests from clients must use TLS 1.2 or higher.
+
 ## [5.11.2] - 2020-08-06
 ### Changed:
 - There is a `clientSideAvailability` property which will be sent by LaunchDarkly services in the future as an alternate way of indicating whether a flag is enabled for use by client-side/mobile JavaScript SDKs. Previous versions of the Relay Proxy did not support this property, so the more detailed availability features being added to the LaunchDarkly dashboard would not work for applications that connected through a Relay Proxy. This version adds that support.
