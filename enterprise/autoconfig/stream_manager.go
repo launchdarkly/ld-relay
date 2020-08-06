@@ -142,8 +142,14 @@ func (s *StreamManager) subscribe(readyCh chan<- struct{}) {
 	if retry <= 0 {
 		retry = defaultStreamRetryDelay // COVERAGE: never happens in unit tests
 	}
+
+	// Client.Timeout must be zeroed out for stream connections, since it's not just a connect timeout
+	// but a timeout for the entire response
+	client := s.httpConfig.Client()
+	client.Timeout = 0
+
 	stream, err := es.SubscribeWithRequestAndOptions(req,
-		es.StreamOptionHTTPClient(s.httpConfig.Client()),
+		es.StreamOptionHTTPClient(client),
 		es.StreamOptionReadTimeout(streamReadTimeout),
 		es.StreamOptionInitialRetry(retry),
 		es.StreamOptionUseBackoff(streamMaxRetryDelay),
