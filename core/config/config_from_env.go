@@ -23,6 +23,18 @@ func errObsoleteVariableWithReplacement(preferredName string) error {
 //
 // The Config parameter should be initialized with default values first.
 func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
+	result := LoadConfigFromEnvironmentBase(c, loggers)
+
+	if !result.OK() {
+		return result.GetError()
+	}
+
+	return ValidateConfig(c, loggers)
+}
+
+// LoadConfigFromEnvironmentBase performs the initial steps of reading Config fields from
+// environment variables, but returns the intermediate result before fully validating it.
+func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.ValidationResult {
 	reader := ct.NewVarReaderFromEnvironment()
 
 	reader.ReadStruct(&c.Main, false)
@@ -106,11 +118,7 @@ func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
 
 	reader.ReadStruct(&c.Proxy, false)
 
-	if !reader.Result().OK() {
-		return reader.Result().GetError()
-	}
-
-	return ValidateConfig(c, loggers)
+	return reader.Result()
 }
 
 func rejectObsoleteVariableName(oldName, preferredName string, reader *ct.VarReader) {
