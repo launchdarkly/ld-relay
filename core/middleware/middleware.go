@@ -32,7 +32,7 @@ var (
 // so that test code can mock that capability.
 type RelayEnvironments interface {
 	GetEnvironment(config.SDKCredential) relayenv.EnvContext
-	GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext
+	GetAllEnvironments() []relayenv.EnvContext
 }
 
 // getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header

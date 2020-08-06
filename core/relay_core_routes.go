@@ -23,9 +23,9 @@ const (
 // or RelayEnterprise code may add additional routes.
 func (r *RelayCore) MakeRouter() *mux.Router {
 	router := mux.NewRouter()
-	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
-	if r.loggers.GetMinLevel() == ldlog.Debug {
-		router.Use(logging.RequestLoggerMiddleware(r.loggers))
+	router.Use(logging.GlobalContextLoggersMiddleware(r.Loggers))
+	if r.Loggers.GetMinLevel() == ldlog.Debug {
+		router.Use(logging.RequestLoggerMiddleware(r.Loggers))
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
 

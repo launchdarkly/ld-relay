@@ -90,6 +90,7 @@ type analyticsEventEndpointDispatcher struct {
 
 type diagnosticEventEndpointDispatcher struct {
 	httpClient        *http.Client
+	httpConfig        httpconfig.HTTPConfig
 	remoteEndpointURI string
 	loggers           ldlog.Loggers
 }
@@ -228,7 +229,7 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpClient, r.loggers, r.remotePath)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath)
 	}
 	return r.verbatimRelay
 }
@@ -252,54 +253,71 @@ func NewEventDispatcher(
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
 ) *EventDispatcher {
-	httpClient := httpConfig.Client()
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]eventEndpointDispatcher{
 			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, httpClient, storeAdapter, loggers, "/bulk"),
+				config, httpConfig, storeAdapter, loggers, "/bulk"),
 		},
 	}
-	ep.endpoints[ServerSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers, "/diagnostic")
+	ep.endpoints[ServerSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic")
 	if mobileKey != "" {
 		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, httpClient, storeAdapter, loggers, "/mobile")
-		ep.endpoints[MobileSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers, "/mobile/events/diagnostic")
+			config, httpConfig, storeAdapter, loggers, "/mobile")
+		ep.endpoints[MobileSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != "" {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, httpClient, storeAdapter, loggers,
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
 			"/events/bulk/"+string(envID))
-		ep.endpoints[JavaScriptSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpClient, loggers,
+		ep.endpoints[JavaScriptSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
 	return ep
 }
 
-func newDiagnosticEventEndpointDispatcher(config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *diagnosticEventEndpointDispatcher {
+func newDiagnosticEventEndpointDispatcher(
+	config c.EventsConfig,
+	httpConfig httpconfig.HTTPConfig,
+	loggers ldlog.Loggers,
+	remotePath string,
+) *diagnosticEventEndpointDispatcher {
 	eventsURI := config.EventsURI.String()
 	if eventsURI == "" {
 		eventsURI = c.DefaultEventsURI
 	}
 	return &diagnosticEventEndpointDispatcher{
-		httpClient:        httpClient,
+		httpClient:        httpConfig.Client(),
+		httpConfig:        httpConfig,
 		remoteEndpointURI: strings.TrimRight(eventsURI, "/") + remotePath,
 		loggers:           loggers,
 	}
 }
 
-func newAnalyticsEventEndpointDispatcher(authKey c.SDKCredential, config c.EventsConfig, httpConfig httpconfig.HTTPConfig,
-	httpClient *http.Client, storeAdapter *store.SSERelayDataStoreAdapter, loggers ldlog.Loggers, remotePath string) *analyticsEventEndpointDispatcher {
+func newAnalyticsEventEndpointDispatcher(
+	authKey c.SDKCredential,
+	config c.EventsConfig,
+	httpConfig httpconfig.HTTPConfig,
+	storeAdapter *store.SSERelayDataStoreAdapter,
+	loggers ldlog.Loggers,
+	remotePath string,
+) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:      authKey,
 		config:       config,
+		httpClient:   httpConfig.Client(),
 		httpConfig:   httpConfig,
-		httpClient:   httpClient,
 		storeAdapter: storeAdapter,
 		loggers:      loggers,
 		remotePath:   remotePath,
 	}
 }
 
-func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpClient *http.Client, loggers ldlog.Loggers, remotePath string) *eventVerbatimRelay {
+func newEventVerbatimRelay(
+	authKey c.SDKCredential,
+	config c.EventsConfig,
+	httpConfig httpconfig.HTTPConfig,
+	loggers ldlog.Loggers,
+	remotePath string,
+) *eventVerbatimRelay {
 	eventsURI := config.EventsURI.String()
 	if eventsURI == "" {
 		eventsURI = c.DefaultEventsURI
@@ -307,12 +325,11 @@ func newEventVerbatimRelay(authKey c.SDKCredential, config c.EventsConfig, httpC
 	opts := []OptionType{
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionEndpointURI(strings.TrimRight(eventsURI, "/") + remotePath),
-		OptionClient{Client: httpClient},
 	}
 
 	opts = append(opts, OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)))
 
-	publisher, _ := NewHTTPEventPublisher(authKey, loggers, opts...)
+	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, loggers, opts...)
 
 	res := &eventVerbatimRelay{
 		config:    config,

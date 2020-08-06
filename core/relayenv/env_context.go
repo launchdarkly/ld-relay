@@ -23,11 +23,31 @@ import (
 type EnvContext interface {
 	io.Closer
 
-	// GetName returns the configured name of the environment.
+	// GetName returns the name of the environment. This is the display name that was specified in the
+	// configuration, or, for an auto-configured environment, the concenated project + environment names.
 	GetName() string
 
-	// GetCredentials returns the SDK key and other optional keys.
-	GetCredentials() Credentials
+	// SetName updates the name of the environment.
+	SetName(string)
+
+	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
+	GetCredentials() []config.SDKCredential
+
+	// AddCredential adds a new credential for the environment.
+	//
+	// If the credential is an SDK key, then a new SDK client is started with that SDK key.
+	AddCredential(config.SDKCredential)
+
+	// RemoveCredential removes a credential from the environment. Any active stream connections using that
+	// credential are immediately dropped.
+	//
+	// If the credential is an SDK key, then the SDK client that we started with that SDK key is disposed of.
+	RemoveCredential(config.SDKCredential)
+
+	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
+	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
+	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
+	DeprecateCredential(config.SDKCredential)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
@@ -59,18 +79,26 @@ type EnvContext interface {
 	// GetTTL returns the configured cache TTL for PHP SDK endpoints for this environment.
 	GetTTL() time.Duration
 
+	// SetTTL changes the configured cache TTL for PHP SDK endpoints for this environment.
+	SetTTL(time.Duration)
+
 	// GetInitError returns an error if initialization has failed, or nil otherwise.
 	GetInitError() error
 
 	// IsSecureMode returns true if client-side evaluation requests for this environment must have a valid
 	// secure mode hash.
 	IsSecureMode() bool
+
+	// SetSecureMode changes the secure mode setting.
+	SetSecureMode(bool)
 }
 
-// Credentials encapsulates all the configured LD credentials for an environment. The SDK key is mandatory;
-// the mobile key and environment ID may be omitted.
-type Credentials struct {
-	SDKKey        config.SDKKey
-	MobileKey     config.MobileKey
-	EnvironmentID config.EnvironmentID
+// GetEnvironmentID is a helper for extracting the EnvironmentID, if any, from the set of credentials.
+func GetEnvironmentID(env EnvContext) config.EnvironmentID {
+	for _, c := range env.GetCredentials() {
+		if e, ok := c.(config.EnvironmentID); ok {
+			return e
+		}
+	}
+	return ""
 }

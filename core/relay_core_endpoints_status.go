@@ -5,12 +5,19 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
-type environmentStatus struct {
-	SdkKey    string `json:"sdkKey"`
+type statusRep struct {
+	Environments  map[string]environmentStatusRep `json:"environments"`
+	Status        string                          `json:"status"`
+	Version       string                          `json:"version"`
+	ClientVersion string                          `json:"clientVersion"`
+}
+
+type environmentStatusRep struct {
+	SDKKey    string `json:"sdkKey"`
 	EnvID     string `json:"envId,omitempty"`
 	MobileKey string `json:"mobileKey,omitempty"`
 	Status    string `json:"status"`
@@ -28,17 +35,27 @@ func obscureKey(key string) string {
 func statusHandler(core *RelayCore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		envs := make(map[string]environmentStatus)
+		resp := statusRep{
+			Environments:  make(map[string]environmentStatusRep),
+			Version:       core.Version,
+			ClientVersion: ld.Version,
+		}
 
 		healthy := true
 		for _, clientCtx := range core.GetAllEnvironments() {
-			var status environmentStatus
-			creds := clientCtx.GetCredentials()
-			status.SdkKey = obscureKey(string(creds.SDKKey))
-			if creds.MobileKey != "" {
-				status.MobileKey = obscureKey(string(creds.MobileKey))
+			var status environmentStatusRep
+
+			for _, c := range clientCtx.GetCredentials() {
+				switch c := c.(type) {
+				case config.SDKKey:
+					status.SDKKey = obscureKey(string(c))
+				case config.MobileKey:
+					status.MobileKey = obscureKey(string(c))
+				case config.EnvironmentID:
+					status.EnvID = string(c)
+				}
 			}
-			status.EnvID = string(creds.EnvironmentID)
+
 			client := clientCtx.GetClient()
 			if client == nil || !client.Initialized() {
 				status.Status = "disconnected"
@@ -46,18 +63,7 @@ func statusHandler(core *RelayCore) http.Handler {
 			} else {
 				status.Status = "connected"
 			}
-			envs[clientCtx.GetName()] = status
-		}
-
-		resp := struct {
-			Environments  map[string]environmentStatus `json:"environments"`
-			Status        string                       `json:"status"`
-			Version       string                       `json:"version"`
-			ClientVersion string                       `json:"clientVersion"`
-		}{
-			Environments:  envs,
-			Version:       version.Version,
-			ClientVersion: ld.Version,
+			resp.Environments[clientCtx.GetName()] = status
 		}
 
 		if healthy {

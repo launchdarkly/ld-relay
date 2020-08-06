@@ -9,7 +9,6 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
@@ -43,7 +42,7 @@ func DoStatusEndpointTest(t *testing.T, constructor TestConstructor) {
 			status, "environments", st.EnvMobile.Name, "status")
 
 		assertJSONPathMatch(t, "healthy", status, "status")
-		assertJSONPathMatch(t, version.Version, status, "version")
+		assertJSONPathMatch(t, p.Core.Version, status, "version")
 		assertJSONPathMatch(t, ld.Version, status, "clientVersion")
 	})
 }

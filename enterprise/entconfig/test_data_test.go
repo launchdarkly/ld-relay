@@ -47,6 +47,9 @@ func makeValidConfigs() []testDataValidConfig {
 
 func makeInvalidConfigs() []testDataInvalidConfig {
 	return []testDataInvalidConfig{
+		makeInvalidConfigParsingErrorInBaseConfig(),
+		makeInvalidConfigValidationErrorInBaseConfig(),
+		makeInvalidConfigMultipleValidationErrorsInBaseConfig(),
 		makeInvalidConfigAutoConfKeyWithEnvironments(),
 		makeInvalidConfigAutoConfAllowedOriginWithNoKey(),
 		makeInvalidConfigAutoConfPrefixWithNoKey(),
@@ -117,6 +120,56 @@ EnvDatastorePrefix = prefix-$CID
 EnvDatastoreTableName = table-$CID
 EnvAllowedOrigin = http://first
 EnvAllowedOrigin = http://second
+`
+	return c
+}
+
+func makeInvalidConfigParsingErrorInBaseConfig() testDataInvalidConfig {
+	// We already test all the error scenarios in the unit tests for the Core config, but here we're
+	// verifying that Enterprise actually checks for errors returned by the Core config.
+	c := testDataInvalidConfig{name: "parsing error in base config"}
+	c.envVarsError = "not a valid boolean value"
+	c.envVars = map[string]string{
+		"EXIT_ON_ERROR": "invalid",
+	}
+	c.fileContent = `
+[Main]
+ExitOnError = invalid
+`
+	c.fileError = "failed to parse bool"
+	return c
+}
+
+func makeInvalidConfigValidationErrorInBaseConfig() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "validation error in base config"}
+	c.envVarsError = "TLS cert and key are required if TLS is enabled"
+	c.envVars = map[string]string{
+		"TLS_ENABLED": "1",
+	}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+`
+	return c
+}
+
+func makeInvalidConfigMultipleValidationErrorsInBaseConfig() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "validation error in base config"}
+	c.envVarsError = "TLS cert and key are required if TLS is enabled, multiple databases are enabled"
+	c.envVars = map[string]string{
+		"TLS_ENABLED":  "1",
+		"USE_REDIS":    "1",
+		"USE_DYNAMODB": "1",
+	}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+
+[Redis]
+Host = localhost
+
+[DynamoDB]
+Enabled = true
 `
 	return c
 }

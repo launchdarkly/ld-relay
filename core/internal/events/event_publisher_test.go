@@ -13,13 +13,24 @@ import (
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
+
+const testSDKKey = config.SDKKey("my-key")
+
+func defaultHTTPConfig() httpconfig.HTTPConfig {
+	hc, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDisabledLoggers())
+	if err != nil {
+		panic(err)
+	}
+	return hc
+}
 
 func TestEventPublisher(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
 		defer publisher.Close()
 		publisher.Publish("hello")
 		publisher.Publish("hello again")
@@ -29,6 +40,7 @@ func TestEventPublisher(t *testing.T) {
 			assert.Fail(t, "timed out")
 		case r := <-requestsCh:
 			assert.Equal(t, "/bulk", r.Request.URL.Path)
+			assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 			assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 			assert.JSONEq(t, `["hello", "hello again"]`, string(r.Body))
 		}
@@ -38,7 +50,7 @@ func TestEventPublisher(t *testing.T) {
 func TestEventPublishRaw(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
 		defer publisher.Close()
 		publisher.PublishRaw(json.RawMessage(`{"hello": 1}`))
 		publisher.Flush()
@@ -47,6 +59,7 @@ func TestEventPublishRaw(t *testing.T) {
 			assert.Fail(t, "timed out")
 		case r := <-requestsCh:
 			assert.Equal(t, "/bulk", r.Request.URL.Path)
+			assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 			assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 			assert.JSONEq(t, `[{"hello": 1}]`, string(r.Body))
 		}
@@ -54,7 +67,7 @@ func TestEventPublishRaw(t *testing.T) {
 }
 
 func TestEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers())
+	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers())
 	timeout := time.After(time.Second)
 	publisher.Close()
 	publisher.Close()
@@ -69,7 +82,8 @@ func TestPublisherAutomaticFlush(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
+	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
+		OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	select {
@@ -88,7 +102,8 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 		data, _ := ioutil.ReadAll(req.Body)
 		body <- data
 	}))
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), ldlog.NewDisabledLoggers(), OptionURI(server.URL), OptionCapacity(1))
+	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
+		OptionURI(server.URL), OptionCapacity(1))
 	defer publisher.Close()
 	publisher.Publish("hello")
 	publisher.Publish("goodbye")

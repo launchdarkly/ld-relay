@@ -38,6 +38,7 @@ func NewTestEnvContextWithClientFactory(
 		nil, //streamProviders,
 		relayenv.JSClientContext{},
 		nil,
+		"fake-user-agent",
 		ldlog.NewDisabledLoggers(),
 		readyCh,
 	)

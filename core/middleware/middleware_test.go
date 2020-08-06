@@ -42,11 +42,18 @@ func (t testEnvironments) GetEnvironment(c config.SDKCredential) relayenv.EnvCon
 	return t[c]
 }
 
-func (t testEnvironments) GetAllEnvironments() map[config.SDKKey]relayenv.EnvContext {
-	ret := make(map[config.SDKKey]relayenv.EnvContext)
-	for k, v := range t {
-		if sk, ok := k.(config.SDKKey); ok {
-			ret[sk] = v
+func (t testEnvironments) GetAllEnvironments() []relayenv.EnvContext {
+	var ret []relayenv.EnvContext
+	for _, e := range t {
+		exists := false
+		for _, e1 := range ret {
+			if e1 == e {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			ret = append(ret, e)
 		}
 	}
 	return ret

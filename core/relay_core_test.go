@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,20 +18,16 @@ import (
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
+func makeBasicCore(config c.Config) (*RelayCore, error) {
+	return NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true), "", "")
+}
+
 func TestNewRelayCoreRejectsConfigWithContradictoryProperties(t *testing.T) {
 	// it is an error to enable TLS but not provide a cert or key
 	config := c.Config{Main: c.MainConfig{TLSEnabled: true}}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TLS cert")
-	assert.Nil(t, core)
-}
-
-func TestNewRelayCoreRejectsConfigWithNoEnvironments(t *testing.T) {
-	config := c.Config{}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "you must specify at least one environment")
 	assert.Nil(t, core)
 }
 
@@ -37,7 +35,7 @@ func TestRelayCoreGetEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -68,28 +66,26 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.NoError(t, err)
 	defer core.Close()
 
 	envs := core.GetAllEnvironments()
 	assert.Len(t, envs, 3)
-	if assert.NotNil(t, envs[st.EnvMain.Config.SDKKey]) {
-		assert.Equal(t, st.EnvMain.Name, envs[st.EnvMain.Config.SDKKey].GetName())
+	var names []string
+	for _, e := range envs {
+		names = append(names, e.GetName())
 	}
-	if assert.NotNil(t, envs[st.EnvMobile.Config.SDKKey]) {
-		assert.Equal(t, st.EnvMobile.Name, envs[st.EnvMobile.Config.SDKKey].GetName())
-	}
-	if assert.NotNil(t, envs[st.EnvClientSide.Config.SDKKey]) {
-		assert.Equal(t, st.EnvClientSide.Name, envs[st.EnvClientSide.Config.SDKKey].GetName())
-	}
+	assert.Contains(t, names, st.EnvMain.Name)
+	assert.Contains(t, names, st.EnvMobile.Name)
+	assert.Contains(t, names, st.EnvClientSide.Name)
 }
 
 func TestRelayCoreAddEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.NoError(t, err)
 	defer core.Close()
 
@@ -115,15 +111,15 @@ func TestRelayCoreRemoveEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.NoError(t, err)
 	defer core.Close()
 
-	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
-		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetName())
-	}
+	env := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.Equal(t, st.EnvMobile.Name, env.GetName())
 
-	removed := core.RemoveEnvironment(st.EnvMobile.Config.SDKKey)
+	removed := core.RemoveEnvironment(env)
 	assert.True(t, removed)
 
 	assert.Nil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
@@ -133,11 +129,13 @@ func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+	core, err := makeBasicCore(config)
 	require.NoError(t, err)
 	defer core.Close()
 
-	assert.False(t, core.RemoveEnvironment(st.EnvMobile.Config.SDKKey))
+	env := testenv.NewTestEnvContext("unknown", true, st.NewInMemoryStore())
+
+	assert.False(t, core.RemoveEnvironment(env))
 }
 
 func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
@@ -146,7 +144,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	}
 
 	t.Run("returns nil if all environments initialize successfully", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true))
+		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true), "", "")
 		require.NoError(t, err)
 		defer core.Close()
 
@@ -162,7 +160,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 			}
 			return testclient.FakeLDClientFactory(true)(sdkKey, config)
 		}
-		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), oneEnvFails)
+		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), oneEnvFails, "", "")
 		require.NoError(t, err)
 		defer core.Close()
 

@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entrelay"
-	"github.com/launchdarkly/ld-relay/v6/internal/version"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/version"
 )
 
 func main() {
