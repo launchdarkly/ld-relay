@@ -8,6 +8,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
@@ -53,6 +54,7 @@ func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks
 		clientFactory,
 		version.Version,
 		"LDRelay/"+version.Version,
+		relayenv.LogNameIsSDKKey,
 	)
 	if err != nil {
 		return nil, err

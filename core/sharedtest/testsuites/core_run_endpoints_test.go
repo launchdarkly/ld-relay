@@ -6,6 +6,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
@@ -22,6 +23,7 @@ func relayCoreForEndpointTests(c config.Config) TestParams {
 		testclient.CreateDummyClient,
 		fakeRelayCoreVersion,
 		fakeRelayUserAgent,
+		relayenv.LogNameIsSDKKey,
 	)
 	if err != nil {
 		panic(err)

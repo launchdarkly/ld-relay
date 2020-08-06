@@ -6,6 +6,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/core"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
@@ -39,12 +40,18 @@ func NewRelayEnterprise(
 		return nil, errNoEnvironments
 	}
 
+	logNameMode := relayenv.LogNameIsSDKKey
+	if hasAutoConfigKey {
+		logNameMode = relayenv.LogNameIsEnvID
+	}
+
 	core, err := core.NewRelayCore(
 		c.Config,
 		loggers,
 		clientFactory,
 		version.Version,
 		userAgent,
+		logNameMode,
 	)
 	if err != nil {
 		return nil, err

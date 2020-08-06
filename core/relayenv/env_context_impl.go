@@ -23,6 +23,21 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
+// LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
+// tagged by SDK key or by environment ID.
+type LogNameMode bool
+
+const (
+	// LogNameIsSDKKey means the log messages should be tagged with the last 4 characters of the SDK key.
+	// This is the default behavior for the Relay Proxy.
+	LogNameIsSDKKey LogNameMode = false
+
+	// LogNameIsEnvID means the log messages should be tagged with the last 4 characters of the environment
+	// ID. This is the default behavior for Relay Proxy Enterprise when running in auto-configuration mode,
+	// where we always know the environment ID but the SDK key is subject to change.
+	LogNameIsEnvID LogNameMode = true
+)
+
 func errInitPublisher(err error) error {
 	return fmt.Errorf("failed to initialize event publisher: %w", err)
 }
@@ -78,6 +93,7 @@ func NewEnvContext(
 	jsClientContext JSClientContext,
 	metricsManager *metrics.Manager,
 	userAgent string,
+	logNameMode LogNameMode,
 	loggers ldlog.Loggers,
 	readyCh chan<- EnvContext,
 ) (EnvContext, error) {
@@ -85,7 +101,7 @@ func NewEnvContext(
 	defer thingsToCleanUp.Run()
 
 	envLoggers := loggers
-	envLoggers.SetPrefix(makeLogPrefix(envName))
+	envLoggers.SetPrefix(makeLogPrefix(logNameMode, envConfig.SDKKey, envConfig.EnvID))
 	envLoggers.SetMinLevel(
 		envConfig.LogLevel.GetOrElse(
 			allConfig.Main.LogLevel.GetOrElse(ldlog.Info),
@@ -402,6 +418,13 @@ func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretyp
 	return nil, nil
 }
 
-func makeLogPrefix(envName string) string {
-	return fmt.Sprintf("[env: %s]", envName)
+func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {
+	name := string(sdkKey)
+	if logNameMode == LogNameIsEnvID && envID != "" {
+		name = string(envID)
+	}
+	if len(name) > 4 { // real keys are always longer than this
+		name = "..." + name[len(name)-4:]
+	}
+	return fmt.Sprintf("[env: %s]", name)
 }

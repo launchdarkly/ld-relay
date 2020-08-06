@@ -3,6 +3,7 @@ package relayenv
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -56,6 +57,7 @@ func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.C
 		JSClientContext{},
 		nil,
 		"user-agent",
+		LogNameIsSDKKey,
 		loggers,
 		readyCh,
 	)
@@ -130,6 +132,7 @@ func TestConstructorWithJSClientContext(t *testing.T) {
 		jsClientContext,
 		nil,
 		"user-agent",
+		LogNameIsSDKKey,
 		ldlog.NewDisabledLoggers(),
 		nil,
 	)
@@ -137,6 +140,40 @@ func TestConstructorWithJSClientContext(t *testing.T) {
 	defer env.Close()
 
 	assert.Equal(t, jsClientContext, env.GetJSClientContext())
+}
+
+func TestLogPrefix(t *testing.T) {
+	testPrefix := func(desc string, mode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID, expected string) {
+		t.Run(desc, func(t *testing.T) {
+			envConfig := config.EnvConfig{SDKKey: sdkKey, EnvID: envID}
+			mockLog := ldlogtest.NewMockLog()
+			env, err := NewEnvContext(
+				"name",
+				envConfig,
+				config.Config{},
+				testclient.FakeLDClientFactory(true),
+				ldcomponents.InMemoryDataStore(),
+				[]streams.StreamProvider{},
+				JSClientContext{},
+				nil,
+				"user-agent",
+				mode,
+				mockLog.Loggers,
+				nil,
+			)
+			require.NoError(t, err)
+			defer env.Close()
+			envImpl := env.(*envContextImpl)
+			envImpl.loggers.Error("message")
+			mockLog.AssertMessageMatch(t, true, ldlog.Error, "^"+regexp.QuoteMeta(expected)+" message")
+		})
+	}
+
+	testPrefix("SDK key", LogNameIsSDKKey, config.SDKKey("1234567890"), config.EnvironmentID("abcdefghij"), "[env: ...7890]")
+	testPrefix("env ID", LogNameIsEnvID, config.SDKKey("1234567890"), config.EnvironmentID("abcdefghij"), "[env: ...ghij]")
+	testPrefix("env ID not set", LogNameIsEnvID, config.SDKKey("1234567890"), "", "[env: ...7890]")
+	testPrefix("impossibly short SDK key", LogNameIsSDKKey, config.SDKKey("890"), config.EnvironmentID("abcdefghij"), "[env: 890]")
+	testPrefix("impossibly short env ID", LogNameIsEnvID, config.SDKKey("1234567890"), config.EnvironmentID("hij"), "[env: hij]")
 }
 
 func TestAddRemoveCredential(t *testing.T) {
