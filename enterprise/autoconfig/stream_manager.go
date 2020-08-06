@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,11 @@ const (
 	logMsgUnknownEvent        = "Ignoring unrecognized stream event: %q"
 	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
 	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
+)
+
+var (
+	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)
+	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
 // StreamManager manages the auto-configuration SSE stream.
@@ -195,6 +201,10 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 			shouldRestart := false
 
+			if s.loggers.IsDebugEnabled() {
+				s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
+			}
+
 			gotMalformedEvent := func(event es.Event, err error) {
 				s.loggers.Errorf(
 					logMsgMalformedData,
@@ -229,7 +239,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				}
 				envID := config.EnvironmentID(strings.TrimPrefix(patchMessage.Path, environmentPathPrefix))
 				if patchMessage.Data.EnvID != envID {
-					s.loggers.Warnf(logMsgEnvHasWrongID, patchMessage.Data.EnvID, envID)
+					s.loggers.Warnf(logMsgEnvHasWrongID, logEnvID(patchMessage.Data.EnvID), logEnvID(envID))
 					break
 				}
 				s.addOrUpdate(patchMessage.Data)
@@ -261,7 +271,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			}
 
 		case expiredKey := <-s.expiredKeys:
-			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), expiredKey.envID,
+			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), logEnvID(expiredKey.envID),
 				makeEnvName(s.lastKnownEnvs[expiredKey.envID]))
 			s.handler.KeyExpired(expiredKey.envID, expiredKey.key)
 
@@ -286,13 +296,17 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]environmen
 	s.loggers.Infof(logMsgPutEvent, len(allEnvReps))
 	for id, rep := range allEnvReps {
 		if id != rep.EnvID {
-			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
+			s.loggers.Warnf(logMsgEnvHasWrongID, logEnvID(rep.EnvID), logEnvID(id))
+			continue
+		}
+		if s.lastKnownEnvs[id] == rep {
+			// Unchanged - don't try to update because we would get a warning for the version not being higher
 			continue
 		}
 		s.addOrUpdate(rep)
 	}
-	for id := range s.lastKnownEnvs {
-		if _, isInNewData := allEnvReps[id]; !isInNewData {
+	for id, currentEnv := range s.lastKnownEnvs {
+		if _, isInNewData := allEnvReps[id]; !isInNewData && !isTombstone(currentEnv) {
 			s.handleDelete(id, -1)
 		}
 	}
@@ -306,7 +320,7 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 	if exists {
 		// Check version to make sure this isn't an out-of-order message
 		if rep.Version <= currentEnv.Version {
-			s.loggers.Infof(logMsgUpdateBadVersion, rep.EnvID, makeEnvName(currentEnv))
+			s.loggers.Infof(logMsgUpdateBadVersion, logEnvID(rep.EnvID), makeEnvName(currentEnv))
 			return
 		}
 		if currentEnv.EnvID == "" {
@@ -321,7 +335,7 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 		if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; !alreadyHaveTimer {
 			timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
 			dateTime := time.Unix(int64(expiryTime)/1000, 0)
-			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID, params.Name, dateTime)
+			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), logEnvID(rep.EnvID), params.Name, dateTime)
 			timer := time.NewTimer(timeFromNow)
 			s.expiryTimers[expiringKey] = timer
 			go func() {
@@ -334,11 +348,11 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 
 	if exists {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgUpdateEnv, rep.EnvID, params.Name)
+		s.loggers.Infof(logMsgUpdateEnv, logEnvID(rep.EnvID), params.Name)
 		s.handler.UpdateEnvironment(params)
 	} else {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgAddEnv, rep.EnvID, params.Name)
+		s.loggers.Infof(logMsgAddEnv, logEnvID(rep.EnvID), params.Name)
 		s.handler.AddEnvironment(params)
 	}
 }
@@ -347,17 +361,22 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	currentEnv, exists := s.lastKnownEnvs[envID]
 	// Check version to make sure this isn't an out-of-order message
 	if version > 0 {
+		if exists && version == currentEnv.Version && isTombstone(currentEnv) {
+			// This is a tombstone, it's already been deleted, no need for a warning
+			return
+		}
 		if exists && version <= currentEnv.Version {
-			s.loggers.Infof(logMsgDeleteBadVersion, envID, makeEnvName(currentEnv))
+			// The existing environment (or tombstone) has too high a version number; don't delete
+			s.loggers.Infof(logMsgDeleteBadVersion, logEnvID(envID), makeEnvName(currentEnv))
 			return
 		}
 		// Store a tombstone with the version, to prevent later out-of-order updates; we do this even
 		// if we never heard of this environment, in case there are out-of-order messages and the
 		// event to add the environment comes later
-		s.lastKnownEnvs[envID] = environmentRep{Version: version}
+		s.lastKnownEnvs[envID] = makeTombstone(version)
 	}
 	if exists {
-		s.loggers.Infof(logMsgDeleteEnv, envID, makeEnvName(currentEnv))
+		s.loggers.Infof(logMsgDeleteEnv, logEnvID(envID), makeEnvName(currentEnv))
 		s.handler.DeleteEnvironment(envID)
 	}
 }
@@ -378,9 +397,28 @@ func makeEnvName(rep environmentRep) string {
 	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
 }
 
+func makeTombstone(version int) environmentRep {
+	return environmentRep{Version: version}
+}
+
+func isTombstone(rep environmentRep) bool {
+	return rep.EnvID == ""
+}
+
 func last4Chars(s string) string {
 	if len(s) < 4 {
 		return s
 	}
 	return s[len(s)-4:]
+}
+
+func logEnvID(id config.EnvironmentID) string {
+	return last4Chars(string(id)) // obfuscate all environment IDs in log messages like this
+}
+
+func obfuscateEventData(data string) string {
+	// Used for debug logging to obscure the SDK keys and mobile keys in the JSON data
+	data = sdkKeyJSONRegex.ReplaceAllString(data, `"value":"...$1"`)
+	data = mobKeyJSONRegex.ReplaceAllString(data, `"mobKey":"...$1"`)
+	return data
 }
