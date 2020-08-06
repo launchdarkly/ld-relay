@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/gcfg"
 	"gopkg.in/launchdarkly/go-server-sdk.v4/ldlog"
 	"gopkg.in/launchdarkly/ld-relay.v5/httpconfig"
+	"gopkg.in/launchdarkly/ld-relay.v5/internal"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/events"
 	"gopkg.in/launchdarkly/ld-relay.v5/internal/metrics"
 	"gopkg.in/launchdarkly/ld-relay.v5/logging"
@@ -65,6 +66,7 @@ type MainConfig struct {
 	TLSEnabled             bool
 	TLSCert                string
 	TLSKey                 string
+	TLSMinVersion          string
 	LogLevel               string
 }
 
@@ -276,8 +278,15 @@ func LoadConfigFile(c *Config, path string) error {
 
 // ValidateConfig ensures that the configuration does not contain contradictory properties.
 func ValidateConfig(c *Config) error {
-	if c.Main.TLSEnabled && (c.Main.TLSCert == "" || c.Main.TLSKey == "") {
-		return errors.New("TLS cert and key are required if TLS is enabled")
+	if c.Main.TLSEnabled {
+		if c.Main.TLSCert == "" || c.Main.TLSKey == "" {
+			return errors.New("TLS cert and key are required if TLS is enabled")
+		}
+		if c.Main.TLSMinVersion != "" {
+			if _, ok := internal.ParseTLSVersion(c.Main.TLSMinVersion); !ok {
+				return errors.New("invalid minimum TLS version")
+			}
+		}
 	}
 	if _, ok := getLogLevelByName(c.Main.LogLevel); !ok {
 		return fmt.Errorf(`Invalid log level "%s"`, c.Main.LogLevel)
@@ -321,6 +330,7 @@ func LoadConfigFromEnvironment(c *Config) error {
 	maybeSetFromEnv(&c.Main.TLSCert, "TLS_CERT")
 	maybeSetFromEnv(&c.Main.TLSKey, "TLS_KEY")
 	maybeSetFromEnv(&c.Main.LogLevel, "LOG_LEVEL")
+	maybeSetFromEnv(&c.Main.TLSMinVersion, "TLS_MIN_VERSION")
 
 	maybeSetFromEnvBool(&c.Events.SendEvents, "USE_EVENTS")
 	maybeSetFromEnv(&c.Events.EventsUri, "EVENTS_HOST")
