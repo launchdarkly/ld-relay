@@ -155,6 +155,10 @@ func NewEnvContext(
 	}
 	envContext.eventDispatcher = eventDispatcher
 
+	streamURI := allConfig.Main.StreamURI.String()
+	if streamURI == "" {
+		streamURI = config.DefaultStreamURI
+	}
 	eventsURI := allConfig.Events.EventsURI.String()
 	if eventsURI == "" {
 		eventsURI = config.DefaultEventsURI
@@ -177,8 +181,9 @@ func NewEnvContext(
 	thingsToCleanUp.AddFunc(func() { metricsManager.RemoveEnvironment(em) })
 
 	envContext.sdkConfig = ld.Config{
-		DataSource: ldcomponents.StreamingDataSource().BaseURI(allConfig.Main.StreamURI.String()),
+		DataSource: ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:  storeAdapter,
+		Events:     ldcomponents.SendEvents().BaseURI(eventsURI),
 		HTTP:       httpConfig.SDKHTTPConfigFactory,
 		Logging:    ldcomponents.Logging().Loggers(envLoggers),
 	}
