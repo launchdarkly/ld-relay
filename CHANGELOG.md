@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.11.2] - 2020-08-06
+### Changed:
+- There is a `clientSideAvailability` property which will be sent by LaunchDarkly services in the future as an alternate way of indicating whether a flag is enabled for use by client-side/mobile JavaScript SDKs. Previous versions of the Relay Proxy did not support this property, so the more detailed availability features being added to the LaunchDarkly dashboard would not work for applications that connected through a Relay Proxy. This version adds that support.
+
 ## [5.11.1] - 2020-07-07
 ### Changed:
 - Updated the README to have updated usage guidance and to fix outdated links.
