@@ -46,8 +46,8 @@ const (
 )
 
 var (
-	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)
-	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
+	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)  //nolint:gochecknoglobals
+	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`) //nolint:gochecknoglobals
 )
 
 // StreamManager manages the auto-configuration SSE stream.
@@ -239,7 +239,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				}
 				envID := config.EnvironmentID(strings.TrimPrefix(patchMessage.Path, environmentPathPrefix))
 				if patchMessage.Data.EnvID != envID {
-					s.loggers.Warnf(logMsgEnvHasWrongID, logEnvID(patchMessage.Data.EnvID), logEnvID(envID))
+					s.loggers.Warnf(logMsgEnvHasWrongID, patchMessage.Data.EnvID, envID)
 					break
 				}
 				s.addOrUpdate(patchMessage.Data)
@@ -271,7 +271,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			}
 
 		case expiredKey := <-s.expiredKeys:
-			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), logEnvID(expiredKey.envID),
+			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), expiredKey.envID,
 				makeEnvName(s.lastKnownEnvs[expiredKey.envID]))
 			s.handler.KeyExpired(expiredKey.envID, expiredKey.key)
 
@@ -296,7 +296,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]environmen
 	s.loggers.Infof(logMsgPutEvent, len(allEnvReps))
 	for id, rep := range allEnvReps {
 		if id != rep.EnvID {
-			s.loggers.Warnf(logMsgEnvHasWrongID, logEnvID(rep.EnvID), logEnvID(id))
+			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
 		if s.lastKnownEnvs[id] == rep {
@@ -320,7 +320,7 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 	if exists {
 		// Check version to make sure this isn't an out-of-order message
 		if rep.Version <= currentEnv.Version {
-			s.loggers.Infof(logMsgUpdateBadVersion, logEnvID(rep.EnvID), makeEnvName(currentEnv))
+			s.loggers.Infof(logMsgUpdateBadVersion, rep.EnvID, makeEnvName(currentEnv))
 			return
 		}
 		if currentEnv.EnvID == "" {
@@ -335,7 +335,7 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 		if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; !alreadyHaveTimer {
 			timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
 			dateTime := time.Unix(int64(expiryTime)/1000, 0)
-			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), logEnvID(rep.EnvID), params.Name, dateTime)
+			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID, params.Name, dateTime)
 			timer := time.NewTimer(timeFromNow)
 			s.expiryTimers[expiringKey] = timer
 			go func() {
@@ -348,11 +348,11 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 
 	if exists {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgUpdateEnv, logEnvID(rep.EnvID), params.Name)
+		s.loggers.Infof(logMsgUpdateEnv, rep.EnvID, params.Name)
 		s.handler.UpdateEnvironment(params)
 	} else {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgAddEnv, logEnvID(rep.EnvID), params.Name)
+		s.loggers.Infof(logMsgAddEnv, rep.EnvID, params.Name)
 		s.handler.AddEnvironment(params)
 	}
 }
@@ -367,7 +367,7 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 		}
 		if exists && version <= currentEnv.Version {
 			// The existing environment (or tombstone) has too high a version number; don't delete
-			s.loggers.Infof(logMsgDeleteBadVersion, logEnvID(envID), makeEnvName(currentEnv))
+			s.loggers.Infof(logMsgDeleteBadVersion, envID, makeEnvName(currentEnv))
 			return
 		}
 		// Store a tombstone with the version, to prevent later out-of-order updates; we do this even
@@ -376,7 +376,7 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 		s.lastKnownEnvs[envID] = makeTombstone(version)
 	}
 	if exists {
-		s.loggers.Infof(logMsgDeleteEnv, logEnvID(envID), makeEnvName(currentEnv))
+		s.loggers.Infof(logMsgDeleteEnv, envID, makeEnvName(currentEnv))
 		s.handler.DeleteEnvironment(envID)
 	}
 }
@@ -410,10 +410,6 @@ func last4Chars(s string) string {
 		return s
 	}
 	return s[len(s)-4:]
-}
-
-func logEnvID(id config.EnvironmentID) string {
-	return last4Chars(string(id)) // obfuscate all environment IDs in log messages like this
 }
 
 func obfuscateEventData(data string) string {

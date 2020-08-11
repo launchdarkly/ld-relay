@@ -50,6 +50,13 @@ var (
 	emptyPutMessage = httphelpers.SSEEvent{Event: putEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
 )
 
+func last4EnvID(e environmentRep) string {
+	if len(e.EnvID) < 4 {
+		return string(e.EnvID)
+	}
+	return string(e.EnvID[len(e.EnvID)-4:])
+}
+
 func toJSON(x interface{}) string {
 	bytes, _ := json.Marshal(x)
 	return string(bytes)
