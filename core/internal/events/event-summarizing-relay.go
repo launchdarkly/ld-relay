@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
@@ -31,7 +33,17 @@ func errUnknownEventKind(kind string) error {
 type eventSummarizingRelay struct {
 	eventProcessor ldevents.EventProcessor
 	storeAdapter   *store.SSERelayDataStoreAdapter
+	eventSender    *reconfigurableEventSender
 	loggers        ldlog.Loggers
+}
+
+type reconfigurableEventSender struct {
+	eventSender ldevents.EventSender
+	httpClient  *http.Client
+	eventsURI   string
+	headers     http.Header
+	loggers     ldlog.Loggers
+	lock        sync.Mutex
 }
 
 type receivedEventUser struct {
@@ -69,16 +81,23 @@ type receivedIdentifyEvent struct {
 	User         receivedEventUser          `json:"user"`
 }
 
-func newEventSummarizingRelay(config c.EventsConfig, httpConfig httpconfig.HTTPConfig, storeAdapter *store.SSERelayDataStoreAdapter,
-	loggers ldlog.Loggers, remotePath string) *eventSummarizingRelay {
+func newEventSummarizingRelay(
+	config c.EventsConfig,
+	httpConfig httpconfig.HTTPConfig,
+	sdkKey c.SDKKey,
+	storeAdapter *store.SSERelayDataStoreAdapter,
+	loggers ldlog.Loggers,
+	remotePath string,
+) *eventSummarizingRelay {
 	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
 	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	headers.Set("Authorization", string(sdkKey))
 	eventsURI := config.EventsURI.String()
 	if eventsURI == "" {
 		eventsURI = c.DefaultEventsURI
 	}
 	eventsURI = strings.TrimRight(eventsURI, "/") + remotePath
-	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
+	eventSender := newReconfigurableEventSender(httpClient, eventsURI, headers, loggers)
 
 	eventsConfig := ldevents.EventsConfiguration{
 		Capacity:            config.Capacity.GetOrElse(c.DefaultEventCapacity),
@@ -92,6 +111,7 @@ func newEventSummarizingRelay(config c.EventsConfig, httpConfig httpconfig.HTTPC
 	return &eventSummarizingRelay{
 		eventProcessor: ep,
 		storeAdapter:   storeAdapter,
+		eventSender:    eventSender,
 		loggers:        loggers,
 	}
 }
@@ -237,4 +257,41 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 		}, nil
 	}
 	return nil, errUnknownEventKind(kindFieldOnly.Kind)
+}
+
+func newReconfigurableEventSender(
+	httpClient *http.Client,
+	eventsURI string,
+	headers http.Header,
+	loggers ldlog.Loggers,
+) *reconfigurableEventSender {
+	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
+	return &reconfigurableEventSender{
+		eventSender: eventSender,
+		httpClient:  httpClient,
+		eventsURI:   eventsURI,
+		headers:     headers,
+		loggers:     loggers,
+	}
+}
+
+func (r *reconfigurableEventSender) replaceCredential(newCredential c.SDKCredential) {
+	if key, ok := newCredential.(c.SDKKey); ok {
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		headers := make(http.Header)
+		for k, v := range r.headers {
+			headers[k] = v
+		}
+		headers.Set("Authorization", string(key))
+		r.headers = headers
+		r.eventSender = ldevents.NewDefaultEventSender(r.httpClient, r.eventsURI, "", r.headers, r.loggers)
+	}
+}
+
+func (r *reconfigurableEventSender) SendEventData(kind ldevents.EventDataKind, data []byte, count int) ldevents.EventSenderResult {
+	r.lock.Lock()
+	sender := r.eventSender
+	r.lock.Unlock()
+	return sender.SendEventData(kind, data, count)
 }

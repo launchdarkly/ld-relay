@@ -95,5 +95,7 @@ func (p *testEventsPublisher) Publish(events ...interface{}) {
 		p.events <- e
 	}
 }
-func (p *testEventsPublisher) PublishRaw(events ...json.RawMessage) {}
-func (p *testEventsPublisher) Flush()                               {}
+func (p *testEventsPublisher) PublishRaw(events ...json.RawMessage)   {}
+func (p *testEventsPublisher) Flush()                                 {}
+func (p *testEventsPublisher) Close()                                 {}
+func (p *testEventsPublisher) ReplaceCredential(config.SDKCredential) {}

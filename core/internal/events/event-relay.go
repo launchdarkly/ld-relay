@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,13 +74,15 @@ type EventDispatcher struct {
 
 type eventEndpointDispatcher interface {
 	dispatch(w http.ResponseWriter, req *http.Request)
+	replaceCredential(c.SDKCredential)
 }
 
 type analyticsEventEndpointDispatcher struct {
 	config           c.EventsConfig
 	httpClient       *http.Client
 	httpConfig       httpconfig.HTTPConfig
-	authKey          c.SDKCredential
+	authKey          c.SDKCredential // used when forwarding events to the corresponding SDK-kind-specific endpoint
+	sdkKey           c.SDKKey        // used when summarizing events, since those always use the server-side endpoint
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
 	summarizingRelay *eventSummarizingRelay
@@ -151,6 +154,23 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 	})
 }
 
+func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential c.SDKCredential) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
+		r.authKey = newCredential
+	}
+	if key, ok := newCredential.(c.SDKKey); ok {
+		r.sdkKey = key
+	}
+	if r.summarizingRelay != nil {
+		r.summarizingRelay.eventSender.replaceCredential(newCredential)
+	}
+	if r.verbatimRelay != nil {
+		r.verbatimRelay.publisher.ReplaceCredential(newCredential)
+	}
+}
+
 func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *http.Request) {
 	consumeEvents(w, req, d.loggers, func(body []byte) {
 		// We are just operating as a reverse proxy and passing the request on verbatim to LD; we do not
@@ -196,6 +216,12 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 	})
 }
 
+func (d *diagnosticEventEndpointDispatcher) replaceCredential(newCredential c.SDKCredential) {
+	// Nothing needs to be done here, because diagnosticEventEndpointDispatcher does not own any credential -
+	// it always just puts the same Authorization header on the proxied request that it received in the
+	// original request.
+}
+
 func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Loggers, thenExecute func([]byte)) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
 
@@ -238,14 +264,14 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.storeAdapter, r.loggers, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.sdkKey, r.storeAdapter, r.loggers, r.remotePath)
 	}
 	return r.summarizingRelay
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
 func NewEventDispatcher(
-	sdkKey c.SDKKey, //nolint:interfacer // we want to enforce that this parameter is an SDK key, not just an SDKCredential
+	sdkKey c.SDKKey,
 	mobileKey c.MobileKey,
 	envID c.EnvironmentID,
 	loggers ldlog.Loggers,
@@ -255,23 +281,32 @@ func NewEventDispatcher(
 ) *EventDispatcher {
 	ep := &EventDispatcher{
 		endpoints: map[Endpoint]eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey,
+			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey, sdkKey,
 				config, httpConfig, storeAdapter, loggers, "/bulk"),
 		},
 	}
 	ep.endpoints[ServerSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic")
 	if mobileKey != "" {
-		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(mobileKey,
+		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(mobileKey, sdkKey,
 			config, httpConfig, storeAdapter, loggers, "/mobile")
 		ep.endpoints[MobileSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != "" {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
+		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(envID, sdkKey, config, httpConfig, storeAdapter, loggers,
 			"/events/bulk/"+string(envID))
 		ep.endpoints[JavaScriptSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
 	return ep
+}
+
+// ReplaceCredential changes the authorization credentail that is used when forwarding events to any
+// endpoints that use that type of credential. For instance, if newCredential is a MobileKey, this
+// affects only endpoints that use a mobile key.
+func (r *EventDispatcher) ReplaceCredential(newCredential c.SDKCredential) {
+	for _, d := range r.endpoints {
+		d.replaceCredential(newCredential)
+	}
 }
 
 func newDiagnosticEventEndpointDispatcher(
@@ -294,6 +329,7 @@ func newDiagnosticEventEndpointDispatcher(
 
 func newAnalyticsEventEndpointDispatcher(
 	authKey c.SDKCredential,
+	sdkKey c.SDKKey,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
@@ -302,6 +338,7 @@ func newAnalyticsEventEndpointDispatcher(
 ) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:      authKey,
+		sdkKey:       sdkKey,
 		config:       config,
 		httpClient:   httpConfig.Client(),
 		httpConfig:   httpConfig,

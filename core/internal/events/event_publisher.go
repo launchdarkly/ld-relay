@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,8 +43,15 @@ type EventPublisher interface {
 	// PublishRaw adds any number of JSON elements to the queue.
 	PublishRaw(...json.RawMessage)
 
-	// Flush attempst to deliver all queued events.
+	// Flush attempts to deliver all queued events.
 	Flush()
+
+	// ReplaceCredential changes the authorization credential used when sending events, if the previous
+	// credential was of the same type.
+	ReplaceCredential(config.SDKCredential)
+
+	// Close releases all resources used by this object.
+	Close()
 }
 
 // HTTPEventPublisher is the standard implementation of EventPublisher.
@@ -59,6 +67,7 @@ type HTTPEventPublisher struct {
 	inputQueue chan interface{}
 	queue      []interface{}
 	capacity   int
+	lock       sync.RWMutex
 }
 
 type batch []interface{}
@@ -206,6 +215,14 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	return p, nil
 }
 
+func (p *HTTPEventPublisher) ReplaceCredential(newCredential config.SDKCredential) { //nolint:golint // method is already documented in interface
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if reflect.TypeOf(newCredential) == reflect.TypeOf(p.authKey) {
+		p.authKey = newCredential
+	}
+}
+
 func (p *HTTPEventPublisher) Publish(events ...interface{}) { //nolint:golint // method is already documented in interface
 	p.inputQueue <- batch(events)
 }
@@ -262,14 +279,7 @@ PostAttempts:
 			return reqErr
 		}
 
-		req.Header.Set("Content-Type", "application/json")
-		for k, v := range p.headers {
-			req.Header[k] = v
-		}
-		// The headers come from HTTPConfig, which may provide an Authorization header with an SDK key. We
-		// will override that with whatever auth key is appropriate for this particular event endpoint
-		req.Header.Set("Authorization", p.authKey.GetAuthorizationHeaderValue())
-		req.Header.Set(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))
+		p.setHeaders(req)
 
 		resp, respErr = p.client.Do(req)
 		if respErr != nil {
@@ -294,4 +304,18 @@ PostAttempts:
 		}
 	}
 	return respErr
+}
+
+func (p *HTTPEventPublisher) setHeaders(req *http.Request) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range p.headers {
+		req.Header[k] = v
+	}
+	// The headers come from HTTPConfig, which may provide an Authorization header with an SDK key. We
+	// will override that with whatever auth key is appropriate for this particular event endpoint
+	req.Header.Set("Authorization", p.authKey.GetAuthorizationHeaderValue())
+	req.Header.Set(EventSchemaHeader, strconv.Itoa(SummaryEventsSchemaVersion))
 }

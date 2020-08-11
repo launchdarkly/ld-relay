@@ -63,6 +63,7 @@ type envContextImpl struct {
 	sdkClientFactory sdks.ClientFactoryFunc
 	metricsManager   *metrics.Manager
 	metricsEnv       *metrics.EnvironmentManager
+	metricsEventPub  events.EventPublisher
 	globalLoggers    ldlog.Loggers
 	ttl              time.Duration
 	initErr          error
@@ -179,15 +180,17 @@ func NewEnvContext(
 	if eventsURI == "" {
 		eventsURI = config.DefaultEventsURI
 	}
-	eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLoggers,
-		events.OptionURI(eventsURI))
-	if err != nil {
-		return nil, errInitPublisher(err)
-	}
-	thingsToCleanUp.AddFunc(eventsPublisher.Close)
 
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
+		eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLoggers,
+			events.OptionURI(eventsURI))
+		if err != nil {
+			return nil, errInitPublisher(err)
+		}
+		thingsToCleanUp.AddFunc(eventsPublisher.Close)
+		envContext.metricsEventPub = eventsPublisher
+
 		em, err = metricsManager.AddEnvironment(envName, eventsPublisher)
 		if err != nil {
 			return nil, errInitMetrics(err)
@@ -278,9 +281,22 @@ func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
 	c.credentials[newCredential] = true
 	c.envStreams.AddCredential(newCredential)
 
-	// A new SDK key means a new SDK client
-	if sdkKey, ok := newCredential.(config.SDKKey); ok {
-		go c.startSDKClient(sdkKey, nil, false)
+	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
+	// components that use an SDK key to use the new one. A new mobile key does not require starting a
+	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
+	switch key := newCredential.(type) {
+	case config.SDKKey:
+		go c.startSDKClient(key, nil, false)
+		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+			c.metricsEventPub.ReplaceCredential(key)
+		}
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
+	case config.MobileKey:
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
 	}
 }
 
@@ -400,6 +416,9 @@ func (c *envContextImpl) Close() error {
 	_ = c.envStreams.Close()
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)
+	}
+	if c.metricsEventPub != nil {
+		c.metricsEventPub.Close()
 	}
 	return nil
 }
