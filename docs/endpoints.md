@@ -18,17 +18,37 @@ Making a `GET` request to the URL path `/status` provides JSON information about
 ```json
 {
   "environments": {
-    "name of first environment": {
+    "environment1": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
-      "status": "connected"
+      "status": "connected",
+      "connectionStatus": {
+        "state": "VALID",
+        "stateSince": 10000000
+      },
+      "dataStoreStatus": {
+        "state": "VALID",
+        "stateSince": 10000000
+      }
     },
-    "name of another environment": {
+    "environment2": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
       "envId": "999999999999999999999999",
       "mobileKey": "mob-********-****-****-****-*******99999",
-      "status": "connected"
+      "status": "connected",
+      "connectionStatus": {
+        "state": "INTERRUPTED",
+        "stateSince": 12000000,
+        "lastError": {
+          "kind": "NETWORK_ERROR",
+          "time": 12000000
+        }
+      },
+      "dataStoreStatus": {
+        "state": "VALID",
+        "stateSince": 10000000
+      }
     }
   },
   "status": "healthy",
@@ -37,11 +57,16 @@ Making a `GET` request to the URL path `/status` provides JSON information about
 }
 ```
 
-The `status` property for each environment will be `"connected"` if the Relay Proxy was able to establish a LaunchDarkly connection and get feature flag data for that environment, or `"disconnected"` if not. Currently this does not take into account any service outages that happened after the connection was initially made.
+The status properties are defined as follows:
 
-The top-level `status` property will be `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
+- The `status` for each environment is `"connected"` if the Relay Proxy was able to establish a LaunchDarkly connection and get feature flag data for that environment, or `"disconnected"` if not. This does not take into account any service outages that happened after the connection was initially made; it simply indicates whether the Relay Proxy was ever successful in getting the flag data.
+- The `connectionStatus` properties provide more detailed information about the current connectivity to LaunchDarkly. For `state`, `"VALID"` means that the connection is currently working; `"INITIALIZING"` means that it is still starting up; `"INTERRUPTED"` means that it is currently having a problem; `"OFF"` means that it has permanently failed (which only happens if the SDK key is invalid). The `stateSince` property, which is a Unix time measured in milliseconds, indicates how long ago the state changed (so for instance if it is `INTERRUPTED`, this is the time when the connection went from working to not working). The `lastError` indicates the nature of the most recent failure, with a `kind` that is one of the constants defined by the Go SDK's [DataSourceErrorKind](https://pkg.go.dev/gopkg.in/launchdarkly/go-server-sdk.v5/interfaces?tab=doc#DataSourceErrorKind).
+- The `dataStoreStatus` properties are only relevant if you are using [persistent storage](./persistent-storage.md). The `state` is `"VALID"` if the last database operation succeeded, or `"INTERRUPTED"` if it failed (in which case `stateSince`, a Unix millisecond time, indicates the time that it started failing). In an `INTERRUPTED` state, the Relay Proxy will continue attempting to contact the database and as soon as it succeeds, the state will change back to `VALID`. If you are not using persistent storage, this is always `VALID`.
+- The top-level `status` property for the entire Relay Proy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
 
 The `version` property is the version of the Relay Proxy; `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
+
+The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in auto-configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
 
 
 ### Special flag evaluation endpoints

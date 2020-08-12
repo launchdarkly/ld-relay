@@ -92,6 +92,9 @@ type EnvContext interface {
 
 	// SetSecureMode changes the secure mode setting.
 	SetSecureMode(bool)
+
+	// GetCreationTime returns the time that this EnvContext was created.
+	GetCreationTime() time.Time
 }
 
 // GetEnvironmentID is a helper for extracting the EnvironmentID, if any, from the set of credentials.

@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
 )
 
@@ -40,6 +41,18 @@ func (c *FakeLDClient) Initialized() bool {
 
 func (c *FakeLDClient) SecureModeHash(user lduser.User) string {
 	return FakeHashForUser(user)
+}
+
+func (c *FakeLDClient) GetDataSourceStatus() interfaces.DataSourceStatus {
+	state := interfaces.DataSourceStateValid
+	if !c.initialized {
+		state = interfaces.DataSourceStateInitializing
+	}
+	return interfaces.DataSourceStatus{State: state}
+}
+
+func (c *FakeLDClient) GetDataStoreStatus() sdks.DataStoreStatusInfo {
+	return sdks.DataStoreStatusInfo{Available: true}
 }
 
 func (c *FakeLDClient) Close() error {
