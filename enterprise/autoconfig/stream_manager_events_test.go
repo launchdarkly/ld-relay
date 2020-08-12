@@ -188,7 +188,7 @@ func TestPutEvent(t *testing.T) {
 	t.Run("env rep has ID that doesn't match key", func(t *testing.T) {
 		json := `{"path": "/","data": {"environments": {"wrongkey":{"envId":"other"},"` +
 			string(testEnv1.EnvID) + `":` + toJSON(testEnv1) + `}}}`
-		event := httphelpers.SSEEvent{Event: putEvent, Data: stripNewlines(json)}
+		event := httphelpers.SSEEvent{Event: putEvent, Data: json}
 		streamManagerTest(t, &event, func(p streamManagerTestParams) {
 			p.startStream()
 
