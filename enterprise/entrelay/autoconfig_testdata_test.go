@@ -79,25 +79,6 @@ func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
 	return rep
 }
 
-func (e testAutoConfEnv) json() string {
-	sdkKey := map[string]interface{}{"value": e.sdkKey}
-	if e.sdkKeyExpiryValue != "" {
-		sdkKey["expiring"] = map[string]interface{}{"value": e.sdkKeyExpiryValue, "timestamp": e.sdkKeyExpiryTime}
-	}
-	props := map[string]interface{}{
-		"envId":    e.id,
-		"envKey":   e.envKey,
-		"envName":  e.envName,
-		"mobKey":   e.mobKey,
-		"projKey":  e.projKey,
-		"projName": e.projName,
-		"sdkKey":   sdkKey,
-		"version":  e.version,
-	}
-	bytes, _ := json.Marshal(props)
-	return string(bytes)
-}
-
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
 		Environments: make(map[config.EnvironmentID]autoconfig.EnvironmentRep)}}
