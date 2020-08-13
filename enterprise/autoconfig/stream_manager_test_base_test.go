@@ -25,29 +25,29 @@ const (
 )
 
 var (
-	testEnv1 = environmentRep{
+	testEnv1 = EnvironmentRep{
 		EnvID:      config.EnvironmentID("envid1"),
 		EnvKey:     "envkey1",
 		EnvName:    "envname1",
 		MobKey:     config.MobileKey("mobkey1"),
 		ProjKey:    "projkey1",
 		ProjName:   "projname1",
-		SDKKey:     sdkKeyRep{Value: config.SDKKey("sdkkey1")},
+		SDKKey:     SDKKeyRep{Value: config.SDKKey("sdkkey1")},
 		DefaultTTL: 2,
 		SecureMode: true,
 		Version:    10,
 	}
-	testEnv2 = environmentRep{
+	testEnv2 = EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid2"),
 		EnvKey:   "envkey2",
 		EnvName:  "envname2",
 		MobKey:   config.MobileKey("mobkey2"),
 		ProjKey:  "projkey2",
 		ProjName: "projname2",
-		SDKKey:   sdkKeyRep{Value: config.SDKKey("sdkkey2")},
+		SDKKey:   SDKKeyRep{Value: config.SDKKey("sdkkey2")},
 		Version:  20,
 	}
-	emptyPutMessage = httphelpers.SSEEvent{Event: putEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
+	emptyPutMessage = httphelpers.SSEEvent{Event: PutEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
 )
 
 func toJSON(x interface{}) string {
@@ -55,13 +55,13 @@ func toJSON(x interface{}) string {
 	return string(bytes)
 }
 
-func makePutEvent(envs ...environmentRep) httphelpers.SSEEvent {
-	m := make(map[string]environmentRep)
+func makePutEvent(envs ...EnvironmentRep) httphelpers.SSEEvent {
+	m := make(map[string]EnvironmentRep)
 	for _, e := range envs {
 		m[string(e.EnvID)] = e
 	}
 	return httphelpers.SSEEvent{
-		Event: putEvent,
+		Event: PutEvent,
 		Data: toJSON(map[string]interface{}{
 			"path": "/",
 			"data": map[string]interface{}{"environments": m},
@@ -69,9 +69,9 @@ func makePutEvent(envs ...environmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func makePatchEvent(env environmentRep) httphelpers.SSEEvent {
+func makePatchEvent(env EnvironmentRep) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
-		Event: patchEvent,
+		Event: PatchEvent,
 		Data: toJSON(map[string]interface{}{
 			"path": "/environments/" + string(env.EnvID),
 			"data": env,
@@ -81,7 +81,7 @@ func makePatchEvent(env environmentRep) httphelpers.SSEEvent {
 
 func makeDeleteEvent(envID config.EnvironmentID, version int) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
-		Event: deleteEvent,
+		Event: DeleteEvent,
 		Data: toJSON(map[string]interface{}{
 			"path":    "/environments/" + string(envID),
 			"version": version,

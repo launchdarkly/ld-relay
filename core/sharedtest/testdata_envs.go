@@ -3,13 +3,21 @@ package sharedtest
 import (
 	"time"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 )
 
 type TestEnv struct {
-	Name   string
-	Config config.EnvConfig
+	Name               string
+	Config             config.EnvConfig
+	ProjName           string
+	ProjKey            string
+	EnvName            string
+	EnvKey             string
+	ExpiringSDKKey     config.SDKKey
+	ExpiringSDKKeyTime ldtime.UnixMillisecondTime
 }
 
 type UnsupportedSDKCredential struct{} // implements config.SDKCredential
@@ -28,14 +36,14 @@ const (
 )
 
 var EnvMain = TestEnv{
-	Name: "sdk test",
+	Name: "ProjectName ServerSideEnv",
 	Config: config.EnvConfig{
 		SDKKey: config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d0"),
 	},
 }
 
 var EnvWithTTL = TestEnv{
-	Name: "sdk test with TTL",
+	Name: "ProjectName ServerSideEnvWithTTL",
 	Config: config.EnvConfig{
 		SDKKey: config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d5"),
 		TTL:    ct.NewOptDuration(10 * time.Minute),
@@ -43,7 +51,7 @@ var EnvWithTTL = TestEnv{
 }
 
 var EnvMobile = TestEnv{
-	Name: "mobile test",
+	Name: "ProjectName MobileEnv",
 	Config: config.EnvConfig{
 		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d2"),
 		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42db"),
@@ -51,7 +59,7 @@ var EnvMobile = TestEnv{
 }
 
 var EnvClientSide = TestEnv{
-	Name: "JS client-side test",
+	Name: "ProjectName JSClientSideEnv",
 	Config: config.EnvConfig{
 		SDKKey: config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d1"),
 		EnvID:  config.EnvironmentID("507f1f77bcf86cd799439011"),
@@ -59,7 +67,7 @@ var EnvClientSide = TestEnv{
 }
 
 var EnvClientSideSecureMode = TestEnv{
-	Name: "JS client-side test with secure mode",
+	Name: "ProjectName JSClientSideSecureModeEnv",
 	Config: config.EnvConfig{
 		SDKKey:     config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42d9"),
 		EnvID:      config.EnvironmentID("507f1f77bcf86cd799439019"),
@@ -68,7 +76,7 @@ var EnvClientSideSecureMode = TestEnv{
 }
 
 var EnvWithAllCredentials = TestEnv{
-	Name: "env with all credentials",
+	Name: "ProjectName EnvWithAllCredentials",
 	Config: config.EnvConfig{
 		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52e9"),
 		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ec"),

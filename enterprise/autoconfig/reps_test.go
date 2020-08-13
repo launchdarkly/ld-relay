@@ -23,18 +23,18 @@ func TestEnvironmentRepJSONFormat(t *testing.T) {
 		"defaultTtl": 2,
 		"secureMode": true
 	  }`
-	var rep environmentRep
+	var rep EnvironmentRep
 	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
-	assert.Equal(t, environmentRep{
+	assert.Equal(t, EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid1"),
 		EnvKey:   "envkey",
 		EnvName:  "envname",
 		MobKey:   config.MobileKey("mobkey"),
 		ProjKey:  "projkey",
 		ProjName: "projname",
-		SDKKey: sdkKeyRep{
+		SDKKey: SDKKeyRep{
 			Value: config.SDKKey("sdkkey"),
-			Expiring: expiringKeyRep{
+			Expiring: ExpiringKeyRep{
 				Value:     config.SDKKey("oldkey"),
 				Timestamp: ldtime.UnixMillisecondTime(10000),
 			},

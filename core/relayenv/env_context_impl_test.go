@@ -48,7 +48,7 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
 	env, err := NewEnvContext(
-		envName,
+		EnvIdentifiers{ConfiguredName: envName},
 		envConfig,
 		config.Config{},
 		clientFactory,
@@ -80,7 +80,7 @@ func TestConstructorBasicProperties(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
 
-	assert.Equal(t, envName, env.GetName())
+	assert.Equal(t, envName, env.GetIdentifiers().ConfiguredName)
 	assert.Equal(t, time.Hour, env.GetTTL())
 	assert.True(t, env.IsSecureMode())
 	assert.Nil(t, env.GetEventDispatcher())                        // events were not enabled
@@ -123,7 +123,7 @@ func TestConstructorWithJSClientContext(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	jsClientContext := JSClientContext{Origins: []string{"origin"}}
 	env, err := NewEnvContext(
-		envName,
+		EnvIdentifiers{ConfiguredName: envName},
 		envConfig,
 		config.Config{},
 		testclient.FakeLDClientFactory(true),
@@ -148,7 +148,7 @@ func TestLogPrefix(t *testing.T) {
 			envConfig := config.EnvConfig{SDKKey: sdkKey, EnvID: envID}
 			mockLog := ldlogtest.NewMockLog()
 			env, err := NewEnvContext(
-				"name",
+				EnvIdentifiers{ConfiguredName: "name"},
 				envConfig,
 				config.Config{},
 				testclient.FakeLDClientFactory(true),
@@ -289,4 +289,12 @@ func TestSDKClientCreationFails(t *testing.T) {
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	assert.Equal(t, fakeError, env.GetInitError())
 	assert.Nil(t, env.GetStore())
+}
+
+func TestDisplayName(t *testing.T) {
+	ei1 := EnvIdentifiers{ProjName: "a", EnvName: "b", ConfiguredName: "thing"}
+	assert.Equal(t, "thing", ei1.GetDisplayName())
+
+	ei2 := EnvIdentifiers{ProjName: "a", EnvName: "b"}
+	assert.Equal(t, "a b", ei2.GetDisplayName())
 }

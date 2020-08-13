@@ -84,7 +84,14 @@ func statusHandler(core *RelayCore) http.Handler {
 
 		healthy := true
 		for _, clientCtx := range core.GetAllEnvironments() {
-			var status environmentStatusRep
+			identifiers := clientCtx.GetIdentifiers()
+
+			status := environmentStatusRep{
+				EnvKey:   identifiers.EnvKey, // these will only be non-empty if we're in auto-configured mode
+				EnvName:  identifiers.EnvName,
+				ProjKey:  identifiers.ProjKey,
+				ProjName: identifiers.ProjName,
+			}
 
 			for _, c := range clientCtx.GetCredentials() {
 				switch c := c.(type) {
@@ -94,6 +101,12 @@ func statusHandler(core *RelayCore) http.Handler {
 					status.MobileKey = ObscureKey(string(c))
 				case config.EnvironmentID:
 					status.EnvID = string(c)
+				}
+			}
+
+			for _, c := range clientCtx.GetDeprecatedCredentials() {
+				if key, ok := c.(config.SDKKey); ok {
+					status.ExpiringSDKKey = ObscureKey(string(key))
 				}
 			}
 
@@ -131,7 +144,7 @@ func statusHandler(core *RelayCore) http.Handler {
 				}
 			}
 
-			statusKey := clientCtx.GetName()
+			statusKey := identifiers.GetDisplayName()
 			if core.envLogNameMode == relayenv.LogNameIsEnvID {
 				// If we're identifying environments by environment ID in the log (which we do if there's any
 				// chance that the environment name could change) then we should also identify them that way here.

@@ -23,9 +23,9 @@ func (r *RelayEnterprise) AddEnvironment(params autoconfig.EnvironmentParams) {
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
 	envConfig := makeEnvironmentConfig(params, r.config.AutoConfig)
-	env, _, err := r.core.AddEnvironment(params.Name, envConfig)
+	env, _, err := r.core.AddEnvironment(params.Identifiers, envConfig)
 	if err != nil {
-		r.core.Loggers.Errorf(logMsgAutoConfEnvInitError, params.Name, err)
+		r.core.Loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 	}
 
 	if params.ExpiringSDKKey != "" {
@@ -38,14 +38,14 @@ func (r *RelayEnterprise) AddEnvironment(params autoconfig.EnvironmentParams) {
 
 // UpdateEnvironment is called from autoconfig.StreamManager.
 func (r *RelayEnterprise) UpdateEnvironment(params autoconfig.EnvironmentParams) {
-	env := r.core.GetEnvironment(params.ID)
+	env := r.core.GetEnvironment(params.EnvID)
 	if env == nil {
-		r.core.Loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Name)
+		r.core.Loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
 		r.AddEnvironment(params)
 		return
 	}
 
-	env.SetName(params.Name)
+	env.SetIdentifiers(params.Identifiers)
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
@@ -104,9 +104,9 @@ func makeEnvironmentConfig(params autoconfig.EnvironmentParams, autoConfProps en
 	ret := config.EnvConfig{
 		SDKKey:        params.SDKKey,
 		MobileKey:     params.MobileKey,
-		EnvID:         params.ID,
-		Prefix:        maybeSubstituteEnvironmentID(autoConfProps.EnvDatastorePrefix, params.ID),
-		TableName:     maybeSubstituteEnvironmentID(autoConfProps.EnvDatastoreTableName, params.ID),
+		EnvID:         params.EnvID,
+		Prefix:        maybeSubstituteEnvironmentID(autoConfProps.EnvDatastorePrefix, params.EnvID),
+		TableName:     maybeSubstituteEnvironmentID(autoConfProps.EnvDatastoreTableName, params.EnvID),
 		AllowedOrigin: autoConfProps.EnvAllowedOrigin,
 		SecureMode:    params.SecureMode,
 	}

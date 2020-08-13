@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -23,15 +24,17 @@ import (
 type EnvContext interface {
 	io.Closer
 
-	// GetName returns the name of the environment. This is the display name that was specified in the
-	// configuration, or, for an auto-configured environment, the concenated project + environment names.
-	GetName() string
+	// GetIdentifiers returns information about the environment and project names and keys.
+	GetIdentifiers() EnvIdentifiers
 
-	// SetName updates the name of the environment.
-	SetName(string)
+	// SetIdentifiers updates the environment and project names and keys.
+	SetIdentifiers(EnvIdentifiers)
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []config.SDKCredential
+
+	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
+	GetDeprecatedCredentials() []config.SDKCredential
 
 	// AddCredential adds a new credential for the environment.
 	//
@@ -95,6 +98,39 @@ type EnvContext interface {
 
 	// GetCreationTime returns the time that this EnvContext was created.
 	GetCreationTime() time.Time
+}
+
+// EnvIdentifiers contains environment and project name and key properties.
+//
+// When running in Relay Proxy Enterprise's auto-configuration mode, EnvKey, EnvName, ProjKey, and ProjName are
+// copied from the LaunchDarkly dashboard settings. Otherwise, those are all blank and ConfiguredName is set in
+// the local configuration.
+type EnvIdentifiers struct {
+	// EnvKey is the environment key (normally a lowercase string like "production").
+	EnvKey string
+
+	// EnvName is the environment name (normally a title-cased string like "Production").
+	EnvName string
+
+	// ProjKey is the project key (normally a lowercase string like "my-application").
+	ProjKey string
+
+	// ProjName is the project name (normally a title-cased string like "My Application").
+	ProjName string
+
+	// ConfiguredName is a human-readable unique name for this environment, if the user specified one. When
+	// using a local configuration, this is always set; in auto-configuration mode, it is always empty (but
+	// EnvIdentifiers.GetDisplayName() will compute one).
+	ConfiguredName string
+}
+
+// GetDisplayName returns a human-readable unique name for this environment. If none was set in the
+// configuration, it computes one in the format "ProjName EnvName".
+func (ei EnvIdentifiers) GetDisplayName() string {
+	if ei.ConfiguredName == "" {
+		return fmt.Sprintf("%s %s", ei.ProjName, ei.EnvName)
+	}
+	return ei.ConfiguredName
 }
 
 // GetEnvironmentID is a helper for extracting the EnvironmentID, if any, from the set of credentials.

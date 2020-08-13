@@ -13,48 +13,59 @@ import (
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 
 func TestMakeEnvironmentParams(t *testing.T) {
-	env1 := environmentRep{
+	env1 := EnvironmentRep{
 		EnvID:      config.EnvironmentID("envid1"),
 		EnvKey:     "envkey1",
 		EnvName:    "envname1",
 		MobKey:     config.MobileKey("mobkey1"),
 		ProjKey:    "projkey1",
 		ProjName:   "projname1",
-		SDKKey:     sdkKeyRep{Value: config.SDKKey("sdkkey1")},
+		SDKKey:     SDKKeyRep{Value: config.SDKKey("sdkkey1")},
 		DefaultTTL: 2,
 		SecureMode: true,
 	}
 	params1 := makeEnvironmentParams(env1)
 	assert.Equal(t, EnvironmentParams{
-		ID:         env1.EnvID,
-		Name:       "projname1 envname1",
+		EnvID: env1.EnvID,
+		Identifiers: relayenv.EnvIdentifiers{
+			EnvKey:   "envkey1",
+			EnvName:  "envname1",
+			ProjKey:  "projkey1",
+			ProjName: "projname1",
+		},
 		SDKKey:     env1.SDKKey.Value,
 		MobileKey:  env1.MobKey,
 		TTL:        2 * time.Minute,
 		SecureMode: true,
 	}, params1)
 
-	env2 := environmentRep{
+	env2 := EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid2"),
 		EnvKey:   "envkey2",
 		EnvName:  "envname2",
 		MobKey:   config.MobileKey("mobkey2"),
 		ProjKey:  "projkey2",
 		ProjName: "projname2",
-		SDKKey: sdkKeyRep{
+		SDKKey: SDKKeyRep{
 			Value: config.SDKKey("sdkkey2"),
-			Expiring: expiringKeyRep{
+			Expiring: ExpiringKeyRep{
 				Value:     config.SDKKey("oldkey"),
 				Timestamp: ldtime.UnixMillisecondTime(10000),
 			}},
 	}
 	params2 := makeEnvironmentParams(env2)
 	assert.Equal(t, EnvironmentParams{
-		ID:             env2.EnvID,
-		Name:           "projname2 envname2",
+		EnvID: env2.EnvID,
+		Identifiers: relayenv.EnvIdentifiers{
+			EnvKey:   "envkey2",
+			EnvName:  "envname2",
+			ProjKey:  "projkey2",
+			ProjName: "projname2",
+		},
 		SDKKey:         env2.SDKKey.Value,
 		ExpiringSDKKey: env2.SDKKey.Expiring.Value,
 		MobileKey:      env2.MobKey,
@@ -71,7 +82,7 @@ func TestPutEvent(t *testing.T) {
 			require.NotNil(t, msg1.add)
 			msg2 := p.requireMessage()
 			require.NotNil(t, msg2.add)
-			if msg1.add.ID == testEnv2.EnvID {
+			if msg1.add.EnvID == testEnv2.EnvID {
 				msg1, msg2 = msg2, msg1
 			}
 			assert.Equal(t, makeEnvironmentParams(testEnv1), *msg1.add)
@@ -176,7 +187,7 @@ func TestPutEvent(t *testing.T) {
 
 	t.Run("unrecognized path", func(t *testing.T) {
 		json := `{"path": "/elsewhere","data": {}}`
-		event := httphelpers.SSEEvent{Event: putEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
 		streamManagerTest(t, &event, func(p streamManagerTestParams) {
 			p.startStream()
 
@@ -188,7 +199,7 @@ func TestPutEvent(t *testing.T) {
 	t.Run("env rep has ID that doesn't match key", func(t *testing.T) {
 		json := `{"path": "/","data": {"environments": {"wrongkey":{"envId":"other"},"` +
 			string(testEnv1.EnvID) + `":` + toJSON(testEnv1) + `}}}`
-		event := httphelpers.SSEEvent{Event: putEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
 		streamManagerTest(t, &event, func(p streamManagerTestParams) {
 			p.startStream()
 
@@ -294,7 +305,7 @@ func TestPatchEvent(t *testing.T) {
 
 	t.Run("unrecognized path", func(t *testing.T) {
 		json := `{"path": "/otherthings","data": {}}`
-		event := httphelpers.SSEEvent{Event: patchEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
 		streamManagerTest(t, nil, func(p streamManagerTestParams) {
 			p.startStream()
 			p.stream.Enqueue(event)
@@ -306,7 +317,7 @@ func TestPatchEvent(t *testing.T) {
 
 	t.Run("env rep has ID that doesn't match path key", func(t *testing.T) {
 		json := `{"path": "/environments/wrongkey","data":` + toJSON(testEnv1) + `}`
-		event := httphelpers.SSEEvent{Event: patchEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
 		streamManagerTest(t, nil, func(p streamManagerTestParams) {
 			p.startStream()
 			p.stream.Enqueue(event)
@@ -363,7 +374,7 @@ func TestDeleteEvent(t *testing.T) {
 
 	t.Run("unrecognized path", func(t *testing.T) {
 		json := `{"path": "/otherthings"}`
-		event := httphelpers.SSEEvent{Event: deleteEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: DeleteEvent, Data: json}
 		streamManagerTest(t, nil, func(p streamManagerTestParams) {
 			p.startStream()
 			p.stream.Enqueue(event)

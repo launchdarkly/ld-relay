@@ -109,6 +109,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified)
 		p.assertEnvLookup(env, testAutoConfEnv1) // looking up env by old key still works
+		assert.Equal(t, []config.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
 
 		select {
 		case <-client1.CloseCh:

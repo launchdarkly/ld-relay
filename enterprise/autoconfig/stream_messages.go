@@ -2,29 +2,54 @@ package autoconfig
 
 import "github.com/launchdarkly/ld-relay/v6/core/config"
 
+// These SSE message types are exported so that tests in other packages can more easily create
+// simulated auto-config data. They should not be used by non-test code in other packages.
+
 const (
-	putEvent              = "put"
-	patchEvent            = "patch"
-	deleteEvent           = "delete"
-	reconnectEvent        = "reconnect"
+	// PutEvent is the SSE event name corresponding to PutMessageData.
+	PutEvent = "put"
+
+	// PatchEvent is the SSE event name corresponding to PatchMessageData.
+	PatchEvent = "patch"
+
+	// DeleteEvent is the SSE event name corresponding to DeleteMessageData.
+	DeleteEvent = "delete"
+
+	// ReconnectEvent is the SSE event name for a message that forces a stream reconnect.
+	ReconnectEvent = "reconnect"
+
 	environmentPathPrefix = "/environments/"
 )
 
-type autoConfigPutMessage struct {
-	Path string            `json:"path"` // currently always "/"
-	Data autoConfigPutData `json:"data"`
+// PutMessageData is the JSON data for an SSE message that provides a full set of environments.
+type PutMessageData struct {
+	// Path is currently always "/" for this message type.
+	Path string `json:"path"`
+
+	// Data contains the environment map.
+	Data PutContent `json:"data"`
 }
 
-type autoConfigPatchMessage struct {
-	Path string         `json:"path"` // currently always "environments/$ENVID"
-	Data environmentRep `json:"data"`
+// PatchMessageData is the JSON data for an SSE message that adds or updates a single environment.
+type PatchMessageData struct {
+	// Path is currently always "environments/$ENVID".
+	Path string `json:"path"`
+
+	// Data is the environment representation.
+	Data EnvironmentRep `json:"data"`
 }
 
-type autoConfigDeleteMessage struct {
-	Path    string `json:"path"` // currently always "environments/$ENVID"
-	Version int    `json:"version"`
+// DeleteMessageData is the JSON data for an SSE message that removes an environment.
+type DeleteMessageData struct {
+	// Path is currently always "environments/$ENVID".
+	Path string `json:"path"`
+
+	// Version is a number that must be greater than the last known version of the environment.
+	Version int `json:"version"`
 }
 
-type autoConfigPutData struct {
-	Environments map[config.EnvironmentID]environmentRep `json:"environments"`
+// PutContent is the environent map within PutMessageData.
+type PutContent struct {
+	// Environments is a map of environment representations.
+	Environments map[config.EnvironmentID]EnvironmentRep `json:"environments"`
 }

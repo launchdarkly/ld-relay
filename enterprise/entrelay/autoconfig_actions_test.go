@@ -250,7 +250,7 @@ func TestAutoConfigUpdateEnvironmentName(t *testing.T) {
 
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
-		nameChanged := func() bool { return env.GetName() == "newprojname newenvname" }
+		nameChanged := func() bool { return env.GetIdentifiers().GetDisplayName() == "newprojname newenvname" }
 		require.Eventually(p.t, nameChanged, time.Second, time.Millisecond*5)
 	})
 }

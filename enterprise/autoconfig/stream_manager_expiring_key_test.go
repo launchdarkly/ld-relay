@@ -31,7 +31,7 @@ func expectOldKeyWillExpire(p streamManagerTestParams, envID config.EnvironmentI
 
 func TestExpiringKeyInPutMessage(t *testing.T) {
 	envWithExpiringKey := testEnv1
-	envWithExpiringKey.SDKKey.Expiring = expiringKeyRep{
+	envWithExpiringKey.SDKKey.Expiring = ExpiringKeyRep{
 		Value:     oldKey,
 		Timestamp: ldtime.UnixMillisNow() + briefExpiryMillis,
 	}
@@ -51,7 +51,7 @@ func TestExpiringKeyInPutMessage(t *testing.T) {
 
 func TestExpiringKeyInPatchAdd(t *testing.T) {
 	envWithExpiringKey := testEnv1
-	envWithExpiringKey.SDKKey.Expiring = expiringKeyRep{
+	envWithExpiringKey.SDKKey.Expiring = ExpiringKeyRep{
 		Value:     oldKey,
 		Timestamp: ldtime.UnixMillisNow() + briefExpiryMillis,
 	}
@@ -78,7 +78,7 @@ func TestExpiringKeyInPatchUpdate(t *testing.T) {
 		_ = p.requireMessage()
 
 		envWithExpiringKey := testEnv1
-		envWithExpiringKey.SDKKey.Expiring = expiringKeyRep{
+		envWithExpiringKey.SDKKey.Expiring = ExpiringKeyRep{
 			Value:     oldKey,
 			Timestamp: ldtime.UnixMillisNow() + briefExpiryMillis,
 		}
