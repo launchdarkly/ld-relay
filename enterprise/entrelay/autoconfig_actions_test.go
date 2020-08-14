@@ -28,17 +28,12 @@ import (
 // These tests use a real HTTP server to provide the configuration stream, but they use FakeLDClient
 // instead of creating real SDK clients, so there are no SDK connections made.
 
-const testAutoConfKey = entconfig.AutoConfigKey("test-auto-conf-key")
-
-var testAutoConfDefaultConfig = entconfig.EnterpriseConfig{
-	AutoConfig: entconfig.AutoConfigConfig{Key: testAutoConfKey},
-}
-
 type autoConfTestParams struct {
 	t                *testing.T
 	relay            *RelayEnterprise
 	stream           httphelpers.SSEStreamControl
-	requestsCh       <-chan httphelpers.HTTPRequestInfo
+	streamRequestsCh <-chan httphelpers.HTTPRequestInfo
+	eventRequestsCh  <-chan httphelpers.HTTPRequestInfo
 	clientsCreatedCh <-chan *testclient.FakeLDClient
 	mockLog          *ldlogtest.MockLog
 }
@@ -54,31 +49,41 @@ func autoConfTest(
 
 	streamHandler, stream := httphelpers.SSEHandler(initialEvent)
 	defer stream.Close()
-	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
+	streamRequestsHandler, streamRequestsCh := httphelpers.RecordingHandler(streamHandler)
+
+	eventRequestsHandler, eventRequestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 
 	clientsCreatedCh := make(chan *testclient.FakeLDClient, 10)
 
 	p := autoConfTestParams{
 		t:                t,
 		stream:           stream,
-		requestsCh:       requestsCh,
+		streamRequestsCh: streamRequestsCh,
+		eventRequestsCh:  eventRequestsCh,
 		clientsCreatedCh: clientsCreatedCh,
 		mockLog:          mockLog,
 	}
 
-	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		config.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		relay, err := NewRelayEnterprise(
-			config,
-			mockLog.Loggers,
-			testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
-		)
-		if err != nil {
-			panic(err)
-		}
-		p.relay = relay
-		defer relay.Close()
-		action(p)
+	httphelpers.WithServer(streamRequestsHandler, func(streamServer *httptest.Server) {
+		httphelpers.WithServer(eventRequestsHandler, func(eventsServer *httptest.Server) {
+			config.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(streamServer.URL)
+			config.Events.SendEvents = true
+			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
+			config.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+
+			relay, err := NewRelayEnterprise(
+				config,
+				mockLog.Loggers,
+				testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
+			)
+			if err != nil {
+				panic(err)
+			}
+
+			p.relay = relay
+			defer relay.Close()
+			action(p)
+		})
 	})
 }
 
@@ -114,6 +119,21 @@ func (p autoConfTestParams) shouldNotHaveEnvironment(envID c.EnvironmentID, time
 	require.Eventually(p.t, func() bool { return p.relay.core.GetEnvironment(envID) == nil }, timeout, time.Millisecond*5)
 }
 
+func (p autoConfTestParams) assertEnvLookup(env relayenv.EnvContext, te testAutoConfEnv) {
+	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.id))
+	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.mobKey))
+	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.sdkKey))
+}
+
+func (p autoConfTestParams) awaitCredentialsUpdated(env relayenv.EnvContext, expected testAutoConfEnv) {
+	expectedCredentials := credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey)
+	isChanged := func() bool {
+		return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
+	}
+	require.Eventually(p.t, isChanged, time.Second, time.Millisecond*5)
+	p.assertEnvLookup(env, expected)
+}
+
 func TestAutoConfigInit(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1, testAutoConfEnv2)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
@@ -127,11 +147,11 @@ func TestAutoConfigInit(t *testing.T) {
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
 		assertEnvProps(t, testAutoConfEnv1, env1)
-		assertEnvLookup(t, p.relay, env1, testAutoConfEnv1)
+		p.assertEnvLookup(env1, testAutoConfEnv1)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
 		assertEnvProps(t, testAutoConfEnv2, env2)
-		assertEnvLookup(t, p.relay, env2, testAutoConfEnv2)
+		p.assertEnvLookup(env2, testAutoConfEnv2)
 	})
 }
 
@@ -143,7 +163,7 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
 		assertEnvProps(t, testAutoConfEnv1, env1)
-		assertEnvLookup(t, p.relay, env1, testAutoConfEnv1)
+		p.assertEnvLookup(env1, testAutoConfEnv1)
 
 		p.stream.Enqueue(makeAutoConfPutEvent(testAutoConfEnv2))
 
@@ -152,7 +172,7 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
 		assertEnvProps(t, testAutoConfEnv2, env2)
-		assertEnvLookup(t, p.relay, env2, testAutoConfEnv2)
+		p.assertEnvLookup(env2, testAutoConfEnv2)
 
 		client1.AwaitClose(t, time.Second)
 
@@ -175,7 +195,7 @@ func TestAutoConfigAddEnvironment(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv2.sdkKey, client2.Key)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
-		assertEnvLookup(t, p.relay, env2, testAutoConfEnv2)
+		p.assertEnvLookup(env2, testAutoConfEnv2)
 		assertEnvProps(t, testAutoConfEnv2, env2)
 	})
 }
@@ -235,142 +255,7 @@ func TestAutoConfigUpdateEnvironmentName(t *testing.T) {
 	})
 }
 
-func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
-	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
-	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		_ = p.awaitClient()
-
-		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
-
-		modified := testAutoConfEnv1
-		modified.mobKey = c.MobileKey("newmobkey")
-		modified.version++
-
-		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
-
-		p.shouldNotCreateClient(time.Millisecond * 50)
-
-		expectedCredentials := credentialsAsSet(modified.id, modified.mobKey, modified.sdkKey)
-		mobKeyChanged := func() bool {
-			return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
-		}
-		require.Eventually(p.t, mobKeyChanged, time.Second, time.Millisecond*5)
-		assertEnvLookup(t, p.relay, env, modified)
-		assert.Nil(t, p.relay.core.GetEnvironment(testAutoConfEnv1.mobKey))
-	})
-}
-
-func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
-	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
-	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-
-		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
-
-		modified := testAutoConfEnv1
-		modified.sdkKey = c.SDKKey("newsdkkey")
-		modified.version++
-
-		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
-
-		client2 := p.awaitClient()
-		assert.Equal(t, modified.sdkKey, client2.Key)
-
-		client1.AwaitClose(t, time.Second)
-
-		expectedCredentials := credentialsAsSet(modified.id, modified.mobKey, modified.sdkKey)
-		sdkKeyChanged := func() bool {
-			return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
-		}
-		require.Eventually(p.t, sdkKeyChanged, time.Second, time.Millisecond*5)
-		assertEnvLookup(t, p.relay, env, modified)
-		assert.Nil(t, p.relay.core.GetEnvironment(testAutoConfEnv1.sdkKey))
-	})
-}
-
-func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
-	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
-	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-
-		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
-
-		modified := testAutoConfEnv1
-		modified.sdkKey = c.SDKKey("newsdkkey")
-		modified.sdkKeyExpiryValue = testAutoConfEnv1.sdkKey
-		modified.sdkKeyExpiryTime = ldtime.UnixMillisNow() + 100000
-		modified.version++
-
-		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
-
-		client2 := p.awaitClient()
-		assert.Equal(t, modified.sdkKey, client2.Key)
-
-		expectedCredentials := credentialsAsSet(modified.id, modified.mobKey, modified.sdkKey)
-		sdkKeyChanged := func() bool {
-			return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
-		}
-		require.Eventually(p.t, sdkKeyChanged, time.Second, time.Millisecond*5)
-		assertEnvLookup(t, p.relay, env, modified)
-		assertEnvLookup(t, p.relay, env, testAutoConfEnv1) // looking up env by old key still works
-
-		select {
-		case <-client1.CloseCh:
-			require.Fail(t, "should not have closed client for deprecated key yet")
-		case <-time.After(time.Millisecond * 300):
-			break
-		}
-	})
-}
-
-func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
-	briefExpiryMillis := 300
-	oldKey := testAutoConfEnv1.sdkKey
-	newKey := c.SDKKey("newsdkkey")
-
-	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
-
-	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-
-		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
-
-		modified := testAutoConfEnv1
-		modified.sdkKey = newKey
-		modified.sdkKeyExpiryValue = oldKey
-		modified.sdkKeyExpiryTime = ldtime.UnixMillisNow() + ldtime.UnixMillisecondTime(briefExpiryMillis)
-		modified.version++
-
-		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
-
-		client2 := p.awaitClient()
-		assert.Equal(t, newKey, client2.Key)
-
-		expectedCredentials := credentialsAsSet(modified.id, modified.mobKey, newKey)
-		sdkKeyChanged := func() bool {
-			return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
-		}
-		require.Eventually(p.t, sdkKeyChanged, time.Second, time.Millisecond*5)
-		assertEnvLookup(t, p.relay, env, modified)
-		assert.Equal(t, env, p.relay.core.GetEnvironment(oldKey))
-
-		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
-
-		select {
-		case <-client1.CloseCh:
-			break
-		case <-time.After(time.Millisecond * 300):
-			require.Fail(t, "timed out waiting for client with old key to close")
-		}
-
-		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
-		assert.Nil(t, p.relay.core.GetEnvironment(oldKey))
-	})
-}
+// Tests for changing SDK key/mobile key are in autoconfig_key_change_test.go, since there are so many consequences
 
 func TestAutoConfigDeleteEnvironment(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1, testAutoConfEnv2)
@@ -393,23 +278,4 @@ func TestAutoConfigDeleteEnvironment(t *testing.T) {
 
 		p.shouldNotHaveEnvironment(testAutoConfEnv1.id, time.Millisecond*100)
 	})
-}
-
-func assertEnvLookup(t *testing.T, r *RelayEnterprise, env relayenv.EnvContext, te testAutoConfEnv) {
-	assert.Equal(t, env, r.core.GetEnvironment(te.id))
-	assert.Equal(t, env, r.core.GetEnvironment(te.mobKey))
-	assert.Equal(t, env, r.core.GetEnvironment(te.sdkKey))
-}
-
-func assertEnvProps(t *testing.T, expected testAutoConfEnv, env relayenv.EnvContext) {
-	assert.Equal(t, credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey), credentialsAsSet(env.GetCredentials()...))
-	assert.Equal(t, expected.projName+" "+expected.envName, env.GetName())
-}
-
-func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {
-	ret := make(map[c.SDKCredential]struct{}, len(cs))
-	for _, c := range cs {
-		ret[c] = struct{}{}
-	}
-	return ret
 }

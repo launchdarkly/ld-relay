@@ -35,7 +35,8 @@ type EnvContext interface {
 
 	// AddCredential adds a new credential for the environment.
 	//
-	// If the credential is an SDK key, then a new SDK client is started with that SDK key.
+	// If the credential is an SDK key, then a new SDK client is started with that SDK key, and event forwarding
+	// to server-side endpoints is switched to use the new key.
 	AddCredential(config.SDKCredential)
 
 	// RemoveCredential removes a credential from the environment. Any active stream connections using that

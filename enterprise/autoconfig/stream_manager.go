@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,12 @@ const (
 	logMsgUnknownEvent        = "Ignoring unrecognized stream event: %q"
 	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
 	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
+)
+
+var (
+	// These regexes are used for obfuscating keys in debug logging
+	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)  //nolint:gochecknoglobals
+	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`) //nolint:gochecknoglobals
 )
 
 // StreamManager manages the auto-configuration SSE stream.
@@ -142,8 +149,14 @@ func (s *StreamManager) subscribe(readyCh chan<- struct{}) {
 	if retry <= 0 {
 		retry = defaultStreamRetryDelay // COVERAGE: never happens in unit tests
 	}
+
+	// Client.Timeout must be zeroed out for stream connections, since it's not just a connect timeout
+	// but a timeout for the entire response
+	client := s.httpConfig.Client()
+	client.Timeout = 0
+
 	stream, err := es.SubscribeWithRequestAndOptions(req,
-		es.StreamOptionHTTPClient(s.httpConfig.Client()),
+		es.StreamOptionHTTPClient(client),
 		es.StreamOptionReadTimeout(streamReadTimeout),
 		es.StreamOptionInitialRetry(retry),
 		es.StreamOptionUseBackoff(streamMaxRetryDelay),
@@ -188,6 +201,10 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			}
 
 			shouldRestart := false
+
+			if s.loggers.IsDebugEnabled() {
+				s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
+			}
 
 			gotMalformedEvent := func(event es.Event, err error) {
 				s.loggers.Errorf(
@@ -283,10 +300,14 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]environmen
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
+		if s.lastKnownEnvs[id] == rep {
+			// Unchanged - don't try to update because we would get a warning for the version not being higher
+			continue
+		}
 		s.addOrUpdate(rep)
 	}
-	for id := range s.lastKnownEnvs {
-		if _, isInNewData := allEnvReps[id]; !isInNewData {
+	for id, currentEnv := range s.lastKnownEnvs {
+		if _, isInNewData := allEnvReps[id]; !isInNewData && !isTombstone(currentEnv) {
 			s.handleDelete(id, -1)
 		}
 	}
@@ -341,14 +362,19 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	currentEnv, exists := s.lastKnownEnvs[envID]
 	// Check version to make sure this isn't an out-of-order message
 	if version > 0 {
+		if exists && version == currentEnv.Version && isTombstone(currentEnv) {
+			// This is a tombstone, it's already been deleted, no need for a warning
+			return
+		}
 		if exists && version <= currentEnv.Version {
+			// The existing environment (or tombstone) has too high a version number; don't delete
 			s.loggers.Infof(logMsgDeleteBadVersion, envID, makeEnvName(currentEnv))
 			return
 		}
 		// Store a tombstone with the version, to prevent later out-of-order updates; we do this even
 		// if we never heard of this environment, in case there are out-of-order messages and the
 		// event to add the environment comes later
-		s.lastKnownEnvs[envID] = environmentRep{Version: version}
+		s.lastKnownEnvs[envID] = makeTombstone(version)
 	}
 	if exists {
 		s.loggers.Infof(logMsgDeleteEnv, envID, makeEnvName(currentEnv))
@@ -372,9 +398,24 @@ func makeEnvName(rep environmentRep) string {
 	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
 }
 
+func makeTombstone(version int) environmentRep {
+	return environmentRep{Version: version}
+}
+
+func isTombstone(rep environmentRep) bool {
+	return rep.EnvID == ""
+}
+
 func last4Chars(s string) string {
 	if len(s) < 4 {
 		return s
 	}
 	return s[len(s)-4:]
+}
+
+func obfuscateEventData(data string) string {
+	// Used for debug logging to obscure the SDK keys and mobile keys in the JSON data
+	data = sdkKeyJSONRegex.ReplaceAllString(data, `"value":"...$1"`)
+	data = mobKeyJSONRegex.ReplaceAllString(data, `"mobKey":"...$1"`)
+	return data
 }

@@ -54,6 +54,7 @@ type RelayCore struct {
 	baseURL                       url.URL
 	Version                       string
 	userAgent                     string
+	envLogNameMode                relayenv.LogNameMode
 	Loggers                       ldlog.Loggers
 	closed                        bool
 	lock                          sync.RWMutex
@@ -81,6 +82,7 @@ func NewRelayCore(
 	clientFactory sdks.ClientFactoryFunc,
 	version string,
 	userAgent string,
+	envLogNameMode relayenv.LogNameMode,
 ) (*RelayCore, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
@@ -118,6 +120,8 @@ func NewRelayCore(
 		clientInitCh:                  clientInitCh,
 		config:                        c,
 		Version:                       version,
+		userAgent:                     userAgent,
+		envLogNameMode:                envLogNameMode,
 		Loggers:                       loggers,
 	}
 
@@ -242,6 +246,7 @@ func (r *RelayCore) AddEnvironment(
 		jsClientContext,
 		r.metricsManager,
 		r.userAgent,
+		r.envLogNameMode,
 		r.Loggers,
 		resultCh,
 	)

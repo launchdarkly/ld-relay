@@ -39,6 +39,7 @@ func NewTestEnvContextWithClientFactory(
 		relayenv.JSClientContext{},
 		nil,
 		"fake-user-agent",
+		relayenv.LogNameIsSDKKey,
 		ldlog.NewDisabledLoggers(),
 		readyCh,
 	)

@@ -115,3 +115,42 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 		assert.JSONEq(t, `["hello"]`, string(data))
 	}
 }
+
+func TestHTTPEventPublisherErrorRetry(t *testing.T) {
+	testRecoverableError := func(t *testing.T, errorHandler http.Handler) {
+		successHandler := httphelpers.HandlerWithStatus(202)
+		handler, requestsCh := httphelpers.RecordingHandler(
+			httphelpers.SequentialHandler(errorHandler, errorHandler, successHandler),
+		)
+		httphelpers.WithServer(handler, func(server *httptest.Server) {
+			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
+				OptionURI(server.URL))
+			defer publisher.Close()
+			publisher.Publish("hello")
+			timeStart := time.Now()
+			publisher.Flush()
+			req1 := <-requestsCh
+			req2 := <-requestsCh
+			elapsed := time.Since(timeStart)
+			assert.Equal(t, []byte(`["hello"]`), req1.Body)
+			assert.Equal(t, req1.Body, req2.Body)
+			assert.GreaterOrEqual(t, int64(elapsed), int64(time.Second))
+
+			// There were two failures, so it should not have retried again after that (should not reach successHandler)
+			select {
+			case <-requestsCh:
+				assert.Fail(t, "request was unexpectedly tried a third time")
+			case <-time.After(time.Millisecond * 50):
+				break
+			}
+		})
+	}
+
+	t.Run("HTTP 503", func(t *testing.T) {
+		testRecoverableError(t, httphelpers.HandlerWithStatus(503))
+	})
+
+	t.Run("network error", func(t *testing.T) {
+		testRecoverableError(t, httphelpers.BrokenConnectionHandler())
+	})
+}

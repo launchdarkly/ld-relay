@@ -4,11 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
+
+const testAutoConfKey = entconfig.AutoConfigKey("test-auto-conf-key")
+
+var testAutoConfDefaultConfig = entconfig.EnterpriseConfig{
+	AutoConfig: entconfig.AutoConfigConfig{Key: testAutoConfKey},
+}
 
 type testAutoConfEnv struct {
 	id                c.EnvironmentID
@@ -84,4 +95,17 @@ func makeAutoConfPatchEvent(env testAutoConfEnv) httphelpers.SSEEvent {
 func makeAutoConfDeleteEvent(envID c.EnvironmentID, version int) httphelpers.SSEEvent {
 	data := fmt.Sprintf(`{"path":"/environments/%s", "version":%d}`, envID, version)
 	return httphelpers.SSEEvent{Event: "delete", Data: data}
+}
+
+func assertEnvProps(t *testing.T, expected testAutoConfEnv, env relayenv.EnvContext) {
+	assert.Equal(t, credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey), credentialsAsSet(env.GetCredentials()...))
+	assert.Equal(t, expected.projName+" "+expected.envName, env.GetName())
+}
+
+func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {
+	ret := make(map[c.SDKCredential]struct{}, len(cs))
+	for _, c := range cs {
+		ret[c] = struct{}{}
+	}
+	return ret
 }
