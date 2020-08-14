@@ -1,13 +1,19 @@
-# LaunchDarkly Relay Proxy - Service Endpoints
+# LaunchDarkly Relay Proxy - Service endpoints
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
-There are two kinds of service endpoints provided by the Relay Proxy.
+The Relay Proxy provides two different types of service endpoints.
 
-Some are proxies for LaunchDarkly services; these correspond to endpoints with the same paths that are at `https://app.launchdarkly.com`, `https://stream.launchdarkly.com`, `https://clientstream.launchdarkly.com`, or `https://events.launchdarkly.com`. In the tables below, "proxied subdomain" refers to which of those LaunchDarkly service hostnames would normally provide the endpoint.
+Some service endpoints are proxies for LaunchDarkly services. These correspond to endpoints with the same paths that are at:
+
+* `https://app.launchdarkly.com` 
+* `https://stream.launchdarkly.com`
+* `https://clientstream.launchdarkly.com`, or 
+* `https://events.launchdarkly.com` 
+
+In the tables below, `proxied subdomain` refers to which of those LaunchDarkly service hostnames would normally provide the endpoint.
 
 Others are for functionality that is specific to the Relay Proxy.
-
 
 ## Specific to Relay Proxy
 
@@ -68,10 +74,9 @@ The `version` property is the version of the Relay Proxy; `clientVersion` is the
 
 The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in auto-configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
 
-
 ### Special flag evaluation endpoints
 
-If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or would like to evaluate feature flags internally without an SDK instance, the Relay Proxy provides endpoints for evaluating all feature flags for a given user.
+If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or want to evaluate feature flags internally without an SDK instance, the Relay Proxy provides endpoints for evaluating all feature flags for a given user.
 
 These are equivalent to the polling endpoints for client-side/mobile SDKs, except that they use the SDK key as a credential rather than the mobile key or client-side environment ID.
 
@@ -93,10 +98,9 @@ curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H 
 
 ## Proxies for LaunchDarkly services
 
+### Endpoints that server-side SDKs use
 
-### Endpoints used by server-side SDKs
-
-* All of these require an `Authorization` header whose value is the SDK key.
+All of these require an `Authorization` header whose value is the SDK key.
 
 Endpoint                     | Method | Proxied Subdomain | Description
 -----------------------------|:------:|:---------:|------------------------------------
@@ -111,10 +115,11 @@ Endpoint                     | Method | Proxied Subdomain | Description
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
 
-### Endpoints used by mobile SDKs
+### Endpoints that mobile SDKs use
 
-* All of these require an `Authorization` header whose value is the mobile key.
-* `{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
+All of these require an `Authorization` header whose value is the mobile key. 
+
+`{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
 
 Endpoint                     | Method   | Proxied Subdomain | Description
 -----------------------------|:--------:|:---------------:|------------------------------------
@@ -131,11 +136,13 @@ Endpoint                     | Method   | Proxied Subdomain | Description
 `/msdk/evalx/user`           | `REPORT` | `app.`          | Same as above but request body is user JSON object
 
 
-### Endpoints used by client-side JavaScript SDKs
+### Endpoints that client-side JavaScript SDKs use
 
-* `{clientId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
-* `{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
-* These endpoints also support the `OPTION` method to enable CORS requests from browsers.
+`{clientId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
+
+`{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
+
+These endpoints also support the `OPTION` method to enable CORS requests from browsers.
 
 Endpoint                             | Method   | Proxied Subdomain | Description
 -------------------------------------|:--------:|:---------------:|------------------------------------

@@ -248,8 +248,15 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	response := make(map[string]interface{}, len(items))
 	for _, item := range items {
 		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
-			if sdkKind == sdks.JSClient && !flag.ClientSide {
-				continue
+			switch sdkKind {
+			case sdks.JSClient:
+				if !flag.ClientSideAvailability.UsingEnvironmentID {
+					continue
+				}
+			case sdks.Mobile:
+				if !flag.ClientSideAvailability.UsingMobileKey {
+					continue
+				}
 			}
 			detail := evaluator.Evaluate(flag, user, nil)
 			var result interface{}
