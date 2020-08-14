@@ -31,17 +31,17 @@ func eventShouldCauseStreamRestart(t *testing.T, event httphelpers.SSEEvent) {
 
 func TestMalformedJSONInEventCausesStreamRestart(t *testing.T) {
 	t.Run("put", func(t *testing.T) {
-		event := httphelpers.SSEEvent{Event: putEvent, Data: malformedJSON}
+		event := httphelpers.SSEEvent{Event: PutEvent, Data: malformedJSON}
 		eventShouldCauseStreamRestart(t, event)
 	})
 
 	t.Run("patch", func(t *testing.T) {
-		event := httphelpers.SSEEvent{Event: patchEvent, Data: malformedJSON}
+		event := httphelpers.SSEEvent{Event: PatchEvent, Data: malformedJSON}
 		eventShouldCauseStreamRestart(t, event)
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		event := httphelpers.SSEEvent{Event: deleteEvent, Data: malformedJSON}
+		event := httphelpers.SSEEvent{Event: DeleteEvent, Data: malformedJSON}
 		eventShouldCauseStreamRestart(t, event)
 	})
 }
@@ -49,19 +49,19 @@ func TestMalformedJSONInEventCausesStreamRestart(t *testing.T) {
 func TestWellFormedJSONThatIsNotWellFormedEventDataCausesStreamRestart(t *testing.T) {
 	t.Run("put", func(t *testing.T) {
 		json := `{"path": "/", "data": {"environments": {"envid1": 999}}}`
-		event := httphelpers.SSEEvent{Event: putEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
 		eventShouldCauseStreamRestart(t, event)
 	})
 
 	t.Run("patch", func(t *testing.T) {
 		json := `{"path": "/environments/envid1","data": 999}`
-		event := httphelpers.SSEEvent{Event: patchEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
 		eventShouldCauseStreamRestart(t, event)
 	})
 
 	t.Run("delete", func(t *testing.T) {
 		json := `{"path": 999}`
-		event := httphelpers.SSEEvent{Event: deleteEvent, Data: json}
+		event := httphelpers.SSEEvent{Event: DeleteEvent, Data: json}
 		eventShouldCauseStreamRestart(t, event)
 	})
 }

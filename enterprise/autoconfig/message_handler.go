@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 
 // MessageHandler defines the methods that StreamManager will call when it receives messages
@@ -32,10 +33,10 @@ type MessageHandler interface {
 // auto-config stream, because not all of the properties there are relevant to Relay.
 type EnvironmentParams struct {
 	// ID is the environment ID.
-	ID config.EnvironmentID
+	EnvID config.EnvironmentID
 
-	// Name is the human-readable unique name, which is always in the format "ProjectName EnvName".
-	Name string
+	// Identifiers contains the project and environment names and keys.
+	Identifiers relayenv.EnvIdentifiers
 
 	// SDKKey is the environment's SDK key; if there is more than one active key, it is the latest.
 	SDKKey config.SDKKey

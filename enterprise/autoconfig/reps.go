@@ -5,29 +5,32 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
-// Representation of an environment that is being added or updated (in either a "put" or a
-// "patch" message).
-type environmentRep struct {
+// These representation types are exported so that tests in other packages can more easily create
+// simulated auto-config data. They should not be used by non-test code in other packages.
+
+// EnvironmentRep is a representation of an environment that is being added or updated (in either a "put"
+// or a "patch" message).
+type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
 	EnvName    string               `json:"envName"`
 	MobKey     config.MobileKey     `json:"mobKey"`
 	ProjKey    string               `json:"projKey"`
 	ProjName   string               `json:"projName"`
-	SDKKey     sdkKeyRep            `json:"sdkKey"`
+	SDKKey     SDKKeyRep            `json:"sdkKey"`
 	DefaultTTL int                  `json:"defaultTtl"`
 	SecureMode bool                 `json:"secureMode"`
 	Version    int                  `json:"version"`
 }
 
-// Description of an SDK key optionally accompanied by an old expiring key.
-type sdkKeyRep struct {
+// SDKKeyRep describes an SDK key optionally accompanied by an old expiring key.
+type SDKKeyRep struct {
 	Value    config.SDKKey `json:"value"`
-	Expiring expiringKeyRep
+	Expiring ExpiringKeyRep
 }
 
-// An old key that will expire at the specified date/time.
-type expiringKeyRep struct {
+// ExpiringKeyRep describes an old key that will expire at the specified date/time.
+type ExpiringKeyRep struct {
 	Value     config.SDKKey              `json:"value"`
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }

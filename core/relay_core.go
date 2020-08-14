@@ -125,7 +125,7 @@ func NewRelayCore(
 			loggers.Warnf("environment config was nil for environment %q; ignoring", envName)
 			continue
 		}
-		env, resultCh, err := r.AddEnvironment(envName, *envConfig)
+		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -163,7 +163,7 @@ func (r *RelayCore) GetAllEnvironments() []relayenv.EnvContext {
 // AddEnvironment attempts to add a new environment. It returns an error only if the configuration
 // is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
 func (r *RelayCore) AddEnvironment(
-	envName string,
+	identifiers relayenv.EnvIdentifiers,
 	envConfig config.EnvConfig,
 ) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
@@ -222,7 +222,7 @@ func (r *RelayCore) AddEnvironment(
 	}
 
 	clientContext, err := relayenv.NewEnvContext(
-		envName,
+		identifiers,
 		envConfig,
 		r.config,
 		r.clientFactory,
@@ -236,7 +236,7 @@ func (r *RelayCore) AddEnvironment(
 		resultCh,
 	)
 	if err != nil {
-		return nil, nil, errNewClientContextFailed(envName, err)
+		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
 	}
 
 	r.allEnvironments = append(r.allEnvironments, clientContext)

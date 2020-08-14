@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
@@ -40,21 +41,21 @@ func TestRelayCoreGetEnvironment(t *testing.T) {
 	defer core.Close()
 
 	if assert.NotNil(t, core.GetEnvironment(st.EnvMain.Config.SDKKey)) {
-		assert.Equal(t, st.EnvMain.Name, core.GetEnvironment(st.EnvMain.Config.SDKKey).GetName())
+		assert.Equal(t, st.EnvMain.Name, core.GetEnvironment(st.EnvMain.Config.SDKKey).GetIdentifiers().ConfiguredName)
 	}
 	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
-		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetName())
+		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetIdentifiers().ConfiguredName)
 	}
 	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.SDKKey)) {
-		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.SDKKey).GetName())
+		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.SDKKey).GetIdentifiers().ConfiguredName)
 	}
 
 	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.MobileKey)) {
-		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.MobileKey).GetName())
+		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.MobileKey).GetIdentifiers().ConfiguredName)
 	}
 
 	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.EnvID)) {
-		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.EnvID).GetName())
+		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.EnvID).GetIdentifiers().ConfiguredName)
 	}
 
 	assert.Nil(t, core.GetEnvironment(st.UndefinedSDKKey))
@@ -74,7 +75,7 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	assert.Len(t, envs, 3)
 	var names []string
 	for _, e := range envs {
-		names = append(names, e.GetName())
+		names = append(names, e.GetIdentifiers().ConfiguredName)
 	}
 	assert.Contains(t, names, st.EnvMain.Name)
 	assert.Contains(t, names, st.EnvMobile.Name)
@@ -89,11 +90,11 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 
-	env, resultCh, err := core.AddEnvironment(st.EnvMobile.Name, st.EnvMobile.Config)
+	env, resultCh, err := core.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 	require.NotNil(t, resultCh)
-	assert.Equal(t, st.EnvMobile.Name, env.GetName())
+	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
 	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
 		assert.Equal(t, env, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
@@ -117,7 +118,7 @@ func TestRelayCoreRemoveEnvironment(t *testing.T) {
 
 	env := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
-	assert.Equal(t, st.EnvMobile.Name, env.GetName())
+	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
 	removed := core.RemoveEnvironment(env)
 	assert.True(t, removed)

@@ -52,7 +52,7 @@ type envContextImpl struct {
 	storeAdapter     *store.SSERelayDataStoreAdapter
 	loggers          ldlog.Loggers
 	credentials      map[config.SDKCredential]bool // true if not deprecated
-	name             string
+	identifiers      EnvIdentifiers
 	secureMode       bool
 	envStreams       *streams.EnvStreams
 	streamProviders  []streams.StreamProvider
@@ -86,7 +86,7 @@ type envContextStoreQueries struct {
 // NewEnvContext can also immediately return an error, with a nil EnvContext, if the configuration is
 // invalid.
 func NewEnvContext(
-	envName string,
+	identifiers EnvIdentifiers,
 	envConfig config.EnvConfig,
 	allConfig config.Config,
 	clientFactory sdks.ClientFactoryFunc,
@@ -125,7 +125,7 @@ func NewEnvContext(
 	}
 
 	envContext := &envContextImpl{
-		name:             envName,
+		identifiers:      identifiers,
 		clients:          make(map[config.SDKKey]sdks.LDClientContext),
 		credentials:      credentials,
 		loggers:          envLoggers,
@@ -193,7 +193,7 @@ func NewEnvContext(
 		thingsToCleanUp.AddFunc(eventsPublisher.Close)
 		envContext.metricsEventPub = eventsPublisher
 
-		em, err = metricsManager.AddEnvironment(envName, eventsPublisher)
+		em, err = metricsManager.AddEnvironment(identifiers.GetDisplayName(), eventsPublisher)
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}
@@ -228,46 +228,53 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	if err != nil {
 		c.initErr = err
 		if suppressErrors {
-			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v", c.name, err)
+			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
+				c.identifiers.GetDisplayName(), err)
 		} else {
-			c.globalLoggers.Errorf("Error initializing LaunchDarkly client for %q: %+v", c.name, err)
+			c.globalLoggers.Errorf("Error initializing LaunchDarkly client for %q: %+v",
+				c.identifiers.GetDisplayName(), err)
 			if readyCh != nil {
 				readyCh <- c
 			}
 			return
 		}
 	} else {
-		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", c.name)
+		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", c.identifiers.GetDisplayName())
 	}
 	if readyCh != nil {
 		readyCh <- c
 	}
 }
 
-func (c *envContextImpl) GetName() string {
+func (c *envContextImpl) GetIdentifiers() EnvIdentifiers {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.name
+	return c.identifiers
 }
 
-func (c *envContextImpl) SetName(newName string) {
+func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if newName == c.name {
-		return
-	}
-	c.name = newName
+	c.identifiers = ei
 }
 
 func (c *envContextImpl) GetCredentials() []config.SDKCredential {
+	return c.getCredentialsInternal(true)
+}
+
+func (c *envContextImpl) GetDeprecatedCredentials() []config.SDKCredential {
+	return c.getCredentialsInternal(false)
+}
+
+func (c *envContextImpl) getCredentialsInternal(preferred bool) []config.SDKCredential {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	ret := make([]config.SDKCredential, 0, len(c.credentials))
 	for c, nonDeprecated := range c.credentials {
-		if nonDeprecated {
+		if nonDeprecated == preferred {
 			ret = append(ret, c)
 		}
 	}

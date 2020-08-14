@@ -2,13 +2,14 @@ package entrelay
 
 import (
 	"encoding/json"
-	"fmt"
-	"strings"
 	"testing"
+
+	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
@@ -58,48 +59,56 @@ var (
 	}
 )
 
-func (e testAutoConfEnv) json() string {
-	sdkKey := map[string]interface{}{"value": e.sdkKey}
+func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
+	rep := autoconfig.EnvironmentRep{
+		EnvID:    e.id,
+		EnvKey:   e.envKey,
+		EnvName:  e.envName,
+		MobKey:   e.mobKey,
+		ProjKey:  e.projKey,
+		ProjName: e.projName,
+		SDKKey: autoconfig.SDKKeyRep{
+			Value: e.sdkKey,
+		},
+		Version: e.version,
+	}
 	if e.sdkKeyExpiryValue != "" {
-		sdkKey["expiring"] = map[string]interface{}{"value": e.sdkKeyExpiryValue, "timestamp": e.sdkKeyExpiryTime}
+		rep.SDKKey.Expiring.Value = e.sdkKeyExpiryValue
+		rep.SDKKey.Expiring.Timestamp = e.sdkKeyExpiryTime
 	}
-	props := map[string]interface{}{
-		"envId":    e.id,
-		"envKey":   e.envKey,
-		"envName":  e.envName,
-		"mobKey":   e.mobKey,
-		"projKey":  e.projKey,
-		"projName": e.projName,
-		"sdkKey":   sdkKey,
-		"version":  e.version,
-	}
-	bytes, _ := json.Marshal(props)
-	return string(bytes)
+	return rep
 }
 
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
-	m := make(map[string]interface{})
+	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
+		Environments: make(map[config.EnvironmentID]autoconfig.EnvironmentRep)}}
 	for _, e := range envs {
-		m[string(e.id)] = json.RawMessage(e.json())
+		data.Data.Environments[e.id] = e.toEnvironmentRep()
 	}
-	mj, _ := json.Marshal(m)
-	data := fmt.Sprintf(`{"path":"/","data":{"environments":%s}}`, string(mj))
-	return httphelpers.SSEEvent{Event: "put", Data: strings.ReplaceAll(data, "\n", "")}
+	jsonData, _ := json.Marshal(data)
+	return httphelpers.SSEEvent{Event: autoconfig.PutEvent, Data: string(jsonData)}
 }
 
 func makeAutoConfPatchEvent(env testAutoConfEnv) httphelpers.SSEEvent {
-	data := fmt.Sprintf(`{"path":"/environments/%s","data":%s}`, env.id, env.json())
-	return httphelpers.SSEEvent{Event: "patch", Data: strings.ReplaceAll(data, "\n", "")}
+	jsonData, _ := json.Marshal(autoconfig.PatchMessageData{Path: "/environments/" + string(env.id),
+		Data: env.toEnvironmentRep()})
+	return httphelpers.SSEEvent{Event: autoconfig.PatchEvent, Data: string(jsonData)}
 }
 
 func makeAutoConfDeleteEvent(envID c.EnvironmentID, version int) httphelpers.SSEEvent {
-	data := fmt.Sprintf(`{"path":"/environments/%s", "version":%d}`, envID, version)
-	return httphelpers.SSEEvent{Event: "delete", Data: data}
+	jsonData, _ := json.Marshal(autoconfig.DeleteMessageData{Path: "/environments/" + string(envID), Version: version})
+	return httphelpers.SSEEvent{Event: autoconfig.DeleteEvent, Data: string(jsonData)}
 }
 
 func assertEnvProps(t *testing.T, expected testAutoConfEnv, env relayenv.EnvContext) {
 	assert.Equal(t, credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey), credentialsAsSet(env.GetCredentials()...))
-	assert.Equal(t, expected.projName+" "+expected.envName, env.GetName())
+	assert.Equal(t, relayenv.EnvIdentifiers{
+		EnvKey:   expected.envKey,
+		EnvName:  expected.envName,
+		ProjKey:  expected.projKey,
+		ProjName: expected.projName,
+	}, env.GetIdentifiers())
+	assert.Equal(t, expected.projName+" "+expected.envName, env.GetIdentifiers().GetDisplayName())
 }
 
 func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {

@@ -30,7 +30,7 @@ func NewTestEnvContextWithClientFactory(
 	}
 	readyCh := make(chan relayenv.EnvContext)
 	c, err := relayenv.NewEnvContext(
-		name,
+		relayenv.EnvIdentifiers{ConfiguredName: name},
 		config.EnvConfig{},
 		config.Config{},
 		f,

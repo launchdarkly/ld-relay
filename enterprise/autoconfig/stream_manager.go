@@ -12,6 +12,7 @@ import (
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -64,7 +65,7 @@ type StreamManager struct {
 	key               entconfig.AutoConfigKey
 	uri               string
 	handler           MessageHandler
-	lastKnownEnvs     map[config.EnvironmentID]environmentRep
+	lastKnownEnvs     map[config.EnvironmentID]EnvironmentRep
 	expiredKeys       chan expiredKey
 	expiryTimers      map[config.SDKKey]*time.Timer
 	httpConfig        httpconfig.HTTPConfig
@@ -97,7 +98,7 @@ func NewStreamManager(
 		key:               key,
 		uri:               strings.TrimSuffix(baseURI, "/") + autoConfigStreamPath,
 		handler:           handler,
-		lastKnownEnvs:     make(map[config.EnvironmentID]environmentRep),
+		lastKnownEnvs:     make(map[config.EnvironmentID]EnvironmentRep),
 		expiredKeys:       make(chan expiredKey),
 		expiryTimers:      make(map[config.SDKKey]*time.Timer),
 		httpConfig:        httpConfig,
@@ -216,26 +217,26 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			}
 
 			switch event.Event() {
-			case putEvent:
-				var putMessage autoConfigPutMessage
+			case PutEvent:
+				var putMessage PutMessageData
 				if err := json.Unmarshal([]byte(event.Data()), &putMessage); err != nil {
 					gotMalformedEvent(event, err)
 					break
 				}
 				if putMessage.Path != "/" {
-					s.loggers.Infof(logMsgWrongPath, putEvent, putMessage.Path)
+					s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
 					break
 				}
 				s.handlePut(putMessage.Data.Environments)
 
-			case patchEvent:
-				var patchMessage autoConfigPatchMessage
+			case PatchEvent:
+				var patchMessage PatchMessageData
 				if err := json.Unmarshal([]byte(event.Data()), &patchMessage); err != nil {
 					gotMalformedEvent(event, err)
 					break
 				}
 				if !strings.HasPrefix(patchMessage.Path, environmentPathPrefix) {
-					s.loggers.Infof(logMsgWrongPath, patchEvent, patchMessage.Path)
+					s.loggers.Infof(logMsgWrongPath, PatchEvent, patchMessage.Path)
 					break
 				}
 				envID := config.EnvironmentID(strings.TrimPrefix(patchMessage.Path, environmentPathPrefix))
@@ -245,20 +246,20 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				}
 				s.addOrUpdate(patchMessage.Data)
 
-			case deleteEvent:
-				var deleteMessage autoConfigDeleteMessage
+			case DeleteEvent:
+				var deleteMessage DeleteMessageData
 				if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
 					gotMalformedEvent(event, err)
 					break
 				}
 				if !strings.HasPrefix(deleteMessage.Path, environmentPathPrefix) {
-					s.loggers.Infof(logMsgWrongPath, deleteEvent, deleteMessage.Path)
+					s.loggers.Infof(logMsgWrongPath, DeleteEvent, deleteMessage.Path)
 					break
 				}
 				envID := config.EnvironmentID(strings.TrimPrefix(deleteMessage.Path, environmentPathPrefix))
 				s.handleDelete(envID, deleteMessage.Version)
 
-			case reconnectEvent:
+			case ReconnectEvent:
 				s.loggers.Info(logMsgDeliberateReconnect)
 				shouldRestart = true
 				stream.Restart()
@@ -289,7 +290,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
 
-func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]environmentRep) {
+func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]EnvironmentRep) {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
@@ -313,7 +314,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]environmen
 	}
 }
 
-func (s *StreamManager) addOrUpdate(rep environmentRep) {
+func (s *StreamManager) addOrUpdate(rep EnvironmentRep) {
 	params := makeEnvironmentParams(rep)
 
 	// Check whether this is a new environment or an update
@@ -336,7 +337,8 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 		if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; !alreadyHaveTimer {
 			timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
 			dateTime := time.Unix(int64(expiryTime)/1000, 0)
-			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID, params.Name, dateTime)
+			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID,
+				params.Identifiers.GetDisplayName(), dateTime)
 			timer := time.NewTimer(timeFromNow)
 			s.expiryTimers[expiringKey] = timer
 			go func() {
@@ -349,11 +351,11 @@ func (s *StreamManager) addOrUpdate(rep environmentRep) {
 
 	if exists {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgUpdateEnv, rep.EnvID, params.Name)
+		s.loggers.Infof(logMsgUpdateEnv, rep.EnvID, params.Identifiers.GetDisplayName())
 		s.handler.UpdateEnvironment(params)
 	} else {
 		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgAddEnv, rep.EnvID, params.Name)
+		s.loggers.Infof(logMsgAddEnv, rep.EnvID, params.Identifiers.GetDisplayName())
 		s.handler.AddEnvironment(params)
 	}
 }
@@ -382,10 +384,15 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	}
 }
 
-func makeEnvironmentParams(rep environmentRep) EnvironmentParams {
+func makeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
 	return EnvironmentParams{
-		ID:             rep.EnvID,
-		Name:           makeEnvName(rep),
+		EnvID: rep.EnvID,
+		Identifiers: relayenv.EnvIdentifiers{
+			EnvKey:   rep.EnvKey,
+			EnvName:  rep.EnvName,
+			ProjKey:  rep.ProjKey,
+			ProjName: rep.ProjName,
+		},
 		SDKKey:         rep.SDKKey.Value,
 		MobileKey:      rep.MobKey,
 		ExpiringSDKKey: rep.SDKKey.Expiring.Value,
@@ -394,15 +401,15 @@ func makeEnvironmentParams(rep environmentRep) EnvironmentParams {
 	}
 }
 
-func makeEnvName(rep environmentRep) string {
+func makeEnvName(rep EnvironmentRep) string {
 	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
 }
 
-func makeTombstone(version int) environmentRep {
-	return environmentRep{Version: version}
+func makeTombstone(version int) EnvironmentRep {
+	return EnvironmentRep{Version: version}
 }
 
-func isTombstone(rep environmentRep) bool {
+func isTombstone(rep EnvironmentRep) bool {
 	return rep.EnvID == ""
 }
 
