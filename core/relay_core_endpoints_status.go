@@ -5,8 +5,19 @@ import (
 	"net/http"
 	"regexp"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+)
+
+const (
+	statusEnvConnected    = "connected"
+	statusEnvDisconnected = "disconnected"
+	statusRelayHealthy    = "healthy"
+	statusRelayDegraded   = "degraded"
 )
 
 type statusRep struct {
@@ -17,17 +28,47 @@ type statusRep struct {
 }
 
 type environmentStatusRep struct {
-	SDKKey    string `json:"sdkKey"`
-	EnvID     string `json:"envId,omitempty"`
-	MobileKey string `json:"mobileKey,omitempty"`
-	Status    string `json:"status"`
+	SDKKey           string              `json:"sdkKey"`
+	EnvID            string              `json:"envId,omitempty"`
+	EnvKey           string              `json:"envKey,omitempty"`
+	EnvName          string              `json:"envName,omitempty"`
+	ProjKey          string              `json:"projKey,omitempty"`
+	ProjName         string              `json:"projName,omitempty"`
+	MobileKey        string              `json:"mobileKey,omitempty"`
+	ExpiringSDKKey   string              `json:"expiringSdkKey,omitempty"`
+	Status           string              `json:"status"`
+	ConnectionStatus connectionStatusRep `json:"connectionStatus"`
+	DataStoreStatus  *dataStoreStatusRep `json:"dataStoreStatus,omitempty"`
 }
 
-var hexdigit = regexp.MustCompile(`[a-fA-F\d]`) //nolint:gochecknoglobals
+type connectionStatusRep struct {
+	State      interfaces.DataSourceState `json:"state"`
+	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
+	LastError  *connectionErrorRep        `json:"lastError,omitempty"`
+}
 
-func obscureKey(key string) string {
-	if len(key) > 8 {
-		return key[0:4] + hexdigit.ReplaceAllString(key[4:len(key)-5], "*") + key[len(key)-5:]
+type connectionErrorRep struct {
+	Kind interfaces.DataSourceErrorKind `json:"kind"`
+	Time ldtime.UnixMillisecondTime     `json:"time"`
+}
+
+type dataStoreStatusRep struct {
+	State      string                     `json:"state"`
+	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
+}
+
+var (
+	hexDigitRegex    = regexp.MustCompile(`[a-fA-F\d]`)        //nolint:gochecknoglobals
+	alphaPrefixRegex = regexp.MustCompile(`^[a-z][a-z][a-z]-`) //nolint:gochecknoglobals
+)
+
+// ObscureKey returns an obfuscated version of an SDK key or mobile key.
+func ObscureKey(key string) string {
+	if alphaPrefixRegex.MatchString(key) {
+		return key[0:4] + ObscureKey(key[4:])
+	}
+	if len(key) > 4 {
+		return hexDigitRegex.ReplaceAllString(key[:len(key)-5], "*") + key[len(key)-5:]
 	}
 	return key
 }
@@ -48,28 +89,61 @@ func statusHandler(core *RelayCore) http.Handler {
 			for _, c := range clientCtx.GetCredentials() {
 				switch c := c.(type) {
 				case config.SDKKey:
-					status.SDKKey = obscureKey(string(c))
+					status.SDKKey = ObscureKey(string(c))
 				case config.MobileKey:
-					status.MobileKey = obscureKey(string(c))
+					status.MobileKey = ObscureKey(string(c))
 				case config.EnvironmentID:
 					status.EnvID = string(c)
 				}
 			}
 
 			client := clientCtx.GetClient()
-			if client == nil || !client.Initialized() {
-				status.Status = "disconnected"
+			if client == nil {
+				status.Status = statusEnvDisconnected
+				status.ConnectionStatus.State = interfaces.DataSourceStateInitializing
+				status.ConnectionStatus.StateSince = ldtime.UnixMillisFromTime(clientCtx.GetCreationTime())
 				healthy = false
 			} else {
-				status.Status = "connected"
+				if client.Initialized() {
+					status.Status = statusEnvConnected
+				} else {
+					status.Status = statusEnvDisconnected
+					healthy = false
+				}
+				sourceStatus := client.GetDataSourceStatus()
+				status.ConnectionStatus = connectionStatusRep{
+					State:      sourceStatus.State,
+					StateSince: ldtime.UnixMillisFromTime(sourceStatus.StateSince),
+				}
+				if sourceStatus.LastError.Kind != "" {
+					status.ConnectionStatus.LastError = &connectionErrorRep{
+						Kind: sourceStatus.LastError.Kind,
+						Time: ldtime.UnixMillisFromTime(sourceStatus.LastError.Time),
+					}
+				}
+				storeStatus := client.GetDataStoreStatus()
+				status.DataStoreStatus = &dataStoreStatusRep{
+					State:      "VALID",
+					StateSince: ldtime.UnixMillisFromTime(storeStatus.LastUpdated),
+				}
+				if !storeStatus.Available {
+					status.DataStoreStatus.State = "INTERRUPTED"
+				}
 			}
-			resp.Environments[clientCtx.GetName()] = status
+
+			statusKey := clientCtx.GetName()
+			if core.envLogNameMode == relayenv.LogNameIsEnvID {
+				// If we're identifying environments by environment ID in the log (which we do if there's any
+				// chance that the environment name could change) then we should also identify them that way here.
+				statusKey = status.EnvID
+			}
+			resp.Environments[statusKey] = status
 		}
 
 		if healthy {
-			resp.Status = "healthy"
+			resp.Status = statusRelayHealthy
 		} else {
-			resp.Status = "degraded"
+			resp.Status = statusRelayDegraded
 		}
 
 		data, _ := json.Marshal(resp)

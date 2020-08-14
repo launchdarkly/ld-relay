@@ -21,7 +21,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
 var (
@@ -58,20 +57,6 @@ type RelayCore struct {
 	Loggers                       ldlog.Loggers
 	closed                        bool
 	lock                          sync.RWMutex
-}
-
-// ClientFactoryFromLDClientFactory translates from the client factory type that we expose to host
-// applications, which uses the real LDClient type, to the more general factory type that we use
-// internally which uses the sdks.ClientFactoryFunc abstraction. The latter makes our code a bit
-// cleaner and easier to test, but isn't of any use when hosting Relay in an application.
-func ClientFactoryFromLDClientFactory(fn func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error)) sdks.ClientFactoryFunc {
-	if fn == nil {
-		return nil
-	}
-	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-		client, err := fn(sdkKey, config)
-		return client, err
-	}
 }
 
 // NewRelayCore creates and configures an instance of RelayCore, and immediately starts initializing

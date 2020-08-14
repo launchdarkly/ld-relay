@@ -19,7 +19,7 @@ import (
 )
 
 func makeBasicCore(config c.Config) (*RelayCore, error) {
-	return NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
+	return NewRelayCore(config, ldlog.NewDisabledLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
 }
 
 func TestNewRelayCoreRejectsConfigWithContradictoryProperties(t *testing.T) {
@@ -144,7 +144,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	}
 
 	t.Run("returns nil if all environments initialize successfully", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
+		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
 		require.NoError(t, err)
 		defer core.Close()
 
@@ -160,7 +160,7 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 			}
 			return testclient.FakeLDClientFactory(true)(sdkKey, config)
 		}
-		core, err := NewRelayCore(config, ldlog.NewDefaultLoggers(), oneEnvFails, "", "", false)
+		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(), oneEnvFails, "", "", false)
 		require.NoError(t, err)
 		defer core.Close()
 

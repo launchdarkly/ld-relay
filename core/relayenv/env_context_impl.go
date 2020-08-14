@@ -67,6 +67,7 @@ type envContextImpl struct {
 	globalLoggers    ldlog.Loggers
 	ttl              time.Duration
 	initErr          error
+	creationTime     time.Time
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -136,6 +137,7 @@ func NewEnvContext(
 		metricsManager:   metricsManager,
 		globalLoggers:    loggers,
 		ttl:              envConfig.TTL.GetOrElse(0),
+		creationTime:     time.Now(),
 	}
 
 	envStreams := streams.NewEnvStreams(
@@ -404,6 +406,10 @@ func (c *envContextImpl) SetSecureMode(secureMode bool) {
 	defer c.mu.Unlock()
 
 	c.secureMode = secureMode
+}
+
+func (c *envContextImpl) GetCreationTime() time.Time {
+	return c.creationTime
 }
 
 func (c *envContextImpl) Close() error {

@@ -38,7 +38,7 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClien
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
-	return newRelayInternal(c, loggers, core.ClientFactoryFromLDClientFactory(clientFactory))
+	return newRelayInternal(c, loggers, sdks.ClientFactoryFromLDClientFactory(clientFactory))
 }
 
 func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
