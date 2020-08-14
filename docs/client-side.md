@@ -1,10 +1,10 @@
-# LaunchDarkly Relay Proxy - Client-Side/Mobile Connections
+# LaunchDarkly Relay Proxy - Client-side/mobile connections
 
-[(back to README)](../README.md)
+[(Return to the README)](../README.md)
 
-When using [proxy mode](./proxy-mode.md) and/or [event forwarding](events.md), by default the Relay Proxy only accepts requests from server-side SDKs, which are authorized with an SDK key.
+By default, when the Relay Proxy is in [proxy mode](./proxy-mode.md) and/or is using [event forwarding](events.md), it only accepts requests from server-side SDKs which are authorized with an SDK key.
 
-If you want it to also accept requests from mobile SDKs and/or client-side JavaScript SDKs, you must provide the corresponding credentials (mobile key, client-side environment ID) in your [configuration](./configuration.md#file-section-environment-name). You will then need to configure the `baseUri` and `streamUri` properties in your SDKs to point to the location of the Relay Proxy
+If you want it to also accept requests from mobile SDKs and/or client-side JavaScript SDKs, you must provide the corresponding credentials (mobile key, client-side environment ID) in your [configuration](./configuration.md#file-section-environment-name). You must configure the `baseUri` and `streamUri` properties in your SDKs to point to the location of the Relay Proxy.
 
 In these examples, one environment allows only mobile and another allows only client-side JavaScript, but you could also have an environment that uses both.
 
@@ -46,7 +46,7 @@ LD_CLIENT_SIDE_ID_C=the client-side environment ID for environment C
 
 ## Access control for JavaScript client-side use
 
-If you are enabling access by client-side JavaScript SDKs by setting `envId`, you can also specify that only requests from specific web sites should be allowed. This value will be provided by the Relay Proxy in the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) HTTP header for cross-origin browser requests.
+If you enable access by client-side JavaScript SDKs by setting `envId`, you can also specify that only requests from specific web sites should be allowed. This value is provided by the Relay Proxy in the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) HTTP header for cross-origin browser requests.
 
 ```
 # Specifying allowed origins in a configuration file
@@ -64,4 +64,4 @@ LD_CLIENT_SIDE_ID_B=the client-side environment ID for environment B
 LD_ALLOWED_ORIGIN_B=http://example.org,http://another_example.net
 ```
 
-Also, if you are exposing any of the client-side relay endpoints externally, it is highly recommended to use HTTPS-- either by configuring the Relay Proxy itself to be a secure server, or by placing an HTTPS proxy server in front of it rather than exposing the Relay Proxy directly. See: [Using TLS](./tls.md)
+Also, if you expose any of the client-side relay endpoints externally, we strongly recommend that you use HTTPS, either by configuring the Relay Proxy itself to be a secure server, or by placing an HTTPS proxy server in front of it, rather than exposing the Relay Proxy directly. To learn more, read [Using TLS](./tls.md)

@@ -24,17 +24,17 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	env := st.EnvMain
 	sdkKey := env.Config.SDKKey
 	userJSON := []byte(`{"key":"me"}`)
-	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
-	expectedMobileEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, false))
-	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
+	expectedServerEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
+	expectedServerEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, false))
+	expectedServerEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
 
 	specs := []endpointTestParams{
 		{"server-side report eval", "REPORT", "/sdk/eval/user", userJSON, sdkKey,
-			http.StatusOK, expectedMobileEvalBody},
+			http.StatusOK, expectedServerEvalBody},
 		{"server-side report evalx", "REPORT", "/sdk/evalx/user", userJSON, sdkKey,
-			http.StatusOK, expectedMobileEvalxBody},
+			http.StatusOK, expectedServerEvalxBody},
 		{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", userJSON, sdkKey,
-			http.StatusOK, expectedMobileEvalxBodyWithReasons},
+			http.StatusOK, expectedServerEvalxBodyWithReasons},
 	}
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
@@ -81,9 +81,9 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	env := st.EnvMobile
 	mobileKey := env.Config.MobileKey
 	userJSON := []byte(`{"key":"me"}`)
-	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
-	expectedMobileEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, false))
-	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
+	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.MobileFlags, false, false))
+	expectedMobileEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.MobileFlags, true, false))
+	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.MobileFlags, true, true))
 
 	specs := []endpointTestParams{
 		{"mobile report eval", "REPORT", "/msdk/eval/user", userJSON, mobileKey,

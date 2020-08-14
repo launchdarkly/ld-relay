@@ -43,6 +43,22 @@ func TestConfigFromFileWithInvalidProperties(t *testing.T) {
 }
 
 func TestConfigFromFileBasicValidation(t *testing.T) {
+	t.Run("raises error for unknown config section", func(t *testing.T) {
+		testFileWithInvalidConfig(t,
+			`[Unknown]
+`,
+			`unsupported or misspelled section "Unknown"`,
+		)
+	})
+
+	t.Run("raises error for unknown config field", func(t *testing.T) {
+		testFileWithInvalidConfig(t,
+			`[Main]
+Unknown = x`,
+			`unsupported or misspelled section "Main", variable "Unknown"`,
+		)
+	})
+
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
 		testFileWithValidConfig(t,
 			func(c *Config) { c.Main.ExitOnError = true },

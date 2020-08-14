@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy - Using with Docker
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
 Using Docker is not required, but if you prefer using a Docker container we provide a Docker entrypoint to make this as easy as possible.
 
@@ -9,7 +9,7 @@ To build the `ld-relay` container:
 $ docker build -t ld-relay .
 ```
 
-In Docker, the config file is expected to be found at `/ldr/ld-relay.conf` unless you are using environment variables to configure the Relay Proxy (see [Configuration](./configuration.md)).
+In Docker, the config file is expected to be found at `/ldr/ld-relay.conf`, unless you are using environment variables to configure the Relay Proxy. To learn more, read [Configuration](./configuration.md).
 
 ## Docker examples
 

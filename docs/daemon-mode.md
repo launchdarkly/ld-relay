@@ -1,8 +1,10 @@
-# LaunchDarkly Relay Proxy - Daemon Mode
+# LaunchDarkly Relay Proxy - Daemon mode
 
-[(back to README)](../README.md)
+[(Back to README)](../README.md)
 
-Optionally, you can configure our SDKs to communicate directly to the [persistent store](./persistent-storage.md). If you go this route, there is no need to put a load balancer in front of the Relay Proxy; we call this **daemon mode**. This is the preferred way to use LaunchDarkly with [./php.md](PHP) (as there's no way to maintain persistent stream connections in PHP).
+Optionally, you can configure our SDKs to communicate directly to a [persistent store](./persistent-storage.md). If you do this, there is no need to put a load balancer in front of the Relay Proxy. 
+
+We call this configuration **daemon mode**. This is the preferred way to use LaunchDarkly with [PHP](./php.md) (as there's no way to maintain persistent stream connections in PHP).
 
 ![Relay Proxy in daemon mode](relay-daemon.png)
 
