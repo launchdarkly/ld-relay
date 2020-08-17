@@ -98,6 +98,7 @@ type MainConfig struct {
 	TLSEnabled              bool                     `conf:"TLS_ENABLED"`
 	TLSCert                 string                   `conf:"TLS_CERT"`
 	TLSKey                  string                   `conf:"TLS_KEY"`
+	TLSMinVersion           OptTLSVersion            `conf:"TLS_MIN_VERSION"`
 	LogLevel                OptLogLevel              `conf:"LOG_LEVEL"`
 }
 

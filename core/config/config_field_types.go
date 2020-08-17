@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,10 @@ import (
 
 func errBadLogLevel(s string) error {
 	return fmt.Errorf("%q is not a valid log level", s)
+}
+
+func errBadTLSVersion(s string) error {
+	return fmt.Errorf("%q is not a valid TLS version", s)
 }
 
 // SDKKey is a type tag to indicate when a string is used as a server-side SDK key for a LaunchDarkly
@@ -110,6 +115,57 @@ func (o OptLogLevel) GetOrElse(orElseValue ldlog.LogLevel) ldlog.LogLevel {
 // NewOptLogLevelFromString.
 func (o *OptLogLevel) UnmarshalText(data []byte) error {
 	opt, err := NewOptLogLevelFromString(string(data))
+	if err == nil {
+		*o = opt
+	}
+	return err
+}
+
+// OptTLSVersion represents an optional TLS level parameter. When represented as a string, it must be
+// "1.0", "1.1", "1.2", or "1.3". This is converted into a uint16 value as defined by crypto/tls.
+type OptTLSVersion struct {
+	value uint16
+}
+
+// NewOptTLSVersion creates an OptTLSVersion that wraps the given value. It does not validate that the
+// value is one supported by crypto/tls. A value of zero is equivalent to undefined.
+func NewOptTLSVersion(value uint16) OptTLSVersion {
+	return OptTLSVersion{value}
+}
+
+// NewOptTLSVersionFromString creates an OptTLSVersion corresponding to the given version string, which must
+// be either a valid TLS major and minor version ("1.2") or an empty string.
+func NewOptTLSVersionFromString(version string) (OptTLSVersion, error) {
+	switch version {
+	case "":
+		return NewOptTLSVersion(0), nil
+	case "1.0":
+		return NewOptTLSVersion(tls.VersionTLS10), nil
+	case "1.1":
+		return NewOptTLSVersion(tls.VersionTLS11), nil
+	case "1.2":
+		return NewOptTLSVersion(tls.VersionTLS12), nil
+	case "1.3":
+		return NewOptTLSVersion(tls.VersionTLS13), nil
+	default:
+		return OptTLSVersion{}, errBadTLSVersion(version)
+	}
+}
+
+// IsDefined returns true if the instance contains a value.
+func (o OptTLSVersion) IsDefined() bool {
+	return o.value != 0
+}
+
+// Get returns the wrapped value, or zero if there is no value.
+func (o OptTLSVersion) Get() uint16 {
+	return o.value
+}
+
+// UnmarshalText attempts to parse the value from a byte string, using the same logic as
+// NewOptTLSVersionFromString.
+func (o *OptTLSVersion) UnmarshalText(data []byte) error {
+	opt, err := NewOptTLSVersionFromString(string(data))
 	if err == nil {
 		*o = opt
 	}

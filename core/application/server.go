@@ -1,6 +1,7 @@
 package application
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -12,8 +13,9 @@ import (
 func StartHTTPServer(
 	port int,
 	handler http.Handler,
-	tls bool,
+	tlsEnabled bool,
 	tlsCertFile, tlsKeyFile string,
+	tlsMinVersion uint16,
 	loggers ldlog.Loggers,
 ) <-chan error {
 	srv := &http.Server{
@@ -21,12 +23,18 @@ func StartHTTPServer(
 		Handler: handler,
 	}
 
+	if tlsEnabled && tlsMinVersion != 0 {
+		srv.TLSConfig = &tls.Config{
+			MinVersion: tlsMinVersion,
+		}
+	}
+
 	errCh := make(chan error)
 
 	go func() {
 		var err error
 		loggers.Infof("Starting server listening on port %d\n", port)
-		if tls {
+		if tlsEnabled {
 			loggers.Infof("TLS Enabled for server")
 			err = srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
 		} else {

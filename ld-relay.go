@@ -59,6 +59,7 @@ func main() {
 		c.Main.TLSEnabled,
 		c.Main.TLSCert,
 		c.Main.TLSKey,
+		c.Main.TLSMinVersion.Get(),
 		loggers,
 	)
 

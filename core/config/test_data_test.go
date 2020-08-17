@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -66,6 +67,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
+		makeInvalidConfigTLSVersion(),
 		makeInvalidConfigRedisInvalidHostname(),
 		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
@@ -88,6 +90,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			TLSEnabled:              true,
 			TLSCert:                 "cert",
 			TLSKey:                  "key",
+			TLSMinVersion:           NewOptTLSVersion(tls.VersionTLS12),
 			LogLevel:                NewOptLogLevel(ldlog.Warn),
 		}
 		c.Events = EventsConfig{
@@ -130,6 +133,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"TLS_ENABLED":                "1",
 		"TLS_CERT":                   "cert",
 		"TLS_KEY":                    "key",
+		"TLS_MIN_VERSION":            "1.2",
 		"LOG_LEVEL":                  "warn",
 		"USE_EVENTS":                 "1",
 		"EVENTS_HOST":                "http://events",
@@ -164,6 +168,7 @@ MaxClientConnectionTime = 30m
 TLSEnabled = 1
 TLSCert = "cert"
 TLSKey = "key"
+TLSMinVersion = "1.2"
 LogLevel = "warn"
 
 [Events]
@@ -576,6 +581,18 @@ func makeInvalidConfigTLSWithNoKey() testDataInvalidConfig {
 [Main]
 TLSEnabled = true
 TLSCert = certfile
+`
+	return c
+}
+
+func makeInvalidConfigTLSVersion() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "bad TLS version"}
+	c.envVarsError = "not a valid TLS version"
+	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_MIN_VERSION": "x"}
+	c.fileContent = `
+[Main]
+TLSEnabled = true
+TLSMinVersion = x
 `
 	return c
 }
