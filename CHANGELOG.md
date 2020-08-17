@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [5.12.1] - 2020-08-10
+### Fixed:
+- The configuration section of `README.md` mistakenly referred to `MinTlsVersion` and `MIN_TLS_VERSION` as `MinTlsLevel` and `MIN_TLS_LEVEL`. This release simply fixes the documentation error; the behavior of Relay Proxy has not changed.
+
 ## [5.12.0] - 2020-08-06
 ### Added:
 - There is a new configuration option for specifying the lowest allowable TLS version, when using the Relay Proxy as a secure server. This is `MinTlsVersion` in the `[Main]` section of the configuration file, or the variable `MIN_TLS_VERSION` if using environment variables. For instance, setting this option to `1.2` means that all requests from clients must use TLS 1.2 or higher.
