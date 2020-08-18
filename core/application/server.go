@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -35,7 +36,11 @@ func StartHTTPServer(
 		var err error
 		loggers.Infof("Starting server listening on port %d\n", port)
 		if tlsEnabled {
-			loggers.Infof("TLS Enabled for server")
+			message := "TLS enabled for server"
+			if tlsMinVersion != 0 {
+				message += fmt.Sprintf(" (minimum TLS version: %s)", config.NewOptTLSVersion(tlsMinVersion).String())
+			}
+			loggers.Info(message)
 			err = srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
 		} else {
 			err = srv.ListenAndServe()
