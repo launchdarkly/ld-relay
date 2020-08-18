@@ -4,6 +4,7 @@
 package testclient
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -26,13 +27,15 @@ func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config) (sdks.LDClient
 	if err != nil {
 		panic(err)
 	}
-	return &FakeLDClient{sdkKey, make(chan struct{}), true}, nil
+	return &FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{}), initialized: true}, nil
 }
 
 type FakeLDClient struct {
-	Key         config.SDKKey
-	CloseCh     chan struct{}
-	initialized bool
+	Key              config.SDKKey
+	CloseCh          chan struct{}
+	dataSourceStatus *interfaces.DataSourceStatus
+	initialized      bool
+	lock             sync.Mutex
 }
 
 func (c *FakeLDClient) Initialized() bool {
@@ -44,6 +47,11 @@ func (c *FakeLDClient) SecureModeHash(user lduser.User) string {
 }
 
 func (c *FakeLDClient) GetDataSourceStatus() interfaces.DataSourceStatus {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.dataSourceStatus != nil {
+		return *c.dataSourceStatus
+	}
 	state := interfaces.DataSourceStateValid
 	if !c.initialized {
 		state = interfaces.DataSourceStateInitializing
@@ -60,6 +68,12 @@ func (c *FakeLDClient) Close() error {
 		close(c.CloseCh)
 	}
 	return nil
+}
+
+func (c *FakeLDClient) SetDataSourceStatus(newStatus interfaces.DataSourceStatus) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.dataSourceStatus = &newStatus
 }
 
 func (c *FakeLDClient) AwaitClose(t *testing.T, timeout time.Duration) {

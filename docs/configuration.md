@@ -53,6 +53,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
 `heartbeatInterval`      | `HEARTBEAT_INTERVAL` | Number  | `3m`    | Interval for heartbeat messages to prevent read timeouts on streaming connections. Assumed to be in seconds if no unit is specified.
 `maxClientConnectionTime` | `MAX_CLIENT_CONNECTION_TIME` | Duration | none | Maximum amount of time that Relay will allow a streaming connection from an SDK client to remain open. _(3)_
+`disconnectedStatusTime` | `DISCONNECTED_STATUS_TIME` | Duration | `1m` | How long a stream connection can be interrupted before Relay reports the status as "disconnected". _(4)_
 `tlsEnabled`             | `TLS_ENABLED`        | Boolean | `false` | Enable TLS on the Relay Proxy. **See: [Using TLS](./tls.md)**
 `tlsCert`                | `TLS_CERT`           | String  |         | Required if `tlsEnabled` is true. Path to TLS certificate file.
 `tlsKey`                 | `TLS_KEY`            | String  |         | Required if `tlsEnabled` is true. Path to TLS private key file.
@@ -65,6 +66,7 @@ _(2)_ The `exitAlways` mode is intended for use cases where you do not want to m
 
 _(3)_ The optional `maxClientConnectionTime` setting may be useful in load-balanced environments, to avoid having stream connections pile up excessively on one instance when other instances are removed or restarted. If you tell Relay to automatically close every stream connection after some amount of time, this will cause the SDK client that made the connection to reconnect, so that the load balancer can potentially direct it to a different instance.
 
+_(4)_ For details about `disconnectedStatusTime`, see: [Service endpoints - Status (health check)](./endpoints.md#status-health-check)
 
 ### File section: `[Events]`
 

@@ -10,5 +10,5 @@ func DoAllCoreEndpointTests(t *testing.T, constructor TestConstructor) {
 	constructor.RunTest(t, "PHP polling", DoPHPPollingEndpointsTests)
 	constructor.RunTest(t, "event forwarding", DoEventProxyTests)
 	constructor.RunTest(t, "goals", DoJSClientGoalsEndpointTest)
-	constructor.RunTest(t, "status", DoStatusEndpointTest)
+	constructor.RunTest(t, "status", DoStatusEndpointTests)
 }
