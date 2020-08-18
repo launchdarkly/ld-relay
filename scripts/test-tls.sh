@@ -28,7 +28,7 @@ RELAY_BASE_VARS="\
 "
 STATUS_ENDPOINT=https://localhost:${RELAY_PORT}/status
 
-go build ./cmd/ld-relay
+go build .
 
 # On some of the hosts used in our CI build, the global OpenSSL configuration specifies a minimum TLS version.
 # That'll interfere with our tests so we need to override that.
