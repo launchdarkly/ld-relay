@@ -80,4 +80,13 @@ func TestOptTLSVersion(t *testing.T) {
 			assert.Equal(t, OptTLSVersion{}, o)
 		}
 	})
+
+	t.Run("get string value", func(t *testing.T) {
+		assert.Equal(t, "", OptTLSVersion{}.String())
+		assert.Equal(t, "1.0", NewOptTLSVersion(tls.VersionTLS10).String())
+		assert.Equal(t, "1.1", NewOptTLSVersion(tls.VersionTLS11).String())
+		assert.Equal(t, "1.2", NewOptTLSVersion(tls.VersionTLS12).String())
+		assert.Equal(t, "1.3", NewOptTLSVersion(tls.VersionTLS13).String())
+		assert.Equal(t, "unknown (9999)", NewOptTLSVersion(9999).String())
+	})
 }

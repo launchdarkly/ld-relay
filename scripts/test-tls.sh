@@ -28,7 +28,7 @@ RELAY_BASE_VARS="\
 "
 STATUS_ENDPOINT=https://localhost:${RELAY_PORT}/status
 
-go build ./cmd/ld-relay
+go build .
 
 # On some of the hosts used in our CI build, the global OpenSSL configuration specifies a minimum TLS version.
 # That'll interfere with our tests so we need to override that.
@@ -53,7 +53,7 @@ curl -s --insecure --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.2 req
 echo "...correct"
 
 echo "verifying that a TLS 1.1 request does not succeed"
-curl -s --insecure --http1.1 --tls-max 1.1 ${STATUS_ENDPOINT} && (echo "TLS 1.1 request succeeded but should have failed"; exit 1)
+curl -s --insecure --http1.1 --tls-max 1.1 --tlsv1.1 ${STATUS_ENDPOINT} && (echo "TLS 1.1 request succeeded but should have failed"; exit 1)
 echo "...correct"
 
 kill ${RELAY_PID}
@@ -70,7 +70,7 @@ curl -s --insecure --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.2 req
 echo "...correct"
 
 echo "verifying that a TLS 1.1 request succeeds"
-curl -s --insecure --tls-max 1.1 --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
+curl -s --insecure --tls-max 1.1 --tlsv1.1 --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
 echo "...correct"
 
 echo

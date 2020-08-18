@@ -171,3 +171,21 @@ func (o *OptTLSVersion) UnmarshalText(data []byte) error {
 	}
 	return err
 }
+
+// String returns a string description of the value.
+func (o OptTLSVersion) String() string {
+	switch o.value {
+	case 0:
+		return ""
+	case tls.VersionTLS10:
+		return "1.0"
+	case tls.VersionTLS11:
+		return "1.1"
+	case tls.VersionTLS12:
+		return "1.2"
+	case tls.VersionTLS13:
+		return "1.3"
+	default:
+		return fmt.Sprintf("unknown (%d)", o.value)
+	}
+}
