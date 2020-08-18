@@ -201,12 +201,16 @@ func NewEnvContext(
 	envContext.metricsEnv = em
 	thingsToCleanUp.AddFunc(func() { metricsManager.RemoveEnvironment(em) })
 
+	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
+
 	envContext.sdkConfig = ld.Config{
 		DataSource: ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:  storeAdapter,
 		Events:     ldcomponents.SendEvents().BaseURI(eventsURI),
 		HTTP:       httpConfig.SDKHTTPConfigFactory,
-		Logging:    ldcomponents.Logging().Loggers(envLoggers),
+		Logging: ldcomponents.Logging().
+			Loggers(envLoggers).
+			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 	}
 
 	// Connecting may take time, so do this in parallel
