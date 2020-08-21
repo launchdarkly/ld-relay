@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay-config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"

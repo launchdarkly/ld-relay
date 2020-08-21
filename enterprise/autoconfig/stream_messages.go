@@ -1,6 +1,6 @@
 package autoconfig
 
-import "github.com/launchdarkly/ld-relay/v6/core/config"
+import config "github.com/launchdarkly/ld-relay-config"
 
 // These SSE message types are exported so that tests in other packages can more easily create
 // simulated auto-config data. They should not be used by non-test code in other packages.

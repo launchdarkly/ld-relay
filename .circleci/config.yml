@@ -50,7 +50,8 @@ jobs:
           CIRCLE_ARTIFACTS: /tmp/circle-artifacts
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
-
+          GOPRIVATE: github.com/launchdarkly/*-private
+    
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
@@ -127,7 +128,7 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
       - run: make release
-      - run: make integration-test
+      - run: ./scripts/maybe-integration-test.sh
       - store_artifacts:
           path: dist/
 

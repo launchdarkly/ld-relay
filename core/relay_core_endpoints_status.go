@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay-config"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"

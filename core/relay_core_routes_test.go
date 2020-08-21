@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
+	c "github.com/launchdarkly/ld-relay-config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"

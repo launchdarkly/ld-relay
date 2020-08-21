@@ -115,6 +115,8 @@ github.com/launchdarkly/go-server-sdk-redis v1.0.0-beta.1 h1:72/R90iNRfgGWe/0hZH
 github.com/launchdarkly/go-server-sdk-redis v1.0.0-beta.1/go.mod h1:Z/OgKiOw9B8FgFFoOlaErLr2jmVClrVYrXeZr9jW8fw=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0 h1:L3kGILP/6ewikhzhdNkHy1b5y4zs50LueWenVF0sBbs=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
+github.com/launchdarkly/ld-relay-config-private v0.0.0-20200819003132-defe927c1385 h1:WQztFlwEobU1TJVPKk7sjtHkt9uq6lxOczOcHfhNY8o=
+github.com/launchdarkly/ld-relay-config-private v0.0.0-20200819003132-defe927c1385/go.mod h1:YQNp2HIiJeIYU6iX21Gvi7WZNAtbtEUZ6HLr8TTVK7E=
 github.com/mattn/go-colorable v0.0.9/go.mod h1:9vuHe8Xs5qXnSaW/c/ABM9alt+Vo+STaOChaDxuIBZU=
 github.com/mattn/go-colorable v0.1.4 h1:snbPLB8fVfU9iwbbo30TPtbLRzwWu6aJS6Xh4eaaviA=
 github.com/mattn/go-colorable v0.1.4/go.mod h1:U0ppj6V5qS13XJ6of8GYAs25YV2eR4EVcfRqFIhoBtE=

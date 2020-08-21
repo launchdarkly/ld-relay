@@ -6,7 +6,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay-config"
 )
 
 type TestEnv struct {

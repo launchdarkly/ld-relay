@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
+	c "github.com/launchdarkly/ld-relay-config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 

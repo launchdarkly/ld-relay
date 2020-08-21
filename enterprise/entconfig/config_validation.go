@@ -4,8 +4,7 @@ import (
 	"errors"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	config "github.com/launchdarkly/ld-relay-config"
 )
 
 var (
@@ -22,10 +21,10 @@ var (
 // non-deprecated ones).
 //
 // LoadConfigFromEnvironment and LoadConfigFromFile both call this method as a last step.
-func ValidateConfig(c *EnterpriseConfig, loggers ldlog.Loggers) error {
+func ValidateConfig(c *EnterpriseConfig) error {
 	var result ct.ValidationResult
 
-	baseError := config.ValidateConfig(&c.Config, loggers)
+	baseError := config.ValidateConfig(&c.Config)
 	if baseError != nil {
 		if ae, ok := baseError.(ct.ValidationAggregateError); ok {
 			for _, e := range ae {

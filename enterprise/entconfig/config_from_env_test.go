@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 func TestConfigFromEnvironmentWithValidProperties(t *testing.T) {
@@ -35,7 +33,7 @@ func testValidConfigVars(t *testing.T, buildConfig func(c *EnterpriseConfig), va
 		buildConfig(&expectedConfig)
 
 		var c EnterpriseConfig
-		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+		err := LoadConfigFromEnvironment(&c)
 		require.NoError(t, err)
 
 		assert.Equal(t, expectedConfig, c)
@@ -45,7 +43,7 @@ func testValidConfigVars(t *testing.T, buildConfig func(c *EnterpriseConfig), va
 func testInvalidConfigVars(t *testing.T, vars map[string]string, errMessage string) {
 	withEnvironment(vars, func() {
 		var c EnterpriseConfig
-		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+		err := LoadConfigFromEnvironment(&c)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), errMessage)
 	})
