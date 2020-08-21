@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay-core/httpconfig"
+	st "github.com/launchdarkly/ld-relay-core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	config "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+
+	"github.com/stretchr/testify/require"
 )
 
 const (

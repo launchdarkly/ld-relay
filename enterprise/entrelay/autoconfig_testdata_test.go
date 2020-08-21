@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	c "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay-core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const testAutoConfKey = entconfig.AutoConfigKey("test-auto-conf-key")

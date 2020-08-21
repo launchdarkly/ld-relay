@@ -1,7 +1,13 @@
 # Contributing to the LaunchDarkly Relay Proxy
  
 The LaunchDarkly Relay Proxy's functionality is closely related to the LaunchDarkly SDKs'. We suggest that you review the LaunchDarkly [SDK contributor's guide](https://docs.launchdarkly.com/docs/sdk-contributors-guide) if you are working on this code.
- 
+
+The Relay Proxy code is distributed across several repositories:
+
+* [`github.com/launchdarkly/ld-relay-core`](https://github.com/launchdarkly/ld-relay-core): This contains components that are also shared with Relay Proxy Enterprise. Most of the Relay Proxy functionality is implemented here.
+* [`github.com/launchdarkly/ld-relay-config`](https://github.com/launchdarkly/ld-relay-config): This contains configuration types which are also shared with Relay Proxy Enterprise. This is separate from `ld-relay-core` because it is a public, supported API.
+* This repository, `ld-relay`, which contains only the high-level interface to the Relay Proxy when it is either built as an application or imported as a library.
+
 ## Submitting bug reports and feature requests
 
 The LaunchDarkly SDK team monitors the [issue tracker](https://github.com/launchdarkly/ld-relay/issues) in this repository. File bug reports and feature requests specific to the Relay Proxy in this issue tracker. The SDK team will respond to all newly filed issues within two business days.

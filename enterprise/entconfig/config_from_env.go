@@ -1,8 +1,9 @@
 package entconfig
 
 import (
-	ct "github.com/launchdarkly/go-configtypes"
 	config "github.com/launchdarkly/ld-relay-config"
+
+	ct "github.com/launchdarkly/go-configtypes"
 )
 
 // LoadConfigFromEnvironment sets parameters in an EnterpriseConfig struct from environment variables.

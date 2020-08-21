@@ -7,22 +7,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	c "github.com/launchdarkly/ld-relay-config"
+	core "github.com/launchdarkly/ld-relay-core"
+	st "github.com/launchdarkly/ld-relay-core/sharedtest"
+	"github.com/launchdarkly/ld-relay-core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay-core/sharedtest/testsuites"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-
-	c "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay/v6/core"
-	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testsuites"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var testEnvBasic = st.TestEnv{

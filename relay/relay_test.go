@@ -3,11 +3,11 @@ package relay
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	c "github.com/launchdarkly/ld-relay-config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewRelayRejectsConfigWithNoEnvironments(t *testing.T) {

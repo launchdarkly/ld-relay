@@ -5,10 +5,10 @@ import (
 	"net/http"
 
 	config "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay/v6/core"
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	core "github.com/launchdarkly/ld-relay-core"
+	"github.com/launchdarkly/ld-relay-core/logging"
+	"github.com/launchdarkly/ld-relay-core/relayenv"
+	"github.com/launchdarkly/ld-relay-core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
