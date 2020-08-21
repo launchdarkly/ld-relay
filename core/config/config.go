@@ -29,6 +29,9 @@ const (
 	// DefaultEventsFlushInterval is the default value for EventsConfig.FlushInterval if not specified.
 	DefaultEventsFlushInterval = time.Second * 5
 
+	// DefaultDisconnectedStatusTime is the default value for MainConfig.DisconnectedStatusTime if not specified.
+	DefaultDisconnectedStatusTime = time.Minute
+
 	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
 	DefaultDatabaseCacheTTL = time.Second * 30
 
@@ -95,6 +98,7 @@ type MainConfig struct {
 	Port                    ct.OptIntGreaterThanZero `conf:"PORT"`
 	HeartbeatInterval       ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	DisconnectedStatusTime  ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled              bool                     `conf:"TLS_ENABLED"`
 	TLSCert                 string                   `conf:"TLS_CERT"`
 	TLSKey                  string                   `conf:"TLS_KEY"`

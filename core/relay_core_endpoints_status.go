@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
@@ -117,12 +118,8 @@ func statusHandler(core *RelayCore) http.Handler {
 				status.ConnectionStatus.StateSince = ldtime.UnixMillisFromTime(clientCtx.GetCreationTime())
 				healthy = false
 			} else {
-				if client.Initialized() {
-					status.Status = statusEnvConnected
-				} else {
-					status.Status = statusEnvDisconnected
-					healthy = false
-				}
+				connected := client.Initialized()
+
 				sourceStatus := client.GetDataSourceStatus()
 				status.ConnectionStatus = connectionStatusRep{
 					State:      sourceStatus.State,
@@ -134,6 +131,12 @@ func statusHandler(core *RelayCore) http.Handler {
 						Time: ldtime.UnixMillisFromTime(sourceStatus.LastError.Time),
 					}
 				}
+				if sourceStatus.State != interfaces.DataSourceStateValid &&
+					time.Since(sourceStatus.StateSince) >=
+						core.config.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime) {
+					connected = false
+				}
+
 				storeStatus := client.GetDataStoreStatus()
 				status.DataStoreStatus = &dataStoreStatusRep{
 					State:      "VALID",
@@ -141,6 +144,13 @@ func statusHandler(core *RelayCore) http.Handler {
 				}
 				if !storeStatus.Available {
 					status.DataStoreStatus.State = "INTERRUPTED"
+				}
+
+				if connected {
+					status.Status = statusEnvConnected
+				} else {
+					status.Status = statusEnvDisconnected
+					healthy = false
 				}
 			}
 
