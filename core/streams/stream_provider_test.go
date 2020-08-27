@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/eventsource"
-	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 )
 

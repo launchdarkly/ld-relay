@@ -14,7 +14,7 @@ import (
 
 	"github.com/gregjones/httpcache"
 
-	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
@@ -72,7 +72,7 @@ func NewRelayCore(
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
-	if err := config.ValidateConfig(&c); err != nil { // in case a not-yet-validated Config was passed to NewRelay
+	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
 		return nil, err
 	}
 

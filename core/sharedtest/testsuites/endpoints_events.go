@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	c "github.com/launchdarkly/ld-relay-config"
+	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"

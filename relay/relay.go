@@ -4,14 +4,14 @@ import (
 	"errors"
 	"net/http"
 
-	config "github.com/launchdarkly/ld-relay-config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/launchdarkly/ld-relay/v6/core"
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 )
 
@@ -30,12 +30,6 @@ type Relay struct {
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
 // Relay needs to create a Go SDK client instance.
 type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error)
-
-// MakeDefaultLoggers returns a Loggers instance configured with Relay's standard log format.
-// Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
-func MakeDefaultLoggers() ldlog.Loggers {
-	return logging.MakeDefaultLoggers()
-}
 
 // NewRelay creates a new Relay given a configuration and a method to create a client.
 //

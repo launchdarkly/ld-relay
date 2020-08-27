@@ -2,7 +2,7 @@ package entconfig
 
 import (
 	ct "github.com/launchdarkly/go-configtypes"
-	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 )
 
 // This file contains extended configuration for Relay Proxy Enterprise. It will be moved to a

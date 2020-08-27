@@ -15,7 +15,7 @@ import (
 
 	"github.com/pborman/uuid"
 
-	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 )
 
