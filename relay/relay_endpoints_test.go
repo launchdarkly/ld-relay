@@ -4,9 +4,8 @@ import (
 	"testing"
 
 	c "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay-core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay-core/sharedtest/testsuites"
-
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testsuites"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 

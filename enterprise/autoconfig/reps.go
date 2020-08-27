@@ -2,7 +2,6 @@ package autoconfig
 
 import (
 	config "github.com/launchdarkly/ld-relay-config"
-
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 

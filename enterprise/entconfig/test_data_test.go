@@ -3,9 +3,8 @@ package entconfig
 import (
 	"time"
 
-	config "github.com/launchdarkly/ld-relay-config"
-
 	ct "github.com/launchdarkly/go-configtypes"
+	config "github.com/launchdarkly/ld-relay-config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 

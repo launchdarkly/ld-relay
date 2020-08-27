@@ -9,12 +9,11 @@ import (
 	"sync"
 	"time"
 
-	config "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay-core/httpconfig"
-	"github.com/launchdarkly/ld-relay-core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
-
 	es "github.com/launchdarkly/eventsource"
+	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )

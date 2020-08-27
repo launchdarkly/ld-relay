@@ -4,15 +4,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	c "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 func TestNewRelayEnterpriseRejectsConfigWithNoEnvironmentsAndNoAutoConfigKey(t *testing.T) {

@@ -4,14 +4,13 @@ import (
 	"errors"
 	"net/http"
 
-	core "github.com/launchdarkly/ld-relay-core"
-	"github.com/launchdarkly/ld-relay-core/httpconfig"
-	"github.com/launchdarkly/ld-relay-core/relayenv"
-	"github.com/launchdarkly/ld-relay-core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/core"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/version"
-
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 

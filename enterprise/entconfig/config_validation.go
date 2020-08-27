@@ -3,9 +3,8 @@ package entconfig
 import (
 	"errors"
 
-	config "github.com/launchdarkly/ld-relay-config"
-
 	ct "github.com/launchdarkly/go-configtypes"
+	config "github.com/launchdarkly/ld-relay-config"
 )
 
 var (

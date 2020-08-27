@@ -4,10 +4,10 @@ import (
 	"io/ioutil"
 	"testing"
 
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v2"
 )
 
 func TestConfigFromFileWithValidProperties(t *testing.T) {
