@@ -4,15 +4,16 @@ import (
 	"testing"
 	"time"
 
-	config "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay-core/relayenv"
-
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 
 func TestMakeEnvironmentParams(t *testing.T) {

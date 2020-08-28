@@ -3,11 +3,10 @@ package entrelay
 import (
 	"strings"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	config "github.com/launchdarkly/ld-relay-config"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
-
-	ct "github.com/launchdarkly/go-configtypes"
 )
 
 const (

@@ -6,19 +6,18 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay-core/relayenv"
-	"github.com/launchdarkly/ld-relay-core/sharedtest"
-	"github.com/launchdarkly/ld-relay-core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	c "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // The tests in this file verify the auto-configuration behavior of RelayEnterprise, assuming that the

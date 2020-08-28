@@ -4,7 +4,7 @@ import (
 	"time"
 
 	config "github.com/launchdarkly/ld-relay-config"
-	"github.com/launchdarkly/ld-relay-core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 
 // MessageHandler defines the methods that StreamManager will call when it receives messages

@@ -3,9 +3,9 @@ package entconfig
 import (
 	"fmt"
 
-	config "github.com/launchdarkly/ld-relay-config"
-
 	"github.com/go-gcfg/gcfg"
+
+	config "github.com/launchdarkly/ld-relay-config"
 )
 
 // LoadConfigFile reads a configuration file into an EnterpriseConfig struct and performs basic validation.
