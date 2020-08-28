@@ -11,14 +11,15 @@ import (
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-
-	c "github.com/launchdarkly/ld-relay-config"
 	"github.com/launchdarkly/ld-relay/v6/core"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+
+	"github.com/launchdarkly/ld-relay/v6/core/config"
+	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testsuites"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
@@ -27,10 +28,10 @@ import (
 
 var testEnvBasic = st.TestEnv{
 	Name: "ignore this configured name",
-	Config: c.EnvConfig{
-		SDKKey:    c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52e9"),
-		MobileKey: c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ec"),
-		EnvID:     c.EnvironmentID("507f1f77bcf86cd79943902a"),
+	Config: config.EnvConfig{
+		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52e9"),
+		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ec"),
+		EnvID:     config.EnvironmentID("507f1f77bcf86cd79943902a"),
 	},
 	EnvKey:   "production",
 	EnvName:  "Production",
@@ -40,16 +41,16 @@ var testEnvBasic = st.TestEnv{
 
 var testEnvWithExpiringKey = st.TestEnv{
 	Name: "ignore this configured name",
-	Config: c.EnvConfig{
-		SDKKey:    c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52ea"),
-		MobileKey: c.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ed"),
-		EnvID:     c.EnvironmentID("507f1f77bcf86cd79943902b"),
+	Config: config.EnvConfig{
+		SDKKey:    config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-2e1e4d8e52ea"),
+		MobileKey: config.MobileKey("mob-98e2b0b4-2688-4a59-9810-1e0e3d7e42ed"),
+		EnvID:     config.EnvironmentID("507f1f77bcf86cd79943902b"),
 	},
 	EnvKey:             "production-with-expiring-key",
 	EnvName:            "Production with Expiring Key",
 	ProjKey:            "my-application",
 	ProjName:           "My Application",
-	ExpiringSDKKey:     c.SDKKey("sdk-98e2b0b4-2688-4a59-9810-000001111123"),
+	ExpiringSDKKey:     config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-000001111123"),
 	ExpiringSDKKeyTime: ldtime.UnixMillisecondTime(100000),
 }
 

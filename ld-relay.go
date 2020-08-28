@@ -5,8 +5,8 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	config "github.com/launchdarkly/ld-relay-config"
 	"github.com/launchdarkly/ld-relay/v6/core/application"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/relay"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
@@ -29,13 +29,13 @@ func main() {
 	)
 
 	if opts.ConfigFile != "" {
-		if err := config.LoadConfigFile(&c, opts.ConfigFile); err != nil {
+		if err := config.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
 			loggers.Errorf("Error loading config file: %s", err)
 			os.Exit(1)
 		}
 	}
 	if opts.UseEnvironment {
-		if err := config.LoadConfigFromEnvironment(&c); err != nil {
+		if err := config.LoadConfigFromEnvironment(&c, loggers); err != nil {
 			loggers.Errorf("Configuration error: %s", err)
 			os.Exit(1)
 		}

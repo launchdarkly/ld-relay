@@ -10,7 +10,7 @@ import (
 	"time"
 
 	es "github.com/launchdarkly/eventsource"
-	config "github.com/launchdarkly/ld-relay-config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"

@@ -49,11 +49,3 @@ To run integration tests, such as a test of Docker deployment:
 ```
 make integration-test
 ```
-
-### Building with unreleased dependencies
-
-LaunchDarkly uses private mirror repositories for this and other related projects. If it is necessary to temporarily redirect any dependency, such as `github.com/launchdarkly/ld-relay-config`, to the corresponding private repository during development, make sure that this environment variable is set for all local development so that builds can access non-public code:
-
-```
-GOPRIVATE="github.com/launchdarkly/*-private"
-```

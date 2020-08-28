@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 )
 
@@ -46,7 +48,7 @@ func testFileWithValidConfig(t *testing.T, buildConfig func(c *EnterpriseConfig)
 		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
 
 		var c EnterpriseConfig
-		err := LoadConfigFile(&c, filename)
+		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
 		assert.Equal(t, expectedConfig, c)
 	})
@@ -57,7 +59,7 @@ func testFileWithInvalidConfig(t *testing.T, fileContent string, errMessage stri
 		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
 
 		var c EnterpriseConfig
-		err := LoadConfigFile(&c, filename)
+		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), errMessage)
 	})
