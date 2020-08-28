@@ -1,7 +1,6 @@
 package core
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -186,21 +185,6 @@ func (r *RelayCore) AddEnvironment(
 		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
 
 		cachingTransport := httpcache.NewMemoryCacheTransport()
-		if envConfig.InsecureSkipVerify {
-			tlsConfig := &tls.Config{InsecureSkipVerify: envConfig.InsecureSkipVerify} // nolint:gas // allow this because the user has to explicitly enable it
-			defaultTransport := http.DefaultTransport.(*http.Transport)
-			transport := &http.Transport{ // we can't just copy defaultTransport all at once because it has a Mutex
-				Proxy:                 defaultTransport.Proxy,
-				DialContext:           defaultTransport.DialContext,
-				ForceAttemptHTTP2:     defaultTransport.ForceAttemptHTTP2,
-				MaxIdleConns:          defaultTransport.MaxIdleConns,
-				IdleConnTimeout:       defaultTransport.IdleConnTimeout,
-				TLSClientConfig:       tlsConfig,
-				TLSHandshakeTimeout:   defaultTransport.TLSHandshakeTimeout,
-				ExpectContinueTimeout: defaultTransport.ExpectContinueTimeout,
-			}
-			cachingTransport.Transport = transport
-		}
 		jsClientContext.Proxy = &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				url := req.URL

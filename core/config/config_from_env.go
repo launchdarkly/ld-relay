@@ -51,7 +51,6 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 		subReader := reader.WithVarNameSuffix(envName)
 		subReader.ReadStruct(&ec, false)
 		rejectObsoleteVariableName("LD_TTL_MINUTES_"+envName, "LD_TTL_"+envName, reader)
-		// Not supported: EnvConfig.InsecureSkipVerify (that flag should only be used for testing, never in production)
 		if c.Environment == nil {
 			c.Environment = make(map[string]*EnvConfig)
 		}
