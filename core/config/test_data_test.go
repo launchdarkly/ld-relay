@@ -88,6 +88,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			HeartbeatInterval:       ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime: ct.NewOptDuration(30 * time.Minute),
 			DisconnectedStatusTime:  ct.NewOptDuration(3 * time.Minute),
+			DisableUsageMetrics:     true,
 			TLSEnabled:              true,
 			TLSCert:                 "cert",
 			TLSKey:                  "key",
@@ -132,6 +133,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"HEARTBEAT_INTERVAL":         "90s",
 		"MAX_CLIENT_CONNECTION_TIME": "30m",
 		"DISCONNECTED_STATUS_TIME":   "3m",
+		"DISABLE_USAGE_METRICS":      "1",
 		"TLS_ENABLED":                "1",
 		"TLS_CERT":                   "cert",
 		"TLS_KEY":                    "key",
@@ -168,6 +170,7 @@ IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
 DisconnectedStatusTime = 3m
+DisableUsageMetrics = 1
 TLSEnabled = 1
 TLSCert = "cert"
 TLSKey = "key"

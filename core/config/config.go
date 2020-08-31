@@ -99,6 +99,7 @@ type MainConfig struct {
 	HeartbeatInterval       ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
 	DisconnectedStatusTime  ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
+	DisableUsageMetrics     bool                     `conf:"DISABLE_USAGE_METRICS"`
 	TLSEnabled              bool                     `conf:"TLS_ENABLED"`
 	TLSCert                 string                   `conf:"TLS_CERT"`
 	TLSKey                  string                   `conf:"TLS_KEY"`

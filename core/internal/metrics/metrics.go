@@ -119,8 +119,11 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 
 	ctx, _ := tag.New(m.openCensusCtx, tag.Insert(envNameTagKey, sanitizeTagValue(envName)))
 
-	eventsExporter := newopenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
-	view.RegisterExporter(eventsExporter)
+	var eventsExporter *openCensusEventsExporter
+	if publisher != nil {
+		eventsExporter = newOpenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
+		view.RegisterExporter(eventsExporter)
+	}
 
 	em := &EnvironmentManager{
 		openCensusCtx:  ctx,
@@ -153,10 +156,19 @@ func (em *EnvironmentManager) GetOpenCensusContext() context.Context {
 	return em.openCensusCtx
 }
 
+// FlushEventsExporter is used in testing to trigger the events exporter to post data to the event publisher.
+func (em *EnvironmentManager) FlushEventsExporter() {
+	if em.eventsExporter != nil {
+		em.eventsExporter.flush()
+	}
+}
+
 func (em *EnvironmentManager) close() {
 	em.closeOnce.Do(func() {
-		view.UnregisterExporter(em.eventsExporter)
-		em.eventsExporter.close()
+		if em.eventsExporter != nil {
+			view.UnregisterExporter(em.eventsExporter)
+			em.eventsExporter.close()
+		}
 	})
 }
 

@@ -103,7 +103,8 @@ func NewEnvContext(
 	defer thingsToCleanUp.Run()
 
 	envLoggers := loggers
-	envLoggers.SetPrefix(makeLogPrefix(logNameMode, envConfig.SDKKey, envConfig.EnvID))
+	logPrefix := makeLogPrefix(logNameMode, envConfig.SDKKey, envConfig.EnvID)
+	envLoggers.SetPrefix(logPrefix)
 	envLoggers.SetMinLevel(
 		envConfig.LogLevel.GetOrElse(
 			allConfig.Main.LogLevel.GetOrElse(ldlog.Info),
@@ -169,6 +170,8 @@ func NewEnvContext(
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
 		envLoggers.Info("Proxying events for this environment")
+		eventLoggers := envLoggers
+		eventLoggers.SetPrefix(logPrefix + " (event proxy)")
 		eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
 			envLoggers, allConfig.Events, httpConfig, storeAdapter)
 	}
@@ -185,15 +188,19 @@ func NewEnvContext(
 
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
-		eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLoggers,
-			events.OptionURI(eventsURI))
-		if err != nil {
-			return nil, errInitPublisher(err)
+		if !allConfig.Main.DisableUsageMetrics {
+			pubLoggers := envLoggers
+			pubLoggers.SetPrefix(logPrefix + " (usage metrics)")
+			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, pubLoggers,
+				events.OptionURI(eventsURI))
+			if err != nil {
+				return nil, errInitPublisher(err)
+			}
+			thingsToCleanUp.AddFunc(eventsPublisher.Close)
+			envContext.metricsEventPub = eventsPublisher
 		}
-		thingsToCleanUp.AddFunc(eventsPublisher.Close)
-		envContext.metricsEventPub = eventsPublisher
 
-		em, err = metricsManager.AddEnvironment(identifiers.GetDisplayName(), eventsPublisher)
+		em, err = metricsManager.AddEnvironment(identifiers.GetDisplayName(), envContext.metricsEventPub)
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}
@@ -204,10 +211,11 @@ func NewEnvContext(
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
 	envContext.sdkConfig = ld.Config{
-		DataSource: ldcomponents.StreamingDataSource().BaseURI(streamURI),
-		DataStore:  storeAdapter,
-		Events:     ldcomponents.SendEvents().BaseURI(eventsURI),
-		HTTP:       httpConfig.SDKHTTPConfigFactory,
+		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
+		DataStore:        storeAdapter,
+		DiagnosticOptOut: allConfig.Main.DisableUsageMetrics,
+		Events:           ldcomponents.SendEvents().BaseURI(eventsURI),
+		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
