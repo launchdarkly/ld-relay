@@ -372,7 +372,7 @@ func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableUsageMetrics = true
+		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
