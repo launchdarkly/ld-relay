@@ -1,4 +1,4 @@
-package entrelay
+package relay
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
@@ -57,15 +57,15 @@ var autoConfigTestEnvs = map[c.EnvironmentID]st.TestEnv{
 	testEnvWithExpiringKey.Config.EnvID: testEnvWithExpiringKey,
 }
 
-// Unlike endpoints_generic_test.go, which runs with a local configuration like the regular Relay tests,
-// here we are testing endpoint responses for a Relay Proxy Enterprise instance that is auto-configured.
-// We don't run the full core test suite this way, since most things behave the same with or without
-// auto-config once the environment list has been obtained; we just want to make sure it starts up
-// correctly in general and test for any specific responses that should be different.
+// Unlike relay_endpoints_test.go, which runs with a local configuration, here we are testing
+// endpoint responses for a Relay instance that is auto-configured. We don't run the full core
+// test suite this way, since most things behave the same with or without auto-config once the
+// environment list has been obtained; we just want to make sure it starts up correctly in
+// general and test for any specific responses that should be different.
 
 func relayForEndpointTestsWithAutoConfig(config c.Config) testsuites.TestParams {
 	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
-	autoConfigHandler, _ := httphelpers.SSEHandler(&autoConfigEvent)
+	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
 	server := httptest.NewServer(autoConfigHandler)
 
 	entConfig := config
@@ -73,7 +73,7 @@ func relayForEndpointTestsWithAutoConfig(config c.Config) testsuites.TestParams 
 	entConfig.Environment = nil
 	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-	r, err := NewRelayEnterprise(entConfig, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
+	r, err := newRelayInternal(entConfig, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
 	if err != nil {
 		panic(err)
 	}
@@ -81,9 +81,10 @@ func relayForEndpointTestsWithAutoConfig(config c.Config) testsuites.TestParams 
 
 	return testsuites.TestParams{
 		Core:    r.core,
-		Handler: r.handler,
+		Handler: r.Handler,
 		Closer: func() {
 			r.Close()
+			autoConfigStream.Close()
 			server.Close()
 		},
 	}
@@ -125,7 +126,7 @@ func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{Event: autoconfig.PutEvent, Data: string(jsonData)}
 }
 
-func waitForAutoConfigInit(r *RelayEnterprise, configWithEnvs c.Config) {
+func waitForAutoConfigInit(r *Relay, configWithEnvs c.Config) {
 	// Auto-config initialization is done in the background, so we need to wait until it has happened before
 	// we run the tests
 	expectedEnvCount := 0

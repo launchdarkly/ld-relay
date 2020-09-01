@@ -1,12 +1,15 @@
 // Package core contains Relay Proxy core implementation components and internal APIs.
 //
-// The basic Relay Proxy distribution and Relay Proxy Enterprise share much of the same behavior.
-// As much as possible, that behavior is implemented in the core package and its subpackages.
-// Symbols are exported from core only if they will need to be directly accessed by the other
-// Relay projects in order for them to customize the core behavior; otherwise, they should be
-// either unexported or in core's internal packages.
+// The principle behind the organization of this code is as follows:
 //
-// Third-party application code should never reference exported symbols from this package or its
-// subpackages directly. Such use is unsupported, and the behavior of the core code is subject to
-// change.
+// 1. Anything that needs to be referenced from the top-level Relay application code should be in
+// internal/core or one of its subpackages - unless it is entirely related to an "enterprise"
+// feature (such as autoconfig), in which case it can be in internal/ but outside of core.
+//
+// 2. Anything that needs to be referenced only from within the core code, and not from any higher
+// level, should be in a subpackage of internal/core/internal so that it cannot be imported from
+// anywhere outside of the internal/core subtree.
+//
+// This is meant to encourage as much encapsulation as possible, and also to facilitate separating
+// out the "enterprise" code from the rest of the Relay distribution if that ever becomes desirable.
 package core
