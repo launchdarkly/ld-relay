@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 
 	"github.com/launchdarkly/eventsource"

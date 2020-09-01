@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 
 	"github.com/gorilla/mux"
 )

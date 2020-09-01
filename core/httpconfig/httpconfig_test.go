@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 
 	"github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v2"

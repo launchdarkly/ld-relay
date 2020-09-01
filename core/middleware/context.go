@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 )
 

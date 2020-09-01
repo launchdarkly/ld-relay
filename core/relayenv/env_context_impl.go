@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"

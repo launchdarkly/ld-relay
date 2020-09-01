@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
