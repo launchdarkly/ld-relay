@@ -3,11 +3,9 @@ package entrelay
 import (
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
-
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testsuites"
+	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testsuites"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -15,7 +13,7 @@ import (
 // Enterprise does not have any additional endpoints.
 
 func relayForEndpointTests(config c.Config) testsuites.TestParams {
-	entConfig := entconfig.EnterpriseConfig{Config: config}
+	entConfig := config
 	r, err := NewRelayEnterprise(entConfig, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
 	if err != nil {
 		panic(err)

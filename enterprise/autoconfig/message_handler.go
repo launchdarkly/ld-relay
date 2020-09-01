@@ -3,8 +3,8 @@ package autoconfig
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 )
 
 // MessageHandler defines the methods that StreamManager will call when it receives messages

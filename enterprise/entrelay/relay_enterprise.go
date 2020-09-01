@@ -4,13 +4,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/core"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/version"
+	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -21,14 +21,14 @@ var (
 // RelayEnterprise is the main object for Relay Proxy Enterprise. Most of its functionality comes from RelayCore.
 type RelayEnterprise struct {
 	core             *core.RelayCore
-	config           entconfig.EnterpriseConfig
+	config           config.Config
 	handler          http.Handler
 	autoConfigStream *autoconfig.StreamManager
 }
 
 // NewRelayEnterprise creates a new RelayEnterprise instance.
 func NewRelayEnterprise(
-	c entconfig.EnterpriseConfig,
+	c config.Config,
 	loggers ldlog.Loggers,
 	clientFactory sdks.ClientFactoryFunc,
 ) (*RelayEnterprise, error) {
@@ -46,7 +46,7 @@ func NewRelayEnterprise(
 	}
 
 	core, err := core.NewRelayCore(
-		c.Config,
+		c,
 		loggers,
 		clientFactory,
 		version.Version,

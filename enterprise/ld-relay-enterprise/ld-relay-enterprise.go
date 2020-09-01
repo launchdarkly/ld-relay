@@ -5,16 +5,15 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	"github.com/launchdarkly/ld-relay/v6/core/application"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/entrelay"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/version"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/application"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 )
 
 func main() {
-	var c entconfig.EnterpriseConfig
+	var c config.Config
 	loggers := logging.MakeDefaultLoggers()
 
 	opts, err := application.ReadOptions(os.Args, os.Stderr)
@@ -30,13 +29,13 @@ func main() {
 	)
 
 	if opts.ConfigFile != "" {
-		if err := entconfig.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
+		if err := config.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
 			loggers.Errorf("Error loading config file: %s", err)
 			os.Exit(1)
 		}
 	}
 	if opts.UseEnvironment {
-		if err := entconfig.LoadConfigFromEnvironment(&c, loggers); err != nil {
+		if err := config.LoadConfigFromEnvironment(&c, loggers); err != nil {
 			loggers.Errorf("Configuration error: %s", err)
 			os.Exit(1)
 		}

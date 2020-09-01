@@ -5,9 +5,9 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	"github.com/launchdarkly/ld-relay/v6/core/application"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/application"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/relay"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 )

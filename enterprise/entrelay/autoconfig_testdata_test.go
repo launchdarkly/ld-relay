@@ -9,17 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
-const testAutoConfKey = entconfig.AutoConfigKey("test-auto-conf-key")
+const testAutoConfKey = c.AutoConfigKey("test-auto-conf-key")
 
-var testAutoConfDefaultConfig = entconfig.EnterpriseConfig{
-	AutoConfig: entconfig.AutoConfigConfig{Key: testAutoConfKey},
+var testAutoConfDefaultConfig = c.Config{
+	AutoConfig: c.AutoConfigConfig{Key: testAutoConfKey},
 }
 
 type testAutoConfEnv struct {
@@ -81,7 +79,7 @@ func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
 
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[config.EnvironmentID]autoconfig.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]autoconfig.EnvironmentRep)}}
 	for _, e := range envs {
 		data.Data.Environments[e.id] = e.toEnvironmentRep()
 	}

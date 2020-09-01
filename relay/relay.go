@@ -6,10 +6,10 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"github.com/launchdarkly/ld-relay/v6/core"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"

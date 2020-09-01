@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 )
 
 func TestMakeEnvironmentParams(t *testing.T) {
