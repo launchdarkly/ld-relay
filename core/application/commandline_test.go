@@ -4,10 +4,10 @@ import (
 	"io/ioutil"
 	"testing"
 
+	helpers "github.com/launchdarkly/go-test-helpers/v2"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
 )
 
 func TestReadOptions(t *testing.T) {
@@ -58,4 +58,9 @@ func TestReadOptions(t *testing.T) {
 		_, err := ReadOptions([]string{appName, "--unknown"}, ioutil.Discard)
 		assert.Error(t, err)
 	})
+}
+
+func TestDescribeRelayVersion(t *testing.T) {
+	assert.Equal(t, "1.2.3", DescribeRelayVersion("1.2.3"))
+	assert.Equal(t, "1.2.3 (build 999)", DescribeRelayVersion("1.2.3+999"))
 }

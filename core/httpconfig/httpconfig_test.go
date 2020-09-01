@@ -1,13 +1,22 @@
 package httpconfig
 
 import (
+	"crypto/x509"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
+
+	"github.com/launchdarkly/go-configtypes"
+	helpers "github.com/launchdarkly/go-test-helpers/v2"
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 func TestUserAgentHeader(t *testing.T) {
@@ -32,4 +41,99 @@ func TestAuthorizationHeader(t *testing.T) {
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.GetDefaultHeaders()
 	assert.Equal(t, "key", headers.Get("Authorization"))
+}
+
+func TestSimpleProxy(t *testing.T) {
+	fakeURL := "http://fake-url/"
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(http.StatusOK))
+	mockLog := ldlogtest.NewMockLog()
+
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		proxyConfig := config.ProxyConfig{}
+		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+
+		mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
+
+		client := hc.Client()
+		resp, err := client.Get(fakeURL)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		req := <-requestsCh
+		assert.Equal(t, fakeURL, req.Request.URL.String())
+	})
+}
+
+func TestSimpleProxyWithCACert(t *testing.T) {
+	fakeURL := "http://fake-url/"
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(http.StatusOK))
+	mockLog := ldlogtest.NewMockLog()
+
+	httphelpers.WithSelfSignedServer(handler, func(server *httptest.Server, certData []byte, certPool *x509.CertPool) {
+		helpers.WithTempFile(func(certFilePath string) {
+			require.NoError(t, ioutil.WriteFile(certFilePath, certData, 0))
+			proxyConfig := config.ProxyConfig{}
+			proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+			proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
+			hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+
+			mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
+
+			client := hc.Client()
+			resp, err := client.Get(fakeURL)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			req := <-requestsCh
+			assert.Equal(t, fakeURL, req.Request.URL.String())
+		})
+	})
+}
+
+func TestSimpleProxyCACertError(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+
+	helpers.WithTempFile(func(certFilePath string) {
+		proxyConfig := config.ProxyConfig{}
+		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
+		proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
+		_, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "invalid CA certificate data")
+		}
+	})
+}
+
+func TestNTLMProxyInvalidConfigs(t *testing.T) {
+	// The actual functioning of the NTLM proxy transport is tested in the SDK package where it is defined,
+	// so here we're only testing that we validate the parameters correctly.
+
+	proxyConfig1 := config.ProxyConfig{NTLMAuth: true}
+	_, err := NewHTTPConfig(proxyConfig1, nil, "", ldlog.NewDisabledLoggers())
+	assert.Equal(t, errProxyAuthWithoutProxyURL, err)
+
+	proxyConfig2 := proxyConfig1
+	proxyConfig2.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
+	_, err = NewHTTPConfig(proxyConfig2, nil, "", ldlog.NewDisabledLoggers())
+	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
+
+	proxyConfig3 := proxyConfig2
+	proxyConfig3.User = "user"
+	_, err = NewHTTPConfig(proxyConfig3, nil, "", ldlog.NewDisabledLoggers())
+	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
+
+	proxyConfig4 := proxyConfig3
+	proxyConfig4.Password = "pass"
+	_, err = NewHTTPConfig(proxyConfig4, nil, "", ldlog.NewDisabledLoggers())
+	assert.NoError(t, err)
+
+	proxyConfig5 := proxyConfig4
+	helpers.WithTempFile(func(certFileName string) {
+		proxyConfig5.CACertFiles = configtypes.NewOptStringList([]string{certFileName})
+		_, err = NewHTTPConfig(proxyConfig5, nil, "", ldlog.NewDisabledLoggers())
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "invalid CA certificate data")
+		}
+	})
 }

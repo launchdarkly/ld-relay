@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func makeBasicCore(config c.Config) (*RelayCore, error) {
@@ -108,6 +108,20 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	}
 }
 
+func TestRelayCoreAddEnvironmentAfterClosed(t *testing.T) {
+	config := c.Config{
+		Environment: st.MakeEnvConfigs(st.EnvMain),
+	}
+	core, err := makeBasicCore(config)
+	require.NoError(t, err)
+	core.Close()
+
+	env, resultCh, err := core.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config)
+	assert.Error(t, err)
+	assert.Nil(t, env)
+	assert.Nil(t, resultCh)
+}
+
 func TestRelayCoreRemoveEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
@@ -137,6 +151,45 @@ func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
 	env := testenv.NewTestEnvContext("unknown", true, st.NewInMemoryStore())
 
 	assert.False(t, core.RemoveEnvironment(env))
+}
+
+func TestRelayCoreAddedEnvironmentCredential(t *testing.T) {
+	config := c.Config{
+		Environment: st.MakeEnvConfigs(st.EnvMain),
+	}
+	core, err := makeBasicCore(config)
+	require.NoError(t, err)
+	defer core.Close()
+
+	env := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
+
+	extraKey := c.SDKKey(string(st.EnvMain.Config.SDKKey) + "-extra")
+	assert.Nil(t, core.GetEnvironment(extraKey))
+
+	core.AddedEnvironmentCredential(env, extraKey)
+
+	assert.Equal(t, env, core.GetEnvironment(extraKey))
+}
+
+func TestRelayCoreRemovingEnvironmentCredential(t *testing.T) {
+	config := c.Config{
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
+	}
+	core, err := makeBasicCore(config)
+	require.NoError(t, err)
+	defer core.Close()
+
+	core.RemovingEnvironmentCredential(st.EnvMain.Config.SDKKey)
+
+	assert.Nil(t, core.GetEnvironment(st.EnvMain.Config.SDKKey))
+
+	env := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
+
+	assert.Len(t, core.GetAllEnvironments(), 2) // EnvMain is not removed from this list
 }
 
 func TestRelayCoreWaitForAllEnvironments(t *testing.T) {

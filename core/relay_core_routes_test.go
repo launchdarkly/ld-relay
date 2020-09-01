@@ -4,13 +4,14 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequestLogging(t *testing.T) {

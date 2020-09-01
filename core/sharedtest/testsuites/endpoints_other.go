@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gorilla/mux"
-	"github.com/stretchr/testify/assert"
-
-	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
+	ct "github.com/launchdarkly/go-configtypes"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 )
 
 func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {

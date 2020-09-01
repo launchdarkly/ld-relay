@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
-
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
@@ -21,6 +19,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
@@ -29,6 +28,8 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+
+	"github.com/gorilla/mux"
 )
 
 type evalXResult struct {
@@ -60,7 +61,7 @@ func getClientSideUserProperties(
 		userDecodeErr = json.Unmarshal(body, &user)
 	} else {
 		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = middleware.UserV2FromBase64(base64User)
+		user, userDecodeErr = middleware.UserFromBase64(base64User)
 	}
 	if userDecodeErr != nil {
 		w.Header().Set("Content-Type", "application/json")

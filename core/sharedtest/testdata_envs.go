@@ -3,10 +3,10 @@ package sharedtest
 import (
 	"time"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
 type TestEnv struct {

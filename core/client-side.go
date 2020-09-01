@@ -22,7 +22,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	handler := clientCtx.Env.GetEventDispatcher().GetHandler(events.JavaScriptSDKEventsEndpoint)
-	if handler == nil {
+	if handler == nil { // COVERAGE: abnormal condition that can't be caused in unit tests
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write(util.ErrorJSONMsg("Event proxy for browser clients is not enabled for this environment"))
 		return

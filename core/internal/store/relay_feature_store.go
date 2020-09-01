@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"

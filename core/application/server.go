@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
@@ -18,7 +19,7 @@ func StartHTTPServer(
 	tlsCertFile, tlsKeyFile string,
 	tlsMinVersion uint16,
 	loggers ldlog.Loggers,
-) <-chan error {
+) (*http.Server, <-chan error) {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: handler,
@@ -50,5 +51,5 @@ func StartHTTPServer(
 		}
 	}()
 
-	return errCh
+	return srv, errCh
 }

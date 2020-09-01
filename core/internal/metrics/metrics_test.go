@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 )
 
 type args struct {

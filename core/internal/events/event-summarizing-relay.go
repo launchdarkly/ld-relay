@@ -8,6 +8,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
+
+	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -16,10 +20,6 @@ import (
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
-
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
 )
 
 var (

@@ -6,23 +6,20 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-
-	relaystore "github.com/launchdarkly/ld-relay/v6/core/internal/store"
 )
 
-func makeStoreAdapterWithExistingStore(store interfaces.DataStore) *store.SSERelayDataStoreAdapter {
-	a := relaystore.NewSSERelayDataStoreAdapter(sharedtest.ExistingDataStoreFactory{Instance: store}, nil)
+func makeStoreAdapterWithExistingStore(s interfaces.DataStore) *store.SSERelayDataStoreAdapter {
+	a := store.NewSSERelayDataStoreAdapter(sharedtest.ExistingDataStoreFactory{Instance: s}, nil)
 	_, _ = a.CreateDataStore(sharedtest.SDKContextImpl{}, nil) // ensure the wrapped store has been created
 	return a
 }

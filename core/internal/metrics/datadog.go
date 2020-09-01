@@ -1,12 +1,12 @@
 package metrics
 
 import (
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	datadog "github.com/DataDog/opencensus-go-exporter-datadog"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
-
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 var datadogExporterType exporterType = datadogExporterTypeImpl{} //nolint:gochecknoglobals

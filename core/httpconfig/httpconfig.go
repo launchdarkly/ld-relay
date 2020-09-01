@@ -5,7 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"

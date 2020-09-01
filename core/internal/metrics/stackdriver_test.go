@@ -5,12 +5,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (

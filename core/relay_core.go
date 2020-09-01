@@ -11,15 +11,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gregjones/httpcache"
-
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/gregjones/httpcache"
 )
 
 var (
@@ -120,10 +121,6 @@ func NewRelayCore(
 	}
 
 	for envName, envConfig := range c.Environment {
-		if envConfig == nil {
-			loggers.Warnf("environment config was nil for environment %q; ignoring", envName)
-			continue
-		}
 		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig)
 		if err != nil {
 			return nil, err

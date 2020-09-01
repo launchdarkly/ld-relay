@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const testSDKKey = config.SDKKey("my-key")

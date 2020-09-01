@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 )
 
 const (

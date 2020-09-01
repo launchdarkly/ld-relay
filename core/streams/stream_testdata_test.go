@@ -3,9 +3,10 @@ package streams
 import (
 	"errors"
 
-	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	config "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
+	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"

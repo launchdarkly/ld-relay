@@ -12,6 +12,9 @@ LINTER=./bin/golangci-lint
 
 TEST_COVERAGE_REPORT_FILE ?= coverage.txt
 
+build:
+	go build ./...
+
 test:
 	go test -race -v ./...
 
@@ -48,4 +51,4 @@ test-centos test-debian test-docker test-docker-standalone: release
 
 integration-test: test-centos test-debian test-docker test-docker-standalone
 
-.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-standalone
+.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone

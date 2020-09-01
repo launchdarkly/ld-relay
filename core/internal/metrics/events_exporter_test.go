@@ -5,18 +5,17 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 
-	"go.opencensus.io/stats"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
-	"go.opencensus.io/trace"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
+	"go.opencensus.io/trace"
 )
 
 const testReportingPeriod = time.Millisecond
