@@ -90,20 +90,21 @@ type Config struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type MainConfig struct {
-	ExitOnError             bool                     `conf:"EXIT_ON_ERROR"`
-	ExitAlways              bool                     `conf:"EXIT_ALWAYS"`
-	IgnoreConnectionErrors  bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
-	StreamURI               ct.OptURLAbsolute        `conf:"STREAM_URI"`
-	BaseURI                 ct.OptURLAbsolute        `conf:"BASE_URI"`
-	Port                    ct.OptIntGreaterThanZero `conf:"PORT"`
-	HeartbeatInterval       ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
-	MaxClientConnectionTime ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
-	DisconnectedStatusTime  ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
-	TLSEnabled              bool                     `conf:"TLS_ENABLED"`
-	TLSCert                 string                   `conf:"TLS_CERT"`
-	TLSKey                  string                   `conf:"TLS_KEY"`
-	TLSMinVersion           OptTLSVersion            `conf:"TLS_MIN_VERSION"`
-	LogLevel                OptLogLevel              `conf:"LOG_LEVEL"`
+	ExitOnError                 bool                     `conf:"EXIT_ON_ERROR"`
+	ExitAlways                  bool                     `conf:"EXIT_ALWAYS"`
+	IgnoreConnectionErrors      bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
+	StreamURI                   ct.OptURLAbsolute        `conf:"STREAM_URI"`
+	BaseURI                     ct.OptURLAbsolute        `conf:"BASE_URI"`
+	Port                        ct.OptIntGreaterThanZero `conf:"PORT"`
+	HeartbeatInterval           ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
+	MaxClientConnectionTime     ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	DisconnectedStatusTime      ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
+	DisableInternalUsageMetrics bool                     `conf:"DISABLE_INTERNAL_USAGE_METRICS"`
+	TLSEnabled                  bool                     `conf:"TLS_ENABLED"`
+	TLSCert                     string                   `conf:"TLS_CERT"`
+	TLSKey                      string                   `conf:"TLS_KEY"`
+	TLSMinVersion               OptTLSVersion            `conf:"TLS_MIN_VERSION"`
+	LogLevel                    OptLogLevel              `conf:"LOG_LEVEL"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.

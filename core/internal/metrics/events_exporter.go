@@ -6,6 +6,8 @@ import (
 
 	"go.opencensus.io/stats/view"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 )
 
@@ -26,8 +28,8 @@ const relayMetricsKind = "relayMetrics"
 type relayMetricsEvent struct {
 	Kind           string                     `json:"kind"`
 	RelayID        string                     `json:"relayId"`
-	StartDate      int64                      `json:"startDate"`
-	EndDate        int64                      `json:"endDate"`
+	StartDate      ldtime.UnixMillisecondTime `json:"startDate"`
+	EndDate        ldtime.UnixMillisecondTime `json:"endDate"`
 	Connections    []currentConnectionsMetric `json:"connections,omitempty"`
 	NewConnections []newConnectionsMetric     `json:"newConnections,omitempty"`
 }
@@ -37,6 +39,8 @@ type connectionsKeyType struct {
 	platformCategory string
 }
 
+// The openCensusEventsExporter is used for publishing connection statistics to the LaunchDarkly events service.
+// It can be disabled by setting DisableInternalUsageMetrics in the configuration.
 type openCensusEventsExporter struct {
 	relayID            string
 	publisher          events.EventPublisher
@@ -47,7 +51,7 @@ type openCensusEventsExporter struct {
 	closer             chan<- struct{}
 }
 
-func newopenCensusEventsExporter(relayID string, publisher events.EventPublisher, flushInterval time.Duration) *openCensusEventsExporter {
+func newOpenCensusEventsExporter(relayID string, publisher events.EventPublisher, flushInterval time.Duration) *openCensusEventsExporter {
 	closer := make(chan struct{})
 
 	e := &openCensusEventsExporter{
@@ -143,8 +147,8 @@ func (e *openCensusEventsExporter) flush() {
 	event := relayMetricsEvent{
 		Kind:      relayMetricsKind,
 		RelayID:   e.relayID,
-		StartDate: unixMillis(startTime),
-		EndDate:   unixMillis(stopTime),
+		StartDate: ldtime.UnixMillisFromTime(startTime),
+		EndDate:   ldtime.UnixMillisFromTime(stopTime),
 	}
 	for k, v := range e.currentConnections {
 		event.Connections = append(event.Connections, currentConnectionsMetric{
@@ -167,8 +171,4 @@ func (e *openCensusEventsExporter) flush() {
 
 func (e *openCensusEventsExporter) close() {
 	close(e.closer)
-}
-
-func unixMillis(t time.Time) int64 {
-	return t.UnixNano() / int64(time.Millisecond)
 }

@@ -276,17 +276,19 @@ func newReconfigurableEventSender(
 }
 
 func (r *reconfigurableEventSender) replaceCredential(newCredential c.SDKCredential) {
-	if key, ok := newCredential.(c.SDKKey); ok {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		headers := make(http.Header)
-		for k, v := range r.headers {
-			headers[k] = v
-		}
-		headers.Set("Authorization", string(key))
-		r.headers = headers
-		r.eventSender = ldevents.NewDefaultEventSender(r.httpClient, r.eventsURI, "", r.headers, r.loggers)
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	headers := make(http.Header)
+	for k, v := range r.headers {
+		headers[k] = v
 	}
+	if newCredential.GetAuthorizationHeaderValue() == "" {
+		headers.Del("Authorization")
+	} else {
+		headers.Set("Authorization", newCredential.GetAuthorizationHeaderValue())
+	}
+	r.headers = headers
+	r.eventSender = ldevents.NewDefaultEventSender(r.httpClient, r.eventsURI, "", r.headers, r.loggers)
 }
 
 func (r *reconfigurableEventSender) SendEventData(kind ldevents.EventDataKind, data []byte, count int) ldevents.EventSenderResult {

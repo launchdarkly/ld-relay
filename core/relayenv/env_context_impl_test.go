@@ -3,24 +3,31 @@ package relayenv
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/trace"
 
-	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/core/streams"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
-
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/core/streams"
+
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const envName = "envname"
@@ -297,4 +304,116 @@ func TestDisplayName(t *testing.T) {
 
 	ei2 := EnvIdentifiers{ProjName: "a", EnvName: "b"}
 	assert.Equal(t, "a b", ei2.GetDisplayName())
+}
+
+func TestMetricsAreExportedForEnvironment(t *testing.T) {
+	// We already have tests for openCensusEventsExporter in the metrics package, but this test verifies that
+	// exporting is configured automatically for every environment that we add (if not disabled).
+	view.SetReportingPeriod(time.Millisecond * 10)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	fakeUserAgent := "fake-user-agent"
+
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		require.NoError(t, err)
+		env, err := NewEnvContext(
+			EnvIdentifiers{ConfiguredName: envName},
+			st.EnvMain.Config,
+			allConfig,
+			testclient.FakeLDClientFactory(true),
+			ldcomponents.InMemoryDataStore(),
+			[]streams.StreamProvider{},
+			JSClientContext{},
+			metricsManager,
+			fakeUserAgent,
+			LogNameIsSDKKey,
+			mockLog.Loggers,
+			nil,
+		)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+			require.Eventually(t, func() bool {
+				flushMetricsEvents(envImpl)
+				select {
+				case req := <-requestsCh:
+					mockLog.Loggers.Infof("received metrics events: %s", req.Body)
+					data := ldvalue.Parse(req.Body)
+					event := data.GetByIndex(0)
+					if !event.IsNull() {
+						conns := event.GetByKey("connections")
+						return event.GetByKey("kind").StringValue() == "relayMetrics" &&
+							conns.Count() == 1 &&
+							conns.GetByIndex(0).GetByKey("userAgent").StringValue() == fakeUserAgent &&
+							conns.GetByIndex(0).GetByKey("current").IntValue() == 1
+					}
+				default:
+					break
+				}
+				return false
+			}, time.Second, time.Millisecond*10, "timed out waiting for metrics event with counter")
+		}, metrics.BrowserConns)
+	})
+}
+
+func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
+	view.SetReportingPeriod(time.Millisecond * 10)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	fakeUserAgent := "fake-user-agent"
+
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Main.DisableInternalUsageMetrics = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		require.NoError(t, err)
+		env, err := NewEnvContext(
+			EnvIdentifiers{ConfiguredName: envName},
+			st.EnvMain.Config,
+			allConfig,
+			testclient.FakeLDClientFactory(true),
+			ldcomponents.InMemoryDataStore(),
+			[]streams.StreamProvider{},
+			JSClientContext{},
+			metricsManager,
+			fakeUserAgent,
+			LogNameIsSDKKey,
+			mockLog.Loggers,
+			nil,
+		)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+			require.Never(t, func() bool {
+				flushMetricsEvents(envImpl)
+				select {
+				case <-requestsCh:
+					return true
+				default:
+					break
+				}
+				return false
+			}, time.Millisecond*100, time.Millisecond*10, "received unexpected metrics event")
+		}, metrics.BrowserConns)
+	})
+}
+
+// This method forces the metrics events exporter to post an event to the event publisher, and then triggers a
+// flush of the event publisher. Because both of those actions are asynchronous, it may be necessary to call it
+// more than once to ensure that the newly posted event is included in the flush.
+func flushMetricsEvents(c *envContextImpl) {
+	if c.metricsEventPub != nil {
+		c.metricsEnv.FlushEventsExporter()
+		c.metricsEventPub.Flush()
+	}
 }

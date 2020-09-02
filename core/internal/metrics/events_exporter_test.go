@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
@@ -24,10 +26,10 @@ func init() {
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 }
 
-func TestopenCensusEventsExporter(t *testing.T) {
+func TestOpenCensusEventsExporter(t *testing.T) {
 	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *openCensusEventsExporter)) {
 		relayId := uuid.New()
-		exporter := newopenCensusEventsExporter(relayId, publisher, time.Millisecond)
+		exporter := newOpenCensusEventsExporter(relayId, publisher, time.Millisecond)
 		view.RegisterExporter(exporter)
 		defer func() {
 			view.UnregisterExporter(exporter)
@@ -52,7 +54,7 @@ func TestopenCensusEventsExporter(t *testing.T) {
 
 	t.Run("exporter generates events", func(*testing.T) {
 		publisher := newTestEventsPublisher()
-		start := nowInUnixMillis()
+		start := ldtime.UnixMillisNow()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
 			stats.Record(ctx, privateConnMeasure.M(1))
 			var event interface{}
@@ -65,9 +67,9 @@ func TestopenCensusEventsExporter(t *testing.T) {
 			require.IsType(t, relayMetricsEvent{}, event)
 			metricsEvent := event.(relayMetricsEvent)
 			require.Equal(t, relayMetricsKind, metricsEvent.Kind)
-			assert.True(t, metricsEvent.StartDate >= start/int64(time.Millisecond))
+			assert.True(t, metricsEvent.StartDate >= start)
 			assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
-			assert.True(t, metricsEvent.EndDate <= nowInUnixMillis())
+			assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
 			expectedRelayId, _ := tag.FromContext(ctx).Value(relayIDTagKey)
 			assert.Equal(t, expectedRelayId, metricsEvent.RelayID)
 			if !assert.ElementsMatch(t, []currentConnectionsMetric{{
@@ -96,7 +98,7 @@ func TestopenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter) {
 			time.Sleep(time.Millisecond * 10)
-			startTime := nowInUnixMillis()
+			startTime := ldtime.UnixMillisNow()
 			// Wait an extra moment to let any export operation that has already started complete
 			time.Sleep(time.Millisecond * 1)
 			stats.Record(ctx, privateConnMeasure.M(1))
@@ -133,8 +135,4 @@ func TestopenCensusEventsExporter(t *testing.T) {
 			}
 		})
 	})
-}
-
-func nowInUnixMillis() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
 }
