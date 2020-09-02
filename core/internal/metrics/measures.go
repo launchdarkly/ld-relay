@@ -3,11 +3,11 @@ package metrics
 import (
 	"context"
 
+	"github.com/launchdarkly/ld-relay/v6/core/logging"
+
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
-
-	"github.com/launchdarkly/ld-relay/v6/core/logging"
 )
 
 var (

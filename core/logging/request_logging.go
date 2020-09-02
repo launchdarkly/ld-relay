@@ -86,17 +86,10 @@ func (w *loggingHTTPResponseWriter) logRequest() {
 }
 
 // In order to substitute loggingHTTPResponseWriter for the default http.ResponseWriter,
-// it has to also implement http.Flusher and http.CloseNotifier
+// it has to also implement http.Flusher
 
 func (w *loggingHTTPResponseWriter) Flush() {
 	if f, ok := w.writer.(http.Flusher); ok {
 		f.Flush()
 	}
-}
-
-func (w *loggingHTTPResponseWriter) CloseNotify() <-chan bool {
-	if c, ok := w.writer.(http.CloseNotifier); ok { //nolint
-		return c.CloseNotify()
-	}
-	return make(chan bool)
 }

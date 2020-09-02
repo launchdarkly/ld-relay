@@ -1,28 +1,34 @@
 package middleware
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/gorilla/mux"
-	"github.com/stretchr/testify/assert"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
 // going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
 func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
-	req := sharedtest.BuildRequest(verb, "", body, headers)
+	req := st.BuildRequest(verb, "", body, headers)
 	req = mux.SetURLVars(req, vars)
 	if ctx != nil {
 		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: ctx}))
@@ -59,8 +65,36 @@ func (t testEnvironments) GetAllEnvironments() []relayenv.EnvContext {
 	return ret
 }
 
+type testCORSContext struct {
+	origins []string
+}
+
+func (c testCORSContext) AllowedOrigins() []string { return c.origins }
+
 func nullHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+}
+
+func TestChain(t *testing.T) {
+	result := ""
+	mw1 := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result += "1"
+			h.ServeHTTP(w, r)
+		})
+	}
+	mw2 := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result += "2"
+			h.ServeHTTP(w, r)
+		})
+	}
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "", nil)
+	Chain(mw1, mw2)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result += "3"
+	})).ServeHTTP(rr, req)
+	assert.Equal(t, "123", result)
 }
 
 func TestGetUserAgent(t *testing.T) {
@@ -201,25 +235,105 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 }
 
-func TestCorsMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
+func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
 	resp := httptest.NewRecorder()
-	CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Credentials"), "false")
-		assert.Equal(t, w.Header().Get("Access-Control-Max-Age"), "300")
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Headers"), "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader)
-		assert.Equal(t, w.Header().Get("Access-Control-Expose-Headers"), "Date")
-	})).ServeHTTP(resp, req)
+
+	CORS(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "*", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "false", resp.Result().Header.Get("Access-Control-Allow-Credentials"))
+	assert.Equal(t, "300", resp.Result().Header.Get("Access-Control-Max-Age"))
+	assert.Equal(t, "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader,
+		resp.Result().Header.Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "Date", resp.Result().Header.Get("Access-Control-Expose-Headers"))
 }
 
-func TestCorsMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
+func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Origin", "blah")
 	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
 	resp := httptest.NewRecorder()
 
-	CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, w.Header().Get("Access-Control-Allow-Origin"), "blah")
-	})).ServeHTTP(resp, req)
+	CORS(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "blah", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+}
+
+func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginMatches(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Origin", "def")
+	cc := testCORSContext{origins: []string{"abc", "def"}}
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	req = req.WithContext(browser.WithCORSContext(req.Context(), cc))
+	resp := httptest.NewRecorder()
+
+	CORS(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "def", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+}
+
+func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Origin", "blah")
+	cc := testCORSContext{origins: []string{"abc", "def"}}
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	req = req.WithContext(browser.WithCORSContext(req.Context(), cc))
+	resp := httptest.NewRecorder()
+
+	CORS(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "abc", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+}
+
+func TestStreaming(t *testing.T) {
+	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
+	resp := httptest.NewRecorder()
+
+	Streaming(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "no", resp.Result().Header.Get("X-Accel-Buffering"))
+}
+
+func TestUserFromBase64(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
+		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		expectedUser := lduser.NewUserBuilder("user-key").Name("n").Custom("good", ldvalue.Bool(true)).Build()
+		user, err := UserFromBase64(data)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUser, user)
+	})
+
+	t.Run("valid without padding", func(t *testing.T) {
+		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
+		data0 := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		data1 := strings.TrimRightFunc(data0, func(c rune) bool { return c == '=' })
+		require.NotEqual(t, data0, data1)
+		expectedUser := lduser.NewUserBuilder("user-key").Name("n").Custom("good", ldvalue.Bool(true)).Build()
+		user, err := UserFromBase64(data1)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUser, user)
+	})
+
+	t.Run("invalid base64", func(t *testing.T) {
+		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
+		data := base64.StdEncoding.EncodeToString([]byte(userJSON)) + "x"
+		_, err := UserFromBase64(data)
+		assert.Error(t, err)
+	})
+
+	t.Run("malformed JSON", func(t *testing.T) {
+		userJSON := `{"sorry`
+		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		_, err := UserFromBase64(data)
+		assert.Error(t, err)
+	})
+
+	t.Run("user has no key", func(t *testing.T) {
+		userJSON := `{"name":"n"}`
+		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		_, err := UserFromBase64(data)
+		assert.Error(t, err)
+	})
 }

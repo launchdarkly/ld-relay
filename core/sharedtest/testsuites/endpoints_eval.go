@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func DoEvalEndpointsTests(t *testing.T, constructor TestConstructor) {

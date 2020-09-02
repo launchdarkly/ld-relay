@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testenv"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEnvContextInfo(t *testing.T) {

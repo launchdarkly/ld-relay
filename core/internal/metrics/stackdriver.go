@@ -1,13 +1,13 @@
 package metrics
 
 import (
-	"contrib.go.opencensus.io/exporter/stackdriver"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"contrib.go.opencensus.io/exporter/stackdriver"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/trace"
 )
 
 var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{} //nolint:gochecknoglobals

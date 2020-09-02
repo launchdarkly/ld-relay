@@ -3,15 +3,15 @@ package core
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/gorilla/mux"
 )
 
 const (

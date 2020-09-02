@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/launchdarkly/eventsource"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // StreamRecorder is an extension of ResponseRecorder to handle streaming content.

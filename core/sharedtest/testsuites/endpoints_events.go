@@ -10,14 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	ct "github.com/launchdarkly/go-configtypes"
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
+	ct "github.com/launchdarkly/go-configtypes"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func DoEventProxyTests(t *testing.T, constructor TestConstructor) {
@@ -95,12 +96,16 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 	config.Environment = st.MakeEnvConfigs(env)
 	body := makeTestFeatureEventPayload("me")
 
+	makeRequest := func(authKey c.SDKKey) *http.Request {
+		header := make(http.Header)
+		header.Set("Authorization", string(authKey))
+		header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
+		return st.BuildRequest("POST", "http://localhost/bulk", body, header)
+	}
+
 	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
 		t.Run("bulk post", func(t *testing.T) {
-			header := make(http.Header)
-			header.Set("Authorization", string(sdkKey))
-			header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-			r := st.BuildRequest("POST", "http://localhost/bulk", body, header)
+			r := makeRequest(sdkKey)
 			result, _ := st.DoRequest(r, p.Handler)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
@@ -111,10 +116,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 		})
 
 		t.Run("unknown SDK key", func(t *testing.T) {
-			header := make(http.Header)
-			header.Set("Authorization", string(st.UndefinedSDKKey))
-			header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-			r := st.BuildRequest("POST", "http://localhost/bulk", body, header)
+			r := makeRequest(st.UndefinedSDKKey)
 			result, _ := st.DoRequest(r, p.Handler)
 
 			assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
@@ -135,6 +137,14 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 			}
 		})
 	})
+
+	t.Run("events disabled", func(t *testing.T) {
+		DoTest(config, constructor, func(p TestParams) {
+			r := makeRequest(sdkKey)
+			result, _ := st.DoRequest(r, p.Handler)
+			assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
+		})
+	})
 }
 
 func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
@@ -143,17 +153,26 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
+	bulkEndpoints := []string{"/mobile/events", "/mobile/events/bulk"}
+
+	makeBody := func(i int) []byte {
+		return makeTestFeatureEventPayload(fmt.Sprintf("me%d", i))
+	}
+
+	makeRequest := func(path string, body []byte, authKey c.MobileKey) *http.Request {
+		url := "http://localhost" + path
+		header := make(http.Header)
+		header.Set("Authorization", string(authKey))
+		header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
+		return st.BuildRequest("POST", url, body, header)
+	}
+
 	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
-		bulkEndpoints := []string{"/mobile/events", "/mobile/events/bulk"}
 		for i, path := range bulkEndpoints {
-			url := "http://localhost" + path
-			body := makeTestFeatureEventPayload(fmt.Sprintf("me%d", i))
+			body := makeBody(i)
 
 			t.Run("bulk post "+path, func(t *testing.T) {
-				header := make(http.Header)
-				header.Set("Authorization", string(mobileKey))
-				header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-				r := st.BuildRequest("POST", url, body, header)
+				r := makeRequest(path, body, mobileKey)
 				result, _ := st.DoRequest(r, p.Handler)
 
 				if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
@@ -164,10 +183,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 			})
 
 			t.Run("unknown SDK key", func(t *testing.T) {
-				header := make(http.Header)
-				header.Set("Authorization", string(st.UndefinedSDKKey))
-				header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
-				r := st.BuildRequest("POST", url, body, header)
+				r := makeRequest(path, body, st.UndefinedMobileKey)
 				result, _ := st.DoRequest(r, p.Handler)
 
 				assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
@@ -185,6 +201,18 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 				event := p.requirePublishedEvent(t, eventData)
 				assert.Equal(t, "/mobile/events/diagnostic", event.url)
 				assert.Equal(t, string(mobileKey), event.authKey)
+			}
+		})
+	})
+
+	t.Run("events disabled", func(t *testing.T) {
+		DoTest(config, constructor, func(p TestParams) {
+			for i, path := range bulkEndpoints {
+				t.Run("bulk post "+path, func(t *testing.T) {
+					r := makeRequest(path, makeBody(i), mobileKey)
+					result, _ := st.DoRequest(r, p.Handler)
+					assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
+				})
 			}
 		})
 	})
@@ -259,6 +287,22 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 				event := p.requirePublishedEvent(t, eventData)
 				assert.Equal(t, expectedPath, event.url)
 				assert.Equal(t, "", event.authKey)
+			}
+		})
+	})
+
+	t.Run("events disabled", func(t *testing.T) {
+		DoTest(config, constructor, func(p TestParams) {
+			for _, spec := range specs {
+				s := spec
+				t.Run(s.name, func(t *testing.T) {
+					r := s.request()
+					if s.method != "GET" {
+						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
+					}
+					result, _ := st.DoRequest(r, p.Handler)
+					assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
+				})
 			}
 		})
 	})

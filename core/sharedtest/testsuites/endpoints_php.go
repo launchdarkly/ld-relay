@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {

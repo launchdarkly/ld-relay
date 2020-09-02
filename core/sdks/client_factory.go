@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"

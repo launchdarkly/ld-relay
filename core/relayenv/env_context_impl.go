@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
@@ -17,9 +15,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
@@ -429,6 +429,13 @@ func (c *envContextImpl) SetSecureMode(secureMode bool) {
 
 func (c *envContextImpl) GetCreationTime() time.Time {
 	return c.creationTime
+}
+
+func (c *envContextImpl) FlushMetricsEvents() {
+	if c.metricsEnv != nil && c.metricsEventPub != nil {
+		c.metricsEnv.FlushEventsExporter()
+		c.metricsEventPub.Flush()
+	}
 }
 
 func (c *envContextImpl) Close() error {

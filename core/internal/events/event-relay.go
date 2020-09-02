@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/util"
+
+	c "github.com/launchdarkly/ld-relay/v6/core/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 // Endpoint describes one of the possible endpoints (on both events.launchdarkly.com and Relay) for posting events.

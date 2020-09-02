@@ -3,10 +3,11 @@ package metrics
 import (
 	"encoding/json"
 
-	"go.opencensus.io/trace"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"go.opencensus.io/trace"
 )
 
 const (

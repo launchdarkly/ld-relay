@@ -8,13 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
 	"github.com/launchdarkly/ld-relay/v6/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/core/streams"
@@ -28,6 +24,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/trace"
 )
 
 const envName = "envname"
@@ -82,7 +80,7 @@ func TestConstructorBasicProperties(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -114,7 +112,7 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -187,7 +185,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
@@ -215,7 +213,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
@@ -246,7 +244,7 @@ func TestChangeSDKKey(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -288,7 +286,7 @@ func TestSDKClientCreationFails(t *testing.T) {
 	fakeError := errors.New("sorry")
 
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
 	env := makeBasicEnv(t, envConfig, testclient.ClientFactoryThatFails(fakeError), mockLog.Loggers, readyCh)
 	defer env.Close()

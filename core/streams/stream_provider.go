@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+
+	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
-
 	"github.com/launchdarkly/ld-relay/v6/core/config"
+
+	"github.com/gorilla/mux"
 )
 
 // Kind represents any of the supported SDK categories that has distinct behavior from the others.

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // AssertJSONPathMatch checks for a value within a nested JSON data structure.

@@ -53,7 +53,7 @@ func main() {
 
 	port := c.Main.Port.GetOrElse(config.DefaultPort)
 
-	errs := application.StartHTTPServer(
+	_, errs := application.StartHTTPServer(
 		port,
 		r,
 		c.Main.TLSEnabled,

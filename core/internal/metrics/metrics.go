@@ -8,15 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
+	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/pborman/uuid"
-
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/internal/events"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 )
 
 var (

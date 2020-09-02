@@ -4,10 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	redigo "github.com/gomodule/redigo/redis"
-
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis"
@@ -15,6 +11,10 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	redigo "github.com/gomodule/redigo/redis"
 )
 
 var (
