@@ -11,12 +11,13 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 )
 
 func TestConfigFromEnvironmentWithValidProperties(t *testing.T) {
 	for _, tdc := range makeValidConfigs() {
 		t.Run(tdc.name, func(t *testing.T) {
-			testValidConfigVars(t, tdc.makeConfig, tdc.envVars)
+			testValidConfigVars(t, tdc)
 		})
 	}
 }
@@ -124,22 +125,22 @@ func TestConfigFromEnvironmentDisallowsObsoleteVariables(t *testing.T) {
 
 func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = true },
-			map[string]string{"EXIT_ON_ERROR": "true"},
-		)
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = true },
-			map[string]string{"EXIT_ON_ERROR": "1"},
-		)
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = false },
-			map[string]string{"EXIT_ON_ERROR": "false"},
-		)
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.ExitOnError = false },
-			map[string]string{"EXIT_ON_ERROR": "0"},
-		)
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			envVars:    map[string]string{"EXIT_ON_ERROR": "true"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			envVars:    map[string]string{"EXIT_ON_ERROR": "1"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			envVars:    map[string]string{"EXIT_ON_ERROR": "false"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			envVars:    map[string]string{"EXIT_ON_ERROR": "0"},
+		})
 	})
 
 	t.Run("rejects invalid boolean", func(t *testing.T) {
@@ -150,10 +151,10 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 
 	t.Run("parses valid int", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
-			map[string]string{"PORT": "222"},
-		)
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
+			envVars:    map[string]string{"PORT": "222"},
+		})
 	})
 
 	t.Run("rejects invalid int", func(t *testing.T) {
@@ -175,10 +176,10 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 
 	t.Run("parses valid URI", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
-			map[string]string{"BASE_URI": "http://some/uri"},
-		)
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
+			envVars:    map[string]string{"BASE_URI": "http://some/uri"},
+		})
 	})
 
 	t.Run("rejects invalid URI", func(t *testing.T) {
@@ -193,10 +194,10 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 
 	t.Run("parses valid duration", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
-			map[string]string{"HEARTBEAT_INTERVAL": "3s"},
-		)
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
+			envVars:    map[string]string{"HEARTBEAT_INTERVAL": "3s"},
+		})
 	})
 
 	t.Run("rejects invalid duration", func(t *testing.T) {
@@ -207,14 +208,14 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 
 	t.Run("parses valid log level", func(t *testing.T) {
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
-			map[string]string{"LOG_LEVEL": "warn"},
-		)
-		testValidConfigVars(t,
-			func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
-			map[string]string{"LOG_LEVEL": "eRrOr"},
-		)
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
+			envVars:    map[string]string{"LOG_LEVEL": "warn"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
+			envVars:    map[string]string{"LOG_LEVEL": "eRrOr"},
+		})
 	})
 
 	t.Run("rejects invalid log level", func(t *testing.T) {
@@ -225,16 +226,13 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 }
 
-func testValidConfigVars(t *testing.T, buildConfig func(c *Config), vars map[string]string) {
-	withEnvironment(vars, func() {
-		var expectedConfig Config
-		buildConfig(&expectedConfig)
-
+func testValidConfigVars(t *testing.T, tdc testDataValidConfig) { //} buildConfig func(c *Config), vars map[string]string) {
+	withEnvironment(tdc.envVars, func() {
 		var c Config
-		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+		mockLog := ldlogtest.NewMockLog()
+		err := LoadConfigFromEnvironment(&c, mockLog.Loggers)
 		require.NoError(t, err)
-
-		assert.Equal(t, expectedConfig, c)
+		tdc.assertResult(t, c, mockLog)
 	})
 }
 
