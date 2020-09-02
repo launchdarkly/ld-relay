@@ -27,7 +27,7 @@ LD_ENV_firstenv={SDK key for firstenv} LD_PREFIX_firstenv={Redis prefix for firs
 
 ## Configuration file format and environment variables
 
-The configuration file format is an INI-like one, based on [Git configuration format](https://git-scm.com/docs/git-config#_syntax) (as implemented by a [fork](https://github.com/launchdarkly/gcfg) of the [gcfg](https://github.com/go-gcfg/gcfg) package).
+The configuration file format is an INI-like one, based on [Git configuration format](https://git-scm.com/docs/git-config#_syntax) (as implemented by the [gcfg](https://github.com/go-gcfg/gcfg) package).
 
 Every configuration file option has an equivalent environment variable.
 
@@ -71,6 +71,21 @@ _(4)_ For details about `disconnectedStatusTime`, see: [Service endpoints - Stat
 
 _(5)_ The `disableInternalUsageMetrics` option applies to metrics that LaunchDarkly normally gathers to determine what types and versions of SDKs are being used with the Relay Proxy, as well as some diagnostic information that is normally gathered by the Go SDK describing the OS platform and version that the Relay Proxy is being run on and whether a database is being used. This does not affect the ability to export metrics to Datadog, Stackdriver, or Prometheus.
 
+
+### File section: `[AutoConfig]`
+
+This section can only be used if the auto-configuration feature is enabled for your account.
+
+Property in file         | Environment var      | Type    | Default | Description
+------------------------ | -------------------------- | :----: | :------ | -----------
+`key`                    | `AUTO_CONFIG_KEY`          | String |         | A valid Relay Proxy auto-configuration key.
+`envDatastorePrefix`     | `ENV_DATASTORE_PREFIX`     | String |         | If using a Redis, Consul, or DynamoDB store, this string will be added to all database keys to distinguish them from any other environments that are using the database. _(6)_
+`envDatastoreTableName ` | `ENV_DATASTORE_TABLE_NAME` | String |         | If using a DynamoDB store, this specifies the table name. _(6)_
+`envAllowedOrigin`       | `ENV_ALLOWED_ORIGIN`       | URI    |         | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_ORIGIN` variable, specify a comma-delimited list).
+
+_(6)_ When using a database store, if there are multiple environments, it is necessary to have a different prefix for each environment (or, if using DynamoDB, a different table name). The `envDataStorePrefix` and `envDatastoreTableName` properties support this by recognizing the special symbol `$CID` as a placeholder for the environment's client-side ID. For instance, if an environment's ID is `1234567890abcdef` and you set `envDatastorePrefix` to `ld-flags-$CID`, the actual prefix used for that environment will be `ld-flags-1234567890abcdef`.
+
+
 ### File section: `[Events]`
 
 To learn more, read [Forwarding events](./events.md)
@@ -78,12 +93,12 @@ To learn more, read [Forwarding events](./events.md)
 Property in file    | Environment var            | Type    | Default | Description
 ------------------- | -------------------------- | :-----: | :------ | -----------
 `sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly.
-`eventsUri`         | `EVENTS_HOST`              | URI     | _(4)_   | URI for the LaunchDarkly events service
+`eventsUri`         | `EVENTS_HOST`              | URI     | _(7)_   | URI for the LaunchDarkly events service
 `flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
 `capacity`          | `EVENTS_CAPACITY`          | Number  | `1000`  | Maximum number of events to accumulate for each flush interval.
 `inlineUsers`       | `EVENTS_INLINE_USERS`      | Boolean | `false` | When enabled, individual events (if full event tracking is enabled for the feature flag) will contain all non-private user attributes.
 
-_(4)_ See note _(1)_ above. The default value for `eventsUri` is `https://events.launchdarkly.com`.
+_(7)_ See note _(1)_ above. The default value for `eventsUri` is `https://events.launchdarkly.com`.
 
 
 ### File section: `[Environment "NAME"]`
