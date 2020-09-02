@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	redigo "github.com/gomodule/redigo/redis"
+	consul "github.com/hashicorp/consul/api"
 )
 
 var (
@@ -62,11 +63,18 @@ func ConfigureDataStore(
 	if useConsul {
 		dbConfig := allConfig.Consul
 		loggers.Infof("Using Consul feature store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
-		dbFactory = ldcomponents.PersistentDataStore(
-			ldconsul.DataStore().
-				Address(dbConfig.Host).
-				Prefix(envConfig.Prefix),
-		).CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
+
+		builder := ldconsul.DataStore().
+			Prefix(envConfig.Prefix)
+		if dbConfig.Token != "" {
+			builder.Config(consul.Config{Token: dbConfig.Token})
+		} else if dbConfig.TokenFile != "" {
+			builder.Config(consul.Config{TokenFile: dbConfig.TokenFile})
+		}
+		builder.Address(dbConfig.Host) // this is deliberately done last so it's not overridden by builder.Config()
+
+		dbFactory = ldcomponents.PersistentDataStore(builder).
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
 	}
 	if useDynamoDB {
 		// Note that the global TableName can be omitted if you specify a TableName for each environment

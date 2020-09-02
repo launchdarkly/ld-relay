@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -17,6 +18,8 @@ var (
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname        = errors.New("invalid Redis hostname")
+	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errConsulTokenFileNotFound = errors.New("Consul token file not found")                                                      //nolint:stylecheck
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -84,6 +87,66 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 }
 
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
+	normalizeRedisConfig(result, c)
+
+	databases := []string{}
+	if c.Redis.URL.IsDefined() {
+		databases = append(databases, "Redis")
+	}
+	if c.Consul.Host != "" {
+		databases = append(databases, "Consul")
+	}
+	if c.DynamoDB.Enabled {
+		databases = append(databases, "DynamoDB")
+	}
+
+	if len(databases) == 0 {
+		return
+	}
+	if len(databases) > 1 {
+		result.AddError(nil, errMultipleDatabases(databases))
+		return // no point doing further database config validation if it's in this state
+	}
+
+	if c.Consul.Host != "" {
+		switch {
+		case c.Consul.Token != "" && c.Consul.TokenFile != "":
+			result.AddError(nil, errConsulTokenAndTokenFile)
+		case c.Consul.TokenFile != "":
+			if _, err := os.Stat(c.Consul.TokenFile); os.IsNotExist(err) {
+				result.AddError(nil, errConsulTokenFileNotFound)
+			}
+		}
+	}
+
+	// When using a database, if there is more than one environment configured, they must be distinguished by
+	// different prefixes (or, when using DynamoDB, you can use different table names). In auto-config mode,
+	// we must assume that there are multiple environments.
+	switch {
+	case len(c.Environment) == 1:
+		for name, e := range c.Environment {
+			if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
+				loggers.Warn(warnEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
+			}
+		}
+
+	case len(c.Environment) > 1:
+		for name, e := range c.Environment {
+			if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
+				result.AddError(nil, errEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
+			}
+		}
+
+	case c.AutoConfig.Key != "":
+		// Same as previous case, except that in auto-config mode we must assume that there are multiple environments.
+		if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
+			!(c.DynamoDB.Enabled && strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
+			result.AddError(nil, errAutoConfWithoutDBDisambig)
+		}
+	}
+}
+
+func normalizeRedisConfig(result *ct.ValidationResult, c *Config) {
 	if c.Redis.URL.IsDefined() {
 		if c.Redis.Host != "" || c.Redis.Port.IsDefined() {
 			result.AddError(nil, errRedisURLWithHostAndPort)
@@ -101,47 +164,5 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 		c.Redis.URL = url
 		c.Redis.Host = ""
 		c.Redis.Port = ct.OptIntGreaterThanZero{}
-	}
-
-	databases := []string{}
-	if c.Redis.Host != "" || c.Redis.URL.IsDefined() {
-		databases = append(databases, "Redis")
-	}
-	if c.Consul.Host != "" {
-		databases = append(databases, "Consul")
-	}
-	if c.DynamoDB.Enabled {
-		databases = append(databases, "DynamoDB")
-	}
-
-	if len(databases) > 1 {
-		result.AddError(nil, errMultipleDatabases(databases))
-	}
-	if len(databases) == 1 {
-		// When using a database, if there is more than one environment configured, they must be distinguished by
-		// different prefixes (or, when using DynamoDB, you can use different table names). In auto-config mode,
-		// we must assume that there are multiple environments.
-		switch {
-		case len(c.Environment) == 1:
-			for name, e := range c.Environment {
-				if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
-					loggers.Warn(warnEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
-				}
-			}
-
-		case len(c.Environment) > 1:
-			for name, e := range c.Environment {
-				if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
-					result.AddError(nil, errEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
-				}
-			}
-
-		case c.AutoConfig.Key != "":
-			// Same as previous case, except that in auto-config mode we must assume that there are multiple environments.
-			if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
-				!(c.DynamoDB.Enabled && strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
-				result.AddError(nil, errAutoConfWithoutDBDisambig)
-			}
-		}
 	}
 }

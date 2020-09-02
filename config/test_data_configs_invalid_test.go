@@ -26,6 +26,8 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigRedisAutoConfNoPrefix(),
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
+		makeInvalidConfigConsulTokenAndTokenFile(),
+		makeInvalidConfigConsulTokenFileNotFound(),
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
@@ -263,6 +265,38 @@ Key = autokey
 
 [Consul]
 Host = localhost
+`
+	return c
+}
+
+func makeInvalidConfigConsulTokenAndTokenFile() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Consul - token and token file both specified"}
+	c.envVarsError = errConsulTokenAndTokenFile.Error()
+	c.envVars = map[string]string{
+		"USE_CONSUL":        "1",
+		"CONSUL_TOKEN":      "abc",
+		"CONSUL_TOKEN_FILE": "def",
+	}
+	c.fileContent = `
+[Consul]
+Host = localhost
+Token = abc
+TokenFile = def
+`
+	return c
+}
+
+func makeInvalidConfigConsulTokenFileNotFound() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Consul - token file not found"}
+	c.envVarsError = errConsulTokenFileNotFound.Error()
+	c.envVars = map[string]string{
+		"USE_CONSUL":        "1",
+		"CONSUL_TOKEN_FILE": "./no-such-file",
+	}
+	c.fileContent = `
+[Consul]
+Host = localhost
+TokenFile = ./no-such-file
 `
 	return c
 }

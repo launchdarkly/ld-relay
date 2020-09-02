@@ -14,6 +14,7 @@ require (
 	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f // indirect
 	github.com/gorilla/mux v1.6.3-0.20180517173623-c85619274f5d
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
+	github.com/hashicorp/consul/api v1.5.0
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
 	github.com/launchdarkly/eventsource v1.6.1
