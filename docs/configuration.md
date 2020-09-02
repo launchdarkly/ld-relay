@@ -76,7 +76,7 @@ _(5)_ The `disableInternalUsageMetrics` option applies to metrics that LaunchDar
 
 This section can only be used if the auto-configuration feature is enabled for your account.
 
-Property in file         | Environment var      | Type    | Default | Description
+Property in file         | Environment var            | Type   | Default | Description
 ------------------------ | -------------------------- | :----: | :------ | -----------
 `key`                    | `AUTO_CONFIG_KEY`          | String |         | A valid Relay Proxy auto-configuration key.
 `envDatastorePrefix`     | `ENV_DATASTORE_PREFIX`     | String |         | If using a Redis, Consul, or DynamoDB store, this string will be added to all database keys to distinguish them from any other environments that are using the database. _(6)_
