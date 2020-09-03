@@ -81,6 +81,7 @@ jobs:
                 name: Store coverage results
                 command: cp build/coverage* /tmp/circle-artifacts
                 when: always
+      - when:
           condition: <<parameters.test-tls>>
           steps:
             - run:
