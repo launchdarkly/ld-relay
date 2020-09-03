@@ -76,31 +76,11 @@ jobs:
           steps:
             - run:
                 name: Run tests with coverage
-                command: |
-                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-                  make test-with-coverage -e TEST_COVERAGE_REPORT_FILE=$CIRCLE_ARTIFACTS/coverage.txt | tee $CIRCLE_ARTIFACTS/report.txt  
-      - when:
-          condition: <<parameters.test-coverage>>
-          steps:
+                command: make test-coverage
             - run:
-                name: Set up Code Climate test-reporter
-                command: |
-                  curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-                  chmod +x ./cc-test-reporter
-            - run:
-                name: upload coverage report if applicable
-                # note that CircleCI doesn't let us use "when" for an environment variable like $CC_TEST_REPORTER_ID
-                command: |
-                  if [[ -n "$CC_TEST_REPORTER_ID" ]]; then
-                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov \
-                      --prefix github.com/launchdarkly/ld-relay/v6 \
-                      --output $CIRCLE_ARTIFACTS/coverage.json
-                    ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
-                  fi
-            - run:
-                name: Generate coverage report
-                command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
-      - when:
+                name: Store coverage results
+                command: cp build/coverage* /tmp/circle-artifacts
+                when: always
           condition: <<parameters.test-tls>>
           steps:
             - run:
