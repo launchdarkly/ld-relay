@@ -16,17 +16,21 @@ import (
 	"go.opencensus.io/trace"
 )
 
-type args struct {
-	measure   Measure
-	platform  string
-	userAgent string
+type measureAndPlatform struct {
+	measure  Measure
+	platform string
 }
 
-func (a args) getExpectedTagsMap() map[string]string {
-	return map[string]string{
-		platformCategoryTagKey.Name(): a.platform,
-		userAgentTagKey.Name():        a.userAgent,
+func (m measureAndPlatform) getExpectedTagsMap(relayID string, envName string, userAgent string) map[string]string {
+	ret := map[string]string{
+		envNameTagKey.Name():          envName,
+		platformCategoryTagKey.Name(): m.platform,
+		userAgentTagKey.Name():        userAgent,
 	}
+	if relayID != "" {
+		ret[relayIDTagKey.Name()] = relayID
+	}
+	return ret
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -96,20 +100,17 @@ func TestRemoveEnvironment(t *testing.T) {
 }
 
 func TestConnectionMetrics(t *testing.T) {
-	specs := []args{
-		args{platform: browserTagValue, measure: BrowserConns, userAgent: userAgentValue},
-		args{platform: mobileTagValue, measure: MobileConns, userAgent: userAgentValue},
-		args{platform: serverTagValue, measure: ServerConns, userAgent: userAgentValue},
+	specs := []measureAndPlatform{
+		{platform: browserTagValue, measure: BrowserConns},
+		{platform: mobileTagValue, measure: MobileConns},
+		{platform: serverTagValue, measure: ServerConns},
 	}
 
 	for _, tt := range specs {
 		t.Run(tt.platform, func(*testing.T) {
 			testWithExporter(t, func(p testWithExporterParams) {
-				expectedTags := tt.getExpectedTagsMap()
-				expectedTags[envNameTagKey.Name()] = p.envName
-				expectedPrivateTags := tt.getExpectedTagsMap()
-				expectedPrivateTags[relayIDTagKey.Name()] = p.relayID
-				expectedPrivateTags[envNameTagKey.Name()] = p.envName
+				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
+				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
 
 				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, func() {
 					p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
@@ -138,21 +139,20 @@ func TestConnectionMetrics(t *testing.T) {
 }
 
 func TestNewConnectionMetrics(t *testing.T) {
-	specs := []args{
-		args{platform: browserTagValue, measure: NewBrowserConns, userAgent: userAgentValue},
-		args{platform: mobileTagValue, measure: NewMobileConns, userAgent: userAgentValue},
-		args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue},
+	specs := []measureAndPlatform{
+		{platform: browserTagValue, measure: NewBrowserConns},
+		{platform: mobileTagValue, measure: NewMobileConns},
+		{platform: serverTagValue, measure: NewServerConns},
 	}
 
 	for _, tt := range specs {
 		t.Run(tt.platform, func(*testing.T) {
 			testWithExporter(t, func(p testWithExporterParams) {
-				expectedTags := tt.getExpectedTagsMap()
-				expectedTags[envNameTagKey.Name()] = p.envName
-				expectedPrivateTags := tt.getExpectedTagsMap()
-				expectedPrivateTags[relayIDTagKey.Name()] = p.relayID
-				expectedPrivateTags[envNameTagKey.Name()] = p.envName
+				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
+				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
+
 				WithCount(p.env.GetOpenCensusContext(), userAgentValue, func() {}, tt.measure)
+
 				p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 					return d.HasRow(publicNewConnView.Name, st.TestMetricsRow{
 						Tags: expectedTags,
