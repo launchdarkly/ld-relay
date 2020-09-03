@@ -12,14 +12,31 @@ LINTER=./bin/golangci-lint
 
 TEST_COVERAGE_REPORT_FILE ?= coverage.txt
 
+ALL_SOURCES := $(shell find * -type f -name "*.go")
+COVERAGE_PROFILE_RAW=./build/coverage_raw.out
+COVERAGE_PROFILE_RAW_HTML=./build/coverage_raw.html
+COVERAGE_PROFILE_FILTERED=./build/coverage.out
+COVERAGE_PROFILE_FILTERED_HTML=./build/coverage.html
+COVERAGE_ENFORCER_FLAGS=\
+  	-skipfiles 'internal/core/sharedtest/' \
+	-skipcode "// COVERAGE" -packagestats -filestats -showcode
+
 build:
 	go build ./...
 
 test:
 	go test -race -v ./...
 
-test-with-coverage:
-	go test -race -v -covermode=atomic -coverpkg=./... -coverprofile $(TEST_COVERAGE_REPORT_FILE) ./...
+test-coverage: $(COVERAGE_PROFILE_RAW)
+	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi
+	$(GOPATH)/bin/go-coverage-enforcer $(COVERAGE_ENFORCER_FLAGS) -outprofile $(COVERAGE_PROFILE_FILTERED) $(COVERAGE_PROFILE_RAW) || true
+	@# added || true because we don't currently want go-coverage-enforcer to stop the build due to coverage gaps
+	go tool cover -html $(COVERAGE_PROFILE_FILTERED) -o $(COVERAGE_PROFILE_FILTERED_HTML)
+	go tool cover -html $(COVERAGE_PROFILE_RAW) -o $(COVERAGE_PROFILE_RAW_HTML)
+
+$(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
+	@mkdir -p ./build
+	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./... >/dev/null
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)

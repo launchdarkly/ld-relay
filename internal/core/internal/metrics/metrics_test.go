@@ -1,18 +1,19 @@
 package metrics
 
 import (
-	"context"
-	"fmt"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
+	"go.opencensus.io/trace"
 )
 
 type args struct {
@@ -21,17 +22,77 @@ type args struct {
 	userAgent string
 }
 
-func (a args) getExpectedTags() []tag.Tag {
-	return []tag.Tag{tag.Tag{Key: platformCategoryTagKey, Value: a.platform}, tag.Tag{Key: userAgentTagKey, Value: a.userAgent}}
+func (a args) getExpectedTagsMap() map[string]string {
+	return map[string]string{
+		platformCategoryTagKey.Name(): a.platform,
+		userAgentTagKey.Name():        a.userAgent,
+	}
 }
 
-type privateMetricsArgs struct {
-	args
-	relayId string
+func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
+	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("name", nil)
+
+	assert.NoError(t, err)
+	require.NotNil(t, env)
+	assert.NotNil(t, env.GetOpenCensusContext())
 }
 
-func (a privateMetricsArgs) getExpectedTags() []tag.Tag {
-	return append(a.args.getExpectedTags(), tag.Tag{Key: relayIDTagKey, Value: testMetricsRelayID})
+func TestAddEnvironmentWithEventPublisher(t *testing.T) {
+	publisher := newTestEventsPublisher()
+	view.SetReportingPeriod(testReportingPeriod)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+
+	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("name", publisher)
+
+	assert.NoError(t, err)
+	require.NotNil(t, env)
+	assert.NotNil(t, env.GetOpenCensusContext())
+
+	stats.Record(env.GetOpenCensusContext(), privateConnMeasure.M(1))
+
+	require.Eventually(t, func() bool {
+		env.FlushEventsExporter()
+		select {
+		case event := <-publisher.events:
+			require.IsType(t, relayMetricsEvent{}, event)
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond*10)
+}
+
+func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
+	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	require.NoError(t, err)
+	manager.Close()
+	env, err := manager.AddEnvironment("name", nil)
+	assert.Nil(t, env)
+	assert.Error(t, err)
+}
+
+func TestRemoveEnvironment(t *testing.T) {
+	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("name", nil)
+	require.NoError(t, err)
+	require.NotNil(t, env)
+
+	manager.RemoveEnvironment(env)
+
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+	assert.Len(t, manager.environments, 0)
 }
 
 func TestConnectionMetrics(t *testing.T) {
@@ -41,44 +102,39 @@ func TestConnectionMetrics(t *testing.T) {
 		args{platform: serverTagValue, measure: ServerConns, userAgent: userAgentValue},
 	}
 
-	t.Run("public", func(t *testing.T) {
-		for _, tt := range specs {
-			t.Run(fmt.Sprintf("generates %s connection metrics", tt.platform), func(*testing.T) {
-				view.Register(publicConnView)
-				defer view.Unregister(publicConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, testMetricsRelayID))
-				WithGauge(ctx, userAgentValue, func() {
-					expectedTags := tt.getExpectedTags()
-					rows, err := view.RetrieveData(publicConnView.Name)
-					require.NoError(t, err)
-					matchingRows := findRowsWithTags(rows, expectedTags)
-					require.Len(t, matchingRows, 1)
-					assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
-					assert.Equal(t, 1, int((*matchingRows[0]).Data.(*view.SumData).Value))
-				}, tt.measure)
-			})
-		}
-	})
+	for _, tt := range specs {
+		t.Run(tt.platform, func(*testing.T) {
+			testWithExporter(t, func(p testWithExporterParams) {
+				expectedTags := tt.getExpectedTagsMap()
+				expectedTags[envNameTagKey.Name()] = p.envName
+				expectedPrivateTags := tt.getExpectedTagsMap()
+				expectedPrivateTags[relayIDTagKey.Name()] = p.relayID
+				expectedPrivateTags[envNameTagKey.Name()] = p.envName
 
-	t.Run("private", func(t *testing.T) {
-		for _, tt := range specs {
-			ptt := privateMetricsArgs{args: tt, relayId: testMetricsRelayID}
-			t.Run(fmt.Sprintf("generates %s connection metrics", ptt.platform), func(*testing.T) {
-				view.Register(privateConnView)
-				defer view.Unregister(privateConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, testMetricsRelayID))
-				WithGauge(ctx, userAgentValue, func() {
-					expectedTags := ptt.getExpectedTags()
-					rows, err := view.RetrieveData(privateConnView.Name)
-					require.NoError(t, err)
-					matchingRows := findRowsWithTags(rows, expectedTags)
-					require.Len(t, matchingRows, 1)
-					assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
-					assert.Equal(t, 1, int((*matchingRows[0]).Data.(*view.SumData).Value))
-				}, ptt.measure)
+				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, func() {
+					p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+						return d.HasRow(publicConnView.Name, st.TestMetricsRow{
+							Tags: expectedTags,
+							Sum:  1,
+						}) && d.HasRow(privateConnView.Name, st.TestMetricsRow{
+							Tags: expectedPrivateTags,
+							Sum:  1,
+						})
+					})
+				}, tt.measure)
+
+				p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+					return d.HasRow(publicConnView.Name, st.TestMetricsRow{
+						Tags: expectedTags,
+						Sum:  0,
+					}) && d.HasRow(privateConnView.Name, st.TestMetricsRow{
+						Tags: expectedPrivateTags,
+						Sum:  0,
+					})
+				})
 			})
-		}
-	})
+		})
+	}
 }
 
 func TestNewConnectionMetrics(t *testing.T) {
@@ -88,100 +144,51 @@ func TestNewConnectionMetrics(t *testing.T) {
 		args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue},
 	}
 
-	t.Run("public", func(t *testing.T) {
-		for _, tt := range specs {
-			t.Run(fmt.Sprintf("generates %s new connection metrics", tt.platform), func(*testing.T) {
-				view.Register(publicNewConnView)
-				defer view.Unregister(publicNewConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, testMetricsRelayID))
-				WithCount(ctx, userAgentValue, func() {
-					expectedTags := tt.getExpectedTags()
-					rows, err := view.RetrieveData(publicNewConnView.Name)
-					require.NoError(t, err)
-					matchingRows := findRowsWithTags(rows, expectedTags)
-					require.Len(t, matchingRows, 1)
-					assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
-					assert.Equal(t, 1, int((*matchingRows[0]).Data.(*view.SumData).Value))
-				}, tt.measure)
+	for _, tt := range specs {
+		t.Run(tt.platform, func(*testing.T) {
+			testWithExporter(t, func(p testWithExporterParams) {
+				expectedTags := tt.getExpectedTagsMap()
+				expectedTags[envNameTagKey.Name()] = p.envName
+				expectedPrivateTags := tt.getExpectedTagsMap()
+				expectedPrivateTags[relayIDTagKey.Name()] = p.relayID
+				expectedPrivateTags[envNameTagKey.Name()] = p.envName
+				WithCount(p.env.GetOpenCensusContext(), userAgentValue, func() {}, tt.measure)
+				p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+					return d.HasRow(publicNewConnView.Name, st.TestMetricsRow{
+						Tags: expectedTags,
+						Sum:  1,
+					}) && d.HasRow(privateNewConnView.Name, st.TestMetricsRow{
+						Tags: expectedPrivateTags,
+						Sum:  1,
+					})
+				})
 			})
-		}
-	})
-
-	t.Run("private", func(t *testing.T) {
-		for _, tt := range specs {
-			ptt := privateMetricsArgs{args: tt, relayId: testMetricsRelayID}
-			t.Run(fmt.Sprintf("generates %s new connection metrics", ptt.platform), func(*testing.T) {
-				view.Register(privateNewConnView)
-				defer view.Unregister(privateNewConnView)
-				ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, testMetricsRelayID))
-				WithCount(ctx, userAgentValue, func() {
-					expectedTags := ptt.getExpectedTags()
-					rows, err := view.RetrieveData(privateNewConnView.Name)
-					require.NoError(t, err)
-					matchingRows := findRowsWithTags(rows, expectedTags)
-					require.Len(t, matchingRows, 1)
-					assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
-					assert.Equal(t, 1, int((*matchingRows[0]).Data.(*view.SumData).Value))
-				}, ptt.measure)
-			})
-		}
-	})
+		})
+	}
 }
 
 func TestWithRouteCount(t *testing.T) {
-	type routeArgs struct {
-		args
-		method string
-		route  string
-	}
-
-	getExpectedTags := func(a routeArgs) []tag.Tag {
-		return append(a.args.getExpectedTags(), tag.Tag{Key: routeTagKey, Value: a.route}, tag.Tag{Key: methodTagKey, Value: a.method})
-	}
-
-	exporter := newTestExporter()
-	exporterImpl, _ := (&testExporterTypeImpl{instance: exporter}).
-		createExporterIfEnabled(config.MetricsConfig{}, ldlog.NewDisabledLoggers())
-	_ = exporterImpl.register()
-	defer exporterImpl.close()
-
-	view.Register(requestView)
-	defer view.Unregister(requestView)
-
-	expected := routeArgs{args: args{platform: serverTagValue, measure: NewServerConns, userAgent: userAgentValue}, method: "GET", route: "someRoute"}
-
-	// Context has a relay Id, but we shouldn't get it back as a tag with public metrics
-	ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, testMetricsRelayID))
-	WithRouteCount(ctx, userAgentValue, "someRoute", "GET", func() {
-		expectedTags := getExpectedTags(expected)
-		rows, err := view.RetrieveData(requestView.Name)
-		require.NoError(t, err)
-		matchingRows := findRowsWithTags(rows, expectedTags)
-		require.Len(t, matchingRows, 1)
-		assert.ElementsMatch(t, expectedTags, matchingRows[0].Tags)
-		assert.Equal(t, 1, int((*matchingRows[0]).Data.(*view.CountData).Value))
-	}, ServerRequests)
-	assert.NotEmpty(t, exporter.spans)
+	testWithExporter(t, func(p testWithExporterParams) {
+		WithRouteCount(p.env.GetOpenCensusContext(), userAgentValue, "someRoute", "GET", func() {
+			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+				return d.HasRow(requestView.Name, st.TestMetricsRow{
+					Tags: map[string]string{
+						"env":              p.envName,
+						"method":           "GET",
+						"platformCategory": "server",
+						"route":            "someRoute",
+						"userAgent":        userAgentValue,
+					},
+					Count: 1,
+				})
+			})
+		}, ServerRequests)
+		sp := p.exporter.AwaitSpan(t, time.Second)
+		assert.Equal(t, "someRoute", sp.Name)
+	})
 }
 
-func findRowsWithTags(rows []*view.Row, expectedTags []tag.Tag) (matches []*view.Row) {
-RowLoop:
-	for _, row := range rows {
-		for _, tag := range expectedTags {
-			if !contains(row.Tags, tag) {
-				continue RowLoop
-			}
-		}
-		matches = append(matches, row)
-	}
-	return matches
-}
-
-func contains(tags []tag.Tag, tag tag.Tag) bool {
-	for _, t := range tags {
-		if t == tag {
-			return true
-		}
-	}
-	return false
+func TestSanitizeTagValue(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeTagValue("abc"))
+	assert.Equal(t, "_", sanitizeTagValue(""))
 }

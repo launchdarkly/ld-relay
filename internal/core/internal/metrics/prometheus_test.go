@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -57,24 +58,19 @@ func TestPrometheusExporterType(t *testing.T) {
 
 	verifyPrometheusEndpointIsReachable := func(t *testing.T, port int, timeout time.Duration) {
 		url := fmt.Sprintf("http://localhost:%d/metrics", port)
-		tick := time.NewTicker(time.Millisecond * 10)
-		defer tick.Stop()
-		deadline := time.After(timeout)
-		for {
-			select {
-			case <-tick.C:
+		require.Eventually(
+			t,
+			func() bool {
 				resp, err := http.DefaultClient.Get(url)
-				if err == nil {
+				if resp != nil {
 					defer resp.Body.Close()
-					if resp.StatusCode == 200 {
-						return
-					}
 				}
-			case <-deadline:
-				assert.Fail(t, fmt.Sprintf("did not detect listener on port %d within %s", port, timeout))
-				return
-			}
-		}
+				return err == nil && resp != nil && resp.StatusCode == 200
+			},
+			timeout,
+			time.Millisecond*10,
+			"did not detect listener on port %d within %s", port, timeout,
+		)
 	}
 
 	t.Run("listens on default port", func(t *testing.T) {
@@ -91,16 +87,7 @@ func TestPrometheusExporterType(t *testing.T) {
 	})
 
 	t.Run("listens on custom port", func(t *testing.T) {
-		availablePort := 10000
-		for {
-			listener, err := net.Listen("tcp", fmt.Sprintf(":%d", availablePort))
-			if err == nil {
-				listener.Close()
-				break
-			}
-			availablePort++
-		}
-
+		availablePort := st.GetAvailablePort(t)
 		var mc config.MetricsConfig
 		mc.Prometheus.Enabled = true
 		mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(availablePort)
@@ -112,5 +99,19 @@ func TestPrometheusExporterType(t *testing.T) {
 		require.NoError(t, e.register())
 
 		verifyPrometheusEndpointIsReachable(t, availablePort, time.Second)
+	})
+
+	t.Run("returns error if port is unavailable", func(t *testing.T) {
+		st.WithListenerForAnyPort(t, func(l net.Listener, usedPort int) {
+			var mc config.MetricsConfig
+			mc.Prometheus.Enabled = true
+			mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(usedPort)
+			e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
+			require.NoError(t, err)
+			require.NotNil(t, e)
+
+			defer e.close()
+			assert.Error(t, e.register())
+		})
 	})
 }

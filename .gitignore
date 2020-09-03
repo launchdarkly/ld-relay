@@ -33,7 +33,7 @@ ld-relay.prod.conf
 pkg
 _out
 
+build
 /bin/
-
 /dist/
 .vscode

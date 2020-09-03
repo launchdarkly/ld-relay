@@ -17,8 +17,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
 )
 
 const (
@@ -41,10 +39,6 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	defer manager.Close()
 
 	exporter := st.NewTestMetricsExporter()
-	view.RegisterExporter(exporter)
-	defer view.UnregisterExporter(exporter)
-	view.SetReportingPeriod(time.Millisecond * 10)
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 	// Since the global OpenCensus state will accumulate metrics from different tests, we'll use a randomized
 	// environment name to isolate the data from this particular test.
@@ -71,11 +65,13 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	require.NoError(t, err)
 	defer env.Close()
 
-	action(metricsMiddlewareTestParams{
-		env:      env,
-		envName:  envName,
-		exporter: exporter,
-		mockLog:  mockLog,
+	exporter.WithExporter(func() {
+		action(metricsMiddlewareTestParams{
+			env:      env,
+			envName:  envName,
+			exporter: exporter,
+			mockLog:  mockLog,
+		})
 	})
 }
 

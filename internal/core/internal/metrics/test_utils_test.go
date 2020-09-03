@@ -2,12 +2,17 @@ package metrics
 
 import (
 	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/pborman/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-
-	"go.opencensus.io/trace"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 )
 
 const (
@@ -15,20 +20,42 @@ const (
 	userAgentValue     = "my-agent"
 )
 
-type testExporter struct {
-	spans chan *trace.SpanData
+type testWithExporterParams struct {
+	exporter *st.TestMetricsExporter
+	relayID  string
+	envName  string
+	env      *EnvironmentManager
+	mockLog  *ldlogtest.MockLog
 }
 
-func (e *testExporter) ExportSpan(s *trace.SpanData) {
-	e.spans <- s
-}
+func testWithExporter(t *testing.T, action func(testWithExporterParams)) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
 
-func newTestExporter() *testExporter {
-	return &testExporter{spans: make(chan *trace.SpanData, 100)}
+	manager, err := NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
+	require.NoError(t, err)
+	defer manager.Close()
+
+	// Since the global OpenCensus state will accumulate metrics from different tests, we'll use a randomized
+	// environment name to isolate the data from this particular test.
+	envName := "env-" + uuid.New()
+
+	env, err := manager.AddEnvironment(envName, nil)
+	require.NoError(t, err)
+
+	exporter := st.NewTestMetricsExporter()
+	exporter.WithExporter(func() {
+		action(testWithExporterParams{
+			exporter: exporter,
+			relayID:  manager.metricsRelayID,
+			envName:  envName,
+			env:      env,
+			mockLog:  mockLog,
+		})
+	})
 }
 
 type testExporterTypeImpl struct {
-	instance        *testExporter
 	name            string
 	checkEnabled    func(config.MetricsConfig) bool
 	errorOnCreate   error
@@ -67,7 +94,6 @@ func (t *testExporterTypeImpl) createExporterIfEnabled(
 
 func (t *testExporterImpl) register() error {
 	if t.exporterType.errorOnRegister == nil {
-		trace.RegisterExporter(t.exporterType.instance)
 		t.registered = true
 	}
 	return t.exporterType.errorOnRegister
@@ -75,7 +101,6 @@ func (t *testExporterImpl) register() error {
 
 func (t *testExporterImpl) close() error {
 	if t.exporterType.errorOnClose == nil {
-		trace.UnregisterExporter(t.exporterType.instance)
 		t.closed = true
 	}
 	return t.exporterType.errorOnClose

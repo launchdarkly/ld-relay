@@ -23,44 +23,40 @@ var (
 )
 
 // ConfigureDataStore provides the appropriate Go SDK data store factory (in-memory, Redis, etc.) based on
-// the Relay configuration, or returns an error if the configuration is invalid.
+// the Relay configuration. It can return an error for some invalid configurations, but it assumes that we
+// have already done the standard validation steps defined in the config package.
 func ConfigureDataStore(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 	loggers ldlog.Loggers,
 ) (interfaces.DataStoreFactory, error) {
-	var dbFactory interfaces.DataStoreFactory
-
-	useRedis := allConfig.Redis.URL.IsDefined()
-	useConsul := allConfig.Consul.Host != ""
-	useDynamoDB := allConfig.DynamoDB.Enabled
-
-	if useRedis {
+	if allConfig.Redis.URL.IsDefined() {
 		dbConfig := allConfig.Redis
 		redisURL := dbConfig.URL.String()
-		loggers.Infof("Using Redis feature store: %s with prefix: %s\n", redisURL, envConfig.Prefix)
 
-		dialOptions := []redigo.DialOption{}
-		if dbConfig.TLS || (dbConfig.Password != "") {
-			if dbConfig.TLS {
-				if strings.HasPrefix(redisURL, "redis:") {
-					// Redigo's DialUseTLS option will not work if you're specifying a URL.
-					redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
-				}
+		if dbConfig.TLS {
+			if strings.HasPrefix(redisURL, "redis:") {
+				// Redigo's DialUseTLS option will not work if you're specifying a URL.
+				redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
 			}
-			if dbConfig.Password != "" {
-				dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
-			}
+		}
+
+		loggers.Infof("Using Redis feature store: %s with prefix: %s", redisURL, envConfig.Prefix)
+
+		var dialOptions []redigo.DialOption
+		if dbConfig.Password != "" {
+			dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
 		}
 
 		builder := ldredis.DataStore().
 			URL(redisURL).
 			Prefix(envConfig.Prefix).
 			DialOptions(dialOptions...)
-		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
+		return ldcomponents.PersistentDataStore(builder).
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), nil
 	}
-	if useConsul {
+
+	if allConfig.Consul.Host != "" {
 		dbConfig := allConfig.Consul
 		loggers.Infof("Using Consul feature store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
 
@@ -73,10 +69,11 @@ func ConfigureDataStore(
 		}
 		builder.Address(dbConfig.Host) // this is deliberately done last so it's not overridden by builder.Config()
 
-		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
+		return ldcomponents.PersistentDataStore(builder).
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), nil
 	}
-	if useDynamoDB {
+
+	if allConfig.DynamoDB.Enabled {
 		// Note that the global TableName can be omitted if you specify a TableName for each environment
 		// (this is why we need an Enabled property here, since the other properties are all optional).
 		// You can also specify a prefix for each environment, as with the other databases.
@@ -99,12 +96,9 @@ func ConfigureDataStore(
 			}
 			builder.SessionOptions(awsOptions)
 		}
-		dbFactory = ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL))
+		return ldcomponents.PersistentDataStore(builder).
+			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), nil
 	}
 
-	if dbFactory != nil {
-		return dbFactory, nil
-	}
 	return ldcomponents.InMemoryDataStore(), nil
 }

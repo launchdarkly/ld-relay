@@ -128,7 +128,7 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 	case privateNewConnMeasureName:
 		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
 		if value == 0 {
-			delete(e.newConnections, key)
+			delete(e.newConnections, key) // COVERAGE: won't happen in practice since this measure is only ever incremented
 		} else {
 			e.newConnections[key] = value
 		}
