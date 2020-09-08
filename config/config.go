@@ -167,8 +167,10 @@ type RedisConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type ConsulConfig struct {
-	Host     string         `conf:"CONSUL_HOST"`
-	LocalTTL ct.OptDuration `conf:"CACHE_TTL"`
+	Host      string         `conf:"CONSUL_HOST"`
+	LocalTTL  ct.OptDuration `conf:"CACHE_TTL"`
+	Token     string         `conf:"CONSUL_TOKEN"`
+	TokenFile string         `conf:"CONSUL_TOKEN_FILE"`
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.

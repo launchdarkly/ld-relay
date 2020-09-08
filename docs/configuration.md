@@ -177,11 +177,13 @@ The AWS credentials and region for DynamoDB are not part of the Relay configurat
 
 To learn more, read [Persistent storage](./persistent-storage.md).
 
-Property in file | Environment var | Type    | Default     | Description
----------------- | --------------- | :-----: | :---------- | -----------
-n/a              | `USE_CONSUL`    | Boolean | `false`     | If you are using environment variables, set this to enable Consul.
-`host`           | `CONSUL_HOST`   | String  | `localhost` | Hostname of the Consul server. Consul is enabled if this is set.
-`localTtl`       | `CACHE_TTL`     | Duration | `30s`      | Length of time that database items can be cached in memory.
+Property in file | Environment var     | Type     | Default     | Description
+---------------- | ------------------- | :------: | :---------- | -----------
+n/a              | `USE_CONSUL`        | Boolean  | `false`     | If you are using environment variables, set this to enable Consul.
+`host`           | `CONSUL_HOST`       | String   | `localhost` | Hostname of the Consul server. Consul is enabled if this is set.
+`token`          | `CONSUL_TOKEN`      | String   |             | ACL token, if the Consul server is configured with ACLs.
+`tokenFile`      | `CONSUL_TOKEN_FILE` | String   |             | If you would prefer to keep your ACL token in a separate file rather than in the Relay Proxy configuration, set this to the file path.
+`localTtl`       | `CACHE_TTL`         | Duration | `30s`      | Length of time that database items can be cached in memory.
 
 
 ### File section: `[Datadog]`

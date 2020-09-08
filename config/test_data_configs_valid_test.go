@@ -60,6 +60,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigConsulMinimal(),
 		makeValidConfigConsulAll(),
 		makeValidConfigConsulOneEnvNoPrefix(),
+		makeValidConfigConsulToken(),
+		makeValidConfigConsulTokenFile(),
 		makeValidConfigDynamoDBMinimal(),
 		makeValidConfigDynamoDBAll(),
 		makeValidConfigDynamoDBMultiEnvsWithTable(),
@@ -442,6 +444,47 @@ SdkKey = key1
 Host = localhost
 `
 	c.warnings = []string{warnEnvWithoutDBDisambiguation("env1", false)}
+	return c
+}
+
+func makeValidConfigConsulToken() testDataValidConfig {
+	c := testDataValidConfig{name: "Consul - token"}
+	c.makeConfig = func(c *Config) {
+		c.Consul = ConsulConfig{
+			Host:  defaultConsulHost,
+			Token: "abc",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_CONSUL":   "1",
+		"CONSUL_TOKEN": "abc",
+	}
+	c.fileContent = `
+[Consul]
+Host = localhost
+Token = abc
+`
+	return c
+}
+
+func makeValidConfigConsulTokenFile() testDataValidConfig {
+	aFileThatExists := "./config.go" // doesn't contain a token, but is a file that exists
+	c := testDataValidConfig{name: "Consul - token file"}
+	c.makeConfig = func(c *Config) {
+		c.Consul = ConsulConfig{
+			Host:      defaultConsulHost,
+			TokenFile: aFileThatExists, // doesn't contain a token, but is a file that exists
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_CONSUL":        "1",
+		"CONSUL_TOKEN_FILE": aFileThatExists,
+	}
+	c.fileContent = `
+[Consul]
+Host = localhost
+TokenFile = ` + aFileThatExists + `
+`
 	return c
 }
 
