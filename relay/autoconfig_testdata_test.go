@@ -1,10 +1,10 @@
-package entrelay
+package relay
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 
 	"github.com/stretchr/testify/assert"
 

@@ -1,4 +1,4 @@
-package entrelay
+package relay
 
 import (
 	"net/http/httptest"
@@ -20,7 +20,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
-// The tests in this file verify the auto-configuration behavior of RelayEnterprise, assuming that the
+// The tests in this file verify the auto-configuration behavior of Relay, assuming that the
 // low-level StreamManager implementation is working correctly. StreamManager is tested more thoroughly,
 // including error conditions and reconnection, in the autoconfig package where it is implemented.
 //
@@ -29,7 +29,7 @@ import (
 
 type autoConfTestParams struct {
 	t                *testing.T
-	relay            *RelayEnterprise
+	relay            *Relay
 	stream           httphelpers.SSEStreamControl
 	streamRequestsCh <-chan httphelpers.HTTPRequestInfo
 	eventRequestsCh  <-chan httphelpers.HTTPRequestInfo
@@ -70,7 +70,7 @@ func autoConfTest(
 			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
 			config.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
 
-			relay, err := NewRelayEnterprise(
+			relay, err := newRelayInternal(
 				config,
 				mockLog.Loggers,
 				testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),

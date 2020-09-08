@@ -1,11 +1,11 @@
-package entrelay
+package relay
 
 import (
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 )
 
 const (
@@ -15,32 +15,34 @@ const (
 	logMsgKeyExpiryUnknownEnv      = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 )
 
-// AddEnvironment is called from autoconfig.StreamManager.
-func (r *RelayEnterprise) AddEnvironment(params autoconfig.EnvironmentParams) {
+type relayAutoConfigActions struct {
+	r *Relay
+}
+
+func (a relayAutoConfigActions) AddEnvironment(params autoconfig.EnvironmentParams) {
 	// Since we're not holding the lock on the RelayCore, there is theoretically a race condition here
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
-	envConfig := makeEnvironmentConfig(params, r.config.AutoConfig)
-	env, _, err := r.core.AddEnvironment(params.Identifiers, envConfig)
+	envConfig := makeEnvironmentConfig(params, a.r.config.AutoConfig)
+	env, _, err := a.r.core.AddEnvironment(params.Identifiers, envConfig)
 	if err != nil {
-		r.core.Loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 	}
 
 	if params.ExpiringSDKKey != "" {
-		if r.core.GetEnvironment(params.ExpiringSDKKey) == nil {
+		if a.r.core.GetEnvironment(params.ExpiringSDKKey) == nil {
 			env.AddCredential(params.ExpiringSDKKey)
 			env.DeprecateCredential(params.ExpiringSDKKey)
 		}
 	}
 }
 
-// UpdateEnvironment is called from autoconfig.StreamManager.
-func (r *RelayEnterprise) UpdateEnvironment(params autoconfig.EnvironmentParams) {
-	env := r.core.GetEnvironment(params.EnvID)
+func (a relayAutoConfigActions) UpdateEnvironment(params autoconfig.EnvironmentParams) {
+	env := a.r.core.GetEnvironment(params.EnvID)
 	if env == nil {
-		r.core.Loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
-		r.AddEnvironment(params)
+		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
+		a.AddEnvironment(params)
 		return
 	}
 
@@ -61,41 +63,39 @@ func (r *RelayEnterprise) UpdateEnvironment(params autoconfig.EnvironmentParams)
 
 	if params.SDKKey != oldSDKKey {
 		env.AddCredential(params.SDKKey)
-		r.core.AddedEnvironmentCredential(env, params.SDKKey)
+		a.r.core.AddedEnvironmentCredential(env, params.SDKKey)
 		if params.ExpiringSDKKey == oldSDKKey {
 			env.DeprecateCredential(oldSDKKey)
 		} else {
-			r.core.RemovingEnvironmentCredential(oldSDKKey)
+			a.r.core.RemovingEnvironmentCredential(oldSDKKey)
 			env.RemoveCredential(oldSDKKey)
 		}
 	}
 
 	if params.MobileKey != oldMobileKey {
 		env.AddCredential(params.MobileKey)
-		r.core.AddedEnvironmentCredential(env, params.MobileKey)
-		r.core.RemovingEnvironmentCredential(oldMobileKey)
+		a.r.core.AddedEnvironmentCredential(env, params.MobileKey)
+		a.r.core.RemovingEnvironmentCredential(oldMobileKey)
 		env.RemoveCredential(oldMobileKey)
 	}
 }
 
-// DeleteEnvironment is called from autoconfig.StreamManager.
-func (r *RelayEnterprise) DeleteEnvironment(id config.EnvironmentID) {
-	env := r.core.GetEnvironment(id)
+func (a relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
+	env := a.r.core.GetEnvironment(id)
 	if env == nil {
-		r.core.Loggers.Warnf(logMsgAutoConfDeleteUnknownEnv, id)
+		a.r.loggers.Warnf(logMsgAutoConfDeleteUnknownEnv, id)
 		return
 	}
-	r.core.RemoveEnvironment(env)
+	a.r.core.RemoveEnvironment(env)
 }
 
-// KeyExpired is called from autoconfig.StreamManager.
-func (r *RelayEnterprise) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
-	env := r.core.GetEnvironment(id)
+func (a relayAutoConfigActions) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
+	env := a.r.core.GetEnvironment(id)
 	if env == nil {
-		r.core.Loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
+		a.r.loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
 		return
 	}
-	r.core.RemovingEnvironmentCredential(oldKey)
+	a.r.core.RemovingEnvironmentCredential(oldKey)
 	env.RemoveCredential(oldKey)
 }
 

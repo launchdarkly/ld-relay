@@ -1,4 +1,4 @@
-package entrelay
+package relay
 
 import (
 	"net/http"
@@ -46,7 +46,7 @@ func verifyEventVerbatimRelay(p autoConfTestParams, url string, authKey config.S
 	}
 	req := st.BuildRequest("POST", url, body, headers)
 
-	resp, _ := st.DoRequest(req, p.relay.GetHandler())
+	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
 	gotReq := <-p.eventRequestsCh
@@ -61,7 +61,7 @@ func verifyEventSummarizingRelay(p autoConfTestParams, url string, authKey confi
 	}
 	req := st.BuildRequest("POST", url, body, headers)
 
-	resp, _ := st.DoRequest(req, p.relay.GetHandler())
+	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
 	gotReq := <-p.eventRequestsCh

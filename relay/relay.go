@@ -7,7 +7,9 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
@@ -22,9 +24,10 @@ var (
 // Relay relays endpoints to and from the LaunchDarkly service
 type Relay struct {
 	http.Handler
-	core    *core.RelayCore
-	config  config.Config
-	loggers ldlog.Loggers
+	core             *core.RelayCore
+	autoConfigStream *autoconfig.StreamManager
+	config           config.Config
+	loggers          ldlog.Loggers
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -42,10 +45,16 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactor
 }
 
 func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks.ClientFactoryFunc) (*Relay, error) {
-	// The "must have at least one environment" check is not included in config.Validate because it will not
-	// always be applicable for all Relay variants
-	if len(c.Environment) == 0 {
+	userAgent := "LDRelay/" + version.Version
+	hasAutoConfigKey := c.AutoConfig.Key != ""
+
+	if !hasAutoConfigKey && len(c.Environment) == 0 {
 		return nil, errNoEnvironments
+	}
+
+	logNameMode := relayenv.LogNameIsSDKKey
+	if hasAutoConfigKey {
+		logNameMode = relayenv.LogNameIsEnvID
 	}
 
 	core, err := core.NewRelayCore(
@@ -53,17 +62,39 @@ func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks
 		loggers,
 		clientFactory,
 		version.Version,
-		"LDRelay/"+version.Version,
-		relayenv.LogNameIsSDKKey,
+		userAgent,
+		logNameMode,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	r := Relay{
+	r := &Relay{
 		core:    core,
 		config:  c,
 		loggers: loggers,
+	}
+
+	if hasAutoConfigKey {
+		httpConfig, err := httpconfig.NewHTTPConfig(
+			c.Proxy,
+			c.AutoConfig.Key,
+			userAgent,
+			core.Loggers,
+		)
+		if err != nil {
+			core.Close()
+			return nil, err
+		}
+		r.autoConfigStream = autoconfig.NewStreamManager(
+			c.AutoConfig.Key,
+			c.Main.StreamURI.String(),
+			relayAutoConfigActions{r},
+			httpConfig,
+			0,
+			core.Loggers,
+		)
+		_ = r.autoConfigStream.Start()
 	}
 
 	if c.Main.ExitAlways {
@@ -71,17 +102,20 @@ func newRelayInternal(c config.Config, loggers ldlog.Loggers, clientFactory sdks
 		// Just wait until all clients have either started or failed, then exit without bothering
 		// to set up HTTP handlers.
 		err := r.core.WaitForAllClients(0)
-		return &r, err
+		return r, err
 	}
 
 	r.Handler = core.MakeRouter()
-	return &r, nil
+	return r, nil
 }
 
 // Close shuts down components created by the Relay.
 //
 // Currently this includes only the metrics components; it does not close SDK clients.
 func (r *Relay) Close() error {
+	if r.autoConfigStream != nil {
+		r.autoConfigStream.Close()
+	}
 	r.core.Close()
 	return nil
 }
