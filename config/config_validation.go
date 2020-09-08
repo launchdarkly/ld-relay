@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -19,7 +18,6 @@ var (
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
-	errConsulTokenFileNotFound = errors.New("Consul token file not found")                                                      //nolint:stylecheck
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -109,13 +107,8 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	}
 
 	if c.Consul.Host != "" {
-		switch {
-		case c.Consul.Token != "" && c.Consul.TokenFile != "":
+		if c.Consul.Token != "" && c.Consul.TokenFile != "" {
 			result.AddError(nil, errConsulTokenAndTokenFile)
-		case c.Consul.TokenFile != "":
-			if _, err := os.Stat(c.Consul.TokenFile); os.IsNotExist(err) {
-				result.AddError(nil, errConsulTokenFileNotFound)
-			}
 		}
 	}
 

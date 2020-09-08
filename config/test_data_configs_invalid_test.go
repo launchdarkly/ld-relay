@@ -27,7 +27,6 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
 		makeInvalidConfigConsulTokenAndTokenFile(),
-		makeInvalidConfigConsulTokenFileNotFound(),
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
@@ -282,21 +281,6 @@ func makeInvalidConfigConsulTokenAndTokenFile() testDataInvalidConfig {
 Host = localhost
 Token = abc
 TokenFile = def
-`
-	return c
-}
-
-func makeInvalidConfigConsulTokenFileNotFound() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Consul - token file not found"}
-	c.envVarsError = errConsulTokenFileNotFound.Error()
-	c.envVars = map[string]string{
-		"USE_CONSUL":        "1",
-		"CONSUL_TOKEN_FILE": "./no-such-file",
-	}
-	c.fileContent = `
-[Consul]
-Host = localhost
-TokenFile = ./no-such-file
 `
 	return c
 }
