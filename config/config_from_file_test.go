@@ -10,6 +10,7 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 )
@@ -21,7 +22,7 @@ func TestConfigFromFileWithValidProperties(t *testing.T) {
 			continue
 		}
 		t.Run(tdc.name, func(t *testing.T) {
-			testFileWithValidConfig(t, tdc.makeConfig, tdc.fileContent)
+			testFileWithValidConfig(t, tdc)
 		})
 	}
 }
@@ -60,26 +61,26 @@ Unknown = x`,
 	})
 
 	t.Run("allows boolean values 0/1 or true/false", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.ExitOnError = true },
-			`[Main]
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			fileContent: `[Main]
 ExitOnError = true`,
-		)
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.ExitOnError = true },
-			`[Main]
+		})
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = true },
+			fileContent: `[Main]
 ExitOnError = 1`,
-		)
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.ExitOnError = false },
-			`[Main]
+		})
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			fileContent: `[Main]
 ExitOnError = false`,
-		)
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.ExitOnError = false },
-			`[Main]
+		})
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
+			fileContent: `[Main]
 ExitOnError = 0`,
-		)
+		})
 	})
 
 	t.Run("rejects invalid boolean value", func(t *testing.T) {
@@ -91,11 +92,11 @@ ExitOnError = "x"`,
 	})
 
 	t.Run("parses valid int", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
-			`[Main]
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.Port = mustOptIntGreaterThanZero(222) },
+			fileContent: `[Main]
 Port = 222`,
-		)
+		})
 	})
 
 	t.Run("rejects invalid int", func(t *testing.T) {
@@ -120,11 +121,11 @@ Port = "-1"`,
 	})
 
 	t.Run("parses valid URI", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
-			`[Main]
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
+			fileContent: `[Main]
 BaseUri = "http://some/uri"`,
-		)
+		})
 	})
 
 	t.Run("rejects invalid URI", func(t *testing.T) {
@@ -141,11 +142,11 @@ BaseUri = "not/absolute"`,
 	})
 
 	t.Run("parses valid duration", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
-			`[Main]
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.HeartbeatInterval = ct.NewOptDuration(3 * time.Second) },
+			fileContent: `[Main]
 HeartbeatInterval = 3s`,
-		)
+		})
 	})
 
 	t.Run("rejects invalid duration", func(t *testing.T) {
@@ -157,16 +158,16 @@ HeartbeatInterval = "x"`,
 	})
 
 	t.Run("parses valid log level", func(t *testing.T) {
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
-			`[Main]
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
+			fileContent: `[Main]
 LogLevel = "warn"`,
-		)
-		testFileWithValidConfig(t,
-			func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
-			`[Main]
+		})
+		testFileWithValidConfig(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
+			fileContent: `[Main]
 LogLevel = "eRrOr"`,
-		)
+		})
 	})
 
 	t.Run("rejects invalid log level", func(t *testing.T) {
@@ -178,17 +179,15 @@ LogLevel = "wrong"`,
 	})
 }
 
-func testFileWithValidConfig(t *testing.T, buildConfig func(c *Config), fileContent string) {
-	var expectedConfig Config
-	buildConfig(&expectedConfig)
-
+func testFileWithValidConfig(t *testing.T, tdc testDataValidConfig) {
 	helpers.WithTempFile(func(filename string) {
-		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
+		require.NoError(t, ioutil.WriteFile(filename, []byte(tdc.fileContent), 0))
 
 		var c Config
-		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
+		mockLog := ldlogtest.NewMockLog()
+		err := LoadConfigFile(&c, filename, mockLog.Loggers)
 		require.NoError(t, err)
-		assert.Equal(t, expectedConfig, c)
+		tdc.assertResult(t, c, mockLog)
 	})
 }
 

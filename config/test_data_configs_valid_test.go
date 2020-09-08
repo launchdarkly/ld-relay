@@ -2,10 +2,15 @@ package config
 
 import (
 	"crypto/tls"
+	"regexp"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 )
 
 type testDataValidConfig struct {
@@ -13,14 +18,16 @@ type testDataValidConfig struct {
 	makeConfig  func(c *Config)
 	envVars     map[string]string
 	fileContent string
+	warnings    []string
 }
 
-type testDataInvalidConfig struct {
-	name         string
-	envVarsError string
-	fileError    string
-	envVars      map[string]string
-	fileContent  string
+func (tdc testDataValidConfig) assertResult(t *testing.T, actualConfig Config, mockLog *ldlogtest.MockLog) {
+	var expectedConfig Config
+	tdc.makeConfig(&expectedConfig)
+	assert.Equal(t, expectedConfig, actualConfig)
+	for _, message := range tdc.warnings {
+		mockLog.AssertMessageMatch(t, true, ldlog.Warn, regexp.QuoteMeta(message))
+	}
 }
 
 func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
@@ -43,15 +50,20 @@ func makeValidConfigs() []testDataValidConfig {
 	return []testDataValidConfig{
 		makeValidConfigAllBaseProperties(),
 		makeValidConfigAutoConfig(),
+		makeValidConfigAutoConfigWithDatabase(),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisURL(),
 		makeValidConfigRedisPortOnly(),
 		makeValidConfigRedisDockerPort(),
+		makeValidConfigRedisOneEnvNoPrefix(),
 		makeValidConfigConsulMinimal(),
 		makeValidConfigConsulAll(),
+		makeValidConfigConsulOneEnvNoPrefix(),
 		makeValidConfigDynamoDBMinimal(),
 		makeValidConfigDynamoDBAll(),
+		makeValidConfigDynamoDBMultiEnvsWithTable(),
+		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
 		makeValidConfigDatadogMinimal(),
 		makeValidConfigDatadogAll(),
 		makeValidConfigStackdriverMinimal(),
@@ -59,24 +71,6 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigPrometheusMinimal(),
 		makeValidConfigPrometheusAll(),
 		makeValidConfigProxy(),
-	}
-}
-
-func makeInvalidConfigs() []testDataInvalidConfig {
-	return []testDataInvalidConfig{
-		makeInvalidConfigMissingSDKKey(),
-		makeInvalidConfigTLSWithNoCertOrKey(),
-		makeInvalidConfigTLSWithNoCert(),
-		makeInvalidConfigTLSWithNoKey(),
-		makeInvalidConfigTLSVersion(),
-		makeInvalidConfigAutoConfKeyWithEnvironments(),
-		makeInvalidConfigAutoConfAllowedOriginWithNoKey(),
-		makeInvalidConfigAutoConfPrefixWithNoKey(),
-		makeInvalidConfigAutoConfTableNameWithNoKey(),
-		makeInvalidConfigRedisInvalidHostname(),
-		makeInvalidConfigRedisInvalidDockerPort(),
-		makeInvalidConfigRedisConflictingParams(),
-		makeInvalidConfigMultipleDatabases(),
 	}
 }
 
@@ -215,17 +209,40 @@ func makeValidConfigAutoConfig() testDataValidConfig {
 	c := testDataValidConfig{name: "auto-config properties"}
 	c.makeConfig = func(c *Config) {
 		c.AutoConfig = AutoConfigConfig{
+			Key:              AutoConfigKey("autokey"),
+			EnvAllowedOrigin: ct.NewOptStringList([]string{"http://first", "http://second"}),
+		}
+	}
+	c.envVars = map[string]string{
+		"AUTO_CONFIG_KEY":    "autokey",
+		"ENV_ALLOWED_ORIGIN": "http://first,http://second",
+	}
+	c.fileContent = `
+[AutoConfig]
+Key = autokey
+EnvAllowedOrigin = http://first
+EnvAllowedOrigin = http://second	
+`
+	return c
+}
+
+func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
+	c := testDataValidConfig{name: "auto-config properties with database"}
+	c.makeConfig = func(c *Config) {
+		c.AutoConfig = AutoConfigConfig{
 			Key:                   AutoConfigKey("autokey"),
 			EnvDatastorePrefix:    "prefix-$CID",
 			EnvDatastoreTableName: "table-$CID",
 			EnvAllowedOrigin:      ct.NewOptStringList([]string{"http://first", "http://second"}),
 		}
+		c.DynamoDB.Enabled = true
 	}
 	c.envVars = map[string]string{
 		"AUTO_CONFIG_KEY":          "autokey",
 		"ENV_DATASTORE_PREFIX":     "prefix-$CID",
 		"ENV_DATASTORE_TABLE_NAME": "table-$CID",
 		"ENV_ALLOWED_ORIGIN":       "http://first,http://second",
+		"USE_DYNAMODB":             "1",
 	}
 	c.fileContent = `
 [AutoConfig]
@@ -233,7 +250,10 @@ Key = autokey
 EnvDatastorePrefix = prefix-$CID
 EnvDatastoreTableName = table-$CID
 EnvAllowedOrigin = http://first
-EnvAllowedOrigin = http://second	
+EnvAllowedOrigin = http://second
+
+[DynamoDB]
+Enabled = true
 `
 	return c
 }
@@ -336,6 +356,31 @@ func makeValidConfigRedisDockerPort() testDataValidConfig {
 	return c
 }
 
+func makeValidConfigRedisOneEnvNoPrefix() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - single env, no prefix (warning)"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL: newOptURLAbsoluteMustBeValid("redis://localhost:6379"),
+		}
+		c.Environment = map[string]*EnvConfig{
+			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+		}
+	}
+	c.envVars = map[string]string{
+		"LD_ENV_env1": "key1",
+		"USE_REDIS":   "1",
+	}
+	c.fileContent = `
+[Environment "env1"]
+SdkKey = key1
+
+[Redis]
+Host = localhost
+`
+	c.warnings = []string{warnEnvWithoutDBDisambiguation("env1", false)}
+	return c
+}
+
 func makeValidConfigConsulMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Consul - minimal parameters"}
 	c.makeConfig = func(c *Config) {
@@ -372,6 +417,31 @@ func makeValidConfigConsulAll() testDataValidConfig {
 Host = "consulhost"
 LocalTTL = 3s
 `
+	return c
+}
+
+func makeValidConfigConsulOneEnvNoPrefix() testDataValidConfig {
+	c := testDataValidConfig{name: "Consul - single env, no prefix (warning)"}
+	c.makeConfig = func(c *Config) {
+		c.Consul = ConsulConfig{
+			Host: defaultConsulHost,
+		}
+		c.Environment = map[string]*EnvConfig{
+			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+		}
+	}
+	c.envVars = map[string]string{
+		"LD_ENV_env1": "key1",
+		"USE_CONSUL":  "1",
+	}
+	c.fileContent = `
+[Environment "env1"]
+SdkKey = key1
+
+[Consul]
+Host = localhost
+`
+	c.warnings = []string{warnEnvWithoutDBDisambiguation("env1", false)}
 	return c
 }
 
@@ -415,6 +485,64 @@ TableName = "table"
 URL = "http://localhost:8000"
 LocalTTL = 3s
 `
+	return c
+}
+
+func makeValidConfigDynamoDBMultiEnvsWithTable() testDataValidConfig {
+	c := testDataValidConfig{name: "DynamoDB - multiple envs, table name defined instead of prefix"}
+	c.makeConfig = func(c *Config) {
+		c.DynamoDB = DynamoDBConfig{
+			Enabled: true,
+		}
+		c.Environment = map[string]*EnvConfig{
+			"env1": &EnvConfig{SDKKey: SDKKey("key1"), TableName: "table1"},
+			"env2": &EnvConfig{SDKKey: SDKKey("key2"), TableName: "table2"},
+		}
+	}
+	c.envVars = map[string]string{
+		"LD_ENV_env1":        "key1",
+		"LD_TABLE_NAME_env1": "table1",
+		"LD_ENV_env2":        "key2",
+		"LD_TABLE_NAME_env2": "table2",
+		"USE_DYNAMODB":       "1",
+	}
+	c.fileContent = `
+[Environment "env1"]
+SdkKey = key1
+TableName = table1
+
+[Environment "env2"]
+SdkKey = key2
+TableName = table2
+
+[DynamoDB]
+Enabled = true
+`
+	return c
+}
+
+func makeValidConfigDynamoDBOneEnvNoPrefixOrTable() testDataValidConfig {
+	c := testDataValidConfig{name: "DynamoDB - single env, no prefix or table name (warning)"}
+	c.makeConfig = func(c *Config) {
+		c.DynamoDB = DynamoDBConfig{
+			Enabled: true,
+		}
+		c.Environment = map[string]*EnvConfig{
+			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+		}
+	}
+	c.envVars = map[string]string{
+		"LD_ENV_env1":  "key1",
+		"USE_DYNAMODB": "1",
+	}
+	c.fileContent = `
+[Environment "env1"]
+SdkKey = key1
+
+[DynamoDB]
+Enabled = true
+`
+	c.warnings = []string{warnEnvWithoutDBDisambiguation("env1", true)}
 	return c
 }
 
@@ -574,180 +702,6 @@ Password = "pass"
 Domain = "domain"
 NTLMAuth = true
 CaCertFiles = "cert"
-`
-	return c
-}
-
-func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "environment without SDK key"}
-	c.fileContent = `
-[Environment "envname"]
-MobileKey = mob-xxx
-`
-	c.fileError = `SDK key is required for environment "envname"`
-	return c
-}
-
-func makeInvalidConfigTLSWithNoCertOrKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "TLS without cert/key"}
-	c.envVarsError = "TLS cert and key are required if TLS is enabled"
-	c.envVars = map[string]string{"TLS_ENABLED": "1"}
-	c.fileContent = `
-[Main]
-TLSEnabled = true
-`
-	return c
-}
-
-func makeInvalidConfigTLSWithNoCert() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "TLS without cert"}
-	c.envVarsError = "TLS cert and key are required if TLS is enabled"
-	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_KEY": "key"}
-	c.fileContent = `
-[Main]
-TLSEnabled = true
-TLSKey = keyfile
-`
-	return c
-}
-
-func makeInvalidConfigTLSWithNoKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "TLS without key"}
-	c.envVarsError = "TLS cert and key are required if TLS is enabled"
-	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_CERT": "cert"}
-	c.fileContent = `
-[Main]
-TLSEnabled = true
-TLSCert = certfile
-`
-	return c
-}
-
-func makeInvalidConfigTLSVersion() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "bad TLS version"}
-	c.envVarsError = "not a valid TLS version"
-	c.envVars = map[string]string{"TLS_ENABLED": "1", "TLS_MIN_VERSION": "x"}
-	c.fileContent = `
-[Main]
-TLSEnabled = true
-TLSMinVersion = x
-`
-	return c
-}
-
-func makeInvalidConfigAutoConfKeyWithEnvironments() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "auto-conf key with environments"}
-	c.envVarsError = errAutoConfWithEnvironments.Error()
-	c.envVars = map[string]string{
-		"AUTO_CONFIG_KEY": "autokey",
-		"LD_ENV_envname":  "sdk-key",
-	}
-	c.fileContent = `
-[AutoConfig]
-Key = autokey
-
-[Environment "envname"]
-SDKKey = sdk-key
-`
-	return c
-}
-
-func makeInvalidConfigAutoConfAllowedOriginWithNoKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "auto-conf allowed origin with no key"}
-	c.envVarsError = errAutoConfPropertiesWithNoKey.Error()
-	c.envVars = map[string]string{
-		"ENV_ALLOWED_ORIGIN": "http://origin",
-	}
-	c.fileContent = `
-[AutoConfig]
-EnvAllowedOrigin = http://origin
-`
-	return c
-}
-
-func makeInvalidConfigAutoConfPrefixWithNoKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "auto-conf prefix with no key"}
-	c.envVarsError = errAutoConfPropertiesWithNoKey.Error()
-	c.envVars = map[string]string{
-		"ENV_DATASTORE_PREFIX": "prefix",
-	}
-	c.fileContent = `
-[AutoConfig]
-EnvDatastorePrefix = prefix
-`
-	return c
-}
-
-func makeInvalidConfigAutoConfTableNameWithNoKey() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "auto-conf table name with no key"}
-	c.envVarsError = errAutoConfPropertiesWithNoKey.Error()
-	c.envVars = map[string]string{
-		"ENV_DATASTORE_TABLE_NAME": "table",
-	}
-	c.fileContent = `
-[AutoConfig]
-EnvDatastoreTableName = table
-`
-	return c
-}
-
-func makeInvalidConfigRedisInvalidHostname() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Redis - invalid hostname"}
-	c.envVarsError = "invalid Redis hostname"
-	c.envVars = map[string]string{
-		"USE_REDIS":  "1",
-		"REDIS_HOST": "\\",
-	}
-	c.fileContent = `
-[Redis]
-Host = "\\"
-`
-	return c
-}
-
-func makeInvalidConfigRedisInvalidDockerPort() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Redis - Docker port syntax with invalid port"}
-	c.envVarsError = "REDIS_PORT: not a valid integer"
-	c.envVars = map[string]string{
-		"USE_REDIS":  "1",
-		"REDIS_PORT": "tcp://redishost:xxx",
-	}
-	return c
-}
-
-func makeInvalidConfigRedisConflictingParams() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Redis - conflicting parameters"}
-	c.envVarsError = "please specify Redis URL or host/port, but not both"
-	c.envVars = map[string]string{
-		"USE_REDIS":  "1",
-		"REDIS_HOST": "redishost",
-		"REDIS_URL":  "http://redishost:6400",
-	}
-	c.fileContent = `
-[Redis]
-Host = "redishost"
-Url = "http://redishost:6400"
-`
-	return c
-}
-
-func makeInvalidConfigMultipleDatabases() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "multiple databases are enabled"}
-	c.envVarsError = "multiple databases are enabled (Redis, Consul, DynamoDB); only one is allowed"
-	c.envVars = map[string]string{
-		"USE_REDIS":    "1",
-		"USE_CONSUL":   "1",
-		"USE_DYNAMODB": "1",
-	}
-	c.fileContent = `
-[Redis]
-Host = "localhost"
-
-[Consul]
-Host = "consulhost"
-
-[DynamoDB]
-Enabled = true
 `
 	return c
 }
