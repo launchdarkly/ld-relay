@@ -8,19 +8,21 @@ Here is an example of how you might run the Relay Proxy endpoints inside your we
 
 ```go
 import (
-    "github.com/launchdarkly/ld-relay/v6/core/config"
+    "github.com/gorilla/mux"
+    "github.com/launchdarkly/ld-relay/v6/config"
     "github.com/launchdarkly/ld-relay/v6/relay"
+    "gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 func createRelayConfig() config.Config {
-    cfg := config.DefaultConfig
-    if err := config.LoadConfigFile(&cfg, "path/to/my.config"); err != nil {
+    var cfg config.Config
+    if err := config.LoadConfigFile(&cfg, "path/to/my.config", ldlog.NewDefaultLoggers()); err != nil {
         log.Fatalf("Error loading config file: %s", err)
     }
     return cfg
 }
 
-r, err := relay.NewRelay(createRelayConfig, nil)
+r, err := relay.NewRelay(createRelayConfig(), ldlog.NewDefaultLoggers(), nil)
 if err != nil {
     log.Fatalf("Error creating relay: %s", err)
 }
@@ -29,15 +31,20 @@ router := mux.NewRouter()
 router.PathPrefix("/relay").Handler(r)
 ```
 
-The above example uses a configuration file. You can also pass in a `config.Config` struct that you have filled in directly:
+The above example uses a configuration file. You can also pass in a `config.Config` struct that you have filled in directly. Note that some of the fields use types from `github.com/launchdarkly/go-configtypes` to enforce validation rules.
 
 ```go
+import (
+    "github.com/launchdarkly/ld-relay/v6/config"
+    configtypes "github.com/launchdarkly/go-configtypes"
+)
+
 func createRelayConfig() config.Config {
-    cfg := config.DefaultConfig
-    cfg.Main.Port = 5000
+    var cfg config.Config
+    cfg.Main.Port, _ = configtypes.NewOptIntGreaterThanZero(5000)
     cfg.Environment = map[string]*config.EnvConfig{
         "Spree Project Production": &config.EnvConfig{
-            SDKKey: "SPREE_PROD_API_KEY",
+            SDKKey: config.SDKKey("SPREE_PROD_API_KEY"),
         },
     }
     return cfg
@@ -47,9 +54,12 @@ func createRelayConfig() config.Config {
 Alternatively, you can parse the configuration from a string that is in the same format as the configuration file, using the same `gcfg` package that ld-relay uses:
 
 ```go
-import "github.com/launchdarkly/gcfg"
+import (
+    "github.com/launchdarkly/ld-relay/v6/config"
+    "github.com/go-gcfg/gcfg"
+)
 
-configString := `
+var configString = `
 [main]
 port = 5000
 
@@ -58,7 +68,7 @@ sdkKey = "SPREE_PROD_API_KEY"
 `
 
 func createRelayConfig() config.Config {
-    cfg := config.DefaultConfig
+    var cfg config.Config
     if err := gcfg.ReadStringInto(&cfg, configString); err != nil {
         log.Fatalf("Error loading config file: %s", err)
     }

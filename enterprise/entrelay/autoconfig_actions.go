@@ -4,9 +4,8 @@ import (
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/enterprise/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
 )
 
 const (
@@ -100,7 +99,7 @@ func (r *RelayEnterprise) KeyExpired(id config.EnvironmentID, oldKey config.SDKK
 	env.RemoveCredential(oldKey)
 }
 
-func makeEnvironmentConfig(params autoconfig.EnvironmentParams, autoConfProps entconfig.AutoConfigConfig) config.EnvConfig {
+func makeEnvironmentConfig(params autoconfig.EnvironmentParams, autoConfProps config.AutoConfigConfig) config.EnvConfig {
 	ret := config.EnvConfig{
 		SDKKey:        params.SDKKey,
 		MobileKey:     params.MobileKey,
@@ -118,5 +117,5 @@ func makeEnvironmentConfig(params autoconfig.EnvironmentParams, autoConfProps en
 }
 
 func maybeSubstituteEnvironmentID(s string, envID config.EnvironmentID) string {
-	return strings.ReplaceAll(s, entconfig.AutoConfigEnvironmentIDPlaceholder, string(envID))
+	return strings.ReplaceAll(s, config.AutoConfigEnvironmentIDPlaceholder, string(envID))
 }

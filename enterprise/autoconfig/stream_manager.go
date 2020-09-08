@@ -10,10 +10,9 @@ import (
 	"time"
 
 	es "github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
@@ -62,7 +61,7 @@ var (
 // Relay Enterprise provides an implementation of the MessageHandler interface which will be called for all
 // changes that it needs to know about.
 type StreamManager struct {
-	key               entconfig.AutoConfigKey
+	key               config.AutoConfigKey
 	uri               string
 	handler           MessageHandler
 	lastKnownEnvs     map[config.EnvironmentID]EnvironmentRep
@@ -82,7 +81,7 @@ type expiredKey struct {
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
 func NewStreamManager(
-	key entconfig.AutoConfigKey,
+	key config.AutoConfigKey,
 	streamURI string,
 	handler MessageHandler,
 	httpConfig httpconfig.HTTPConfig,

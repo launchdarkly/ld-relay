@@ -11,17 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 )
 
 const (
-	testConfigKey entconfig.AutoConfigKey = "test-key"
-	testEnvName                           = "projname envname"
-	malformedJSON                         = `{"oh no`
+	testConfigKey config.AutoConfigKey = "test-key"
+	testEnvName                        = "projname envname"
+	malformedJSON                      = `{"oh no`
 )
 
 var (

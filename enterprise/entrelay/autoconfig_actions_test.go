@@ -12,11 +12,10 @@ import (
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	c "github.com/launchdarkly/ld-relay/v6/core/config"
-	"github.com/launchdarkly/ld-relay/v6/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/enterprise/entconfig"
+	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
@@ -40,7 +39,7 @@ type autoConfTestParams struct {
 
 func autoConfTest(
 	t *testing.T,
-	config entconfig.EnterpriseConfig,
+	config c.Config,
 	initialEvent *httphelpers.SSEEvent,
 	action func(p autoConfTestParams),
 ) {
