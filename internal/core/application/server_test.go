@@ -7,10 +7,11 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
@@ -20,15 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func startListenerForAnyAvailablePort(t *testing.T) (net.Listener, int) {
-	l, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-	addr := l.Addr().String()
-	port, err := strconv.Atoi(addr[strings.LastIndex(addr, ":")+1:])
-	require.NoError(t, err)
-	return l, port
-}
 
 func withSelfSignedCert(t *testing.T, action func(certFilePath, keyFilePath string, certPool *x509.CertPool)) {
 	helpers.WithTempFile(func(certFilePath string) {
@@ -49,8 +41,7 @@ func withSelfSignedCert(t *testing.T, action func(certFilePath, keyFilePath stri
 }
 
 func TestStartHTTPServerInsecure(t *testing.T) {
-	l, port := startListenerForAnyAvailablePort(t)
-	l.Close()
+	port := st.GetAvailablePort(t)
 	mockLog := ldlogtest.NewMockLog()
 	server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK), false, "", "", 0, mockLog.Loggers)
 	require.NotNil(t, server)
@@ -65,8 +56,7 @@ func TestStartHTTPServerInsecure(t *testing.T) {
 }
 
 func TestStartHTTPServerSecure(t *testing.T) {
-	l, port := startListenerForAnyAvailablePort(t)
-	l.Close()
+	port := st.GetAvailablePort(t)
 	mockLog := ldlogtest.NewMockLog()
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
@@ -92,8 +82,7 @@ func TestStartHTTPServerSecure(t *testing.T) {
 }
 
 func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
-	l, port := startListenerForAnyAvailablePort(t)
-	l.Close()
+	port := st.GetAvailablePort(t)
 	mockLog := ldlogtest.NewMockLog()
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
@@ -120,14 +109,14 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 }
 
 func TestStartHTTPServerPortAlreadyUsed(t *testing.T) {
-	l, port := startListenerForAnyAvailablePort(t)
-	defer l.Close()
-	_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, ldlog.NewDisabledLoggers())
-	require.NotNil(t, errCh)
-	select {
-	case err := <-errCh:
-		assert.NotNil(t, err)
-	case <-time.After(time.Second):
-		assert.Fail(t, "timed out waiting for error")
-	}
+	st.WithListenerForAnyPort(t, func(l net.Listener, port int) {
+		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, ldlog.NewDisabledLoggers())
+		require.NotNil(t, errCh)
+		select {
+		case err := <-errCh:
+			assert.NotNil(t, err)
+		case <-time.After(time.Second):
+			assert.Fail(t, "timed out waiting for error")
+		}
+	})
 }

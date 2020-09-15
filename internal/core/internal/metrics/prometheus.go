@@ -2,16 +2,20 @@ package metrics
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"go.opencensus.io/stats/view"
 )
+
+func errPrometheusListenerFailed(err error) error {
+	return fmt.Errorf("failed to start Prometheus listener: %w", err)
+}
 
 var prometheusExporterType exporterType = prometheusExporterTypeImpl{} //nolint:gochecknoglobals
 
@@ -20,6 +24,8 @@ type prometheusExporterTypeImpl struct{}
 type prometheusExporterImpl struct {
 	exporter *prometheus.Exporter
 	server   *http.Server
+	listener net.Listener
+	loggers  ldlog.Loggers
 }
 
 func (p prometheusExporterTypeImpl) getName() string {
@@ -36,7 +42,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 
 	port := mc.Prometheus.Port.GetOrElse(config.DefaultPrometheusPort)
 
-	logPrometheusError := func(e error) {
+	logPrometheusError := func(e error) { // COVERAGE: can't make this happen in unit tests
 		loggers.Errorf("Prometheus exporter error: %s", e)
 	}
 
@@ -49,7 +55,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	// The current implementation of prometheus.NewExporter() apparently can never return a non-nil error,
 	// but in case it does in the future, we should check it
 	if err != nil {
-		return nil, err
+		return nil, err // COVERAGE: can't make this happen in unit tests
 	}
 
 	exporterMux := http.NewServeMux()
@@ -63,14 +69,22 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	return &prometheusExporterImpl{
 		exporter: exporter,
 		server:   server,
+		loggers:  loggers,
 	}, nil
 }
 
 func (p *prometheusExporterImpl) register() error {
+	// Separate Listen and Serve here instead of calling ListenAndServe() so that we can immediately
+	// detect if the port isn't available
+	listener, err := net.Listen("tcp", p.server.Addr)
+	if err != nil {
+		return errPrometheusListenerFailed(err)
+	}
+	p.listener = listener
 	go func() {
-		err := p.server.ListenAndServe()
-		if err != http.ErrServerClosed { // ListenAndServe never returns a nil error value
-			logging.MakeDefaultLoggers().Errorf("Failed to start Prometheus listener\n")
+		err := p.server.Serve(p.listener)
+		if err != http.ErrServerClosed { // Serve never returns a nil error value
+			p.loggers.Error(errPrometheusListenerFailed(err)) // COVERAGE: can't make this happen in unit tests
 		}
 	}()
 
@@ -83,5 +97,9 @@ func (p *prometheusExporterImpl) register() error {
 
 func (p *prometheusExporterImpl) close() error {
 	view.UnregisterExporter(p.exporter)
-	return p.server.Close()
+	err := p.server.Close()
+	if p.listener != nil {
+		_ = p.listener.Close()
+	}
+	return err
 }

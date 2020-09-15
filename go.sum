@@ -94,6 +94,7 @@ github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/launchdarkly-labs/go-coverage-enforcer v0.0.0-20200610003341-8bc77dea293c/go.mod h1:fJXIR7UJYgdXVmLM40NGl/dbs2Smv+iESsaT9uC4v/s=
+github.com/launchdarkly-labs/go-coverage-enforcer v1.1.0 h1:uuTEUz+8H9XCCyao4pETPjN2Ufc2QQfWFsJwtBabqss=
 github.com/launchdarkly-labs/go-coverage-enforcer v1.1.0/go.mod h1:fJXIR7UJYgdXVmLM40NGl/dbs2Smv+iESsaT9uC4v/s=
 github.com/launchdarkly/eventsource v1.4.3 h1:G0s/nlctuI6Vz/BKpNLE2L/S4U0lQ/ghYqecPjUuQIA=
 github.com/launchdarkly/eventsource v1.4.3/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=

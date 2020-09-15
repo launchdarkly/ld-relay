@@ -413,7 +413,7 @@ func isTombstone(rep EnvironmentRep) bool {
 }
 
 func last4Chars(s string) string {
-	if len(s) < 4 {
+	if len(s) < 4 { // COVERAGE: doesn't happen in unit tests, also can't happen with real environments
 		return s
 	}
 	return s[len(s)-4:]

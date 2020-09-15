@@ -10,12 +10,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opencensus.io/stats/view"
+	"go.opencensus.io/trace"
 )
 
 // TestMetricsExporter accumulates OpenCensus metrics for tests. It deaggregates the view data to make it
 // easier to test for a specific row that we expect to see in the data.
 type TestMetricsExporter struct {
 	dataCh   chan TestMetricsData
+	spansCh  chan *trace.SpanData
 	lastData TestMetricsData
 	lock     sync.Mutex
 }
@@ -42,7 +44,28 @@ type TestMetricsRow struct {
 
 // NewTestMetricsExporter creates a TestMetricsExporter.
 func NewTestMetricsExporter() *TestMetricsExporter {
-	return &TestMetricsExporter{dataCh: make(chan TestMetricsData, 10), lastData: make(TestMetricsData)}
+	return &TestMetricsExporter{
+		dataCh:   make(chan TestMetricsData, 10),
+		spansCh:  make(chan *trace.SpanData, 10),
+		lastData: make(TestMetricsData),
+	}
+}
+
+// WithExporter registers the exporter, then calls the function, then unregisters the exporter. It also
+// overrides the default OpenCensus reporting parameters to ensure that data is exported promptly.
+func (e *TestMetricsExporter) WithExporter(fn func()) {
+	view.SetReportingPeriod(time.Millisecond * 10)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+	view.RegisterExporter(e)
+	defer view.UnregisterExporter(e)
+	trace.RegisterExporter(e)
+	defer trace.UnregisterExporter(e)
+	fn()
+}
+
+// ExportSpan is called by OpenCensus.
+func (e *TestMetricsExporter) ExportSpan(s *trace.SpanData) {
+	e.spansCh <- s
 }
 
 // ExportView is called by OpenCensus.
@@ -87,6 +110,18 @@ func (e *TestMetricsExporter) AwaitData(t *testing.T, timeout time.Duration, log
 			if fn(d) {
 				return
 			}
+		case <-deadline:
+			require.Fail(t, "timed out waiting for metrics data")
+		}
+	}
+}
+
+func (e *TestMetricsExporter) AwaitSpan(t *testing.T, timeout time.Duration) *trace.SpanData {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case s := <-e.spansCh:
+			return s
 		case <-deadline:
 			require.Fail(t, "timed out waiting for metrics data")
 		}

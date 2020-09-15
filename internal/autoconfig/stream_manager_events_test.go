@@ -361,6 +361,28 @@ func TestDeleteEvent(t *testing.T) {
 		})
 	})
 
+	t.Run("delete is ignored because it's already deleted", func(t *testing.T) {
+		initEvent := makePutEvent(testEnv1)
+		streamManagerTest(t, &initEvent, func(p streamManagerTestParams) {
+			p.startStream()
+
+			_ = p.requireMessage()
+
+			event := makeDeleteEvent(testEnv1.EnvID, testEnv1.Version+1)
+			p.stream.Enqueue(event)
+
+			msg := p.requireMessage()
+			require.NotNil(t, msg.delete)
+			assert.Equal(t, testEnv1.EnvID, *msg.delete)
+
+			p.stream.Enqueue(event)
+
+			p.requireNoMoreMessages()
+
+			p.mockLog.AssertMessageMatch(t, false, ldlog.Info, "Ignoring out-of-order delete")
+		})
+	})
+
 	t.Run("unknown environment", func(t *testing.T) {
 		streamManagerTest(t, nil, func(p streamManagerTestParams) {
 			p.startStream()
@@ -411,5 +433,6 @@ func TestUnknownEventIsIgnored(t *testing.T) {
 
 		p.requireNoMoreMessages()
 		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Ignoring unrecognized stream event")
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, `Received "magic" event: {}`)
 	})
 }

@@ -22,7 +22,7 @@ var (
 	errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
 )
 
-func errInitMetricsViews(err error) error {
+func errInitMetricsViews(err error) error { // COVERAGE: can't happen in unit tests (and should never happen at all)
 	return fmt.Errorf("error registering metrics views: %w", err)
 }
 
@@ -56,20 +56,20 @@ func NewManager(
 	metricsRelayID := uuid.New()
 
 	exporters, err := registerExporters(allExporterTypes(), metricsConfig, loggers)
-	if err != nil {
+	if err != nil { // COVERAGE: can't make this happen in unit tests
 		return nil, err
 	}
 
 	registerPublicViewsOnce.Do(func() {
 		err = view.Register(getPublicViews()...)
 	})
-	if err != nil {
+	if err != nil { // COVERAGE: can't make this happen in unit tests
 		return nil, errInitMetricsViews(err)
 	}
 	registerPrivateViewsOnce.Do(func() {
 		err = view.Register(getPrivateViews()...)
 	})
-	if err != nil {
+	if err != nil { // COVERAGE: can't make this happen in unit tests
 		return nil, errInitMetricsViews(err)
 	}
 
