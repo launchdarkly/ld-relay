@@ -29,11 +29,8 @@ var (
 
 // EventPublisher is the interface for queueing and flushing proxied events.
 type EventPublisher interface {
-	// Publish adds any number of arbitrary JSON-serializable objects to the queue.
-	Publish(...interface{})
-
-	// PublishRaw adds any number of JSON elements to the queue.
-	PublishRaw(...json.RawMessage)
+	// Publish adds any number of JSON elements to the queue.
+	Publish(...json.RawMessage)
 
 	// Flush attempts to deliver all queued events.
 	Flush()
@@ -57,42 +54,14 @@ type HTTPEventPublisher struct {
 	closeOnce   sync.Once
 	wg          sync.WaitGroup
 	inputQueue  chan interface{}
-	queue       []interface{}
+	queue       []json.RawMessage
 	capacity    int
+	overflowed  bool
 	lock        sync.RWMutex
 }
 
-type batch []interface{}
-type rawBatch []json.RawMessage
+type eventBatch []json.RawMessage
 type flush struct{}
-
-func (b batch) append(q *[]interface{}, max int, loggers *ldlog.Loggers, reachedCapacity *bool) {
-	available := max - len(*q)
-	taken := len(b)
-	if available < len(b) {
-		if !*reachedCapacity {
-			loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
-		}
-		*reachedCapacity = true
-		taken = available
-	}
-	*q = append(*q, b[:taken]...)
-}
-
-func (b rawBatch) append(q *[]interface{}, max int, loggers *ldlog.Loggers, reachedCapacity *bool) {
-	available := max - len(*q)
-	taken := len(b)
-	if available < len(b) {
-		if !*reachedCapacity {
-			loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", max)
-		}
-		*reachedCapacity = true
-		taken = available
-	}
-	for _, e := range b[:taken] {
-		*q = append(*q, e)
-	}
-}
 
 // OptionType defines optional parameters for NewHTTPEventPublisher.
 type OptionType interface {
@@ -159,7 +128,7 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	for _, o := range options {
 		err := o.apply(p)
 		if err != nil {
-			return nil, err
+			return nil, err // COVERAGE: can't happen in unit tests
 		}
 		if o, ok := o.(OptionFlushInterval); ok {
 			if o > 0 {
@@ -170,18 +139,17 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 
 	p.sender = newReconfigurableEventSender(client, p.eventsURI.String(), baseHeaders, p.loggers)
 
-	p.queue = make([]interface{}, 0, p.capacity)
+	p.queue = make([]json.RawMessage, 0, p.capacity)
 	p.wg.Add(1)
 
 	ticker := time.NewTicker(flushInterval)
 
 	go func() {
 		for {
-			if err := recover(); err != nil {
+			if err := recover(); err != nil { // COVERAGE: can't happen in unit tests
 				p.loggers.Errorf("Unexpected panic in event relay : %+v", err)
 				continue
 			}
-			reachedCapacity := false
 		EventLoop:
 			for {
 				select {
@@ -189,11 +157,8 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 					switch e := e.(type) {
 					case flush:
 						p.flush()
-						continue EventLoop
-					case rawBatch:
-						e.append(&p.queue, p.capacity, &p.loggers, &reachedCapacity)
-					case batch:
-						e.append(&p.queue, p.capacity, &p.loggers, &reachedCapacity)
+					case eventBatch:
+						p.append(e)
 					}
 				case <-ticker.C:
 					p.flush()
@@ -210,6 +175,21 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	return p, nil
 }
 
+func (p *HTTPEventPublisher) append(batch eventBatch) {
+	available := p.capacity - len(p.queue)
+	taken := len(batch)
+	if available < len(batch) {
+		if !p.overflowed {
+			p.loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", p.capacity)
+			p.overflowed = true
+		}
+		taken = available
+	} else {
+		p.overflowed = false
+	}
+	p.queue = append(p.queue, batch[:taken]...)
+}
+
 func (p *HTTPEventPublisher) ReplaceCredential(newCredential config.SDKCredential) { //nolint:golint // method is already documented in interface
 	p.lock.Lock()
 	if reflect.TypeOf(newCredential) != reflect.TypeOf(p.authKey) {
@@ -221,12 +201,8 @@ func (p *HTTPEventPublisher) ReplaceCredential(newCredential config.SDKCredentia
 	p.sender.replaceCredential(newCredential)
 }
 
-func (p *HTTPEventPublisher) Publish(events ...interface{}) { //nolint:golint // method is already documented in interface
-	p.inputQueue <- batch(events)
-}
-
-func (p *HTTPEventPublisher) PublishRaw(events ...json.RawMessage) { //nolint:golint // method is already documented in interface
-	p.inputQueue <- rawBatch(events)
+func (p *HTTPEventPublisher) Publish(events ...json.RawMessage) { //nolint:golint // method is already documented in interface
+	p.inputQueue <- eventBatch(events)
 }
 
 func (p *HTTPEventPublisher) Flush() { //nolint:golint // method is already documented in interface
@@ -239,8 +215,8 @@ func (p *HTTPEventPublisher) flush() {
 		return
 	}
 	payload, err := json.Marshal(p.queue[0:count])
-	p.queue = make([]interface{}, 0, p.capacity)
-	if err != nil {
+	p.queue = make([]json.RawMessage, 0, p.capacity)
+	if err != nil { // COVERAGE: can't happen in unit tests
 		p.loggers.Errorf("Unexpected error marshalling event json: %+v", err)
 		return
 	}

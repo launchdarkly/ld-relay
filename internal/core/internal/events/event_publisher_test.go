@@ -2,7 +2,6 @@ package events
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,9 +10,11 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -28,46 +29,43 @@ func defaultHTTPConfig() httpconfig.HTTPConfig {
 	return hc
 }
 
-func TestEventPublisher(t *testing.T) {
+func TestHTTPEventPublisher(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))
 		defer publisher.Close()
-		publisher.Publish("hello")
-		publisher.Publish("hello again")
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(json.RawMessage(`"hello again"`))
 		publisher.Flush()
-		select {
-		case <-time.After(time.Second):
-			assert.Fail(t, "timed out")
-		case r := <-requestsCh:
-			assert.Equal(t, "/bulk", r.Request.URL.Path)
-			assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
-			assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-			assert.JSONEq(t, `["hello", "hello again"]`, string(r.Body))
-		}
+		r := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, "/bulk", r.Request.URL.Path)
+		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+		assert.JSONEq(t, `["hello", "hello again"]`, string(r.Body))
 	})
 }
 
-func TestEventPublishRaw(t *testing.T) {
+func TestHTTPEventPublisherOptionEndpointURI(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(), OptionURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+			OptionEndpointURI(server.URL+"/special-path"))
 		defer publisher.Close()
-		publisher.PublishRaw(json.RawMessage(`{"hello": 1}`))
+		publisher.Publish(json.RawMessage(`"hello"`))
 		publisher.Flush()
-		select {
-		case <-time.After(time.Second):
-			assert.Fail(t, "timed out")
-		case r := <-requestsCh:
-			assert.Equal(t, "/bulk", r.Request.URL.Path)
-			assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
-			assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-			assert.JSONEq(t, `[{"hello": 1}]`, string(r.Body))
-		}
+		r := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, "/special-path", r.Request.URL.Path)
+		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+		assert.JSONEq(t, `["hello"]`, string(r.Body))
 	})
 }
 
-func TestEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
+func TestHTTPEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
 	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers())
 	timeout := time.After(time.Second)
 	publisher.Close()
@@ -75,59 +73,66 @@ func TestEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
 	assert.Len(t, timeout, 0, "expected timeout to not have triggered but it did")
 }
 
-func TestPublisherAutomaticFlush(t *testing.T) {
-	body := make(chan []byte)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		assert.Equal(t, "/bulk", req.URL.Path)
-		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), req.Header.Get(EventSchemaHeader))
-		data, _ := ioutil.ReadAll(req.Body)
-		body <- data
-	}))
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
-		OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
-	defer publisher.Close()
-	publisher.Publish("hello")
-	select {
-	case <-time.After(time.Second):
-		assert.Fail(t, "timed out")
-	case data := <-body:
-		assert.JSONEq(t, `["hello"]`, string(data))
-	}
+func TestHTTPPublisherAutomaticFlush(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
+		defer publisher.Close()
+		publisher.Publish(json.RawMessage(`"hello"`))
+		r := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, "/bulk", r.Request.URL.Path)
+		assert.JSONEq(t, `["hello"]`, string(r.Body))
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+	})
+}
+
+func TestHTTPEventPublisherFlushDoesNothingIfThereAreNoEvents(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
+		defer publisher.Close()
+		publisher.Flush()
+		st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+	})
 }
 
 func TestHTTPEventPublisherCapacity(t *testing.T) {
-	body := make(chan []byte)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		assert.Equal(t, "/bulk", req.URL.Path)
-		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), req.Header.Get(EventSchemaHeader))
-		data, _ := ioutil.ReadAll(req.Body)
-		body <- data
-	}))
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
-		OptionURI(server.URL), OptionCapacity(1))
-	defer publisher.Close()
-	publisher.Publish("hello")
-	publisher.Publish("goodbye")
-	publisher.Flush()
-	select {
-	case <-time.After(time.Second):
-		assert.Fail(t, "timed out")
-	case data := <-body:
-		assert.JSONEq(t, `["hello"]`, string(data))
-	}
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionURI(server.URL), OptionCapacity(1))
+		defer publisher.Close()
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(json.RawMessage(`"goodbye"`))
+		publisher.Flush()
+		r := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, "/bulk", r.Request.URL.Path)
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+		assert.JSONEq(t, `["hello"]`, string(r.Body))
+	})
 }
 
 func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 	testRecoverableError := func(t *testing.T, errorHandler http.Handler) {
+		mockLog := ldlogtest.NewMockLog()
+		defer st.DumpLogIfTestFailed(t, mockLog)
 		successHandler := httphelpers.HandlerWithStatus(202)
 		handler, requestsCh := httphelpers.RecordingHandler(
 			httphelpers.SequentialHandler(errorHandler, errorHandler, successHandler),
 		)
 		httphelpers.WithServer(handler, func(server *httptest.Server) {
-			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), ldlog.NewDisabledLoggers(),
+			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
 				OptionURI(server.URL))
 			defer publisher.Close()
-			publisher.Publish("hello")
+			publisher.Publish(json.RawMessage(`"hello"`))
 			timeStart := time.Now()
 			publisher.Flush()
 			req1 := <-requestsCh
@@ -138,12 +143,7 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 			assert.GreaterOrEqual(t, int64(elapsed), int64(time.Second))
 
 			// There were two failures, so it should not have retried again after that (should not reach successHandler)
-			select {
-			case <-requestsCh:
-				assert.Fail(t, "request was unexpectedly tried a third time")
-			case <-time.After(time.Millisecond * 50):
-				break
-			}
+			st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
 		})
 	}
 
@@ -153,5 +153,49 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 
 	t.Run("network error", func(t *testing.T) {
 		testRecoverableError(t, httphelpers.BrokenConnectionHandler())
+	})
+}
+
+func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+			OptionURI(server.URL))
+		defer publisher.Close()
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Flush()
+		<-requestsCh
+		time.Sleep(time.Millisecond * 100) // no good way to know when it's processed the 401 response
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Flush()
+		st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+	})
+}
+
+func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
+	newSDKKey := config.SDKKey("better-sdk-key")
+	mockLog := ldlogtest.NewMockLog()
+	defer st.DumpLogIfTestFailed(t, mockLog)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))
+		defer publisher.Close()
+
+		publisher.ReplaceCredential(newSDKKey)
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Flush()
+
+		r1 := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, string(newSDKKey), r1.Request.Header.Get("Authorization"))
+
+		// Providing a new MobileKey when this publisher is currently using an SDKKey has no effect
+		publisher.ReplaceCredential(config.MobileKey("ignore-this"))
+		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Flush()
+
+		r2 := st.ExpectTestRequest(t, requestsCh, time.Second)
+		assert.Equal(t, string(newSDKKey), r2.Request.Header.Get("Authorization"))
 	})
 }

@@ -25,7 +25,6 @@ linters:
     - gosimple
     - govet
     - ineffassign
-    - interfacer
     #- lll  # no need to break up long lines at present
     - megacheck
     - misspell

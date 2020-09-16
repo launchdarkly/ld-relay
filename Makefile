@@ -36,7 +36,7 @@ test-coverage: $(COVERAGE_PROFILE_RAW)
 
 $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 	@mkdir -p ./build
-	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./... >/dev/null
+	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)

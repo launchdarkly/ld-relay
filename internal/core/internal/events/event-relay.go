@@ -1,57 +1,23 @@
 package events
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 
-	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-)
-
-// Endpoint describes one of the possible endpoints (on both events.launchdarkly.com and Relay) for posting events.
-type Endpoint interface {
-	fmt.Stringer
-}
-
-type (
-	serverSDKEventsEndpoint            struct{}
-	mobileSDKEventsEndpoint            struct{}
-	javaScriptSDKEventsEndpoint        struct{}
-	serverDiagnosticEventsEndpoint     struct{}
-	mobileDiagnosticEventsEndpoint     struct{}
-	javaScriptDiagnosticEventsEndpoint struct{}
-)
-
-var (
-	// ServerSDKEventsEndpoint describes the endpoint for server-side SDK analytics events.
-	ServerSDKEventsEndpoint = &serverSDKEventsEndpoint{} //nolint:gochecknoglobals
-
-	// MobileSDKEventsEndpoint describes the endpoint for mobile SDK analytics events.
-	MobileSDKEventsEndpoint = &mobileSDKEventsEndpoint{} //nolint:gochecknoglobals
-
-	// JavaScriptSDKEventsEndpoint describes the endpoint for JS/browser SDK analytics events.
-	JavaScriptSDKEventsEndpoint = &javaScriptSDKEventsEndpoint{} //nolint:gochecknoglobals
-
-	// ServerSDKDiagnosticEventsEndpoint describes the endpoint for server-side SDK diagnostic events.
-	ServerSDKDiagnosticEventsEndpoint = &serverDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
-
-	// MobileSDKDiagnosticEventsEndpoint describes the endpoint for mobile SDK diagnostic events.
-	MobileSDKDiagnosticEventsEndpoint = &mobileDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
-
-	// JavaScriptSDKDiagnosticEventsEndpoint describes the endpoint for JS/browser SDK diagnostic events.
-	JavaScriptSDKDiagnosticEventsEndpoint = &javaScriptDiagnosticEventsEndpoint{} //nolint:gochecknoglobals
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 )
 
 type eventVerbatimRelay struct {
@@ -69,20 +35,15 @@ const (
 
 // EventDispatcher relays events to LaunchDarkly for an environment
 type EventDispatcher struct {
-	endpoints map[Endpoint]eventEndpointDispatcher
-}
-
-type eventEndpointDispatcher interface {
-	dispatch(w http.ResponseWriter, req *http.Request)
-	replaceCredential(c.SDKCredential)
+	analyticsEndpoints  map[sdks.Kind]*analyticsEventEndpointDispatcher
+	diagnosticEndpoints map[sdks.Kind]*diagnosticEventEndpointDispatcher
 }
 
 type analyticsEventEndpointDispatcher struct {
 	config           c.EventsConfig
 	httpClient       *http.Client
 	httpConfig       httpconfig.HTTPConfig
-	authKey          c.SDKCredential // used when forwarding events to the corresponding SDK-kind-specific endpoint
-	sdkKey           c.SDKKey        // used when summarizing events, since those always use the server-side endpoint
+	authKey          c.SDKCredential
 	remotePath       string
 	verbatimRelay    *eventVerbatimRelay
 	summarizingRelay *eventSummarizingRelay
@@ -98,35 +59,16 @@ type diagnosticEventEndpointDispatcher struct {
 	loggers           ldlog.Loggers
 }
 
-func (e *serverSDKEventsEndpoint) String() string {
-	return "ServerSDKEventsEndpoint"
-}
-
-func (e *mobileSDKEventsEndpoint) String() string {
-	return "MobileSDKEventsEndpoint"
-}
-
-func (e *javaScriptSDKEventsEndpoint) String() string {
-	return "JavaScriptSDKEventsEndpoint"
-}
-
-func (e *serverDiagnosticEventsEndpoint) String() string {
-	return "ServerDiagnosticEventsEndpoint"
-}
-
-func (e *mobileDiagnosticEventsEndpoint) String() string {
-	return "MobileDiagnosticEventsEndpoint"
-}
-
-func (e *javaScriptDiagnosticEventsEndpoint) String() string {
-	return "JavaScriptDiagnosticEventsEndpoint"
-}
-
-// GetHandler returns the HTTP handler for an endpoint.
-func (r *EventDispatcher) GetHandler(endpoint Endpoint) func(w http.ResponseWriter, req *http.Request) {
-	d := r.endpoints[endpoint]
-	if d != nil {
-		return d.dispatch
+// GetHandler returns the HTTP handler for an endpoint, or nil if none is defined
+func (r *EventDispatcher) GetHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind) func(w http.ResponseWriter, req *http.Request) {
+	if eventsKind == ldevents.DiagnosticEventDataKind {
+		if e, ok := r.diagnosticEndpoints[sdkKind]; ok {
+			return e.dispatch
+		}
+	} else {
+		if e, ok := r.analyticsEndpoints[sdkKind]; ok {
+			return e.dispatch
+		}
 	}
 	return nil
 }
@@ -159,15 +101,23 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential c.SDK
 	defer r.mu.Unlock()
 	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
 		r.authKey = newCredential
+		if r.summarizingRelay != nil {
+			r.summarizingRelay.eventSender.replaceCredential(newCredential)
+		}
+		if r.verbatimRelay != nil {
+			r.verbatimRelay.publisher.ReplaceCredential(newCredential)
+		}
 	}
-	if key, ok := newCredential.(c.SDKKey); ok {
-		r.sdkKey = key
-	}
+}
+
+func (r *analyticsEventEndpointDispatcher) close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.summarizingRelay != nil {
-		r.summarizingRelay.eventSender.replaceCredential(newCredential)
+		r.summarizingRelay.close()
 	}
 	if r.verbatimRelay != nil {
-		r.verbatimRelay.publisher.ReplaceCredential(newCredential)
+		r.verbatimRelay.close()
 	}
 }
 
@@ -177,55 +127,19 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 		// need to parse the JSON.
 		d.loggers.Debugf("Received diagnostic event to be proxied to %s", d.remoteEndpointURI)
 
-		for attempt := 0; attempt < 2; attempt++ { // use the same retry logic that the SDK uses
-			if attempt > 0 {
-				d.loggers.Warn("Will retry posting diagnostic event after 1 second")
-				time.Sleep(1 * time.Second)
-			}
-
-			forwardReq, reqErr := http.NewRequest("POST", d.remoteEndpointURI, bytes.NewReader(body))
-			if reqErr != nil {
-				d.loggers.Errorf("Unexpected error while creating event request: %+v", reqErr)
-				return
-			}
-			forwardReq.Header.Add("Content-Type", "application/json")
-
-			// Copy the Authorization header, if any (used only for server-side and mobile); also copy User-Agent
-			if authKey := req.Header.Get("Authorization"); authKey != "" {
-				forwardReq.Header.Add("Authorization", authKey)
-			}
-			if userAgent := req.Header.Get("User-Agent"); userAgent != "" {
-				forwardReq.Header.Add("User-Agent", userAgent)
-			}
-			// diagnostic events do not have schema or payload ID headers
-
-			resp, respErr := d.httpClient.Do(forwardReq)
-			if resp != nil && resp.Body != nil {
-				_, _ = ioutil.ReadAll(resp.Body)
-				_ = resp.Body.Close()
-			}
-			switch {
-			case respErr != nil:
-				d.loggers.Warnf("Unexpected error while sending events: %+v", respErr)
-			case resp.StatusCode >= 400:
-				d.loggers.Warnf("Received error status %d when sending events", resp.StatusCode)
-			default:
-				return
-			}
-		}
+		// We use the default EventSender from ldevents, which provides the standard retry logic and logging.
+		// Since we don't want to use a fixed set of headers, but instead pass along the same headers we got
+		// from the request, we're creating a new EventSender each time; that's a little inefficient, but
+		// diagnostic events are relatively infrequent.
+		sender := ldevents.NewDefaultEventSender(d.httpClient, "", d.remoteEndpointURI, req.Header, d.loggers)
+		_ = sender.SendEventData(ldevents.DiagnosticEventDataKind, body, 1)
 	})
-}
-
-func (d *diagnosticEventEndpointDispatcher) replaceCredential(newCredential c.SDKCredential) {
-	// Nothing needs to be done here, because diagnosticEventEndpointDispatcher does not own any credential -
-	// it always just puts the same Authorization header on the proxied request that it received in the
-	// original request.
 }
 
 func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Loggers, thenExecute func([]byte)) {
 	body, bodyErr := ioutil.ReadAll(req.Body)
 
-	if bodyErr != nil {
+	if bodyErr != nil { // COVERAGE: can't make this happen in unit tests
 		loggers.Errorf("Error reading event post body: %+v", bodyErr)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(util.ErrorJSONMsg("unable to read request body"))
@@ -241,14 +155,12 @@ func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Logge
 	// Always accept the data
 	w.WriteHeader(http.StatusAccepted)
 
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				loggers.Errorf("Unexpected panic in event relay: %+v", err)
-			}
-		}()
-		thenExecute(body)
+	defer func() {
+		if err := recover(); err != nil { // COVERAGE: can't make this happen in unit tests
+			loggers.Errorf("Unexpected panic in event relay: %+v", err)
+		}
 	}()
+	thenExecute(body)
 }
 
 func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRelay {
@@ -264,9 +176,20 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.sdkKey, r.storeAdapter, r.loggers, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.storeAdapter, r.loggers, r.remotePath)
 	}
 	return r.summarizingRelay
+}
+
+func (r *analyticsEventEndpointDispatcher) flush() { //nolint:unused // used only in tests
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.verbatimRelay != nil {
+		r.verbatimRelay.publisher.Flush()
+	}
+	if r.summarizingRelay != nil {
+		r.summarizingRelay.eventProcessor.Flush()
+	}
 }
 
 // NewEventDispatcher creates a handler for relaying events to LaunchDarkly for an environment
@@ -280,33 +203,52 @@ func NewEventDispatcher(
 	storeAdapter *store.SSERelayDataStoreAdapter,
 ) *EventDispatcher {
 	ep := &EventDispatcher{
-		endpoints: map[Endpoint]eventEndpointDispatcher{
-			ServerSDKEventsEndpoint: newAnalyticsEventEndpointDispatcher(sdkKey, sdkKey,
+		analyticsEndpoints: map[sdks.Kind]*analyticsEventEndpointDispatcher{
+			sdks.Server: newAnalyticsEventEndpointDispatcher(sdkKey,
 				config, httpConfig, storeAdapter, loggers, "/bulk"),
 		},
+		diagnosticEndpoints: map[sdks.Kind]*diagnosticEventEndpointDispatcher{
+			sdks.Server: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
+		},
 	}
-	ep.endpoints[ServerSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic")
 	if mobileKey != "" {
-		ep.endpoints[MobileSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(mobileKey, sdkKey,
+		ep.analyticsEndpoints[sdks.Mobile] = newAnalyticsEventEndpointDispatcher(mobileKey,
 			config, httpConfig, storeAdapter, loggers, "/mobile")
-		ep.endpoints[MobileSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
+		ep.diagnosticEndpoints[sdks.Mobile] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != "" {
-		ep.endpoints[JavaScriptSDKEventsEndpoint] = newAnalyticsEventEndpointDispatcher(envID, sdkKey, config, httpConfig, storeAdapter, loggers,
+		ep.analyticsEndpoints[sdks.JSClient] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
 			"/events/bulk/"+string(envID))
-		ep.endpoints[JavaScriptSDKDiagnosticEventsEndpoint] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
+		ep.diagnosticEndpoints[sdks.JSClient] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
 	return ep
+}
+
+// Close shuts down any goroutines/channels being used by the EventDispatcher.
+func (r *EventDispatcher) Close() {
+	for _, e := range r.analyticsEndpoints {
+		e.close()
+	}
+	// diagnosticEventEndpointDispatcher doesn't currently need to be closed, because it doesn't maintain any
+	// goroutines or channels
+}
+
+func (r *EventDispatcher) flush() { //nolint:unused // used only in tests
+	for _, e := range r.analyticsEndpoints {
+		e.flush()
+	}
 }
 
 // ReplaceCredential changes the authorization credentail that is used when forwarding events to any
 // endpoints that use that type of credential. For instance, if newCredential is a MobileKey, this
 // affects only endpoints that use a mobile key.
 func (r *EventDispatcher) ReplaceCredential(newCredential c.SDKCredential) {
-	for _, d := range r.endpoints {
+	for _, d := range r.analyticsEndpoints {
 		d.replaceCredential(newCredential)
 	}
+	// diagnosticEventEndpointDispatcher doesn't need to be updated for this, because it always uses whatever
+	// credential was present on the incoming request
 }
 
 func newDiagnosticEventEndpointDispatcher(
@@ -315,10 +257,7 @@ func newDiagnosticEventEndpointDispatcher(
 	loggers ldlog.Loggers,
 	remotePath string,
 ) *diagnosticEventEndpointDispatcher {
-	eventsURI := config.EventsURI.String()
-	if eventsURI == "" {
-		eventsURI = c.DefaultEventsURI
-	}
+	eventsURI := getEventsURI(config)
 	return &diagnosticEventEndpointDispatcher{
 		httpClient:        httpConfig.Client(),
 		httpConfig:        httpConfig,
@@ -329,7 +268,6 @@ func newDiagnosticEventEndpointDispatcher(
 
 func newAnalyticsEventEndpointDispatcher(
 	authKey c.SDKCredential,
-	sdkKey c.SDKKey,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
@@ -338,7 +276,6 @@ func newAnalyticsEventEndpointDispatcher(
 ) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:      authKey,
-		sdkKey:       sdkKey,
 		config:       config,
 		httpClient:   httpConfig.Client(),
 		httpConfig:   httpConfig,
@@ -355,10 +292,7 @@ func newEventVerbatimRelay(
 	loggers ldlog.Loggers,
 	remotePath string,
 ) *eventVerbatimRelay {
-	eventsURI := config.EventsURI.String()
-	if eventsURI == "" {
-		eventsURI = c.DefaultEventsURI
-	}
+	eventsURI := getEventsURI(config)
 	opts := []OptionType{
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionEndpointURI(strings.TrimRight(eventsURI, "/") + remotePath),
@@ -377,8 +311,13 @@ func newEventVerbatimRelay(
 }
 
 func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
-	if !er.config.SendEvents {
-		return
-	}
-	er.publisher.PublishRaw(evts...)
+	er.publisher.Publish(evts...)
+}
+
+func (er *eventVerbatimRelay) close() {
+	er.publisher.Close()
+}
+
+func getEventsURI(config c.EventsConfig) string {
+	return configtypes.NewOptStringNonEmpty(config.EventsURI.String()).GetOrElse(c.DefaultEventsURI)
 }

@@ -107,21 +107,41 @@ func (t *testExporterImpl) close() error {
 }
 
 type testEventsPublisher struct {
-	events chan interface{}
+	events chan json.RawMessage
 }
 
 func newTestEventsPublisher() *testEventsPublisher {
 	return &testEventsPublisher{
-		events: make(chan interface{}, 100),
+		events: make(chan json.RawMessage, 100),
 	}
 }
 
-func (p *testEventsPublisher) Publish(events ...interface{}) {
+func (p *testEventsPublisher) Publish(events ...json.RawMessage) {
 	for _, e := range events {
 		p.events <- e
 	}
 }
-func (p *testEventsPublisher) PublishRaw(events ...json.RawMessage)   {}
 func (p *testEventsPublisher) Flush()                                 {}
 func (p *testEventsPublisher) Close()                                 {}
 func (p *testEventsPublisher) ReplaceCredential(config.SDKCredential) {}
+
+func (p *testEventsPublisher) expectMetricsEvent(t *testing.T, timeout time.Duration) relayMetricsEvent {
+	select {
+	case eventData := <-p.events:
+		var metricsEvent relayMetricsEvent
+		require.NoError(t, json.Unmarshal(eventData, &metricsEvent))
+		return metricsEvent
+	case <-time.After(timeout):
+		require.Fail(t, "timed out waiting for metrics event")
+		return relayMetricsEvent{}
+	}
+}
+
+func (p *testEventsPublisher) expectNoMetricsEvent(t *testing.T, timeout time.Duration) {
+	select {
+	case <-p.events:
+		require.Fail(t, "received unexpected metrics event")
+	case <-time.After(timeout):
+		break
+	}
+}

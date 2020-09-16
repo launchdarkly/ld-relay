@@ -3,13 +3,13 @@ package core
 import (
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 
 	"github.com/gorilla/mux"
 )
@@ -115,18 +115,18 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack)
-	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.Handle("/events", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.Handle("", bulkEventHandler(events.MobileSDKEventsEndpoint)).Methods("POST")
-	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(events.MobileSDKDiagnosticEventsEndpoint)).Methods("POST")
+	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind)).Methods("POST")
+	mobileEventsRouter.Handle("/events", bulkEventHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind)).Methods("POST")
+	mobileEventsRouter.Handle("", bulkEventHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind)).Methods("POST")
+	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(sdks.Mobile, ldevents.DiagnosticEventDataKind)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
 	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideBulkEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideBulkEventsRouter.Handle("", bulkEventHandler(sdks.JSClient, ldevents.AnalyticsEventDataKind)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
 	clientSideDiagnosticEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
-	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(events.JavaScriptSDKDiagnosticEventsEndpoint)).Methods("POST", "OPTIONS")
+	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(sdks.JSClient, ldevents.DiagnosticEventDataKind)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
 	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
@@ -134,8 +134,8 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
 	serverSideRouter.Use(serverSideMiddlewareStack)
-	serverSideRouter.Handle("/bulk", bulkEventHandler(events.ServerSDKEventsEndpoint)).Methods("POST")
-	serverSideRouter.Handle("/diagnostic", bulkEventHandler(events.ServerSDKDiagnosticEventsEndpoint)).Methods("POST")
+	serverSideRouter.Handle("/bulk", bulkEventHandler(sdks.Server, ldevents.AnalyticsEventDataKind)).Methods("POST")
+	serverSideRouter.Handle("/diagnostic", bulkEventHandler(sdks.Server, ldevents.DiagnosticEventDataKind)).Methods("POST")
 	serverSideRouter.Handle("/all", middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))).Methods("GET")

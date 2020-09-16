@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
@@ -24,6 +23,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
@@ -158,7 +158,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
 // events.ld.com/events/diagnostic/{envId} (JS)
-func bulkEventHandler(endpoint events.Endpoint) http.Handler {
+func bulkEventHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		dispatcher := clientCtx.Env.GetEventDispatcher()
@@ -167,13 +167,14 @@ func bulkEventHandler(endpoint events.Endpoint) http.Handler {
 			_, _ = w.Write(util.ErrorJSONMsg("Event proxy is not enabled for this environment"))
 			return
 		}
-		handler := dispatcher.GetHandler(endpoint)
+		handler := dispatcher.GetHandler(sdkKind, eventsKind)
 		if handler == nil {
 			// Note, if this ever happens, it is a programming error since we are only supposed to
 			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write(util.ErrorJSONMsg("Internal error in event proxy"))
-			logging.GetGlobalContextLoggers(req.Context()).Errorf("Tried to proxy events for unsupported endpoint '%s'", endpoint)
+			logging.GetGlobalContextLoggers(req.Context()).Errorf("Tried to proxy %s events for %s but no handler was defined",
+				eventsKind, sdkKind)
 			return
 		}
 		handler(w, req)

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/pborman/uuid"
@@ -62,6 +64,9 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 	}
 
 	t.Run("exporter generates events", func(*testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		defer st.DumpLogIfTestFailed(t, mockLog)
+
 		publisher := newTestEventsPublisher()
 		start := ldtime.UnixMillisNow()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
@@ -69,27 +74,21 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			stats.Record(ctx, privateNewConnMeasure.M(2))
 			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
 			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 2}
-			var event interface{}
-			timeout := time.After(time.Second)
-		EventLoop:
+			startTime := time.Now()
 			for {
-				select {
-				case event = <-publisher.events:
-					require.IsType(t, relayMetricsEvent{}, event)
-					metricsEvent := event.(relayMetricsEvent)
-					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
-					assert.True(t, metricsEvent.StartDate >= start)
-					assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
-					assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
-					assert.Equal(t, relayID, metricsEvent.RelayID)
-					if len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
-						len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn {
-						break EventLoop
-					}
-				case <-timeout:
-					require.Fail(t, "timed out", "last event received: %+v", event)
-					break EventLoop
+				if time.Since(startTime) >= time.Second {
+					require.Fail(t, "did not receive expected metrics")
 				}
+				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+				assert.True(t, metricsEvent.StartDate >= start)
+				assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
+				assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
+				assert.Equal(t, relayID, metricsEvent.RelayID)
+				if len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
+					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn {
+					break
+				}
+				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
 			}
 		})
 	})
@@ -98,11 +97,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			stats.Record(ctx, privateConnMeasure.M(0))
-			select {
-			case event := <-publisher.events:
-				require.Fail(t, "expected no events", "got one: %+v", event)
-			case <-time.After(time.Millisecond * 10):
-			}
+			publisher.expectNoMetricsEvent(t, time.Millisecond*50)
 		})
 	})
 
@@ -114,15 +109,8 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			// Wait an extra moment to let any export operation that has already started complete
 			time.Sleep(time.Millisecond * 1)
 			stats.Record(ctx, privateConnMeasure.M(1))
-			var event interface{}
-			select {
-			case event = <-publisher.events:
-				break
-			case <-time.After(time.Second):
-				require.Fail(t, "timed out")
-			}
-			require.IsType(t, relayMetricsEvent{}, event)
-			metricsEvent := event.(relayMetricsEvent)
+
+			metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 			assert.True(t, metricsEvent.StartDate >= startTime)
 		})
 	})
@@ -133,16 +121,12 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIDTagKey, uuid.New()))
 			stats.Record(ctxForDifferentRelay, privateConnMeasure.M(1))
 			stats.Record(ctx, privateConnMeasure.M(1))
-			timeout := time.After(time.Millisecond * 200)
-			for {
-				select {
-				case event := <-publisher.events:
-					metricsEvent := event.(relayMetricsEvent)
-					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
-					assert.Equal(t, relayID, metricsEvent.RelayID)
-				case <-timeout:
-					return
-				}
+
+			startTime := time.Now()
+			for time.Since(startTime) < time.Millisecond*200 {
+				metricsEvent := publisher.expectMetricsEvent(t, time.Millisecond*200)
+				require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+				assert.Equal(t, relayID, metricsEvent.RelayID)
 			}
 		})
 	})
@@ -153,16 +137,12 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			ctxWithNoRelayID, _ := tag.New(ctx, tag.Delete(relayIDTagKey))
 			stats.Record(ctxWithNoRelayID, privateConnMeasure.M(1))
 			stats.Record(ctx, privateConnMeasure.M(1))
-			timeout := time.After(time.Millisecond * 200)
-			for {
-				select {
-				case event := <-publisher.events:
-					metricsEvent := event.(relayMetricsEvent)
-					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
-					assert.Equal(t, relayID, metricsEvent.RelayID)
-				case <-timeout:
-					return
-				}
+
+			startTime := time.Now()
+			for time.Since(startTime) < time.Millisecond*200 {
+				metricsEvent := publisher.expectMetricsEvent(t, time.Millisecond*200)
+				require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+				assert.Equal(t, relayID, metricsEvent.RelayID)
 			}
 		})
 	})

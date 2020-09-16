@@ -65,8 +65,7 @@ func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 	require.Eventually(t, func() bool {
 		env.FlushEventsExporter()
 		select {
-		case event := <-publisher.events:
-			require.IsType(t, relayMetricsEvent{}, event)
+		case <-publisher.events:
 			return true
 		default:
 			return false

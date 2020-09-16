@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -166,7 +167,9 @@ func (e *openCensusEventsExporter) flush() {
 	}
 	e.newConnections = make(map[connectionsKeyType]int64, len(e.newConnections))
 	e.mu.Unlock()
-	e.publisher.Publish(event)
+
+	json, _ := json.Marshal(event)
+	e.publisher.Publish(json)
 }
 
 func (e *openCensusEventsExporter) close() {

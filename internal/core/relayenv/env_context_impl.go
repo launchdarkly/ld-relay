@@ -452,6 +452,9 @@ func (c *envContextImpl) Close() error {
 	if c.metricsEventPub != nil {
 		c.metricsEventPub.Close()
 	}
+	if c.eventDispatcher != nil {
+		c.eventDispatcher.Close()
+	}
 	return nil
 }
 

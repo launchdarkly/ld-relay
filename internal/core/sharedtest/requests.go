@@ -7,6 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"testing"
+	"time"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+
+	"github.com/stretchr/testify/require"
 )
 
 // BuildRequest is a simple shortcut for creating a request that may or may not have a body.
@@ -43,4 +49,25 @@ func DoRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 	}
 
 	return result, body
+}
+
+// ExpectTestRequest is a shortcut for reading from an httphelpers request-capturing channel with a timeout.
+func ExpectTestRequest(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, timeout time.Duration) httphelpers.HTTPRequestInfo {
+	select {
+	case r := <-ch:
+		return r
+	case <-time.After(timeout):
+		require.Fail(t, "timed out waiting for request")
+		return httphelpers.HTTPRequestInfo{}
+	}
+}
+
+// ExpectNoTestRequests causes a test failure if an httphelpers request-capturing channel is not empty.
+func ExpectNoTestRequests(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, timeout time.Duration) {
+	select {
+	case <-ch:
+		require.Fail(t, "received unexpected request")
+	case <-time.After(timeout):
+		break
+	}
 }

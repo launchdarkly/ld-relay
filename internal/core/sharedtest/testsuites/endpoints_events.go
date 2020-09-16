@@ -53,7 +53,7 @@ func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a
 // test server to receie any events that are proxied by Relay.
 func relayEventsTest(config c.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
-	eventsCh := make(chan publishedEvent)
+	eventsCh := make(chan publishedEvent, 10)
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		data, _ := ioutil.ReadAll(req.Body)
@@ -62,6 +62,7 @@ func relayEventsTest(config c.Config, constructor TestConstructor, action func(r
 	}))
 	defer eventsServer.Close()
 
+	config.Main.DisableInternalUsageMetrics = true // so the metrics event exporter doesn't produce unexpected events
 	config.Events.SendEvents = true
 	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
 	config.Events.FlushInterval = ct.NewOptDuration(time.Second)

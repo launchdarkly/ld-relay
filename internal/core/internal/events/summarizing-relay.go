@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 
@@ -84,27 +86,25 @@ type receivedIdentifyEvent struct {
 func newEventSummarizingRelay(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	sdkKey c.SDKKey,
+	credential c.SDKCredential,
 	storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers,
 	remotePath string,
 ) *eventSummarizingRelay {
 	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
 	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
-	headers.Set("Authorization", string(sdkKey))
-	eventsURI := config.EventsURI.String()
-	if eventsURI == "" {
-		eventsURI = c.DefaultEventsURI
-	}
-	eventsURI = strings.TrimRight(eventsURI, "/") + remotePath
+	headers.Set("Authorization", credential.GetAuthorizationHeaderValue())
+	eventsURI := strings.TrimRight(getEventsURI(config), "/") + remotePath
 	eventSender := newReconfigurableEventSender(httpClient, eventsURI, headers, loggers)
 
 	eventsConfig := ldevents.EventsConfiguration{
-		Capacity:            config.Capacity.GetOrElse(c.DefaultEventCapacity),
-		InlineUsersInEvents: config.InlineUsers,
-		EventSender:         eventSender,
-		FlushInterval:       config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
-		Loggers:             loggers,
+		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
+		InlineUsersInEvents:   config.InlineUsers,
+		EventSender:           eventSender,
+		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
+		Loggers:               loggers,
+		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
+		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
 	}
 	ep := ldevents.NewDefaultEventProcessor(eventsConfig)
 
@@ -121,7 +121,7 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 		evt, err := er.translateEvent(rawEvent, schemaVersion)
 		if err != nil {
 			er.loggers.Errorf("Error in event processing, event was discarded: %s", err)
-			return false
+			continue
 		}
 		if evt != nil {
 			switch e := evt.(type) {
@@ -200,13 +200,13 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				// if we receive events very early during startup. There's nothing we can do about this, and it's not
 				// terribly significant because if the SDK had sent the events a few milliseconds earlier, Relay
 				// would've been even less ready to receive them.
-				return nil, errEventsBeforeClientInitialized
+				return nil, errEventsBeforeClientInitialized // COVERAGE: no good way to make this happen in unit tests currently
 			}
 			// it's case 1 (very old SDK), 2a (older PHP SDK), or 2b (newer PHP, but the properties don't happen
 			// to be set so we can't distinguish it from 2a and must look up the flag)
 			data, err := store.Get(ldstoreimpl.Features(), e.Key)
 			if err != nil {
-				return nil, err
+				return nil, err // COVERAGE: no good way to make this happen in unit tests currently
 			}
 			if data.Item != nil {
 				flag := data.Item.(*ldmodel.FeatureFlag)
@@ -259,6 +259,10 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 	return nil, errUnknownEventKind(kindFieldOnly.Kind)
 }
 
+func (er *eventSummarizingRelay) close() {
+	_ = er.eventProcessor.Close()
+}
+
 func newReconfigurableEventSender(
 	httpClient *http.Client,
 	eventsURI string,
@@ -282,11 +286,7 @@ func (r *reconfigurableEventSender) replaceCredential(newCredential c.SDKCredent
 	for k, v := range r.headers {
 		headers[k] = v
 	}
-	if newCredential.GetAuthorizationHeaderValue() == "" {
-		headers.Del("Authorization")
-	} else {
-		headers.Set("Authorization", newCredential.GetAuthorizationHeaderValue())
-	}
+	headers.Set("Authorization", newCredential.GetAuthorizationHeaderValue())
 	r.headers = headers
 	r.eventSender = ldevents.NewDefaultEventSender(r.httpClient, r.eventsURI, "", r.headers, r.loggers)
 }

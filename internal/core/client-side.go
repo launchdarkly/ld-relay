@@ -11,6 +11,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
+
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 )
 
 func getEventsImage(w http.ResponseWriter, req *http.Request) {
@@ -21,7 +24,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write(util.ErrorJSONMsg("Event proxy is not enabled for this environment"))
 		return
 	}
-	handler := clientCtx.Env.GetEventDispatcher().GetHandler(events.JavaScriptSDKEventsEndpoint)
+	handler := clientCtx.Env.GetEventDispatcher().GetHandler(sdks.JSClient, ldevents.AnalyticsEventDataKind)
 	if handler == nil { // COVERAGE: abnormal condition that can't be caused in unit tests
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write(util.ErrorJSONMsg("Event proxy for browser clients is not enabled for this environment"))
