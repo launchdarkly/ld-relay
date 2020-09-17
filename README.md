@@ -34,13 +34,22 @@ If you enable event forwarding in the [configuration](./docs/configuration.md#fi
 There are some special considerations if you are using the PHP SDK. **See: [Using PHP](./docs/php.md)**
 
 
+## Enterprise capabilities
+
+LaunchDarkly offers additional Relay Proxy features to customers in the Enterprise plan tier. 
+
+The automatic configuration feature automatically detects environment creations and updates, removing the need for most manual configuration file changes and application restarts. Instead, configurations can be managed with a clean, simple in-app UI.
+
+Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration) to learn more. If you want access to automatic configurations but don’t have a LaunchDarkly Enterprise plan, then [contact our sales team](https://launchdarkly.com/contact-sales/) to upgrade.
+
+
 ## Deployment options
 
 A common way to run the Relay Proxy is as a Docker container. **See: [Using with Docker](./docs/docker.md)**
 
 It can also be run as a Windows service. **See: [Building and Running in Windows](./docs/windows.md)**
 
-Or, you can build the Relay Proxy endpoints into your own application. See: **[Building Within an Application](./docs/in-app.md)**
+Or, you can build the Relay Proxy endpoints into your own application. **See: [Building Within an Application](./docs/in-app.md)**
 
 
 ## Command-line arguments
