@@ -18,10 +18,10 @@ require (
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
 	github.com/launchdarkly/eventsource v1.6.1
-	github.com/launchdarkly/go-configtypes v1.0.0
-	github.com/launchdarkly/go-server-sdk-consul v1.0.0-beta.1
-	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.0-beta.1
-	github.com/launchdarkly/go-server-sdk-redis v1.0.0-beta.1
+	github.com/launchdarkly/go-configtypes v1.1.0
+	github.com/launchdarkly/go-server-sdk-consul v1.0.0
+	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo v1.0.0
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c
 	github.com/philhofer/fwd v1.0.0 // indirect
@@ -31,9 +31,9 @@ require (
 	google.golang.org/api v0.0.0-20180717000714-0025a57598c0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
 	gopkg.in/gcfg.v1 v1.2.3 // indirect
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.0-beta.3
-	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0-beta.2
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0-beta.3
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0-beta.5
+	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.0
+	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

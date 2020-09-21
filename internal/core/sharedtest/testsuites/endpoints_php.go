@@ -31,7 +31,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvWithTTL)
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {

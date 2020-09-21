@@ -32,7 +32,7 @@ type metricsMiddlewareTestParams struct {
 
 func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams)) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	manager, err := metrics.NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)

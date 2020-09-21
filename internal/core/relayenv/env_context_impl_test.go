@@ -80,7 +80,7 @@ func TestConstructorBasicProperties(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -112,7 +112,7 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -185,7 +185,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
@@ -213,7 +213,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
@@ -244,7 +244,7 @@ func TestChangeSDKKey(t *testing.T) {
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -286,7 +286,7 @@ func TestSDKClientCreationFails(t *testing.T) {
 	fakeError := errors.New("sorry")
 
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, testclient.ClientFactoryThatFails(fakeError), mockLog.Loggers, readyCh)
 	defer env.Close()
@@ -310,7 +310,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	view.SetReportingPeriod(time.Millisecond * 10)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
@@ -364,7 +364,7 @@ func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
 	view.SetReportingPeriod(time.Millisecond * 10)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))

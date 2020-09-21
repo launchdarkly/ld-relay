@@ -74,7 +74,7 @@ func eventRelayTest(
 ) {
 	mockLog := ldlogtest.NewMockLog()
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	httpConfig, _ := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
 

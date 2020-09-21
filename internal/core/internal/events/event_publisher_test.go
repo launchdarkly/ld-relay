@@ -31,7 +31,7 @@ func defaultHTTPConfig() httpconfig.HTTPConfig {
 
 func TestHTTPEventPublisher(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))
@@ -49,7 +49,7 @@ func TestHTTPEventPublisher(t *testing.T) {
 
 func TestHTTPEventPublisherOptionEndpointURI(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
@@ -75,7 +75,7 @@ func TestHTTPEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
 
 func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
@@ -91,7 +91,7 @@ func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 
 func TestHTTPEventPublisherFlushDoesNothingIfThereAreNoEvents(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
@@ -104,7 +104,7 @@ func TestHTTPEventPublisherFlushDoesNothingIfThereAreNoEvents(t *testing.T) {
 
 func TestHTTPEventPublisherCapacity(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
@@ -123,7 +123,7 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 	testRecoverableError := func(t *testing.T, errorHandler http.Handler) {
 		mockLog := ldlogtest.NewMockLog()
-		defer st.DumpLogIfTestFailed(t, mockLog)
+		defer mockLog.DumpIfTestFailed(t)
 		successHandler := httphelpers.HandlerWithStatus(202)
 		handler, requestsCh := httphelpers.RecordingHandler(
 			httphelpers.SequentialHandler(errorHandler, errorHandler, successHandler),
@@ -158,7 +158,7 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 
 func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
@@ -177,7 +177,7 @@ func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
 func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
 	newSDKKey := config.SDKKey("better-sdk-key")
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))

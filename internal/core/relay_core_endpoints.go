@@ -34,7 +34,7 @@ import (
 
 type evalXResult struct {
 	Value                ldvalue.Value               `json:"value"`
-	Variation            *int                        `json:"variation,omitempty"`
+	Variation            ldvalue.OptionalInt         `json:"variation,omitempty"`
 	Version              int                         `json:"version"`
 	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
 	TrackEvents          bool                        `json:"trackEvents,omitempty"`
@@ -268,12 +268,10 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
 				value := evalXResult{
 					Value:       detail.Value,
+					Variation:   detail.VariationIndex,
 					Version:     flag.Version,
 					TrackEvents: flag.TrackEvents || isExperiment,
 					TrackReason: isExperiment,
-				}
-				if detail.VariationIndex >= 0 {
-					value.Variation = &detail.VariationIndex
 				}
 				if withReasons || isExperiment {
 					value.Reason = &detail.Reason

@@ -61,8 +61,8 @@ type receivedFeatureEvent struct {
 	CreationDate         ldtime.UnixMillisecondTime `json:"creationDate"`
 	Key                  string                     `json:"key"`
 	User                 receivedEventUser          `json:"user"`
-	Version              *int                       `json:"version"`
-	Variation            *int                       `json:"variation"`
+	Version              ldvalue.OptionalInt        `json:"version"`
+	Variation            ldvalue.OptionalInt        `json:"variation"`
 	Value                ldvalue.Value              `json:"value"`
 	Default              ldvalue.Value              `json:"default"`
 	TrackEvents          bool                       `json:"trackEvents"`
@@ -158,6 +158,7 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				User:         e.User.asEventUser(),
 			},
 			Key:     e.Key,
+			Version: e.Version,
 			Value:   e.Value,
 			Default: e.Default,
 			Reason:  e.Reason,
@@ -176,18 +177,10 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 		//    schemaVersion will be 2 in either case. So, if they are false/null, then we have to look up the
 		//    flag to get them. But if they do have values in the event, we must respect those (since they may
 		//    have been determined by experimentation logic rather than the top-level flag properties).
-		if e.Version == nil {
-			// If Version was omitted, then the flag didn't exist so we won't bother looking it up. Whatever's
-			// in the event is all we have.
-			newEvent.Version = ldevents.NoVersion
-			newEvent.Variation = ldevents.NoVariation
-		} else {
-			newEvent.Version = *e.Version
-			if e.Variation == nil {
-				newEvent.Variation = ldevents.NoVariation
-			} else {
-				newEvent.Variation = *e.Variation
-			}
+		// However, if the Version property was not provided in the original event, then the flag didn't exist
+		// so we won't bother doing any of that; whatever's in the event is all we have.
+		if e.Version.IsDefined() {
+			newEvent.Variation = e.Variation
 			if e.TrackEvents || e.DebugEventsUntilDate != 0 {
 				newEvent.TrackEvents = e.TrackEvents
 				newEvent.DebugEventsUntilDate = e.DebugEventsUntilDate
@@ -212,11 +205,11 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				flag := data.Item.(*ldmodel.FeatureFlag)
 				newEvent.TrackEvents = flag.TrackEvents
 				newEvent.DebugEventsUntilDate = flag.DebugEventsUntilDate
-				if schemaVersion <= 1 && e.Variation == nil {
+				if schemaVersion <= 1 && !e.Variation.IsDefined() {
 					for i, value := range flag.Variations {
 						if value.Equal(e.Value) {
 							n := i
-							newEvent.Variation = n
+							newEvent.Variation = ldvalue.NewOptionalInt(n)
 							break
 						}
 					}

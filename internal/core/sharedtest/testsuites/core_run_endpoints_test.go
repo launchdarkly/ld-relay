@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 
@@ -17,10 +17,10 @@ const (
 	fakeRelayUserAgent   = "fake-user-agent"
 )
 
-func relayCoreForEndpointTests(c config.Config) TestParams {
+func relayCoreForEndpointTests(c config.Config, loggers ldlog.Loggers) TestParams {
 	core, err := core.NewRelayCore(
 		c,
-		ldlog.NewDisabledLoggers(),
+		loggers,
 		testclient.CreateDummyClient,
 		fakeRelayCoreVersion,
 		fakeRelayUserAgent,
@@ -29,7 +29,10 @@ func relayCoreForEndpointTests(c config.Config) TestParams {
 	if err != nil {
 		panic(err)
 	}
-	core.WaitForAllClients(time.Second)
+	err = core.WaitForAllClients(time.Second)
+	if err != nil {
+		panic(err)
+	}
 	return TestParams{
 		Core:    core,
 		Handler: core.MakeRouter(),

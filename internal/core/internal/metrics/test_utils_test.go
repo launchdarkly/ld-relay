@@ -30,7 +30,7 @@ type testWithExporterParams struct {
 
 func testWithExporter(t *testing.T, action func(testWithExporterParams)) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	manager, err := NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)

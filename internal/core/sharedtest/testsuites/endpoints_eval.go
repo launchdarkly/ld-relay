@@ -39,7 +39,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -99,7 +99,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -160,7 +160,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvClientSide, st.EnvClientSideSecureMode)
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {

@@ -63,7 +63,7 @@ var autoConfigTestEnvs = map[c.EnvironmentID]st.TestEnv{
 // environment list has been obtained; we just want to make sure it starts up correctly in
 // general and test for any specific responses that should be different.
 
-func relayForEndpointTestsWithAutoConfig(config c.Config) testsuites.TestParams {
+func relayForEndpointTestsWithAutoConfig(config c.Config, loggers ldlog.Loggers) testsuites.TestParams {
 	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
 	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
 	server := httptest.NewServer(autoConfigHandler)
@@ -73,7 +73,7 @@ func relayForEndpointTestsWithAutoConfig(config c.Config) testsuites.TestParams 
 	entConfig.Environment = nil
 	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-	r, err := newRelayInternal(entConfig, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
+	r, err := newRelayInternal(entConfig, loggers, testclient.CreateDummyClient)
 	if err != nil {
 		panic(err)
 	}
@@ -155,7 +155,7 @@ func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestCo
 	t.Run("basic status properties", func(t *testing.T) {
 		envConfig := testEnvBasic
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
-		testsuites.DoTest(config, constructor, func(p testsuites.TestParams) {
+		testsuites.DoTest(t, config, constructor, func(p testsuites.TestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 			result, body := st.DoRequest(r, p.Handler)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
@@ -189,7 +189,7 @@ func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestCo
 	t.Run("expiring SDK key", func(t *testing.T) {
 		envConfig := testEnvWithExpiringKey
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
-		testsuites.DoTest(config, constructor, func(p testsuites.TestParams) {
+		testsuites.DoTest(t, config, constructor, func(p testsuites.TestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 			result, body := st.DoRequest(r, p.Handler)
 			assert.Equal(t, http.StatusOK, result.StatusCode)

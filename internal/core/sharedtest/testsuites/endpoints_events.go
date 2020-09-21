@@ -52,7 +52,7 @@ func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) 
 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a
 // test server to receie any events that are proxied by Relay.
-func relayEventsTest(config c.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
+func relayEventsTest(t *testing.T, config c.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
 	eventsCh := make(chan publishedEvent, 10)
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -67,7 +67,7 @@ func relayEventsTest(config c.Config, constructor TestConstructor, action func(r
 	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
 	config.Events.FlushInterval = ct.NewOptDuration(time.Second)
 
-	DoTest(config, constructor, func(pBase TestParams) {
+	DoTest(t, config, constructor, func(pBase TestParams) {
 		p := relayEventsTestParams{
 			TestParams:      pBase,
 			publishedEvents: eventsCh,
@@ -104,7 +104,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 		return st.BuildRequest("POST", "http://localhost/bulk", body, header)
 	}
 
-	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
 		t.Run("bulk post", func(t *testing.T) {
 			r := makeRequest(sdkKey)
 			result, _ := st.DoRequest(r, p.Handler)
@@ -140,7 +140,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			r := makeRequest(sdkKey)
 			result, _ := st.DoRequest(r, p.Handler)
 			assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
@@ -168,7 +168,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 		return st.BuildRequest("POST", url, body, header)
 	}
 
-	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
 		for i, path := range bulkEndpoints {
 			body := makeBody(i)
 
@@ -207,7 +207,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			for i, path := range bulkEndpoints {
 				t.Run("bulk post "+path, func(t *testing.T) {
 					r := makeRequest(path, makeBody(i), mobileKey)
@@ -233,7 +233,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	relayEventsTest(config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -293,7 +293,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			for _, spec := range specs {
 				s := spec
 				t.Run(s.name, func(t *testing.T) {

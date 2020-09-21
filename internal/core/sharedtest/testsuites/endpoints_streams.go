@@ -42,7 +42,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 	configWithoutTimeLimit := baseConfig
 	configWithoutTimeLimit.Main.MaxClientConnectionTime = ct.OptDuration{}
 
-	DoTest(configWithoutTimeLimit, constructor, func(p TestParams) {
+	DoTest(t, configWithoutTimeLimit, constructor, func(p TestParams) {
 		t.Run("success", func(t *testing.T) {
 			s.assertRequestReceivesEvent(t, p.Handler, 200*time.Millisecond)
 		})
@@ -56,7 +56,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 		})
 	})
 
-	DoTest(configWithoutTimeLimit, constructor, func(p TestParams) {
+	DoTest(t, configWithoutTimeLimit, constructor, func(p TestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
 			env := p.Core.GetEnvironment(s.credential)
 			require.NotNil(t, env)
@@ -91,7 +91,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 	configWithTimeLimit := baseConfig
 	configWithTimeLimit.Main.MaxClientConnectionTime = ct.NewOptDuration(maxConnTime)
 
-	DoTest(configWithTimeLimit, constructor, func(p TestParams) {
+	DoTest(t, configWithTimeLimit, constructor, func(p TestParams) {
 		t.Run("connection time limit", func(t *testing.T) {
 			s.assertStreamClosesAutomatically(t, p.Handler, maxConnTime)
 		})
@@ -242,7 +242,7 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 		s.runBasicStreamTests(t, config, constructor, st.UndefinedEnvID, http.StatusNotFound)
 	}
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {

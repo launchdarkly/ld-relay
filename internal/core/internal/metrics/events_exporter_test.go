@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -65,7 +64,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 
 	t.Run("exporter generates events", func(*testing.T) {
 		mockLog := ldlogtest.NewMockLog()
-		defer st.DumpLogIfTestFailed(t, mockLog)
+		defer mockLog.DumpIfTestFailed(t)
 
 		publisher := newTestEventsPublisher()
 		start := ldtime.UnixMillisNow()

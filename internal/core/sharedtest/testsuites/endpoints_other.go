@@ -38,7 +38,7 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(config, constructor, func(p TestParams) {
+	DoTest(t, config, constructor, func(p TestParams) {
 		url := fmt.Sprintf("http://localhost/sdk/goals/%s", envID)
 
 		t.Run("requests", func(t *testing.T) {

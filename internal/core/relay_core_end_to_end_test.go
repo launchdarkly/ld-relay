@@ -25,8 +25,8 @@ import (
 func TestRelayCoreEndToEnd(t *testing.T) {
 	coreMockLog := ldlogtest.NewMockLog()
 	sdkMockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, coreMockLog)
-	defer st.DumpLogIfTestFailed(t, sdkMockLog)
+	defer coreMockLog.DumpIfTestFailed(t)
+	defer sdkMockLog.DumpIfTestFailed(t)
 
 	flagKey := "test-flag"
 	putEvent := ldservices.NewServerSDKData().Flags(ldservices.FlagOrSegment(flagKey, 1)).ToPutEvent()

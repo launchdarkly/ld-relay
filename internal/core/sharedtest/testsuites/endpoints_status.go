@@ -25,7 +25,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		var config c.Config
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvClientSide, st.EnvMobile)
 
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 			result, body := st.DoRequest(r, p.Handler)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
@@ -61,7 +61,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
 		config.Main.DisconnectedStatusTime = ct.NewOptDuration(time.Minute)
 
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			interruptedSinceTime := time.Now()
 
 			envMain := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
@@ -96,7 +96,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
 		config.Main.DisconnectedStatusTime = ct.NewOptDuration(threshold)
 
-		DoTest(config, constructor, func(p TestParams) {
+		DoTest(t, config, constructor, func(p TestParams) {
 			interruptedSinceTime := time.Now()
 
 			envMain := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)

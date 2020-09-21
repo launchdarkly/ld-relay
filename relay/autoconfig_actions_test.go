@@ -14,7 +14,6 @@ import (
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -44,7 +43,7 @@ func autoConfTest(
 	action func(p autoConfTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
-	defer sharedtest.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 
 	streamHandler, stream := httphelpers.SSEHandler(initialEvent)
 	defer stream.Close()

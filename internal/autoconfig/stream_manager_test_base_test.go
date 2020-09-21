@@ -10,7 +10,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -139,7 +138,7 @@ func streamManagerTestWithStreamHandler(
 	action func(p streamManagerTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
-	defer st.DumpLogIfTestFailed(t, mockLog)
+	defer mockLog.DumpIfTestFailed(t)
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
 	handler, requestsCh := httphelpers.RecordingHandler(autoConfigEndpointHandler(streamHandler))

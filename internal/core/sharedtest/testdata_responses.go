@@ -77,6 +77,8 @@ func MakeEvalBody(flags []TestFlag, fullData bool, reasons bool) string {
 			m := map[string]interface{}{"value": value, "version": f.Flag.Version}
 			if value != nil {
 				m["variation"] = f.ExpectedVariation
+			} else {
+				m["variation"] = nil
 			}
 			if reasons || f.IsExperiment {
 				m["reason"] = f.ExpectedReason

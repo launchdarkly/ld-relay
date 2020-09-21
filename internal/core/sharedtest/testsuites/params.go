@@ -9,6 +9,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 )
 
 // TestParams is information that is passed to test code with DoTest.
@@ -20,7 +22,7 @@ type TestParams struct {
 
 // TestConstructor is provided by whatever Relay variant is calling the test suite, to provide the appropriate
 // setup and teardown for that variant.
-type TestConstructor func(config.Config) TestParams
+type TestConstructor func(config.Config, ldlog.Loggers) TestParams
 
 // RunTest is a shortcut for running a subtest method with this parameter.
 func (c TestConstructor) RunTest(t *testing.T, name string, testFn func(*testing.T, TestConstructor)) {
@@ -28,8 +30,11 @@ func (c TestConstructor) RunTest(t *testing.T, name string, testFn func(*testing
 }
 
 // DoTest some code against a new Relay instance that is set up with the specified configuration.
-func DoTest(c config.Config, constructor TestConstructor, action func(TestParams)) {
-	p := constructor(c)
+func DoTest(t *testing.T, c config.Config, constructor TestConstructor, action func(TestParams)) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	p := constructor(c, mockLog.Loggers)
 	defer p.Closer()
 	action(p)
 }

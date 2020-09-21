@@ -12,8 +12,8 @@ import (
 // The tests for standard Relay endpoints are defined in core/coretest, since most of them
 // will also be used for Relay Proxy Enterprise.
 
-func relayTestConstructor(config c.Config) testsuites.TestParams {
-	r, err := newRelayInternal(config, ldlog.NewDisabledLoggers(), testclient.CreateDummyClient)
+func relayTestConstructor(config c.Config, loggers ldlog.Loggers) testsuites.TestParams {
+	r, err := newRelayInternal(config, loggers, testclient.CreateDummyClient)
 	if err != nil {
 		panic(err)
 	}
