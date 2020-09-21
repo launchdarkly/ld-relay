@@ -6,6 +6,7 @@
 
 set -e
 
+FAKE_LD_PORT=8100
 RELAY_PORT=8101
 RELAY_METRICS_PORT=8102
 
@@ -14,7 +15,6 @@ go build .
 TEMP_DIR=$(mktemp -d -t ld-relay-XXXXXXXXX)
 trap "rm -rf $TEMP_DIR" EXIT
 
-RELAY_PORT=8103
 RELAY_BASE_VARS="\
   PORT=${RELAY_PORT} \
   LD_LOG_LEVEL="debug" \
@@ -22,14 +22,16 @@ RELAY_BASE_VARS="\
   LD_CLIENT_SIDE_ID_test="fake-env-id" \
   USE_PROMETHEUS=1 \
   PROMETHEUS_PORT=${RELAY_METRICS_PORT} \
+  DISABLE_INTERNAL_USAGE_METRICS=1 \
 "
 
 echo
 echo "starting Relay"
 echo
 
-RELAY_PID=$($(dirname $0)/start-relay.sh ${TEMP_DIR}/relay.out ${RELAY_BASE_VARS} TLS_MIN_VERSION=1.2)
-trap "kill ${RELAY_PID}" EXIT
+$(dirname $0)/start-streamer.sh ${FAKE_LD_PORT}
+RELAY_PID=$($(dirname $0)/start-relay.sh ${FAKE_LD_PORT} ${TEMP_DIR}/relay.out ${RELAY_BASE_VARS} TLS_MIN_VERSION=1.2)
+trap "kill ${RELAY_PID} && $(dirname $0)/stop-streamer.sh && rm -rf ${TEMP_DIR}" EXIT
 
 # make an SDK endpoint request, causing request metric to be incremented (we don't care about the output)
 echo

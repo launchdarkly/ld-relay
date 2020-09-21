@@ -4,6 +4,7 @@ set -eu
 
 # Verifies that Relay can enforce a minimum TLS version in secure mode.
 
+SCRIPT_DIR=$(dirname $0)
 TEMP_DIR=$(mktemp -d -t ld-relay-XXXXXXXXX)
 trap "rm -rf ${TEMP_DIR}" EXIT
 
@@ -18,13 +19,15 @@ openssl req -nodes -x509 -newkey rsa:2048 -keyout ${CA_KEY_FILE} -out ${CA_CERT_
 openssl req -nodes -newkey rsa:2048 -keyout ${KEY_FILE} -out ${CSR_FILE} -subj "${CERT_PROPS}" 2>/dev/null
 openssl x509 -req -in ${CSR_FILE} -CA ${CA_CERT_FILE} -CAkey ${CA_KEY_FILE} -CAcreateserial -out ${CERT_FILE} 2>/dev/null
 
-RELAY_PORT=8103
+FAKE_LD_PORT=8100
+RELAY_PORT=8101
 RELAY_BASE_VARS="\
   PORT=${RELAY_PORT} \
   TLS_ENABLED=1 \
   TLS_CERT=${CERT_FILE} \
   TLS_KEY=${KEY_FILE} \
   LD_ENV_test=fake-sdk-key \
+  DISABLE_INTERNAL_USAGE_METRICS=1 \
 "
 STATUS_ENDPOINT=https://localhost:${RELAY_PORT}/status
 
@@ -38,22 +41,30 @@ if [ -f "/usr/lib/ssl/openssl.cnf" ]; then
   export OPENSSL_CONF=${TEMP_CONF}
 fi
 
+function try_endpoint() {
+  OPENSSL_ARGS=$@
+  echo "GET /status" | openssl s_client -connect localhost:${RELAY_PORT} ${OPENSSL_ARGS} >/dev/null
+  # openssl will emit a warning about our self-signed certificate, but that's not an error. It will only return
+  # a non-zero exit code if the SSL handshake totally fails.
+}
+
 echo
 echo "starting Relay with TLS_MIN_VERSION=1.2"
 echo
 
-RELAY_PID=$($(dirname $0)/start-relay.sh ${TEMP_DIR}/relay1.out ${RELAY_BASE_VARS} TLS_MIN_VERSION=1.2)
-trap "rm -rf ${TEMP_DIR} && kill ${RELAY_PID}" EXIT
+${SCRIPT_DIR}/start-streamer.sh ${FAKE_LD_PORT}
+RELAY_PID=$(${SCRIPT_DIR}/start-relay.sh ${FAKE_LD_PORT} ${TEMP_DIR}/relay1.out ${RELAY_BASE_VARS} TLS_MIN_VERSION=1.2)
+trap "kill ${RELAY_PID} && ${SCRIPT_DIR}/stop-streamer.sh && rm -rf ${TEMP_DIR}" EXIT
 
 # Note, for unknown reasons these curl tests do not work reliably with HTTP2, hence --http1.1
 
 echo
 echo "verifying that a TLS 1.2 request succeeds"
-curl -s --insecure --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.2 request failed, should have succeeded"; exit 1)
+try_endpoint || (echo "TLS 1.2 request failed, should have succeeded"; exit 1)
 echo "...correct"
 
 echo "verifying that a TLS 1.1 request does not succeed"
-curl -s --insecure --http1.1 --tls-max 1.1 --tlsv1.1 ${STATUS_ENDPOINT} && (echo "TLS 1.1 request succeeded but should have failed"; exit 1)
+try_endpoint -no_tls1_2 -no_tls1_3 && (echo "TLS 1.1 request succeeded but should have failed"; exit 1)
 echo "...correct"
 
 kill ${RELAY_PID}
@@ -61,16 +72,16 @@ kill ${RELAY_PID}
 echo
 echo "starting Relay with TLS_MIN_VERSION not set"
 echo
-RELAY_PID=$($(dirname $0)/start-relay.sh ${TEMP_DIR}/relay2.out ${RELAY_BASE_VARS})
-trap "rm -rf ${TEMP_DIR} && kill ${RELAY_PID}" EXIT
+RELAY_PID=$(${SCRIPT_DIR}/start-relay.sh ${FAKE_LD_PORT} ${TEMP_DIR}/relay2.out ${RELAY_BASE_VARS})
+trap "kill ${RELAY_PID} && ${SCRIPT_DIR}/stop-streamer.sh && rm -rf ${TEMP_DIR}" EXIT
 
 echo
 echo "verifying that a TLS 1.2 request succeeds"
-curl -s --insecure --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.2 request failed, should have succeeded"; exit 1)
+try_endpoint || (echo "TLS 1.2 request failed, should have succeeded"; exit 1)
 echo "...correct"
 
 echo "verifying that a TLS 1.1 request succeeds"
-curl -s --insecure --tls-max 1.1 --tlsv1.1 --http1.1 ${STATUS_ENDPOINT} >/dev/null || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
+try_endpoint -no_tls1_2 -no_tls1_3 || (echo "TLS 1.1 request failed, should have succeeded"; exit 1)
 echo "...correct"
 
 echo
