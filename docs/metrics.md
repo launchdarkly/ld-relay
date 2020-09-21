@@ -19,3 +19,15 @@ You can filter metrics by the following tags:
 - `userAgent`: The user agent used to make the request, typically a LaunchDarkly SDK version. Example: "Node/3.4.0"
 
 **Note:** Traces for stream connections will trace until the connection is closed.
+
+## Prometheus configuration
+
+If you are using Prometheus, make sure your Prometheus configuration has a `scrape_configs` section defining the Relay Proxy as an endpoint. For instance, if the Relay Proxy is configured to expose Prometheus metrics on the default port of 8031:
+
+```yaml
+scrape_configs:
+  - job_name: 'ld-relay'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['localhost:8031']
+```
