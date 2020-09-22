@@ -35,3 +35,6 @@ _out
 /bin/
 
 /dist/
+.vscode
+_testservice/testservice
+_testservice/*.pid
