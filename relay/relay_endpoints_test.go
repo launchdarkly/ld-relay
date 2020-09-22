@@ -2,6 +2,7 @@ package relay
 
 import (
 	"testing"
+	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
@@ -17,6 +18,10 @@ func relayTestConstructor(config c.Config, loggers ldlog.Loggers) testsuites.Tes
 	if err != nil {
 		panic(err)
 	}
+	err = r.core.WaitForAllClients(time.Second)
+	if err != nil {
+		panic(err)
+	}
 	return testsuites.TestParams{
 		Core:    r.core,
 		Handler: r.Handler,
@@ -24,6 +29,6 @@ func relayTestConstructor(config c.Config, loggers ldlog.Loggers) testsuites.Tes
 	}
 }
 
-func TestRelayCoreEndpoints(t *testing.T) {
+func TestRelayEndpoints(t *testing.T) {
 	testsuites.DoAllCoreEndpointTests(t, relayTestConstructor)
 }
