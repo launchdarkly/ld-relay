@@ -9,36 +9,37 @@ builds:
   ldflags:
   - -s -w -X internal.version.Version={{.Version}}
 
-nfpm:
-  name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .ShortCommit }}_{{ .Arch }}"
+nfpms:
+  -
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .ShortCommit }}_{{ .Arch }}"
 
-  homepage: https://launchdarkly.com/
-  maintainer: LaunchDarkly <team@launchdarkly.com>
-  description: LaunchDarkly Stream Relay Proxy
-  license: Apache 2.0
-  vendor: Catamorphic Co.
+    homepage: https://launchdarkly.com/
+    maintainer: LaunchDarkly <team@launchdarkly.com>
+    description: LaunchDarkly Stream Relay Proxy
+    license: Apache 2.0
+    vendor: Catamorphic Co.
 
-  formats:
-  - deb
-  - rpm
+    formats:
+    - deb
+    - rpm
 
-  replacements:
-    386: i386
+    replacements:
+      386: i386
 
-  config_files:
-    "linux/etc/ld-relay.conf": "/etc/ld-relay.conf"
+    config_files:
+      "linux/etc/ld-relay.conf": "/etc/ld-relay.conf"
 
-  overrides:
-    deb:
-      dependencies:
-      - upstart
-      files:
-        "linux/etc/init/ld-relay.conf": "/etc/init/ld-relay.conf"
-    rpm:
-      dependencies:
-      - systemd
-      files:
-        "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
+    overrides:
+      deb:
+        dependencies:
+        - upstart
+        files:
+          "linux/etc/init/ld-relay.conf": "/etc/init/ld-relay.conf"
+      rpm:
+        dependencies:
+        - systemd
+        files:
+          "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
 
 dockers:
   - image_templates:
