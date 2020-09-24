@@ -534,6 +534,10 @@ You can also use the Relay Proxy to handle endpoints in your own application if 
 example using [Gorilla](https://github.com/gorilla/mux) of how you might instantiate a relay inside your web server beneath a path called "/relay":
 
 ```go
+import (
+    relay "gopkg.in/launchdarkly/ld-relay.v5"
+)
+
 router := mux.NewRouter()
 configFileName := "path/to/my-config-file"
 cfg := relay.DefaultConfig
@@ -550,6 +554,10 @@ router.PathPrefix("/relay").Handler(r)
 The above example uses a configuration file. You can also pass in a `relay.Config` struct that you have filled in directly:
 
 ```go
+import (
+    relay "gopkg.in/launchdarkly/ld-relay.v5"
+)
+
 cfg := relay.DefaultConfig
 cfg.Main.Port = 5000
 cfg.Environment = map[string]*relay.EnvConfig{
@@ -563,7 +571,10 @@ r, err := relay.NewRelay(cfg, relay.DefaultClientFactory)
 Or, you can parse the configuration from a string that is in the same format as the configuration file, using the same `gcfg` package that ld-relay uses:
 
 ```go
-import "github.com/launchdarkly/gcfg"
+import (
+    "github.com/launchdarkly/gcfg"
+    relay "gopkg.in/launchdarkly/ld-relay.v5"
+)
 
 configString := `[main]\nport = 5000\n[environment "Spree Project Production"]\nsdkKey = "SPREE_PROD_API_KEY"`
 
