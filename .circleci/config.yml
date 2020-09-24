@@ -10,6 +10,12 @@ workflows:
   workflow:
     jobs:
       - go-test:
+          name: Go 1.15
+          docker-image: circleci/golang:1.15
+          run-lint: true
+          test-coverage: true
+          test-tls: true
+      - go-test:
           name: Go 1.14
           docker-image: cimg/go:1.14.8
           run-lint: true
@@ -98,7 +104,7 @@ jobs:
   test-publish:
     docker:
       - &release_docker_image
-        image: cimg/go:1.13
+        image: circleci/golang:1.14.9
         environment:
           <<: *environment
 
