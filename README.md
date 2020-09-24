@@ -533,13 +533,6 @@ You will have to import this package as a dependency.
 ```
 go get gopkg.in/launchdarkly/ld-relay.v5
 ```
-
-Please note that this package at the time of this writing doesn't use v5 golang client. 
-You might have to also do this 
-```
-go get gopkg.in/launchdarkly/go-server-sdk.v4
-```
-
 You can also use the Relay Proxy to handle endpoints in your own application if you don't want to use the default `ld-relay` application.  Below is an
 example using [Gorilla](https://github.com/gorilla/mux) of how you might instantiate a relay inside your web server beneath a path called "/relay":
 
