@@ -2,54 +2,51 @@
 
 [![Circle CI](https://circleci.com/gh/launchdarkly/ld-relay.svg?style=shield)](https://circleci.com/gh/launchdarkly/ld-relay)
 
-## What is it?
+## What does the LaunchDarkly Relay Proxy do?
 
-The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients.
+The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. It lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
 
-The Relay Proxy lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
-
-The Relay Proxy can be configured to proxy multiple environment streams, even across multiple projects. It can also be used as a local proxy that forwards events  to `events.launchdarkly.com`. This can be useful if you are load balancing Relay Proxy instances behind a proxy that times out HTTP connections (e.g. Elastic Load Balancers).
+You can configure the Relay Proxy to proxy multiple environment streams, even across multiple projects. You can also use it as a local proxy that forwards events  to `events.launchdarkly.com`. This can be useful if you are load balancing Relay Proxy instances behind a proxy that times out HTTP connections (for example, Elastic Load Balancers).
 
 
-## When should it be used?
+## When should I use the LaunchDarkly Relay Proxy?
 
-Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy#should-i-use-the-relay-proxy) for guidance on situations where the Relay Proxy should be used.
+To learn more about appropriate use cases for the Relay Proxy, read [Should I use the Relay Proxy?](https://docs.launchdarkly.com/home/advanced/relay-proxy#should-i-use-the-relay-proxy).
 
 
 ## Getting started
 
-Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy/using#starting-the-relay-proxy) for instructions on getting started with using the Relay Proxy.
-
+To learn more about setting up the Relay Proxy, read [Starting the Relay Proxy](https://docs.launchdarkly.com/home/advanced/relay-proxy/using#starting-the-relay-proxy).
 
 ## Capabilities
 
-In the most basic configuration, the Relay Proxy simulates the LaunchDarkly service endpoints that are used by LaunchDarkly SDKs. The SDKs can connect to the Relay Proxy as if it were LaunchDarkly. **See: [Proxy Mode](./docs/proxy-mode.md)**
+In the most basic configuration, the Relay Proxy simulates the LaunchDarkly service endpoints that LaunchDarkly SDKs use. The SDKs can connect to the Relay Proxy as if it were LaunchDarkly. **To learn more, read [Proxy Mode](./docs/proxy-mode.md)**.
 
-You can also have the Relay Proxy put feature flag data into a database, and have the SDKs use that database instead of making HTTP requests. **See: [Daemon Mode](./docs/daemon-mode.md)**
+You can also have the Relay Proxy put feature flag data into a database and have the SDKs use that database instead of making HTTP requests. **To learn more, read [Daemon Mode](./docs/daemon-mode.md)**.
 
-If you provide a mobile key and/or a client-side environment ID in the [configuration](./docs/configuration.md#file-section-environment-name) for an environment, the Relay Proxy will also accept connections from mobile clients and/or JavaScript clients. **See: [Client-Side/Mobile Connections](./docs/client-side.md)**
+If you provide a mobile key and/or a client-side environment ID in the [configuration](./docs/configuration.md#file-section-environment-name) for an environment, the Relay Proxy can also accept connections from mobile clients and/or JavaScript clients. **To learn more, read [Client-Side/Mobile Connections](./docs/client-side.md)**.
 
-If you enable event forwarding in the [configuration](./docs/configuration.md#file-section-events), the Relay Proxy will accept analytics events from SDKs and forward them to LaunchDarkly. **See: [Event Forwarding](./docs/events.md)**
+If you enable event forwarding in the [configuration](./docs/configuration.md#file-section-events), the Relay Proxy accepts analytics events from SDKs and forwards them to LaunchDarkly. **To learn more, read [Event Forwarding](./docs/events.md)**.
 
-There are some special considerations if you are using the PHP SDK. **See: [Using PHP](./docs/php.md)**
+There are some special considerations if you use the PHP SDK. **To learn more, read [Using PHP](./docs/php.md)**.
 
 
 ## Enterprise capabilities
 
-LaunchDarkly offers additional Relay Proxy features to customers in the Enterprise plan tier. 
+LaunchDarkly offers additional Relay Proxy features to customers on Enterprise plans. 
 
-The automatic configuration feature automatically detects environment creations and updates, removing the need for most manual configuration file changes and application restarts. Instead, configurations can be managed with a clean, simple in-app UI.
+The automatic configuration feature automatically detects environment creations and updates, removing the need for most manual configuration file changes and application restarts. Instead, you can use a simple in-app UI to manage Relay Proxy configuration. **To learn more, read [Automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration)**. 
 
-Refer to [our documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration) to learn more. If you want access to automatic configurations but don’t have a LaunchDarkly Enterprise plan, then [contact our sales team](https://launchdarkly.com/contact-sales/) to upgrade.
+If you want access to automatic configurations but don’t have a LaunchDarkly Enterprise plan, then [contact our sales team](https://launchdarkly.com/contact-sales/) to upgrade.
 
 
 ## Deployment options
 
-A common way to run the Relay Proxy is as a Docker container. **See: [Using with Docker](./docs/docker.md)**
+A common way to run the Relay Proxy is as a Docker container. **To learn more, read [Using with Docker](./docs/docker.md)**.
 
-It can also be run as a Windows service. **See: [Building and Running in Windows](./docs/windows.md)**
+You can also run it as a Windows service. **To learn more, read [Building and Running in Windows](./docs/windows.md)**.
 
-Or, you can build the Relay Proxy endpoints into your own application. **See: [Building Within an Application](./docs/in-app.md)**
+Or, you can build the Relay Proxy endpoints into your own application. **To learn more, read [Building Within an Application](./docs/in-app.md)**.
 
 
 ## Command-line arguments
@@ -67,43 +64,44 @@ If none of these are specified, the default is `--config /etc/ld-relay.conf`.
 
 There are many configuration options, which can be specified in a file, in environment variables, or both.
 
-**For details, see: [Configuration](./docs/configuration.md)**
+**To learn more, read [Configuration](./docs/configuration.md)**.
 
 
 ## Persistent storage
 
 You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul.
 
-**For details, see: [Persistent Storage](./docs/persistent-storage.md)**
+**To learn more, read [Persistent Storage](./docs/persistent-storage.md)**.
 
 
 ## Exporting metrics and traces
 
 The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus.
 
-**For details, see: [Metrics Integrations](./docs/metrics.md)**
+**To learn more, read [Metrics Integrations](./docs/metrics.md)**.
 
 
 ## Logging
 
-**For details, see: [Logging](./docs/logging.md)**
+**To learn more, read [Logging](./docs/logging.md)**.
 
 
 ## Service endpoints
 
 The Relay Proxy defines many HTTP/HTTPS endpoints. Most of these are proxies for LaunchDarkly services, to be used by SDKs that connect to the Relay Proxy. Others are specific to the Relay Proxy, such as for monitoring its status.
 
-**For details, see: [Service Endpoints](./docs/endpoints.md)**
+**To learn more, read [Service Endpoints](./docs/endpoints.md)**.
 
 
 ## Performance, scaling, and operations
 
 We have done extensive load tests on the Relay Proxy in AWS/EC2. We have also collected a substantial amount of data based on real-world customer use. Based on our experience, we have several recommendations on how to best deploy, operate, and scale the Relay Proxy:
 
-* Networking performance is paramount. Memory and CPU are not as critical. The Relay Proxy should be deployed on boxes with good networking performance. On EC2, we recommend using an instance with [Moderate to High networking performance](http://www.ec2instances.info/) such as `m4.xlarge`. On an `m4.xlarge` instance, a single Relay Proxy node can easily manage 20,000 concurrent connections.
+* Networking performance is the most important consideration. Memory and CPU are not as critical. Deploy the Relay Proxy on boxes with good networking performance. On EC2, we recommend using an instance with [Moderate to High networking performance](http://www.ec2instances.info/) such as `m4.xlarge`. On an `m4.xlarge` instance, a single Relay Proxy node can easily manage 20,000 concurrent connections.
 
-* If using an Elastic Load Balancer in front of the Relay Proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the Relay Proxy are cycled. This might happen when you deploy a large number of new servers that connect to the Relay Proxy, or upgrade the Relay Proxy itself.
+* If you use an Elastic Load Balancer in front of the Relay Proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the Relay Proxy cycle. This might happen when you deploy a large number of new servers that connect to the Relay Proxy, or upgrade the Relay Proxy itself.
 
+**To learn more, read [Testing Relay Proxy performance](https://docs.launchdarkly.com/home/advanced/relay-proxy/performance).**
 
 ## Contributing
 
