@@ -64,6 +64,7 @@ type envContextImpl struct {
 	metricsManager   *metrics.Manager
 	metricsEnv       *metrics.EnvironmentManager
 	metricsEventPub  events.EventPublisher
+	dataStoreInfo    sdks.DataStoreEnvironmentInfo
 	globalLoggers    ldlog.Loggers
 	ttl              time.Duration
 	initErr          error
@@ -91,6 +92,7 @@ func NewEnvContext(
 	allConfig config.Config,
 	clientFactory sdks.ClientFactoryFunc,
 	dataStoreFactory interfaces.DataStoreFactory,
+	dataStoreInfo sdks.DataStoreEnvironmentInfo,
 	streamProviders []streams.StreamProvider,
 	jsClientContext JSClientContext,
 	metricsManager *metrics.Manager,
@@ -138,6 +140,7 @@ func NewEnvContext(
 		metricsManager:   metricsManager,
 		globalLoggers:    loggers,
 		ttl:              envConfig.TTL.GetOrElse(0),
+		dataStoreInfo:    dataStoreInfo,
 		creationTime:     time.Now(),
 	}
 
@@ -425,6 +428,10 @@ func (c *envContextImpl) SetSecureMode(secureMode bool) {
 	defer c.mu.Unlock()
 
 	c.secureMode = secureMode
+}
+
+func (c *envContextImpl) GetDataStoreInfo() sdks.DataStoreEnvironmentInfo {
+	return c.dataStoreInfo
 }
 
 func (c *envContextImpl) GetCreationTime() time.Time {

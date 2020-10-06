@@ -169,7 +169,7 @@ func (r *RelayCore) AddEnvironment(
 		return nil, nil, errAlreadyClosed
 	}
 
-	dataStoreFactory, err := sdks.ConfigureDataStore(r.config, envConfig, r.Loggers)
+	dataStoreFactory, dataStoreInfo, err := sdks.ConfigureDataStore(r.config, envConfig, r.Loggers)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,6 +208,7 @@ func (r *RelayCore) AddEnvironment(
 		r.config,
 		r.clientFactory,
 		dataStoreFactory,
+		dataStoreInfo,
 		r.allStreamProviders(),
 		jsClientContext,
 		r.metricsManager,

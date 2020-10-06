@@ -45,7 +45,7 @@ type EnvironmentStatusRep struct {
 	ExpiringSDKKey   string              `json:"expiringSdkKey,omitempty"`
 	Status           string              `json:"status"`
 	ConnectionStatus ConnectionStatusRep `json:"connectionStatus"`
-	DataStoreStatus  *DataStoreStatusRep `json:"dataStoreStatus,omitempty"`
+	DataStoreStatus  DataStoreStatusRep  `json:"dataStoreStatus"`
 }
 
 // ConnectionStatusRep is the data source status representation returned by the status endpoint.
@@ -71,6 +71,10 @@ type ConnectionErrorRep struct {
 type DataStoreStatusRep struct {
 	State      string                     `json:"state"`
 	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
+	Database   string                     `json:"database,omitempty"`
+	DBServer   string                     `json:"dbServer,omitempty"`
+	DBPrefix   string                     `json:"dbPrefix,omitempty"`
+	DBTable    string                     `json:"dbTable,omitempty"`
 }
 
 var (
@@ -131,6 +135,7 @@ func statusHandler(core *RelayCore) http.Handler {
 				status.Status = statusEnvDisconnected
 				status.ConnectionStatus.State = interfaces.DataSourceStateInitializing
 				status.ConnectionStatus.StateSince = ldtime.UnixMillisFromTime(clientCtx.GetCreationTime())
+				status.DataStoreStatus.State = "INITIALIZING"
 				healthy = false
 			} else {
 				connected := client.Initialized()
@@ -153,10 +158,8 @@ func statusHandler(core *RelayCore) http.Handler {
 				}
 
 				storeStatus := client.GetDataStoreStatus()
-				status.DataStoreStatus = &DataStoreStatusRep{
-					State:      "VALID",
-					StateSince: ldtime.UnixMillisFromTime(storeStatus.LastUpdated),
-				}
+				status.DataStoreStatus.State = "VALID"
+				status.DataStoreStatus.StateSince = ldtime.UnixMillisFromTime(storeStatus.LastUpdated)
 				if !storeStatus.Available {
 					status.DataStoreStatus.State = "INTERRUPTED"
 				}
@@ -168,6 +171,12 @@ func statusHandler(core *RelayCore) http.Handler {
 					healthy = false
 				}
 			}
+
+			storeInfo := clientCtx.GetDataStoreInfo()
+			status.DataStoreStatus.Database = storeInfo.DBType
+			status.DataStoreStatus.DBServer = storeInfo.DBServer
+			status.DataStoreStatus.DBPrefix = storeInfo.DBPrefix
+			status.DataStoreStatus.DBTable = storeInfo.DBTable
 
 			statusKey := identifiers.GetDisplayName()
 			if core.envLogNameMode == relayenv.LogNameIsEnvID {

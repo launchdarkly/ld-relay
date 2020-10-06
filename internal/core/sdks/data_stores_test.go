@@ -28,18 +28,20 @@ import (
 func assertFactoryConfigured(
 	t *testing.T,
 	expected interfaces.DataStoreFactory,
+	expectedInfo DataStoreEnvironmentInfo,
 	c config.Config,
 	ec config.EnvConfig,
 ) *ldlogtest.MockLog {
 	mockLog := ldlogtest.NewMockLog()
-	factory, err := ConfigureDataStore(c, ec, mockLog.Loggers)
+	factory, info, err := ConfigureDataStore(c, ec, mockLog.Loggers)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, factory)
+	assert.Equal(t, expectedInfo, info)
 	return mockLog
 }
 
 func TestConfigureDataStoreDefault(t *testing.T) {
-	log := assertFactoryConfigured(t, ldcomponents.InMemoryDataStore(), config.Config{}, config.EnvConfig{})
+	log := assertFactoryConfigured(t, ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, config.Config{}, config.EnvConfig{})
 	assert.Len(t, log.GetAllOutput(), 0)
 }
 
@@ -57,7 +59,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldredis.DataStore().URL(redisURL),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisURL)
 	})
 
@@ -71,7 +74,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldredis.DataStore().URL(redisURL).Prefix("abc"),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, ec)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: "abc"}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisURL+" with prefix: abc")
 	})
 
@@ -85,7 +89,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldredis.DataStore().URL(redisURL),
 		).CacheTime(time.Hour)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("TLS", func(t *testing.T) {
@@ -98,7 +103,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldredis.DataStore().URL(redisSecureURL),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisSecureURL, DBPrefix: ldredis.DefaultPrefix}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisSecureURL)
 	})
 
@@ -116,7 +122,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 			ldredis.DataStore().URL(redisURL),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 
-		factory, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
+		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
 		assert.NoError(t, err)
 		assert.NotEqual(t, notExpected, factory)
 	})
@@ -134,7 +140,8 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldconsul.DataStore().Address(host),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul feature store: "+host)
 	})
 
@@ -148,7 +155,8 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldconsul.DataStore().Address(host).Prefix("abc"),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, ec)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: "abc"}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul feature store: "+host+" with prefix: abc")
 	})
@@ -163,7 +171,8 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			ldconsul.DataStore().Address(host),
 		).CacheTime(time.Hour)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("token", func(t *testing.T) {
@@ -179,7 +188,8 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 				Token:   "abc",
 			}),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("tokenFile", func(t *testing.T) {
@@ -195,7 +205,8 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 				TokenFile: "def",
 			}),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 }
 
@@ -212,7 +223,8 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			lddynamodb.DataStore(table),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table)
 	})
 
@@ -226,7 +238,8 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			lddynamodb.DataStore(table),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, ec)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table)
 	})
 
@@ -241,7 +254,8 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			lddynamodb.DataStore(table).Prefix("abc"),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		log := assertFactoryConfigured(t, expected, c, ec)
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table, DBPrefix: "abc"}
+		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table+" with prefix: abc")
 	})
@@ -257,7 +271,8 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		expected := ldcomponents.PersistentDataStore(
 			lddynamodb.DataStore(table),
 		).CacheTime(time.Hour)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("URL", func(t *testing.T) {
@@ -276,7 +291,8 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 				},
 			}),
 		).CacheTime(config.DefaultDatabaseCacheTTL)
-		assertFactoryConfigured(t, expected, c, config.EnvConfig{})
+		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBServer: url, DBTable: table}
+		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("error - no table", func(t *testing.T) {
@@ -285,7 +301,7 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 				Enabled: true,
 			},
 		}
-		factory, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
+		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
 		assert.Nil(t, factory)
 		assert.Error(t, err)
 	})

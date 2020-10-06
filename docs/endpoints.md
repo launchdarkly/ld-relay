@@ -35,7 +35,10 @@ Making a `GET` request to the URL path `/status` provides JSON information about
       },
       "dataStoreStatus": {
         "state": "VALID",
-        "stateSince": 10000000
+        "stateSince": 10000000,
+        "database": "redis",
+        "dbServer": "redis://my-redis-host",
+        "dbPrefix": "env1"
       }
     },
     "environment2": {
@@ -53,7 +56,9 @@ Making a `GET` request to the URL path `/status` provides JSON information about
       },
       "dataStoreStatus": {
         "state": "VALID",
-        "stateSince": 10000000
+        "stateSince": 10000000,
+        "database": "dynamodb",
+        "dbTable": "env1"
       }
     }
   },
@@ -65,12 +70,23 @@ Making a `GET` request to the URL path `/status` provides JSON information about
 
 The status properties are defined as follows:
 
-- The `status` for each environment is `"connected"` if the Relay Proxy was able to establish a LaunchDarkly connection and get feature flag data for that environment, and is not experiencing a long connection failure now; it is `"disconnected"` if it is experiencing a long connection failure, or if it was never able to connect in the first place. The definition of a "long" connection failure is based on the `disconnectedStatusTime` property in the [configuration](./configuration.md#file-section-main) (which defaults to one minute): the status will become `"disconnected"` if the Relay Proxy has lost its connection to LaunchDarkly for at least that amount of time consecutively. Some short-lived service interruptions are normal, so the `disconnectedStatusTime` threshold helps to avoid prematurely reporting a disconnected status.
-- The `connectionStatus` properties provide more detailed information about the current connectivity to LaunchDarkly. For `state`, `"VALID"` means that the connection is currently working; `"INITIALIZING"` means that it is still starting up; `"INTERRUPTED"` means that it is currently having a problem; `"OFF"` means that it has permanently failed (which only happens if the SDK key is invalid). The `stateSince` property, which is a Unix time measured in milliseconds, indicates how long ago the state changed (so for instance if it is `INTERRUPTED`, this is the time when the connection went from working to not working). The `lastError` indicates the nature of the most recent failure, with a `kind` that is one of the constants defined by the Go SDK's [DataSourceErrorKind](https://pkg.go.dev/gopkg.in/launchdarkly/go-server-sdk.v5/interfaces?tab=doc#DataSourceErrorKind).
-- The `dataStoreStatus` properties are only relevant if you are using [persistent storage](./persistent-storage.md). The `state` is `"VALID"` if the last database operation succeeded, or `"INTERRUPTED"` if it failed (in which case `stateSince`, a Unix millisecond time, indicates the time that it started failing). In an `INTERRUPTED` state, the Relay Proxy will continue attempting to contact the database and as soon as it succeeds, the state will change back to `VALID`. If you are not using persistent storage, this is always `VALID`.
+- The `status` for each environment is `"connected"` if the Relay Proxy was able to establish a LaunchDarkly connection and get feature flag data for that environment, and is not experiencing a long connection failure now; it is `"disconnected"` if it is experiencing a long connection failure, or if it was never able to connect in the first place.
+    - The definition of a "long" connection failure is based on the `disconnectedStatusTime` property in the [configuration](./configuration.md#file-section-main) (which defaults to one minute): the status will become `"disconnected"` if the Relay Proxy has lost its connection to LaunchDarkly for at least that amount of time consecutively. Some short-lived service interruptions are normal, so the `disconnectedStatusTime` threshold helps to avoid prematurely reporting a disconnected status.
+- The `connectionStatus` properties provide more detailed information about the current connectivity to LaunchDarkly.
+    - For `state`, `"VALID"` means that the connection is currently working; `"INITIALIZING"` means that it is still starting up; `"INTERRUPTED"` means that it is currently having a problem; `"OFF"` means that it has permanently failed (which only happens if the SDK key is invalid).
+    - The `stateSince` property, which is a Unix time measured in milliseconds, indicates how long ago the state changed (so for instance if it is `INTERRUPTED`, this is the time when the connection went from working to not working). 
+    - The `lastError` indicates the nature of the most recent failure, with a `kind` that is one of the constants defined by the Go SDK's [DataSourceErrorKind](https://pkg.go.dev/gopkg.in/launchdarkly/go-server-sdk.v5/interfaces?tab=doc#DataSourceErrorKind).
+- The `dataStoreStatus` properties are, for the most part, only relevant if you are using [persistent storage](./persistent-storage.md).
+    - `state` is `"VALID"` if the last database operation succeeded, or `"INTERRUPTED"` if it failed. If you are not using persistent storage, this is always `VALID` since there is no way for in-memory storage to fail, but the property is provided anyway so you can simply check for a non-`VALID` state to detect problems regardless of how the Relay Proxy is configured.
+    - In an `INTERRUPTED` state, the Relay Proxy will continue attempting to contact the database and as soon as it succeeds, the state will change back to `VALID`.
+    - `stateSince`, which is a Unix time measured in milliseconds, indicated how long ago `state` changed from `VALID` to `INTERRUPTED` or vice versa.
+    - `database`, if present, will be `"redis"`, `"consul"`, or `"dynamodb"`. (In the example above, the two environments are using two different databases; that's not currently possible in Relay, so this is only meant to show what the properties might look like for different configurations.)
+    - `dbServer`, if present, is the configured database URL or hostname.
+    - `dbPrefix`, if present, is the configured database key prefix for this environment.
+    - `dbTable`, if present, is the DynamoDB table name for this environment.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
-
-The `version` property is the version of the Relay Proxy; `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
+- `version` is the version of the Relay Proxy.
+- `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
 
 The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in auto-configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
 

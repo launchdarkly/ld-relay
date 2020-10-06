@@ -36,6 +36,7 @@ func NewTestEnvContextWithClientFactory(
 		config.Config{},
 		f,
 		dataStoreFactory,
+		sdks.DataStoreEnvironmentInfo{},
 		nil, //streamProviders,
 		relayenv.JSClientContext{},
 		nil,

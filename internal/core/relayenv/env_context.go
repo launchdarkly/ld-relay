@@ -100,6 +100,9 @@ type EnvContext interface {
 	// GetCreationTime returns the time that this EnvContext was created.
 	GetCreationTime() time.Time
 
+	// GetDataStoreInfo returns information about the environment's data store.
+	GetDataStoreInfo() sdks.DataStoreEnvironmentInfo
+
 	// FlushMetricsEvents is used in testing to ensure that metrics events are delivered promptly.
 	FlushMetricsEvents()
 }

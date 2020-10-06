@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
+
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
@@ -54,6 +56,7 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 		allConfig,
 		testclient.FakeLDClientFactory(true),
 		ldcomponents.InMemoryDataStore(),
+		sdks.DataStoreEnvironmentInfo{},
 		nil,
 		relayenv.JSClientContext{},
 		manager,
