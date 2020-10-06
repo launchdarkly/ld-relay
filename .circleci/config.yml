@@ -17,6 +17,7 @@ workflows:
       - go-test:
           name: Go 1.14
           docker-image: cimg/go:1.14.9
+      - integration-test
       - test-publish
       - publish:
           filters:
@@ -51,7 +52,6 @@ jobs:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
       - run: go version && go env
-      - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
       - when:
           condition: <<parameters.run-lint>>
           steps:
@@ -64,9 +64,11 @@ jobs:
           steps:
             - run:
                 name: Run tests
-                command: |
-                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-                  make test | tee $CIRCLE_ARTIFACTS/report.txt  
+                command: make test | tee $CIRCLE_ARTIFACTS/report.txt  
+            - run:
+                name: Process test results
+                command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
+                when: always
       - when:
           condition: <<parameters.test-coverage>>
           steps:
@@ -85,6 +87,36 @@ jobs:
       - store_artifacts:
           path: /tmp/circle-artifacts
 
+  integration-test:
+    docker:
+      - image: cimg/go:1.15.2
+        environment: &environment
+          CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          CIRCLE_ARTIFACTS: /tmp/circle-artifacts
+          COMMON_GO_PACKAGES: >
+            github.com/jstemmer/go-junit-report
+
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 19.03.13
+      - run: go get -u $COMMON_GO_PACKAGES
+      - run: go version && go env
+      - run: |
+          mkdir -p $CIRCLE_TEST_REPORTS
+          mkdir -p $CIRCLE_ARTIFACTS
+      - run:
+          name: Run integration tests
+          command: make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
+      - run:
+          name: Process test results
+          command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
+          when: always
+      - store_test_results:
+          path: /tmp/circle-reports
+      - store_artifacts:
+          path: /tmp/circle-artifacts
+        
   test-publish:
     docker:
       - &release_docker_image
@@ -98,7 +130,7 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
       - run: make release
-      - run: make integration-test
+      - run: make docker-smoke-test
       - store_artifacts:
           path: dist/
 

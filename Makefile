@@ -34,6 +34,9 @@ test-coverage: $(COVERAGE_PROFILE_RAW)
 	go tool cover -html $(COVERAGE_PROFILE_FILTERED) -o $(COVERAGE_PROFILE_FILTERED_HTML)
 	go tool cover -html $(COVERAGE_PROFILE_RAW) -o $(COVERAGE_PROFILE_RAW_HTML)
 
+integration-test:
+	go test -v -tags integrationtests ./integrationtests
+
 $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 	@mkdir -p ./build
 	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
@@ -66,6 +69,6 @@ test-centos test-debian test-docker test-docker-standalone: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
-integration-test: test-centos test-debian test-docker test-docker-standalone
+docker-smoke-test: test-centos test-debian test-docker test-docker-standalone
 
 .PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone

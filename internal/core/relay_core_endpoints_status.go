@@ -21,14 +21,20 @@ const (
 	statusRelayDegraded   = "degraded"
 )
 
-type statusRep struct {
-	Environments  map[string]environmentStatusRep `json:"environments"`
+// StatusRep is the JSON representation returned by the status endpoint.
+//
+// This is exported for use in integration test code.
+type StatusRep struct {
+	Environments  map[string]EnvironmentStatusRep `json:"environments"`
 	Status        string                          `json:"status"`
 	Version       string                          `json:"version"`
 	ClientVersion string                          `json:"clientVersion"`
 }
 
-type environmentStatusRep struct {
+// EnvironmentStatusRep is the per-environment JSON representation returned by the status endpoint.
+//
+// This is exported for use in integration test code.
+type EnvironmentStatusRep struct {
 	SDKKey           string              `json:"sdkKey"`
 	EnvID            string              `json:"envId,omitempty"`
 	EnvKey           string              `json:"envKey,omitempty"`
@@ -38,22 +44,31 @@ type environmentStatusRep struct {
 	MobileKey        string              `json:"mobileKey,omitempty"`
 	ExpiringSDKKey   string              `json:"expiringSdkKey,omitempty"`
 	Status           string              `json:"status"`
-	ConnectionStatus connectionStatusRep `json:"connectionStatus"`
-	DataStoreStatus  *dataStoreStatusRep `json:"dataStoreStatus,omitempty"`
+	ConnectionStatus ConnectionStatusRep `json:"connectionStatus"`
+	DataStoreStatus  *DataStoreStatusRep `json:"dataStoreStatus,omitempty"`
 }
 
-type connectionStatusRep struct {
+// ConnectionStatusRep is the data source status representation returned by the status endpoint.
+//
+// This is exported for use in integration test code.
+type ConnectionStatusRep struct {
 	State      interfaces.DataSourceState `json:"state"`
 	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
-	LastError  *connectionErrorRep        `json:"lastError,omitempty"`
+	LastError  *ConnectionErrorRep        `json:"lastError,omitempty"`
 }
 
-type connectionErrorRep struct {
+// ConnectionErrorRep is the optional error information in ConnectionStatusRep.
+//
+// This is exported for use in integration test code.
+type ConnectionErrorRep struct {
 	Kind interfaces.DataSourceErrorKind `json:"kind"`
 	Time ldtime.UnixMillisecondTime     `json:"time"`
 }
 
-type dataStoreStatusRep struct {
+// DataStoreStatusRep is the data store status representation returned by the status endpoint.
+//
+// This is exported for use in integration test code.
+type DataStoreStatusRep struct {
 	State      string                     `json:"state"`
 	StateSince ldtime.UnixMillisecondTime `json:"stateSince"`
 }
@@ -77,8 +92,8 @@ func ObscureKey(key string) string {
 func statusHandler(core *RelayCore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		resp := statusRep{
-			Environments:  make(map[string]environmentStatusRep),
+		resp := StatusRep{
+			Environments:  make(map[string]EnvironmentStatusRep),
 			Version:       core.Version,
 			ClientVersion: ld.Version,
 		}
@@ -87,7 +102,7 @@ func statusHandler(core *RelayCore) http.Handler {
 		for _, clientCtx := range core.GetAllEnvironments() {
 			identifiers := clientCtx.GetIdentifiers()
 
-			status := environmentStatusRep{
+			status := EnvironmentStatusRep{
 				EnvKey:   identifiers.EnvKey, // these will only be non-empty if we're in auto-configured mode
 				EnvName:  identifiers.EnvName,
 				ProjKey:  identifiers.ProjKey,
@@ -121,12 +136,12 @@ func statusHandler(core *RelayCore) http.Handler {
 				connected := client.Initialized()
 
 				sourceStatus := client.GetDataSourceStatus()
-				status.ConnectionStatus = connectionStatusRep{
+				status.ConnectionStatus = ConnectionStatusRep{
 					State:      sourceStatus.State,
 					StateSince: ldtime.UnixMillisFromTime(sourceStatus.StateSince),
 				}
 				if sourceStatus.LastError.Kind != "" {
-					status.ConnectionStatus.LastError = &connectionErrorRep{
+					status.ConnectionStatus.LastError = &ConnectionErrorRep{
 						Kind: sourceStatus.LastError.Kind,
 						Time: ldtime.UnixMillisFromTime(sourceStatus.LastError.Time),
 					}
@@ -138,7 +153,7 @@ func statusHandler(core *RelayCore) http.Handler {
 				}
 
 				storeStatus := client.GetDataStoreStatus()
-				status.DataStoreStatus = &dataStoreStatusRep{
+				status.DataStoreStatus = &DataStoreStatusRep{
 					State:      "VALID",
 					StateSince: ldtime.UnixMillisFromTime(storeStatus.LastUpdated),
 				}
