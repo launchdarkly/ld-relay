@@ -10,7 +10,7 @@ FAKE_LD_PORT=8100
 RELAY_PORT=8101
 RELAY_METRICS_PORT=8102
 
-go build ./cmd/ld-relay
+go build .
 
 TEMP_DIR=$(mktemp -d -t ld-relay-XXXXXXXXX)
 trap "rm -rf $TEMP_DIR" EXIT
@@ -22,6 +22,7 @@ RELAY_BASE_VARS="\
   LD_CLIENT_SIDE_ID_test="fake-env-id" \
   USE_PROMETHEUS=1 \
   PROMETHEUS_PORT=${RELAY_METRICS_PORT} \
+  DISABLE_INTERNAL_USAGE_METRICS=1 \
 "
 
 echo

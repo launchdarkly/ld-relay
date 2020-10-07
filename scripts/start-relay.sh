@@ -18,6 +18,6 @@ touch ${OUT_FILE}
 ./ld-relay --from-env >>${OUT_FILE} 2>&1 &
 PID=$!
 
-( tail -f -n +1 $OUT_FILE & ) | sed '/Successfully initialized/ q' 1>&2
+( tail -f -n +1 $OUT_FILE & ) | sed '/Initialized LaunchDarkly client/ q' 1>&2
 
 echo $PID

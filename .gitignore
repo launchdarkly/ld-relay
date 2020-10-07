@@ -21,6 +21,7 @@ _testmain.go
 
 ld-relay-private
 ld-relay
+ld-relay-enterprise
 ld-relay.local.conf
 ld-relay.stg.conf
 ld-relay.prod.conf
@@ -32,8 +33,8 @@ ld-relay.prod.conf
 pkg
 _out
 
+build
 /bin/
-
 /dist/
 .vscode
 _testservice/testservice

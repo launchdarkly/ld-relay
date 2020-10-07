@@ -1,5 +1,5 @@
 
-GOLANGCI_LINT_VERSION=v1.23.7
+GOLANGCI_LINT_VERSION=v1.27.0
 
 LINTER=./bin/golangci-lint
 LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)
@@ -12,11 +12,34 @@ LINTER=./bin/golangci-lint
 
 TEST_COVERAGE_REPORT_FILE ?= coverage.txt
 
-test:
-	go test -race -v $$(go list ./... | grep -v /vendor/)
+ALL_SOURCES := $(shell find * -type f -name "*.go")
+COVERAGE_PROFILE_RAW=./build/coverage_raw.out
+COVERAGE_PROFILE_RAW_HTML=./build/coverage_raw.html
+COVERAGE_PROFILE_FILTERED=./build/coverage.out
+COVERAGE_PROFILE_FILTERED_HTML=./build/coverage.html
+COVERAGE_ENFORCER_FLAGS=\
+  	-skipfiles 'internal/core/sharedtest/' \
+	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
-test-with-coverage:
-	go test -race -v -covermode=atomic -coverpkg=./... -coverprofile $(TEST_COVERAGE_REPORT_FILE) $$(go list ./... | grep -v /vendor/)
+build:
+	go build ./...
+
+test:
+	go test -race -v ./...
+
+test-coverage: $(COVERAGE_PROFILE_RAW)
+	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi
+	$(GOPATH)/bin/go-coverage-enforcer $(COVERAGE_ENFORCER_FLAGS) -outprofile $(COVERAGE_PROFILE_FILTERED) $(COVERAGE_PROFILE_RAW) || true
+	@# added || true because we don't currently want go-coverage-enforcer to stop the build due to coverage gaps
+	go tool cover -html $(COVERAGE_PROFILE_FILTERED) -o $(COVERAGE_PROFILE_FILTERED_HTML)
+	go tool cover -html $(COVERAGE_PROFILE_RAW) -o $(COVERAGE_PROFILE_RAW_HTML)
+
+integration-test:
+	go test -v -tags integrationtests ./integrationtests
+
+$(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
+	@mkdir -p ./build
+	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)
@@ -46,6 +69,6 @@ test-centos test-debian test-docker test-docker-standalone: release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
-integration-test: test-centos test-debian test-docker test-docker-standalone
+docker-smoke-test: test-centos test-debian test-docker test-docker-standalone
 
-.PHONY: docker lint publish release test test-centos test-debian test-docker test-all test-docker-standalone
+.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone

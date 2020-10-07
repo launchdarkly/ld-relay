@@ -11,38 +11,13 @@ workflows:
     jobs:
       - go-test:
           name: Go 1.15
-          docker-image: circleci/golang:1.15
+          docker-image: cimg/go:1.15.2
           run-lint: true
           test-coverage: true
-          test-tls: true
       - go-test:
           name: Go 1.14
-          docker-image: circleci/golang:1.14
-          run-lint: true
-          test-coverage: true
-          test-tls: true
-      - go-test:
-          name: Go 1.13
-          docker-image: circleci/golang:1.13
-          run-lint: true
-          test-tls: true
-      - go-test:
-          name: Go 1.12
-          docker-image: circleci/golang:1.12
-          test-tls: true
-      - go-test:
-          name: Go 1.11
-          docker-image: circleci/golang:1.11
-          test-tls: true
-      - go-test:
-          name: Go 1.10
-          docker-image: circleci/golang:1.10
-      - go-test:
-          name: Go 1.9
-          docker-image: circleci/golang:1.9
-      - go-test:
-          name: Go 1.8
-          docker-image: circleci/golang:1.8
+          docker-image: cimg/go:1.14.9
+      - integration-test
       - test-publish
       - publish:
           filters:
@@ -64,9 +39,6 @@ jobs:
       test-coverage:
         type: boolean
         default: false
-      test-tls:
-        type: boolean
-        default: false  # older CircleCI images don't support using a recent enough curl version
     
     docker:
       - image: <<parameters.docker-image>>
@@ -76,14 +48,10 @@ jobs:
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
-
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
       - run: go version && go env
-      - run: curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-      - run: dep ensure -dry-run
       - when:
           condition: <<parameters.run-lint>>
           steps:
@@ -96,42 +64,21 @@ jobs:
           steps:
             - run:
                 name: Run tests
-                command: |
-                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-                  make test | tee $CIRCLE_ARTIFACTS/report.txt  
+                command: make test | tee $CIRCLE_ARTIFACTS/report.txt  
+            - run:
+                name: Process test results
+                command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
+                when: always
       - when:
           condition: <<parameters.test-coverage>>
           steps:
             - run:
                 name: Run tests with coverage
-                command: |
-                  trap "go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-                  make test-with-coverage -e TEST_COVERAGE_REPORT_FILE=$CIRCLE_ARTIFACTS/coverage.txt | tee $CIRCLE_ARTIFACTS/report.txt  
-      - when:
-          condition: <<parameters.test-coverage>>
-          steps:
+                command: make test-coverage
             - run:
-                name: Set up Code Climate test-reporter
-                command: |
-                  curl -sS -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-                  chmod +x ./cc-test-reporter
-            - run:
-                name: upload coverage report if applicable
-                # note that CircleCI doesn't let us use "when" for an environment variable like $CC_TEST_REPORTER_ID
-                command: |
-                  if [[ -n "$CC_TEST_REPORTER_ID" ]]; then
-                    ./cc-test-reporter format-coverage $CIRCLE_ARTIFACTS/coverage.txt -t gocov --output $CIRCLE_ARTIFACTS/coverage.json
-                    ./cc-test-reporter upload-coverage --input $CIRCLE_ARTIFACTS/coverage.json
-                  fi
-            - run:
-                name: Generate coverage report
-                command: go tool cover -html=$CIRCLE_ARTIFACTS/coverage.txt -o $CIRCLE_ARTIFACTS/coverage.html
-      - when:
-          condition: <<parameters.test-tls>>
-          steps:
-            - run:
-                name: Run TLS version test
-                command: ./scripts/test-tls.sh
+                name: Store coverage results
+                command: cp build/coverage* /tmp/circle-artifacts
+                when: always
       - run:
           name: Run Prometheus endpoint test
           command: ./scripts/test-prometheus-endpoint.sh
@@ -140,21 +87,50 @@ jobs:
       - store_artifacts:
           path: /tmp/circle-artifacts
 
+  integration-test:
+    docker:
+      - image: cimg/go:1.15.2
+        environment: &environment
+          CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          CIRCLE_ARTIFACTS: /tmp/circle-artifacts
+          COMMON_GO_PACKAGES: >
+            github.com/jstemmer/go-junit-report
+
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 19.03.13
+      - run: go get -u $COMMON_GO_PACKAGES
+      - run: go version && go env
+      - run: |
+          mkdir -p $CIRCLE_TEST_REPORTS
+          mkdir -p $CIRCLE_ARTIFACTS
+      - run:
+          name: Run integration tests
+          command: make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
+      - run:
+          name: Process test results
+          command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
+          when: always
+      - store_test_results:
+          path: /tmp/circle-reports
+      - store_artifacts:
+          path: /tmp/circle-artifacts
+        
   test-publish:
     docker:
       - &release_docker_image
-        image: circleci/golang:1.14.9
+        image: cimg/go:1.15.2
         environment:
           <<: *environment
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
       - checkout
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
       - run: make release
-      - run: make integration-test
+      - run: make docker-smoke-test
       - store_artifacts:
           path: dist/
 
@@ -162,7 +138,6 @@ jobs:
     docker:
       - <<: *release_docker_image
 
-    working_directory: /go/src/gopkg.in/launchdarkly/ld-relay.v5
     steps:
       - checkout
       - setup_remote_docker  # start docker engine

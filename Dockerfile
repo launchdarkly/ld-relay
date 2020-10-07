@@ -1,12 +1,12 @@
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM golang:1.14.9-alpine as builder
+FROM golang:1.15.2-alpine as builder
 
 RUN apk --no-cache add \
     libc-dev \
  && rm -rf /var/cache/apk/*
 
-ARG SRC_DIR=/go/src/gopkg.in/launchdarkly/ld-relay.v5
+ARG SRC_DIR=/go/ld-relay
 
 RUN mkdir -p $SRC_DIR
 
@@ -18,7 +18,7 @@ ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOPATH=/go
 
-RUN go build -a -o ldr ./cmd/ld-relay
+RUN go build -a -o ldr .
 
 FROM alpine:3.12.0
 
@@ -33,7 +33,7 @@ RUN apk add --no-cache \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
-ARG SRC_DIR=/go/src/gopkg.in/launchdarkly/ld-relay.v5
+ARG SRC_DIR=/go/ld-relay
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
 

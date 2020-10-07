@@ -7,5 +7,5 @@ releasableBranches:
   - name: v5
 
 publications:
-  - url: https://godoc.org/gopkg.in/launchdarkly/ld-relay.v5
+  - url: https://pkg.go.dev/github.com/launchdarkly/ld-relay
     description: documentation
