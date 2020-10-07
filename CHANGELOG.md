@@ -2,6 +2,44 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.0.0] - 2020-10-07
+For more details on changes related to configuration, read the [configuration documentation](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md).
+
+### Added:
+- The Relay Proxy now supports a new mode named &#34;automatic configuration&#34; which is available to customers on LaunchDarkly&#39;s Enterprise plan. This mode allows environments and their credentials can be configured dynamically rather than having to be manually configured ahead of time. To learn more, read [the online documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration).
+- Secure mode can be enabled for an environment by setting `SecureMode = true` for that environment in the configuration file, or `LD_SECURE_MODE_MyEnvName` if using environment variables. This is separate from the setting for secure mode on the LaunchDarkly dashboard, which the Relay Proxy is not able to access.
+- The new `DisconnectedStatusTime` configuration property controls how long the Relay Proxy will tolerate a stream connection being interrupted before reporting a &#34;disconnected&#34;/&#34;degraded&#34; status in the [status resource](https://github.com/launchdarkly/ld-relay/blob/v6/docs/endpoints.md).
+- The Consul integration now supports ACL tokens with the `Token` and `TokenFile` configuration properties.
+- The new `DisableInternalUsageMetrics` configuration property allows turning off the internal analytics that the Relay Proxy normally sends to LaunchDarkly.
+- The `/status` endpoint now includes more information about the LaunchDarkly connection status, database connection status (if applicable) and database configuration (if applicable). To learn more, read [Service endpoints](https://github.com/launchdarkly/ld-relay/blob/v6/docs/endpoints.md). ([#104](https://github.com/launchdarkly/ld-relay/issues/104))
+
+### Changed (breaking changes in configuration):
+- Relay will now print an error and refuse to start if there is any property name or section name in a configuration file that it does not recognize. Previously, it would print a warning but then continue. This change was made because otherwise it is easy to misspell a property and not notice that the value is not being used.
+- All configuration settings that represent a time duration must now be specified in a format that includes units, such as `3s` for 3 seconds or `5m` for 5 minutes. The affected settings include `[Main] HeartbeatInterval` (`HEARTBEAT_INTERVAL`), `[Events] FlushInterval` (`EVENTS_FLUSH_INTERVAL`), `[any database] LocalTTL` (`CACHE_TTL`), and `[any environment] TTL` (`LD_TTL_envname`).
+- Previously, environment variables that have a true/false value were assumed to be false if the value was anything other than `true` or `1`. Now, any value other than `true`, `false`, `0`, or `1` is an error.
+- All configuration settings that represent port numbers now cause an error if you set them to zero or a negative number. The same is true of the event capacity setting.
+- The environment variable name `LD_TTL_MINUTES_envname` is no longer supported. Use `LD_TTL_envname` instead.
+- The environment variable name `REDIS_TTL` is no longer supported. Use `CACHE_TTL` instead.
+- The setting `[Events] SamplingInterval` (`SAMPLING_INTERVAL`) is no longer supported.
+
+### Changed (breaking changes when building the Relay Proxy):
+- When building the Relay Proxy, you must use Go 1.14 or higher and [Go modules](https://github.com/golang/go/wiki/Modules).
+- The build command is now just `go build`, rather than `go build ./cmd/ld-relay`.
+
+### Changed (breaking changes when using the Relay Proxy as a library):
+- When using the Relay Proxy as a library, you must use Go 1.14 or higher and [Go modules](https://github.com/golang/go/wiki/Modules).
+- The base import path is now `github.com/launchdarkly/ld-relay/v6` instead of `gopkg.in/launchdarkly/ld-relay.v5`.
+- The import path for the `Relay` type is now `github.com/launchdarkly/ld-relay/v6/relay`.
+- The `Config` structs are now in a `config` subpackage. The types of many fields have changed to types that prevent creating a configuration with invalid values (for instance, `OptURLAbsolute` for URL fields instead of `string`).
+- There is no longer a `DefaultConfig`. Instead, Relay automatically uses the appropriate default values for any configuration fields that are not set.
+
+### Changed (other):
+- The prebuilt binaries for Relay Proxy releases no longer include a 32-bit Darwin/MacOS version; current versions of Go only support 64-bit for Darwin. The Linux binaries still include both 32-bit and 64-bit.
+- The documentation in the source code repository has been reorganized into multiple files for clarity, so `README.md` is now only a summary with links to the other files.
+
+### Removed:
+- The undocumented `InsecureSkipVerify` configuration property has been removed.
+
 ## [5.12.2] - 2020-09-23
 ### Fixed:
 - The prebuilt Linux Docker image contained version 1.1.1c of `openssl`, which had several known security vulnerabilities. The image now contains version 1.1.1g of `openssl`, and also uses the more current 3.12.0 version of the Alpine Linux distribution rather than 3.10.2.
