@@ -335,16 +335,22 @@ func (s *StreamManager) addOrUpdate(rep EnvironmentRep) {
 	if expiringKey != "" && expiryTime != 0 {
 		if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; !alreadyHaveTimer {
 			timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
-			dateTime := time.Unix(int64(expiryTime)/1000, 0)
-			s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID,
-				params.Identifiers.GetDisplayName(), dateTime)
-			timer := time.NewTimer(timeFromNow)
-			s.expiryTimers[expiringKey] = timer
-			go func() {
-				if _, ok := <-timer.C; ok {
-					s.expiredKeys <- expiredKey{rep.EnvID, expiringKey}
-				}
-			}()
+			if timeFromNow <= 0 {
+				// LD might sometimes tell us about an "expiring" key that has really already expired. If so,
+				// just ignore it.
+				params.ExpiringSDKKey = ""
+			} else {
+				dateTime := time.Unix(int64(expiryTime)/1000, 0)
+				s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID,
+					params.Identifiers.GetDisplayName(), dateTime)
+				timer := time.NewTimer(timeFromNow)
+				s.expiryTimers[expiringKey] = timer
+				go func() {
+					if _, ok := <-timer.C; ok {
+						s.expiredKeys <- expiredKey{rep.EnvID, expiringKey}
+					}
+				}()
+			}
 		}
 	}
 
