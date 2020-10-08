@@ -35,7 +35,7 @@ require (
 	gopkg.in/gcfg.v1 v1.2.3 // indirect
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.1
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.1
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
