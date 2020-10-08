@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.0.1] - 2020-10-08
+### Fixed:
+- When sending flag/segment JSON data to SDKs or storing it in a database, properties with default values (such as false booleans or empty arrays) were being dropped entirely to save bandwidth. However, some of the LaunchDarkly SDKs do not tolerate missing properties, so this has been fixed to remain consistent with the less efficient behavior of previous Relay Proxy and Go SDK versions.
+- When using automatic configuration mode, under some circumstances the Relay Proxy might make an unnecessary attempt to contact LaunchDarkly using an expired SDK key, which would fail. This did not affect use of the current SDK key, but it would cause a misleading error message in the log.
+
 ## [6.0.0] - 2020-10-07
 For more details on changes related to configuration, read the [configuration documentation](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md).
 
