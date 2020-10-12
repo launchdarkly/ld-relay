@@ -40,10 +40,17 @@ func testAutoConfig(t *testing.T, manager *integrationTestManager) {
 		testDeleteEnvironment(t, manager)
 	})
 
-	// this test is currently disabled because we don't yet have an API endpoint for rotating an SDK key
-	// t.Run("expiring SDK key", func(t *testing.T) {
-	// 	testExpiringSDKKey(t, manager)
-	// })
+	t.Run("updated SDK key", func(t *testing.T) {
+		testUpdatedSDKKeyWithoutExpiry(t, manager)
+	})
+
+	t.Run("updated SDK key with expiry", func(t *testing.T) {
+		testUpdatedSDKKeyWithExpiry(t, manager)
+	})
+
+	t.Run("updated mobile key", func(t *testing.T) {
+		testUpdatedMobileKey(t, manager)
+	})
 }
 
 func testInitialEnvironmentList(t *testing.T, manager *integrationTestManager) {
@@ -113,13 +120,12 @@ func testDeleteEnvironment(t *testing.T, manager *integrationTestManager) {
 	})
 }
 
-func testExpiringSDKKey(t *testing.T, manager *integrationTestManager) {
+func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManager) {
 	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
 		awaitInitialState(t, manager, testData)
 		envToUpdate := testData.environments[0]
-		oldKey := envToUpdate.sdkKey
 
-		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Hour)
+		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Time{})
 		require.NoError(t, err)
 
 		updatedEnv := envToUpdate
@@ -128,11 +134,62 @@ func testExpiringSDKKey(t *testing.T, manager *integrationTestManager) {
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus)
-				return envStatus.ExpiringSDKKey == string(oldKey)
+				return last5(envStatus.SDKKey) == last5(string(newKey)) && envStatus.ExpiringSDKKey == ""
 			}
 			return false
 		})
 	})
+}
+
+func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) {
+	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
+		awaitInitialState(t, manager, testData)
+		envToUpdate := testData.environments[0]
+		oldKey := envToUpdate.sdkKey
+
+		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+
+		updatedEnv := envToUpdate
+		updatedEnv.sdkKey = newKey
+
+		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus)
+				return last5(envStatus.SDKKey) == last5(string(newKey)) &&
+					last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
+			}
+			return false
+		})
+	})
+}
+
+func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
+	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
+		awaitInitialState(t, manager, testData)
+		envToUpdate := testData.environments[0]
+
+		newKey, err := manager.rotateMobileKey(testData.project, envToUpdate)
+		require.NoError(t, err)
+
+		updatedEnv := envToUpdate
+		updatedEnv.mobileKey = newKey
+
+		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus)
+				return last5(envStatus.MobileKey) == last5(string(newKey))
+			}
+			return false
+		})
+	})
+}
+
+func last5(s string) string {
+	if len(s) < 5 {
+		return s
+	}
+	return s[len(s)-5:]
 }
 
 func setupTestData(t *testing.T, manager *integrationTestManager) autoConfigTestData {
