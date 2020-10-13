@@ -389,6 +389,8 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	}
 }
 
+// MakeEnvironmentParams converts the JSON properties for an environment into our internal parameter type.
+// It is exported here because it is also used in the filedata package.
 func MakeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
 	return EnvironmentParams{
 		EnvID: rep.EnvID,
