@@ -28,7 +28,7 @@ func TestMakeEnvironmentParams(t *testing.T) {
 		DefaultTTL: 2,
 		SecureMode: true,
 	}
-	params1 := makeEnvironmentParams(env1)
+	params1 := MakeEnvironmentParams(env1)
 	assert.Equal(t, EnvironmentParams{
 		EnvID: env1.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{
@@ -57,7 +57,7 @@ func TestMakeEnvironmentParams(t *testing.T) {
 				Timestamp: ldtime.UnixMillisecondTime(10000),
 			}},
 	}
-	params2 := makeEnvironmentParams(env2)
+	params2 := MakeEnvironmentParams(env2)
 	assert.Equal(t, EnvironmentParams{
 		EnvID: env2.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{
@@ -85,8 +85,8 @@ func TestPutEvent(t *testing.T) {
 			if msg1.add.EnvID == testEnv2.EnvID {
 				msg1, msg2 = msg2, msg1
 			}
-			assert.Equal(t, makeEnvironmentParams(testEnv1), *msg1.add)
-			assert.Equal(t, makeEnvironmentParams(testEnv2), *msg2.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg1.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv2), *msg2.add)
 
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Received configuration for 2")
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment "+string(testEnv1.EnvID))
@@ -103,12 +103,12 @@ func TestPutEvent(t *testing.T) {
 
 			msg1 := p.requireMessage()
 			require.NotNil(t, msg1.add)
-			assert.Equal(t, makeEnvironmentParams(testEnv1), *msg1.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg1.add)
 
 			p.stream.Enqueue(makePutEvent(testEnv1, testEnv2))
 			msg2 := p.requireMessage()
 			require.NotNil(t, msg2.add)
-			assert.Equal(t, makeEnvironmentParams(testEnv2), *msg2.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv2), *msg2.add)
 
 			p.requireNoMoreMessages()
 
@@ -133,7 +133,7 @@ func TestPutEvent(t *testing.T) {
 			p.stream.Enqueue(makePutEvent(testEnv1Mod, testEnv2))
 			msg := p.requireMessage()
 			require.NotNil(t, msg.update)
-			assert.Equal(t, makeEnvironmentParams(testEnv1Mod), *msg.update)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.update)
 
 			p.requireNoMoreMessages()
 
@@ -220,7 +220,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.add)
-			assert.Equal(t, makeEnvironmentParams(testEnv1), *msg.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
 		})
 	})
 
@@ -239,7 +239,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.update)
-			assert.Equal(t, makeEnvironmentParams(testEnv1Mod), *msg.update)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.update)
 		})
 	})
 
@@ -299,7 +299,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.add)
-			assert.Equal(t, makeEnvironmentParams(testEnv1Mod), *msg.add)
+			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.add)
 		})
 	})
 

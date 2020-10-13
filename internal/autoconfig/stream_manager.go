@@ -58,8 +58,8 @@ var (
 // whether an update is really an update (that is, checking version numbers and diffing the contents of a
 // "put" event against the previous state).
 //
-// Relay Enterprise provides an implementation of the MessageHandler interface which will be called for all
-// changes that it needs to know about.
+// Relay provides an implementation of the MessageHandler interface which will be called for all changes that
+// it needs to know about.
 type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               string
@@ -314,7 +314,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]Environmen
 }
 
 func (s *StreamManager) addOrUpdate(rep EnvironmentRep) {
-	params := makeEnvironmentParams(rep)
+	params := MakeEnvironmentParams(rep)
 
 	// Check whether this is a new environment or an update
 	currentEnv, exists := s.lastKnownEnvs[rep.EnvID]
@@ -389,7 +389,7 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	}
 }
 
-func makeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
+func MakeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
 	return EnvironmentParams{
 		EnvID: rep.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{
