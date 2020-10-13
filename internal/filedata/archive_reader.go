@@ -67,7 +67,7 @@ func getEnvIDFromMetadataFileName(filename string) config.EnvironmentID {
 }
 
 func newArchiveReader(filePath string) (*archiveReader, error) {
-	dirPath, err := ioutil.TempDir("", "ld-relay-******")
+	dirPath, err := ioutil.TempDir("", "ld-relay-")
 	if err != nil {
 		return nil, err // COVERAGE: can't cause this condition in unit tests (unexpected OS error)
 	}
@@ -189,19 +189,23 @@ func readTar(r io.Reader, targetDir string) error {
 			}
 			return err
 		}
+
 		// In our archive format, there should be no subdirectories, just top-level files
-		if h.Typeflag == tar.TypeReg {
-			outPath := filepath.Join(targetDir, h.Name)
-			outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
-			if err != nil {
-				return err // COVERAGE: can't cause this condition in unit tests
-			}
-			bytesCopied, err := io.CopyN(outFile, tr, maxDecompressedFileSize)
-			_ = outFile.Close()
-			if bytesCopied >= maxDecompressedFileSize {
-				_ = os.Remove(outPath)
-				return errUncompressedFileTooBig(h.Name, maxDecompressedFileSize)
-			}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		outPath := filepath.Join(targetDir, h.Name)
+		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
+		if err != nil {
+			return err // COVERAGE: can't cause this condition in unit tests
+		}
+		bytesCopied, err := io.CopyN(outFile, tr, maxDecompressedFileSize)
+		_ = outFile.Close()
+		if bytesCopied >= maxDecompressedFileSize {
+			_ = os.Remove(outPath)
+			return errUncompressedFileTooBig(h.Name, maxDecompressedFileSize)
+		}
+		if err != nil && err != io.EOF {
 			return err
 		}
 	}

@@ -161,7 +161,10 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 		if err != nil {
 			panic(err)
 		}
-		ioutil.WriteFile(checksumFilePath(dirPath), checksum, 0600)
+		err = ioutil.WriteFile(checksumFilePath(dirPath), checksum, 0600)
+		if err != nil {
+			panic(err)
+		}
 
 		fn(dirPath)
 	})

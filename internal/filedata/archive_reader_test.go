@@ -15,6 +15,10 @@ import (
 )
 
 func TestReadCompressedArchive(t *testing.T) {
+	// ArchiveReader is able to read either .tar or .tar.gz files, which it auto-detects. This test verifies
+	// that it can handle a .tar.gz file. All of the other tests use just a .tar file to avoid the overhead
+	// of compressing and uncompressing.
+
 	helpers.WithTempFile(func(filePath string) {
 		writeArchive(t, filePath, true, nil, allTestEnvs...)
 		ar, err := newArchiveReader(filePath)
