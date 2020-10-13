@@ -24,15 +24,14 @@ const (
 // Relay provides an implementation of the UpdateHandler interface which will be called for all changes that
 // it needs to know about.
 type ArchiveManager struct {
-	filePath            string
-	handler             UpdateHandler
-	retryInterval       time.Duration
-	lastKnownEnvs       map[config.EnvironmentID]environmentMetadata
-	lastFailureFileInfo os.FileInfo
-	watcher             *fsnotify.Watcher
-	loggers             ldlog.Loggers
-	closeCh             chan struct{}
-	closeOnce           sync.Once
+	filePath      string
+	handler       UpdateHandler
+	retryInterval time.Duration
+	lastKnownEnvs map[config.EnvironmentID]environmentMetadata
+	watcher       *fsnotify.Watcher
+	loggers       ldlog.Loggers
+	closeCh       chan struct{}
+	closeOnce     sync.Once
 }
 
 // NewArchiveManager creates the ArchiveManager instance and attempts to read the initial file data.
@@ -141,11 +140,9 @@ func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
 				// after an error, so there's nothing to do
 				return
 			}
-		} else {
-			if lastError == nil {
-				am.loggers.Warn(logMsgReloadFileNotFound)
-				lastError = err
-			}
+		} else if lastError == nil {
+			am.loggers.Warn(logMsgReloadFileNotFound)
+			lastError = err
 		}
 		// If we got here, then either the file was not found, or we triggered a delayed retry after
 		// an earlier error and the file has not changed since the last failed attempt.
@@ -166,7 +163,7 @@ func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
 	for {
 		select {
 		case <-am.closeCh:
-			am.watcher.Close()
+			_ = am.watcher.Close()
 			return
 
 		case event := <-am.watcher.Events:

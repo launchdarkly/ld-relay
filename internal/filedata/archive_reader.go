@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // we're not using this weak algorithm for authentication, only for detecting file changes
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,6 +25,7 @@ import (
 
 const (
 	environmentsChecksumFileName = "checksum.md5"
+	maxDecompressedFileSize      = 1024 * 1024 * 200 // arbitrary 200MB limit to avoid decompression bombs
 )
 
 // archiveReader is the low-level implementation of unarchiving a data file and reading the environments.
@@ -84,7 +85,7 @@ func newArchiveReader(filePath string) (*archiveReader, error) {
 	if err != nil {
 		return nil, errChecksumFailed(err) // COVERAGE: can't cause this condition in unit tests (unexpected failure of md5 package)
 	}
-	if bytes.Compare(expectedChecksum, actualChecksum) != 0 {
+	if !bytes.Equal(expectedChecksum, actualChecksum) {
 		return nil, errChecksumDoesNotMatch(hex.EncodeToString(expectedChecksum), hex.EncodeToString(actualChecksum))
 	}
 	return &archiveReader{
@@ -128,7 +129,7 @@ func (ar *archiveReader) GetEnvironmentSDKData(envID config.EnvironmentID) ([]ld
 	}
 	// We'll deserialize the flags and segments one item at a time so we can provide a more useful
 	// error message if one of them is malformed.
-	var ret []ldstoretypes.Collection
+	ret := make([]ldstoretypes.Collection, 0, len(allData))
 	for kindName, valuesMap := range allData {
 		var kind ldstoretypes.DataKind
 		switch kindName {
@@ -153,26 +154,29 @@ func (ar *archiveReader) GetEnvironmentSDKData(envID config.EnvironmentID) ([]ld
 }
 
 func readCompressedArchive(filePath, targetDir string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	gr, err := gzip.NewReader(f)
 	if err != nil {
+		_ = f.Close()
 		return err
 	}
-	defer gr.Close()
-	return readTar(gr, targetDir)
+	err = readTar(gr, targetDir)
+	_ = gr.Close()
+	_ = f.Close()
+	return err
 }
 
 func readUncompressedArchive(filePath, targetDir string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return readTar(f, targetDir)
+	err = readTar(f, targetDir)
+	_ = f.Close()
+	return err
 }
 
 func readTar(r io.Reader, targetDir string) error {
@@ -187,15 +191,18 @@ func readTar(r io.Reader, targetDir string) error {
 		}
 		// In our archive format, there should be no subdirectories, just top-level files
 		if h.Typeflag == tar.TypeReg {
-			outFile, err := os.OpenFile(filepath.Join(targetDir, h.Name), os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
+			outPath := filepath.Join(targetDir, h.Name)
+			outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
 			if err != nil {
 				return err // COVERAGE: can't cause this condition in unit tests
 			}
-			if _, err := io.Copy(outFile, tr); err != nil {
-				outFile.Close()
-				return err
+			bytesCopied, err := io.CopyN(outFile, tr, maxDecompressedFileSize)
+			_ = outFile.Close()
+			if bytesCopied >= maxDecompressedFileSize {
+				_ = os.Remove(outPath)
+				return errUncompressedFileTooBig(h.Name, maxDecompressedFileSize)
 			}
-			outFile.Close()
+			return err
 		}
 	}
 }
@@ -218,7 +225,7 @@ func computeEnvironmentsChecksum(dirPath string, envIDs []config.EnvironmentID) 
 		filePaths = append(filePaths, envSDKDataFilePath(dirPath, envID))
 	}
 	sort.Strings(filePaths)
-	h := md5.New()
+	h := md5.New() //nolint:gosec // we're not using this weak algorithm for authentication, only for detecting file changes
 	for _, path := range filePaths {
 		if err := addFileToHash(h, path); err != nil {
 			return nil, err // COVERAGE: can't cause this condition in unit tests
@@ -228,11 +235,11 @@ func computeEnvironmentsChecksum(dirPath string, envIDs []config.EnvironmentID) 
 }
 
 func addFileToHash(h hash.Hash, filePath string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return err // COVERAGE: can't cause this condition in unit tests
 	}
-	defer f.Close()
 	_, err = io.Copy(h, f)
+	_ = f.Close()
 	return err
 }

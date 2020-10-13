@@ -41,3 +41,8 @@ func errChecksumFailed(err error) error { // COVERAGE: can't cause this conditio
 func errMissingEnvironmentFile(filePath string, err error) error {
 	return fmt.Errorf("unable to read %q from archive: %w", filePath, err)
 }
+
+func errUncompressedFileTooBig(fileName string, maxSize int64) error {
+	return fmt.Errorf("detected malformed or malicious archive file; it contained a file %q with a size >= %d bytes",
+		fileName, maxSize)
+}
