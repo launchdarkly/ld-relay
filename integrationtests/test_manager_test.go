@@ -16,7 +16,9 @@ import (
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
+	"github.com/antihax/optional"
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -202,10 +204,27 @@ func (m *integrationTestManager) deleteEnvironment(project projectInfo, env envi
 	return apiClientResult(fmt.Sprintf("deleting environment %q", env.key), err)
 }
 
-func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Duration) (
+func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
 	config.SDKKey, error) {
-	// TODO - this is currently not implemented in our OpenAPI client
-	return "", nil
+	var apiOptions *ldapi.ResetEnvironmentSDKKeyOpts
+	if !expirationTime.IsZero() {
+		apiOptions = &ldapi.ResetEnvironmentSDKKeyOpts{Expiry: optional.NewInt64(int64(ldtime.UnixMillisFromTime(expirationTime)))}
+	}
+	envResult, _, err := m.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(m.apiContext, project.key, env.key, apiOptions)
+	var newKey config.SDKKey
+	if err == nil {
+		newKey = config.SDKKey(envResult.ApiKey)
+	}
+	return newKey, apiClientResult(fmt.Sprintf("changing SDK key for environment %q", env.key), err)
+}
+
+func (m *integrationTestManager) rotateMobileKey(project projectInfo, env environmentInfo) (config.MobileKey, error) {
+	envResult, _, err := m.apiClient.EnvironmentsApi.ResetEnvironmentMobileKey(m.apiContext, project.key, env.key, nil)
+	var newKey config.MobileKey
+	if err == nil {
+		newKey = config.MobileKey(envResult.MobileKey)
+	}
+	return newKey, apiClientResult(fmt.Sprintf("changing mobile key for environment %q", env.key), err)
 }
 
 func (m *integrationTestManager) createAutoConfigKey(policyResources []string) (autoConfigID, config.AutoConfigKey, error) {

@@ -7,7 +7,7 @@ require (
 	contrib.go.opencensus.io/exporter/stackdriver v0.5.0
 	github.com/DataDog/datadog-go v3.7.2+incompatible // indirect
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20190726131236-c7b72e836616
-	github.com/antihax/optional v1.0.0 // indirect
+	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.15.74
 	github.com/go-gcfg/gcfg v1.2.3
 	github.com/gomodule/redigo v1.8.2
@@ -18,7 +18,7 @@ require (
 	github.com/hashicorp/consul/api v1.5.0
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/api-client-go v3.6.0+incompatible
+	github.com/launchdarkly/api-client-go v3.7.0+incompatible
 	github.com/launchdarkly/eventsource v1.6.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
