@@ -69,11 +69,10 @@ func autoConfTest(
 			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
 			config.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
 
-			relay, err := newRelayInternal(
-				config,
-				mockLog.Loggers,
-				testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
-			)
+			relay, err := newRelayInternal(config, relayInternalOptions{
+				loggers:       mockLog.Loggers,
+				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
+			})
 			if err != nil {
 				panic(err)
 			}

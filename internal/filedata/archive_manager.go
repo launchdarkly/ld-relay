@@ -1,6 +1,7 @@
 package filedata
 
 import (
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -32,6 +33,12 @@ type ArchiveManager struct {
 	loggers       ldlog.Loggers
 	closeCh       chan struct{}
 	closeOnce     sync.Once
+}
+
+// ArchiveManagerInterface is an interface containing the public methods of ArchiveManager. This is used
+// for test stubbing.
+type ArchiveManagerInterface interface {
+	io.Closer
 }
 
 // NewArchiveManager creates the ArchiveManager instance and attempts to read the initial file data.
@@ -85,10 +92,11 @@ func NewArchiveManager(
 }
 
 // Close shuts down the ArchiveManager.
-func (am *ArchiveManager) Close() {
+func (am *ArchiveManager) Close() error {
 	am.closeOnce.Do(func() {
 		close(am.closeCh)
 	})
+	return nil
 }
 
 func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
