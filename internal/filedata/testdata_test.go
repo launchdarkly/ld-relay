@@ -213,7 +213,7 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 	tarWriter.Flush()
 
 	fileInfo, _ := os.Stat(filePath)
-	fmt.Printf("wrote test archive %s (%d bytes)", filePath, fileInfo.Size)
+	fmt.Printf("wrote test archive %s (%d bytes)", filePath, fileInfo.Size())
 }
 
 func writeMalformedArchive(filePath string) {
