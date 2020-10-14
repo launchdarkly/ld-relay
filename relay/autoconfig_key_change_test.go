@@ -76,7 +76,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1 := p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
+		assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 		modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
@@ -86,7 +86,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 
 		client1.AwaitClose(t, time.Second)
 
-		p.awaitCredentialsUpdated(env, modified)
+		p.awaitCredentialsUpdated(env, modified.params())
 		assert.Nil(t, p.relay.core.GetEnvironment(testAutoConfEnv1.sdkKey))
 	})
 }
@@ -97,7 +97,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		client1 := p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
+		assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 		modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 		modified.sdkKeyExpiryValue = testAutoConfEnv1.sdkKey
@@ -107,8 +107,8 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		client2 := p.awaitClient()
 		assert.Equal(t, modified.sdkKey, client2.Key)
 
-		p.awaitCredentialsUpdated(env, modified)
-		p.assertEnvLookup(env, testAutoConfEnv1) // looking up env by old key still works
+		p.awaitCredentialsUpdated(env, modified.params())
+		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
 		assert.Equal(t, []config.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
 
 		select {
@@ -129,12 +129,12 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 	t.Run("when no events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
-			assertEnvProps(t, testAutoConfEnv1, env)
+			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-			p.awaitCredentialsUpdated(env, modified)
+			p.awaitCredentialsUpdated(env, modified.params())
 
 			verifyEventProxying(p, serverSideEventsURL, modified.sdkKey)
 			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
@@ -145,7 +145,7 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 	t.Run("when some events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
-			assertEnvProps(t, testAutoConfEnv1, env)
+			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
 			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
@@ -153,7 +153,7 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 			modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-			p.awaitCredentialsUpdated(env, modified)
+			p.awaitCredentialsUpdated(env, modified.params())
 
 			verifyEventProxying(p, serverSideEventsURL, modified.sdkKey)
 			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
@@ -172,7 +172,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		client1 := p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
+		assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 		modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 		modified.sdkKeyExpiryValue = oldKey
@@ -182,7 +182,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		client2 := p.awaitClient()
 		assert.Equal(t, modified.sdkKey, client2.Key)
 
-		p.awaitCredentialsUpdated(env, modified)
+		p.awaitCredentialsUpdated(env, modified.params())
 		newCredentials := credentialsAsSet(env.GetCredentials()...)
 		assert.Equal(t, env, p.relay.core.GetEnvironment(oldKey))
 
@@ -206,14 +206,14 @@ func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
 		_ = p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
+		assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 		modified := makeEnvWithModifiedMobileKey(testAutoConfEnv1)
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
-		p.awaitCredentialsUpdated(env, modified)
+		p.awaitCredentialsUpdated(env, modified.params())
 		assert.Nil(t, p.relay.core.GetEnvironment(testAutoConfEnv1.mobKey))
 	})
 }
@@ -224,12 +224,12 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 	t.Run("when no events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
-			assertEnvProps(t, testAutoConfEnv1, env)
+			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			modified := makeEnvWithModifiedMobileKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-			p.awaitCredentialsUpdated(env, modified)
+			p.awaitCredentialsUpdated(env, modified.params())
 
 			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
 			verifyEventProxying(p, mobileEventsURL, modified.mobKey)
@@ -240,7 +240,7 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 	t.Run("when some events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
-			assertEnvProps(t, testAutoConfEnv1, env)
+			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			verifyEventVerbatimRelay(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
 			verifyEventVerbatimRelay(p, mobileEventsURL, testAutoConfEnv1.mobKey)
@@ -248,7 +248,7 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 			modified := makeEnvWithModifiedMobileKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
-			p.awaitCredentialsUpdated(env, modified)
+			p.awaitCredentialsUpdated(env, modified.params())
 
 			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
 			verifyEventProxying(p, mobileEventsURL, modified.mobKey)

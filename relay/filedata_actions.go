@@ -10,6 +10,7 @@ import (
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
 const (
@@ -41,6 +42,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
 		config.DataSource = dataSourceFactoryToCaptureUpdates{updatesCh}
+		config.Events = ldcomponents.NoEvents()
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
@@ -56,7 +58,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		}
 		a.envUpdates[ae.Params.EnvID] = updates
 		updates.Init(ae.SDKData)
-	case <-time.After(time.Second):
+	case <-time.After(time.Second * 2):
 		a.r.loggers.Errorf(logMsgOfflineEnvTimeoutError, ae.Params.Identifiers.GetDisplayName())
 	}
 }
@@ -112,5 +114,5 @@ func (s stubDataSourceToCaptureUpdates) IsInitialized() bool {
 
 func (s stubDataSourceToCaptureUpdates) Start(readyCh chan<- struct{}) {
 	s.updatesCh <- s.dataSourceUpdates
-	readyCh <- struct{}{}
+	close(readyCh)
 }
