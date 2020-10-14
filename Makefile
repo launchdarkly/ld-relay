@@ -25,6 +25,7 @@ build:
 	go build ./...
 
 test:
+	go test -run=not-a-real-test ./...  # just ensures that the tests compile
 	go test -race -v ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)

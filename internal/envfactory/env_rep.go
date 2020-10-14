@@ -39,7 +39,7 @@ type ExpiringKeyRep struct {
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }
 
-// MakeEnvironmentParams converts the JSON properties for an environment into our internal parameter type.
+// ToParams converts the JSON properties for an environment into our internal parameter type.
 func (r EnvironmentRep) ToParams() EnvironmentParams {
 	return EnvironmentParams{
 		EnvID: r.EnvID,

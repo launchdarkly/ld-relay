@@ -20,6 +20,7 @@ type EnvConfigFactory struct {
 	AllowedOrigin ct.OptStringList
 }
 
+// NewEnvConfigFactoryForAutoConfig creates an EnvConfigFactory based on the auto-configuration mode settings.
 func NewEnvConfigFactoryForAutoConfig(c config.AutoConfigConfig) EnvConfigFactory {
 	return EnvConfigFactory{
 		DataStorePrefix: c.EnvDatastorePrefix,
@@ -28,6 +29,7 @@ func NewEnvConfigFactoryForAutoConfig(c config.AutoConfigConfig) EnvConfigFactor
 	}
 }
 
+// NewEnvConfigFactoryForOfflineMode creates an EnvConfigFactory based on the offline mode settings.
 func NewEnvConfigFactoryForOfflineMode(c config.OfflineModeConfig) EnvConfigFactory {
 	return EnvConfigFactory{
 		DataStorePrefix: c.EnvDatastorePrefix,
@@ -36,6 +38,8 @@ func NewEnvConfigFactoryForOfflineMode(c config.OfflineModeConfig) EnvConfigFact
 	}
 }
 
+// MakeEnvironmentConfig creates an EnvConfig based on both the individual EnvironmentParams and the
+// properties of the EnvConfigFactory.
 func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config.EnvConfig {
 	ret := config.EnvConfig{
 		SDKKey:        params.SDKKey,
