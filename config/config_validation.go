@@ -10,10 +10,13 @@ import (
 )
 
 var (
-	errTLSEnabledWithoutCertOrKey  = errors.New("TLS cert and key are required if TLS is enabled")
-	errAutoConfPropertiesWithNoKey = errors.New("must specify auto-configuration key if other auto-configuration properties are set")
-	errAutoConfWithEnvironments    = errors.New("cannot configure specific environments if auto-configuration is enabled")
-	errAutoConfWithoutDBDisambig   = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
+	errTLSEnabledWithoutCertOrKey      = errors.New("TLS cert and key are required if TLS is enabled")
+	errAutoConfPropertiesWithNoKey     = errors.New("must specify auto-configuration key if other auto-configuration properties are set")
+	errAutoConfWithEnvironments        = errors.New("cannot configure specific environments if auto-configuration is enabled")
+	errFileDataWithAutoConf            = errors.New("cannot specify both auto-configuration key and file data source")
+	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
+	errFileDataWithEnvironments        = errors.New("cannot configure specific environments if file data source is enabled")
+	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname        = errors.New("invalid Redis hostname")
@@ -75,6 +78,19 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 		}
 	} else if len(c.Environment) != 0 {
 		result.AddError(nil, errAutoConfWithEnvironments)
+	}
+	if c.OfflineMode.FileDataSource == "" {
+		if c.OfflineMode.EnvDatastorePrefix != "" || c.OfflineMode.EnvDatastoreTableName != "" ||
+			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 {
+			result.AddError(nil, errOfflineModePropertiesWithNoFile)
+		}
+	} else {
+		if c.AutoConfig.Key != "" {
+			result.AddError(nil, errFileDataWithAutoConf)
+		}
+		if len(c.Environment) != 0 {
+			result.AddError(nil, errFileDataWithEnvironments)
+		}
 	}
 
 	for envName, envConfig := range c.Environment {

@@ -41,6 +41,21 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 
 	reader.ReadStruct(&c.AutoConfig, false)
 
+	reader.ReadStruct(&c.OfflineMode, false)
+
+	// The following properties have the same environment variable names in AutoConfigConfig and in
+	// OfflineModeConfig, because only one of those can be used at a time. We'll blank them out for
+	// whichever section is not being used.
+	if c.AutoConfig.Key != "" {
+		c.OfflineMode.EnvAllowedOrigin = ct.OptStringList{}
+		c.OfflineMode.EnvDatastorePrefix = ""
+		c.OfflineMode.EnvDatastoreTableName = ""
+	} else if c.OfflineMode.FileDataSource != "" {
+		c.AutoConfig.EnvAllowedOrigin = ct.OptStringList{}
+		c.AutoConfig.EnvDatastorePrefix = ""
+		c.AutoConfig.EnvDatastoreTableName = ""
+	}
+
 	reader.ReadStruct(&c.Events, false)
 	rejectObsoleteVariableName("EVENTS_SAMPLING_INTERVAL", "", reader)
 

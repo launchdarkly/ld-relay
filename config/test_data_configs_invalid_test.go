@@ -19,6 +19,11 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigAutoConfAllowedOriginWithNoKey(),
 		makeInvalidConfigAutoConfPrefixWithNoKey(),
 		makeInvalidConfigAutoConfTableNameWithNoKey(),
+		makeInvalidConfigFileDataWithAutoConfKey(),
+		makeInvalidConfigFileDataWithEnvironments(),
+		makeInvalidConfigOfflineModeAllowedOriginWithNoFile(),
+		makeInvalidConfigOfflineModePrefixWithNoFile(),
+		makeInvalidConfigOfflineModeTableNameWithNoFile(),
 		makeInvalidConfigRedisInvalidHostname(),
 		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
@@ -141,6 +146,70 @@ func makeInvalidConfigAutoConfTableNameWithNoKey() testDataInvalidConfig {
 	}
 	c.fileContent = `
 [AutoConfig]
+EnvDatastoreTableName = table
+`
+	return c
+}
+
+func makeInvalidConfigFileDataWithAutoConfKey() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "file data source with auto-config key"}
+	c.envVarsError = errFileDataWithAutoConf.Error()
+	c.envVars = map[string]string{
+		"FILE_DATA_SOURCE": "my-file-path",
+		"AUTO_CONFIG_KEY":  "autokey",
+	}
+	c.fileContent = `
+[OfflineMode]
+FileDataSource = my-file-path
+
+[AutoConfig]
+Key = autokey
+`
+	return c
+}
+
+func makeInvalidConfigFileDataWithEnvironments() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "file data source with environments"}
+	c.envVarsError = errFileDataWithEnvironments.Error()
+	c.envVars = map[string]string{
+		"FILE_DATA_SOURCE": "my-file-path",
+		"LD_ENV_envname":   "sdk-key",
+	}
+	c.fileContent = `
+[OfflineMode]
+FileDataSource = my-file-path
+
+[Environment "envname"]
+SDKKey = sdk-key
+`
+	return c
+}
+
+func makeInvalidConfigOfflineModeAllowedOriginWithNoFile() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "offline mode allowed origin with no file"}
+	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileContent = `
+[OfflineMode]
+EnvAllowedOrigin = http://origin
+`
+	return c
+}
+
+func makeInvalidConfigOfflineModePrefixWithNoFile() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "offline mode prefix with no file"}
+	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileContent = `
+[OfflineMode]
+EnvDatastorePrefix = prefix
+`
+	return c
+}
+
+func makeInvalidConfigOfflineModeTableNameWithNoFile() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "offline mode table name with no file"}
+	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileContent = `
+[OfflineMode]
 EnvDatastoreTableName = table
 `
 	return c
