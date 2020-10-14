@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	defaultRetryInterval       = time.Second
-	maxRetriesIfFileNotChanged = 2
+	defaultRetryInterval = time.Millisecond * 500
+	maxRetryDuration     = time.Second * 2
 )
 
 // ArchiveManager manages the file data source.
@@ -95,12 +95,15 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 	lastFileInfo := originalFileInfo
 	retryCh := make(chan struct{})
 	pendingRetry := false
-	retriedCountSinceLastChange := 0
+	var firstRetryTime time.Time
 	var lastError error
 
 	scheduleRetry := func() {
 		am.loggers.Debug("Will schedule retry")
 		pendingRetry = true
+		if firstRetryTime.IsZero() {
+			firstRetryTime = time.Now()
+		}
 		time.AfterFunc(am.retryInterval, func() {
 			// Use non-blocking write because we never need to queue more than one retry signal
 			select {
@@ -117,7 +120,7 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 		if err == nil {
 			if fileMayHaveChanged(curFileInfo, lastFileInfo) {
 				// If the file's mod time or size has changed, we will always try to reload.
-				retriedCountSinceLastChange = 0
+				firstRetryTime = time.Time{}
 				lastError = nil
 				am.loggers.Debugf("File info changed: old (size=%d, mtime=%s), new(size=%d, mtime=%s)",
 					lastFileInfo.Size(), lastFileInfo.ModTime(), curFileInfo.Size(), curFileInfo.ModTime())
@@ -154,8 +157,7 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 		// copy operation in progress, so we'll schedule another retry-- up to a limit. We won't rely on
 		// the file watching mechanism for this, because its granularity might be too large to detect
 		// consecutive changes that happen close together.
-		if retriedCountSinceLastChange < maxRetriesIfFileNotChanged {
-			retriedCountSinceLastChange++
+		if firstRetryTime.IsZero() || time.Since(firstRetryTime) < maxRetryDuration {
 			am.loggers.Warn(logMsgReloadUnchangedRetry)
 			scheduleRetry()
 		} else {

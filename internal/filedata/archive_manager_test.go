@@ -156,7 +156,7 @@ func TestFileUpdatedWithValidDataDeletedEnvironment(t *testing.T) {
 	})
 }
 
-func TestFileUpdatedWithInvalidData(t *testing.T) {
+func TestFileUpdatedWithInvalidDataAndDoesNotBecomeValid(t *testing.T) {
 	archiveManagerTest(t, func(filePath string) {
 		writeArchive(t, filePath, false, nil, testEnv1, testEnv2)
 	}, func(p archiveManagerTestParams) {
@@ -165,7 +165,7 @@ func TestFileUpdatedWithInvalidData(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		writeMalformedArchive(p.filePath)
-		<-time.After(testRetryInterval * (maxRetriesIfFileNotChanged + 2))
+		<-time.After(maxRetryDuration + time.Millisecond*100)
 
 		p.requireNoMoreMessages()
 		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "giving up until next change")
