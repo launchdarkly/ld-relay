@@ -107,7 +107,7 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 	var lastError error
 
 	scheduleRetry := func() {
-		am.loggers.Debug("Will schedule retry")
+		am.loggers.Infof(logMsgReloadWillRetry, am.retryInterval)
 		pendingRetry = true
 		if firstRetryTime.IsZero() {
 			firstRetryTime = time.Now()
@@ -148,12 +148,13 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 				ar.Close()
 				return
 			}
-			am.loggers.Debug("File has not changed")
+			am.loggers.Debugf("File has not changed (size=%d, mtime=%s)", curFileInfo.Size(), curFileInfo.ModTime())
 			if lastError == nil {
 				// This was a spurious file watch notification - the file hasn't changed and we're not retrying
 				// after an error, so there's nothing to do
 				return
 			}
+			am.loggers.Warn(logMsgReloadUnchangedRetry)
 		} else if lastError == nil {
 			am.loggers.Warn(logMsgReloadFileNotFound)
 			lastError = err
@@ -166,7 +167,6 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 		// the file watching mechanism for this, because its granularity might be too large to detect
 		// consecutive changes that happen close together.
 		if firstRetryTime.IsZero() || time.Since(firstRetryTime) < maxRetryDuration {
-			am.loggers.Warn(logMsgReloadUnchangedRetry)
 			scheduleRetry()
 		} else {
 			am.loggers.Errorf(logMsgReloadUnchangedNoMoreRetries, lastError)

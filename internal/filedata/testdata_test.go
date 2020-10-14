@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/md5"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -171,19 +172,19 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 }
 
 func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
+	_ = os.Remove(filePath)
+
 	destFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0600)
 	require.NoError(t, err)
-	defer destFile.Close()
 
 	var tarWriter *tar.Writer
+	var gzWriter *gzip.Writer
 	if compressed {
-		gz := gzip.NewWriter(destFile)
-		defer gz.Close()
-		tarWriter = tar.NewWriter(gz)
+		gzWriter = gzip.NewWriter(destFile)
+		tarWriter = tar.NewWriter(gzWriter)
 	} else {
 		tarWriter = tar.NewWriter(destFile)
 	}
-	defer tarWriter.Close()
 
 	withTestData(func(dirPath string) {
 		if modifyFn != nil {
@@ -208,13 +209,27 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 			return nil
 		})
 	}, envs...)
+
+	tarWriter.Flush()
+	tarWriter.Close()
+	if gzWriter != nil {
+		gzWriter.Flush()
+		gzWriter.Close()
+	}
+	destFile.Close()
+
+	fileInfo, _ := os.Stat(filePath)
+	fmt.Printf("wrote test archive (%d bytes) to %s\n", fileInfo.Size(), filePath)
 }
 
 func writeMalformedArchive(filePath string) {
-	err := ioutil.WriteFile(filePath, []byte("not valid"), 0600)
+	_ = os.Remove(filePath)
+	data := []byte("not valid")
+	err := ioutil.WriteFile(filePath, data, 0600)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("wrote deliberately invalid test archive (%d bytes) to %s\n", len(data), filePath)
 }
 
 func removeChecksumFileFromArchive(dirPath string) {
