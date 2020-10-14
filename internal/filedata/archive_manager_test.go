@@ -193,6 +193,7 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 		p.expectEnvironmentsUpdated(testEnv1a)
 		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "file is invalid")
 		p.expectReloaded()
+		t.Fail()
 	})
 }
 

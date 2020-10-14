@@ -90,20 +90,20 @@ func (am *ArchiveManager) Close() {
 func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
 	lastFileInfo := originalFileInfo
 	retryCh := make(chan struct{})
-	needRetry := false
+	pendingRetry := false
 	retriedCountSinceLastChange := 0
 	var lastError error
 
 	scheduleRetry := func() {
 		am.loggers.Debug("Will schedule retry")
-		needRetry = true
+		pendingRetry = true
 		time.AfterFunc(am.retryInterval, func() {
 			// Use non-blocking write because we never need to queue more than one retry signal
 			select {
 			case retryCh <- struct{}{}:
 				break
 			default:
-				break
+				break // COVERAGE: can't cause this condition in unit tests
 			}
 		})
 	}
@@ -119,7 +119,6 @@ func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
 					lastFileInfo.Size(), lastFileInfo.ModTime(), curFileInfo.Size(), curFileInfo.ModTime())
 				lastFileInfo = curFileInfo
 				ar, err := newArchiveReader(am.filePath)
-				needRetry = false
 				if err != nil {
 					// A failure here might be a real failure, or it might be that the file is being copied
 					// over non-atomically so that we're seeing an invalid partial state. So we'll always
@@ -168,28 +167,25 @@ func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
 
 		case event := <-am.watcher.Events:
 			am.loggers.Debugf("Got file watcher event: %+v", event)
-			// Consume any redundant change events that may have already piled up in the queue
-			am.consumeExtraEvents()
-			maybeReload()
+			// If we are already going to retry after a brief interval, then we can ignore any file watch
+			// events that are triggered before the retry. Some implementations of fsnotify can produce a
+			// burst of redundant events, and there's no point in trying to reload the file many times
+			// within our retry interval.
+			if pendingRetry {
+				am.loggers.Debug("Ignoring file watcher event because there is already a scheduled retry")
+			} else {
+				maybeReload()
+			}
 
 		case <-retryCh:
 			// If needRetry is false, this is an obsolete signal - we've already successfully reloaded
-			if needRetry {
+			if pendingRetry {
 				am.loggers.Debug("Got retry signal")
+				pendingRetry = false
 				maybeReload()
 			} else {
 				am.loggers.Debug("Ignoring obsolete retry signal") // COVERAGE: can't cause this condition in unit tests
 			}
-		}
-	}
-}
-
-func (am *ArchiveManager) consumeExtraEvents() {
-	for {
-		select {
-		case <-am.watcher.Events: // COVERAGE: can't simulate this condition in unit tests
-		default:
-			return
 		}
 	}
 }
@@ -216,7 +212,6 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 				continue
 			}
 			ae := ArchiveEnvironment{Params: envMetadata.params}
-			am.loggers.Debugf("*** old = %+v, new = %+v", old, envMetadata)
 			if old.dataID != envMetadata.dataID {
 				ae.SDKData, err = ar.GetEnvironmentSDKData(envID)
 				if err != nil {
