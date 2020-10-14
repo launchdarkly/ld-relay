@@ -178,10 +178,10 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 	require.NoError(t, err)
 
 	var tarWriter *tar.Writer
+	var gzWriter *gzip.Writer
 	if compressed {
-		gz := gzip.NewWriter(destFile)
-		defer gz.Close()
-		tarWriter = tar.NewWriter(gz)
+		gzWriter = gzip.NewWriter(destFile)
+		tarWriter = tar.NewWriter(gzWriter)
 	} else {
 		tarWriter = tar.NewWriter(destFile)
 	}
@@ -212,6 +212,10 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 
 	tarWriter.Flush()
 	tarWriter.Close()
+	if gzWriter != nil {
+		gzWriter.Flush()
+		gzWriter.Close()
+	}
 	destFile.Close()
 
 	fileInfo, _ := os.Stat(filePath)
