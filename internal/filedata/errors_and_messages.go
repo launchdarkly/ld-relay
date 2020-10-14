@@ -8,7 +8,7 @@ import "fmt"
 const (
 	logMsgAddEnv                       = "Added environment %s (%s)"
 	logMsgUpdateEnv                    = "Updated environment %s (%s)"
-	logMsgDeleteEnv                    = "Removing environment %s (%s)"
+	logMsgDeleteEnv                    = "Removed environment %s (%s)"
 	logMsgNoEnvs                       = "The data file does not contain any environments; check your configuration"
 	logMsgBadEnvData                   = "Found invalid data for environment %s; skipping this environment"
 	logMsgReloadedData                 = "Reloaded data from %s"

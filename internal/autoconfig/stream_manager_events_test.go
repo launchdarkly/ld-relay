@@ -120,7 +120,7 @@ func TestPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Removing environment "+string(testEnv1.EnvID))
+			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Removed environment "+string(testEnv1.EnvID))
 			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
 			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
 		})
