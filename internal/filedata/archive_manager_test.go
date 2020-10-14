@@ -225,10 +225,10 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		require.NoError(t, os.Remove(p.filePath))
-		<-time.After(time.Millisecond * 100)
+		<-time.After(time.Millisecond * 200)
 
 		writeMalformedArchive(p.filePath)
-		<-time.After(time.Millisecond * 100)
+		<-time.After(time.Millisecond * 200)
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
