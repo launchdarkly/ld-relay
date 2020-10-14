@@ -25,24 +25,6 @@ const (
 	streamRetryResetInterval = 60 * time.Second
 	streamJitterRatio        = 0.5
 	defaultStreamRetryDelay  = 1 * time.Second
-
-	logMsgStreamConnecting    = "Connecting to auto-configuration stream at %s"
-	logMsgStreamHTTPError     = "HTTP error %d on auto-configuration stream"
-	logMsgStreamOtherError    = "Unexpected error on auto-configuration stream: %s"
-	logMsgBadKey              = "Invalid auto-configuration key; cannot get environments"
-	logMsgDeliberateReconnect = "Will restart auto-configuration stream to get new data due to a policy change"
-	logMsgPutEvent            = "Received configuration for %d environment(s)"
-	logMsgAddEnv              = "Added environment %s (%s)"
-	logMsgUpdateEnv           = "Properties have changed for environment %s (%s)"
-	logMsgUpdateBadVersion    = "Ignoring out-of-order update for environment %s (%s)"
-	logMsgDeleteEnv           = "Removing environment %s (%s)"
-	logMsgDeleteBadVersion    = "Ignoring out-of-order delete for environment %s (%s)"
-	logMsgKeyWillExpire       = "Old SDK key ending in %s for environment %s (%s) will expire at %s"
-	logMsgKeyExpired          = "Old SDK key ending in %s for environment %s (%s) has expired"
-	logMsgEnvHasWrongID       = "Ignoring environment data whose envId %q did not match key %q"
-	logMsgUnknownEvent        = "Ignoring unrecognized stream event: %q"
-	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
-	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
 )
 
 var (
@@ -58,8 +40,8 @@ var (
 // whether an update is really an update (that is, checking version numbers and diffing the contents of a
 // "put" event against the previous state).
 //
-// Relay Enterprise provides an implementation of the MessageHandler interface which will be called for all
-// changes that it needs to know about.
+// Relay provides an implementation of the MessageHandler interface which will be called for all changes that
+// it needs to know about.
 type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               string
@@ -314,7 +296,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]Environmen
 }
 
 func (s *StreamManager) addOrUpdate(rep EnvironmentRep) {
-	params := makeEnvironmentParams(rep)
+	params := MakeEnvironmentParams(rep)
 
 	// Check whether this is a new environment or an update
 	currentEnv, exists := s.lastKnownEnvs[rep.EnvID]
@@ -389,7 +371,9 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	}
 }
 
-func makeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
+// MakeEnvironmentParams converts the JSON properties for an environment into our internal parameter type.
+// It is exported here because it is also used in the filedata package.
+func MakeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
 	return EnvironmentParams{
 		EnvID: rep.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{

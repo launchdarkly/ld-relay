@@ -59,7 +59,7 @@ func TestExpiringKeyInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, makeEnvironmentParams(envWithExpiringKey), *msg.add)
+		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -75,7 +75,7 @@ func TestExpiringKeyInPatchAdd(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, makeEnvironmentParams(envWithExpiringKey), *msg.add)
+		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -96,7 +96,7 @@ func TestExpiringKeyInPatchUpdate(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
-		assert.Equal(t, makeEnvironmentParams(envWithExpiringKey), *msg.update)
+		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.update)
 		assert.Equal(t, oldKey, msg.update.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -111,7 +111,7 @@ func TestExpiringKeyHasAlreadyExpiredInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, makeEnvironmentParams(testEnv1), *msg.add)
+		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
 		assert.Equal(t, config.SDKKey(""), msg.add.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)
@@ -127,7 +127,7 @@ func TestExpiringKeyHasAlreadyExpiredInPatchAdd(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, makeEnvironmentParams(testEnv1), *msg.add)
+		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
 		assert.Equal(t, config.SDKKey(""), msg.add.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)
@@ -148,7 +148,7 @@ func TestExpiringKeyHasAlreadyExpiredInPatchUpdate(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
-		assert.Equal(t, makeEnvironmentParams(testEnv1), *msg.update)
+		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.update)
 		assert.Equal(t, config.SDKKey(""), msg.update.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)

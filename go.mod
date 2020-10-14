@@ -9,6 +9,7 @@ require (
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20190726131236-c7b72e836616
 	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.15.74
+	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-gcfg/gcfg v1.2.3
 	github.com/gomodule/redigo v1.8.2
 	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
