@@ -15,7 +15,7 @@ var (
 	errAutoConfWithEnvironments        = errors.New("cannot configure specific environments if auto-configuration is enabled")
 	errFileDataWithAutoConf            = errors.New("cannot specify both auto-configuration key and file data source")
 	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
-	errFileDataWithEnvironments        = errors.New("cannot configure specific environments if file data source is enabled")
+	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
@@ -89,7 +89,7 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 			result.AddError(nil, errFileDataWithAutoConf)
 		}
 		if len(c.Environment) != 0 {
-			result.AddError(nil, errFileDataWithEnvironments)
+			result.AddError(nil, errOfflineModeWithEnvironments)
 		}
 	}
 
