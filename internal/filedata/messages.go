@@ -12,10 +12,11 @@ const (
 	logMsgNoEnvs                       = "The data file does not contain any environments; check your configuration"
 	logMsgBadEnvData                   = "Found invalid data for environment %s; skipping this environment"
 	logMsgReloadedData                 = "Reloaded data from %s"
-	logMsgReloadFileNotFound           = "Data file reload failed; file not found, will retry"
-	logMsgReloadError                  = "Data file reload failed; file is invalid or possibly incomplete, will retry (error: %s)"
-	logMsgReloadUnchangedRetry         = "Data file has not changed since last failure, will wait and retry in case it is still being copied"
+	logMsgReloadFileNotFound           = "Data file reload failed; file not found"
+	logMsgReloadError                  = "Data file reload failed; file is invalid or possibly incomplete (error: %s)"
+	logMsgReloadUnchangedRetry         = "Data file has not changed since last failure, will wait in case it is still being copied"
 	logMsgReloadUnchangedNoMoreRetries = "Data file reload failed, and no further changes were detected; giving up until next change (error: %s)"
+	logMsgReloadWillRetry              = "Will retry in %s"
 )
 
 func errBadItemJSON(key, namespace string) error {
