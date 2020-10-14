@@ -170,7 +170,7 @@ Key = autokey
 
 func makeInvalidConfigFileDataWithEnvironments() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "file data source with environments"}
-	c.envVarsError = errFileDataWithEnvironments.Error()
+	c.envVarsError = errOfflineModeWithEnvironments.Error()
 	c.envVars = map[string]string{
 		"FILE_DATA_SOURCE": "my-file-path",
 		"LD_ENV_envname":   "sdk-key",
