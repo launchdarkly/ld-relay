@@ -9,9 +9,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 )
