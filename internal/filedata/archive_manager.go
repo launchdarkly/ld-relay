@@ -35,10 +35,13 @@ type ArchiveManager struct {
 }
 
 // NewArchiveManager creates the ArchiveManager instance and attempts to read the initial file data.
+//
+// If successful, it calls handler.AddEnvironment() for each environment configured in the file, and also
+// starts a file watcher to detect updates to the file.
 func NewArchiveManager(
 	filePath string,
 	handler UpdateHandler,
-	retryInterval time.Duration,
+	retryInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
 	loggers ldlog.Loggers,
 ) (*ArchiveManager, error) {
 	fileInfo, err := os.Stat(filePath)
@@ -67,15 +70,16 @@ func NewArchiveManager(
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, errCreateArchiveManagerFailed(filePath, err) // COVERAGE: can't cause this condition in unit tests
+		// COVERAGE: can't cause this condition in unit tests - unexpected failure of fsnotify package
+		return nil, errCreateArchiveManagerFailed(filePath, err)
 	}
 	if err := watcher.Add(filePath); err != nil {
-		return nil, errCreateArchiveManagerFailed(filePath, err) // COVERAGE: can't cause this condition in unit tests
+		return nil, errCreateArchiveManagerFailed(filePath, err) // COVERAGE: see above
 	}
 	am.watcher = watcher
 
 	am.updatedArchive(ar)
-	go am.run(fileInfo)
+	go am.monitorForChanges(fileInfo)
 
 	return am, nil
 }
@@ -87,7 +91,7 @@ func (am *ArchiveManager) Close() {
 	})
 }
 
-func (am *ArchiveManager) run(originalFileInfo os.FileInfo) {
+func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 	lastFileInfo := originalFileInfo
 	retryCh := make(chan struct{})
 	pendingRetry := false
@@ -208,11 +212,14 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 		envName := envMetadata.params.Identifiers.GetDisplayName()
 		delete(unusedEnvs, envID)
 		if old, found := am.lastKnownEnvs[envID]; found {
+			// Updating an existing environment
 			if old.dataID == envMetadata.dataID && old.version == envMetadata.version {
+				// Neither the metadata nor the SDK data has changed
 				continue
 			}
 			ae := ArchiveEnvironment{Params: envMetadata.params}
 			if old.dataID != envMetadata.dataID {
+				// Reload the SDK data only if it has changed
 				ae.SDKData, err = ar.GetEnvironmentSDKData(envID)
 				if err != nil {
 					am.loggers.Errorf(logMsgBadEnvData, envID)
@@ -222,6 +229,7 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 			am.loggers.Infof(logMsgUpdateEnv, envID, envName)
 			am.handler.UpdateEnvironment(ae)
 		} else {
+			// Adding a new environment
 			ae := ArchiveEnvironment{Params: envMetadata.params}
 			ae.SDKData, err = ar.GetEnvironmentSDKData(envID)
 			if err != nil {
@@ -234,6 +242,7 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 		am.lastKnownEnvs[envID] = envMetadata
 	}
 	for envID, envData := range unusedEnvs {
+		// Delete any environments that are no longer in the file
 		am.loggers.Infof(logMsgDeleteEnv, envID, envData.params.Identifiers.GetDisplayName())
 		delete(am.lastKnownEnvs, envID)
 		am.handler.DeleteEnvironment(envID)

@@ -66,6 +66,11 @@ func getEnvIDFromMetadataFileName(filename string) config.EnvironmentID {
 	return config.EnvironmentID(strings.TrimSuffix(filename, ".json"))
 }
 
+// newArchiveReader attempts to expand an archive file, which can be either a .tar or a .tar.gz. The
+// contents are copied to a temporary directory.
+//
+// It verifies the checksum, but does not try to read the individual environment data until you call
+// GetEnvironmentMetadata or GetEnvironmentSDKData.
 func newArchiveReader(filePath string) (*archiveReader, error) {
 	dirPath, err := ioutil.TempDir("", "ld-relay-")
 	if err != nil {
@@ -94,14 +99,18 @@ func newArchiveReader(filePath string) (*archiveReader, error) {
 	}, nil
 }
 
+// Close disposes of the temporary directory that was created by this archiveReader.
 func (ar *archiveReader) Close() {
 	_ = os.RemoveAll(ar.dirPath)
 }
 
+// GetEnvironmentIDs returns all of the environment IDs contained in the archive. These are detected
+// by simply looking for all filenames in the format "$ENVID.json".
 func (ar *archiveReader) GetEnvironmentIDs() []config.EnvironmentID {
 	return ar.environmentIDs
 }
 
+// GetEnvironmentMetadata attempts to read the "$ENVID.json" file for the specified environment.
 func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (environmentMetadata, error) {
 	data, err := ioutil.ReadFile(envMetadataFilePath(ar.dirPath, envID))
 	if err != nil {
@@ -118,6 +127,12 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 	}, nil
 }
 
+// GetEnvironmentSDKData attempts to read the "$ENVID-data.json" file for the specified environment,
+// which contains the flag/segment data. It returns the parsed data in the format used by the SDK.
+//
+// This is a separate step from GetEnvironmentMetadata because when an archive file is updated, the
+// data might not have changed for all environments. We check the metadata first, and if the DataID
+// property has not changed then we won't bother re-parsing the SDK data.
 func (ar *archiveReader) GetEnvironmentSDKData(envID config.EnvironmentID) ([]ldstoretypes.Collection, error) {
 	data, err := ioutil.ReadFile(envSDKDataFilePath(ar.dirPath, envID))
 	if err != nil {
