@@ -86,13 +86,13 @@ func TestEnvironmentHasMalformedMetadata(t *testing.T) {
 	helpers.WithTempFile(func(filePath string) {
 		writeArchive(t, filePath, false, func(dirPath string) {
 			badData := []byte("whatever")
-			require.NoError(t, ioutil.WriteFile(envMetadataFilePath(dirPath, testEnv1.rep.EnvID), badData, 0600))
-			rehash(dirPath, testEnv1.rep.EnvID)
+			require.NoError(t, ioutil.WriteFile(envMetadataFilePath(dirPath, testEnv1.id()), badData, 0600))
+			rehash(dirPath, testEnv1.id())
 		}, testEnv1)
 		ar, err := newArchiveReader(filePath)
 		require.NoError(t, err)
 
-		_, err = ar.GetEnvironmentMetadata(testEnv1.rep.EnvID)
+		_, err = ar.GetEnvironmentMetadata(testEnv1.id())
 		require.Error(t, err)
 	})
 }
@@ -113,7 +113,7 @@ func TestEnvironmentHasMalformedSDKDataItem(t *testing.T) {
 		ar, err := newArchiveReader(filePath)
 		require.NoError(t, err)
 
-		_, err = ar.GetEnvironmentSDKData(te.rep.EnvID)
+		_, err = ar.GetEnvironmentSDKData(te.id())
 		require.Error(t, err)
 		assert.Equal(t, errBadItemJSON("badFlag", "flags"), err)
 	})
@@ -133,7 +133,7 @@ func TestEnvironmentSDKDataItemOfUnknownKindIsIgnored(t *testing.T) {
 		ar, err := newArchiveReader(filePath)
 		require.NoError(t, err)
 
-		sdkData, err := ar.GetEnvironmentSDKData(te.rep.EnvID)
+		sdkData, err := ar.GetEnvironmentSDKData(te.id())
 		require.NoError(t, err)
 		verifyEnvironmentSDKData(t, testEnv1, sdkData)
 	})
@@ -142,17 +142,17 @@ func TestEnvironmentSDKDataItemOfUnknownKindIsIgnored(t *testing.T) {
 func verifyAllEnvironmentData(t *testing.T, ar *archiveReader) {
 	var expectedEnvIDs []config.EnvironmentID
 	for _, te := range allTestEnvs {
-		expectedEnvIDs = append(expectedEnvIDs, te.rep.EnvID)
+		expectedEnvIDs = append(expectedEnvIDs, te.id())
 	}
 	actualEnvIDs := ar.GetEnvironmentIDs()
 	sort.Slice(actualEnvIDs, func(i, j int) bool { return actualEnvIDs[i] < actualEnvIDs[j] })
 	assert.Equal(t, expectedEnvIDs, actualEnvIDs)
 
 	for _, te := range allTestEnvs {
-		envData, err := ar.GetEnvironmentMetadata(te.rep.EnvID)
+		envData, err := ar.GetEnvironmentMetadata(te.id())
 		require.NoError(t, err)
 		verifyEnvironmentParams(t, te, envData.params)
-		sdkData, err := ar.GetEnvironmentSDKData(te.rep.EnvID)
+		sdkData, err := ar.GetEnvironmentSDKData(te.id())
 		verifyEnvironmentSDKData(t, te, sdkData)
 	}
 }

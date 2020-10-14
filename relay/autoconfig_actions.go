@@ -1,11 +1,8 @@
 package relay
 
 import (
-	"strings"
-
-	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 )
 
 const (
@@ -15,16 +12,19 @@ const (
 	logMsgKeyExpiryUnknownEnv      = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 )
 
+// relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
+// autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
+// interface methods on this object to let us know when environments have been added or changed.
 type relayAutoConfigActions struct {
 	r *Relay
 }
 
-func (a relayAutoConfigActions) AddEnvironment(params autoconfig.EnvironmentParams) {
+func (a relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
 	// Since we're not holding the lock on the RelayCore, there is theoretically a race condition here
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
-	envConfig := makeEnvironmentConfig(params, a.r.config.AutoConfig)
+	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
 	env, _, err := a.r.core.AddEnvironment(params.Identifiers, envConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
@@ -38,7 +38,7 @@ func (a relayAutoConfigActions) AddEnvironment(params autoconfig.EnvironmentPara
 	}
 }
 
-func (a relayAutoConfigActions) UpdateEnvironment(params autoconfig.EnvironmentParams) {
+func (a relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	env := a.r.core.GetEnvironment(params.EnvID)
 	if env == nil {
 		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
@@ -97,25 +97,4 @@ func (a relayAutoConfigActions) KeyExpired(id config.EnvironmentID, oldKey confi
 	}
 	a.r.core.RemovingEnvironmentCredential(oldKey)
 	env.RemoveCredential(oldKey)
-}
-
-func makeEnvironmentConfig(params autoconfig.EnvironmentParams, autoConfProps config.AutoConfigConfig) config.EnvConfig {
-	ret := config.EnvConfig{
-		SDKKey:        params.SDKKey,
-		MobileKey:     params.MobileKey,
-		EnvID:         params.EnvID,
-		Prefix:        maybeSubstituteEnvironmentID(autoConfProps.EnvDatastorePrefix, params.EnvID),
-		TableName:     maybeSubstituteEnvironmentID(autoConfProps.EnvDatastoreTableName, params.EnvID),
-		AllowedOrigin: autoConfProps.EnvAllowedOrigin,
-		SecureMode:    params.SecureMode,
-	}
-	if params.TTL != 0 {
-		ret.TTL = ct.NewOptDuration(params.TTL)
-	}
-
-	return ret
-}
-
-func maybeSubstituteEnvironmentID(s string, envID config.EnvironmentID) string {
-	return strings.ReplaceAll(s, config.AutoConfigEnvironmentIDPlaceholder, string(envID))
 }

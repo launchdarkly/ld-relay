@@ -154,12 +154,12 @@ func (p archiveManagerTestParams) expectEnvironmentsAdded(envs ...testEnv) {
 	for i, te := range sortTestEnvs(envs) {
 		p.t.Run(fmt.Sprintf("added environment %d", i+1), func(t *testing.T) {
 			msg := messages[i]
-			assert.Equal(p.t, te.rep.EnvID, msg.id)
+			assert.Equal(p.t, te.id(), msg.id)
 			assert.NotNil(p.t, msg.add)
 			verifyEnvironmentData(t, te, *msg.add)
 
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info,
-				regexp.QuoteMeta(fmt.Sprintf("Added environment %s (%s %s)", te.rep.EnvID, te.rep.ProjName, te.rep.EnvName)))
+				regexp.QuoteMeta(fmt.Sprintf("Added environment %s (%s %s)", te.id(), te.rep.ProjName, te.rep.EnvName)))
 		})
 	}
 }
@@ -175,12 +175,12 @@ func (p archiveManagerTestParams) expectEnvironmentsUpdated(envs ...testEnv) {
 	for i, te := range sortTestEnvs(envs) {
 		p.t.Run(fmt.Sprintf("updated environment %d", i+1), func(t *testing.T) {
 			msg := messages[i]
-			assert.Equal(p.t, te.rep.EnvID, msg.id)
+			assert.Equal(p.t, te.id(), msg.id)
 			assert.NotNil(p.t, msg.update)
 			verifyEnvironmentData(t, te, *msg.update)
 
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info,
-				fmt.Sprintf(regexp.QuoteMeta("Updated environment %s (%s %s)"), te.rep.EnvID, te.rep.ProjName, te.rep.EnvName))
+				fmt.Sprintf(regexp.QuoteMeta("Updated environment %s (%s %s)"), te.id(), te.rep.ProjName, te.rep.EnvName))
 		})
 	}
 }

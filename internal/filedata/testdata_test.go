@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
@@ -24,13 +24,13 @@ import (
 )
 
 type testEnv struct {
-	rep     autoconfig.EnvironmentRep
+	rep     envfactory.EnvironmentRep
 	dataID  string
 	sdkData map[string]map[string]interface{}
 }
 
 var testEnv1 = testEnv{
-	rep: autoconfig.EnvironmentRep{
+	rep: envfactory.EnvironmentRep{
 		EnvID:    config.EnvironmentID("1111111111"),
 		ProjName: "Project1",
 		ProjKey:  "project1",
@@ -48,7 +48,7 @@ var testEnv1 = testEnv{
 }
 
 var testEnv2 = testEnv{
-	rep: autoconfig.EnvironmentRep{
+	rep: envfactory.EnvironmentRep{
 		EnvID:      config.EnvironmentID("2222222222"),
 		ProjName:   "Project1",
 		ProjKey:    "project1",
@@ -70,8 +70,8 @@ var testEnv2 = testEnv{
 
 var allTestEnvs = []testEnv{testEnv1, testEnv2}
 
-func (te testEnv) params() autoconfig.EnvironmentParams {
-	return autoconfig.MakeEnvironmentParams(te.rep)
+func (te testEnv) id() config.EnvironmentID {
+	return te.rep.EnvID
 }
 
 func (te testEnv) sdkDataJSON() []byte {
@@ -113,8 +113,8 @@ func verifyEnvironmentData(t *testing.T, te testEnv, env ArchiveEnvironment) {
 	verifyEnvironmentSDKData(t, te, env.SDKData)
 }
 
-func verifyEnvironmentParams(t *testing.T, te testEnv, envParams EnvironmentParams) {
-	assert.Equal(t, EnvironmentParams(autoconfig.MakeEnvironmentParams(te.rep)), envParams)
+func verifyEnvironmentParams(t *testing.T, te testEnv, envParams envfactory.EnvironmentParams) {
+	assert.Equal(t, te.rep.ToParams(), envParams)
 }
 
 func verifyEnvironmentSDKData(t *testing.T, te testEnv, sdkData []ldstoretypes.Collection) {

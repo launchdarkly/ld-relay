@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"testing"
 
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
-
-	"github.com/stretchr/testify/assert"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const testAutoConfKey = c.AutoConfigKey("test-auto-conf-key")
@@ -57,15 +58,15 @@ var (
 	}
 )
 
-func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
-	rep := autoconfig.EnvironmentRep{
+func (e testAutoConfEnv) toEnvironmentRep() envfactory.EnvironmentRep {
+	rep := envfactory.EnvironmentRep{
 		EnvID:    e.id,
 		EnvKey:   e.envKey,
 		EnvName:  e.envName,
 		MobKey:   e.mobKey,
 		ProjKey:  e.projKey,
 		ProjName: e.projName,
-		SDKKey: autoconfig.SDKKeyRep{
+		SDKKey: envfactory.SDKKeyRep{
 			Value: e.sdkKey,
 		},
 		Version: e.version,
@@ -79,7 +80,7 @@ func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
 
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[c.EnvironmentID]autoconfig.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep)}}
 	for _, e := range envs {
 		data.Data.Environments[e.id] = e.toEnvironmentRep()
 	}
