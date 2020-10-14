@@ -140,7 +140,7 @@ func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
 				ar.Close()
 				return
 			}
-			am.loggers.Debug("File has not changed")
+			am.loggers.Debug("File has not changed (size=%d, mtime=%s)", curFileInfo.Size(), curFileInfo.ModTime())
 			if lastError == nil {
 				// This was a spurious file watch notification - the file hasn't changed and we're not retrying
 				// after an error, so there's nothing to do

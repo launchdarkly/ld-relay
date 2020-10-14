@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/md5"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -208,6 +209,11 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 			return nil
 		})
 	}, envs...)
+
+	tarWriter.Flush()
+
+	fileInfo, _ := os.Stat(filePath)
+	fmt.Println("wrote test archive %s (%d bytes)", filePath, fileInfo.Size)
 }
 
 func writeMalformedArchive(filePath string) {
