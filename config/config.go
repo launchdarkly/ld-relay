@@ -44,6 +44,8 @@ const (
 	//
 	// For instance, if EnvDataStorePrefix is "LD-$CID", the value of that setting for an environment
 	// whose ID is "12345" would be "LD-12345".
+	//
+	// The same convention is used in OfflineModeConfig.
 	AutoConfigEnvironmentIDPlaceholder = "$CID"
 )
 
@@ -78,6 +80,7 @@ var DefaultLoggers = logging.MakeDefaultLoggers() //nolint:gochecknoglobals
 type Config struct {
 	Main        MainConfig
 	AutoConfig  AutoConfigConfig
+	OfflineMode OfflineModeConfig
 	Events      EventsConfig
 	Redis       RedisConfig
 	Consul      ConsulConfig
@@ -119,6 +122,14 @@ type MainConfig struct {
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
 type AutoConfigConfig struct {
 	Key                   AutoConfigKey    `conf:"AUTO_CONFIG_KEY"`
+	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+}
+
+// OfflineModeConfig contains configuration parameters for the offline/file data source feature.
+type OfflineModeConfig struct {
+	FileDataSource        string           `conf:"FILE_DATA_SOURCE"`
 	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
 	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
 	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
