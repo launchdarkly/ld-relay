@@ -15,4 +15,7 @@
 //
 // - RELAY_TAG_OR_SHA: optional branch/tag name or commit hash in the ld-relay-private repo, to test
 // that specific version rather than the working copy that the tests are running in
+//
+// - HTTP_LOGGING: set this to "true" to enable verbose logging of all HTTP requests made by the
+// integration tests (to the LaunchDarkly API and to Relay).
 package integrationtests

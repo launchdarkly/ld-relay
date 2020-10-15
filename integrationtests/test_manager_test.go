@@ -3,9 +3,12 @@
 package integrationtests
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"testing"
 	"time"
@@ -16,7 +19,9 @@ import (
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
 	"github.com/antihax/optional"
 	"github.com/pborman/uuid"
@@ -38,12 +43,14 @@ type integrationTestParams struct {
 	LDStreamBaseURL ct.OptString `conf:"LD_STREAM_URL`
 	APIToken        string       `conf:"LD_API_TOKEN,required"`
 	RelayTagOrSHA   string       `conf:"RELAY_TAG_OR_SHA"`
+	HTTPLogging     bool         `conf:"HTTP_LOGGING"`
 }
 
 type integrationTestManager struct {
 	params             integrationTestParams
 	baseURL            string
 	streamURL          string
+	httpClient         *http.Client
 	apiClient          *ldapi.APIClient
 	apiContext         context.Context
 	apiBaseURL         string
@@ -53,6 +60,8 @@ type integrationTestManager struct {
 	relayBaseURL       string
 	statusPollTimeout  time.Duration
 	statusPollInterval time.Duration
+	loggers            ldlog.Loggers
+	requestLogger      *requestLogger
 }
 
 type projectInfo struct {
@@ -68,8 +77,27 @@ type environmentInfo struct {
 	mobileKey config.MobileKey
 }
 
+type projsAndEnvs map[projectInfo][]environmentInfo
+
+func (pe projsAndEnvs) enumerateEnvs(fn func(projectInfo, environmentInfo)) {
+	for proj, envs := range pe {
+		for _, env := range envs {
+			fn(proj, env)
+		}
+	}
+}
+
+func (pe projsAndEnvs) countEnvs() int {
+	n := 0
+	pe.enumerateEnvs(func(projectInfo, environmentInfo) { n++ })
+	return n
+}
+
 func newIntegrationTestManager() (*integrationTestManager, error) {
 	var params integrationTestParams
+
+	var loggers ldlog.Loggers
+	loggers.SetPrefix("[IntegrationTestManager]")
 
 	reader := ct.NewVarReaderFromEnvironment()
 	reader.ReadStruct(&params, false)
@@ -81,9 +109,14 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
 	apiBaseURL := baseURL + "/api/v2"
 
+	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging}
+	requestLogger.loggers.SetPrefix("[HTTP]")
+	httpClient := http.DefaultClient
+	httpClient.Transport = requestLogger
+
 	apiConfig := ldapi.NewConfiguration()
 	apiConfig.BasePath = apiBaseURL
-	apiConfig.HTTPClient = http.DefaultClient
+	apiConfig.HTTPClient = httpClient
 	apiConfig.UserAgent = "ld-relay-integration-tests"
 	apiConfig.AddDefaultHeader("LD-API-Version", "beta")
 	apiClient := ldapi.NewAPIClient(apiConfig)
@@ -105,6 +138,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		params:             params,
 		baseURL:            baseURL,
 		streamURL:          streamURL,
+		httpClient:         httpClient,
 		apiClient:          apiClient,
 		apiContext:         apiContext,
 		apiBaseURL:         apiBaseURL,
@@ -112,6 +146,8 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		dockerNetwork:      network,
 		statusPollTimeout:  defaultStatusPollTimeout,
 		statusPollInterval: defaultStatusPollInterval,
+		loggers:            loggers,
+		requestLogger:      requestLogger,
 	}, nil
 }
 
@@ -146,13 +182,14 @@ func (m *integrationTestManager) createProject(numEnvironments int) (projectInfo
 	var envInfos []environmentInfo
 	for _, env := range project.Environments {
 		envInfos = append(envInfos, environmentInfo{
-			id:     config.EnvironmentID(env.Id),
-			key:    env.Key,
-			name:   env.Name,
-			sdkKey: config.SDKKey(env.ApiKey),
+			id:        config.EnvironmentID(env.Id),
+			key:       env.Key,
+			name:      env.Name,
+			sdkKey:    config.SDKKey(env.ApiKey),
+			mobileKey: config.MobileKey(env.MobileKey),
 		})
 	}
-	fmt.Printf("created project %q\n", projKey)
+	m.loggers.Infof("Created project %q\n", projKey)
 	return projectInfo{key: projKey, name: projName}, envInfos, nil
 }
 
@@ -190,12 +227,13 @@ func (m *integrationTestManager) addEnvironment(project projectInfo) (environmen
 	if err != nil {
 		return environmentInfo{}, apiClientResult("creating environment", err)
 	}
-	fmt.Printf("created environment %q\n", envKey)
+	m.loggers.Infof("created environment %q\n", envKey)
 	return environmentInfo{
-		id:     config.EnvironmentID(env.Id),
-		key:    env.Key,
-		name:   env.Name,
-		sdkKey: config.SDKKey(env.ApiKey),
+		id:        config.EnvironmentID(env.Id),
+		key:       env.Key,
+		name:      env.Name,
+		sdkKey:    config.SDKKey(env.ApiKey),
+		mobileKey: config.MobileKey(env.MobileKey),
 	}, nil
 }
 
@@ -256,6 +294,45 @@ func (m *integrationTestManager) deleteAutoConfigKey(id autoConfigID) error {
 	return apiClientResult("deleting auto-config key", err)
 }
 
+func (m *integrationTestManager) createFlag(
+	proj projectInfo,
+	envs []environmentInfo,
+	flagKey string,
+	valueForEnv func(environmentInfo) ldvalue.Value,
+) error {
+
+	flagPost := ldapi.FeatureFlagBody{
+		Name: flagKey,
+		Key:  flagKey,
+	}
+	for _, env := range envs {
+		valueAsInterface := valueForEnv(env).AsArbitraryValue()
+		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
+	}
+
+	_, _, err := m.apiClient.FeatureFlagsApi.PostFeatureFlag(m.apiContext, proj.key, flagPost, nil)
+	err = apiClientResult("creating flag "+flagKey+" in "+proj.key, err)
+	if err != nil {
+		return err
+	}
+
+	for i, env := range envs {
+		var varIndex interface{} = i
+		envPrefix := fmt.Sprintf("/environments/%s", env.key)
+		patches := []ldapi.PatchOperation{
+			{Op: "replace", Path: envPrefix + "/offVariation", Value: &varIndex},
+		}
+		_, _, err = m.apiClient.FeatureFlagsApi.PatchFeatureFlag(m.apiContext, proj.key, flagKey,
+			ldapi.PatchComment{Patch: patches})
+		err = apiClientResult("configuring flag "+flagKey+" for "+env.key, err)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]string) error {
 	require.Nil(t, m.dockerContainer, "called startRelay when Relay was already running")
 
@@ -297,17 +374,36 @@ func (m *integrationTestManager) stopRelay() error {
 	return nil
 }
 
+func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (*http.Response, error) {
+	// Here we're using a somewhat roundabout way to hit a Relay endpoint: we execute curl inside of
+	// the Relay container. We can't just use Docker port mapping (like, run it with -p 9999:8030 and
+	// then make an HTTP request to http://localhost:9999) because in CircleCI the container belongs
+	// to a special Docker host whose network isn't accessible in that way.
+	m.requestLogger.logRequest(request)
+	curlArgs := []string{"curl", "-i", "--silent"}
+	for k, vv := range request.Header {
+		for _, v := range vv {
+			curlArgs = append(curlArgs, "-H")
+			curlArgs = append(curlArgs, fmt.Sprintf("%s:%s", k, v))
+		}
+	}
+	curlArgs = append(curlArgs, request.URL.String())
+	output, err := m.dockerContainer.CommandInContainer(curlArgs...).ShowOutput(false).RunAndGetOutput()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader([]byte(output))), request)
+	m.requestLogger.logResponse(resp)
+	return resp, err
+}
+
 func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.StatusRep) bool) (core.StatusRep, bool) {
 	require.NotNil(t, m.dockerContainer, "Relay was not started")
 	var lastOutput, lastError string
 	var lastStatus core.StatusRep
 	success := assert.Eventually(t, func() bool {
-		// Here we're using a somewhat roundabout way to hit the status endpoint: we execute curl inside of
-		// the Relay container. We can't just use Docker port mapping (like, run it with -p 9999:8030 and
-		// then make an HTTP request to http://localhost:9999/status) because in CircleCI the container
-		// belongs to a special Docker host whose network isn't accessible in that way.
-		output, err := m.dockerContainer.CommandInContainer("curl", "--silent",
-			fmt.Sprintf("%s/status", m.relayBaseURL)).ShowOutput(false).RunAndGetOutput()
+		request, _ := http.NewRequest("GET", fmt.Sprintf("%s/status", m.relayBaseURL), nil)
+		resp, err := m.makeHTTPRequestToRelay(request)
 		if err != nil {
 			if lastError != err.Error() {
 				fmt.Printf("error querying status resource: %s\n", err.Error())
@@ -315,8 +411,12 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 			}
 			return false
 		}
+		outData, err := ioutil.ReadAll(resp.Body)
+		output := string(outData)
 		if output != lastOutput {
-			fmt.Println("got status:", output)
+			if !m.params.HTTPLogging {
+				m.loggers.Infof("Got status: %s", output)
+			}
 			lastOutput = output
 		}
 		var status core.StatusRep
@@ -325,6 +425,61 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 		return fn(status)
 	}, m.statusPollTimeout, m.statusPollInterval, "did not see expected status data from Relay")
 	return lastStatus, success
+}
+
+func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs, isAutoConfig bool) {
+	_, success := m.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		if len(status.Environments) != projsAndEnvs.countEnvs() {
+			return false
+		}
+		ok := true
+		projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
+			mapKey := string(env.key)
+			if isAutoConfig {
+				mapKey = string(env.id)
+			}
+			if envStatus, found := status.Environments[mapKey]; found {
+				verifyEnvProperties(t, proj, env, envStatus, isAutoConfig)
+				if envStatus.Status != "connected" {
+					ok = false
+				}
+			} else {
+				ok = false
+			}
+		})
+		return ok
+	})
+	if !success {
+		t.FailNow()
+	}
+}
+
+func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs projsAndEnvs) {
+	userBase64 := "eyJrZXkiOiJmb28ifQ" // properties don't matter, just has to be a valid base64 user object
+
+	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
+		req, err := http.NewRequest("GET", m.relayBaseURL+"/msdk/evalx/users/"+userBase64, nil)
+		require.NoError(t, err)
+		req.Header.Add("Authorization", string(env.mobileKey))
+
+		resp, err := m.makeHTTPRequestToRelay(req)
+		require.NoError(t, err)
+		if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
+			defer resp.Body.Close()
+			data, err := ioutil.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			respJSON := ldvalue.Parse(data)
+			expectedValue := flagValueForEnv(env)
+			if expectedValue.Equal(respJSON.GetByKey(flagKeyForProj(proj)).GetByKey("value")) {
+				m.loggers.Infof("Got expected flag values for enviroment %s", env.key)
+			} else {
+				m.loggers.Errorf("Did not get expected flag values for enviroment %s", env.key)
+				m.loggers.Errorf("Response was: %s", respJSON)
+				t.Fail()
+			}
+		}
+	})
 }
 
 func (m *integrationTestManager) withExtraContainer(
@@ -344,4 +499,14 @@ func (m *integrationTestManager) withExtraContainer(
 		container.Delete()
 	}()
 	action(container)
+}
+
+func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep, isAutoConfig bool) {
+	assert.Equal(t, string(environment.id), envStatus.EnvID)
+	if isAutoConfig {
+		assert.Equal(t, environment.name, envStatus.EnvName)
+		assert.Equal(t, environment.key, envStatus.EnvKey)
+		assert.Equal(t, project.name, envStatus.ProjName)
+		assert.Equal(t, project.key, envStatus.ProjKey)
+	}
 }
