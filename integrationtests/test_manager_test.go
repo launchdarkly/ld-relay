@@ -510,3 +510,11 @@ func verifyEnvProperties(t *testing.T, project projectInfo, environment environm
 		assert.Equal(t, project.key, envStatus.ProjKey)
 	}
 }
+
+func flagKeyForProj(proj projectInfo) string {
+	return "flag-for-" + proj.key
+}
+
+func flagValueForEnv(env environmentInfo) ldvalue.Value {
+	return ldvalue.String("value-for-" + env.key)
+}
