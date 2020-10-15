@@ -2,15 +2,10 @@ package filedata
 
 import (
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 )
-
-// EnvironmentParams contains all the properties necessary for Relay to create or update an environment,
-// except for the flag/segment data. These are identical to the properties defined for auto-configuration,
-// so we use the same underlying type.
-type EnvironmentParams autoconfig.EnvironmentParams
 
 // UpdateHandler defines the methods that ArchiveManager will call after processing new or updated file data.
 type UpdateHandler interface {
@@ -33,9 +28,8 @@ type UpdateHandler interface {
 // ArchiveEnvironment describes both the environment properties and the SDK data for the environment.
 type ArchiveEnvironment struct {
 	// Params contains all the properties necessary to create or update the environment, except for
-	// the SDK data. These are identical to the properties defined for auto-configuration, so we use
-	// the same type.
-	Params EnvironmentParams
+	// the SDK data.
+	Params envfactory.EnvironmentParams
 
 	// SDKData contains the flags/segments/etc. for populating this environment, in the same format
 	// used by the SDK.

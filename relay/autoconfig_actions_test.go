@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The tests in this file verify the auto-configuration behavior of Relay, assuming that the

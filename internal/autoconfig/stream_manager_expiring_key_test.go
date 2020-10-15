@@ -3,13 +3,14 @@ package autoconfig
 import (
 	"testing"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 const (
@@ -17,18 +18,18 @@ const (
 	briefExpiryMillis = 300
 )
 
-func makeEnvWithExpiringKey(fromEnv EnvironmentRep, oldKey config.SDKKey) EnvironmentRep {
+func makeEnvWithExpiringKey(fromEnv envfactory.EnvironmentRep, oldKey config.SDKKey) envfactory.EnvironmentRep {
 	ret := fromEnv
-	ret.SDKKey.Expiring = ExpiringKeyRep{
+	ret.SDKKey.Expiring = envfactory.ExpiringKeyRep{
 		Value:     oldKey,
 		Timestamp: ldtime.UnixMillisNow() + briefExpiryMillis,
 	}
 	return ret
 }
 
-func makeEnvWithAlreadyExpiredKey(fromEnv EnvironmentRep, oldKey config.SDKKey) EnvironmentRep {
+func makeEnvWithAlreadyExpiredKey(fromEnv envfactory.EnvironmentRep, oldKey config.SDKKey) envfactory.EnvironmentRep {
 	ret := fromEnv
-	ret.SDKKey.Expiring = ExpiringKeyRep{
+	ret.SDKKey.Expiring = envfactory.ExpiringKeyRep{
 		Value:     oldKey,
 		Timestamp: ldtime.UnixMillisNow() - 1,
 	}
@@ -59,7 +60,7 @@ func TestExpiringKeyInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.add)
+		assert.Equal(t, envWithExpiringKey.ToParams(), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -75,7 +76,7 @@ func TestExpiringKeyInPatchAdd(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.add)
+		assert.Equal(t, envWithExpiringKey.ToParams(), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -96,7 +97,7 @@ func TestExpiringKeyInPatchUpdate(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
-		assert.Equal(t, MakeEnvironmentParams(envWithExpiringKey), *msg.update)
+		assert.Equal(t, envWithExpiringKey.ToParams(), *msg.update)
 		assert.Equal(t, oldKey, msg.update.ExpiringSDKKey)
 
 		expectOldKeyWillExpire(p, envWithExpiringKey.EnvID)
@@ -111,7 +112,7 @@ func TestExpiringKeyHasAlreadyExpiredInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
+		assert.Equal(t, testEnv1.ToParams(), *msg.add)
 		assert.Equal(t, config.SDKKey(""), msg.add.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)
@@ -127,7 +128,7 @@ func TestExpiringKeyHasAlreadyExpiredInPatchAdd(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
-		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
+		assert.Equal(t, testEnv1.ToParams(), *msg.add)
 		assert.Equal(t, config.SDKKey(""), msg.add.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)
@@ -148,7 +149,7 @@ func TestExpiringKeyHasAlreadyExpiredInPatchUpdate(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
-		assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.update)
+		assert.Equal(t, testEnv1.ToParams(), *msg.update)
 		assert.Equal(t, config.SDKKey(""), msg.update.ExpiringSDKKey)
 
 		expectNoKeyExpiryMessage(p)

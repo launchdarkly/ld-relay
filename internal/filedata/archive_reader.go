@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
@@ -36,13 +36,13 @@ type archiveReader struct {
 }
 
 type environmentMetadata struct {
-	params  EnvironmentParams
+	params  envfactory.EnvironmentParams
 	version int
 	dataID  string
 }
 
 type archiveEnvironmentRep struct {
-	autoconfig.EnvironmentRep
+	envfactory.EnvironmentRep
 	DataID string `json:"dataId"`
 }
 
@@ -121,7 +121,7 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 		return environmentMetadata{}, err
 	}
 	return environmentMetadata{
-		params:  EnvironmentParams(autoconfig.MakeEnvironmentParams(rep.EnvironmentRep)),
+		params:  rep.EnvironmentRep.ToParams(),
 		version: rep.Version,
 		dataID:  rep.DataID,
 	}, nil

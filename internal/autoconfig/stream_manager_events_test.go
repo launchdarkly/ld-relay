@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
@@ -13,64 +11,7 @@ import (
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 )
-
-func TestMakeEnvironmentParams(t *testing.T) {
-	env1 := EnvironmentRep{
-		EnvID:      config.EnvironmentID("envid1"),
-		EnvKey:     "envkey1",
-		EnvName:    "envname1",
-		MobKey:     config.MobileKey("mobkey1"),
-		ProjKey:    "projkey1",
-		ProjName:   "projname1",
-		SDKKey:     SDKKeyRep{Value: config.SDKKey("sdkkey1")},
-		DefaultTTL: 2,
-		SecureMode: true,
-	}
-	params1 := MakeEnvironmentParams(env1)
-	assert.Equal(t, EnvironmentParams{
-		EnvID: env1.EnvID,
-		Identifiers: relayenv.EnvIdentifiers{
-			EnvKey:   "envkey1",
-			EnvName:  "envname1",
-			ProjKey:  "projkey1",
-			ProjName: "projname1",
-		},
-		SDKKey:     env1.SDKKey.Value,
-		MobileKey:  env1.MobKey,
-		TTL:        2 * time.Minute,
-		SecureMode: true,
-	}, params1)
-
-	env2 := EnvironmentRep{
-		EnvID:    config.EnvironmentID("envid2"),
-		EnvKey:   "envkey2",
-		EnvName:  "envname2",
-		MobKey:   config.MobileKey("mobkey2"),
-		ProjKey:  "projkey2",
-		ProjName: "projname2",
-		SDKKey: SDKKeyRep{
-			Value: config.SDKKey("sdkkey2"),
-			Expiring: ExpiringKeyRep{
-				Value:     config.SDKKey("oldkey"),
-				Timestamp: ldtime.UnixMillisecondTime(10000),
-			}},
-	}
-	params2 := MakeEnvironmentParams(env2)
-	assert.Equal(t, EnvironmentParams{
-		EnvID: env2.EnvID,
-		Identifiers: relayenv.EnvIdentifiers{
-			EnvKey:   "envkey2",
-			EnvName:  "envname2",
-			ProjKey:  "projkey2",
-			ProjName: "projname2",
-		},
-		SDKKey:         env2.SDKKey.Value,
-		ExpiringSDKKey: env2.SDKKey.Expiring.Value,
-		MobileKey:      env2.MobKey,
-	}, params2)
-}
 
 func TestPutEvent(t *testing.T) {
 	t.Run("add all new environments to empty state", func(t *testing.T) {
@@ -85,8 +26,8 @@ func TestPutEvent(t *testing.T) {
 			if msg1.add.EnvID == testEnv2.EnvID {
 				msg1, msg2 = msg2, msg1
 			}
-			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg1.add)
-			assert.Equal(t, MakeEnvironmentParams(testEnv2), *msg2.add)
+			assert.Equal(t, testEnv1.ToParams(), *msg1.add)
+			assert.Equal(t, testEnv2.ToParams(), *msg2.add)
 
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Received configuration for 2")
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment "+string(testEnv1.EnvID))
@@ -103,12 +44,12 @@ func TestPutEvent(t *testing.T) {
 
 			msg1 := p.requireMessage()
 			require.NotNil(t, msg1.add)
-			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg1.add)
+			assert.Equal(t, testEnv1.ToParams(), *msg1.add)
 
 			p.stream.Enqueue(makePutEvent(testEnv1, testEnv2))
 			msg2 := p.requireMessage()
 			require.NotNil(t, msg2.add)
-			assert.Equal(t, MakeEnvironmentParams(testEnv2), *msg2.add)
+			assert.Equal(t, testEnv2.ToParams(), *msg2.add)
 
 			p.requireNoMoreMessages()
 
@@ -133,7 +74,7 @@ func TestPutEvent(t *testing.T) {
 			p.stream.Enqueue(makePutEvent(testEnv1Mod, testEnv2))
 			msg := p.requireMessage()
 			require.NotNil(t, msg.update)
-			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.update)
+			assert.Equal(t, testEnv1Mod.ToParams(), *msg.update)
 
 			p.requireNoMoreMessages()
 
@@ -220,7 +161,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.add)
-			assert.Equal(t, MakeEnvironmentParams(testEnv1), *msg.add)
+			assert.Equal(t, testEnv1.ToParams(), *msg.add)
 		})
 	})
 
@@ -239,7 +180,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.update)
-			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.update)
+			assert.Equal(t, testEnv1Mod.ToParams(), *msg.update)
 		})
 	})
 
@@ -299,7 +240,7 @@ func TestPatchEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.add)
-			assert.Equal(t, MakeEnvironmentParams(testEnv1Mod), *msg.add)
+			assert.Equal(t, testEnv1Mod.ToParams(), *msg.add)
 		})
 	})
 
