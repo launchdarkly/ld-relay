@@ -26,4 +26,8 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("auto-configuration mode", func(t *testing.T) {
 		testAutoConfig(t, manager)
 	})
+
+	t.Run("database integrations", func(t *testing.T) {
+		testDatabaseIntegrations(t, manager)
+	})
 }
