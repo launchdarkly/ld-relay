@@ -12,9 +12,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -234,27 +234,28 @@ func NewEnvContext(
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
+	c.mu.Lock()
+	name := c.identifiers.GetDisplayName()
 	if err == nil {
-		c.mu.Lock()
 		c.clients[sdkKey] = client
-		c.mu.Unlock()
 	}
+	c.mu.Unlock()
 
 	if err != nil {
 		c.initErr = err
 		if suppressErrors {
 			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
-				c.identifiers.GetDisplayName(), err)
+				name, err)
 		} else {
 			c.globalLoggers.Errorf("Error initializing LaunchDarkly client for %q: %+v",
-				c.identifiers.GetDisplayName(), err)
+				name, err)
 			if readyCh != nil {
 				readyCh <- c
 			}
 			return
 		}
 	} else {
-		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", c.identifiers.GetDisplayName())
+		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", name)
 	}
 	if readyCh != nil {
 		readyCh <- c

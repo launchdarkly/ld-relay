@@ -25,7 +25,7 @@ func (a relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPara
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
 	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
-	env, _, err := a.r.core.AddEnvironment(params.Identifiers, envConfig)
+	env, _, err := a.r.core.AddEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 	}

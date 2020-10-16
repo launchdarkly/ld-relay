@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"

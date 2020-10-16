@@ -74,7 +74,10 @@ func relayForEndpointTestsWithAutoConfig(config c.Config, loggers ldlog.Loggers)
 	entConfig.Environment = nil
 	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-	r, err := newRelayInternal(entConfig, loggers, testclient.CreateDummyClient)
+	r, err := newRelayInternal(entConfig, relayInternalOptions{
+		loggers:       loggers,
+		clientFactory: testclient.CreateDummyClient,
+	})
 	if err != nil {
 		panic(err)
 	}
