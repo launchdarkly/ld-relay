@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
 	ldapi "github.com/launchdarkly/api-client-go"
@@ -97,7 +100,8 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	var params integrationTestParams
 
 	var loggers ldlog.Loggers
-	loggers.SetPrefix("[IntegrationTestManager]")
+	loggers.SetBaseLogger(log.New(os.Stderr, "[IntegrationTests] ", log.LstdFlags))
+	oshelpers.Loggers = loggers
 
 	reader := ct.NewVarReaderFromEnvironment()
 	reader.ReadStruct(&params, false)
@@ -109,7 +113,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
 	apiBaseURL := baseURL + "/api/v2"
 
-	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging}
+	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, loggers: loggers}
 	requestLogger.loggers.SetPrefix("[HTTP]")
 	httpClient := http.DefaultClient
 	httpClient.Transport = requestLogger
@@ -129,7 +133,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
-	dockerImage, err := getRelayDockerImage(params.RelayTagOrSHA)
+	dockerImage, err := getRelayDockerImage(params.RelayTagOrSHA, loggers)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +181,7 @@ func (m *integrationTestManager) createProject(numEnvironments int) (projectInfo
 	}
 	project, _, err := m.apiClient.ProjectsApi.PostProject(m.apiContext, projectBody)
 	if err != nil {
-		return projectInfo{}, nil, apiClientResult("creating project", err)
+		return projectInfo{}, nil, m.logResult("Create project", err)
 	}
 	var envInfos []environmentInfo
 	for _, env := range project.Environments {
@@ -199,12 +203,12 @@ func randomApiKey(prefix string) string {
 
 func (m *integrationTestManager) deleteProject(project projectInfo) error {
 	_, err := m.apiClient.ProjectsApi.DeleteProject(m.apiContext, project.key)
-	return apiClientResult(fmt.Sprintf("deleting project %q", project.key), err)
+	return m.logResult(fmt.Sprintf("Delete project %q", project.key), err)
 }
 
-func apiClientResult(desc string, err error) error {
+func (m *integrationTestManager) logResult(desc string, err error) error {
 	if err == nil {
-		fmt.Printf("%s: success\n", desc)
+		m.loggers.Infof("%s: OK", desc)
 		return nil
 	}
 	addInfo := ""
@@ -212,7 +216,8 @@ func apiClientResult(desc string, err error) error {
 		body := string(gse.Body())
 		addInfo = " - " + string(body)
 	}
-	return fmt.Errorf("error in %s: %w%s", desc, err, addInfo)
+	m.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
+	return err
 }
 
 func (m *integrationTestManager) addEnvironment(project projectInfo) (environmentInfo, error) {
@@ -225,7 +230,7 @@ func (m *integrationTestManager) addEnvironment(project projectInfo) (environmen
 	}
 	env, _, err := m.apiClient.EnvironmentsApi.PostEnvironment(m.apiContext, project.key, envBody)
 	if err != nil {
-		return environmentInfo{}, apiClientResult("creating environment", err)
+		return environmentInfo{}, m.logResult("Create environment", err)
 	}
 	m.loggers.Infof("created environment %q\n", envKey)
 	return environmentInfo{
@@ -239,7 +244,7 @@ func (m *integrationTestManager) addEnvironment(project projectInfo) (environmen
 
 func (m *integrationTestManager) deleteEnvironment(project projectInfo, env environmentInfo) error {
 	_, err := m.apiClient.EnvironmentsApi.DeleteEnvironment(m.apiContext, project.key, env.key)
-	return apiClientResult(fmt.Sprintf("deleting environment %q", env.key), err)
+	return m.logResult(fmt.Sprintf("Delete environment %q", env.key), err)
 }
 
 func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
@@ -253,7 +258,7 @@ func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environme
 	if err == nil {
 		newKey = config.SDKKey(envResult.ApiKey)
 	}
-	return newKey, apiClientResult(fmt.Sprintf("changing SDK key for environment %q", env.key), err)
+	return newKey, m.logResult(fmt.Sprintf("Change SDK key for environment %q", env.key), err)
 }
 
 func (m *integrationTestManager) rotateMobileKey(project projectInfo, env environmentInfo) (config.MobileKey, error) {
@@ -262,7 +267,7 @@ func (m *integrationTestManager) rotateMobileKey(project projectInfo, env enviro
 	if err == nil {
 		newKey = config.MobileKey(envResult.MobileKey)
 	}
-	return newKey, apiClientResult(fmt.Sprintf("changing mobile key for environment %q", env.key), err)
+	return newKey, m.logResult(fmt.Sprintf("Change mobile key for environment %q", env.key), err)
 }
 
 func (m *integrationTestManager) createAutoConfigKey(policyResources []string) (autoConfigID, config.AutoConfigKey, error) {
@@ -277,7 +282,7 @@ func (m *integrationTestManager) createAutoConfigKey(policyResources []string) (
 		},
 	}
 	entity, _, err := m.apiClient.RelayProxyConfigurationsApi.PostRelayAutoConfig(m.apiContext, body)
-	return autoConfigID(entity.Id), config.AutoConfigKey(entity.FullKey), apiClientResult("creating auto-config key", err)
+	return autoConfigID(entity.Id), config.AutoConfigKey(entity.FullKey), m.logResult("Create auto-config key", err)
 }
 
 func (m *integrationTestManager) updateAutoConfigPolicy(id autoConfigID, newPolicyResources []string) error {
@@ -286,12 +291,12 @@ func (m *integrationTestManager) updateAutoConfigPolicy(id autoConfigID, newPoli
 		{Op: "replace", Path: "/policy/0/resources", Value: &patchValue},
 	}
 	_, _, err := m.apiClient.RelayProxyConfigurationsApi.PatchRelayProxyConfig(m.apiContext, string(id), patchOps)
-	return apiClientResult("updating auto-config policy", err)
+	return m.logResult("Update auto-config policy", err)
 }
 
 func (m *integrationTestManager) deleteAutoConfigKey(id autoConfigID) error {
 	_, err := m.apiClient.RelayProxyConfigurationsApi.DeleteRelayProxyConfig(m.apiContext, string(id))
-	return apiClientResult("deleting auto-config key", err)
+	return m.logResult("Delete auto-config key", err)
 }
 
 func (m *integrationTestManager) createFlag(
@@ -311,7 +316,7 @@ func (m *integrationTestManager) createFlag(
 	}
 
 	_, _, err := m.apiClient.FeatureFlagsApi.PostFeatureFlag(m.apiContext, proj.key, flagPost, nil)
-	err = apiClientResult("creating flag "+flagKey+" in "+proj.key, err)
+	err = m.logResult("Create flag "+flagKey+" in "+proj.key, err)
 	if err != nil {
 		return err
 	}
@@ -324,7 +329,7 @@ func (m *integrationTestManager) createFlag(
 		}
 		_, _, err = m.apiClient.FeatureFlagsApi.PatchFeatureFlag(m.apiContext, proj.key, flagKey,
 			ldapi.PatchComment{Patch: patches})
-		err = apiClientResult("configuring flag "+flagKey+" for "+env.key, err)
+		err = m.logResult("Configure flag "+flagKey+" for "+env.key, err)
 		if err != nil {
 			return err
 		}
@@ -355,7 +360,9 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 		return err
 	}
 
-	go container.FollowLogs()
+	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) {
+		fmt.Println("[Relay] " + line)
+	}))
 
 	m.relayBaseURL = fmt.Sprintf("http://localhost:%d", config.DefaultPort)
 	return nil
@@ -493,7 +500,8 @@ func (m *integrationTestManager) withExtraContainer(
 	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).Build()
 	require.NoError(t, err)
 	container.Start()
-	go container.FollowLogs()
+	containerLogger := log.New(os.Stderr, fmt.Sprintf("[%s] ", hostnamePrefix), log.LstdFlags)
+	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) { containerLogger.Println(line) }))
 	defer func() {
 		container.Stop()
 		container.Delete()

@@ -2,20 +2,25 @@
 package oshelpers
 
 import (
-	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 type DirPath string
 
 type CommandWrapper struct {
-	command string
-	args    []string
-	workDir DirPath
-	silent  bool
+	command      string
+	args         []string
+	workDir      DirPath
+	silent       bool
+	outputWriter io.Writer
 }
+
+var Loggers ldlog.Loggers
 
 func Command(command string, args ...string) *CommandWrapper {
 	return &CommandWrapper{command: command, args: args}
@@ -31,20 +36,37 @@ func (c *CommandWrapper) ShowOutput(value bool) *CommandWrapper {
 	return c
 }
 
+func (c *CommandWrapper) OutputWriter(outputWriter io.Writer) *CommandWrapper {
+	c.outputWriter = outputWriter
+	return c
+}
+
 func (c *CommandWrapper) Run() error {
 	cmd := c.initCommand()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	outputWriter := c.outputWriter
+	if outputWriter == nil {
+		outputWriter = newWriterToLogger(Loggers.ForLevel(ldlog.Info), ">>> ")
+	}
+	errLogger := newWriterToLogger(Loggers.ForLevel(ldlog.Info), "stderr >>> ")
+	cmd.Stdout = outputWriter
+	cmd.Stderr = errLogger
+	err := cmd.Run()
+	if c, ok := outputWriter.(io.Closer); ok {
+		c.Close()
+	}
+	errLogger.Flush()
+	return err
 }
 
 func (c *CommandWrapper) RunAndGetOutput() (string, error) {
 	cmd := c.initCommand()
-	cmd.Stderr = os.Stderr
+	errLogger := newWriterToLogger(Loggers.ForLevel(ldlog.Info), "stderr >>> ")
+	cmd.Stderr = errLogger
 	bytes, err := cmd.Output()
 	if err == nil && !c.silent {
-		fmt.Print(string(bytes))
+		Loggers.Infof(">>> %s", string(bytes))
 	}
+	errLogger.Flush()
 	return string(bytes), err
 }
 
@@ -58,7 +80,7 @@ func (c *CommandWrapper) initCommand() *exec.Cmd {
 		}
 	}
 	if !c.silent {
-		fmt.Printf("running (in %s): %s %s\n", path, c.command, strings.Join(c.args, " "))
+		Loggers.Infof("Running (in %s): %s %s", path, c.command, strings.Join(c.args, " "))
 	}
 	cmd := exec.Command(c.command, c.args...) //nolint:gosec
 	cmd.Dir = path

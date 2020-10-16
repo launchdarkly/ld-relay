@@ -3,6 +3,7 @@ package docker
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
@@ -136,8 +137,8 @@ func (c *Container) Delete() error {
 	return oshelpers.Command("docker", "rm", c.id).Run()
 }
 
-func (c *Container) FollowLogs() error {
-	return oshelpers.Command("docker", "logs", "--follow", c.id).Run()
+func (c *Container) FollowLogs(outputWriter io.Writer) error {
+	return oshelpers.Command("docker", "logs", "--follow", c.id).OutputWriter(outputWriter).Run()
 	// docker logs continues to run, piping the container's output to stdout, until the container is killed
 }
 
