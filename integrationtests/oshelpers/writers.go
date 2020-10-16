@@ -3,6 +3,10 @@ package oshelpers
 import (
 	"bufio"
 	"bytes"
+	"fmt"
+	"io"
+	"log"
+	"os"
 	"strings"
 )
 
@@ -53,4 +57,10 @@ func (w *LineParsingWriter) nextLine() (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(line, "\n"), true
+}
+
+// NewLogWriter returns a LineParsingWriter that writes to log.Println with the specified prefix.
+func NewLogWriter(dest io.Writer, logPrefix string) *LineParsingWriter {
+	l := log.New(os.Stdout, fmt.Sprintf("[%s] ", logPrefix), log.LstdFlags)
+	return NewLineParsingWriter(func(line string) { l.Println(line) })
 }

@@ -4,7 +4,6 @@ package docker
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 
@@ -36,9 +35,10 @@ type Container struct {
 }
 
 type ContainerBuilder struct {
-	imageName string
-	name      string
-	params    []string
+	imageName       string
+	name            string
+	params          []string
+	containerParams []string
 }
 
 type Network struct {
@@ -47,8 +47,7 @@ type Network struct {
 }
 
 var (
-	defaultLogger = log.New(os.Stdout, "[Docker] ", log.LstdFlags)                                    //nolint:gochecknoglobals
-	defaultWriter = oshelpers.NewLineParsingWriter(func(line string) { defaultLogger.Println(line) }) //nolint:gochecknoglobals
+	defaultWriter = oshelpers.NewLogWriter(os.Stdout, "Docker") //nolint:gochecknoglobals
 )
 
 func command(cmd string, args ...string) *oshelpers.CommandWrapper { //nolint:unparam
@@ -88,28 +87,31 @@ func (i *Image) NewContainerBuilder() *ContainerBuilder {
 
 func (cb *ContainerBuilder) Name(name string) *ContainerBuilder {
 	cb.name = name
-	cb.params = append(cb.params, "--name")
-	cb.params = append(cb.params, name)
-	return cb
+	return cb.args("--name", name)
 }
 
 func (cb *ContainerBuilder) EnvVar(name, value string) *ContainerBuilder {
-	cb.params = append(cb.params, "-e")
-	cb.params = append(cb.params, fmt.Sprintf("%s=%s", name, value))
-	return cb
+	return cb.args("-e", fmt.Sprintf("%s=%s", name, value))
 }
 
 func (cb *ContainerBuilder) PublishPort(externalPort, internalPort int) *ContainerBuilder {
-	cb.params = append(cb.params, "-p")
-	cb.params = append(cb.params, fmt.Sprintf("%d:%d", externalPort, internalPort))
-	return cb
+	return cb.args("-p", fmt.Sprintf("%d:%d", externalPort, internalPort))
 }
 
 func (cb *ContainerBuilder) Network(network *Network) *ContainerBuilder {
 	if network != nil {
-		cb.params = append(cb.params, "--network")
-		cb.params = append(cb.params, network.name)
+		return cb.args("--network", network.name)
 	}
+	return cb
+}
+
+func (cb *ContainerBuilder) ContainerParams(args ...string) *ContainerBuilder {
+	cb.containerParams = append(cb.containerParams, args...)
+	return cb
+}
+
+func (cb *ContainerBuilder) args(args ...string) *ContainerBuilder {
+	cb.params = append(cb.params, args...)
 	return cb
 }
 
@@ -117,6 +119,7 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 	args := []string{"create"}
 	args = append(args, cb.params...)
 	args = append(args, cb.imageName)
+	args = append(args, cb.containerParams...)
 	out, err := command("docker", args...).RunAndGetOutput()
 	if err != nil {
 		return nil, err
@@ -126,6 +129,14 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 		id:   containerID,
 		name: cb.name,
 	}, nil
+}
+
+func (cb *ContainerBuilder) Run() error {
+	args := []string{"run"}
+	args = append(args, cb.params...)
+	args = append(args, cb.imageName)
+	args = append(args, cb.containerParams...)
+	return command("docker", args...).OutputWriter(oshelpers.NewLogWriter(os.Stdout, cb.imageName)).Run()
 }
 
 func (c *Container) GetID() string {

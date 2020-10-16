@@ -366,6 +366,7 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 	}
 
 	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) {
+		// just write directly to stdout here, because Relay already adds its own log timestamps
 		fmt.Println("[Relay] " + line)
 	}))
 
@@ -507,8 +508,7 @@ func (m *integrationTestManager) withExtraContainer(
 	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).Build()
 	require.NoError(t, err)
 	container.Start()
-	containerLogger := log.New(os.Stdout, fmt.Sprintf("[%s] ", hostnamePrefix), log.LstdFlags)
-	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) { containerLogger.Println(line) }))
+	go container.FollowLogs(oshelpers.NewLogWriter(os.Stdout, hostnamePrefix))
 	defer func() {
 		container.Stop()
 		container.Delete()
