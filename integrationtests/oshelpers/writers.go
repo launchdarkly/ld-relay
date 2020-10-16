@@ -4,16 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"strings"
-
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
+// LineParsingWriter is a Writer that buffers output by line, and calls the specified function for each line.
 type LineParsingWriter struct {
 	outputFn func(string)
 	buf      *bytes.Buffer
 	scan     *bufio.Scanner
 }
 
+// NewLineParsingWriter creates a LineParsingWriter.
 func NewLineParsingWriter(outputFn func(string)) *LineParsingWriter {
 	buf := bytes.NewBuffer(nil)
 	scan := bufio.NewScanner(buf)
@@ -32,6 +32,7 @@ func (w *LineParsingWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// Flush writes any buffered incomplete line.
 func (w *LineParsingWriter) Flush() {
 	if w.buf.Len() != 0 {
 		w.outputFn(w.buf.String())
@@ -39,6 +40,7 @@ func (w *LineParsingWriter) Flush() {
 	}
 }
 
+// Close closes the writer.
 func (w *LineParsingWriter) Close() {
 	w.Flush()
 }
@@ -51,8 +53,4 @@ func (w *LineParsingWriter) nextLine() (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(line, "\n"), true
-}
-
-func newWriterToLogger(logger ldlog.BaseLogger, prefix string) *LineParsingWriter {
-	return NewLineParsingWriter(func(line string) { logger.Println(prefix + line) })
 }

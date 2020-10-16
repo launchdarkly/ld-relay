@@ -100,8 +100,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	var params integrationTestParams
 
 	var loggers ldlog.Loggers
-	loggers.SetBaseLogger(log.New(os.Stderr, "[IntegrationTests] ", log.LstdFlags))
-	oshelpers.Loggers = loggers
+	loggers.SetBaseLogger(log.New(os.Stdout, "[IntegrationTests] ", log.LstdFlags))
 
 	reader := ct.NewVarReaderFromEnvironment()
 	reader.ReadStruct(&params, false)
@@ -500,7 +499,7 @@ func (m *integrationTestManager) withExtraContainer(
 	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).Build()
 	require.NoError(t, err)
 	container.Start()
-	containerLogger := log.New(os.Stderr, fmt.Sprintf("[%s] ", hostnamePrefix), log.LstdFlags)
+	containerLogger := log.New(os.Stdout, fmt.Sprintf("[%s] ", hostnamePrefix), log.LstdFlags)
 	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) { containerLogger.Println(line) }))
 	defer func() {
 		container.Stop()

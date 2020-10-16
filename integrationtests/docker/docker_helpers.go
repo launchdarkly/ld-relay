@@ -4,6 +4,8 @@ package docker
 import (
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
@@ -44,20 +46,29 @@ type Network struct {
 	host string
 }
 
+var (
+	defaultLogger = log.New(os.Stdout, "[Docker] ", log.LstdFlags)                                    //nolint:gochecknoglobals
+	defaultWriter = oshelpers.NewLineParsingWriter(func(line string) { defaultLogger.Println(line) }) //nolint:gochecknoglobals
+)
+
+func command(cmd string, args ...string) *oshelpers.CommandWrapper { //nolint:unparam
+	return oshelpers.Command(cmd, args...).OutputWriter(defaultWriter)
+}
+
 func NewImageBuilder(workDir oshelpers.DirPath) *ImageBuilder {
 	return &ImageBuilder{workDir: workDir}
 }
 
 func (ib *ImageBuilder) Build() (*Image, error) {
 	name := uuid.New()
-	if err := oshelpers.Command("docker", "build", "-t", name, ".").WorkingDir(ib.workDir).Run(); err != nil {
+	if err := command("docker", "build", "-t", name, ".").WorkingDir(ib.workDir).Run(); err != nil {
 		return nil, err
 	}
 	return &Image{name: name, customBuild: true}, nil
 }
 
 func PullImage(name string) (*Image, error) {
-	if err := oshelpers.Command("docker", "pull", name).Run(); err != nil {
+	if err := command("docker", "pull", name).Run(); err != nil {
 		return nil, err
 	}
 	return &Image{name: name, customBuild: false}, nil
@@ -68,7 +79,7 @@ func (i *Image) IsCustomBuild() bool {
 }
 
 func (i *Image) Delete() error {
-	return oshelpers.Command("docker", "image", "rm", i.name).Run()
+	return command("docker", "image", "rm", i.name).Run()
 }
 
 func (i *Image) NewContainerBuilder() *ContainerBuilder {
@@ -106,7 +117,7 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 	args := []string{"create"}
 	args = append(args, cb.params...)
 	args = append(args, cb.imageName)
-	out, err := oshelpers.Command("docker", args...).RunAndGetOutput()
+	out, err := command("docker", args...).RunAndGetOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -130,31 +141,31 @@ func (c *Container) Start() error {
 }
 
 func (c *Container) Stop() error {
-	return oshelpers.Command("docker", "stop", c.id).Run()
+	return command("docker", "stop", c.id).Run()
 }
 
 func (c *Container) Delete() error {
-	return oshelpers.Command("docker", "rm", c.id).Run()
+	return command("docker", "rm", c.id).Run()
 }
 
 func (c *Container) FollowLogs(outputWriter io.Writer) error {
-	return oshelpers.Command("docker", "logs", "--follow", c.id).OutputWriter(outputWriter).Run()
+	return command("docker", "logs", "--follow", c.id).OutputWriter(outputWriter).Run()
 	// docker logs continues to run, piping the container's output to stdout, until the container is killed
 }
 
 func (c *Container) CommandInContainer(commandLine ...string) *oshelpers.CommandWrapper {
 	args := []string{"exec", c.id}
 	args = append(args, commandLine...)
-	return oshelpers.Command("docker", args...)
+	return command("docker", args...)
 }
 
 func NewNetwork() (*Network, error) {
 	name := "network-" + uuid.New()
-	if err := oshelpers.Command("docker", "network", "create", name).Run(); err != nil {
+	if err := command("docker", "network", "create", name).Run(); err != nil {
 		return nil, err
 	}
 	// The template expression after -f extracts result['IPAM']['Config'][0]['Gateway']
-	out, err := oshelpers.Command("docker", "network", "inspect", name, "-f", "{{(index .IPAM.Config 0).Gateway}}").
+	out, err := command("docker", "network", "inspect", name, "-f", "{{(index .IPAM.Config 0).Gateway}}").
 		ShowOutput(false).RunAndGetOutput()
 	if err != nil {
 		return nil, err
@@ -168,11 +179,11 @@ func (n *Network) GetName() string {
 }
 
 func (n *Network) Delete() error {
-	return oshelpers.Command("docker", "network", "rm", n.name).Run()
+	return command("docker", "network", "rm", n.name).Run()
 }
 
 func (n *Network) GetContainerIDs() ([]string, error) {
-	out, err := oshelpers.Command("docker", "network", "inspect", n.name).RunAndGetOutput()
+	out, err := command("docker", "network", "inspect", n.name).RunAndGetOutput()
 	if err != nil {
 		return nil, err
 	}
