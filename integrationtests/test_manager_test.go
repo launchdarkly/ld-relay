@@ -49,6 +49,10 @@ type integrationTestParams struct {
 	HTTPLogging     bool         `conf:"HTTP_LOGGING"`
 }
 
+// integrationTestManager is the base logic for all of the integration tests. It's responsible for starting Relay
+// in a Docker container; starting any other Docker containers we use in a test; making API requests to LaunchDarkly
+// to create projects, auto-config keys, etc.; making HTTP requests to Relay; and doing some standard kinds of test
+// assertions like querying Relay's status until it matches some expected condition.
 type integrationTestManager struct {
 	params             integrationTestParams
 	baseURL            string
@@ -162,6 +166,20 @@ func (m *integrationTestManager) close() {
 	_ = m.dockerNetwork.Delete()
 }
 
+func (m *integrationTestManager) logResult(desc string, err error) error {
+	if err == nil {
+		m.loggers.Infof("%s: OK", desc)
+		return nil
+	}
+	addInfo := ""
+	if gse, ok := err.(ldapi.GenericSwaggerError); ok {
+		body := string(gse.Body())
+		addInfo = " - " + string(body)
+	}
+	m.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
+	return err
+}
+
 func (m *integrationTestManager) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
 	projKey := randomApiKey("relayi9n-")
 	projName := projKey
@@ -203,20 +221,6 @@ func randomApiKey(prefix string) string {
 func (m *integrationTestManager) deleteProject(project projectInfo) error {
 	_, err := m.apiClient.ProjectsApi.DeleteProject(m.apiContext, project.key)
 	return m.logResult(fmt.Sprintf("Delete project %q", project.key), err)
-}
-
-func (m *integrationTestManager) logResult(desc string, err error) error {
-	if err == nil {
-		m.loggers.Infof("%s: OK", desc)
-		return nil
-	}
-	addInfo := ""
-	if gse, ok := err.(ldapi.GenericSwaggerError); ok {
-		body := string(gse.Body())
-		addInfo = " - " + string(body)
-	}
-	m.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
-	return err
 }
 
 func (m *integrationTestManager) addEnvironment(project projectInfo) (environmentInfo, error) {
@@ -298,6 +302,8 @@ func (m *integrationTestManager) deleteAutoConfigKey(id autoConfigID) error {
 	return m.logResult("Delete auto-config key", err)
 }
 
+// createFlag creates a flag in the specified project, and configures each environment to return a specific
+// value for that flag in that environment which we'll check for later in verifyFlagValues.
 func (m *integrationTestManager) createFlag(
 	proj projectInfo,
 	envs []environmentInfo,
@@ -460,6 +466,8 @@ func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs pr
 	}
 }
 
+// verifyFlagValues hits Relay's mobile evaluation endpoint and verifies that it returns the expected
+// flags and values, based on the standard way we create flags for our test environments in createFlag.
 func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs projsAndEnvs) {
 	userBase64 := "eyJrZXkiOiJmb28ifQ" // properties don't matter, just has to be a valid base64 user object
 
