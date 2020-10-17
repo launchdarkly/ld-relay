@@ -31,8 +31,8 @@ type EnvStreams struct {
 	storeQueries    EnvStoreQueries
 	activeStreams   []streamInfo
 	loggers         ldlog.Loggers
-	heartbeats      *time.Ticker
 	lock            sync.RWMutex
+	closeCh         chan struct{}
 }
 
 type streamInfo struct {
@@ -58,14 +58,21 @@ func NewEnvStreams(
 		streamProviders: streamProviders,
 		storeQueries:    storeQueries,
 		loggers:         loggers,
+		closeCh:         make(chan struct{}),
 	}
 
 	if heartbeatInterval > 0 {
-		es.heartbeats = time.NewTicker(heartbeatInterval)
+		heartbeats := time.NewTicker(heartbeatInterval)
 		go func() {
-			for range es.heartbeats.C {
-				for _, esp := range es.getEnvStreamProviders() {
-					esp.SendHeartbeat()
+			for {
+				select {
+				case <-heartbeats.C:
+					for _, esp := range es.getEnvStreamProviders() {
+						esp.SendHeartbeat()
+					}
+				case <-es.closeCh:
+					heartbeats.Stop()
+					return
 				}
 			}
 		}()
@@ -131,9 +138,7 @@ func (es *EnvStreams) SendSingleItemUpdate(
 
 // Close shuts down all currently active streams for this environment and releases its resources.
 func (es *EnvStreams) Close() error {
-	if es.heartbeats != nil {
-		es.heartbeats.Stop()
-	}
+	close(es.closeCh)
 	for _, esp := range es.getEnvStreamProviders() {
 		esp.Close()
 	}
