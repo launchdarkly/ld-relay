@@ -8,6 +8,7 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 )
 
 // StreamProvider is an abstraction of a specific kind of SSE event stream, such as the server-side SDK
@@ -50,4 +51,24 @@ func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
 	s.ReplayAll = true
 	s.MaxConnTime = maxConnTime
 	return s
+}
+
+func removeDeleted(items []ldstoretypes.KeyedItemDescriptor) []ldstoretypes.KeyedItemDescriptor {
+	var ret []ldstoretypes.KeyedItemDescriptor
+	for i, keyedItem := range items {
+		if keyedItem.Item.Item == nil {
+			if ret == nil {
+				ret = make([]ldstoretypes.KeyedItemDescriptor, i)
+				copy(ret, items[0:i])
+			}
+		} else {
+			if ret != nil {
+				ret = append(ret, keyedItem)
+			}
+		}
+	}
+	if ret == nil {
+		return items
+	}
+	return ret
 }

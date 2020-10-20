@@ -49,12 +49,29 @@ type reconfigurableEventSender struct {
 }
 
 type receivedEventUser struct {
-	lduser.User
-	PrivateAttrs []string `json:"privateAttrs"`
+	eventUser ldevents.EventUser
+}
+
+func (r *receivedEventUser) UnmarshalJSON(data []byte) error {
+	var user lduser.User
+	if err := json.Unmarshal(data, &user); err != nil {
+		return err
+	}
+	var extraProps struct {
+		PrivateAttrs []string `json:"privateAttrs"`
+	}
+	if strings.Contains(string(data), `"privateAttrs"`) {
+		if err := json.Unmarshal(data, &extraProps); err != nil {
+			return err
+		}
+	}
+	r.eventUser.User = user
+	r.eventUser.AlreadyFilteredAttributes = extraProps.PrivateAttrs
+	return nil
 }
 
 func (r receivedEventUser) asEventUser() ldevents.EventUser {
-	return ldevents.EventUser{User: r.User, AlreadyFilteredAttributes: r.PrivateAttrs}
+	return r.eventUser
 }
 
 type receivedFeatureEvent struct {

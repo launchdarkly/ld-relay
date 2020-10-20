@@ -105,8 +105,8 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 				r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
 			} else {
 				allData := []ldstoretypes.Collection{
-					{Kind: ldstoreimpl.Features(), Items: flags},
-					{Kind: ldstoreimpl.Segments(), Items: segments},
+					{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
+					{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
 				}
 				out <- MakeServerSidePutEvent(allData)
 			}

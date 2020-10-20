@@ -69,7 +69,11 @@ func expectEvent(t *testing.T, eventCh <-chan eventsource.Event, expected events
 	case e := <-eventCh:
 		require.NotNil(t, e)
 		assert.Equal(t, expected.Event(), e.Event())
-		assert.Equal(t, expected.Data(), e.Data())
+		if strings.HasPrefix(e.Data(), "{") {
+			assert.JSONEq(t, expected.Data(), e.Data())
+		} else {
+			assert.Equal(t, expected.Data(), e.Data())
+		}
 	case <-time.After(time.Second):
 		require.Fail(t, "timed out waiting for event")
 	}
