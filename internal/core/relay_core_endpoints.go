@@ -341,7 +341,9 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 func itemsCollectionToMap(coll []ldstoretypes.KeyedItemDescriptor) map[string]interface{} {
 	ret := make(map[string]interface{}, len(coll))
 	for _, item := range coll {
-		ret[item.Key] = item.Item.Item
+		if item.Item.Item != nil {
+			ret[item.Key] = item.Item.Item
+		}
 	}
 	return ret
 }

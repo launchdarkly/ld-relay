@@ -105,7 +105,7 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			} else {
 				out <- MakeServerSideFlagsOnlyPutEvent(
-					[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: flags}})
+					[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
 			}
 		}
 	}()
