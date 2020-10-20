@@ -69,13 +69,21 @@ func (q mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Key
 func makeMockStore(flags []ldmodel.FeatureFlag, segments []ldmodel.Segment) mockStoreQueries {
 	ret := mockStoreQueries{initialized: true}
 	for _, f := range flags {
+		var item interface{} = &f
+		if f.Deleted {
+			item = nil
+		}
 		ret.flags = append(ret.flags, ldstoretypes.KeyedItemDescriptor{
-			Key: f.Key, Item: ldstoretypes.ItemDescriptor{Version: f.Version, Item: &f},
+			Key: f.Key, Item: ldstoretypes.ItemDescriptor{Version: f.Version, Item: item},
 		})
 	}
 	for _, s := range segments {
+		var item interface{} = &s
+		if s.Deleted {
+			item = nil
+		}
 		ret.segments = append(ret.segments, ldstoretypes.KeyedItemDescriptor{
-			Key: s.Key, Item: ldstoretypes.ItemDescriptor{Version: s.Version, Item: &s},
+			Key: s.Key, Item: ldstoretypes.ItemDescriptor{Version: s.Version, Item: item},
 		})
 	}
 	return ret
