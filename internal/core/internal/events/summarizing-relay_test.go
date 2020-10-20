@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strconv"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
@@ -20,6 +22,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func makeTestFlag(trackEvents bool, debugEventsUntilDate ldtime.UnixMillisecondTime) ldmodel.FeatureFlag {
@@ -231,4 +234,11 @@ func TestSummarizingRelayDiscardsMalformedEvents(t *testing.T) {
 		payload := expectSummarizedPayload(t, p.requestsCh)
 		assert.JSONEq(t, identifyEvents, payload)
 	})
+}
+
+func TestCanSeePrivateAttrsOfPHPEventUser(t *testing.T) {
+	var ru receivedEventUser
+	require.NoError(t, json.Unmarshal([]byte(`{"key": "k", "name": "n", "privateAttrs": ["email"]}`), &ru))
+	assert.Equal(t, lduser.NewUserBuilder("k").Name("n").Build(), ru.eventUser.User)
+	assert.Equal(t, []string{"email"}, ru.eventUser.AlreadyFilteredAttributes)
 }

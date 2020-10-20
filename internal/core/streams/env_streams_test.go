@@ -230,3 +230,29 @@ func TestHeartbeatsGoToAllStreams(t *testing.T) {
 	assert.GreaterOrEqual(t, esp1.getNumHeartbeats(), 2)
 	assert.GreaterOrEqual(t, esp2.getNumHeartbeats(), 2)
 }
+
+func TestHeartbeatsAreStopped(t *testing.T) {
+	heartbeatInterval := time.Millisecond * 20
+
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, ldlog.NewDisabledLoggers())
+
+	es.AddCredential(config.SDKKey("sdk-key1"))
+
+	require.Len(t, sp.createdStreams, 1)
+	esp1 := sp.createdStreams[0]
+
+	<-time.After(heartbeatInterval * 2) // just to make sure the heartbeat goroutine has already started
+	assert.GreaterOrEqual(t, esp1.getNumHeartbeats(), 1)
+
+	es.Close()
+
+	select {
+	case _, ok := <-es.heartbeatsDone:
+		assert.False(t, ok, "heartbeatsDone channel should have been closed")
+	case <-time.After(time.Second):
+		assert.Fail(t, "heartbeatsDone channel should have been closed")
+	}
+}

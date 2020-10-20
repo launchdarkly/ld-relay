@@ -2,6 +2,12 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.0.2] - 2020-10-20
+### Fixed:
+- If a flag or segment was deleted in LaunchDarkly after the Relay Proxy started up, SDK clients that connected to Relay Proxy endpoints after that point could receive an unexpected null value for that flag or segment in the JSON data. This would cause an error in some SDKs causing their stream connections to stop working. This bug was introduced in version 6.0.0.
+- When forwarding events from a PHP SDK, the Relay Proxy might omit information about private user attributes (that is, the existence of the attribute would be lost; it would not become non-private). This bug was introduced in version 6.0.0.
+- In automatic configuration mode, there was a memory leak when a previously active environment was removed from the configuration: the Relay Proxy could fail to dispose of the in-memory data and worker goroutine(s) related to that environment.
+
 ## [6.0.1] - 2020-10-08
 ### Fixed:
 - When sending flag/segment JSON data to SDKs or storing it in a database, properties with default values (such as false booleans or empty arrays) were being dropped entirely to save bandwidth. However, some of the LaunchDarkly SDKs do not tolerate missing properties, so this has been fixed to remain consistent with the less efficient behavior of previous Relay Proxy and Go SDK versions.
