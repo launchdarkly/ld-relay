@@ -58,7 +58,7 @@ func removeDeleted(items []ldstoretypes.KeyedItemDescriptor) []ldstoretypes.Keye
 	for i, keyedItem := range items {
 		if keyedItem.Item.Item == nil {
 			if ret == nil {
-				ret := make([]ldstoretypes.KeyedItemDescriptor, i)
+				ret = make([]ldstoretypes.KeyedItemDescriptor, i)
 				copy(ret, items[0:i])
 			}
 		} else {
