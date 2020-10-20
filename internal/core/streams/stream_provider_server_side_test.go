@@ -71,6 +71,26 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 	})
 
+	t.Run("initial event - omits deleted items", func(t *testing.T) {
+		testFlag1Deleted := testFlag1
+		testFlag1Deleted.Deleted = true
+		testSegment1Deleted := testSegment1
+		testSegment1Deleted.Deleted = true
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2}, []ldmodel.Segment{testSegment1Deleted})
+		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{})
+		allDataWithoutDeleted := []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: storeWithoutDeleted.flags},
+			{Kind: ldstoreimpl.Segments(), Items: storeWithoutDeleted.segments},
+		}
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			require.NotNil(t, esp)
+			defer esp.Close()
+
+			verifyHandlerInitialEvent(t, sp, validCredential, MakeServerSidePutEvent(allDataWithoutDeleted))
+		})
+	})
+
 	t.Run("initial event - store not initialized", func(t *testing.T) {
 		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		store.initialized = false
