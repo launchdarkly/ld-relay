@@ -33,6 +33,7 @@ type EnvStreams struct {
 	loggers         ldlog.Loggers
 	lock            sync.RWMutex
 	closeCh         chan struct{}
+	heartbeatsDone  chan struct{} // used in testing only
 }
 
 type streamInfo struct {
@@ -63,6 +64,7 @@ func NewEnvStreams(
 
 	if heartbeatInterval > 0 {
 		heartbeats := time.NewTicker(heartbeatInterval)
+		es.heartbeatsDone = make(chan struct{})
 		go func() {
 			for {
 				select {
@@ -72,6 +74,7 @@ func NewEnvStreams(
 					}
 				case <-es.closeCh:
 					heartbeats.Stop()
+					close(es.heartbeatsDone)
 					return
 				}
 			}
