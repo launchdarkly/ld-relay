@@ -3,6 +3,8 @@ package docker
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
@@ -33,14 +35,23 @@ type Container struct {
 }
 
 type ContainerBuilder struct {
-	imageName string
-	name      string
-	params    []string
+	imageName       string
+	name            string
+	params          []string
+	containerParams []string
 }
 
 type Network struct {
 	name string
 	host string
+}
+
+var (
+	defaultWriter = oshelpers.NewLogWriter(os.Stdout, "Docker") //nolint:gochecknoglobals
+)
+
+func command(cmd string, args ...string) *oshelpers.CommandWrapper { //nolint:unparam
+	return oshelpers.Command(cmd, args...).OutputWriter(defaultWriter)
 }
 
 func NewImageBuilder(workDir oshelpers.DirPath) *ImageBuilder {
@@ -49,14 +60,14 @@ func NewImageBuilder(workDir oshelpers.DirPath) *ImageBuilder {
 
 func (ib *ImageBuilder) Build() (*Image, error) {
 	name := uuid.New()
-	if err := oshelpers.Command("docker", "build", "-t", name, ".").WorkingDir(ib.workDir).Run(); err != nil {
+	if err := command("docker", "build", "-t", name, ".").WorkingDir(ib.workDir).Run(); err != nil {
 		return nil, err
 	}
 	return &Image{name: name, customBuild: true}, nil
 }
 
 func PullImage(name string) (*Image, error) {
-	if err := oshelpers.Command("docker", "pull", name).Run(); err != nil {
+	if err := command("docker", "pull", name).Run(); err != nil {
 		return nil, err
 	}
 	return &Image{name: name, customBuild: false}, nil
@@ -67,7 +78,7 @@ func (i *Image) IsCustomBuild() bool {
 }
 
 func (i *Image) Delete() error {
-	return oshelpers.Command("docker", "image", "rm", i.name).Run()
+	return command("docker", "image", "rm", i.name).Run()
 }
 
 func (i *Image) NewContainerBuilder() *ContainerBuilder {
@@ -76,28 +87,31 @@ func (i *Image) NewContainerBuilder() *ContainerBuilder {
 
 func (cb *ContainerBuilder) Name(name string) *ContainerBuilder {
 	cb.name = name
-	cb.params = append(cb.params, "--name")
-	cb.params = append(cb.params, name)
-	return cb
+	return cb.args("--name", name)
 }
 
 func (cb *ContainerBuilder) EnvVar(name, value string) *ContainerBuilder {
-	cb.params = append(cb.params, "-e")
-	cb.params = append(cb.params, fmt.Sprintf("%s=%s", name, value))
-	return cb
+	return cb.args("-e", fmt.Sprintf("%s=%s", name, value))
 }
 
 func (cb *ContainerBuilder) PublishPort(externalPort, internalPort int) *ContainerBuilder {
-	cb.params = append(cb.params, "-p")
-	cb.params = append(cb.params, fmt.Sprintf("%d:%d", externalPort, internalPort))
-	return cb
+	return cb.args("-p", fmt.Sprintf("%d:%d", externalPort, internalPort))
 }
 
 func (cb *ContainerBuilder) Network(network *Network) *ContainerBuilder {
 	if network != nil {
-		cb.params = append(cb.params, "--network")
-		cb.params = append(cb.params, network.name)
+		return cb.args("--network", network.name)
 	}
+	return cb
+}
+
+func (cb *ContainerBuilder) ContainerParams(args ...string) *ContainerBuilder {
+	cb.containerParams = append(cb.containerParams, args...)
+	return cb
+}
+
+func (cb *ContainerBuilder) args(args ...string) *ContainerBuilder {
+	cb.params = append(cb.params, args...)
 	return cb
 }
 
@@ -105,7 +119,8 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 	args := []string{"create"}
 	args = append(args, cb.params...)
 	args = append(args, cb.imageName)
-	out, err := oshelpers.Command("docker", args...).RunAndGetOutput()
+	args = append(args, cb.containerParams...)
+	out, err := command("docker", args...).RunAndGetOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +129,14 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 		id:   containerID,
 		name: cb.name,
 	}, nil
+}
+
+func (cb *ContainerBuilder) Run() error {
+	args := []string{"run"}
+	args = append(args, cb.params...)
+	args = append(args, cb.imageName)
+	args = append(args, cb.containerParams...)
+	return command("docker", args...).OutputWriter(oshelpers.NewLogWriter(os.Stdout, cb.imageName)).Run()
 }
 
 func (c *Container) GetID() string {
@@ -129,31 +152,31 @@ func (c *Container) Start() error {
 }
 
 func (c *Container) Stop() error {
-	return oshelpers.Command("docker", "stop", c.id).Run()
+	return command("docker", "stop", c.id).Run()
 }
 
 func (c *Container) Delete() error {
-	return oshelpers.Command("docker", "rm", c.id).Run()
+	return command("docker", "rm", c.id).Run()
 }
 
-func (c *Container) FollowLogs() error {
-	return oshelpers.Command("docker", "logs", "--follow", c.id).Run()
+func (c *Container) FollowLogs(outputWriter io.Writer) error {
+	return command("docker", "logs", "--follow", c.id).OutputWriter(outputWriter).Run()
 	// docker logs continues to run, piping the container's output to stdout, until the container is killed
 }
 
 func (c *Container) CommandInContainer(commandLine ...string) *oshelpers.CommandWrapper {
 	args := []string{"exec", c.id}
 	args = append(args, commandLine...)
-	return oshelpers.Command("docker", args...)
+	return command("docker", args...)
 }
 
 func NewNetwork() (*Network, error) {
 	name := "network-" + uuid.New()
-	if err := oshelpers.Command("docker", "network", "create", name).Run(); err != nil {
+	if err := command("docker", "network", "create", name).Run(); err != nil {
 		return nil, err
 	}
 	// The template expression after -f extracts result['IPAM']['Config'][0]['Gateway']
-	out, err := oshelpers.Command("docker", "network", "inspect", name, "-f", "{{(index .IPAM.Config 0).Gateway}}").
+	out, err := command("docker", "network", "inspect", name, "-f", "{{(index .IPAM.Config 0).Gateway}}").
 		ShowOutput(false).RunAndGetOutput()
 	if err != nil {
 		return nil, err
@@ -167,11 +190,11 @@ func (n *Network) GetName() string {
 }
 
 func (n *Network) Delete() error {
-	return oshelpers.Command("docker", "network", "rm", n.name).Run()
+	return command("docker", "network", "rm", n.name).Run()
 }
 
 func (n *Network) GetContainerIDs() ([]string, error) {
-	out, err := oshelpers.Command("docker", "network", "inspect", n.name).RunAndGetOutput()
+	out, err := command("docker", "network", "inspect", n.name).RunAndGetOutput()
 	if err != nil {
 		return nil, err
 	}
