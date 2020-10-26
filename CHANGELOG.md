@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.0.3] - 2020-10-26
+### Fixed:
+- Fixed a dependency path that could cause a compiler error (`code in directory $GOPATH/src/github.com/go-gcfg/gcfg expects import "gopkg.in/gcfg.v1"`) when building the Relay Proxy from source code in some cases.
+
 ## [6.0.2] - 2020-10-20
 ### Fixed:
 - If a flag or segment was deleted in LaunchDarkly after the Relay Proxy started up, SDK clients that connected to Relay Proxy endpoints after that point could receive an unexpected null value for that flag or segment in the JSON data. This would cause an error in some SDKs causing their stream connections to stop working. This bug was introduced in version 6.0.0.
