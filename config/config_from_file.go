@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-gcfg/gcfg"
+	"gopkg.in/gcfg.v1"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
