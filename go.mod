@@ -9,7 +9,6 @@ require (
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20190726131236-c7b72e836616
 	github.com/antihax/optional v1.0.0 // indirect
 	github.com/aws/aws-sdk-go v1.15.74
-	github.com/go-gcfg/gcfg v1.2.3
 	github.com/gomodule/redigo v1.8.2
 	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
 	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f // indirect
@@ -32,7 +31,7 @@ require (
 	go.opencensus.io v0.21.0
 	google.golang.org/api v0.0.0-20180717000714-0025a57598c0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
-	gopkg.in/gcfg.v1 v1.2.3 // indirect
+	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.0.1
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.0
 	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.1

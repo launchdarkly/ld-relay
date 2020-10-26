@@ -56,7 +56,7 @@ Alternatively, you can parse the configuration from a string that is in the same
 ```go
 import (
     "github.com/launchdarkly/ld-relay/v6/config"
-    "github.com/go-gcfg/gcfg"
+    "gopkg.in/gcfg.v1"
 )
 
 var configString = `
