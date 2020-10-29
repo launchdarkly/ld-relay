@@ -27,8 +27,22 @@ workflows:
               only: /v\d+/
           requires:
             - Go 1.14
+      - dependency-scan:
+          context: org-global
       
 jobs:
+  dependency-scan:
+    docker:
+      - image: circleci/openjdk:11.0.3-jdk-stretch
+    environment:
+      <<:
+        - *common_build_env
+    steps:
+      - checkout
+      - run: bash <(curl --retry 5 -s -L https://github.com/whitesource/unified-agent-distribution/raw/master/standAlone/wss_agent.sh) -apiKey $WHITESOURCE_API_KEY -userKey $WHITESOURCE_USER_KEY -c ./.circleci/whitesource.cfg -d ~/ -project $CIRCLE_PROJECT_REPONAME -projectVersion $CIRCLE_BRANCH -logLevel debug
+      - store_artifacts:
+          path: ./whitesource
+          destination: artifacts
   go-test:
     parameters:
       docker-image:
