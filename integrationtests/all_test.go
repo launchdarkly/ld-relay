@@ -19,7 +19,15 @@ func TestEndToEnd(t *testing.T) {
 
 	defer manager.close()
 
-	t.Run("auto-config", func(t *testing.T) {
+	t.Run("standard mode", func(t *testing.T) {
+		testStandardMode(t, manager)
+	})
+
+	t.Run("auto-configuration mode", func(t *testing.T) {
 		testAutoConfig(t, manager)
+	})
+
+	t.Run("database integrations", func(t *testing.T) {
+		testDatabaseIntegrations(t, manager)
 	})
 }

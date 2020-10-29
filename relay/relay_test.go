@@ -4,20 +4,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	c "github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	c "github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewRelayRejectsConfigWithNoEnvironmentsAndNoAutoConfigKey(t *testing.T) {
+func TestNewRelayRejectsConfigWithNoEnvironmentsInManualConfigMode(t *testing.T) {
 	config := c.Config{}
 	relay, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "you must specify at least one environment")
+	assert.Equal(t, errNoEnvironments, err)
 	assert.Nil(t, relay)
 }
 
@@ -38,4 +39,18 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfAutoConfigKeyIsSet(t *testing.T
 		require.NoError(t, err)
 		defer relay.Close()
 	})
+}
+
+func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.T) {
+	config := c.Config{
+		OfflineMode: c.OfflineModeConfig{
+			FileDataSource: "x",
+		},
+	}
+	_, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+
+	// There will be an error, since we don't actually have a data file, but it should not be a
+	// configuration error.
+	require.Error(t, err)
+	assert.NotEqual(t, errNoEnvironments, err)
 }

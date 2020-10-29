@@ -2,15 +2,12 @@ package relay
 
 import (
 	"encoding/json"
-	"testing"
 
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
-
-	"github.com/stretchr/testify/assert"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
@@ -57,15 +54,15 @@ var (
 	}
 )
 
-func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
-	rep := autoconfig.EnvironmentRep{
+func (e testAutoConfEnv) toEnvironmentRep() envfactory.EnvironmentRep {
+	rep := envfactory.EnvironmentRep{
 		EnvID:    e.id,
 		EnvKey:   e.envKey,
 		EnvName:  e.envName,
 		MobKey:   e.mobKey,
 		ProjKey:  e.projKey,
 		ProjName: e.projName,
-		SDKKey: autoconfig.SDKKeyRep{
+		SDKKey: envfactory.SDKKeyRep{
 			Value: e.sdkKey,
 		},
 		Version: e.version,
@@ -77,9 +74,13 @@ func (e testAutoConfEnv) toEnvironmentRep() autoconfig.EnvironmentRep {
 	return rep
 }
 
+func (e testAutoConfEnv) params() envfactory.EnvironmentParams {
+	return e.toEnvironmentRep().ToParams()
+}
+
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[c.EnvironmentID]autoconfig.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep)}}
 	for _, e := range envs {
 		data.Data.Environments[e.id] = e.toEnvironmentRep()
 	}
@@ -96,23 +97,4 @@ func makeAutoConfPatchEvent(env testAutoConfEnv) httphelpers.SSEEvent {
 func makeAutoConfDeleteEvent(envID c.EnvironmentID, version int) httphelpers.SSEEvent {
 	jsonData, _ := json.Marshal(autoconfig.DeleteMessageData{Path: "/environments/" + string(envID), Version: version})
 	return httphelpers.SSEEvent{Event: autoconfig.DeleteEvent, Data: string(jsonData)}
-}
-
-func assertEnvProps(t *testing.T, expected testAutoConfEnv, env relayenv.EnvContext) {
-	assert.Equal(t, credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey), credentialsAsSet(env.GetCredentials()...))
-	assert.Equal(t, relayenv.EnvIdentifiers{
-		EnvKey:   expected.envKey,
-		EnvName:  expected.envName,
-		ProjKey:  expected.projKey,
-		ProjName: expected.projName,
-	}, env.GetIdentifiers())
-	assert.Equal(t, expected.projName+" "+expected.envName, env.GetIdentifiers().GetDisplayName())
-}
-
-func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {
-	ret := make(map[c.SDKCredential]struct{}, len(cs))
-	for _, c := range cs {
-		ret[c] = struct{}{}
-	}
-	return ret
 }

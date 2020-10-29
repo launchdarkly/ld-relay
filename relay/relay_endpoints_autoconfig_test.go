@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -73,7 +74,10 @@ func relayForEndpointTestsWithAutoConfig(config c.Config, loggers ldlog.Loggers)
 	entConfig.Environment = nil
 	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-	r, err := newRelayInternal(entConfig, loggers, testclient.CreateDummyClient)
+	r, err := newRelayInternal(entConfig, relayInternalOptions{
+		loggers:       loggers,
+		clientFactory: testclient.CreateDummyClient,
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -99,20 +103,20 @@ func TestRelayEnterpriseCoreEndpointsWithAutoConfig(t *testing.T) {
 
 func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[c.EnvironmentID]autoconfig.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep)}}
 	for _, envConfig := range config.Environment {
 		env, ok := autoConfigTestEnvs[envConfig.EnvID]
 		if !ok {
 			panic("can't run auto-config with an environment that's not in autoConfigTestEnvs")
 		}
-		rep := autoconfig.EnvironmentRep{
+		rep := envfactory.EnvironmentRep{
 			EnvID:    env.Config.EnvID,
 			EnvKey:   env.EnvKey,
 			EnvName:  env.EnvName,
 			ProjKey:  env.ProjKey,
 			ProjName: env.ProjName,
 			MobKey:   env.Config.MobileKey,
-			SDKKey: autoconfig.SDKKeyRep{
+			SDKKey: envfactory.SDKKeyRep{
 				Value: env.Config.SDKKey,
 			},
 		}

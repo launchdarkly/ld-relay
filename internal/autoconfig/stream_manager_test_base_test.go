@@ -10,6 +10,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -25,26 +26,26 @@ const (
 )
 
 var (
-	testEnv1 = EnvironmentRep{
+	testEnv1 = envfactory.EnvironmentRep{
 		EnvID:      config.EnvironmentID("envid1"),
 		EnvKey:     "envkey1",
 		EnvName:    "envname1",
 		MobKey:     config.MobileKey("mobkey1"),
 		ProjKey:    "projkey1",
 		ProjName:   "projname1",
-		SDKKey:     SDKKeyRep{Value: config.SDKKey("sdkkey1")},
+		SDKKey:     envfactory.SDKKeyRep{Value: config.SDKKey("sdkkey1")},
 		DefaultTTL: 2,
 		SecureMode: true,
 		Version:    10,
 	}
-	testEnv2 = EnvironmentRep{
+	testEnv2 = envfactory.EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid2"),
 		EnvKey:   "envkey2",
 		EnvName:  "envname2",
 		MobKey:   config.MobileKey("mobkey2"),
 		ProjKey:  "projkey2",
 		ProjName: "projname2",
-		SDKKey:   SDKKeyRep{Value: config.SDKKey("sdkkey2")},
+		SDKKey:   envfactory.SDKKeyRep{Value: config.SDKKey("sdkkey2")},
 		Version:  20,
 	}
 	emptyPutMessage = httphelpers.SSEEvent{Event: PutEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
@@ -55,8 +56,8 @@ func toJSON(x interface{}) string {
 	return string(bytes)
 }
 
-func makePutEvent(envs ...EnvironmentRep) httphelpers.SSEEvent {
-	m := make(map[string]EnvironmentRep)
+func makePutEvent(envs ...envfactory.EnvironmentRep) httphelpers.SSEEvent {
+	m := make(map[string]envfactory.EnvironmentRep)
 	for _, e := range envs {
 		m[string(e.EnvID)] = e
 	}
@@ -69,7 +70,7 @@ func makePutEvent(envs ...EnvironmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func makePatchEvent(env EnvironmentRep) httphelpers.SSEEvent {
+func makePatchEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
 		Event: PatchEvent,
 		Data: toJSON(map[string]interface{}{
@@ -99,8 +100,8 @@ type streamManagerTestParams struct {
 }
 
 type testMessage struct {
-	add     *EnvironmentParams
-	update  *EnvironmentParams
+	add     *envfactory.EnvironmentParams
+	update  *envfactory.EnvironmentParams
 	delete  *config.EnvironmentID
 	expired *expiredKey
 }
@@ -208,11 +209,11 @@ func newTestMessageHandler() *testMessageHandler {
 	}
 }
 
-func (h *testMessageHandler) AddEnvironment(params EnvironmentParams) {
+func (h *testMessageHandler) AddEnvironment(params envfactory.EnvironmentParams) {
 	h.received <- testMessage{add: &params}
 }
 
-func (h *testMessageHandler) UpdateEnvironment(params EnvironmentParams) {
+func (h *testMessageHandler) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	h.received <- testMessage{update: &params}
 }
 

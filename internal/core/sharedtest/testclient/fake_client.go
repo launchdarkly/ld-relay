@@ -39,6 +39,11 @@ type FakeLDClient struct {
 	lock             sync.Mutex
 }
 
+type CapturedLDClient struct {
+	Key    config.SDKKey
+	Client sdks.LDClientContext
+}
+
 func (c *FakeLDClient) Initialized() bool {
 	return c.initialized
 }
@@ -112,6 +117,16 @@ func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *
 			createdCh <- c
 		}
 		return c, nil
+	}
+}
+
+func RealLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- CapturedLDClient) sdks.ClientFactoryFunc {
+	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+		c, err := sdks.DefaultClientFactory(sdkKey, config)
+		if c != nil && createdCh != nil {
+			createdCh <- CapturedLDClient{Key: sdkKey, Client: c}
+		}
+		return c, err
 	}
 }
 

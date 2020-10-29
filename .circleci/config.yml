@@ -5,6 +5,8 @@ experimental:
     branches:
       only:
         - master
+        - v5
+        - v6
 
 workflows:
   workflow:
@@ -29,6 +31,19 @@ workflows:
             - Go 1.14
       - dependency-scan:
           context: org-global
+
+  # Run hourly integration tests on the private v6 branch
+  hourly-integration-test:
+    triggers:
+    - schedule:
+        cron: "0 * * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - integration-test
+    when: $SCHEDULE_INTEGRATION_TESTS
+
       
 jobs:
   dependency-scan:

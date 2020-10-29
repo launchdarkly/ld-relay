@@ -12,7 +12,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,10 +39,17 @@ func testAutoConfig(t *testing.T, manager *integrationTestManager) {
 		testDeleteEnvironment(t, manager)
 	})
 
-	// this test is currently disabled because we don't yet have an API endpoint for rotating an SDK key
-	// t.Run("expiring SDK key", func(t *testing.T) {
-	// 	testExpiringSDKKey(t, manager)
-	// })
+	t.Run("updated SDK key", func(t *testing.T) {
+		testUpdatedSDKKeyWithoutExpiry(t, manager)
+	})
+
+	t.Run("updated SDK key with expiry", func(t *testing.T) {
+		testUpdatedSDKKeyWithExpiry(t, manager)
+	})
+
+	t.Run("updated mobile key", func(t *testing.T) {
+		testUpdatedMobileKey(t, manager)
+	})
 }
 
 func testInitialEnvironmentList(t *testing.T, manager *integrationTestManager) {
@@ -67,7 +73,7 @@ func testPolicyUpdate(t *testing.T, manager *integrationTestManager) {
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
 			if len(status.Environments) == 1 {
 				if envStatus, ok := status.Environments[string(remainingEnv.id)]; ok {
-					verifyEnvProperties(t, testData.project, remainingEnv, envStatus)
+					verifyEnvProperties(t, testData.project, remainingEnv, envStatus, true)
 					return true
 				}
 			}
@@ -86,7 +92,7 @@ func testAddEnvironment(t *testing.T, manager *integrationTestManager) {
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
 			if len(status.Environments) == len(testData.environments)+1 {
 				if envStatus, ok := status.Environments[string(newEnv.id)]; ok {
-					verifyEnvProperties(t, testData.project, newEnv, envStatus)
+					verifyEnvProperties(t, testData.project, newEnv, envStatus, true)
 					return true
 				}
 			}
@@ -113,13 +119,12 @@ func testDeleteEnvironment(t *testing.T, manager *integrationTestManager) {
 	})
 }
 
-func testExpiringSDKKey(t *testing.T, manager *integrationTestManager) {
+func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManager) {
 	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
 		awaitInitialState(t, manager, testData)
 		envToUpdate := testData.environments[0]
-		oldKey := envToUpdate.sdkKey
 
-		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Hour)
+		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Time{})
 		require.NoError(t, err)
 
 		updatedEnv := envToUpdate
@@ -127,15 +132,66 @@ func testExpiringSDKKey(t *testing.T, manager *integrationTestManager) {
 
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
-				verifyEnvProperties(t, testData.project, updatedEnv, envStatus)
-				return envStatus.ExpiringSDKKey == string(oldKey)
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				return last5(envStatus.SDKKey) == last5(string(newKey)) && envStatus.ExpiringSDKKey == ""
 			}
 			return false
 		})
 	})
 }
 
-func setupTestData(t *testing.T, manager *integrationTestManager) autoConfigTestData {
+func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) {
+	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
+		awaitInitialState(t, manager, testData)
+		envToUpdate := testData.environments[0]
+		oldKey := envToUpdate.sdkKey
+
+		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+
+		updatedEnv := envToUpdate
+		updatedEnv.sdkKey = newKey
+
+		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				return last5(envStatus.SDKKey) == last5(string(newKey)) &&
+					last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
+			}
+			return false
+		})
+	})
+}
+
+func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
+	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
+		awaitInitialState(t, manager, testData)
+		envToUpdate := testData.environments[0]
+
+		newKey, err := manager.rotateMobileKey(testData.project, envToUpdate)
+		require.NoError(t, err)
+
+		updatedEnv := envToUpdate
+		updatedEnv.mobileKey = newKey
+
+		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				return last5(envStatus.MobileKey) == last5(string(newKey))
+			}
+			return false
+		})
+	})
+}
+
+func last5(s string) string {
+	if len(s) < 5 {
+		return s
+	}
+	return s[len(s)-5:]
+}
+
+func setupAutoConfigTestData(t *testing.T, manager *integrationTestManager) autoConfigTestData {
 	projectInfo, environments, err := manager.createProject(2)
 	require.NoError(t, err)
 
@@ -154,7 +210,7 @@ func setupTestData(t *testing.T, manager *integrationTestManager) autoConfigTest
 }
 
 func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action func(autoConfigTestData)) {
-	testData := setupTestData(t, manager)
+	testData := setupAutoConfigTestData(t, manager)
 	defer manager.deleteProject(testData.project)
 	defer manager.deleteAutoConfigKey(testData.autoConfigID)
 
@@ -167,31 +223,6 @@ func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action 
 }
 
 func awaitInitialState(t *testing.T, manager *integrationTestManager, testData autoConfigTestData) {
-	_, success := manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
-		if len(status.Environments) == len(testData.environments) {
-			for _, e := range testData.environments {
-				if envStatus, ok := status.Environments[string(e.id)]; ok {
-					verifyEnvProperties(t, testData.project, e, envStatus)
-					if envStatus.Status != "connected" {
-						return false
-					}
-				} else {
-					return false
-				}
-			}
-			return true
-		}
-		return false
-	})
-	if !success {
-		t.FailNow()
-	}
-}
-
-func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep) {
-	assert.Equal(t, string(environment.id), envStatus.EnvID)
-	assert.Equal(t, environment.name, envStatus.EnvName)
-	assert.Equal(t, environment.key, envStatus.EnvKey)
-	assert.Equal(t, project.name, envStatus.ProjName)
-	assert.Equal(t, project.key, envStatus.ProjKey)
+	projsAndEnvs := projsAndEnvs{testData.project: testData.environments}
+	manager.awaitEnvironments(t, projsAndEnvs, true)
 }
