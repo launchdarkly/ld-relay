@@ -14,7 +14,7 @@ We encourage pull requests and other contributions from the community. Before yo
  
 ### Prerequisites
  
-The Relay Proxy should be built against Go 1.13 or newer.
+The Relay Proxy should be built against Go 1.14 or newer.
 
 ### Building
 
