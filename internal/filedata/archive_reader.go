@@ -42,8 +42,8 @@ type environmentMetadata struct {
 }
 
 type archiveEnvironmentRep struct {
-	envfactory.EnvironmentRep
-	DataID string `json:"dataId"`
+	Env    envfactory.EnvironmentRep `json:"env"`
+	DataID string                    `json:"dataId"`
 }
 
 func envMetadataFilePath(dirPath string, envID config.EnvironmentID) string {
@@ -121,8 +121,8 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 		return environmentMetadata{}, err
 	}
 	return environmentMetadata{
-		params:  rep.EnvironmentRep.ToParams(),
-		version: rep.Version,
+		params:  rep.Env.ToParams(),
+		version: rep.Env.Version,
 		dataID:  rep.DataID,
 	}, nil
 }
