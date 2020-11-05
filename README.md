@@ -33,11 +33,13 @@ There are some special considerations if you use the PHP SDK. **To learn more, r
 
 ## Enterprise capabilities
 
-LaunchDarkly offers additional Relay Proxy features to customers on Enterprise plans. 
+LaunchDarkly offers additional Relay Proxy features to customers on Enterprise plans.
 
-The automatic configuration feature automatically detects environment creations and updates, removing the need for most manual configuration file changes and application restarts. Instead, you can use a simple in-app UI to manage Relay Proxy configuration. **To learn more, read [Automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration)**. 
+Automatic configuration automatically detects when environments are created and updated, removing the need for most manual configuration file changes and application restarts. Instead, you can use a simple in-app UI to manage your Relay Proxy configuration. **To learn more, read [Automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration)**.
 
-If you want access to automatic configurations but don’t have a LaunchDarkly Enterprise plan, then [contact our sales team](https://launchdarkly.com/contact-sales/) to upgrade.
+Offline mode lets you run the Relay Proxy without ever connecting it to LaunchDarkly. When running in offline mode, the Relay Proxy gets flag and segment values from an archive on your filesystem, instead of contacting LaunchDarkly's servers.  **To learn more, read [Offline mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline)**.
+
+If you want access to these features but don’t have a LaunchDarkly Enterprise plan, then [contact our sales team](https://launchdarkly.com/contact-sales/) to upgrade.
 
 
 ## Deployment options
@@ -102,6 +104,7 @@ We have done extensive load tests on the Relay Proxy in AWS/EC2. We have also co
 * If you use an Elastic Load Balancer in front of the Relay Proxy, you may need to [pre-warm](https://aws.amazon.com/articles/1636185810492479) the load balancer whenever connections to the Relay Proxy cycle. This might happen when you deploy a large number of new servers that connect to the Relay Proxy, or upgrade the Relay Proxy itself.
 
 **To learn more, read [Testing Relay Proxy performance](https://docs.launchdarkly.com/home/advanced/relay-proxy/performance).**
+
 
 ## Contributing
 

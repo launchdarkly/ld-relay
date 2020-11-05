@@ -74,7 +74,7 @@ _(5)_ The `disableInternalUsageMetrics` option applies to metrics that LaunchDar
 
 ### File section: `[AutoConfig]`
 
-This section can only be used if the [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration) feature is enabled for your account.
+This section is only applicable if [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration) is enabled for your account.
 
 Property in file         | Environment var            | Type   | Default | Description
 ------------------------ | -------------------------- | :----: | :------ | -----------
@@ -88,7 +88,7 @@ _(6)_ When using a database store, if there are multiple environments, it is nec
 
 ### File section: `[OfflineMode]`
 
-This section can only be used if the [offline mode](https://docs.launchdarkly.com/home/advanced/relay-proxy/offline-mode) feature is enabled for your account.
+This section is only applicable if [offline mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline) is enabled for your account.
 
 Property in file         | Environment var            | Type   | Default | Description
 ------------------------ | -------------------------- | :----: | :------ | -----------
