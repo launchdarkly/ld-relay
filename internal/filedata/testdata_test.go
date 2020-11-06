@@ -147,8 +147,8 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 		for _, te := range envs {
 			envIDs = append(envIDs, te.rep.EnvID)
 			rep := archiveEnvironmentRep{
-				EnvironmentRep: te.rep,
-				DataID:         te.dataID,
+				Env:    te.rep,
+				DataID: te.dataID,
 			}
 			fileData, err := json.Marshal(rep)
 			if err != nil {
