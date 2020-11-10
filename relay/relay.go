@@ -70,7 +70,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	}
 
 	logNameMode := relayenv.LogNameIsSDKKey
-	if hasAutoConfigKey {
+	if hasAutoConfigKey || hasFileDataSource {
 		logNameMode = relayenv.LogNameIsEnvID
 	}
 

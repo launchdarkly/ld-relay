@@ -224,5 +224,7 @@ func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action 
 
 func awaitInitialState(t *testing.T, manager *integrationTestManager, testData autoConfigTestData) {
 	projsAndEnvs := projsAndEnvs{testData.project: testData.environments}
-	manager.awaitEnvironments(t, projsAndEnvs, true)
+	manager.awaitEnvironments(t, projsAndEnvs, true, func(proj projectInfo, env environmentInfo) string {
+		return string(env.id)
+	})
 }

@@ -58,6 +58,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		}
 		a.envUpdates[ae.Params.EnvID] = updates
 		updates.Init(ae.SDKData)
+		updates.UpdateStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
 	case <-time.After(time.Second * 2):
 		a.r.loggers.Errorf(logMsgOfflineEnvTimeoutError, ae.Params.Identifiers.GetDisplayName())
 	}

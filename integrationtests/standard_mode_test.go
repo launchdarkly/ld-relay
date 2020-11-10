@@ -25,30 +25,22 @@ func testStandardMode(t *testing.T, manager *integrationTestManager) {
 		manager.startRelay(t, envVars)
 		defer manager.stopRelay()
 
-		manager.awaitEnvironments(t, testData.projsAndEnvs, false)
+		manager.awaitEnvironments(t, testData.projsAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+			return string(env.name)
+		})
 		manager.verifyFlagValues(t, testData.projsAndEnvs)
 	})
 }
 
 func withStandardModeTestData(t *testing.T, manager *integrationTestManager, fn func(standardModeTestData)) {
-	project1Info, environments1, err := manager.createProject(2)
+	projsAndEnvs, err := manager.createProjectsAndEnvironments(2, 2)
 	require.NoError(t, err)
-	project2Info, environments2, err := manager.createProject(2)
-	require.NoError(t, err)
+	defer manager.deleteProjects(projsAndEnvs)
 
-	defer manager.deleteProject(project1Info)
-	defer manager.deleteProject(project2Info)
+	require.NoError(t, manager.createFlags(projsAndEnvs))
 
 	testData := standardModeTestData{
-		projsAndEnvs: projsAndEnvs{
-			project1Info: environments1,
-			project2Info: environments2,
-		},
+		projsAndEnvs: projsAndEnvs,
 	}
-
-	for proj, envs := range testData.projsAndEnvs {
-		require.NoError(t, manager.createFlag(proj, envs, flagKeyForProj(proj), flagValueForEnv))
-	}
-
 	fn(testData)
 }

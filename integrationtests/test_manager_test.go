@@ -35,15 +35,18 @@ import (
 const (
 	defaultAppBaseURL         = "https://ld-stg.launchdarkly.com"
 	defaultStreamBaseURL      = "https://stream-stg.launchdarkly.com"
+	defaultSDKURL             = "https://sdk-stg.launchdarkly.com"
 	defaultStatusPollTimeout  = time.Second * 5
 	defaultStatusPollInterval = time.Millisecond * 100
+	relayContainerSharedDir   = "/tmp/relay-shared"
 )
 
 type autoConfigID string
 
 type integrationTestParams struct {
-	LDAppBaseURL    ct.OptString `conf:"LD_BASE_URL`
-	LDStreamBaseURL ct.OptString `conf:"LD_STREAM_URL`
+	LDAppBaseURL    ct.OptString `conf:"LD_BASE_URL"`
+	LDStreamBaseURL ct.OptString `conf:"LD_STREAM_URL"`
+	LDSDKURL        ct.OptString `conf:"LD_SDK_URL"`
 	APIToken        string       `conf:"LD_API_TOKEN,required"`
 	RelayTagOrSHA   string       `conf:"RELAY_TAG_OR_SHA"`
 	HTTPLogging     bool         `conf:"HTTP_LOGGING"`
@@ -57,6 +60,7 @@ type integrationTestManager struct {
 	params             integrationTestParams
 	baseURL            string
 	streamURL          string
+	sdkURL             string
 	httpClient         *http.Client
 	apiClient          *ldapi.APIClient
 	apiContext         context.Context
@@ -65,6 +69,7 @@ type integrationTestManager struct {
 	dockerContainer    *docker.Container
 	dockerNetwork      *docker.Network
 	relayBaseURL       string
+	relaySharedDir     string
 	statusPollTimeout  time.Duration
 	statusPollInterval time.Duration
 	loggers            ldlog.Loggers
@@ -114,11 +119,14 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 
 	baseURL := params.LDAppBaseURL.GetOrElse(defaultAppBaseURL)
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
+	sdkURL := params.LDSDKURL.GetOrElse(defaultSDKURL)
 	apiBaseURL := baseURL + "/api/v2"
 
 	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, loggers: loggers}
 	requestLogger.loggers.SetPrefix("[HTTP]")
-	httpClient := http.DefaultClient
+
+	hc := *http.DefaultClient
+	httpClient := &hc
 	httpClient.Transport = requestLogger
 
 	apiConfig := ldapi.NewConfiguration()
@@ -141,16 +149,26 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
+	relaySharedDir, err := ioutil.TempDir("", "relay-i9ntest-")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(relaySharedDir, 0755); err != nil {
+		return nil, err
+	}
+
 	return &integrationTestManager{
 		params:             params,
 		baseURL:            baseURL,
 		streamURL:          streamURL,
+		sdkURL:             sdkURL,
 		httpClient:         httpClient,
 		apiClient:          apiClient,
 		apiContext:         apiContext,
 		apiBaseURL:         apiBaseURL,
 		dockerImage:        dockerImage,
 		dockerNetwork:      network,
+		relaySharedDir:     relaySharedDir,
 		statusPollTimeout:  defaultStatusPollTimeout,
 		statusPollInterval: defaultStatusPollInterval,
 		loggers:            loggers,
@@ -164,6 +182,7 @@ func (m *integrationTestManager) close() {
 		_ = m.dockerImage.Delete()
 	}
 	_ = m.dockerNetwork.Delete()
+	_ = os.RemoveAll(m.relaySharedDir)
 }
 
 func (m *integrationTestManager) logResult(desc string, err error) error {
@@ -178,6 +197,28 @@ func (m *integrationTestManager) logResult(desc string, err error) error {
 	}
 	m.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
 	return err
+}
+
+func (m *integrationTestManager) createProjectsAndEnvironments(numProjects, numEnvironments int) (projsAndEnvs, error) {
+	ret := make(projsAndEnvs)
+	for i := 0; i < numProjects; i++ {
+		proj, envs, err := m.createProject(numEnvironments)
+		if err != nil {
+			_ = m.deleteProjects(ret)
+			return nil, err
+		}
+		ret[proj] = envs
+	}
+	return ret, nil
+}
+
+func (m *integrationTestManager) deleteProjects(projsAndEnvs projsAndEnvs) error {
+	for p := range projsAndEnvs {
+		if err := m.deleteProject(p); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *integrationTestManager) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
@@ -343,12 +384,23 @@ func (m *integrationTestManager) createFlag(
 	return nil
 }
 
+func (m *integrationTestManager) createFlags(projsAndEnvs projsAndEnvs) error {
+	for proj, envs := range projsAndEnvs {
+		err := m.createFlag(proj, envs, flagKeyForProj(proj), flagValueForEnv)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]string) error {
 	require.Nil(t, m.dockerContainer, "called startRelay when Relay was already running")
 
 	cb := m.dockerImage.NewContainerBuilder().
 		Name("relay-"+uuid.New()).
 		Network(m.dockerNetwork).
+		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
 		EnvVar("BASE_URI", m.baseURL).
 		EnvVar("STREAM_URI", m.streamURL).
 		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true")
@@ -406,7 +458,7 @@ func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (
 		return nil, err
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader([]byte(output))), request)
-	m.requestLogger.logResponse(resp)
+	m.requestLogger.logResponse(resp, true)
 	return resp, err
 }
 
@@ -440,19 +492,17 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 	return lastStatus, success
 }
 
-func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs, isAutoConfig bool) {
+func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs,
+	expectNameAndKey bool, envMapKeyFn func(proj projectInfo, env environmentInfo) string) {
 	_, success := m.awaitRelayStatus(t, func(status core.StatusRep) bool {
 		if len(status.Environments) != projsAndEnvs.countEnvs() {
 			return false
 		}
 		ok := true
 		projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-			mapKey := string(env.key)
-			if isAutoConfig {
-				mapKey = string(env.id)
-			}
+			mapKey := envMapKeyFn(proj, env)
 			if envStatus, found := status.Environments[mapKey]; found {
-				verifyEnvProperties(t, proj, env, envStatus, isAutoConfig)
+				verifyEnvProperties(t, proj, env, envStatus, expectNameAndKey)
 				if envStatus.Status != "connected" {
 					ok = false
 				}
@@ -516,9 +566,9 @@ func (m *integrationTestManager) withExtraContainer(
 	action(container)
 }
 
-func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep, isAutoConfig bool) {
+func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep, expectNameAndKey bool) {
 	assert.Equal(t, string(environment.id), envStatus.EnvID)
-	if isAutoConfig {
+	if expectNameAndKey {
 		assert.Equal(t, environment.name, envStatus.EnvName)
 		assert.Equal(t, environment.key, envStatus.EnvKey)
 		assert.Equal(t, project.name, envStatus.ProjName)

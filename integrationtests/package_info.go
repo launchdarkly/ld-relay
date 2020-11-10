@@ -8,7 +8,7 @@
 //
 // The tests are configured with the following environment variables:
 //
-// - LD_BASE_URL, LD_STREAM_URL: optional LD service base URLs (default: staging)
+// - LD_BASE_URL, LD_STREAM_URL, LD_SDK_URL: optional LD service base URLs (default: staging)
 //
 // - LD_API_TOKEN: required, must be an API access token with admin permission; this should be set in
 // CircleCI as part of the project configuration

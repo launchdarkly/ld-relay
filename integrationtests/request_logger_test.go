@@ -20,7 +20,7 @@ type requestLogger struct {
 func (r *requestLogger) RoundTrip(request *http.Request) (*http.Response, error) {
 	r.logRequest(request)
 	resp, err := r.transport.RoundTrip(request)
-	r.logResponse(resp)
+	r.logResponse(resp, true)
 	return resp, err
 }
 
@@ -38,13 +38,13 @@ func (r *requestLogger) logRequest(request *http.Request) {
 	}
 }
 
-func (r *requestLogger) logResponse(resp *http.Response) {
+func (r *requestLogger) logResponse(resp *http.Response, withBody bool) {
 	if !r.enabled || resp == nil {
 		return
 	}
 	r.loggers.Infof("  response status %d", resp.StatusCode)
 	r.loggers.Infof("    headers: %s", resp.Header)
-	if resp.Body != nil {
+	if withBody && resp.Body != nil {
 		bodyCopy := copyBody(&resp.Body)
 		if len(bodyCopy) != 0 {
 			r.loggers.Infof("    body: %s", string(bodyCopy))

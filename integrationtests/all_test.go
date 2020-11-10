@@ -27,6 +27,10 @@ func TestEndToEnd(t *testing.T) {
 		testAutoConfig(t, manager)
 	})
 
+	t.Run("offline mode", func(t *testing.T) {
+		testOfflineMode(t, manager)
+	})
+
 	t.Run("database integrations", func(t *testing.T) {
 		testDatabaseIntegrations(t, manager)
 	})

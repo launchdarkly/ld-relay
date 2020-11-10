@@ -105,6 +105,10 @@ func (cb *ContainerBuilder) Network(network *Network) *ContainerBuilder {
 	return cb
 }
 
+func (cb *ContainerBuilder) SharedVolume(hostDir, containerDir string) *ContainerBuilder {
+	return cb.args("-v", fmt.Sprintf("%s:%s", hostDir, containerDir))
+}
+
 func (cb *ContainerBuilder) ContainerParams(args ...string) *ContainerBuilder {
 	cb.containerParams = append(cb.containerParams, args...)
 	return cb
