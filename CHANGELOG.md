@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.0] - 2020-11-09
+### Added:
+- The Relay Proxy now supports a new &#34;offline mode&#34; which is available to customers on LaunchDarkly&#39;s Enterprise plan. This mode allows the Relay Proxy to run without ever connecting it to LaunchDarkly. When running in offline mode, the Relay Proxy gets flag and segment values from an archive on your filesystem, instead of contacting LaunchDarkly&#39;s servers. To learn more, read [the online documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline).
+
+### Fixed:
+- The contribution guidelines incorrectly indicated the minimum Go version as 1.13 instead of 1.14.
+
 ## [6.0.3] - 2020-10-26
 ### Fixed:
 - Fixed a dependency path that could cause a compiler error (`code in directory $GOPATH/src/github.com/go-gcfg/gcfg expects import "gopkg.in/gcfg.v1"`) when building the Relay Proxy from source code in some cases.
