@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
 	"github.com/stretchr/testify/assert"
@@ -143,22 +142,23 @@ func testDynamoDBIntegration(t *testing.T, manager *integrationTestManager) {
 
 	doDatabaseTest(t, manager, "amazon/dynamodb-local", "dynamodb",
 		func(dbContainer *docker.Container) error {
-			cliParams := []string{
-				"run", "--rm",
-				"-e", "AWS_REGION=" + awsRegion,
-				"-e", "AWS_ACCESS_KEY_ID=" + awsKey,
-				"-e", "AWS_SECRET_ACCESS_KEY=" + awsSecret,
-				"-e", "AWS_MAX_ATTEMPTS=10", // increase AWS CLI retries because DynamoDB container might be slow to start
-				"--network", manager.dockerNetwork.GetName(),
-				"amazon/aws-cli",
-				"dynamodb", "create-table",
-				"--endpoint-url", ddbEndpointURL(dbContainer),
-				"--table-name", tableName,
-				"--attribute-definitions", "AttributeName=namespace,AttributeType=S", "AttributeName=key,AttributeType=S",
-				"--key-schema", "AttributeName=namespace,KeyType=HASH", "AttributeName=key,KeyType=RANGE",
-				"--provisioned-throughput", "ReadCapacityUnits=1,WriteCapacityUnits=1",
+			awsCLIImage, err := docker.PullImage("amazon/aws-cli")
+			if err != nil {
+				return err
 			}
-			return oshelpers.Command("docker", cliParams...).Run()
+			return awsCLIImage.NewContainerBuilder().
+				Network(manager.dockerNetwork).
+				EnvVar("AWS_REGION", awsRegion).
+				EnvVar("AWS_ACCESS_KEY_ID", awsKey).
+				EnvVar("AWS_SECRET_ACCESS_KEY", awsSecret).
+				EnvVar("AWS_MAX_ATTEMPTS", "10"). // increase AWS CLI retries because DynamoDB container might be slow to start
+				ContainerParams("dynamodb", "create-table",
+					"--endpoint-url", ddbEndpointURL(dbContainer),
+					"--table-name", tableName,
+					"--attribute-definitions", "AttributeName=namespace,AttributeType=S", "AttributeName=key,AttributeType=S",
+					"--key-schema", "AttributeName=namespace,KeyType=HASH", "AttributeName=key,KeyType=RANGE",
+					"--provisioned-throughput", "ReadCapacityUnits=1,WriteCapacityUnits=1",
+				).Run()
 		},
 		func(dbContainer *docker.Container) map[string]string {
 			return map[string]string{

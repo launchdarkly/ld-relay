@@ -51,6 +51,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigAllBaseProperties(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
+		makeValidConfigFileData(),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisURL(),
@@ -256,6 +257,21 @@ EnvAllowedOrigin = http://second
 
 [DynamoDB]
 Enabled = true
+`
+	return c
+}
+
+func makeValidConfigFileData() testDataValidConfig {
+	c := testDataValidConfig{name: "file data properties"}
+	c.makeConfig = func(c *Config) {
+		c.OfflineMode.FileDataSource = "my-file-path"
+	}
+	c.envVars = map[string]string{
+		"FILE_DATA_SOURCE": "my-file-path",
+	}
+	c.fileContent = `
+[OfflineMode]
+FileDataSource = my-file-path
 `
 	return c
 }

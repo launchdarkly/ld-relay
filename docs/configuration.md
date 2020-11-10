@@ -74,7 +74,7 @@ _(5)_ The `disableInternalUsageMetrics` option applies to metrics that LaunchDar
 
 ### File section: `[AutoConfig]`
 
-This section can only be used if the [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy/automatic-configuration) feature is enabled for your account.
+This section is only applicable if [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration) is enabled for your account.
 
 Property in file         | Environment var            | Type   | Default | Description
 ------------------------ | -------------------------- | :----: | :------ | -----------
@@ -84,6 +84,20 @@ Property in file         | Environment var            | Type   | Default | Descr
 `envAllowedOrigin`       | `ENV_ALLOWED_ORIGIN`       | URI    |         | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_ORIGIN` variable, specify a comma-delimited list).
 
 _(6)_ When using a database store, if there are multiple environments, it is necessary to have a different prefix for each environment (or, if using DynamoDB, a different table name). The `envDataStorePrefix` and `envDatastoreTableName` properties support this by recognizing the special symbol `$CID` as a placeholder for the environment's client-side ID. For instance, if an environment's ID is `1234567890abcdef` and you set `envDatastorePrefix` to `ld-flags-$CID`, the actual prefix used for that environment will be `ld-flags-1234567890abcdef`.
+
+
+### File section: `[OfflineMode]`
+
+This section is only applicable if [offline mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline) is enabled for your account.
+
+Property in file         | Environment var            | Type   | Default | Description
+------------------------ | -------------------------- | :----: | :------ | -----------
+`fileDataSource`         | `FILE_DATA_SOURCE`         | String |         | Path to the offline mode data file that you have downloaded from LaunchDarkly.
+`envDatastorePrefix`     | `ENV_DATASTORE_PREFIX`     | String |         | If using a Redis, Consul, or DynamoDB store, this string will be added to all database keys to distinguish them from any other environments that are using the database. _(6)_
+`envDatastoreTableName ` | `ENV_DATASTORE_TABLE_NAME` | String |         | If using a DynamoDB store, this specifies the table name. _(6)_
+`envAllowedOrigin`       | `ENV_ALLOWED_ORIGIN`       | URI    |         | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_ORIGIN` variable, specify a comma-delimited list).
+
+Note that the last three properties have the same meanings and the same environment variables names as the corresponding properties in the `[AutoConfig]` section described above. It is not possible to use `[OfflineMode]` and `[AutoConfig]` at the same time.
 
 
 ### File section: `[Events]`

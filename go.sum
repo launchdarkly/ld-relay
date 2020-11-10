@@ -28,6 +28,7 @@ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/fatih/color v1.9.0 h1:8xPHl4/q1VyqGIPif1F+1V3Y3lSmrq01EabUW3CoW5s=
 github.com/fatih/color v1.9.0/go.mod h1:eQcE1qtQxscV5RaZvpXrrb8Drkc3/DdQ+uUYCNjL+zU=
+github.com/fsnotify/fsnotify v1.4.7 h1:IXs+QLmnXW2CcXuY+8Mzv/fWEsPGWxqefPtCP5CnV9I=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b h1:VKtxabqXZkF25pY9ekfRL6a582T4P37/31XEstQ5p58=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
@@ -93,8 +94,8 @@ github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfn
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/launchdarkly/api-client-go v3.6.0+incompatible h1:cYQMxQ7u9G2RohHKnYGUkMgwj46avG5seeFqBEpEREA=
-github.com/launchdarkly/api-client-go v3.6.0+incompatible/go.mod h1:INGa7NUZYSwVozwPV7l6ikgD7pzSOpZvg9I5sqCZIWs=
+github.com/launchdarkly/api-client-go v3.7.0+incompatible h1:RW/1xvKbnPTngkdZNJV/2+Or4ABpOtQgiYfF89k5tWE=
+github.com/launchdarkly/api-client-go v3.7.0+incompatible/go.mod h1:INGa7NUZYSwVozwPV7l6ikgD7pzSOpZvg9I5sqCZIWs=
 github.com/launchdarkly/eventsource v1.4.3 h1:G0s/nlctuI6Vz/BKpNLE2L/S4U0lQ/ghYqecPjUuQIA=
 github.com/launchdarkly/eventsource v1.4.3/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
 github.com/launchdarkly/eventsource v1.6.1 h1:T3Thx+3T5iuXTuDPCC+/GdiAM/lpBww1bLFp6Birmis=

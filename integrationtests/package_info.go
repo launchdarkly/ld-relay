@@ -8,11 +8,14 @@
 //
 // The tests are configured with the following environment variables:
 //
-// - LD_BASE_URL, LD_STREAM_URL: optional LD service base URLs (default: staging)
+// - LD_BASE_URL, LD_STREAM_URL, LD_SDK_URL: optional LD service base URLs (default: staging)
 //
 // - LD_API_TOKEN: required, must be an API access token with admin permission; this should be set in
 // CircleCI as part of the project configuration
 //
 // - RELAY_TAG_OR_SHA: optional branch/tag name or commit hash in the ld-relay-private repo, to test
 // that specific version rather than the working copy that the tests are running in
+//
+// - HTTP_LOGGING: set this to "true" to enable verbose logging of all HTTP requests made by the
+// integration tests (to the LaunchDarkly API and to Relay).
 package integrationtests

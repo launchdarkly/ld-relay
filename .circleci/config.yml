@@ -5,6 +5,8 @@ experimental:
     branches:
       only:
         - master
+        - v5
+        - v6
 
 workflows:
   workflow:
@@ -27,6 +29,19 @@ workflows:
               only: /v\d+/
           requires:
             - Go 1.14
+
+  # Run hourly integration tests on the private v6 branch
+  hourly-integration-test:
+    triggers:
+    - schedule:
+        cron: "0 * * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - integration-test
+    when: $SCHEDULE_INTEGRATION_TESTS
+
       
 jobs:
   go-test:
@@ -88,20 +103,34 @@ jobs:
           path: /tmp/circle-artifacts
 
   integration-test:
-    docker:
-      - image: cimg/go:1.15.2
-        environment: &environment
-          CIRCLE_TEST_REPORTS: /tmp/circle-reports
-          CIRCLE_ARTIFACTS: /tmp/circle-artifacts
-          COMMON_GO_PACKAGES: >
-            github.com/jstemmer/go-junit-report
-
+    machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
+      image: ubuntu-2004:202010-01
+      docker_layer_caching: true
+    environment: &environment
+      CIRCLE_TEST_REPORTS: /tmp/circle-reports
+      CIRCLE_ARTIFACTS: /tmp/circle-artifacts
+      COMMON_GO_PACKAGES: >
+        github.com/jstemmer/go-junit-report
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 19.03.13
-      - run: go get -u $COMMON_GO_PACKAGES
+      - run:
+          name: install Go # since we're using machine mode, we can't use a preinstalled Go Docker image
+          command: |
+            sudo apt update
+            sudo apt install -y software-properties-common
+            sudo add-apt-repository -y ppa:longsleep/golang-backports
+            sudo apt update
+            sudo apt install -y golang-go
       - run: go version && go env
+      - restore_cache:
+          keys: 
+            - deps-relay-i9ntest-{{ checksum "go.mod" }}    
+      - run: go get -u $COMMON_GO_PACKAGES
+      - run: go test -t integrationtests -i ./integrationtests # just install the dependencies for the tests
+      - save_cache:
+          key: deps-relay-i9ntest-{{ checksum "go.mod" }}    
+          paths:
+            - /home/circleci/.go_workspace
       - run: |
           mkdir -p $CIRCLE_TEST_REPORTS
           mkdir -p $CIRCLE_ARTIFACTS

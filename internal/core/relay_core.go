@@ -13,12 +13,13 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
 	"github.com/gregjones/httpcache"
 )
@@ -121,7 +122,7 @@ func NewRelayCore(
 	}
 
 	for envName, envConfig := range c.Environment {
-		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig)
+		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -161,6 +162,7 @@ func (r *RelayCore) GetAllEnvironments() []relayenv.EnvContext {
 func (r *RelayCore) AddEnvironment(
 	identifiers relayenv.EnvIdentifiers,
 	envConfig config.EnvConfig,
+	transformClientConfig func(ld.Config) ld.Config,
 ) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -202,11 +204,18 @@ func (r *RelayCore) AddEnvironment(
 		}
 	}
 
+	wrappedClientFactory := func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+		if transformClientConfig != nil {
+			config = transformClientConfig(config)
+		}
+		return r.clientFactory(sdkKey, config)
+	}
+
 	clientContext, err := relayenv.NewEnvContext(
 		identifiers,
 		envConfig,
 		r.config,
-		r.clientFactory,
+		wrappedClientFactory,
 		dataStoreFactory,
 		dataStoreInfo,
 		r.allStreamProviders(),

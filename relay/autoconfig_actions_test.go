@@ -2,21 +2,19 @@ package relay
 
 import (
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/stretchr/testify/require"
+	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The tests in this file verify the auto-configuration behavior of Relay, assuming that the
@@ -27,6 +25,7 @@ import (
 // instead of creating real SDK clients, so there are no SDK connections made.
 
 type autoConfTestParams struct {
+	relayTestHelper
 	t                *testing.T
 	relay            *Relay
 	stream           httphelpers.SSEStreamControl
@@ -54,6 +53,7 @@ func autoConfTest(
 	clientsCreatedCh := make(chan *testclient.FakeLDClient, 10)
 
 	p := autoConfTestParams{
+		relayTestHelper:  relayTestHelper{t: t},
 		t:                t,
 		stream:           stream,
 		streamRequestsCh: streamRequestsCh,
@@ -69,16 +69,16 @@ func autoConfTest(
 			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
 			config.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
 
-			relay, err := newRelayInternal(
-				config,
-				mockLog.Loggers,
-				testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
-			)
+			relay, err := newRelayInternal(config, relayInternalOptions{
+				loggers:       mockLog.Loggers,
+				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
+			})
 			if err != nil {
 				panic(err)
 			}
 
 			p.relay = relay
+			p.relayTestHelper.relay = relay
 			defer relay.Close()
 			action(p)
 		})
@@ -104,34 +104,6 @@ func (p autoConfTestParams) shouldNotCreateClient(timeout time.Duration) {
 	}
 }
 
-func (p autoConfTestParams) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
-	var e relayenv.EnvContext
-	require.Eventually(p.t, func() bool {
-		e = p.relay.core.GetEnvironment(envID)
-		return e != nil
-	}, time.Second, time.Millisecond*5)
-	return e
-}
-
-func (p autoConfTestParams) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
-	require.Eventually(p.t, func() bool { return p.relay.core.GetEnvironment(envID) == nil }, timeout, time.Millisecond*5)
-}
-
-func (p autoConfTestParams) assertEnvLookup(env relayenv.EnvContext, te testAutoConfEnv) {
-	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.id))
-	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.mobKey))
-	assert.Equal(p.t, env, p.relay.core.GetEnvironment(te.sdkKey))
-}
-
-func (p autoConfTestParams) awaitCredentialsUpdated(env relayenv.EnvContext, expected testAutoConfEnv) {
-	expectedCredentials := credentialsAsSet(expected.id, expected.mobKey, expected.sdkKey)
-	isChanged := func() bool {
-		return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
-	}
-	require.Eventually(p.t, isChanged, time.Second, time.Millisecond*5)
-	p.assertEnvLookup(env, expected)
-}
-
 func TestAutoConfigInit(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1, testAutoConfEnv2)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
@@ -144,12 +116,12 @@ func TestAutoConfigInit(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv2.sdkKey, client2.Key)
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env1)
-		p.assertEnvLookup(env1, testAutoConfEnv1)
+		assertEnvProps(t, testAutoConfEnv1.params(), env1)
+		p.assertEnvLookup(env1, testAutoConfEnv1.params())
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
-		assertEnvProps(t, testAutoConfEnv2, env2)
-		p.assertEnvLookup(env2, testAutoConfEnv2)
+		assertEnvProps(t, testAutoConfEnv2.params(), env2)
+		p.assertEnvLookup(env2, testAutoConfEnv2.params())
 	})
 }
 
@@ -160,8 +132,8 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv1.sdkKey, client1.Key)
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env1)
-		p.assertEnvLookup(env1, testAutoConfEnv1)
+		assertEnvProps(t, testAutoConfEnv1.params(), env1)
+		p.assertEnvLookup(env1, testAutoConfEnv1.params())
 
 		p.stream.Enqueue(makeAutoConfPutEvent(testAutoConfEnv2))
 
@@ -169,8 +141,8 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv2.sdkKey, client2.Key)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
-		assertEnvProps(t, testAutoConfEnv2, env2)
-		p.assertEnvLookup(env2, testAutoConfEnv2)
+		assertEnvProps(t, testAutoConfEnv2.params(), env2)
+		p.assertEnvLookup(env2, testAutoConfEnv2.params())
 
 		client1.AwaitClose(t, time.Second)
 
@@ -185,7 +157,7 @@ func TestAutoConfigAddEnvironment(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv1.sdkKey, client1.Key)
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env1)
+		assertEnvProps(t, testAutoConfEnv1.params(), env1)
 
 		p.stream.Enqueue(makeAutoConfPatchEvent(testAutoConfEnv2))
 
@@ -193,8 +165,8 @@ func TestAutoConfigAddEnvironment(t *testing.T) {
 		assert.Equal(t, testAutoConfEnv2.sdkKey, client2.Key)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
-		p.assertEnvLookup(env2, testAutoConfEnv2)
-		assertEnvProps(t, testAutoConfEnv2, env2)
+		p.assertEnvLookup(env2, testAutoConfEnv2.params())
+		assertEnvProps(t, testAutoConfEnv2.params(), env2)
 	})
 }
 
@@ -217,7 +189,7 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		assert.Equal(t, oldKey, client2.Key)
 
 		env := p.awaitEnvironment(envWithKeys.id)
-		assertEnvProps(t, envWithKeys, env)
+		assertEnvProps(t, envWithKeys.params(), env)
 
 		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.sdkKey)
 		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
@@ -237,7 +209,7 @@ func TestAutoConfigUpdateEnvironmentName(t *testing.T) {
 		_ = p.awaitClient()
 
 		env := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env)
+		assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 		modified := testAutoConfEnv1
 		modified.envName = "newenvname"
@@ -265,10 +237,10 @@ func TestAutoConfigDeleteEnvironment(t *testing.T) {
 		}
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
-		assertEnvProps(t, testAutoConfEnv1, env1)
+		assertEnvProps(t, testAutoConfEnv1.params(), env1)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
-		assertEnvProps(t, testAutoConfEnv2, env2)
+		assertEnvProps(t, testAutoConfEnv2.params(), env2)
 
 		p.stream.Enqueue(makeAutoConfDeleteEvent(testAutoConfEnv1.id, testAutoConfEnv1.version+1))
 

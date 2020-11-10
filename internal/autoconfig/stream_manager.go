@@ -12,7 +12,7 @@ import (
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
@@ -25,24 +25,6 @@ const (
 	streamRetryResetInterval = 60 * time.Second
 	streamJitterRatio        = 0.5
 	defaultStreamRetryDelay  = 1 * time.Second
-
-	logMsgStreamConnecting    = "Connecting to auto-configuration stream at %s"
-	logMsgStreamHTTPError     = "HTTP error %d on auto-configuration stream"
-	logMsgStreamOtherError    = "Unexpected error on auto-configuration stream: %s"
-	logMsgBadKey              = "Invalid auto-configuration key; cannot get environments"
-	logMsgDeliberateReconnect = "Will restart auto-configuration stream to get new data due to a policy change"
-	logMsgPutEvent            = "Received configuration for %d environment(s)"
-	logMsgAddEnv              = "Added environment %s (%s)"
-	logMsgUpdateEnv           = "Properties have changed for environment %s (%s)"
-	logMsgUpdateBadVersion    = "Ignoring out-of-order update for environment %s (%s)"
-	logMsgDeleteEnv           = "Removing environment %s (%s)"
-	logMsgDeleteBadVersion    = "Ignoring out-of-order delete for environment %s (%s)"
-	logMsgKeyWillExpire       = "Old SDK key ending in %s for environment %s (%s) will expire at %s"
-	logMsgKeyExpired          = "Old SDK key ending in %s for environment %s (%s) has expired"
-	logMsgEnvHasWrongID       = "Ignoring environment data whose envId %q did not match key %q"
-	logMsgUnknownEvent        = "Ignoring unrecognized stream event: %q"
-	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
-	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
 )
 
 var (
@@ -58,13 +40,13 @@ var (
 // whether an update is really an update (that is, checking version numbers and diffing the contents of a
 // "put" event against the previous state).
 //
-// Relay Enterprise provides an implementation of the MessageHandler interface which will be called for all
-// changes that it needs to know about.
+// Relay provides an implementation of the MessageHandler interface which will be called for all changes that
+// it needs to know about.
 type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               string
 	handler           MessageHandler
-	lastKnownEnvs     map[config.EnvironmentID]EnvironmentRep
+	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	expiredKeys       chan expiredKey
 	expiryTimers      map[config.SDKKey]*time.Timer
 	httpConfig        httpconfig.HTTPConfig
@@ -97,7 +79,7 @@ func NewStreamManager(
 		key:               key,
 		uri:               strings.TrimSuffix(baseURI, "/") + autoConfigStreamPath,
 		handler:           handler,
-		lastKnownEnvs:     make(map[config.EnvironmentID]EnvironmentRep),
+		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		expiredKeys:       make(chan expiredKey),
 		expiryTimers:      make(map[config.SDKKey]*time.Timer),
 		httpConfig:        httpConfig,
@@ -289,7 +271,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
 
-func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]EnvironmentRep) {
+func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]envfactory.EnvironmentRep) {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
@@ -313,8 +295,8 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]Environmen
 	}
 }
 
-func (s *StreamManager) addOrUpdate(rep EnvironmentRep) {
-	params := makeEnvironmentParams(rep)
+func (s *StreamManager) addOrUpdate(rep envfactory.EnvironmentRep) {
+	params := rep.ToParams()
 
 	// Check whether this is a new environment or an update
 	currentEnv, exists := s.lastKnownEnvs[rep.EnvID]
@@ -389,32 +371,15 @@ func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
 	}
 }
 
-func makeEnvironmentParams(rep EnvironmentRep) EnvironmentParams {
-	return EnvironmentParams{
-		EnvID: rep.EnvID,
-		Identifiers: relayenv.EnvIdentifiers{
-			EnvKey:   rep.EnvKey,
-			EnvName:  rep.EnvName,
-			ProjKey:  rep.ProjKey,
-			ProjName: rep.ProjName,
-		},
-		SDKKey:         rep.SDKKey.Value,
-		MobileKey:      rep.MobKey,
-		ExpiringSDKKey: rep.SDKKey.Expiring.Value,
-		TTL:            time.Duration(rep.DefaultTTL) * time.Minute,
-		SecureMode:     rep.SecureMode,
-	}
-}
-
-func makeEnvName(rep EnvironmentRep) string {
+func makeEnvName(rep envfactory.EnvironmentRep) string {
 	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
 }
 
-func makeTombstone(version int) EnvironmentRep {
-	return EnvironmentRep{Version: version}
+func makeTombstone(version int) envfactory.EnvironmentRep {
+	return envfactory.EnvironmentRep{Version: version}
 }
 
-func isTombstone(rep EnvironmentRep) bool {
+func isTombstone(rep envfactory.EnvironmentRep) bool {
 	return rep.EnvID == ""
 }
 

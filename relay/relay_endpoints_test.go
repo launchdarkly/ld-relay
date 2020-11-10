@@ -14,7 +14,10 @@ import (
 // will also be used for Relay Proxy Enterprise.
 
 func relayTestConstructor(config c.Config, loggers ldlog.Loggers) testsuites.TestParams {
-	r, err := newRelayInternal(config, loggers, testclient.CreateDummyClient)
+	r, err := newRelayInternal(config, relayInternalOptions{
+		loggers:       loggers,
+		clientFactory: testclient.CreateDummyClient,
+	})
 	if err != nil {
 		panic(err)
 	}
