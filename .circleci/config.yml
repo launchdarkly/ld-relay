@@ -40,9 +40,9 @@ workflows:
             only: v6
     jobs:
       - integration-test
-    when: $SCHEDULE_INTEGRATION_TESTS
+    when:
+      equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
 
-      
 jobs:
   go-test:
     parameters:
