@@ -125,6 +125,33 @@ func TestAutoConfigInit(t *testing.T) {
 	})
 }
 
+func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
+	newKey := c.SDKKey("newsdkkey")
+	oldKey := c.SDKKey("oldsdkkey")
+	envWithKeys := testAutoConfEnv1
+	envWithKeys.sdkKey = newKey
+	envWithKeys.sdkKeyExpiryValue = oldKey
+	envWithKeys.sdkKeyExpiryTime = ldtime.UnixMillisNow() + 100000
+	initialEvent := makeAutoConfPutEvent(envWithKeys)
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		client1 := p.awaitClient()
+		client2 := p.awaitClient()
+		if client1.Key == oldKey {
+			client1, client2 = client2, client1
+		}
+		assert.Equal(t, newKey, client1.Key)
+		assert.Equal(t, oldKey, client2.Key)
+
+		env := p.awaitEnvironment(envWithKeys.id)
+		assertEnvProps(t, envWithKeys.params(), env)
+		p.assertEnvLookup(env, envWithKeys.params())
+
+		paramsWithOldKey := envWithKeys.params()
+		paramsWithOldKey.SDKKey = oldKey
+		p.assertEnvLookup(env, paramsWithOldKey)
+	})
+}
+
 func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
@@ -193,6 +220,10 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 
 		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.sdkKey)
 		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
+
+		paramsWithOldKey := envWithKeys.params()
+		paramsWithOldKey.SDKKey = oldKey
+		p.assertEnvLookup(env, paramsWithOldKey)
 
 		select {
 		case <-client2.CloseCh:

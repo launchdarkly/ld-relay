@@ -34,6 +34,7 @@ func (a relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPara
 		if a.r.core.GetEnvironment(params.ExpiringSDKKey) == nil {
 			env.AddCredential(params.ExpiringSDKKey)
 			env.DeprecateCredential(params.ExpiringSDKKey)
+			a.r.core.AddedEnvironmentCredential(env, params.ExpiringSDKKey) // this updates the index we use for authenticating requests
 		}
 	}
 }
@@ -63,7 +64,7 @@ func (a relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentP
 
 	if params.SDKKey != oldSDKKey {
 		env.AddCredential(params.SDKKey)
-		a.r.core.AddedEnvironmentCredential(env, params.SDKKey)
+		a.r.core.AddedEnvironmentCredential(env, params.SDKKey) // this updates the index we use for authenticating requests
 		if params.ExpiringSDKKey == oldSDKKey {
 			env.DeprecateCredential(oldSDKKey)
 		} else {

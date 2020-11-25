@@ -47,6 +47,10 @@ func testAutoConfig(t *testing.T, manager *integrationTestManager) {
 		testUpdatedSDKKeyWithExpiry(t, manager)
 	})
 
+	t.Run("updated SDK key with expiry before starting Relay", func(t *testing.T) {
+		testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t, manager)
+	})
+
 	t.Run("updated mobile key", func(t *testing.T) {
 		testUpdatedMobileKey(t, manager)
 	})
@@ -146,6 +150,9 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 		envToUpdate := testData.environments[0]
 		oldKey := envToUpdate.sdkKey
 
+		projAndEnvs := projsAndEnvs{testData.project: testData.environments}
+		require.NoError(t, manager.createFlags(projAndEnvs))
+
 		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 
@@ -160,7 +167,57 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 			}
 			return false
 		})
+
+		// Poll for flags from both of the environments - the SDK key in the first environment here is the
+		// original one, which should still work since it has not yet expired
+		manager.verifyFlagValues(t, projAndEnvs)
+
+		// And poll for flags with the new SDK key, which should also work
+		manager.verifyFlagValues(t, projsAndEnvs{testData.project: []environmentInfo{updatedEnv}})
 	})
+}
+
+func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integrationTestManager) {
+	testData := setupAutoConfigTestData(t, manager)
+	defer manager.deleteProject(testData.project)
+	defer manager.deleteAutoConfigKey(testData.autoConfigID)
+
+	projAndEnvs := projsAndEnvs{testData.project: testData.environments}
+	require.NoError(t, manager.createFlags(projAndEnvs))
+
+	envToUpdate := testData.environments[0]
+	oldKey := envToUpdate.sdkKey
+
+	newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+
+	updatedEnv := envToUpdate
+	updatedEnv.sdkKey = newKey
+
+	manager.startRelay(t, map[string]string{
+		"AUTO_CONFIG_KEY": string(testData.autoConfigKey),
+	})
+	defer manager.stopRelay()
+
+	manager.awaitEnvironments(t, projAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+		return string(env.id)
+	})
+
+	manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
+			verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+			return last5(envStatus.SDKKey) == last5(string(newKey)) &&
+				last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
+		}
+		return false
+	})
+
+	// Poll for flags from both of the environments - the SDK key in the first environment here is the
+	// original one, which should still work since it has not yet expired
+	manager.verifyFlagValues(t, projAndEnvs)
+
+	// And poll for flags with the new SDK key, which should also work
+	manager.verifyFlagValues(t, projsAndEnvs{testData.project: []environmentInfo{updatedEnv}})
 }
 
 func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
