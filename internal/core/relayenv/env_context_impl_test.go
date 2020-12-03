@@ -365,6 +365,18 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 }
 
 func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
+	var allConfig config.Config
+	allConfig.Main.DisableInternalUsageMetrics = true
+	testMetricsDisabled(t, allConfig)
+}
+
+func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
+	var allConfig config.Config
+	allConfig.OfflineMode.FileDataSource = "fake-file-path"
+	testMetricsDisabled(t, allConfig)
+}
+
+func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 	view.SetReportingPeriod(time.Millisecond * 10)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
@@ -373,8 +385,6 @@ func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)

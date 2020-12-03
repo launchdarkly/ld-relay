@@ -189,9 +189,10 @@ func NewEnvContext(
 		eventsURI = config.DefaultEventsURI
 	}
 
+	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && allConfig.OfflineMode.FileDataSource == ""
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
-		if !allConfig.Main.DisableInternalUsageMetrics {
+		if enableDiagnostics {
 			pubLoggers := envLoggers
 			pubLoggers.SetPrefix(logPrefix + " (usage metrics)")
 			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, pubLoggers,
@@ -216,7 +217,7 @@ func NewEnvContext(
 	envContext.sdkConfig = ld.Config{
 		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:        storeAdapter,
-		DiagnosticOptOut: allConfig.Main.DisableInternalUsageMetrics,
+		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents().BaseURI(eventsURI),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
