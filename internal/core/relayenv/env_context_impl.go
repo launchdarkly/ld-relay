@@ -104,6 +104,8 @@ func NewEnvContext(
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
+	offlineMode := allConfig.OfflineMode.FileDataSource != ""
+
 	envLoggers := loggers
 	logPrefix := makeLogPrefix(logNameMode, envConfig.SDKKey, envConfig.EnvID)
 	envLoggers.SetPrefix(logPrefix)
@@ -172,11 +174,15 @@ func NewEnvContext(
 
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
-		envLoggers.Info("Proxying events for this environment")
-		eventLoggers := envLoggers
-		eventLoggers.SetPrefix(logPrefix + " (event proxy)")
-		eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
-			envLoggers, allConfig.Events, httpConfig, storeAdapter)
+		if offlineMode {
+			envLoggers.Info("Events will be accepted for this environment, but will be discarded, since offline mode is enabled")
+		} else {
+			envLoggers.Info("Proxying events for this environment")
+			eventLoggers := envLoggers
+			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
+			eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
+				envLoggers, allConfig.Events, httpConfig, storeAdapter)
+		}
 	}
 	envContext.eventDispatcher = eventDispatcher
 
@@ -189,7 +195,7 @@ func NewEnvContext(
 		eventsURI = config.DefaultEventsURI
 	}
 
-	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && allConfig.OfflineMode.FileDataSource == ""
+	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && !offlineMode
 	var em *metrics.EnvironmentManager
 	if metricsManager != nil {
 		if enableDiagnostics {

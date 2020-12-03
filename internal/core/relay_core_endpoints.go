@@ -158,8 +158,16 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
 // events.ld.com/events/diagnostic/{envId} (JS)
-func bulkEventHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind) http.Handler {
+func bulkEventHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind, offline bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if offline {
+			w.WriteHeader(http.StatusAccepted)
+			if req.Body != nil {
+				_ = req.Body.Close()
+			}
+			return
+		}
+
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		dispatcher := clientCtx.Env.GetEventDispatcher()
 		if dispatcher == nil {
