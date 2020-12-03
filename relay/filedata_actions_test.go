@@ -7,23 +7,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 
+	"github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The tests in this file verify the offline mode behavior of Relay assuming that the low-level
@@ -50,7 +48,7 @@ func (s stubArchiveManager) Close() error { return nil }
 
 func offlineModeTest(
 	t *testing.T,
-	config c.Config,
+	config config.Config,
 	action func(p offlineModeTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
@@ -207,11 +205,11 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 			headers.Add("Content-Type", "application/json")
 			headers.Add("Authorization", string(testFileDataEnv1.Params.SDKKey))
 			body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
-			req := st.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
+			req := sharedtest.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
 			p.relay.Handler.ServeHTTP(rr, req)
 
-			require.Equal(t, 202, rr.Result().StatusCode)                // event post was accepted
-			st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
+			require.Equal(t, 202, rr.Result().StatusCode)                        // event post was accepted
+			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
 		})
 	})
 }
