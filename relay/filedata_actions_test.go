@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"testing"
 	"time"
@@ -8,9 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 
@@ -52,7 +57,7 @@ func offlineModeTest(
 	defer mockLog.DumpIfTestFailed(t)
 
 	// In these tests, unlike most other tests, we use CapturedLDClient and real SDK client instances,
-	// instead of FakeLDClient. That's because the implementation offline mode requires the real SDK
+	// instead of FakeLDClient. That's because the implementation of offline mode requires the real SDK
 	// client infrastructure, where the DataSource gets wired up to update the DataStore. We don't have
 	// to worry about it making any calls to LaunchDarkly because offline mode always disables those.
 	clientsCreatedCh := make(chan testclient.CapturedLDClient, 10)
@@ -182,5 +187,31 @@ func TestOfflineModeDeleteEnvironment(t *testing.T) {
 		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID)
 
 		p.shouldNotHaveEnvironment(testFileDataEnv1.Params.EnvID, time.Second)
+	})
+}
+
+func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T) {
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+
+		offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+			p.updateHandler.AddEnvironment(testFileDataEnv1)
+			_ = p.awaitClient()
+
+			rr := httptest.NewRecorder()
+			headers := make(http.Header)
+			headers.Add("Content-Type", "application/json")
+			headers.Add("Authorization", string(testFileDataEnv1.Params.SDKKey))
+			body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+			req := st.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
+			p.relay.Handler.ServeHTTP(rr, req)
+
+			require.Equal(t, 202, rr.Result().StatusCode)                // event post was accepted
+			st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
+		})
 	})
 }
