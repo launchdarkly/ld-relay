@@ -41,7 +41,13 @@ func (k Kind) GetCredential(req *http.Request) (config.SDKCredential, error) {
 	case Server:
 		value, err := fetchAuthToken(req)
 		if err == nil {
-			return config.SDKKey(value), nil
+			// If Authorization header starts with "sdk" treat it as an SDK key
+			// Otherwise, treat it as an environment ID
+			if strings.HasPrefix(value, "sdk") {
+				return config.SDKKey(value), nil
+			} else {
+				return config.EnvironmentID(value), nil
+			}
 		}
 		return nil, err
 	case Mobile:
