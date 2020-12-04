@@ -40,27 +40,38 @@ func TestRelayCoreGetEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 
-	if assert.NotNil(t, core.GetEnvironment(st.EnvMain.Config.SDKKey)) {
-		assert.Equal(t, st.EnvMain.Name, core.GetEnvironment(st.EnvMain.Config.SDKKey).GetIdentifiers().ConfiguredName)
-	}
-	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
-		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.SDKKey).GetIdentifiers().ConfiguredName)
-	}
-	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.SDKKey)) {
-		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.SDKKey).GetIdentifiers().ConfiguredName)
-	}
+	env, inited := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.True(t, inited)
+	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
-	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.MobileKey)) {
-		assert.Equal(t, st.EnvMobile.Name, core.GetEnvironment(st.EnvMobile.Config.MobileKey).GetIdentifiers().ConfiguredName)
-	}
+	env, inited = core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.True(t, inited)
+	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	if assert.NotNil(t, core.GetEnvironment(st.EnvClientSide.Config.EnvID)) {
-		assert.Equal(t, st.EnvClientSide.Name, core.GetEnvironment(st.EnvClientSide.Config.EnvID).GetIdentifiers().ConfiguredName)
-	}
+	env, inited = core.GetEnvironment(st.EnvClientSide.Config.SDKKey)
+	require.NotNil(t, env)
+	assert.True(t, inited)
+	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
 
-	assert.Nil(t, core.GetEnvironment(st.UndefinedSDKKey))
+	env, inited = core.GetEnvironment(st.EnvMobile.Config.MobileKey)
+	require.NotNil(t, env)
+	assert.True(t, inited)
+	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	assert.Nil(t, core.GetEnvironment(st.UnsupportedSDKCredential{}))
+	env, inited = core.GetEnvironment(st.EnvClientSide.Config.EnvID)
+	require.NotNil(t, env)
+	assert.True(t, inited)
+	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
+
+	env, inited = core.GetEnvironment(st.UndefinedSDKKey)
+	assert.Nil(t, env)
+	assert.True(t, inited)
+
+	env, inited = core.GetEnvironment(st.UnsupportedSDKCredential{})
+	assert.Nil(t, env)
+	assert.True(t, inited)
 }
 
 func TestRelayCoreGetAllEnvironments(t *testing.T) {
@@ -96,13 +107,12 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	require.NotNil(t, resultCh)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	if assert.NotNil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey)) {
-		assert.Equal(t, env, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
-	}
+	env1, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	assert.Equal(t, env, env1)
 
 	select {
-	case env := <-resultCh:
-		assert.Equal(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey), env)
+	case env2 := <-resultCh:
+		assert.Equal(t, env, env2)
 	case <-time.After(time.Second):
 		assert.Fail(t, "timed out waiting for new environment to initialize")
 	}
@@ -130,14 +140,15 @@ func TestRelayCoreRemoveEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 
-	env := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
 	removed := core.RemoveEnvironment(env)
 	assert.True(t, removed)
 
-	assert.Nil(t, core.GetEnvironment(st.EnvMobile.Config.SDKKey))
+	noEnv, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	assert.Nil(t, noEnv)
 }
 
 func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
@@ -161,16 +172,18 @@ func TestRelayCoreAddedEnvironmentCredential(t *testing.T) {
 	require.NoError(t, err)
 	defer core.Close()
 
-	env := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	env, _ := core.GetEnvironment(st.EnvMain.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
 	extraKey := c.SDKKey(string(st.EnvMain.Config.SDKKey) + "-extra")
-	assert.Nil(t, core.GetEnvironment(extraKey))
+	noEnv, _ := core.GetEnvironment(extraKey)
+	assert.Nil(t, noEnv)
 
 	core.AddedEnvironmentCredential(env, extraKey)
 
-	assert.Equal(t, env, core.GetEnvironment(extraKey))
+	env1, _ := core.GetEnvironment(extraKey)
+	assert.Equal(t, env, env1)
 }
 
 func TestRelayCoreRemovingEnvironmentCredential(t *testing.T) {
@@ -183,9 +196,10 @@ func TestRelayCoreRemovingEnvironmentCredential(t *testing.T) {
 
 	core.RemovingEnvironmentCredential(st.EnvMain.Config.SDKKey)
 
-	assert.Nil(t, core.GetEnvironment(st.EnvMain.Config.SDKKey))
+	noEnv, _ := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	assert.Nil(t, noEnv)
 
-	env := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 

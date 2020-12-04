@@ -16,6 +16,12 @@ type MessageHandler interface {
 	// existing environment. This can happen due to either a "put" or a "patch".
 	UpdateEnvironment(params envfactory.EnvironmentParams)
 
+	// ReceivedAllEnvironments is called when StreamManager has received a "put" event and has
+	// finished calling AddEnvironment or UpdateEnvironment for every environment in the list (and
+	// DeleteEnvironment for any previously existing environments that are no longer in the list).
+	// We use this at startup time to determine when Relay has acquired a complete configuration.
+	ReceivedAllEnvironments()
+
 	// DeleteEnvironment is called when an environment should be removed, due to either a "delete"
 	// message, or a "put" that no longer contains that environment.
 	DeleteEnvironment(id config.EnvironmentID)

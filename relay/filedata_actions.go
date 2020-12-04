@@ -65,7 +65,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
-	env := a.r.core.GetEnvironment(ae.Params.EnvID)
+	env, _ := a.r.core.GetEnvironment(ae.Params.EnvID)
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		return
@@ -91,7 +91,7 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 }
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
-	env := a.r.core.GetEnvironment(id)
+	env, _ := a.r.core.GetEnvironment(id)
 	if env != nil {
 		a.r.core.RemoveEnvironment(env)
 		delete(a.envUpdates, id)

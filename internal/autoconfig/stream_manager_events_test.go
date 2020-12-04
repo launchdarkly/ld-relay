@@ -23,6 +23,7 @@ func TestPutEvent(t *testing.T) {
 			require.NotNil(t, msg1.add)
 			msg2 := p.requireMessage()
 			require.NotNil(t, msg2.add)
+			p.requireReceivedAllMessage()
 			if msg1.add.EnvID == testEnv2.EnvID {
 				msg1, msg2 = msg2, msg1
 			}
@@ -45,11 +46,13 @@ func TestPutEvent(t *testing.T) {
 			msg1 := p.requireMessage()
 			require.NotNil(t, msg1.add)
 			assert.Equal(t, testEnv1.ToParams(), *msg1.add)
+			p.requireReceivedAllMessage()
 
 			p.stream.Enqueue(makePutEvent(testEnv1, testEnv2))
 			msg2 := p.requireMessage()
 			require.NotNil(t, msg2.add)
 			assert.Equal(t, testEnv2.ToParams(), *msg2.add)
+			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
 
@@ -66,6 +69,7 @@ func TestPutEvent(t *testing.T) {
 
 			_ = p.requireMessage()
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			testEnv1Mod := testEnv1
 			testEnv1Mod.MobKey = config.MobileKey("newmobkey")
@@ -75,6 +79,7 @@ func TestPutEvent(t *testing.T) {
 			msg := p.requireMessage()
 			require.NotNil(t, msg.update)
 			assert.Equal(t, testEnv1Mod.ToParams(), *msg.update)
+			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
 
@@ -91,11 +96,13 @@ func TestPutEvent(t *testing.T) {
 
 			_ = p.requireMessage()
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			testEnv1Mod := testEnv1
 			testEnv1Mod.MobKey = config.MobileKey("newmobkey")
 
 			p.stream.Enqueue(makePutEvent(testEnv1Mod, testEnv2))
+			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
 
@@ -112,11 +119,13 @@ func TestPutEvent(t *testing.T) {
 
 			_ = p.requireMessage()
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			p.stream.Enqueue(makePutEvent(testEnv2))
 			msg := p.requireMessage()
 			require.NotNil(t, msg.delete)
 			assert.Equal(t, testEnv1.EnvID, *msg.delete)
+			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
 
@@ -146,6 +155,7 @@ func TestPutEvent(t *testing.T) {
 
 			msg := p.requireMessage()
 			require.NotNil(t, msg.add)
+			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
 			p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Ignoring environment data whose envId")
@@ -208,6 +218,7 @@ func TestPatchEvent(t *testing.T) {
 			p.startStream()
 
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			event := makeDeleteEvent(testEnv1.EnvID, testEnv1.Version+1)
 			p.stream.Enqueue(event)
@@ -276,6 +287,7 @@ func TestDeleteEvent(t *testing.T) {
 			p.startStream()
 
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			event := makeDeleteEvent(testEnv1.EnvID, testEnv1.Version+1)
 			p.stream.Enqueue(event)
@@ -292,6 +304,7 @@ func TestDeleteEvent(t *testing.T) {
 			p.startStream()
 
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			event := makeDeleteEvent(testEnv1.EnvID, testEnv1.Version)
 			p.stream.Enqueue(event)
@@ -308,6 +321,7 @@ func TestDeleteEvent(t *testing.T) {
 			p.startStream()
 
 			_ = p.requireMessage()
+			p.requireReceivedAllMessage()
 
 			event := makeDeleteEvent(testEnv1.EnvID, testEnv1.Version+1)
 			p.stream.Enqueue(event)

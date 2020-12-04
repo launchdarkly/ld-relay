@@ -205,8 +205,10 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	envWithKeys.sdkKeyExpiryValue = oldKey
 	envWithKeys.sdkKeyExpiryTime = ldtime.UnixMillisNow() + 100000
 
-	initialEvent := makeAutoConfPatchEvent(envWithKeys)
+	initialEvent := makeAutoConfPutEvent()
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
+
 		client1 := p.awaitClient()
 		client2 := p.awaitClient()
 		if client1.Key == oldKey {

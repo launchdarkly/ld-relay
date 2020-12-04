@@ -19,6 +19,11 @@ import (
 const (
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
+
+	httpStatusMessageInvalidEnvCredential = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
+	httpStatusMessageNotFullyConfigured   = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
+	httpStatusMessageMissingEnvURLParam   = "URL did not contain an environment ID"
+	httpStatusMessageSDKClientNotInited   = "client was not initialized"
 )
 
 var (
@@ -30,7 +35,7 @@ var (
 // RelayEnvironments defines the methods for looking up environments. This is represented as an interface
 // so that test code can mock that capability.
 type RelayEnvironments interface {
-	GetEnvironment(config.SDKCredential) relayenv.EnvContext
+	GetEnvironment(config.SDKCredential) (env relayenv.EnvContext, fullyConfigured bool)
 	GetAllEnvironments() []relayenv.EnvContext
 }
 
@@ -65,23 +70,29 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				return
 			}
 
-			clientCtx := envs.GetEnvironment(credential)
+			clientCtx, isConfigured := envs.GetEnvironment(credential)
+
+			if !isConfigured {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
+				return
+			}
 
 			if clientCtx == nil {
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == sdks.JSClient {
 					w.WriteHeader(http.StatusNotFound)
-					_, _ = w.Write([]byte("URL did not contain an environment ID"))
+					_, _ = w.Write([]byte(httpStatusMessageMissingEnvURLParam))
 				} else {
 					w.WriteHeader(http.StatusUnauthorized)
-					_, _ = w.Write([]byte("ld-relay is not configured for the provided key"))
+					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
 				}
 				return
 			}
 
 			if clientCtx.GetClient() == nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte("client was not initialized"))
+				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
 				return
 			}
 

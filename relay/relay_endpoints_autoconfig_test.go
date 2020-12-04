@@ -7,22 +7,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
-	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
-
-	c "github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testsuites"
+	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testEnvBasic = st.TestEnv{
@@ -209,4 +211,60 @@ func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestCo
 				status, "environments", envKey, "expiringSdkKey")
 		})
 	})
+}
+
+func TestRelayReturns503ForAllEnvironmentsUntilAutoConfigIsComplete(t *testing.T) {
+	envConfig := testEnvBasic
+	config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
+	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
+	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
+
+	handlerHasReceivedRequestCh := make(chan struct{}, 1)
+	allowHandlerToRespondCh := make(chan struct{}, 1)
+	handlerThatWaitsForGate := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		handlerHasReceivedRequestCh <- struct{}{}
+		<-allowHandlerToRespondCh
+		autoConfigHandler.ServeHTTP(w, req)
+	})
+	server := httptest.NewServer(handlerThatWaitsForGate)
+	defer server.Close()
+	defer autoConfigStream.Close()
+
+	entConfig := config
+	entConfig.AutoConfig.Key = testAutoConfKey
+	entConfig.Environment = nil
+	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+
+	r, err := newRelayInternal(entConfig, relayInternalOptions{
+		loggers:       mockLog.Loggers,
+		clientFactory: testclient.CreateDummyClient,
+	})
+	require.NoError(t, err)
+	defer r.Close()
+
+	<-handlerHasReceivedRequestCh
+
+	pollUrl := "http://fake/sdk/eval/users/eyJrZXkiOiJmb28ifQ"
+	req, _ := http.NewRequest("GET", pollUrl, nil)
+	req.Header.Add("Authorization", string(envConfig.Config.SDKKey))
+
+	rr1 := httptest.NewRecorder()
+	r.Handler.ServeHTTP(rr1, req)
+	require.Equal(t, 503, rr1.Result().StatusCode)
+
+	allowHandlerToRespondCh <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		rr2 := httptest.NewRecorder()
+		r.Handler.ServeHTTP(rr2, req)
+		if rr2.Result().StatusCode == 200 {
+			return true
+		}
+		require.Equal(t, 503, rr2.Result().StatusCode)
+		return false
+	}, time.Second, time.Millisecond*50, "Relay kept returning 503 after receiving configuration")
 }

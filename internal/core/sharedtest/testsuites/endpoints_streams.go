@@ -58,8 +58,9 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 
 	DoTest(t, configWithoutTimeLimit, constructor, func(p TestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env := p.Core.GetEnvironment(s.credential)
+			env, inited := p.Core.GetEnvironment(s.credential)
 			require.NotNil(t, env)
+			require.True(t, inited)
 
 			st.WithStreamRequest(t, s.request(), p.Handler, func(eventCh <-chan eventsource.Event) {
 				select {

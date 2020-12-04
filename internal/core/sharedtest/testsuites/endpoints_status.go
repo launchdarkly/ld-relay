@@ -64,8 +64,9 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		DoTest(t, config, constructor, func(p TestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
+			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,
@@ -99,8 +100,9 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		DoTest(t, config, constructor, func(p TestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
+			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,

@@ -50,6 +50,7 @@ type RelayCore struct {
 	mobileStreamProvider          streams.StreamProvider
 	jsClientStreamProvider        streams.StreamProvider
 	clientInitCh                  chan relayenv.EnvContext
+	fullyConfigured               bool
 	config                        config.Config
 	baseURL                       url.URL
 	Version                       string
@@ -133,18 +134,27 @@ func NewRelayCore(
 		}()
 	}
 
+	if len(c.Environment) > 0 || c.OfflineMode.FileDataSource != "" {
+		r.fullyConfigured = true // it's only in auto-config mode that we have any interval of not knowing what the environments are
+	}
+
 	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return &r, nil
 }
 
 // GetEnvironment returns the environment object corresponding to the given credential, or nil
-// if not found. The credential can be an SDK key, a mobile key, or an environment ID.
-func (r *RelayCore) GetEnvironment(credential config.SDKCredential) relayenv.EnvContext {
+// if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
+// return value is normally true, but is false if Relay does not yet have a valid configuration
+// (which affects our error handling).
+func (r *RelayCore) GetEnvironment(credential config.SDKCredential) (relayenv.EnvContext, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	return r.envsByCredential[credential]
+	if r.fullyConfigured {
+		return r.envsByCredential[credential], true
+	}
+	return nil, false
 }
 
 // GetAllEnvironments returns all currently configured environments.
@@ -298,6 +308,13 @@ func (r *RelayCore) AddedEnvironmentCredential(env relayenv.EnvContext, newCrede
 func (r *RelayCore) RemovingEnvironmentCredential(oldCredential config.SDKCredential) {
 	r.lock.Lock()
 	delete(r.envsByCredential, oldCredential)
+	r.lock.Unlock()
+}
+
+// SetFullyConfigured updates the state of whether Relay has a valid set of environments.
+func (r *RelayCore) SetFullyConfigured(fullyConfigured bool) {
+	r.lock.Lock()
+	r.fullyConfigured = fullyConfigured
 	r.lock.Unlock()
 }
 
