@@ -85,6 +85,7 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 		}
 		msg := p.requireMessage()
 		assert.NotNil(t, msg.add)
+		p.requireReceivedAllMessage()
 	})
 }
 

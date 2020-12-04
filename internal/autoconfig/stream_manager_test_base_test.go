@@ -100,10 +100,11 @@ type streamManagerTestParams struct {
 }
 
 type testMessage struct {
-	add     *envfactory.EnvironmentParams
-	update  *envfactory.EnvironmentParams
-	delete  *config.EnvironmentID
-	expired *expiredKey
+	add         *envfactory.EnvironmentParams
+	update      *envfactory.EnvironmentParams
+	delete      *config.EnvironmentID
+	receivedAll bool
+	expired     *expiredKey
 }
 
 func (m testMessage) String() string {
@@ -115,6 +116,9 @@ func (m testMessage) String() string {
 	}
 	if m.delete != nil {
 		return fmt.Sprintf("delete(%+v)", *m.delete)
+	}
+	if m.receivedAll {
+		return "receivedAllEnvironments"
 	}
 	if m.expired != nil {
 		return fmt.Sprintf("expired(%+v)", *m.expired)
@@ -190,6 +194,11 @@ func (p streamManagerTestParams) requireMessage() testMessage {
 	}
 }
 
+func (p streamManagerTestParams) requireReceivedAllMessage() {
+	m := p.requireMessage()
+	require.Equal(p.t, testMessage{receivedAll: true}, m)
+}
+
 func (p streamManagerTestParams) requireNoMoreMessages() {
 	select {
 	case m := <-p.messageHandler.received:
@@ -219,6 +228,10 @@ func (h *testMessageHandler) UpdateEnvironment(params envfactory.EnvironmentPara
 
 func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
 	h.received <- testMessage{delete: &id}
+}
+
+func (h *testMessageHandler) ReceivedAllEnvironments() {
+	h.received <- testMessage{receivedAll: true}
 }
 
 func (h *testMessageHandler) KeyExpired(envID config.EnvironmentID, key config.SDKKey) {

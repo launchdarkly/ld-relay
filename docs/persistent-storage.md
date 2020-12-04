@@ -6,6 +6,8 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 
 To learn more, read [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/feature-store), and the Relay Proxy documentation on [Configuration](./configuration.md).
 
+The Relay Proxy does not currently support clustered Redis or Redis Sentinel.
+
 ```
 # Configuration file examples
 

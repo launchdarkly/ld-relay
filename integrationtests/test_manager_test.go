@@ -517,15 +517,15 @@ func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs pr
 	}
 }
 
-// verifyFlagValues hits Relay's mobile evaluation endpoint and verifies that it returns the expected
+// verifyFlagValues hits Relay's polling evaluation endpoint and verifies that it returns the expected
 // flags and values, based on the standard way we create flags for our test environments in createFlag.
 func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs projsAndEnvs) {
 	userBase64 := "eyJrZXkiOiJmb28ifQ" // properties don't matter, just has to be a valid base64 user object
 
 	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-		req, err := http.NewRequest("GET", m.relayBaseURL+"/msdk/evalx/users/"+userBase64, nil)
+		req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/eval/users/"+userBase64, nil)
 		require.NoError(t, err)
-		req.Header.Add("Authorization", string(env.mobileKey))
+		req.Header.Add("Authorization", string(env.sdkKey))
 
 		resp, err := m.makeHTTPRequestToRelay(req)
 		require.NoError(t, err)
@@ -536,13 +536,16 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 
 			respJSON := ldvalue.Parse(data)
 			expectedValue := flagValueForEnv(env)
-			if expectedValue.Equal(respJSON.GetByKey(flagKeyForProj(proj)).GetByKey("value")) {
-				m.loggers.Infof("Got expected flag values for enviroment %s", env.key)
+			if expectedValue.Equal(respJSON.GetByKey(flagKeyForProj(proj))) {
+				m.loggers.Infof("Got expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
 			} else {
-				m.loggers.Errorf("Did not get expected flag values for enviroment %s", env.key)
+				m.loggers.Errorf("Did not get expected flag values for enviroment %s with SDK key %s", env.key, env.sdkKey)
 				m.loggers.Errorf("Response was: %s", respJSON)
 				t.Fail()
 			}
+		} else {
+			m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
+				env.key, env.sdkKey, resp.StatusCode)
 		}
 	})
 }

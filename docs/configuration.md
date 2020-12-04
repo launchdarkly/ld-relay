@@ -106,7 +106,7 @@ To learn more, read [Forwarding events](./events.md)
 
 Property in file    | Environment var            | Type    | Default | Description
 ------------------- | -------------------------- | :-----: | :------ | -----------
-`sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, LD-Relay will send analytic events it receives to LaunchDarkly.
+`sendEvents`        | `USE_EVENTS`               | Boolean | `false` | When enabled, the Relay Proxy will send analytic events it receives to LaunchDarkly (unless offline mode is enabled).
 `eventsUri`         | `EVENTS_HOST`              | URI     | _(7)_   | URI for the LaunchDarkly events service
 `flushInterval`     | `EVENTS_FLUSH_INTERVAL`    | Duration | `5s`   | Controls how long the SDK buffers events before sending them back to our server. If your server generates many events per second, we suggest decreasing the flush interval and/or increasing capacity to meet your needs.
 `capacity`          | `EVENTS_CAPACITY`          | Number  | `1000`  | Maximum number of events to accumulate for each flush interval.

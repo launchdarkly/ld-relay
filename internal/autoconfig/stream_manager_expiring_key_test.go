@@ -60,6 +60,8 @@ func TestExpiringKeyInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
+		p.requireReceivedAllMessage()
+
 		assert.Equal(t, envWithExpiringKey.ToParams(), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
@@ -76,6 +78,7 @@ func TestExpiringKeyInPatchAdd(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
+
 		assert.Equal(t, envWithExpiringKey.ToParams(), *msg.add)
 		assert.Equal(t, oldKey, msg.add.ExpiringSDKKey)
 
@@ -112,6 +115,8 @@ func TestExpiringKeyHasAlreadyExpiredInPutMessage(t *testing.T) {
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.add)
+		p.requireReceivedAllMessage()
+
 		assert.Equal(t, testEnv1.ToParams(), *msg.add)
 		assert.Equal(t, config.SDKKey(""), msg.add.ExpiringSDKKey)
 

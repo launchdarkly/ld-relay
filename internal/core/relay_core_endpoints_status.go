@@ -102,7 +102,11 @@ func statusHandler(core *RelayCore) http.Handler {
 			ClientVersion: ld.Version,
 		}
 
-		healthy := true
+		core.lock.Lock()
+		fullyConfigured := core.fullyConfigured
+		core.lock.Unlock()
+
+		healthy := fullyConfigured
 		for _, clientCtx := range core.GetAllEnvironments() {
 			identifiers := clientCtx.GetIdentifiers()
 

@@ -85,10 +85,11 @@ The status properties are defined as follows:
     - `dbPrefix`, if present, is the configured database key prefix for this environment.
     - `dbTable`, if present, is the DynamoDB table name for this environment.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
+    - In [automatic configuration mode](../configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
 - `version` is the version of the Relay Proxy.
 - `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
 
-The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in auto-configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
+The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in automatic configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
 
 ### Special flag evaluation endpoints
 
@@ -130,6 +131,8 @@ Endpoint                     | Method | Proxied Subdomain | Description
 
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
+The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
+
 
 ### Endpoints that mobile SDKs use
 
@@ -150,6 +153,8 @@ Endpoint                     | Method   | Proxied Subdomain | Description
 `/msdk/eval/user`            | `REPORT` | `app.`          | Same as above but request body is user JSON object
 `/msdk/evalx/users/{user}`   | `GET`    | `app.`          | Same as `/msdk/eval/users/{user}` for newer SDKs, with additional metadata
 `/msdk/evalx/user`           | `REPORT` | `app.`          | Same as above but request body is user JSON object
+
+The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
 
 ### Endpoints that client-side JavaScript SDKs use
@@ -173,3 +178,5 @@ Endpoint                             | Method   | Proxied Subdomain | Descriptio
 `/sdk/evalx/{clientId}/users/{user}` | `GET`    | `app.`          | Polling endpoint, returns flag evaluation results and additional metadata
 `/sdk/evalx/{clientId}/users`        | `REPORT` | `app.`          | Same as above but request body is user JSON object
 `/sdk/goals/{clientId}`              | `GET`    | `app.`          | Provides goals data used by JS SDK
+
+The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.

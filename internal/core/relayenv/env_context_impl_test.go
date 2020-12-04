@@ -3,10 +3,13 @@ package relayenv
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"testing"
 	"time"
+
+	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
@@ -365,6 +368,18 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 }
 
 func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
+	var allConfig config.Config
+	allConfig.Main.DisableInternalUsageMetrics = true
+	testMetricsDisabled(t, allConfig)
+}
+
+func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
+	var allConfig config.Config
+	allConfig.OfflineMode.FileDataSource = "fake-file-path"
+	testMetricsDisabled(t, allConfig)
+}
+
+func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 	view.SetReportingPeriod(time.Millisecond * 10)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
@@ -373,8 +388,6 @@ func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
@@ -408,6 +421,94 @@ func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
 				return false
 			}, time.Millisecond*100, time.Millisecond*10, "received unexpected metrics event")
 		}, metrics.BrowserConns)
+	})
+}
+
+func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	fakeUserAgent := "fake-user-agent"
+
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Main.DisableInternalUsageMetrics = true
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(
+			EnvIdentifiers{ConfiguredName: envName},
+			st.EnvMain.Config,
+			allConfig,
+			testclient.FakeLDClientFactory(true),
+			ldcomponents.InMemoryDataStore(),
+			sdks.DataStoreEnvironmentInfo{},
+			[]streams.StreamProvider{},
+			JSClientContext{},
+			nil,
+			fakeUserAgent,
+			LogNameIsSDKKey,
+			mockLog.Loggers,
+			nil,
+		)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+
+		ed := envImpl.GetEventDispatcher()
+		require.NotNil(t, ed)
+		eventDispatchHandler := ed.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, eventDispatchHandler)
+
+		rr := httptest.NewRecorder()
+		headers := make(http.Header)
+		headers.Add("Content-Type", "application/json")
+		headers.Add("Authorization", string(st.EnvMain.Config.SDKKey))
+		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+		req := st.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
+		eventDispatchHandler(rr, req)
+		require.Equal(t, 202, rr.Result().StatusCode)
+
+		eventPost := st.ExpectTestRequest(t, requestsCh, time.Second)
+		require.Equal(t, string(st.EnvMain.Config.SDKKey), eventPost.Request.Header.Get("Authorization"))
+		require.Equal(t, string(body), string(eventPost.Body))
+	})
+}
+
+func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	fakeUserAgent := "fake-user-agent"
+
+	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Main.DisableInternalUsageMetrics = true
+		allConfig.OfflineMode.FileDataSource = "fake-file-path"
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(
+			EnvIdentifiers{ConfiguredName: envName},
+			st.EnvMain.Config,
+			allConfig,
+			testclient.FakeLDClientFactory(true),
+			ldcomponents.InMemoryDataStore(),
+			sdks.DataStoreEnvironmentInfo{},
+			[]streams.StreamProvider{},
+			JSClientContext{},
+			nil,
+			fakeUserAgent,
+			LogNameIsSDKKey,
+			mockLog.Loggers,
+			nil,
+		)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+
+		ed := envImpl.GetEventDispatcher()
+		require.Nil(t, ed)
 	})
 }
 

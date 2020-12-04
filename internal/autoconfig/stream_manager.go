@@ -293,6 +293,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]envfactory
 			s.handleDelete(id, -1)
 		}
 	}
+	s.handler.ReceivedAllEnvironments()
 }
 
 func (s *StreamManager) addOrUpdate(rep envfactory.EnvironmentRep) {

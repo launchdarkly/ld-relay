@@ -42,15 +42,18 @@ func buildPreRoutedRequestWithAuth(key config.SDKCredential) *http.Request {
 	return buildPreRoutedRequest("GET", nil, headers, nil, nil)
 }
 
-type testEnvironments map[config.SDKCredential]relayenv.EnvContext
+type testEnvironments struct {
+	envs      map[config.SDKCredential]relayenv.EnvContext
+	notInited bool
+}
 
-func (t testEnvironments) GetEnvironment(c config.SDKCredential) relayenv.EnvContext {
-	return t[c]
+func (t testEnvironments) GetEnvironment(c config.SDKCredential) (relayenv.EnvContext, bool) {
+	return t.envs[c], !t.notInited
 }
 
 func (t testEnvironments) GetAllEnvironments() []relayenv.EnvContext {
 	var ret []relayenv.EnvContext
-	for _, e := range t {
+	for _, e := range t.envs {
 		exists := false
 		for _, e1 := range ret {
 			if e1 == e {
@@ -123,8 +126,10 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("finds by SDK key", func(t *testing.T) {
 		envs := testEnvironments{
-			st.EnvMain.Config.SDKKey:   env1,
-			st.EnvMobile.Config.SDKKey: env2,
+			envs: map[config.SDKCredential]relayenv.EnvContext{
+				st.EnvMain.Config.SDKKey:   env1,
+				st.EnvMobile.Config.SDKKey: env2,
+			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
@@ -138,9 +143,11 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("finds by mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			st.EnvMain.Config.SDKKey:      env1,
-			st.EnvMobile.Config.SDKKey:    env2,
-			st.EnvMobile.Config.MobileKey: env2,
+			envs: map[config.SDKCredential]relayenv.EnvContext{
+				st.EnvMain.Config.SDKKey:      env1,
+				st.EnvMobile.Config.SDKKey:    env2,
+				st.EnvMobile.Config.MobileKey: env2,
+			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
@@ -154,9 +161,11 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("finds by environment ID in URL", func(t *testing.T) {
 		envs := testEnvironments{
-			st.EnvMain.Config.SDKKey:       env1,
-			st.EnvClientSide.Config.SDKKey: env2,
-			st.EnvClientSide.Config.EnvID:  env2,
+			envs: map[config.SDKCredential]relayenv.EnvContext{
+				st.EnvMain.Config.SDKKey:       env1,
+				st.EnvClientSide.Config.SDKKey: env2,
+				st.EnvClientSide.Config.EnvID:  env2,
+			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.JSClient, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
@@ -170,7 +179,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 
 	t.Run("rejects unknown SDK key", func(t *testing.T) {
-		envs := testEnvironments{st.EnvMain.Config.SDKKey: env1}
+		envs := testEnvironments{
+			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
+		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.UndefinedSDKKey)
@@ -180,7 +191,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 
 	t.Run("rejects unknown mobile key", func(t *testing.T) {
-		envs := testEnvironments{st.EnvMain.Config.MobileKey: env1}
+		envs := testEnvironments{
+			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.MobileKey: env1},
+		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.UndefinedMobileKey)
@@ -190,7 +203,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 
 	t.Run("rejects unknown environment ID", func(t *testing.T) {
-		envs := testEnvironments{st.EnvMain.Config.SDKKey: env1}
+		envs := testEnvironments{
+			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
+		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.JSClient, envs)
 
 		vars := map[string]string{"envId": string(st.EnvClientSide.Config.EnvID)}
@@ -201,7 +216,9 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 
 	t.Run("rejects malformed SDK key", func(t *testing.T) {
-		envs := testEnvironments{st.MalformedSDKKey: testenv.NewTestEnvContext("server", false, nil)}
+		envs := testEnvironments{
+			envs: map[config.SDKCredential]relayenv.EnvContext{st.MalformedSDKKey: testenv.NewTestEnvContext("server", false, nil)},
+		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.MalformedSDKKey)
@@ -212,8 +229,10 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("rejects malformed mobile key", func(t *testing.T) {
 		envs := testEnvironments{
-			st.MalformedSDKKey:    testenv.NewTestEnvContext("server", false, nil),
-			st.MalformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
+			envs: map[config.SDKCredential]relayenv.EnvContext{
+				st.MalformedSDKKey:    testenv.NewTestEnvContext("server", false, nil),
+				st.MalformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
+			},
 		}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
 
@@ -225,7 +244,19 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("returns 503 if client has not been created", func(t *testing.T) {
 		notReadyEnv := testenv.NewTestEnvContextWithClientFactory("env", testclient.ClientFactoryThatFails(errors.New("sorry")), nil)
-		envs := testEnvironments{st.EnvMain.Config.SDKKey: notReadyEnv}
+		envs := testEnvironments{
+			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: notReadyEnv},
+		}
+		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+
+		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	})
+
+	t.Run("returns 503 if Relay has not been initialized", func(t *testing.T) {
+		envs := testEnvironments{notInited: true}
 		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
 
 		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)

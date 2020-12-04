@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	logMsgAutoConfEnvInitError     = "Unable to initialize auto-configured environment %q: %s"
-	logMsgAutoConfUpdateUnknownEnv = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
-	logMsgAutoConfDeleteUnknownEnv = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
-	logMsgKeyExpiryUnknownEnv      = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
+	logMsgAutoConfEnvInitError            = "Unable to initialize auto-configured environment %q: %s"
+	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
+	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
+	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
+	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -19,7 +20,7 @@ type relayAutoConfigActions struct {
 	r *Relay
 }
 
-func (a relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
+func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
 	// Since we're not holding the lock on the RelayCore, there is theoretically a race condition here
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
@@ -31,15 +32,16 @@ func (a relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPara
 	}
 
 	if params.ExpiringSDKKey != "" {
-		if a.r.core.GetEnvironment(params.ExpiringSDKKey) == nil {
+		if foundEnvWithOldKey, _ := a.r.core.GetEnvironment(params.ExpiringSDKKey); foundEnvWithOldKey == nil {
 			env.AddCredential(params.ExpiringSDKKey)
 			env.DeprecateCredential(params.ExpiringSDKKey)
+			a.r.core.AddedEnvironmentCredential(env, params.ExpiringSDKKey) // this updates the index we use for authenticating requests
 		}
 	}
 }
 
-func (a relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
-	env := a.r.core.GetEnvironment(params.EnvID)
+func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
+	env, _ := a.r.core.GetEnvironment(params.EnvID)
 	if env == nil {
 		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
 		a.AddEnvironment(params)
@@ -63,7 +65,7 @@ func (a relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentP
 
 	if params.SDKKey != oldSDKKey {
 		env.AddCredential(params.SDKKey)
-		a.r.core.AddedEnvironmentCredential(env, params.SDKKey)
+		a.r.core.AddedEnvironmentCredential(env, params.SDKKey) // this updates the index we use for authenticating requests
 		if params.ExpiringSDKKey == oldSDKKey {
 			env.DeprecateCredential(oldSDKKey)
 		} else {
@@ -80,8 +82,8 @@ func (a relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentP
 	}
 }
 
-func (a relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
-	env := a.r.core.GetEnvironment(id)
+func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
+	env, _ := a.r.core.GetEnvironment(id)
 	if env == nil {
 		a.r.loggers.Warnf(logMsgAutoConfDeleteUnknownEnv, id)
 		return
@@ -89,8 +91,13 @@ func (a relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
 	a.r.core.RemoveEnvironment(env)
 }
 
-func (a relayAutoConfigActions) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
-	env := a.r.core.GetEnvironment(id)
+func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
+	a.r.loggers.Info(logMsgAutoConfReceivedAllEnvironments)
+	a.r.core.SetFullyConfigured(true)
+}
+
+func (a *relayAutoConfigActions) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
+	env, _ := a.r.core.GetEnvironment(id)
 	if env == nil {
 		a.r.loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
 		return

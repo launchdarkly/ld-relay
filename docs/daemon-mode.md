@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-Optionally, you can configure our SDKs to communicate directly to a [persistent store](./persistent-storage.md). If you do this, there is no need to put a load balancer in front of the Relay Proxy. 
+Optionally, you can configure our SDKs to communicate directly to a [persistent store](./persistent-storage.md). If you do this, there is no need to put a load balancer in front of the Relay Proxy.
 
 We call this configuration **daemon mode**. This is the preferred way to use LaunchDarkly with [PHP](./php.md) (as there's no way to maintain persistent stream connections in PHP).
 

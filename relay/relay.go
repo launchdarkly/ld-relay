@@ -106,7 +106,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.String(),
-			relayAutoConfigActions{r},
+			&relayAutoConfigActions{r},
 			httpConfig,
 			0,
 			core.Loggers,
