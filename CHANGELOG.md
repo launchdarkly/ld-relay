@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.1] - 2020-12-04
+### Fixed:
+- In [automatic configuration mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration), if an environment&#39;s SDK key was changed but the old key had not yet expired, the Relay Proxy did not accept client requests with the old key as it should have. ([#112](https://github.com/launchdarkly/ld-relay/issues/112))
+- In automatic configuration mode, if there was a delay in obtaining the initial configuration from LaunchDarkly (due to network latency or service latency), and the Relay Proxy received client requests with valid SDK keys during that interval, it would return 401 errors because it did not yet know about those SDK keys. This has been fixed so it will return a 503 status if it does not yet have a full configuration. ([#113](https://github.com/launchdarkly/ld-relay/issues/113))
+- In [offline mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline), the Relay Proxy could still try to send analytics events to LaunchDarkly if you explicitly set `sendEvents = true`. Now, it will never send events to LaunchDarkly in offline mode, but enabling `sendEvents` will still cause the Relay Proxy to accept events, so that if SDK clients try to send events they will not get errors; the events will be discarded.
+- In offline mode, the Relay Proxy would still try to send internal usage metrics unless you explicitly set `disableInternalUsageMetrics = true`. Now, enabling offline mode automatically disables internal usage metrics.
+- Added a note in [documentation](https://github.com/launchdarkly/ld-relay/blob/v6/docs/persistent-storage.md) to clarify that the Relay Proxy does not currently support clustered Redis or Redis Sentinel.
+- Fixed broken images in documentation.
+
+
 ## [6.1.0] - 2020-11-09
 ### Added:
 - The Relay Proxy now supports a new &#34;offline mode&#34; which is available to customers on LaunchDarkly&#39;s Enterprise plan. This mode allows the Relay Proxy to run without ever connecting it to LaunchDarkly. When running in offline mode, the Relay Proxy gets flag and segment values from an archive on your filesystem, instead of contacting LaunchDarkly&#39;s servers. To learn more, read [the online documentation](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/offline).
