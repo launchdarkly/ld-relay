@@ -175,7 +175,7 @@ func TestStoreUpsertExistingItemWithOldVersion(t *testing.T) {
 		_, _ = sharedtest.UpsertFlag(baseStore, testFlag1v2)
 		_, _ = sharedtest.UpsertFlag(store, testFlag1)
 
-		updates.expectNoItemUpdate(t)
+		updates.expectItemUpdate(t)
 	})
 
 	t.Run("segment", func(t *testing.T) {
@@ -184,7 +184,7 @@ func TestStoreUpsertExistingItemWithOldVersion(t *testing.T) {
 		_, _ = sharedtest.UpsertSegment(baseStore, testSegment1v2)
 		_, _ = sharedtest.UpsertSegment(store, testSegment1)
 
-		updates.expectNoItemUpdate(t)
+		updates.expectItemUpdate(t)
 	})
 }
 
@@ -230,7 +230,7 @@ func TestStoreDeleteItemWithOlderVersion(t *testing.T) {
 		deletedItem := sharedtest.DeletedItem(testFlag1.Version)
 		_, _ = store.Upsert(ldstoreimpl.Features(), testFlag1.Key, deletedItem)
 
-		updates.expectNoItemUpdate(t)
+		updates.expectItemUpdate(t)
 	})
 
 	t.Run("segment", func(t *testing.T) {
@@ -240,18 +240,18 @@ func TestStoreDeleteItemWithOlderVersion(t *testing.T) {
 		deletedItem := sharedtest.DeletedItem(testSegment1.Version)
 		_, _ = store.Upsert(ldstoreimpl.Segments(), testSegment1.Key, deletedItem)
 
-		updates.expectNoItemUpdate(t)
+		updates.expectItemUpdate(t)
 	})
 }
 
-func TestNoUpdatesAreSentIfStoreReturnedError(t *testing.T) {
+func TestUpdatesAreSentEvenIfStoreReturnedError(t *testing.T) {
 	t.Run("Init", func(t *testing.T) {
 		baseStore, wrappedStore, updates := makeTestComponents()
 		baseStore.fakeError = fakeError
 		err := wrappedStore.Init(allData)
 		assert.Equal(t, fakeError, err)
 
-		updates.expectNoAllDataUpdate(t)
+		updates.expectAllDataUpdate(t)
 	})
 
 	t.Run("Upsert", func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestNoUpdatesAreSentIfStoreReturnedError(t *testing.T) {
 		_, err := sharedtest.UpsertFlag(wrappedStore, testFlag1)
 		assert.Equal(t, fakeError, err)
 
-		updates.expectNoItemUpdate(t)
+		updates.expectItemUpdate(t)
 	})
 }
 

@@ -120,13 +120,10 @@ func (sw *streamUpdatesStoreWrapper) Init(allData []ldstoretypes.Collection) err
 	sw.loggers.Debug("Received all feature flags")
 	err := sw.store.Init(allData)
 
-	if err != nil {
-		return err
-	}
-
+	// See comments in Upsert for why we call SendAllDataUpdate here even if Init returned an error.
 	sw.updates.SendAllDataUpdate(allData)
 
-	return nil
+	return err
 }
 
 func (sw *streamUpdatesStoreWrapper) Upsert(
@@ -137,17 +134,30 @@ func (sw *streamUpdatesStoreWrapper) Upsert(
 	sw.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
 	updated, err := sw.store.Upsert(kind, key, item)
 
-	if err != nil {
-		return false, err
-	}
+	// Note that Upsert returns two values; the first is a boolean which is true if it really did the update,
+	// or false if it did not because the store already contained an equal or greater version number.
+	//
+	// Now we'll pass the update along to the channel that will broadcast it to any currently connected
+	// clients-- regardless of whether the data store was really updated. The rationale is that there could
+	// be multiple Relay instances sharing a database, in which case it is normal for one of them to get in
+	// first and update the store, and the others will then see that the version number is already updated
+	// and therefore not update the store. Any clients connected to those other Relay instances still need
+	// to be notified that LD sent out an update.
+	//
+	// It's also possible for LD to broadcast updates out of order, so that a lower version number is sent
+	// after a higher one. In that case, none of the Relay instances will update the database (that's what
+	// the version numbers are for, to avoid overwriting fresher data). But we will still send the update
+	// along to the clients, because it's not easy for Relay to detect this condition (Upsert returns the
+	// same false value as it would for an equal version), and the SDKs already have their own similar logic
+	// so they will not apply an out-of-order update.
+	//
+	// Similarly, even if Relay's data store updated failed (err != nil), we should still notify any
+	// connected clients, because they may be using the stream rather than the database as their source of
+	// truth.
 
-	// If updated is false, it means that there was already a higher-versioned item in the store
-	// so no update was done.
-	if updated {
-		sw.updates.SendSingleItemUpdate(kind, key, item)
-	}
+	sw.updates.SendSingleItemUpdate(kind, key, item)
 
-	return updated, nil
+	return updated, err
 }
 
 func (sw *streamUpdatesStoreWrapper) IsInitialized() bool {
