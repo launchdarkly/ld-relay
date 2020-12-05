@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.2] - 2020-12-04
+### Fixed:
+- In a load-balanced configuration where multiple Relay Proxy instances were sharing a single database for their own persistent storage, but SDK clients were connecting to the Relay Proxy streaming endpoints via HTTP instead of reading from the database, it was possible for some of the Relay Proxy instances to fail to transmit a feature flag update from LaunchDarkly to the SDK clients (because they would see that another Relay Proxy instance had already updated the database, and would incorrectly assume that this meant clients already knew about it). This problem was introduced in version 6.0.0 and is fixed in this release.
+
 ## [6.1.1] - 2020-12-04
 ### Fixed:
 - In [automatic configuration mode](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration), if an environment&#39;s SDK key was changed but the old key had not yet expired, the Relay Proxy did not accept client requests with the old key as it should have. ([#112](https://github.com/launchdarkly/ld-relay/issues/112))
