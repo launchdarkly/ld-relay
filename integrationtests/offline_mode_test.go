@@ -83,10 +83,11 @@ func downloadRelayArchive(manager *integrationTestManager, configKey config.Auto
 	resp, err := http.DefaultClient.Do(req)
 	// using default client instead of manager.httpClient because, if HTTP logging is enabled, we do *not* want the response
 	// body (a gzip file) to be written to the log - so we call logResponse ourselves below, with false for the 2nd parameter
+	// if we succeeded
 	if err != nil {
 		return err
 	}
-	manager.requestLogger.logResponse(resp, false)
+	manager.requestLogger.logResponse(resp, resp.StatusCode != 200)
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("response status %d", resp.StatusCode)
 	}
