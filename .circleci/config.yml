@@ -168,7 +168,7 @@ jobs:
           keys: 
             - deps-relay-i9ntest-{{ checksum "go.mod" }}    
       - run: go get -u $COMMON_GO_PACKAGES
-      - run: LD_API_TOKEN=`echo $<<parameters.ld_api_token_env_var>>` go test -t integrationtests -i ./integrationtests # just install the dependencies for the tests
+      - run: go test -t integrationtests -i ./integrationtests # just install the dependencies for the tests
       - save_cache:
           key: deps-relay-i9ntest-{{ checksum "go.mod" }}    
           paths:
@@ -178,7 +178,7 @@ jobs:
           mkdir -p $CIRCLE_ARTIFACTS
       - run:
           name: Run integration tests
-          command: make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
+          command: LD_API_TOKEN=`echo $<<parameters.ld_api_token_env_var>>` make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
       - run:
           name: Process test results
           command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
