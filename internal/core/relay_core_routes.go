@@ -21,6 +21,11 @@ const (
 
 // MakeRouter creates and configures a Router containing all of the standard routes for RelayCore. The Relay
 // or RelayEnterprise code may add additional routes.
+//
+// IMPORTANT: The route strings that are used here, such as "/sdk/evalx/{envId}/users/{user}", will appear
+// in metrics data under the "route" tag if Relay is configured to export metrics. Therefore, we should use
+// variable names like {envId} consistently and make sure they correspond to how the routes are shown in
+// docs/endpoints.md.
 func (r *RelayCore) MakeRouter() *mux.Router {
 	router := mux.NewRouter()
 	router.Use(logging.GlobalContextLoggersMiddleware(r.Loggers))
