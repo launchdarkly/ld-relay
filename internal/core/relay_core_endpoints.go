@@ -19,10 +19,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"gopkg.in/launchdarkly/go-jsonstream.v1/jwriter"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
@@ -31,16 +29,6 @@ import (
 
 	"github.com/gorilla/mux"
 )
-
-type evalXResult struct {
-	Value                ldvalue.Value               `json:"value"`
-	Variation            ldvalue.OptionalInt         `json:"variation,omitempty"`
-	Version              int                         `json:"version"`
-	DebugEventsUntilDate *ldtime.UnixMillisecondTime `json:"debugEventsUntilDate,omitempty"`
-	TrackEvents          bool                        `json:"trackEvents,omitempty"`
-	TrackReason          bool                        `json:"trackReason,omitempty"`
-	Reason               *ldreason.EvaluationReason  `json:"reason,omitempty"`
-}
 
 func getClientSideUserProperties(
 	clientCtx relayenv.EnvContext,
@@ -130,7 +118,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	respData := itemsCollectionToMap(data)
+	respData := serializeFlagsAsMap(data)
 	// Compute an overall Etag for the data set by hashing flag keys and versions
 	hash := sha1.New()                                                         // nolint:gas // just used for insecure hashing
 	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
@@ -255,7 +243,8 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 
 	evaluator := ldeval.NewEvaluator(ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, loggers))
 
-	response := make(map[string]interface{}, len(items))
+	responseWriter := jwriter.NewWriter()
+	responseObj := responseWriter.Object()
 	for _, item := range items {
 		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
 			switch sdkKind {
@@ -269,31 +258,27 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 				}
 			}
 			detail := evaluator.Evaluate(flag, user, nil)
-			var result interface{}
 			if valueOnly {
-				result = detail.Value
+				detail.Value.WriteToJSONWriter(responseObj.Name(flag.Key))
 			} else {
 				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
-				value := evalXResult{
-					Value:       detail.Value,
-					Variation:   detail.VariationIndex,
-					Version:     flag.Version,
-					TrackEvents: flag.TrackEvents || isExperiment,
-					TrackReason: isExperiment,
-				}
+				valueObj := responseObj.Name(flag.Key).Object()
+				detail.Value.WriteToJSONWriter(valueObj.Name("value"))
+				detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
+				valueObj.Name("version").Int(flag.Version)
+				valueObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
+				valueObj.Maybe("trackReason", isExperiment).Bool(true)
 				if withReasons || isExperiment {
-					value.Reason = &detail.Reason
+					detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
 				}
-				if flag.DebugEventsUntilDate != 0 {
-					value.DebugEventsUntilDate = &flag.DebugEventsUntilDate
-				}
-				result = value
+				valueObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
+					Float64(float64(flag.DebugEventsUntilDate))
+				valueObj.End()
 			}
-			response[flag.Key] = result
 		}
 	}
-
-	result, _ := json.Marshal(response)
+	responseObj.End()
+	result := responseWriter.Bytes()
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(result)
@@ -311,13 +296,19 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		if item.Item == nil {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			writeCacheableJSONResponse(w, req, clientContext, item.Item, strconv.Itoa(item.Version))
+			bytes, err := json.Marshal(item.Item)
+			if err == nil {
+				writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
+			} else {
+				clientContext.GetLoggers().Errorf("Error marshaling JSON: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 		}
 	}
 }
 
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
-	entity interface{}, etagValue string) {
+	bytes []byte, etagValue string) {
 	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
 		if cachedEtag == etag {
@@ -325,33 +316,29 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 			return
 		}
 	}
-	bytes, err := json.Marshal(entity)
-	if err != nil {
-		clientContext.GetLoggers().Errorf("Error marshaling JSON: %s", err)
-		w.WriteHeader(http.StatusInternalServerError)
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Etag", etag)
-		ttl := clientContext.GetTTL()
-		if ttl > 0 {
-			w.Header().Set("Vary", "Authorization")
-			expiresAt := time.Now().UTC().Add(ttl)
-			w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
-			// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
-			// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
-			// will all see the same expiration time.
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(bytes)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Etag", etag)
+	ttl := clientContext.GetTTL()
+	if ttl > 0 {
+		w.Header().Set("Vary", "Authorization")
+		expiresAt := time.Now().UTC().Add(ttl)
+		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
+		// We're setting "Expires:" instead of "Cache-Control:max-age=" so that if someone puts an
+		// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
+		// will all see the same expiration time.
 	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bytes)
 }
 
-func itemsCollectionToMap(coll []ldstoretypes.KeyedItemDescriptor) map[string]interface{} {
-	ret := make(map[string]interface{}, len(coll))
+func serializeFlagsAsMap(coll []ldstoretypes.KeyedItemDescriptor) []byte {
+	w := jwriter.NewWriter()
+	obj := w.Object()
 	for _, item := range coll {
 		if item.Item.Item != nil {
-			ret[item.Key] = item.Item.Item
+			ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.Item.(*ldmodel.FeatureFlag), obj.Name(item.Key))
 		}
 	}
-	return ret
+	obj.End()
+	return w.Bytes()
 }

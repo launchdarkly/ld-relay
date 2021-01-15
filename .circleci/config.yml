@@ -19,6 +19,8 @@ workflows:
       - go-test:
           name: Go 1.14
           docker-image: cimg/go:1.14.9
+      - benchmarks:
+          docker-image: cimg/go:1.15.2
       - integration-test
       - test-publish
       - publish:
@@ -70,6 +72,7 @@ jobs:
       - store_artifacts:
           path: ./whitesource
           destination: artifacts
+
   go-test:
     parameters:
       docker-image:
@@ -187,7 +190,22 @@ jobs:
           path: /tmp/circle-reports
       - store_artifacts:
           path: /tmp/circle-artifacts
-        
+
+  benchmarks:
+    parameters:
+      docker-image:
+        type: string
+    
+    docker:
+      - image: <<parameters.docker-image>>
+
+    steps:
+      - checkout
+      - run: go version && go env
+      - run:
+          name: Run benchmarks
+          command: make benchmarks
+
   test-publish:
     docker:
       - &release_docker_image
