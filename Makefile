@@ -22,7 +22,7 @@ COVERAGE_ENFORCER_FLAGS=\
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
 build:
-	go build ./...
+	go build .
 
 test:
 	go test -run=not-a-real-test ./...  # just ensures that the tests compile
