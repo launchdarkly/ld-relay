@@ -2,6 +2,8 @@ package core
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
 
+	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
@@ -221,18 +224,94 @@ func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
 	})
 
 	t.Run("returns error if any environment does not initialize successfully", func(t *testing.T) {
-		oneEnvFails := func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-			shouldFail := sdkKey == st.EnvMobile.Config.SDKKey
-			if shouldFail {
-				return testclient.ClientFactoryThatFails(errors.New("sorry"))(sdkKey, config)
-			}
-			return testclient.FakeLDClientFactory(true)(sdkKey, config)
-		}
-		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(), oneEnvFails, "", "", false)
+		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
+			oneEnvFails(st.EnvMobile.Config.SDKKey, false, nil), "", "", false)
 		require.NoError(t, err)
 		defer core.Close()
 
 		err = core.WaitForAllClients(time.Second)
 		assert.Error(t, err)
 	})
+}
+
+func TestRelayCoreUninitializedEnvironment(t *testing.T) {
+	config := c.Config{
+		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
+	}
+	problemEnv := st.EnvMobile
+
+	t.Run("handlers return 503 for environment that is still initializing", func(t *testing.T) {
+		gateCh := make(chan struct{})
+		defer close(gateCh)
+
+		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
+			oneEnvFails(problemEnv.Config.SDKKey, true, gateCh), "", "", false)
+		require.NoError(t, err)
+		defer core.Close()
+		router := core.MakeRouter()
+
+		serverHeaders := make(http.Header)
+		serverHeaders.Add("Authorization", string(problemEnv.Config.SDKKey))
+		req1 := st.BuildRequest("GET", "/all", nil, serverHeaders)
+		rr1 := httptest.NewRecorder()
+		router.ServeHTTP(rr1, req1)
+		assert.Equal(t, http.StatusServiceUnavailable, rr1.Result().StatusCode)
+
+		mobileHeaders := make(http.Header)
+		mobileHeaders.Add("Authorization", string(problemEnv.Config.MobileKey))
+		req2 := st.BuildRequest("GET", "/mping", nil, mobileHeaders)
+		rr2 := httptest.NewRecorder()
+		router.ServeHTTP(rr2, req2)
+		assert.Equal(t, http.StatusServiceUnavailable, rr2.Result().StatusCode)
+	})
+
+	t.Run("handlers accept requests for environment that failed to initialize", func(t *testing.T) {
+		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
+			oneEnvFails(problemEnv.Config.SDKKey, true, nil), "", "", false)
+		require.NoError(t, err)
+		defer core.Close()
+		router := core.MakeRouter()
+
+		err = core.WaitForAllClients(time.Millisecond * 100)
+		assert.Error(t, err)
+
+		env, _ := core.GetEnvironment(problemEnv.Config.SDKKey)
+		assert.NotNil(t, env)
+		store := env.GetStore()
+		assert.NotNil(t, store)
+		store.Init(nil)
+
+		serverHeaders := make(http.Header)
+		serverHeaders.Add("Authorization", string(problemEnv.Config.SDKKey))
+		req1 := st.BuildRequest("GET", "/all", nil, serverHeaders)
+		resp1 := st.WithStreamRequest(t, req1, router, func(ch <-chan eventsource.Event) { <-ch })
+		assert.Equal(t, http.StatusOK, resp1.StatusCode)
+
+		mobileHeaders := make(http.Header)
+		mobileHeaders.Add("Authorization", string(problemEnv.Config.MobileKey))
+		req2 := st.BuildRequest("GET", "/mping", nil, mobileHeaders)
+		resp2 := st.WithStreamRequest(t, req2, router, func(ch <-chan eventsource.Event) { <-ch })
+		assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	})
+}
+
+func oneEnvFails(
+	badSDKKey c.SDKKey,
+	returnClientInstanceAnyway bool,
+	gateCh <-chan struct{},
+) func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+	return func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+		client, _ := testclient.FakeLDClientFactory(true)(sdkKey, config)
+		if sdkKey == badSDKKey {
+			if gateCh != nil {
+				<-gateCh
+			}
+			err := errors.New("sorry")
+			if returnClientInstanceAnyway {
+				return client, err
+			}
+			return nil, err
+		}
+		return client, nil
+	}
 }

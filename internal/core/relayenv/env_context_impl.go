@@ -243,7 +243,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
-	if err == nil {
+	if client != nil {
 		c.clients[sdkKey] = client
 	}
 	c.mu.Unlock()
