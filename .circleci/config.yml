@@ -19,6 +19,8 @@ workflows:
       - go-test:
           name: Go 1.14
           docker-image: cimg/go:1.14.9
+      - benchmarks:
+          docker-image: cimg/go:1.15.2
       - integration-test
       - test-publish
       - publish:
@@ -33,7 +35,7 @@ workflows:
           context: org-global
 
   # Run hourly integration tests on the private v6 branch
-  hourly-integration-test:
+  hourly-integration-test-stg:
     triggers:
     - schedule:
         cron: "0 * * * *"
@@ -42,6 +44,21 @@ workflows:
             only: v6
     jobs:
       - integration-test
+    when:
+      equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
+  hourly-integration-test-prod:
+    triggers:
+    - schedule:
+        cron: "0 * * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - integration-test:
+          ld_base_url: https://app.launchdarkly.com
+          ld_stream_url: https://stream.launchdarkly.com
+          ld_sdk_url: https://sdk.launchdarkly.com
+          ld_api_token_env_var: LD_API_TOKEN_PROD
     when:
       equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
 
@@ -55,6 +72,7 @@ jobs:
       - store_artifacts:
           path: ./whitesource
           destination: artifacts
+
   go-test:
     parameters:
       docker-image:
@@ -114,10 +132,26 @@ jobs:
           path: /tmp/circle-artifacts
 
   integration-test:
+    parameters:
+      ld_base_url:
+        type: string
+        default: https://ld-stg.launchdarkly.com
+      ld_stream_url:
+        type: string
+        default: https://stream-stg.launchdarkly.com
+      ld_sdk_url:
+        type: string
+        default: https://sdk-stg.launchdarkly.com
+      ld_api_token_env_var:
+        type: string
+        default: LD_API_TOKEN_STG
     machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
       image: ubuntu-2004:202010-01
       docker_layer_caching: true
-    environment: &environment
+    environment:
+      LD_BASE_URL: <<parameters.ld_base_url>>
+      LD_STREAM_URL: <<parameters.ld_stream_url>>
+      LD_SDK_URL: <<parameters.ld_sdk_url>>
       CIRCLE_TEST_REPORTS: /tmp/circle-reports
       CIRCLE_ARTIFACTS: /tmp/circle-artifacts
       COMMON_GO_PACKAGES: >
@@ -147,7 +181,7 @@ jobs:
           mkdir -p $CIRCLE_ARTIFACTS
       - run:
           name: Run integration tests
-          command: make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
+          command: LD_API_TOKEN=`echo $<<parameters.ld_api_token_env_var>>` make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
       - run:
           name: Process test results
           command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
@@ -156,7 +190,22 @@ jobs:
           path: /tmp/circle-reports
       - store_artifacts:
           path: /tmp/circle-artifacts
-        
+
+  benchmarks:
+    parameters:
+      docker-image:
+        type: string
+    
+    docker:
+      - image: <<parameters.docker-image>>
+
+    steps:
+      - checkout
+      - run: go version && go env
+      - run:
+          name: Run benchmarks
+          command: make benchmarks
+
   test-publish:
     docker:
       - &release_docker_image

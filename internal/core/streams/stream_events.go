@@ -1,9 +1,11 @@
 package streams
 
 import (
-	"encoding/json"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/eventsource"
+	"gopkg.in/launchdarkly/go-jsonstream.v1/jwriter"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
@@ -16,35 +18,26 @@ var dataKindAPIName = map[ldstoretypes.DataKind]string{ //nolint:gochecknoglobal
 	ldstoreimpl.Segments(): "segments",
 }
 
-type flagsPutEvent map[string]interface{}
-type allPutEvent struct {
-	D map[string]map[string]interface{} `json:"data"`
-}
-type deleteEvent struct {
-	Path    string `json:"path"`
-	Version int    `json:"version"`
+// We use StringMemoizer for these events because the same event may get broadcast to many connected
+// clients, and the SSE server code will call the event's Data() method again for each client-- but
+// sometimes there aren't any connected clients at all, in which case we don't want to bother with
+// computing a bunch of JSON output.
+
+type deferredEvent struct {
+	name   string
+	result *util.StringMemoizer
 }
 
-type upsertEvent struct {
-	Path string      `json:"path"`
-	D    interface{} `json:"data"`
-}
-
-type pingEvent struct{}
+func (e deferredEvent) Event() string { return e.name }
+func (e deferredEvent) Id() string    { return "" } //nolint:golint,stylecheck
+func (e deferredEvent) Data() string  { return e.result.Get() }
 
 // MakeServerSidePutEvent creates a "put" event for server-side SDKs.
 func MakeServerSidePutEvent(allData []ldstoretypes.Collection) eventsource.Event {
-	var allDataMap = map[string]map[string]interface{}{
-		"flags":    {},
-		"segments": {},
+	return deferredEvent{
+		name:   "put",
+		result: util.NewStringMemoizer(encodeServerSidePutEventData(allData)),
 	}
-	for _, coll := range allData {
-		name := dataKindAPIName[coll.Kind]
-		for _, item := range coll.Items {
-			allDataMap[name][item.Key] = item.Item.Item
-		}
-	}
-	return allPutEvent{D: allDataMap}
 }
 
 // MakeServerSideFlagsOnlyPutEvent creates a "put" event for old server-side SDKs that use the
@@ -57,11 +50,10 @@ func MakeServerSideFlagsOnlyPutEvent(allData []ldstoretypes.Collection) eventsou
 			break
 		}
 	}
-	flagsMap := make(map[string]interface{}, len(flags))
-	for _, f := range flags {
-		flagsMap[f.Key] = f.Item.Item
+	return deferredEvent{
+		name:   "put",
+		result: util.NewStringMemoizer(encodeServerSideFlagsOnlyPutEventData(flags)),
 	}
-	return flagsPutEvent(flagsMap)
 }
 
 // MakeServerSidePatchEvent creates a "patch" event for server-side SDKs.
@@ -70,107 +62,142 @@ func MakeServerSidePatchEvent(
 	key string,
 	item ldstoretypes.ItemDescriptor,
 ) eventsource.Event {
-	return upsertEvent{
-		Path: "/" + dataKindAPIName[kind] + "/" + key,
-		D:    item.Item,
+	return deferredEvent{
+		name:   "patch",
+		result: util.NewStringMemoizer(encodeServerSidePatchEventData(kind, key, item, false)),
 	}
 }
 
 // MakeServerSideFlagsOnlyPatchEvent creates a "patch" event for old server-side SDKs that use
 // the flags-only stream.
 func MakeServerSideFlagsOnlyPatchEvent(key string, item ldstoretypes.ItemDescriptor) eventsource.Event {
-	return upsertEvent{
-		Path: "/" + key,
-		D:    item.Item,
+	return deferredEvent{
+		name:   "patch",
+		result: util.NewStringMemoizer(encodeServerSidePatchEventData(ldstoreimpl.Features(), key, item, true)),
 	}
 }
 
 // MakeServerSideDeleteEvent creates a "delete" event for server-side SDKs.
 func MakeServerSideDeleteEvent(kind ldstoretypes.DataKind, key string, version int) eventsource.Event {
-	return deleteEvent{
-		Path:    "/" + dataKindAPIName[kind] + "/" + key,
-		Version: version,
+	return deferredEvent{
+		name:   "delete",
+		result: util.NewStringMemoizer(encodeServerSideDeleteEventData(kind, key, version, false)),
 	}
 }
 
 // MakeServerSideFlagsOnlyDeleteEvent creates a "delete" event for old server-side SDKs that use the
 // flags-only stream.
 func MakeServerSideFlagsOnlyDeleteEvent(key string, version int) eventsource.Event {
-	return deleteEvent{
-		Path:    "/" + key,
-		Version: version,
+	return deferredEvent{
+		name:   "delete",
+		result: util.NewStringMemoizer(encodeServerSideDeleteEventData(ldstoreimpl.Features(), key, version, true)),
 	}
 }
 
 // MakePingEvent creates a "ping" event for client-side SDKs.
 func MakePingEvent() eventsource.Event {
-	return pingEvent{}
+	return deferredEvent{
+		name:   "ping",
+		result: util.NewStringMemoizer(func() string { return " " }),
+	}
+	// We need to send a space for the event data, instead of an empty string; otherwise the data field
+	// is not published by eventsource, causing the event to be ignored.
 }
 
-func (t flagsPutEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
-	return ""
+func encodeServerSideFlagsOnlyPutEventData(flags []ldstoretypes.KeyedItemDescriptor) func() string {
+	return func() string {
+		w := jwriter.NewWriter()
+		obj := w.Object()
+		for _, item := range flags {
+			if item.Item.Item == nil {
+				obj.Name(item.Key).Null()
+			} else {
+				ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.Item.(*ldmodel.FeatureFlag),
+					obj.Name(item.Key))
+			}
+		}
+		obj.End()
+		return string(w.Bytes())
+	}
 }
 
-func (t flagsPutEvent) Event() string {
-	return "put"
+func encodeServerSidePutEventData(allData []ldstoretypes.Collection) func() string {
+	if allData == nil {
+		allData = []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: nil},
+			{Kind: ldstoreimpl.Segments(), Items: nil},
+		}
+	}
+	return func() string {
+		w := jwriter.NewWriter()
+		obj := w.Object()
+		obj.Name("path").String("/")
+		dataObj := obj.Name("data").Object()
+		for _, coll := range allData {
+			var name string
+			switch {
+			case coll.Kind == ldstoreimpl.Features():
+				name = "flags"
+			case coll.Kind == ldstoreimpl.Segments():
+				name = "segments"
+			default:
+				continue
+			}
+			itemsObj := dataObj.Name(name).Object()
+			for _, item := range coll.Items {
+				serializeItem(coll.Kind, item.Item, itemsObj.Name(item.Key))
+			}
+			itemsObj.End()
+		}
+		dataObj.End()
+		obj.End()
+		return string(w.Bytes())
+	}
 }
 
-func (t flagsPutEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
+func encodeServerSidePatchEventData(
+	kind ldstoretypes.DataKind,
+	key string,
+	item ldstoretypes.ItemDescriptor,
+	oldStylePath bool,
+) func() string {
+	return func() string {
+		w := jwriter.NewWriter()
+		obj := w.Object()
+		obj.Name("path").String(makePath(kind, key, oldStylePath))
+		serializeItem(kind, item, obj.Name("data"))
+		obj.End()
+		return string(w.Bytes())
+	}
 }
 
-func (t allPutEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
-	return ""
+func encodeServerSideDeleteEventData(kind ldstoretypes.DataKind, key string, version int, oldStylePath bool) func() string {
+	return func() string {
+		w := jwriter.NewWriter()
+		obj := w.Object()
+		obj.Name("path").String(makePath(kind, key, oldStylePath))
+		obj.Name("version").Int(version)
+		obj.End()
+		return string(w.Bytes())
+	}
 }
 
-func (t allPutEvent) Event() string {
-	return "put"
+func makePath(kind ldstoretypes.DataKind, key string, oldStylePath bool) string {
+	if oldStylePath {
+		return "/" + key
+	}
+	return "/" + dataKindAPIName[kind] + "/" + key
 }
 
-func (t allPutEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t upsertEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
-	return ""
-}
-
-func (t upsertEvent) Event() string {
-	return "patch"
-}
-
-func (t upsertEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t deleteEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
-	return ""
-}
-
-func (t deleteEvent) Event() string {
-	return "delete"
-}
-
-func (t deleteEvent) Data() string {
-	data, _ := json.Marshal(t)
-
-	return string(data)
-}
-
-func (t pingEvent) Id() string { //nolint:golint,stylecheck // nonstandard naming defined by eventsource interface
-	return ""
-}
-
-func (t pingEvent) Event() string {
-	return "ping"
-}
-
-func (t pingEvent) Data() string {
-	return " " // We need something or the data field is not published by eventsource causing the event to be ignored
+func serializeItem(kind ldstoretypes.DataKind, item ldstoretypes.ItemDescriptor, w *jwriter.Writer) {
+	switch {
+	case item.Item == nil:
+		w.Null()
+	case kind == ldstoreimpl.Features():
+		ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.(*ldmodel.FeatureFlag), w)
+	case kind == ldstoreimpl.Segments():
+		ldmodel.MarshalSegmentToJSONWriter(*item.Item.(*ldmodel.Segment), w)
+	default:
+		w.Null()
+	}
 }

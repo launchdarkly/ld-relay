@@ -22,7 +22,7 @@ COVERAGE_ENFORCER_FLAGS=\
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
 build:
-	go build ./...
+	go build .
 
 test:
 	go test -run=not-a-real-test ./...  # just ensures that the tests compile
@@ -37,6 +37,9 @@ test-coverage: $(COVERAGE_PROFILE_RAW)
 
 integration-test:
 	go test -v -tags integrationtests ./integrationtests
+
+benchmarks: build
+	go test -benchmem '-run=^$$' '-bench=.*' ./...
 
 $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 	@mkdir -p ./build
@@ -72,4 +75,4 @@ test-centos test-debian test-docker test-docker-standalone: release
 
 docker-smoke-test: test-centos test-debian test-docker test-docker-standalone
 
-.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone
+.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone integration-test benchmarks

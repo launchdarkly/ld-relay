@@ -31,6 +31,7 @@ func TestMakeServerSidePutEvents(t *testing.T) {
 	t.Run("all stream", func(t *testing.T) {
 		expectedJSON := `
 {
+	"path": "/",
 	"data": {
 		"flags": {
 			"flag1": ` + string(testFlag1JSON) + `,

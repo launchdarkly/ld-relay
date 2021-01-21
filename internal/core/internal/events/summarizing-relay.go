@@ -100,6 +100,17 @@ type receivedIdentifyEvent struct {
 	User         receivedEventUser          `json:"user"`
 }
 
+type receivedAliasEvent struct {
+	CreationDate ldtime.UnixMillisecondTime `json:"creationDate"`
+	CurrentKey   string                     `json:"key"`
+	CurrentKind  string                     `json:"contextKind"`
+	PreviousKey  string                     `json:"previousKey"`
+	PreviousKind string                     `json:"previousContextKind"`
+	// Note that the JSON property names here aren't quite the same as the logical property names - the
+	// former are what are really used in the JSON data, the latter correspond to how they're described
+	// in the ldevents API
+}
+
 func newEventSummarizingRelay(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
@@ -148,13 +159,15 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 				er.eventProcessor.RecordIdentifyEvent(e)
 			case ldevents.CustomEvent:
 				er.eventProcessor.RecordCustomEvent(e)
+			case ldevents.AliasEvent:
+				er.eventProcessor.RecordAliasEvent(e)
 			}
 		}
 	}
 	return true
 }
 
-func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (ldevents.Event, error) {
+func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (interface{}, error) {
 	var kindFieldOnly struct {
 		Kind string
 	}
@@ -264,6 +277,19 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 				CreationDate: e.CreationDate,
 				User:         e.User.asEventUser(),
 			},
+		}, nil
+	case ldevents.AliasEventKind:
+		var e receivedAliasEvent
+		err := json.Unmarshal(rawEvent, &e)
+		if err != nil {
+			return nil, err
+		}
+		return ldevents.AliasEvent{
+			CreationDate: e.CreationDate,
+			CurrentKey:   e.CurrentKey,
+			CurrentKind:  e.CurrentKind,
+			PreviousKey:  e.PreviousKey,
+			PreviousKind: e.PreviousKind,
 		}, nil
 	}
 	return nil, errUnknownEventKind(kindFieldOnly.Kind)

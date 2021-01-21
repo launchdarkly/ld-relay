@@ -126,8 +126,8 @@ Endpoint                     | Method | Proxied Subdomain | Description
 `/diagnostic`                | `POST` | `events.` | Receives diagnostic data from SDKs
 `/flags`                     | `GET`  | `stream.` | SSE stream for flag data (older SDKs)
 `/sdk/flags`                 | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/flags/{flagKey}`       | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/segments/{segmentKey}` | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
+`/sdk/flags/{key}`           | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
+`/sdk/segments/{key}`        | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
 
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
@@ -159,24 +159,24 @@ The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` head
 
 ### Endpoints that client-side JavaScript SDKs use
 
-`{clientId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
+`{envId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
 
 `{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
 
 These endpoints also support the `OPTION` method to enable CORS requests from browsers.
 
-Endpoint                             | Method   | Proxied Subdomain | Description
+Endpoint                          | Method   | Proxied Subdomain | Description
 -------------------------------------|:--------:|:---------------:|------------------------------------
-`/a/{clientId}.gif?d=*events*`       | `GET`    | `events.`       | Alternative analytics event mechanism used if browser does not allow CORS
-`/eval/{clientId}/{user}`            | `GET`    | `clientstream.` | SSE stream of "ping" and other events for JS and other client-side SDK listeners
-`/eval/{clientId}`                   | `REPORT` | `clientstream.` | Same as above but request body is user JSON object
-`/events/bulk/{clientId}`            | `POST`   | `events.`       | Receives analytics events from SDKs
-`/events/diagnostic/{clientId}`      | `POST`   | `events.`       | Receives diagnostic data from SDKs
-`/ping/{clientId}`                   | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
-`/sdk/eval/{clientId}/users/{user}`  | `GET`    | `app.`          | Polling endpoint for older SDKs, returns flag evaluation results for a user
-`/sdk/eval/{clientId}/users`         | `REPORT` | `app.`          | Same as above but request body is user JSON object
-`/sdk/evalx/{clientId}/users/{user}` | `GET`    | `app.`          | Polling endpoint, returns flag evaluation results and additional metadata
-`/sdk/evalx/{clientId}/users`        | `REPORT` | `app.`          | Same as above but request body is user JSON object
-`/sdk/goals/{clientId}`              | `GET`    | `app.`          | Provides goals data used by JS SDK
+`/a/{envId}.gif?d=*events*`       | `GET`    | `events.`       | Alternative analytics event mechanism used if browser does not allow CORS
+`/eval/{envId}/{user}`            | `GET`    | `clientstream.` | SSE stream of "ping" and other events for JS and other client-side SDK listeners
+`/eval/{envId}`                   | `REPORT` | `clientstream.` | Same as above but request body is user JSON object
+`/events/bulk/{envId}`            | `POST`   | `events.`       | Receives analytics events from SDKs
+`/events/diagnostic/{envId}`      | `POST`   | `events.`       | Receives diagnostic data from SDKs
+`/ping/{envId}`                   | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
+`/sdk/eval/{envId}/users/{user}`  | `GET`    | `app.`          | Polling endpoint for older SDKs, returns flag evaluation results for a user
+`/sdk/eval/{envId}/users`         | `REPORT` | `app.`          | Same as above but request body is user JSON object
+`/sdk/evalx/{envId}/users/{user}` | `GET`    | `app.`          | Polling endpoint, returns flag evaluation results and additional metadata
+`/sdk/evalx/{envId}/users`        | `REPORT` | `app.`          | Same as above but request body is user JSON object
+`/sdk/goals/{envId}`              | `GET`    | `app.`          | Provides goals data used by JS SDK
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.
