@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.3] - 2021-01-21
+### Changed:
+- The Relay Proxy now uses a more efficient JSON reading and writing mechanism instead of Go&#39;s `encoding/json` when it is reading feature flag data from LaunchDarkly, and when it is creating JSON responses for SDK endpoints. Both CPU usage and the number of memory allocations have been greatly decreased for these operations. How much of a performance improvement this represents in the real world for any given Relay Proxy instance will depend on how often these operations are being done, that is, how often there are flag updates from LaunchDarkly and/or requests from SDK clients.
+- When proxying events from the PHP SDK, the Relay Proxy now supports a new type of event, &#34;alias&#34;, which will be implemented in a future release of the PHP SDK.
+
+### Fixed:
+- During startup, if a timeout occurs while waiting for data from LaunchDarkly, the Relay Proxy endpoints for that environment will stop returning 503 errors (as they do while waiting for initialization), and start accepting requests even though the environment is not fully initialized yet—in case there is any last-known data (that is, in a database) from an earlier successful startup. This is the standard behavior of the server-side SDKs, and it was the behavior of the Relay Proxy prior to the 6.0 release but had been accidentally changed.
+- Corrected and clarified documentation pages &#34;[Metrics](https://github.com/launchdarkly/ld-relay/blob/v6/docs/metrics.md)&#34; and &#34;[Service endpoints](https://github.com/launchdarkly/ld-relay/blob/v6/docs/endpoints.md)&#34;.
+
 ## [6.1.2] - 2020-12-04
 ### Fixed:
 - In a load-balanced configuration where multiple Relay Proxy instances were sharing a single database for their own persistent storage, but SDK clients were connecting to the Relay Proxy streaming endpoints via HTTP instead of reading from the database, it was possible for some of the Relay Proxy instances to fail to transmit a feature flag update from LaunchDarkly to the SDK clients (because they would see that another Relay Proxy instance had already updated the database, and would incorrectly assume that this meant clients already knew about it). This problem was introduced in version 6.0.0 and is fixed in this release.
