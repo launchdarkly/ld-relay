@@ -259,6 +259,14 @@ const (
 	}
 ]`
 
+	aliasEvents = `
+[
+	{
+		"kind": "alias", "creationDate": 1000, "key": "userkey1", "contextKind": "user",
+		"previousKey": "anonkey", "previousContextKind": "anonymous"
+	}
+]`
+
 	malformedEventsAndGoodIdentifyEventsInWellFormedJSON = `
 [
 	{

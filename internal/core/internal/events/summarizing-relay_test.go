@@ -225,6 +225,17 @@ func TestSummarizeIdentifyEventsLeavesEventsUnchanged(t *testing.T) {
 	})
 }
 
+func TestSummarizeAliasEventsLeavesEventsUnchanged(t *testing.T) {
+	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
+		req := st.BuildRequest("POST", "/", []byte(aliasEvents), headersWithEventSchema(0))
+		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.flush()
+
+		payload := expectSummarizedPayload(t, p.requestsCh)
+		assert.JSONEq(t, aliasEvents, payload)
+	})
+}
+
 func TestSummarizingRelayDiscardsMalformedEvents(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(malformedEventsAndGoodIdentifyEventsInWellFormedJSON), headersWithEventSchema(0))
