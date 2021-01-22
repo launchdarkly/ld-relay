@@ -34,9 +34,9 @@ require (
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.0
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.2.1
-	gopkg.in/launchdarkly/go-sdk-events.v1 v1.0.2-0.20210105230813-8d9aa7df8ed2
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.1.0
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.1.2
+	gopkg.in/launchdarkly/go-sdk-common.v2 v2.2.2
+	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.0
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.1.1
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.1.4
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
