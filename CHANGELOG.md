@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.4] - 2021-01-21
+### Fixed:
+- Incorporated the fix in version [5.1.3](https://github.com/launchdarkly/go-server-sdk/releases/tag/5.1.3) of the LaunchDarkly Go SDK for feature flags that use semantic version operators. This affects client-side SDKs that connect to the Relay Proxy to evaluate flags.
+- A bug was introduced in version 6.1.3 causing an Info-level log message `got put: {DATA}` to be logged upon making a stream connection to LaunchDarkly, where `{DATA}` was the JSON representation of all of the feature flag data received from LaunchDarkly. This has been removed.
+
 ## [6.1.3] - 2021-01-21
 ### Changed:
 - The Relay Proxy now uses a more efficient JSON reading and writing mechanism instead of Go&#39;s `encoding/json` when it is reading feature flag data from LaunchDarkly, and when it is creating JSON responses for SDK endpoints. Both CPU usage and the number of memory allocations have been greatly decreased for these operations. How much of a performance improvement this represents in the real world for any given Relay Proxy instance will depend on how often these operations are being done, that is, how often there are flag updates from LaunchDarkly and/or requests from SDK clients.
