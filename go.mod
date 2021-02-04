@@ -8,7 +8,7 @@ require (
 	github.com/DataDog/datadog-go v3.7.2+incompatible // indirect
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20190726131236-c7b72e836616
 	github.com/antihax/optional v1.0.0
-	github.com/aws/aws-sdk-go v1.15.74
+	github.com/aws/aws-sdk-go v1.37.2
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/gomodule/redigo v1.8.2
 	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
@@ -22,7 +22,7 @@ require (
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
-	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.0
+	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo v1.0.0
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c
