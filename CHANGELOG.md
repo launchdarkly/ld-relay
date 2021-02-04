@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.5] - 2021-02-04
+### Changed:
+- Updated the AWS SDK version used for DynamoDB access to 1.37.2. Among other improvements as described in the [AWS Go SDK release notes](https://github.com/aws/aws-sdk-go/blob/master/CHANGELOG.md), this allows it to support [IAM roles for service accounts](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts-minimum-sdk.html). ([#127](https://github.com/launchdarkly/ld-relay/issues/127))
+
 ## [6.1.4] - 2021-01-21
 ### Fixed:
 - Incorporated the fix in version [5.1.3](https://github.com/launchdarkly/go-server-sdk/releases/tag/5.1.3) of the LaunchDarkly Go SDK for feature flags that use semantic version operators. This affects client-side SDKs that connect to the Relay Proxy to evaluate flags.
