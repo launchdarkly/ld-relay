@@ -152,9 +152,11 @@ func defaultArchiveManagerFactory(filePath string, handler filedata.UpdateHandle
 	return am, err
 }
 
-// Close shuts down components created by the Relay.
+// Close shuts down components created by the Relay Proxy.
 //
-// Currently this includes only the metrics components; it does not close SDK clients.
+// This includes dropping all connections to the LaunchDarkly services and to SDK clients,
+// closing database connections if any, and stopping all Relay port listeners, goroutines,
+// and OpenCensus exporters.
 func (r *Relay) Close() error {
 	if r.autoConfigStream != nil {
 		r.autoConfigStream.Close()
