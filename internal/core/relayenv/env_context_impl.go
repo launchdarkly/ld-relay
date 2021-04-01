@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
@@ -59,6 +60,8 @@ type envContextImpl struct {
 	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
 	jsContext        JSClientContext
 	eventDispatcher  *events.EventDispatcher
+	bigSegmentSync   *bigsegments.BigSegmentSynchronizer
+	bigSegmentStore  bigsegments.BigSegmentStore
 	sdkConfig        ld.Config
 	sdkClientFactory sdks.ClientFactoryFunc
 	metricsManager   *metrics.Manager
@@ -144,6 +147,24 @@ func NewEnvContext(
 		ttl:              envConfig.TTL.GetOrElse(0),
 		dataStoreInfo:    dataStoreInfo,
 		creationTime:     time.Now(),
+	}
+
+	if allConfig.Redis.Host != "" {
+		bigSegmentRedis, err := bigsegments.NewRedisBigSegmentStore(allConfig.Redis.Host, false, envLoggers)
+		if err != nil {
+			return nil, err
+		}
+		thingsToCleanUp.AddCloser(bigSegmentRedis)
+		envContext.bigSegmentStore = bigSegmentRedis
+
+		bigSegmentSync, err := bigsegments.NewBigSegmentSynchronizer(
+			httpConfig, bigSegmentRedis, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
+			envConfig.EnvID, envConfig.SDKKey, envLoggers)
+		if err != nil {
+			return nil, err
+		}
+		thingsToCleanUp.AddFunc(bigSegmentSync.Close)
+		envContext.bigSegmentSync = bigSegmentSync
 	}
 
 	envStreams := streams.NewEnvStreams(
@@ -469,6 +490,12 @@ func (c *envContextImpl) Close() error {
 	}
 	if c.eventDispatcher != nil {
 		c.eventDispatcher.Close()
+	}
+	if c.bigSegmentSync != nil {
+		c.bigSegmentSync.Close()
+	}
+	if c.bigSegmentStore != nil {
+		_ = c.bigSegmentStore.Close()
 	}
 	return nil
 }
