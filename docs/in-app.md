@@ -28,7 +28,7 @@ if err != nil {
 }
 
 router := mux.NewRouter()
-router.PathPrefix("/relay").Handler(r)
+router.PathPrefix("/relay").Handler(http.StripPrefix("/relay", r))
 ```
 
 The above example uses a configuration file. You can also pass in a `config.Config` struct that you have filled in directly. Note that some of the fields use types from `github.com/launchdarkly/go-configtypes` to enforce validation rules.
