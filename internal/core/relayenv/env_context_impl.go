@@ -241,7 +241,12 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
+	var sdkBigSegments interfaces.BigSegmentsConfigurationFactory
+	if envContext.bigSegmentStore != nil {
+		sdkBigSegments = sdks.ConfigureBigSegments(allConfig, envConfig, loggers)
+	}
 	envContext.sdkConfig = ld.Config{
+		BigSegments:      sdkBigSegments,
 		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,

@@ -28,7 +28,7 @@ build:
 	go build .
 
 test:
-	go test -run=not-a-real-test, -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
+	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
 	go test -race -v $(OPTIONAL_TAGS_PARAM) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
@@ -46,7 +46,7 @@ benchmarks: build
 
 $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 	@mkdir -p ./build
-	go test -run=not-a-real-test, -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
+	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
 	go test $(OPTIONAL_TAGS_PARAM) -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
 
 $(LINTER_VERSION_FILE):

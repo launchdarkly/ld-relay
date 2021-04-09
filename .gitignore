@@ -39,3 +39,6 @@ build
 .vscode
 _testservice/testservice
 _testservice/*.pid
+
+temp_feature_branch_git_ssh_key
+temp_feature_branch_git_ssh_key.pub

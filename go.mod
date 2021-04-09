@@ -19,12 +19,12 @@ require (
 	github.com/hashicorp/consul/api v1.5.0
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/api-client-go v3.7.0+incompatible
+	github.com/launchdarkly/api-client-go v5.0.2+incompatible
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.1
-	github.com/launchdarkly/go-server-sdk-redis-redigo v1.0.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo v1.0.1-0.20210330003600-50e820610b2b
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c
 	github.com/philhofer/fwd v1.0.0 // indirect
@@ -35,9 +35,15 @@ require (
 	gopkg.in/DataDog/dd-trace-go.v1 v1.16.1 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.0
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.2.2
+	gopkg.in/launchdarkly/go-sdk-common.v2 v2.3.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.0
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.1.1
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.1.4
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.2.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.3.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+replace gopkg.in/launchdarkly/go-server-sdk.v5 => github.com/launchdarkly/go-server-sdk-private/v5 v5.2.2-0.20210326211533-83aa5606d774
+
+replace gopkg.in/launchdarkly/go-sdk-common.v2 => github.com/launchdarkly/go-sdk-common-private/v2 v2.2.3-0.20210323175925-2f53ef23e94c
+
+replace gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 => github.com/launchdarkly/go-server-sdk-evaluation-private v1.2.1-0.20210323201644-112b8c0df0c7

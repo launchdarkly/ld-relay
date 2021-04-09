@@ -4,10 +4,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
+
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo"
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
@@ -50,27 +51,12 @@ func ConfigureDataStore(
 	loggers ldlog.Loggers,
 ) (interfaces.DataStoreFactory, DataStoreEnvironmentInfo, error) {
 	if allConfig.Redis.URL.IsDefined() {
-		dbConfig := allConfig.Redis
-		redisURL := dbConfig.URL.String()
-
-		if dbConfig.TLS {
-			if strings.HasPrefix(redisURL, "redis:") {
-				// Redigo's DialUseTLS option will not work if you're specifying a URL.
-				redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
-			}
-		}
+		// Our config validation already takes care of normalizing the Redis parameters so that if a
+		// host & port were specified, they are transformed into a URL.
+		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
 
 		loggers.Infof("Using Redis feature store: %s with prefix: %s", redisURL, envConfig.Prefix)
 
-		var dialOptions []redigo.DialOption
-		if dbConfig.Password != "" {
-			dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
-		}
-
-		builder := ldredis.DataStore().
-			URL(redisURL).
-			Prefix(envConfig.Prefix).
-			DialOptions(dialOptions...)
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "redis",
 			DBServer: redisURL,
@@ -80,8 +66,8 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldredis.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		return ldcomponents.PersistentDataStore(redisBuilder).
+			CacheTime(allConfig.Redis.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
 	if allConfig.Consul.Host != "" {
@@ -146,4 +132,54 @@ func ConfigureDataStore(
 	}
 
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
+}
+
+// ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay
+// configuration, or nil if big segments are not enabled. The big segments stores in Relay's SDK
+// instances are used for client-side evaluations; server-side SDKs will read from the same database
+// via their own big segments stores, which will need to be configured similarly to what's here.
+//
+// This method always returns either a configuration factory or nil. There is no error return
+// because there aren't any invalid configuration conditions that wouldn't have already caused
+// errors; if there's something in the inputs that we don't understand at this point, we can just
+// ignore it and return nil. The configuration factory itself contains a mechanism for reporting
+// errors (like inability to start a database client) later when the SDK client is started.
+func ConfigureBigSegments(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+	loggers ldlog.Loggers,
+) interfaces.BigSegmentsConfigurationFactory {
+	if allConfig.Redis.URL.IsDefined() {
+		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
+		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redisURL, envConfig.Prefix)
+		return ldcomponents.BigSegments(redisBuilder)
+	}
+
+	return nil
+}
+
+func makeRedisDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (builder *ldredis.DataStoreBuilder, url string) {
+	dbConfig := allConfig.Redis
+	redisURL := dbConfig.URL.String()
+
+	if dbConfig.TLS {
+		if strings.HasPrefix(redisURL, "redis:") {
+			// Redigo's DialUseTLS option will not work if you're specifying a URL.
+			redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
+		}
+	}
+
+	var dialOptions []redigo.DialOption
+	if dbConfig.Password != "" {
+		dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
+	}
+
+	b := ldredis.DataStore().
+		URL(redisURL).
+		Prefix(envConfig.Prefix).
+		DialOptions(dialOptions...)
+	return b, redisURL
 }

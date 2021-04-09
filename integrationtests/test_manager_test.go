@@ -293,9 +293,9 @@ func (m *integrationTestManager) deleteEnvironment(project projectInfo, env envi
 
 func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
 	config.SDKKey, error) {
-	var apiOptions *ldapi.ResetEnvironmentSDKKeyOpts
+	var apiOptions *ldapi.EnvironmentsApiResetEnvironmentSDKKeyOpts
 	if !expirationTime.IsZero() {
-		apiOptions = &ldapi.ResetEnvironmentSDKKeyOpts{Expiry: optional.NewInt64(int64(ldtime.UnixMillisFromTime(expirationTime)))}
+		apiOptions = &ldapi.EnvironmentsApiResetEnvironmentSDKKeyOpts{Expiry: optional.NewInt64(int64(ldtime.UnixMillisFromTime(expirationTime)))}
 	}
 	envResult, _, err := m.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(m.apiContext, project.key, env.key, apiOptions)
 	var newKey config.SDKKey
