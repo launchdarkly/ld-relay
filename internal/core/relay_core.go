@@ -221,21 +221,20 @@ func (r *RelayCore) AddEnvironment(
 		return r.clientFactory(sdkKey, config)
 	}
 
-	clientContext, err := relayenv.NewEnvContext(
-		identifiers,
-		envConfig,
-		r.config,
-		wrappedClientFactory,
-		dataStoreFactory,
-		dataStoreInfo,
-		r.allStreamProviders(),
-		jsClientContext,
-		r.metricsManager,
-		r.userAgent,
-		r.envLogNameMode,
-		r.Loggers,
-		resultCh,
-	)
+	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+		Identifiers:      identifiers,
+		EnvConfig:        envConfig,
+		AllConfig:        r.config,
+		ClientFactory:    wrappedClientFactory,
+		DataStoreFactory: dataStoreFactory,
+		DataStoreInfo:    dataStoreInfo,
+		StreamProviders:  r.allStreamProviders(),
+		JSClientContext:  jsClientContext,
+		MetricsManager:   r.metricsManager,
+		UserAgent:        r.userAgent,
+		LogNameMode:      r.envLogNameMode,
+		Loggers:          r.Loggers,
+	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
 	}

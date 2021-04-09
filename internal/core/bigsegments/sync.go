@@ -25,7 +25,33 @@ const (
 )
 
 // BigSegmentSynchronizer synchronizes big segment state for a given environment.
-type BigSegmentSynchronizer struct {
+type BigSegmentSynchronizer interface {
+	// Start begins synchronization of an environment.
+	//
+	// This method does not block.
+	Start()
+
+	// Close ends synchronization of an evironment.
+	//
+	// This method does not block.
+	Close()
+}
+
+// BigSegmentSynchronizerFactory creates an implementation of BigSegmentSynchronizer. We
+// only use a single implementation in real life, but this allows us to use a mock one
+// in tests. Calling the factory does not automatically start the synchronizer.
+type BigSegmentSynchronizerFactory func(
+	httpConfig httpconfig.HTTPConfig,
+	store BigSegmentStore,
+	pollURI string,
+	streamURI string,
+	envID config.EnvironmentID,
+	sdkKey config.SDKKey,
+	loggers ldlog.Loggers,
+) BigSegmentSynchronizer
+
+// defaultBigSegmentSynchronizer is the standard implementation of BigSegmentSynchronizer.
+type defaultBigSegmentSynchronizer struct {
 	httpConfig httpconfig.HTTPConfig
 	store      BigSegmentStore
 	pollURI    string
@@ -37,10 +63,8 @@ type BigSegmentSynchronizer struct {
 	loggers    ldlog.Loggers
 }
 
-// NewBigSegmentSynchronizer creates a big segment synchronizer for a given environment.
-//
-// The synchronizer is not automatically started.
-func NewBigSegmentSynchronizer(
+// DefaultBigSegmentSynchronizerFactory creates the default implementation of BigSegmentSynchronizer.
+func DefaultBigSegmentSynchronizerFactory(
 	httpConfig httpconfig.HTTPConfig,
 	store BigSegmentStore,
 	pollURI string,
@@ -48,8 +72,20 @@ func NewBigSegmentSynchronizer(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
-) (*BigSegmentSynchronizer, error) {
-	s := BigSegmentSynchronizer{
+) BigSegmentSynchronizer {
+	return newDefaultBigSegmentSynchronizer(httpConfig, store, pollURI, streamURI, envID, sdkKey, loggers)
+}
+
+func newDefaultBigSegmentSynchronizer(
+	httpConfig httpconfig.HTTPConfig,
+	store BigSegmentStore,
+	pollURI string,
+	streamURI string,
+	envID config.EnvironmentID,
+	sdkKey config.SDKKey,
+	loggers ldlog.Loggers,
+) *defaultBigSegmentSynchronizer {
+	s := defaultBigSegmentSynchronizer{
 		httpConfig: httpConfig,
 		store:      store,
 		pollURI:    strings.TrimSuffix(pollURI, "/") + unboundedPollPath,
@@ -62,7 +98,7 @@ func NewBigSegmentSynchronizer(
 
 	s.loggers.SetPrefix("BigSegmentSynchronizer:")
 
-	return &s, nil
+	return &s
 }
 
 type httpStatusError struct {
@@ -73,23 +109,17 @@ func (m httpStatusError) Error() string {
 	return fmt.Sprintf("HTTP error %d", m.statusCode)
 }
 
-// Start begins synchronization of an environment.
-//
-// This method does not block.
-func (s *BigSegmentSynchronizer) Start() {
+func (s *defaultBigSegmentSynchronizer) Start() {
 	go s.syncSupervisor()
 }
 
-// Close ends synchronization of an evironment.
-//
-// This method does not block.
-func (s *BigSegmentSynchronizer) Close() {
+func (s *defaultBigSegmentSynchronizer) Close() {
 	s.closeOnce.Do(func() {
 		close(s.closeChan)
 	})
 }
 
-func (s *BigSegmentSynchronizer) syncSupervisor() {
+func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 	for {
 		timer := time.NewTimer(retryInterval)
 		err := s.sync()
@@ -109,7 +139,7 @@ func (s *BigSegmentSynchronizer) syncSupervisor() {
 	}
 }
 
-func (s *BigSegmentSynchronizer) sync() error {
+func (s *defaultBigSegmentSynchronizer) sync() error {
 	for {
 	SyncLoop:
 		for {
@@ -141,7 +171,7 @@ func (s *BigSegmentSynchronizer) sync() error {
 			continue
 		}
 
-		err = s.store.setSynchronizedOn(string(s.envID), time.Now())
+		err = s.store.setSynchronizedOn(time.Now())
 		if err != nil {
 			s.loggers.Error("updating store timestamp failed:", err)
 			return err
@@ -170,7 +200,7 @@ func isHTTPErrorRecoverable(statusCode int) bool {
 	return true
 }
 
-func (s *BigSegmentSynchronizer) poll() (bool, error) {
+func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 	client := s.httpConfig.Client()
 
 	request, err := http.NewRequest("GET", s.pollURI, nil)
@@ -180,7 +210,7 @@ func (s *BigSegmentSynchronizer) poll() (bool, error) {
 
 	request.Header.Set("Authorization", string(s.sdkKey))
 
-	cursor, err := s.store.getCursor(string(s.envID))
+	cursor, err := s.store.getCursor()
 	if err != nil {
 		return false, err
 	}
@@ -222,7 +252,7 @@ func (s *BigSegmentSynchronizer) poll() (bool, error) {
 	return len(patches) == 0, nil
 }
 
-func (s *BigSegmentSynchronizer) connectStream() (*es.Stream, error) {
+func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 	request, err := http.NewRequest("GET", s.streamURI, nil)
 	if err != nil {
 		return nil, err
@@ -247,7 +277,7 @@ func (s *BigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 	return stream, nil
 }
 
-func (s *BigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
+func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 	for {
 		timer := time.NewTimer(synchronizedOnInterval)
 		select {
@@ -269,12 +299,12 @@ func (s *BigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				}
 			}
 
-			err = s.store.setSynchronizedOn(string(s.envID), time.Now())
+			err = s.store.setSynchronizedOn(time.Now())
 			if err != nil {
 				return err
 			}
 		case <-timer.C:
-			err := s.store.setSynchronizedOn(string(s.envID), time.Now())
+			err := s.store.setSynchronizedOn(time.Now())
 			if err != nil {
 				return err
 			}

@@ -134,30 +134,6 @@ func ConfigureDataStore(
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
 }
 
-// ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay
-// configuration, or nil if big segments are not enabled. The big segments stores in Relay's SDK
-// instances are used for client-side evaluations; server-side SDKs will read from the same database
-// via their own big segments stores, which will need to be configured similarly to what's here.
-//
-// This method always returns either a configuration factory or nil. There is no error return
-// because there aren't any invalid configuration conditions that wouldn't have already caused
-// errors; if there's something in the inputs that we don't understand at this point, we can just
-// ignore it and return nil. The configuration factory itself contains a mechanism for reporting
-// errors (like inability to start a database client) later when the SDK client is started.
-func ConfigureBigSegments(
-	allConfig config.Config,
-	envConfig config.EnvConfig,
-	loggers ldlog.Loggers,
-) interfaces.BigSegmentsConfigurationFactory {
-	if allConfig.Redis.URL.IsDefined() {
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
-		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redisURL, envConfig.Prefix)
-		return ldcomponents.BigSegments(redisBuilder)
-	}
-
-	return nil
-}
-
 func makeRedisDataStoreBuilder(
 	allConfig config.Config,
 	envConfig config.EnvConfig,

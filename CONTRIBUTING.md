@@ -49,3 +49,10 @@ To run integration tests, such as a test of Docker deployment:
 ```
 make integration-test
 ```
+
+### Coding guidelines
+
+As this is a larger codebase than most LaunchDarkly open-source projects, we have a few guidelines to maintain internal consistency.
+
+* No packages outside of `internal/` should export any symbols other than the ones that are necessary to support usage of the Relay Proxy [as a library](./docs/in-app.md). Anything else that is visible becomes part of the supported external API for this project and can't be changed without a new major version, so be careful not to export any irrelevant implementation details. Anything within `internal/` can safely be changed.
+* Package imports should be grouped as follows: 1. all built-in Go packages; 2. all packages that are part of this repository (`github.com/launchdarkly/ld-relay/...`); 3. all other LaunchDarkly packages (`github.com/launchdarkly/...`, `gopkg.in/launchdarkly/...`); 4. all third-party packages.

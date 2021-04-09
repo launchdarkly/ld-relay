@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/stretchr/testify/assert"
@@ -35,14 +36,14 @@ func (s *bigSegmentStoreMock) applyPatch(patch bigSegmentPatch) error {
 	return nil
 }
 
-func (s *bigSegmentStoreMock) getCursor(environmentID string) (string, error) {
+func (s *bigSegmentStoreMock) getCursor() (string, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	return s.cursor, nil
 }
 
-func (s *bigSegmentStoreMock) setSynchronizedOn(environmentID string, synchronizedOn time.Time) error {
+func (s *bigSegmentStoreMock) setSynchronizedOn(synchronizedOn time.Time) error {
 	s.syncTimeCh <- synchronizedOn
 
 	return nil
@@ -80,16 +81,15 @@ func TestBasicSync(t *testing.T) {
 		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
 			sdkKey := config.SDKKey("sdk-abc")
 			startTime := time.Now()
-	
+
 			storeMock := newBigSegmentStoreMock()
 			defer storeMock.Close()
 
 			httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDisabledLoggers())
 			require.NoError(t, err)
 
-			segmentSync, err := NewBigSegmentSynchronizer(httpConfig, storeMock,
+			segmentSync := newDefaultBigSegmentSynchronizer(httpConfig, storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), sdkKey, ldlog.NewDisabledLoggers())
-			require.NoError(t, err)
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -108,7 +108,7 @@ func TestBasicSync(t *testing.T) {
 			require.Equal(t, 0, len(storeMock.patchCh))
 			require.Equal(t, 0, len(requestsCh))
 
-			syncTime := <- storeMock.syncTimeCh
+			syncTime := <-storeMock.syncTimeCh
 			assert.True(t, syncTime.After(startTime))
 			assert.True(t, syncTime.Before(time.Now()))
 
