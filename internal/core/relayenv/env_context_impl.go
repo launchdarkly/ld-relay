@@ -423,6 +423,10 @@ func (c *envContextImpl) GetStore() interfaces.DataStore {
 	return c.storeAdapter.GetStore()
 }
 
+func (c *envContextImpl) GetBigSegmentStore() bigsegments.BigSegmentStore {
+	return c.bigSegmentStore
+}
+
 func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }

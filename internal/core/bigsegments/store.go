@@ -2,11 +2,11 @@ package bigsegments
 
 import (
 	"io"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
 // BigSegmentStore is the interface for interacting with an external big segment store. Each instance
@@ -22,7 +22,12 @@ type BigSegmentStore interface {
 	// getCursor loads the synchronization cursor from the external store.
 	getCursor() (string, error)
 	// setSynchronizedOn stores the synchronization time in the external store
-	setSynchronizedOn(synchronizedOn time.Time) error
+	setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error
+	// GetSynchronizedOn returns the synchronization time from the external store.
+	//
+	// The synchronization time may not exist in the store. Use `IsDefined()` to
+	// check the result.
+	GetSynchronizedOn() (ldtime.UnixMillisecondTime, error)
 }
 
 // BigSegmentStoreFactory creates an implementation of BigSegmentStore, if the configuration
@@ -66,6 +71,10 @@ func (s *nullBigSegmentStore) applyPatch(patch bigSegmentPatch) error { return n
 
 func (s *nullBigSegmentStore) getCursor() (string, error) { return "", nil }
 
-func (s *nullBigSegmentStore) setSynchronizedOn(synchronizedOn time.Time) error {
+func (s *nullBigSegmentStore) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
 	return nil
+}
+
+func (s *nullBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecondTime, error) {
+	return 0, nil
 }

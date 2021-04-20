@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -155,9 +154,24 @@ func (r *redisBigSegmentStore) getCursor() (string, error) {
 	return cursor, nil
 }
 
-func (r *redisBigSegmentStore) setSynchronizedOn(synchronizedOn time.Time) error {
-	unixMilliseconds := strconv.FormatUint(uint64(ldtime.UnixMillisFromTime(synchronizedOn)), 10)
+func (r *redisBigSegmentStore) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
+	unixMilliseconds := strconv.FormatUint(uint64(synchronizedOn), 10)
 	return r.client.Set(context.Background(), bigSegmentsSynchronizedKey(r.prefix), unixMilliseconds, 0).Err()
+}
+
+func (r *redisBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecondTime, error) {
+	synchronizedOn, err := r.client.Get(context.Background(), bigSegmentsSynchronizedKey(r.prefix)).Result()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	milliseconds, err := strconv.ParseInt(synchronizedOn, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return ldtime.UnixMillisecondTime(milliseconds), nil
 }
 
 func (r *redisBigSegmentStore) Close() error {

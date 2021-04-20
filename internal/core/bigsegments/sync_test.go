@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ type bigSegmentStoreMock struct {
 	cursor     string
 	lock       sync.Mutex
 	patchCh    chan bigSegmentPatch
-	syncTimeCh chan time.Time
+	syncTimeCh chan ldtime.UnixMillisecondTime
 }
 
 func (s *bigSegmentStoreMock) applyPatch(patch bigSegmentPatch) error {
@@ -43,10 +44,14 @@ func (s *bigSegmentStoreMock) getCursor() (string, error) {
 	return s.cursor, nil
 }
 
-func (s *bigSegmentStoreMock) setSynchronizedOn(synchronizedOn time.Time) error {
+func (s *bigSegmentStoreMock) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
 	s.syncTimeCh <- synchronizedOn
 
 	return nil
+}
+
+func (s *bigSegmentStoreMock) GetSynchronizedOn() (ldtime.UnixMillisecondTime, error) {
+	return 0, nil
 }
 
 func (s *bigSegmentStoreMock) Close() error {
@@ -56,7 +61,7 @@ func (s *bigSegmentStoreMock) Close() error {
 func newBigSegmentStoreMock() *bigSegmentStoreMock {
 	return &bigSegmentStoreMock{
 		patchCh:    make(chan bigSegmentPatch, 100),
-		syncTimeCh: make(chan time.Time),
+		syncTimeCh: make(chan ldtime.UnixMillisecondTime),
 	}
 }
 
@@ -80,7 +85,7 @@ func TestBasicSync(t *testing.T) {
 	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
 		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
 			sdkKey := config.SDKKey("sdk-abc")
-			startTime := time.Now()
+			startTime := ldtime.UnixMillisNow()
 
 			storeMock := newBigSegmentStoreMock()
 			defer storeMock.Close()
@@ -109,8 +114,8 @@ func TestBasicSync(t *testing.T) {
 			require.Equal(t, 0, len(requestsCh))
 
 			syncTime := <-storeMock.syncTimeCh
-			assert.True(t, syncTime.After(startTime))
-			assert.True(t, syncTime.Before(time.Now()))
+			assert.True(t, syncTime >= startTime)
+			assert.True(t, syncTime <= ldtime.UnixMillisNow())
 
 			requestInfo3 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
 			assert.Equal(t, string(sdkKey), requestInfo2.Request.Header.Get("Authorization"))

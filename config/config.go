@@ -38,6 +38,9 @@ const (
 	// DefaultPrometheusPort is the default value for PrometheusConfig.Port if not specified.
 	DefaultPrometheusPort = 8031
 
+	// DefaultBigSegmentsStaleThreshold is the default value for MainConfig.BigSegmentsStaleThreshold if not specified.
+	DefaultBigSegmentsStaleThreshold = time.Minute * 5
+
 	// AutoConfigEnvironmentIDPlaceholder is a string that can appear within
 	// AutoConfigConfig.EnvDataStorePrefix or AutoConfigConfig.EnvDataStoreTableName to indicate that
 	// the environment ID should be substituted at that point.
@@ -117,6 +120,8 @@ type MainConfig struct {
 	TLSKey                      string                   `conf:"TLS_KEY"`
 	TLSMinVersion               OptTLSVersion            `conf:"TLS_MIN_VERSION"`
 	LogLevel                    OptLogLevel              `conf:"LOG_LEVEL"`
+	BigSegmentsStaleAsDegraded  bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
+	BigSegmentsStaleThreshold   ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.

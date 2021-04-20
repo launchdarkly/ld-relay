@@ -5,9 +5,9 @@ package bigsegments
 import (
 	"context"
 	"testing"
-	"time"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +34,20 @@ func TestGetCursorUnset(t *testing.T) {
 		cursor, err := store.getCursor()
 		require.NoError(t, err)
 		assert.Equal(t, "", cursor)
+	})
+}
+
+func TestGetSetSynchronizedOn(t *testing.T) {
+	withRedisStore(t, func(store *redisBigSegmentStore) {
+		synchronizedOn, err := store.GetSynchronizedOn()
+		assert.Nil(t, synchronizedOn)
+		require.NoError(t, err)
+		timestamp := ldtime.UnixMillisecondTime(1000)
+		err = store.setSynchronizedOn(timestamp)
+		require.NoError(t, err)
+		synchronizedOn, err = store.GetSynchronizedOn()
+		assert.Equal(t, timestamp, synchronizedOn)
+		require.NoError(t, err)
 	})
 }
 
@@ -83,12 +97,12 @@ func TestApplyPatchSequence(t *testing.T) {
 
 func TestSetSynchronizedOn(t *testing.T) {
 	withRedisStore(t, func(store *redisBigSegmentStore) {
-		timestamp := time.Unix(1000, 1000000*5)
+		timestamp := ldtime.UnixMillisecondTime(1005)
 		err := store.setSynchronizedOn(timestamp)
 		require.NoError(t, err)
 
 		externalValue, err := store.client.Get(context.Background(), bigSegmentsSynchronizedKey(envKey)).Result()
 		require.NoError(t, err)
-		assert.Equal(t, externalValue, "1000005")
+		assert.Equal(t, externalValue, "1005")
 	})
 }
