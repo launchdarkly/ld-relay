@@ -33,11 +33,11 @@ func testStandardMode(t *testing.T, manager *integrationTestManager) {
 }
 
 func withStandardModeTestData(t *testing.T, manager *integrationTestManager, fn func(standardModeTestData)) {
-	projsAndEnvs, err := manager.createProjectsAndEnvironments(2, 2)
+	projsAndEnvs, err := manager.apiHelper.createProjectsAndEnvironments(2, 2)
 	require.NoError(t, err)
-	defer manager.deleteProjects(projsAndEnvs)
+	defer manager.apiHelper.deleteProjects(projsAndEnvs)
 
-	require.NoError(t, manager.createFlags(projsAndEnvs))
+	require.NoError(t, manager.apiHelper.createFlags(projsAndEnvs))
 
 	testData := standardModeTestData{
 		projsAndEnvs: projsAndEnvs,

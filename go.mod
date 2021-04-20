@@ -19,7 +19,7 @@ require (
 	github.com/hashicorp/consul/api v1.5.0
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/api-client-go v5.0.2+incompatible
+	github.com/launchdarkly/api-client-go v5.0.3+incompatible
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
@@ -42,8 +42,8 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
-replace gopkg.in/launchdarkly/go-server-sdk.v5 => github.com/launchdarkly/go-server-sdk-private/v5 v5.2.2-0.20210326211533-83aa5606d774
+replace gopkg.in/launchdarkly/go-server-sdk.v5 => github.com/launchdarkly/go-server-sdk-private/v5 v5.2.2-0.20210413213218-cd64424780d1
 
 replace gopkg.in/launchdarkly/go-sdk-common.v2 => github.com/launchdarkly/go-sdk-common-private/v2 v2.2.3-0.20210323175925-2f53ef23e94c
 
-replace gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 => github.com/launchdarkly/go-server-sdk-evaluation-private v1.2.1-0.20210323201644-112b8c0df0c7
+replace gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 => github.com/launchdarkly/go-server-sdk-evaluation-private v1.2.1-0.20210331015005-f7470b45ac71

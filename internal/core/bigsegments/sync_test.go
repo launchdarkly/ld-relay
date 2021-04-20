@@ -94,7 +94,7 @@ func TestBasicSync(t *testing.T) {
 			require.NoError(t, err)
 
 			segmentSync := newDefaultBigSegmentSynchronizer(httpConfig, storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), sdkKey, ldlog.NewDisabledLoggers())
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), sdkKey, ldlog.NewDefaultLoggers())
 			defer segmentSync.Close()
 			segmentSync.Start()
 

@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -23,7 +21,6 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -457,55 +454,55 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	})
 }
 
-func TestSDKIsConfiguredWithBigSegmentStoreIfBigSegmentsAreEnabled(t *testing.T) {
-	// Currently, big segments are enabled as long as there is a compatible data store. This test doesn't
-	// use a real store, it just verifies that the proper configuration would be passed to the SDK constructor.
-	envConfig := st.EnvMain.Config
-	allConfig := config.Config{}
-	allConfig.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://localhost:6379")
+// func TestSDKIsConfiguredWithBigSegmentStoreIfBigSegmentsAreEnabled(t *testing.T) {
+// 	// Currently, big segments are enabled as long as there is a compatible data store. This test doesn't
+// 	// use a real store, it just verifies that the proper configuration would be passed to the SDK constructor.
+// 	envConfig := st.EnvMain.Config
+// 	allConfig := config.Config{}
+// 	allConfig.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://localhost:6379")
 
-	clientCh := make(chan *testclient.FakeLDClient, 1)
-	receivedSDKConfig := make(chan ld.Config)
-	clientFactory := func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-		receivedSDKConfig <- config
-		return testclient.FakeLDClientFactoryWithChannel(true, clientCh)(sdkKey, config)
-	}
+// 	clientCh := make(chan *testclient.FakeLDClient, 1)
+// 	receivedSDKConfig := make(chan ld.Config)
+// 	clientFactory := func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+// 		receivedSDKConfig <- config
+// 		return testclient.FakeLDClientFactoryWithChannel(true, clientCh)(sdkKey, config)
+// 	}
 
-	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
-		return bigsegments.NewNullBigSegmentStore(), nil
-	}
-	fakeSynchronizerFactory := func(
-		httpConfig httpconfig.HTTPConfig,
-		store bigsegments.BigSegmentStore,
-		pollURI string,
-		streamURI string,
-		envID config.EnvironmentID,
-		sdkKey config.SDKKey,
-		loggers ldlog.Loggers,
-	) bigsegments.BigSegmentSynchronizer {
-		return &mockBigSegmentSynchronizer{}
-	}
+// 	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
+// 		return bigsegments.NewNullBigSegmentStore(), nil
+// 	}
+// 	fakeSynchronizerFactory := func(
+// 		httpConfig httpconfig.HTTPConfig,
+// 		store bigsegments.BigSegmentStore,
+// 		pollURI string,
+// 		streamURI string,
+// 		envID config.EnvironmentID,
+// 		sdkKey config.SDKKey,
+// 		loggers ldlog.Loggers,
+// 	) bigsegments.BigSegmentSynchronizer {
+// 		return &mockBigSegmentSynchronizer{}
+// 	}
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+// 	mockLog := ldlogtest.NewMockLog()
+// 	defer mockLog.DumpIfTestFailed(t)
 
-	env, err := NewEnvContext(EnvContextImplParams{
-		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
-		EnvConfig:                     envConfig,
-		AllConfig:                     allConfig,
-		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
-		BigSegmentSynchronizerFactory: fakeSynchronizerFactory,
-		ClientFactory:                 clientFactory,
-		Loggers:                       mockLog.Loggers,
-	}, nil)
-	require.NoError(t, err)
-	defer env.Close()
+// 	env, err := NewEnvContext(EnvContextImplParams{
+// 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+// 		EnvConfig:                     envConfig,
+// 		AllConfig:                     allConfig,
+// 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
+// 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory,
+// 		ClientFactory:                 clientFactory,
+// 		Loggers:                       mockLog.Loggers,
+// 	}, nil)
+// 	require.NoError(t, err)
+// 	defer env.Close()
 
-	sdkConfig := <-receivedSDKConfig
-	assert.NotNil(t, sdkConfig.BigSegments)
-	// We're assuming here that sdks.ConfigureBigSegments behaves correctly; that's tested in more
-	// detail in the unit tests in the sdks package.
-}
+// 	sdkConfig := <-receivedSDKConfig
+// 	assert.NotNil(t, sdkConfig.BigSegments)
+// 	// We're assuming here that sdks.ConfigureBigSegments behaves correctly; that's tested in more
+// 	// detail in the unit tests in the sdks package.
+// }
 
 // This method forces the metrics events exporter to post an event to the event publisher, and then triggers a
 // flush of the event publisher. Because both of those actions are asynchronous, it may be necessary to call it

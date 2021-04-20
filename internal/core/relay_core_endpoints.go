@@ -22,7 +22,6 @@ import (
 	"gopkg.in/launchdarkly/go-jsonstream.v1/jwriter"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
@@ -241,7 +240,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		return
 	}
 
-	evaluator := ldeval.NewEvaluator(ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, loggers))
+	evaluator := clientCtx.Env.GetEvaluator()
 
 	responseWriter := jwriter.NewWriter()
 	responseObj := responseWriter.Object()

@@ -71,7 +71,7 @@ func testPolicyUpdate(t *testing.T, manager *integrationTestManager) {
 		newPolicyResources := []string{
 			fmt.Sprintf("proj/%s:env/%s", testData.project.key, testData.environments[1].key),
 		}
-		err := manager.updateAutoConfigPolicy(testData.autoConfigID, newPolicyResources)
+		err := manager.apiHelper.updateAutoConfigPolicy(testData.autoConfigID, newPolicyResources)
 		require.NoError(t, err)
 
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
@@ -90,7 +90,7 @@ func testAddEnvironment(t *testing.T, manager *integrationTestManager) {
 	withRelayAndTestData(t, manager, func(testData autoConfigTestData) {
 		awaitInitialState(t, manager, testData)
 
-		newEnv, err := manager.addEnvironment(testData.project)
+		newEnv, err := manager.apiHelper.addEnvironment(testData.project)
 		require.NoError(t, err)
 
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
@@ -110,7 +110,7 @@ func testDeleteEnvironment(t *testing.T, manager *integrationTestManager) {
 		awaitInitialState(t, manager, testData)
 		envToDelete := testData.environments[0]
 
-		err := manager.deleteEnvironment(testData.project, envToDelete)
+		err := manager.apiHelper.deleteEnvironment(testData.project, envToDelete)
 		require.NoError(t, err)
 
 		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
@@ -128,7 +128,7 @@ func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManage
 		awaitInitialState(t, manager, testData)
 		envToUpdate := testData.environments[0]
 
-		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Time{})
+		newKey, err := manager.apiHelper.rotateSDKKey(testData.project, envToUpdate, time.Time{})
 		require.NoError(t, err)
 
 		updatedEnv := envToUpdate
@@ -151,9 +151,9 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 		oldKey := envToUpdate.sdkKey
 
 		projAndEnvs := projsAndEnvs{testData.project: testData.environments}
-		require.NoError(t, manager.createFlags(projAndEnvs))
+		require.NoError(t, manager.apiHelper.createFlags(projAndEnvs))
 
-		newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
+		newKey, err := manager.apiHelper.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 
 		updatedEnv := envToUpdate
@@ -179,16 +179,16 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 
 func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integrationTestManager) {
 	testData := setupAutoConfigTestData(t, manager)
-	defer manager.deleteProject(testData.project)
-	defer manager.deleteAutoConfigKey(testData.autoConfigID)
+	defer manager.apiHelper.deleteProject(testData.project)
+	defer manager.apiHelper.deleteAutoConfigKey(testData.autoConfigID)
 
 	projAndEnvs := projsAndEnvs{testData.project: testData.environments}
-	require.NoError(t, manager.createFlags(projAndEnvs))
+	require.NoError(t, manager.apiHelper.createFlags(projAndEnvs))
 
 	envToUpdate := testData.environments[0]
 	oldKey := envToUpdate.sdkKey
 
-	newKey, err := manager.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
+	newKey, err := manager.apiHelper.rotateSDKKey(testData.project, envToUpdate, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 
 	updatedEnv := envToUpdate
@@ -225,7 +225,7 @@ func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
 		awaitInitialState(t, manager, testData)
 		envToUpdate := testData.environments[0]
 
-		newKey, err := manager.rotateMobileKey(testData.project, envToUpdate)
+		newKey, err := manager.apiHelper.rotateMobileKey(testData.project, envToUpdate)
 		require.NoError(t, err)
 
 		updatedEnv := envToUpdate
@@ -249,13 +249,13 @@ func last5(s string) string {
 }
 
 func setupAutoConfigTestData(t *testing.T, manager *integrationTestManager) autoConfigTestData {
-	projectInfo, environments, err := manager.createProject(2)
+	projectInfo, environments, err := manager.apiHelper.createProject(2)
 	require.NoError(t, err)
 
 	policyResources := []string{
 		fmt.Sprintf("proj/%s:env/*", projectInfo.key),
 	}
-	configID, configKey, err := manager.createAutoConfigKey(policyResources)
+	configID, configKey, err := manager.apiHelper.createAutoConfigKey(policyResources)
 	require.NoError(t, err)
 
 	return autoConfigTestData{
@@ -268,8 +268,8 @@ func setupAutoConfigTestData(t *testing.T, manager *integrationTestManager) auto
 
 func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action func(autoConfigTestData)) {
 	testData := setupAutoConfigTestData(t, manager)
-	defer manager.deleteProject(testData.project)
-	defer manager.deleteAutoConfigKey(testData.autoConfigID)
+	defer manager.apiHelper.deleteProject(testData.project)
+	defer manager.apiHelper.deleteAutoConfigKey(testData.autoConfigID)
 
 	manager.startRelay(t, map[string]string{
 		"AUTO_CONFIG_KEY": string(testData.autoConfigKey),

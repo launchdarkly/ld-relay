@@ -18,10 +18,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -67,30 +69,33 @@ type EnvContextImplParams struct {
 }
 
 type envContextImpl struct {
-	mu               sync.RWMutex
-	clients          map[config.SDKKey]sdks.LDClientContext
-	storeAdapter     *store.SSERelayDataStoreAdapter
-	loggers          ldlog.Loggers
-	credentials      map[config.SDKCredential]bool // true if not deprecated
-	identifiers      EnvIdentifiers
-	secureMode       bool
-	envStreams       *streams.EnvStreams
-	streamProviders  []streams.StreamProvider
-	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
-	jsContext        JSClientContext
-	eventDispatcher  *events.EventDispatcher
-	bigSegmentSync   bigsegments.BigSegmentSynchronizer
-	bigSegmentStore  bigsegments.BigSegmentStore
-	sdkConfig        ld.Config
-	sdkClientFactory sdks.ClientFactoryFunc
-	metricsManager   *metrics.Manager
-	metricsEnv       *metrics.EnvironmentManager
-	metricsEventPub  events.EventPublisher
-	dataStoreInfo    sdks.DataStoreEnvironmentInfo
-	globalLoggers    ldlog.Loggers
-	ttl              time.Duration
-	initErr          error
-	creationTime     time.Time
+	mu                   sync.RWMutex
+	clients              map[config.SDKKey]sdks.LDClientContext
+	storeAdapter         *store.SSERelayDataStoreAdapter
+	loggers              ldlog.Loggers
+	credentials          map[config.SDKCredential]bool // true if not deprecated
+	identifiers          EnvIdentifiers
+	secureMode           bool
+	envStreams           *streams.EnvStreams
+	streamProviders      []streams.StreamProvider
+	handlers             map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	jsContext            JSClientContext
+	evaluator            ldeval.Evaluator
+	eventDispatcher      *events.EventDispatcher
+	bigSegmentSync       bigsegments.BigSegmentSynchronizer
+	bigSegmentStore      bigsegments.BigSegmentStore
+	sdkBigSegments       *ldstoreimpl.BigSegmentStoreWrapper
+	sdkConfig            ld.Config
+	sdkBigSegmentFactory interfaces.BigSegmentsConfigurationFactory
+	sdkClientFactory     sdks.ClientFactoryFunc
+	metricsManager       *metrics.Manager
+	metricsEnv           *metrics.EnvironmentManager
+	metricsEventPub      events.EventPublisher
+	dataStoreInfo        sdks.DataStoreEnvironmentInfo
+	globalLoggers        ldlog.Loggers
+	ttl                  time.Duration
+	initErr              error
+	creationTime         time.Time
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -181,6 +186,14 @@ func NewEnvContext(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
 			envConfig.EnvID, envConfig.SDKKey, envLoggers)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		envContext.bigSegmentSync.Start()
+
+		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
+		// to really query the big segment store. Currently it always returns true because we are always
+		// running the synchronizer.
+		allowBigSegmentStatusQueries := func() bool { return true }
+		envContext.sdkBigSegmentFactory = sdks.ConfigureBigSegments(allConfig, envConfig,
+			allowBigSegmentStatusQueries, params.Loggers)
 	}
 
 	envStreams := streams.NewEnvStreams(
@@ -261,16 +274,7 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
-	var sdkBigSegments interfaces.BigSegmentsConfigurationFactory
-	if envContext.bigSegmentStore != nil {
-		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
-		// to really query the big segment store. Currently it always returns true because we are always
-		// running the synchronizer.
-		allowBigSegmentStatusQueries := func() bool { return true }
-		sdkBigSegments = sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
-	}
 	envContext.sdkConfig = ld.Config{
-		BigSegments:      sdkBigSegments,
 		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
@@ -291,10 +295,33 @@ func NewEnvContext(
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
+
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
 		c.clients[sdkKey] = client
+
+		store := c.storeAdapter.GetStore()
+		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+		var bigSegConfig interfaces.BigSegmentsConfiguration
+		if c.sdkBigSegmentFactory != nil {
+			bigSegConfig, err = c.sdkBigSegmentFactory.CreateBigSegmentsConfiguration(
+				sdks.NewSimpleClientContext(string(sdkKey), c.sdkConfig))
+		}
+		if bigSegConfig == nil {
+			c.evaluator = ldeval.NewEvaluator(dataProvider)
+		} else {
+			c.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapper(
+				bigSegConfig.GetStore(),
+				nil,
+				bigSegConfig.GetStatusPollInterval(),
+				bigSegConfig.GetStaleAfter(),
+				bigSegConfig.GetUserCacheSize(),
+				bigSegConfig.GetUserCacheTime(),
+				c.loggers,
+			)
+			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
+		}
 	}
 	c.mu.Unlock()
 
@@ -423,6 +450,13 @@ func (c *envContextImpl) GetStore() interfaces.DataStore {
 	return c.storeAdapter.GetStore()
 }
 
+func (c *envContextImpl) GetEvaluator() ldeval.Evaluator {
+	c.mu.RLock()
+	ret := c.evaluator
+	c.mu.RUnlock()
+	return ret
+}
+
 func (c *envContextImpl) GetBigSegmentStore() bigsegments.BigSegmentStore {
 	return c.bigSegmentStore
 }
@@ -529,6 +563,9 @@ func (c *envContextImpl) Close() error {
 	}
 	if c.bigSegmentStore != nil {
 		_ = c.bigSegmentStore.Close()
+	}
+	if c.sdkBigSegments != nil {
+		c.sdkBigSegments.Close()
 	}
 	return nil
 }

@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	unboundedPollPath      = "/relay/unbounded-segments/revisions"
-	unboundedStreamPath    = "/unbounded-segments"
+	unboundedPollPath      = "/sdk/unbounded-segments/revisions"
+	unboundedStreamPath    = "/unbounded_segments"
 	streamReadTimeout      = 5 * time.Minute
 	retryInterval          = 10 * time.Second
 	synchronizedOnInterval = 30 * time.Second
@@ -125,7 +125,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 		timer := time.NewTimer(retryInterval)
 		err := s.sync()
 		if err != nil {
-			s.loggers.Error("synchronization failed:", err)
+			s.loggers.Error("Synchronization failed:", err)
 			if statusError, ok := err.(httpStatusError); ok {
 				if !isHTTPErrorRecoverable(statusError.statusCode) {
 					return
@@ -141,6 +141,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 }
 
 func (s *defaultBigSegmentSynchronizer) sync() error {
+	s.loggers.Debug("Polling for big segment updates")
 	for {
 	SyncLoop:
 		for {
@@ -174,7 +175,7 @@ func (s *defaultBigSegmentSynchronizer) sync() error {
 
 		err = s.store.setSynchronizedOn(ldtime.UnixMillisNow())
 		if err != nil {
-			s.loggers.Error("updating store timestamp failed:", err)
+			s.loggers.Error("Updating store timestamp failed:", err)
 			return err
 		}
 
@@ -204,6 +205,7 @@ func isHTTPErrorRecoverable(statusCode int) bool {
 func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 	client := s.httpConfig.Client()
 
+	s.loggers.Infof("Polling %s", s.pollURI)
 	request, err := http.NewRequest("GET", s.pollURI, nil)
 	if err != nil {
 		return false, err
@@ -237,23 +239,13 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 		return false, err
 	}
 
-	var patches []bigSegmentPatch
-	err = json.Unmarshal(responseBody, &patches)
-	if err != nil {
-		return false, err
-	}
+	count, err := s.applyPatches(responseBody)
 
-	for _, patch := range patches {
-		err = s.store.applyPatch(patch)
-		if err != nil {
-			return false, err
-		}
-	}
-
-	return len(patches) == 0, nil
+	return count == 0, err
 }
 
 func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
+	s.loggers.Infof("Making stream request to %s", s.streamURI)
 	request, err := http.NewRequest("GET", s.streamURI, nil)
 	if err != nil {
 		return nil, err
@@ -287,21 +279,12 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				return nil
 			}
 
-			var patches []bigSegmentPatch
-			err := json.Unmarshal([]byte(event.Data()), &patches)
-			if err != nil {
+			s.loggers.Debug("Received update(s) from stream")
+			if _, err := s.applyPatches([]byte(event.Data())); err != nil {
 				return err
 			}
 
-			for _, patch := range patches {
-				err = s.store.applyPatch(patch)
-				if err != nil {
-					return err
-				}
-			}
-
-			err = s.store.setSynchronizedOn(ldtime.UnixMillisNow())
-			if err != nil {
+			if err := s.store.setSynchronizedOn(ldtime.UnixMillisNow()); err != nil {
 				return err
 			}
 		case <-timer.C:
@@ -313,4 +296,22 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 			return nil
 		}
 	}
+}
+
+func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, error) {
+	var patches []bigSegmentPatch
+	err := json.Unmarshal(jsonData, &patches)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, patch := range patches {
+		if err := s.store.applyPatch(patch); err != nil {
+			return 0, err
+		}
+	}
+	if len(patches) > 0 {
+		s.loggers.Infof("Applied %d updates", len(patches))
+	}
+	return len(patches), nil
 }

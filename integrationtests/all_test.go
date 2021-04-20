@@ -34,4 +34,8 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("database integrations", func(t *testing.T) {
 		testDatabaseIntegrations(t, manager)
 	})
+
+	t.Run("big segments", func(t *testing.T) {
+		testBigSegments(t, manager)
+	})
 }
