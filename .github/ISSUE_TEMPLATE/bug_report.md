@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Is this a support request?**
-This issue tracker is maintained by LaunchDarkly SDK developers and is intended for feedback on the SDK code. If you're not sure whether the problem you are having is specifically related to the SDK, or to the LaunchDarkly service overall, it may be more appropriate to contact the LaunchDarkly support team; they can help to investigate the problem and will consult the SDK team if necessary. You can submit a support request by going [here](https://support.launchdarkly.com/) and clicking "submit a request", or by emailing support@launchdarkly.com.
+This issue tracker is maintained by LaunchDarkly SDK developers and is intended for feedback on the SDK code. If you're not sure whether the problem you are having is specifically related to the SDK, or to the LaunchDarkly service overall, it may be more appropriate to contact the LaunchDarkly support team; they can help to investigate the problem and will consult the SDK team if necessary. You can submit a support request by going [here](https://support.launchdarkly.com/hc/en-us/requests/new) or by emailing support@launchdarkly.com.
 
 Note that issues filed on this issue tracker are publicly accessible. Do not provide any private account information on your issues. If your problem is specific to your account, you should submit a support request as described above.
 
