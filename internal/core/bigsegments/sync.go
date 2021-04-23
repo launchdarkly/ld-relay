@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	unboundedPollPath      = "/sdk/unbounded-segments/revisions"
-	unboundedStreamPath    = "/unbounded_segments"
+	unboundedPollPath      = "/sdk/big-segments/revisions"
+	unboundedStreamPath    = "/big-segments"
 	streamReadTimeout      = 5 * time.Minute
 	retryInterval          = 10 * time.Second
 	synchronizedOnInterval = 30 * time.Second
