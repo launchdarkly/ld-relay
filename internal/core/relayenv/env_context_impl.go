@@ -312,6 +312,11 @@ func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
 	}
 	c.credentials[newCredential] = true
 	c.envStreams.AddCredential(newCredential)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(newCredential); h != nil {
+			handlers[newCredential] = h
+		}
+	}
 
 	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
 	// components that use an SDK key to use the new one. A new mobile key does not require starting a
@@ -338,6 +343,9 @@ func (c *envContextImpl) RemoveCredential(oldCredential config.SDKCredential) {
 	if _, found := c.credentials[oldCredential]; found {
 		delete(c.credentials, oldCredential)
 		c.envStreams.RemoveCredential(oldCredential)
+		for _, handlers := range c.handlers {
+			delete(handlers, oldCredential)
+		}
 		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
 			// The SDK client instance is tied to the SDK key, so get rid of it
 			if client := c.clients[sdkKey]; client != nil {
