@@ -174,6 +174,12 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 		client1.AwaitClose(t, time.Second)
 
 		p.shouldNotHaveEnvironment(testAutoConfEnv1.id, time.Millisecond*100)
+		p.assertSDKEndpointsAvailability(
+			false,
+			testAutoConfEnv1.sdkKey,
+			testAutoConfEnv1.mobKey,
+			testAutoConfEnv1.id,
+		)
 	})
 }
 
@@ -280,5 +286,11 @@ func TestAutoConfigDeleteEnvironment(t *testing.T) {
 		client1.AwaitClose(t, time.Second)
 
 		p.shouldNotHaveEnvironment(testAutoConfEnv1.id, time.Millisecond*100)
+		p.assertSDKEndpointsAvailability(
+			false,
+			testAutoConfEnv1.sdkKey,
+			testAutoConfEnv1.mobKey,
+			testAutoConfEnv1.id,
+		)
 	})
 }

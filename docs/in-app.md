@@ -75,3 +75,5 @@ func createRelayConfig() config.Config {
     return cfg
 }
 ```
+
+If you want to shut down all Relay Proxy components, connections, goroutines, and port listeners while your application is still running, call the `Relay`'s `Close()` method. You are allowed to start a new `Relay` instance after doing this. (In fact, you can always start a new `Relay` instance even if one already exists, as long as they're not using the same port. However, there's normally no reason to do this.)
