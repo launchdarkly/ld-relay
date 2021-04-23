@@ -192,8 +192,11 @@ func NewEnvContext(
 		// to really query the big segment store. Currently it always returns true because we are always
 		// running the synchronizer.
 		allowBigSegmentStatusQueries := func() bool { return true }
-		envContext.sdkBigSegmentFactory = sdks.ConfigureBigSegments(allConfig, envConfig,
-			allowBigSegmentStatusQueries, params.Loggers)
+		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
+		if err != nil {
+			return nil, err
+		}
+		envContext.sdkBigSegmentFactory = sdkBigSegments
 	}
 
 	envStreams := streams.NewEnvStreams(

@@ -14,12 +14,6 @@ import (
 // instances are used for client-side evaluations; server-side SDKs will read from the same database
 // via their own big segments stores, which will need to be configured similarly to what's here.
 //
-// This method always returns either a configuration factory or nil. There is no error return
-// because there aren't any invalid configuration conditions that wouldn't have already caused
-// errors; if there's something in the inputs that we don't understand at this point, we can just
-// ignore it and return nil. The configuration factory itself contains a mechanism for reporting
-// errors (like inability to start a database client) later when the SDK client is started.
-//
 // The allowBigSegmentStatusQueries function allows us to override the SDK's mechanism for checking
 // the the store metadata: if the function returns false (or is nil), all calls to the GetMetadata
 // method of the BigSegmentStore will return fake metadata with an up-to-date timestamp rather than
@@ -30,13 +24,20 @@ func ConfigureBigSegments(
 	envConfig config.EnvConfig,
 	allowBigSegmentStatusQueries func() bool,
 	loggers ldlog.Loggers,
-) interfaces.BigSegmentsConfigurationFactory {
+) (interfaces.BigSegmentsConfigurationFactory, error) {
 	var storeFactory interfaces.BigSegmentStoreFactory
 
 	if allConfig.Redis.URL.IsDefined() {
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
 		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redisURL, envConfig.Prefix)
 		storeFactory = redisBuilder
+	} else if allConfig.DynamoDB.Enabled {
+		dynamoDBBuilder, tableName, err := makeDynamoDBDataStoreBuilder(allConfig, envConfig)
+		if err != nil {
+			return nil, err
+		}
+		loggers.Infof("Using DynamoDB big segment store: %s with prefix: %s", tableName, envConfig.Prefix)
+		storeFactory = dynamoDBBuilder
 	}
 
 	if storeFactory != nil {
@@ -45,9 +46,9 @@ func ConfigureBigSegments(
 				wrappedFactory:               storeFactory,
 				allowBigSegmentStatusQueries: allowBigSegmentStatusQueries,
 			},
-		)
+		), nil
 	}
-	return nil
+	return nil, nil
 }
 
 type bigSegmentsStoreWrapper struct {

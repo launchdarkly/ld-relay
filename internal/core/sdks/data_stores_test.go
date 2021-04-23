@@ -61,7 +61,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisURL)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL)
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: "abc"}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisURL+" with prefix: abc")
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL+" with prefix: abc")
 	})
 
 	t.Run("TTL", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisSecureURL, DBPrefix: ldredis.DefaultPrefix}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis feature store: "+redisSecureURL)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisSecureURL)
 	})
 
 	t.Run("Password", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul feature store: "+host)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host)
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: "abc"}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul feature store: "+host+" with prefix: abc")
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host+" with prefix: abc")
 	})
 
 	t.Run("TTL", func(t *testing.T) {
@@ -225,7 +225,7 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table)
 	})
 
 	t.Run("basic properties - per-environment table name", func(t *testing.T) {
@@ -240,7 +240,7 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table)
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -257,7 +257,7 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table, DBPrefix: "abc"}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB feature store: "+table+" with prefix: abc")
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table+" with prefix: abc")
 	})
 
 	t.Run("TTL", func(t *testing.T) {

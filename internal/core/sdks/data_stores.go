@@ -55,7 +55,7 @@ func ConfigureDataStore(
 		// host & port were specified, they are transformed into a URL.
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
 
-		loggers.Infof("Using Redis feature store: %s with prefix: %s", redisURL, envConfig.Prefix)
+		loggers.Infof("Using Redis data store: %s with prefix: %s", redisURL, envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "redis",
@@ -72,7 +72,7 @@ func ConfigureDataStore(
 
 	if allConfig.Consul.Host != "" {
 		dbConfig := allConfig.Consul
-		loggers.Infof("Using Consul feature store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
+		loggers.Infof("Using Consul data store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
 
 		builder := ldconsul.DataStore().
 			Prefix(envConfig.Prefix)
@@ -97,38 +97,22 @@ func ConfigureDataStore(
 	}
 
 	if allConfig.DynamoDB.Enabled {
-		// Note that the global TableName can be omitted if you specify a TableName for each environment
-		// (this is why we need an Enabled property here, since the other properties are all optional).
-		// You can also specify a prefix for each environment, as with the other databases.
-		dbConfig := allConfig.DynamoDB
-		tableName := envConfig.TableName
-		if tableName == "" {
-			tableName = dbConfig.TableName
+		builder, tableName, err := makeDynamoDBDataStoreBuilder(allConfig, envConfig)
+		if err != nil {
+			return nil, DataStoreEnvironmentInfo{}, err
 		}
-		if tableName == "" {
-			return nil, DataStoreEnvironmentInfo{}, errDynamoDBWithNoTableName
-		}
-		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		builder := lddynamodb.DataStore(tableName).
-			Prefix(envConfig.Prefix)
-		if dbConfig.URL.IsDefined() {
-			awsOptions := session.Options{
-				Config: aws.Config{
-					Endpoint: aws.String(dbConfig.URL.String()),
-				},
-			}
-			builder.SessionOptions(awsOptions)
-		}
+
+		loggers.Infof("Using DynamoDB data store: %s with prefix: %s", tableName, envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "dynamodb",
-			DBServer: dbConfig.URL.String(),
+			DBServer: allConfig.DynamoDB.URL.String(),
 			DBPrefix: envConfig.Prefix,
 			DBTable:  tableName,
 		}
 
 		return ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+			CacheTime(allConfig.DynamoDB.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
@@ -158,4 +142,32 @@ func makeRedisDataStoreBuilder(
 		Prefix(envConfig.Prefix).
 		DialOptions(dialOptions...)
 	return b, redisURL
+}
+
+func makeDynamoDBDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (*lddynamodb.DataStoreBuilder, string, error) {
+	// Note that the global TableName can be omitted if you specify a TableName for each environment
+	// (this is why we need an Enabled property here, since the other properties are all optional).
+	// You can also specify a prefix for each environment, as with the other databases.
+	dbConfig := allConfig.DynamoDB
+	tableName := envConfig.TableName
+	if tableName == "" {
+		tableName = dbConfig.TableName
+	}
+	if tableName == "" {
+		return nil, "", errDynamoDBWithNoTableName
+	}
+	builder := lddynamodb.DataStore(tableName).
+		Prefix(envConfig.Prefix)
+	if dbConfig.URL.IsDefined() {
+		awsOptions := session.Options{
+			Config: aws.Config{
+				Endpoint: aws.String(dbConfig.URL.String()),
+			},
+		}
+		builder.SessionOptions(awsOptions)
+	}
+	return builder, tableName, nil
 }

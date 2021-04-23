@@ -23,7 +23,7 @@ require (
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
-	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.1
+	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.2-0.20210420194229-df749934f110
 	github.com/launchdarkly/go-server-sdk-redis-redigo v1.0.1-0.20210330003600-50e820610b2b
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c

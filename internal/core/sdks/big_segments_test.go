@@ -3,6 +3,7 @@ package sdks
 import (
 	"testing"
 
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -13,6 +14,7 @@ import (
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func assertBigSegmentsConfigured(
@@ -22,7 +24,8 @@ func assertBigSegmentsConfigured(
 	ec config.EnvConfig,
 ) *ldlogtest.MockLog {
 	mockLog := ldlogtest.NewMockLog()
-	factory := ConfigureBigSegments(c, ec, nil, mockLog.Loggers)
+	factory, err := ConfigureBigSegments(c, ec, nil, mockLog.Loggers)
+	require.NoError(t, err)
 	assert.Equal(t, expected, factory)
 	return mockLog
 }
@@ -82,5 +85,58 @@ func TestBigSegmentsRedis(t *testing.T) {
 		)
 		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisSecureURL)
+	})
+}
+
+func TestBigSegmentsDynamoDB(t *testing.T) {
+	table := "my-table"
+
+	t.Run("basic properties - global table name", func(t *testing.T) {
+		c := config.Config{
+			DynamoDB: config.DynamoDBConfig{
+				Enabled:   true,
+				TableName: table,
+			},
+		}
+		expected := ldcomponents.BigSegments(
+			bigSegmentsStoreWrapperFactory{
+				wrappedFactory: lddynamodb.DataStore(table),
+			},
+		)
+		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
+	})
+
+	t.Run("basic properties - per-environment table name", func(t *testing.T) {
+		c := config.Config{
+			DynamoDB: config.DynamoDBConfig{
+				Enabled: true,
+			},
+		}
+		ec := config.EnvConfig{TableName: table}
+		expected := ldcomponents.BigSegments(
+			bigSegmentsStoreWrapperFactory{
+				wrappedFactory: lddynamodb.DataStore(table),
+			},
+		)
+		log := assertBigSegmentsConfigured(t, expected, c, ec)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
+	})
+
+	t.Run("prefix", func(t *testing.T) {
+		c := config.Config{
+			DynamoDB: config.DynamoDBConfig{
+				Enabled:   true,
+				TableName: table,
+			},
+		}
+		ec := config.EnvConfig{Prefix: "abc"}
+		expected := ldcomponents.BigSegments(
+			bigSegmentsStoreWrapperFactory{
+				wrappedFactory: lddynamodb.DataStore(table).Prefix("abc"),
+			},
+		)
+		log := assertBigSegmentsConfigured(t, expected, c, ec)
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table+" with prefix: abc")
 	})
 }
