@@ -2,6 +2,9 @@ repo:
   public: ld-relay
   private: ld-relay-private
 
+template:
+  name: go
+
 releasableBranches:
   - name: v6
   - name: v5

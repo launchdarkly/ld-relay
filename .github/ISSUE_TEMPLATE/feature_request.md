@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I would love to see the Relay Proxy [...does something new...]
+A clear and concise description of what the problem is. Ex. I would love to see the SDK [...does something new...]
 
 **Describe the solution you'd like**
 A clear and concise description of what you want to happen.
