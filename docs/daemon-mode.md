@@ -47,3 +47,11 @@ The `localTtl`/`CACHE_TTL` parameter controls the length of time that the Relay 
 You will then need to [configure your SDK](https://docs.launchdarkly.com/sdk/concepts/feature-store#using-a-persistent-feature-store-without-connecting-to-launchdarkly) to connect to Redis directly.
 
 Using daemon mode does not prevent you from also using [proxy mode](./proxy-mode.md) at the same time, for SDKs that cannot connect to a database (such as mobile SDKs).
+
+## How daemon mode behaves in error conditions
+
+Because the server-side SDKs do not make requests to the Relay Proxy in daemon mode, they have no way to know whether it is currently connected to LaunchDarkly. The behavior of the SDKs depends only on whether the database contains data.
+
+If the Relay Proxy has not connected to LaunchDarkly successfully, but the database already contains flag data from some earlier time when this or another instance of the Relay Proxy did connect to LaunchDarkly, then the SDKs will use that data. If the Relay Proxy later succeeds in connecting to LaunchDarkly and receives current flag data, it will update the database, and the SDKs will start using the updated data as soon as any previously read data expires out of their local caches. The time to expiration is determined by the cache parameters in the SDK configuration.
+
+If the database does not yet contain any flag data, then the standard behavior of the server-side SDKs is for all flag evaluations to return whatever value the application code specified as a fallback. If evaluation reasons are enabled, the reason will be reported as a "client not ready" error.

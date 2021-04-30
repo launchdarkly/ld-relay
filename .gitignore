@@ -39,3 +39,4 @@ build
 .vscode
 _testservice/testservice
 _testservice/*.pid
+temp_ssh
