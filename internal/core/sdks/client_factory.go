@@ -48,10 +48,10 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (LDClientCon
 // specified configuration to the SDK client constructor.
 func DefaultClientFactory(sdkKey config.SDKKey, config ld.Config) (LDClientContext, error) {
 	c, err := ld.MakeCustomClient(string(sdkKey), config, time.Second*10)
-	if err != nil {
+	if c == nil {
 		return nil, err
 	}
-	return wrapLDClient(c), nil
+	return wrapLDClient(c), err
 }
 
 // ClientFactoryFromLDClientFactory translates from the client factory type that we expose to host
@@ -64,10 +64,10 @@ func ClientFactoryFromLDClientFactory(fn func(sdkKey config.SDKKey, config ld.Co
 	}
 	return func(sdkKey config.SDKKey, config ld.Config) (LDClientContext, error) {
 		c, err := fn(sdkKey, config)
-		if err != nil {
+		if c == nil {
 			return nil, err
 		}
-		return wrapLDClient(c), nil
+		return wrapLDClient(c), err
 	}
 }
 
