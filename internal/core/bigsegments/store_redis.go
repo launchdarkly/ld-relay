@@ -2,6 +2,7 @@ package bigsegments
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -86,7 +87,7 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 		}
 
 		if err != redis.Nil && cursor != patch.PreviousVersion {
-			return nil
+			return errors.New("attempted to apply old patch")
 		}
 
 		result, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
