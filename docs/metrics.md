@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn about the available settings for each of these options, read [Configuration](./docs/configuration.md).
+You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
 
 The Relay Proxy suppors the following metrics:
 

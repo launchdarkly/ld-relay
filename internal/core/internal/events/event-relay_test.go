@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -29,7 +29,7 @@ const (
 )
 
 type testEndpointInfo struct {
-	sdkKind        sdks.Kind
+	sdkKind        basictypes.SDKKind
 	analyticsPath  string
 	diagnosticPath string
 	authKey        string
@@ -37,7 +37,7 @@ type testEndpointInfo struct {
 }
 
 var testServerEndpointInfo = testEndpointInfo{
-	sdkKind:        sdks.Server,
+	sdkKind:        basictypes.ServerSDK,
 	analyticsPath:  "/bulk",
 	diagnosticPath: "/diagnostic",
 	authKey:        string(st.EnvWithAllCredentials.Config.SDKKey),
@@ -45,7 +45,7 @@ var testServerEndpointInfo = testEndpointInfo{
 }
 
 var testMobileEndpointInfo = testEndpointInfo{
-	sdkKind:        sdks.Mobile,
+	sdkKind:        basictypes.MobileSDK,
 	analyticsPath:  "/mobile",
 	diagnosticPath: "/mobile/events/diagnostic",
 	authKey:        string(st.EnvWithAllCredentials.Config.MobileKey),
@@ -53,7 +53,7 @@ var testMobileEndpointInfo = testEndpointInfo{
 }
 
 var testJSClientEndpointInfo = testEndpointInfo{
-	sdkKind:        sdks.JSClient,
+	sdkKind:        basictypes.JSClientSDK,
 	analyticsPath:  "/events/bulk/" + string(st.EnvWithAllCredentials.Config.EnvID),
 	diagnosticPath: "/events/diagnostic/" + string(st.EnvWithAllCredentials.Config.EnvID),
 }
@@ -112,28 +112,28 @@ func eventRelayTest(
 
 func TestEventDispatcherCreatesHandlersOnlyForConfiguredCredentials(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.DiagnosticEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.DiagnosticEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.AnalyticsEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind))
 	})
 	eventRelayTest(t, st.EnvMobile, config.EventsConfig{}, func(p eventRelayTestParams) {
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.DiagnosticEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.DiagnosticEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.AnalyticsEventDataKind))
-		assert.Nil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind))
+		assert.Nil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind))
 	})
 	eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Server, ldevents.DiagnosticEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.Mobile, ldevents.DiagnosticEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.AnalyticsEventDataKind))
-		assert.NotNil(t, p.dispatcher.GetHandler(sdks.JSClient, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind))
+		assert.NotNil(t, p.dispatcher.GetHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind))
 	})
 }
 

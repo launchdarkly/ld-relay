@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
@@ -79,7 +80,7 @@ func NewRelayCore(
 	}
 
 	if clientFactory == nil {
-		clientFactory = sdks.DefaultClientFactory
+		clientFactory = sdks.DefaultClientFactory()
 	}
 
 	if c.Main.LogLevel.IsDefined() {
@@ -98,10 +99,10 @@ func NewRelayCore(
 
 	r := RelayCore{
 		envsByCredential:              make(map[config.SDKCredential]relayenv.EnvContext),
-		serverSideStreamProvider:      streams.NewServerSideStreamProvider(maxConnTime),
-		serverSideFlagsStreamProvider: streams.NewServerSideFlagsOnlyStreamProvider(maxConnTime),
-		mobileStreamProvider:          streams.NewMobilePingStreamProvider(maxConnTime),
-		jsClientStreamProvider:        streams.NewJSClientPingStreamProvider(maxConnTime),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime),
 		metricsManager:                metricsManager,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,
@@ -214,11 +215,11 @@ func (r *RelayCore) AddEnvironment(
 		}
 	}
 
-	wrappedClientFactory := func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+	wrappedClientFactory := func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 		if transformClientConfig != nil {
 			config = transformClientConfig(config)
 		}
-		return r.clientFactory(sdkKey, config)
+		return r.clientFactory(sdkKey, config, timeout)
 	}
 
 	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{

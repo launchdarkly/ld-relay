@@ -35,9 +35,14 @@ make lint
 
 ### Testing
  
-To build the Relay Proxy and run all unit tests:
+To build the Relay Proxy and run all unit tests that don't require a persistent data store:
 ```
 make test
+```
+
+To include tests of persistent data store behavior using Redis, assuming a Redis server is running at `localhost:6379`:
+```
+LD_TEST_REDIS=true make test
 ```
 
 To analyze test coverage:

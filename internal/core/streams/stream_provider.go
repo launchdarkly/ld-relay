@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 
 	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -42,6 +43,30 @@ type EnvStreamProvider interface {
 
 	// Close releases all resources for this EnvStreamProvider and closes all connections to it.
 	Close()
+}
+
+// NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime time.Duration) StreamProvider {
+	switch kind {
+	case basictypes.ServerSideFlagsOnlyStream:
+		return &serverSideFlagsOnlyStreamProvider{
+			server: newSSEServer(maxConnTime),
+		}
+	case basictypes.MobilePingStream:
+		return &clientSidePingStreamProvider{
+			server:     newSSEServer(maxConnTime),
+			isJSClient: false,
+		}
+	case basictypes.JSClientPingStream:
+		return &clientSidePingStreamProvider{
+			server:     newSSEServer(maxConnTime),
+			isJSClient: true,
+		}
+	default:
+		return &serverSideStreamProvider{
+			server: newSSEServer(maxConnTime),
+		}
+	}
 }
 
 func newSSEServer(maxConnTime time.Duration) *eventsource.Server {

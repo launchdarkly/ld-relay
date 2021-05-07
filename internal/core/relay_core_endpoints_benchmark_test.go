@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
 
@@ -53,6 +53,6 @@ func BenchmarkEvaluateAllFlags(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		req := buildPreRoutedRequest("REPORT", userData, headers, nil, ctx)
 		resp := httptest.NewRecorder()
-		evaluateAllFeatureFlags(sdks.JSClient)(resp, req)
+		evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
 	}
 }

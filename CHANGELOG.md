@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.1.7] - 2021-04-30
+### Added:
+- In the [&#34;Proxy mode&#34;](https://github.com/launchdarkly/ld-relay/blob/v6/docs/proxy-mode.md) and [&#34;Daemon mode&#34;](https://github.com/launchdarkly/ld-relay/blob/v6/docs/daemon-mode.md) documentation pages, there is now a description of how the Relay Proxy behaves if it can&#39;t connect to LaunchDarkly, or if there is an invalid SDK key.
+
+### Fixed:
+- _(This bug was previously thought to have been fixed in the 6.1.3 release, but it was not fixed then; it is now.)_ During startup, if a timeout occurs while waiting for data from LaunchDarkly, the Relay Proxy endpoints for that environment should accept requests even though the environment is not fully initialized yet, using any last known flag data that might be available (that is, in a database). That is consistent with the behavior of the server-side SDKs, and it was the behavior of the Relay Proxy prior to the 6.0 release but it had been accidentally changed so that the endpoints continued to return 503 errors in this case.
+
+## [6.1.6] - 2021-04-23
+### Fixed:
+- In automatic configuration mode, if a new credential was created for an already-configured environment (for instance, by using &#34;reset SDK key&#34; on the LaunchDarkly dashboard), the Relay Proxy did not accept subsequent SDK requests using the new credential until the next time the Relay Proxy was started. The symptom was that the SDK endpoints would return a 404 status instead of 200 (even though unknown credentials normally receive a 401). Also, if an SDK key or mobile key had already been changed prior to starting the Relay Proxy, but the older key had not yet expired, the Relay Proxy was not recognizing the _old_ key in requests. Both of these problems have been fixed.
+- Fixed a broken link in the Metrics documentation page. (Thanks, [natashanwright](https://github.com/launchdarkly/ld-relay/pull/135)!)
+
 ## [6.1.5] - 2021-02-04
 ### Changed:
 - Updated the AWS SDK version used for DynamoDB access to 1.37.2. Among other improvements as described in the [AWS Go SDK release notes](https://github.com/aws/aws-sdk-go/blob/master/CHANGELOG.md), this allows it to support [IAM roles for service accounts](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts-minimum-sdk.html). ([#127](https://github.com/launchdarkly/ld-relay/issues/127))

@@ -91,7 +91,7 @@ jobs:
           CIRCLE_ARTIFACTS: /tmp/circle-artifacts
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
-          TAGS: big_segment_external_store_tests
+          TAGS: redis_unit_tests,big_segment_external_store_tests
       - image: redis
 
     steps:

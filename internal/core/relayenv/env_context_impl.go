@@ -88,6 +88,7 @@ type envContextImpl struct {
 	sdkConfig            ld.Config
 	sdkBigSegmentFactory interfaces.BigSegmentsConfigurationFactory
 	sdkClientFactory     sdks.ClientFactoryFunc
+	sdkInitTimeout       time.Duration
 	metricsManager       *metrics.Manager
 	metricsEnv           *metrics.EnvironmentManager
 	metricsEventPub      events.EventPublisher
@@ -159,6 +160,7 @@ func NewEnvContext(
 		handlers:         make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
 		jsContext:        params.JSClientContext,
 		sdkClientFactory: params.ClientFactory,
+		sdkInitTimeout:   allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
 		metricsManager:   params.MetricsManager,
 		globalLoggers:    params.Loggers,
 		ttl:              envConfig.TTL.GetOrElse(0),
@@ -297,8 +299,7 @@ func NewEnvContext(
 }
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
-	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
-
+	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
@@ -326,10 +327,10 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
 		}
 	}
+	c.initErr = err
 	c.mu.Unlock()
 
 	if err != nil {
-		c.initErr = err
 		if suppressErrors {
 			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
 				name, err)
@@ -392,6 +393,11 @@ func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
 	}
 	c.credentials[newCredential] = true
 	c.envStreams.AddCredential(newCredential)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(newCredential); h != nil {
+			handlers[newCredential] = h
+		}
+	}
 
 	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
 	// components that use an SDK key to use the new one. A new mobile key does not require starting a
@@ -418,6 +424,9 @@ func (c *envContextImpl) RemoveCredential(oldCredential config.SDKCredential) {
 	if _, found := c.credentials[oldCredential]; found {
 		delete(c.credentials, oldCredential)
 		c.envStreams.RemoveCredential(oldCredential)
+		for _, handlers := range c.handlers {
+			delete(handlers, oldCredential)
+		}
 		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
 			// The SDK client instance is tied to the SDK key, so get rid of it
 			if client := c.clients[sdkKey]; client != nil {
@@ -512,6 +521,9 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 }
 
 func (c *envContextImpl) GetInitError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return c.initErr
 }
 

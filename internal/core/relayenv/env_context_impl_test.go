@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -408,7 +409,7 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 
 		ed := envImpl.GetEventDispatcher()
 		require.NotNil(t, ed)
-		eventDispatchHandler := ed.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)
+		eventDispatchHandler := ed.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)
 		require.NotNil(t, eventDispatchHandler)
 
 		rr := httptest.NewRecorder()

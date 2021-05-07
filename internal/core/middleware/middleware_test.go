@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
@@ -131,7 +131,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 				st.EnvMobile.Config.SDKKey: env2,
 			},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
 
 		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
@@ -149,7 +149,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 				st.EnvMobile.Config.MobileKey: env2,
 			},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
 
 		req := buildPreRoutedRequestWithAuth(st.EnvMobile.Config.MobileKey)
@@ -167,7 +167,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 				st.EnvClientSide.Config.EnvID:  env2,
 			},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.JSClient, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
 		envCh := make(chan relayenv.EnvContext, 1)
 
 		vars := map[string]string{"envId": string(st.EnvClientSide.Config.EnvID)}
@@ -182,7 +182,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		envs := testEnvironments{
 			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.UndefinedSDKKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
@@ -194,7 +194,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		envs := testEnvironments{
 			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.MobileKey: env1},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.UndefinedMobileKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
@@ -206,7 +206,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		envs := testEnvironments{
 			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: env1},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.JSClient, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
 
 		vars := map[string]string{"envId": string(st.EnvClientSide.Config.EnvID)}
 		req := buildPreRoutedRequest("GET", nil, nil, vars, nil)
@@ -219,7 +219,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		envs := testEnvironments{
 			envs: map[config.SDKCredential]relayenv.EnvContext{st.MalformedSDKKey: testenv.NewTestEnvContext("server", false, nil)},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.MalformedSDKKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
@@ -234,7 +234,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 				st.MalformedMobileKey: testenv.NewTestEnvContext("server", false, nil),
 			},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Mobile, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
 
 		req1 := buildPreRoutedRequestWithAuth(st.MalformedMobileKey)
 		resp1, _ := st.DoRequest(req1, selector(nullHandler()))
@@ -247,7 +247,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 		envs := testEnvironments{
 			envs: map[config.SDKCredential]relayenv.EnvContext{st.EnvMain.Config.SDKKey: notReadyEnv},
 		}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
 		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
 		resp, _ := st.DoRequest(req, selector(nullHandler()))
@@ -257,7 +257,7 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 
 	t.Run("returns 503 if Relay has not been initialized", func(t *testing.T) {
 		envs := testEnvironments{notInited: true}
-		selector := SelectEnvironmentByAuthorizationKey(sdks.Server, envs)
+		selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
 
 		req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
 		resp, _ := st.DoRequest(req, selector(nullHandler()))

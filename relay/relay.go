@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
@@ -51,9 +52,19 @@ type relayInternalOptions struct {
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
 func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
+	realClientFactory := sdks.DefaultClientFactory()
+	if clientFactory != nil {
+		// There's a function signature mismatch here because we didn't originally include the timeout in the
+		// ClientFactoryFunc type, so we have to wrap the function in a way that unfortunately doesn't allow
+		// the configured timeout to be passed in
+		realClientFactory = sdks.ClientFactoryFromLDClientFactory(
+			func(sdkKey string, sdkConfig ld.Config, timeout time.Duration) (*ld.LDClient, error) {
+				return clientFactory(config.SDKKey(sdkKey), sdkConfig)
+			})
+	}
 	return newRelayInternal(c, relayInternalOptions{
 		loggers:       loggers,
-		clientFactory: sdks.ClientFactoryFromLDClientFactory(clientFactory),
+		clientFactory: realClientFactory,
 	})
 }
 
