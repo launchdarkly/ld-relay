@@ -10,9 +10,9 @@ import (
 	"sync"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -35,8 +35,8 @@ const (
 
 // EventDispatcher relays events to LaunchDarkly for an environment
 type EventDispatcher struct {
-	analyticsEndpoints  map[sdks.Kind]*analyticsEventEndpointDispatcher
-	diagnosticEndpoints map[sdks.Kind]*diagnosticEventEndpointDispatcher
+	analyticsEndpoints  map[basictypes.SDKKind]*analyticsEventEndpointDispatcher
+	diagnosticEndpoints map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher
 }
 
 type analyticsEventEndpointDispatcher struct {
@@ -60,7 +60,7 @@ type diagnosticEventEndpointDispatcher struct {
 }
 
 // GetHandler returns the HTTP handler for an endpoint, or nil if none is defined
-func (r *EventDispatcher) GetHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind) func(w http.ResponseWriter, req *http.Request) {
+func (r *EventDispatcher) GetHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataKind) func(w http.ResponseWriter, req *http.Request) {
 	if eventsKind == ldevents.DiagnosticEventDataKind {
 		if e, ok := r.diagnosticEndpoints[sdkKind]; ok {
 			return e.dispatch
@@ -203,23 +203,23 @@ func NewEventDispatcher(
 	storeAdapter *store.SSERelayDataStoreAdapter,
 ) *EventDispatcher {
 	ep := &EventDispatcher{
-		analyticsEndpoints: map[sdks.Kind]*analyticsEventEndpointDispatcher{
-			sdks.Server: newAnalyticsEventEndpointDispatcher(sdkKey,
+		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
+			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
 				config, httpConfig, storeAdapter, loggers, "/bulk"),
 		},
-		diagnosticEndpoints: map[sdks.Kind]*diagnosticEventEndpointDispatcher{
-			sdks.Server: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
+		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
+			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
 		},
 	}
 	if mobileKey != "" {
-		ep.analyticsEndpoints[sdks.Mobile] = newAnalyticsEventEndpointDispatcher(mobileKey,
+		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
 			config, httpConfig, storeAdapter, loggers, "/mobile")
-		ep.diagnosticEndpoints[sdks.Mobile] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
+		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != "" {
-		ep.analyticsEndpoints[sdks.JSClient] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
+		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
 			"/events/bulk/"+string(envID))
-		ep.diagnosticEndpoints[sdks.JSClient] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
+		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
 	return ep

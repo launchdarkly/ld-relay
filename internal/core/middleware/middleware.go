@@ -7,11 +7,13 @@ import (
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
 	"github.com/gorilla/mux"
 )
@@ -59,12 +61,12 @@ func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 }
 
 // SelectEnvironmentByAuthorizationKey creates a middleware function that attempts to authenticate the request
-// using the appropriate kind of credential for the sdks.Kind. If successful, it updates the request context
+// using the appropriate kind of credential for the basictypes.SDKKind. If successful, it updates the request context
 // so GetEnvContextInfo will return environment information. If not successful, it returns an error response.
-func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironments) mux.MiddlewareFunc {
+func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			credential, err := sdkKind.GetCredential(req)
+			credential, err := sdks.GetCredential(sdkKind, req)
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
@@ -78,9 +80,10 @@ func SelectEnvironmentByAuthorizationKey(sdkKind sdks.Kind, envs RelayEnvironmen
 				return
 			}
 
-			if clientCtx == nil {
+			if clientCtx == nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
 				// Our error behavior here is slightly different for JS/browser clients
-				if sdkKind == sdks.JSClient {
+				if sdkKind == basictypes.JSClientSDK {
 					w.WriteHeader(http.StatusNotFound)
 					_, _ = w.Write([]byte(httpStatusMessageMissingEnvURLParam))
 				} else {

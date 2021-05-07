@@ -42,28 +42,27 @@ type DataStoreStatusInfo struct {
 
 // ClientFactoryFunc is a function that creates the LaunchDarkly client. This is normally
 // DefaultClientFactory, but it can be changed in order to make configuration changes or for testing.
-type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (LDClientContext, error)
+type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (LDClientContext, error)
+
+// LDClientConstructor is the function type of the underlying SDK client constructor.
+type LDClientConstructor func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error)
 
 // DefaultClientFactory is the default ClientFactoryFunc implementation, which just passes the
 // specified configuration to the SDK client constructor.
-func DefaultClientFactory(sdkKey config.SDKKey, config ld.Config) (LDClientContext, error) {
-	c, err := ld.MakeCustomClient(string(sdkKey), config, time.Second*10)
-	if c == nil {
-		return nil, err
-	}
-	return wrapLDClient(c), err
+func DefaultClientFactory() ClientFactoryFunc {
+	return ClientFactoryFromLDClientFactory(ld.MakeCustomClient)
 }
 
 // ClientFactoryFromLDClientFactory translates from the client factory type that we expose to host
 // applications, which uses the real LDClient type, to the more general factory type that we use
 // internally which uses the sdks.ClientFactoryFunc abstraction. The latter makes our code a bit
 // cleaner and easier to test, but isn't of any use when hosting Relay in an application.
-func ClientFactoryFromLDClientFactory(fn func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error)) ClientFactoryFunc {
+func ClientFactoryFromLDClientFactory(fn LDClientConstructor) ClientFactoryFunc {
 	if fn == nil {
 		return nil
 	}
-	return func(sdkKey config.SDKKey, config ld.Config) (LDClientContext, error) {
-		c, err := fn(sdkKey, config)
+	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (LDClientContext, error) {
+		c, err := fn(string(sdkKey), config, timeout)
 		if c == nil {
 			return nil, err
 		}

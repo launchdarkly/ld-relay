@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +28,19 @@ func BuildRequest(method, url string, body []byte, headers http.Header) *http.Re
 	if err != nil {
 		panic(err)
 	}
-	r.Header = headers
+	if headers != nil {
+		r.Header = headers
+	}
 	return r
+}
+
+// BuildRequestWithAuth creates a GET request with an Authorization header.
+func BuildRequestWithAuth(method, url string, authKey config.SDKCredential, body []byte) *http.Request {
+	h := make(http.Header)
+	if authKey != nil {
+		h.Add("Authorization", authKey.GetAuthorizationHeaderValue())
+	}
+	return BuildRequest(method, url, body, h)
 }
 
 // AddQueryParam is a shortcut for concatenating a query string to a URL that may or may not have one.
@@ -70,6 +83,26 @@ func ExpectNoTestRequests(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, t
 		require.Fail(t, "received unexpected request")
 	case <-time.After(timeout):
 		break
+	}
+}
+
+// ExpectStreamEvent is a shortcut for reading from an SSE stream with a timeout.
+func ExpectStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) eventsource.Event {
+	select {
+	case e := <-stream.Events:
+		return e
+	case <-time.After(timeout):
+		require.Fail(t, "timed out waiting for stream event")
+		return nil
+	}
+}
+
+// ExpectNoStreamEvent causes a test failure if an event is seen on an SSE stream.
+func ExpectNoStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) {
+	select {
+	case <-stream.Events:
+		require.Fail(t, "received unexpected stream event")
+	case <-time.After(timeout):
 	}
 }
 

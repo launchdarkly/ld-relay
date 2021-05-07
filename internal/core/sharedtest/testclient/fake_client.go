@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config) (sdks.LDClientContext, error) {
+func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 	store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
 		testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
 	err := store.Init(sharedtest.AllData)
@@ -100,7 +100,7 @@ func FakeLDClientFactory(shouldBeInitialized bool) sdks.ClientFactoryFunc {
 }
 
 func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *FakeLDClient) sdks.ClientFactoryFunc {
-	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 		// We're not creating a real client, but we still need to invoke the DataStoreFactory as the
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
 		if config.DataStore != nil {
@@ -121,8 +121,8 @@ func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *
 }
 
 func RealLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- CapturedLDClient) sdks.ClientFactoryFunc {
-	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-		c, err := sdks.DefaultClientFactory(sdkKey, config)
+	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		c, err := sdks.DefaultClientFactory()(sdkKey, config, timeout)
 		if c != nil && createdCh != nil {
 			createdCh <- CapturedLDClient{Key: sdkKey, Client: c}
 		}
@@ -131,7 +131,7 @@ func RealLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- C
 }
 
 func ClientFactoryThatFails(err error) sdks.ClientFactoryFunc {
-	return func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
+	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 		return nil, err
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -24,7 +25,7 @@ func TestStreamProviderMobilePing(t *testing.T) {
 	invalidCredential2 := testEnvID
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewMobilePingStreamProvider(maxConnTime)
+		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -67,7 +68,7 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 	invalidCredential2 := testMobileKey
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewJSClientPingStreamProvider(maxConnTime)
+		sp := NewStreamProvider(basictypes.JSClientPingStream, maxConnTime)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -111,7 +112,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 
 	validCredential := testMobileKey
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewMobilePingStreamProvider(maxConnTime)
+		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -126,6 +127,19 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 			defer esp.Close()
 
 			verifyHandlerInitialEvent(t, sp, validCredential, MakePingEvent())
+		})
+	})
+
+	t.Run("initial event - store not initialized", func(t *testing.T) {
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
+		store.initialized = false
+
+		withStreamProvider(t, 0, func(sp StreamProvider) {
+			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			require.NotNil(t, esp)
+			defer esp.Close()
+
+			verifyHandlerInitialEvent(t, sp, validCredential, nil)
 		})
 	})
 

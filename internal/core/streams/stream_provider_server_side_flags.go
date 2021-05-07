@@ -3,7 +3,6 @@ package streams
 import (
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
@@ -28,14 +27,6 @@ type serverSideFlagsOnlyEnvStreamProvider struct {
 type serverSideFlagsOnlyEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
-}
-
-// NewServerSideFlagsOnlyStreamProvider creates a StreamProvider implementation for the server-side
-// SDK "/flags" endpoint, which is used only by old SDKs that do not support segments.
-func NewServerSideFlagsOnlyStreamProvider(maxConnTime time.Duration) StreamProvider {
-	return &serverSideFlagsOnlyStreamProvider{
-		server: newSSEServer(maxConnTime),
-	}
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -92,7 +83,7 @@ func (e *serverSideFlagsOnlyEnvStreamProvider) Close() {
 
 func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
 	out := make(chan eventsource.Event)
-	if !r.store.IsInitialized() {
+	if !r.store.IsInitialized() { // See serverSideEnvStreamRepository.Replay
 		close(out)
 		return out
 	}

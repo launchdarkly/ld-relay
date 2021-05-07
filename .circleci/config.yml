@@ -91,6 +91,8 @@ jobs:
           CIRCLE_ARTIFACTS: /tmp/circle-artifacts
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
+          LD_TEST_REDIS: true
+      - image: redis
 
     steps:
       - checkout

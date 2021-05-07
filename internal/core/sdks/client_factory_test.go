@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
@@ -22,12 +21,12 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
-		factory := ClientFactoryFromLDClientFactory(func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error) {
+		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
 			config.Offline = true
-			return ld.MakeCustomClient(string(sdkKey), config, 0)
+			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
-		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()})
+		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()}, 0)
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		defer client.Close()
@@ -36,12 +35,12 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 
 	t.Run("fatal initialization error, client is not returned", func(t *testing.T) {
 		// For fatal errors like an invalid configuration, the SDK does not return a client at all
-		factory := ClientFactoryFromLDClientFactory(func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error) {
+		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
 			config.HTTP = makeInvalidHTTPConfiguration()
-			return ld.MakeCustomClient(string(sdkKey), config, 0)
+			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
-		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()})
+		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()}, 0)
 		assert.Nil(t, client)
 		assert.Error(t, err)
 	})
@@ -49,12 +48,12 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 	t.Run("timeout error, client is returned", func(t *testing.T) {
 		// For initialization timeout errors, the SDK *does* return a client along with the error -
 		// the test verifies that our wrapper logic preserves this
-		factory := ClientFactoryFromLDClientFactory(func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error) {
+		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
 			config.DataSource = sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatNeverStarts{}}
-			return ld.MakeCustomClient(string(sdkKey), config, time.Millisecond)
+			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
-		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()})
+		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()}, time.Millisecond)
 		assert.NotNil(t, client)
 		assert.Error(t, err)
 	})
@@ -62,12 +61,12 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 	t.Run("nonspecific initialization failure, client is returned", func(t *testing.T) {
 		// For conditions where the data source did not successfully start but the configuration was valid, the
 		// SDK *does* return a client along with the error - the test verifies that our wrapper logic preserves this
-		factory := ClientFactoryFromLDClientFactory(func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClient, error) {
+		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
 			config.DataSource = sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatStartsWithoutInitializing{}}
-			return ld.MakeCustomClient(string(sdkKey), config, time.Millisecond)
+			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
-		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()})
+		client, err := factory("sdk-key", ld.Config{Logging: ldcomponents.NoLogging()}, time.Millisecond)
 		assert.NotNil(t, client)
 		assert.Error(t, err)
 	})
@@ -76,7 +75,7 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 func TestDefaultClientFactory(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		config := ld.Config{Offline: true, Logging: ldcomponents.NoLogging()}
-		client, err := DefaultClientFactory("sdk-key", config)
+		client, err := DefaultClientFactory()("sdk-key", config, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		defer client.Close()
@@ -86,7 +85,7 @@ func TestDefaultClientFactory(t *testing.T) {
 	t.Run("initialization error, client is not returned", func(t *testing.T) {
 		// See TestClientFactoryFromLDClientFactory for the rationale for this test
 		config := ld.Config{HTTP: makeInvalidHTTPConfiguration(), Logging: ldcomponents.NoLogging()}
-		client, err := DefaultClientFactory("sdk-key", config)
+		client, err := DefaultClientFactory()("sdk-key", config, time.Second)
 		assert.Error(t, err)
 		assert.Nil(t, client)
 	})
@@ -98,7 +97,7 @@ func TestDefaultClientFactory(t *testing.T) {
 			DataSource: sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatStartsWithoutInitializing{}},
 			Logging:    ldcomponents.NoLogging(),
 		}
-		client, err := DefaultClientFactory("sdk-key", config)
+		client, err := DefaultClientFactory()("sdk-key", config, time.Second)
 		assert.Error(t, err)
 		assert.NotNil(t, client)
 	})
@@ -114,7 +113,7 @@ func TestDataStoreStatusTracking(t *testing.T) {
 
 	store := &fakeStore{}
 	config := ld.Config{Offline: true, DataStore: fakeStoreFactory{store}, Logging: ldcomponents.NoLogging()}
-	client, err := DefaultClientFactory("sdk-key", config)
+	client, err := DefaultClientFactory()("sdk-key", config, 0)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	defer client.Close()

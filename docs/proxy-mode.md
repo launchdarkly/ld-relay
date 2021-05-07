@@ -22,7 +22,7 @@ If you want SDKs to connect to the Relay Proxy securely, read [Using TLS](./tls.
 
 If an SDK connects to the Relay Proxy while the Relay Proxy is starting up and waiting for a connection to LaunchDarkly, the response is a `503` error. This indicates that the Relay Proxy isn't ready yet. All LaunchDarkly SDKs will retry after a backoff delay in this case.
 
-After 10 seconds, the Relay Proxy stops waiting for the connection. Continue reading for what happens after that point.
+Eventually, the Relay Proxy stops waiting for the connection. The length of this wait depends on the [configuration option](./config.md#file-section-main) `initTimeout` (default value: 10 seconds). Continue reading for what happens after that point.
 
 ### Relay Proxy receives a request after the LaunchDarkly connection attempt has timed out
 

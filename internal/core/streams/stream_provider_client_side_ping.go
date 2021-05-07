@@ -3,7 +3,6 @@ package streams
 import (
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
@@ -27,30 +26,8 @@ type clientSidePingEnvStreamProvider struct {
 	channels []string
 }
 
-type clientSidePingEnvStreamRepository struct{}
-
-// NewMobilePingStreamProvider creates a StreamProvider implementation for mobile streaming endpoints, which
-// will generate only "ping" events.
-//
-// This is identical to NewJSClientPingStreamProvider except that it only handles requests authenticated with
-// a mobile key.
-func NewMobilePingStreamProvider(maxConnTime time.Duration) StreamProvider {
-	return &clientSidePingStreamProvider{
-		server:     newSSEServer(maxConnTime),
-		isJSClient: false,
-	}
-}
-
-// NewJSClientPingStreamProvider creates a StreamProvider implementation for JS client-side streaming endpoints,
-// which will generate only "ping" events.
-//
-// This is identical to NewMobilePingStreamProvider except that it only handles requests authenticated with
-// an environment ID.
-func NewJSClientPingStreamProvider(maxConnTime time.Duration) StreamProvider {
-	return &clientSidePingStreamProvider{
-		server:     newSSEServer(maxConnTime),
-		isJSClient: true,
-	}
+type clientSidePingEnvStreamRepository struct {
+	store EnvStoreQueries
 }
 
 func (s *clientSidePingStreamProvider) validateCredential(credential config.SDKCredential) string {
@@ -79,7 +56,7 @@ func (s *clientSidePingStreamProvider) Register(
 	loggers ldlog.Loggers,
 ) EnvStreamProvider {
 	if key := s.validateCredential(credential); key != "" {
-		repo := &clientSidePingEnvStreamRepository{}
+		repo := &clientSidePingEnvStreamRepository{store: store}
 		s.server.Register(key, repo)
 		envStream := &clientSidePingEnvStreamProvider{server: s.server, channels: []string{key}}
 		return envStream
@@ -113,7 +90,9 @@ func (e *clientSidePingEnvStreamProvider) Close() {
 
 func (r *clientSidePingEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
 	out := make(chan eventsource.Event, 1)
-	out <- MakePingEvent()
+	if r.store.IsInitialized() { // See serverSideEnvStreamRepository.Replay
+		out <- MakePingEvent()
+	}
 	close(out)
 	return out
 }
