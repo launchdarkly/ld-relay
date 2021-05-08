@@ -9,8 +9,8 @@ import (
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -63,7 +63,7 @@ func TestSummarizeFeatureEventsForExistingFlag(t *testing.T) {
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -77,7 +77,7 @@ func TestSummarizeFeatureEventsForExistingFlagWithTrackEvents(t *testing.T) {
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -91,7 +91,7 @@ func TestSummarizeFeatureEventsForExistingFlagWithInlineUsersAndInlineUsers(t *t
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -105,7 +105,7 @@ func TestSummarizeFeatureEventsForExistingFlagWithDebugEvents(t *testing.T) {
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -116,7 +116,7 @@ func TestSummarizeFeatureEventsForExistingFlagWithDebugEvents(t *testing.T) {
 func TestSummarizeFeatureEventsForUnknownFlagWithoutVersion(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsWithoutVersion), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -127,7 +127,7 @@ func TestSummarizeFeatureEventsForUnknownFlagWithoutVersion(t *testing.T) {
 func TestSummarizeFeatureEventsForUnknownFlagWithEventVersion(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -141,7 +141,7 @@ func TestSummarizeSchemaV2FeatureEventsForExistingFlag(t *testing.T) {
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -157,7 +157,7 @@ func TestSummarizeSchemaV2FeatureEventsForExistingFlagWithTrackEvents(t *testing
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2TrackEvents), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -173,7 +173,7 @@ func TestSummarizeSchemaV2FeatureEventsForExistingFlagWithDebugEvents(t *testing
 		_, _ = st.UpsertFlag(p.dataStore, flag)
 
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2DebugEvents), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -184,7 +184,7 @@ func TestSummarizeSchemaV2FeatureEventsForExistingFlagWithDebugEvents(t *testing
 func TestSummarizeSchemaV2FeatureEventsForUnknownFlag(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2WithoutVersion), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -195,7 +195,7 @@ func TestSummarizeSchemaV2FeatureEventsForUnknownFlag(t *testing.T) {
 func TestSummarizeCustomEvents(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(summarizableCustomEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -206,7 +206,7 @@ func TestSummarizeCustomEvents(t *testing.T) {
 func TestSummarizeCustomEventsWithInlineUsersLeavesEventsUnchanged(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{InlineUsers: true}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(summarizableCustomEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -217,7 +217,7 @@ func TestSummarizeCustomEventsWithInlineUsersLeavesEventsUnchanged(t *testing.T)
 func TestSummarizeIdentifyEventsLeavesEventsUnchanged(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(identifyEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -228,7 +228,7 @@ func TestSummarizeIdentifyEventsLeavesEventsUnchanged(t *testing.T) {
 func TestSummarizeAliasEventsLeavesEventsUnchanged(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(aliasEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)
@@ -239,7 +239,7 @@ func TestSummarizeAliasEventsLeavesEventsUnchanged(t *testing.T) {
 func TestSummarizingRelayDiscardsMalformedEvents(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req := st.BuildRequest("POST", "/", []byte(malformedEventsAndGoodIdentifyEventsInWellFormedJSON), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(sdks.Server, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 		p.dispatcher.flush()
 
 		payload := expectSummarizedPayload(t, p.requestsCh)

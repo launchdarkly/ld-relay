@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -21,7 +22,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	invalidCredential2 := testEnvID
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewServerSideFlagsOnlyStreamProvider(maxConnTime)
+		sp := NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)

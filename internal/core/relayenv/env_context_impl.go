@@ -61,6 +61,7 @@ type envContextImpl struct {
 	eventDispatcher  *events.EventDispatcher
 	sdkConfig        ld.Config
 	sdkClientFactory sdks.ClientFactoryFunc
+	sdkInitTimeout   time.Duration
 	metricsManager   *metrics.Manager
 	metricsEnv       *metrics.EnvironmentManager
 	metricsEventPub  events.EventPublisher
@@ -139,6 +140,7 @@ func NewEnvContext(
 		handlers:         make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
 		jsContext:        jsClientContext,
 		sdkClientFactory: clientFactory,
+		sdkInitTimeout:   allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
 		metricsManager:   metricsManager,
 		globalLoggers:    loggers,
 		ttl:              envConfig.TTL.GetOrElse(0),
@@ -240,16 +242,16 @@ func NewEnvContext(
 }
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
-	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig)
+	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
 		c.clients[sdkKey] = client
 	}
+	c.initErr = err
 	c.mu.Unlock()
 
 	if err != nil {
-		c.initErr = err
 		if suppressErrors {
 			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
 				name, err)
@@ -429,6 +431,9 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 }
 
 func (c *envContextImpl) GetInitError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return c.initErr
 }
 

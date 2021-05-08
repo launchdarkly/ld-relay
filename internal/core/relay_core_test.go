@@ -8,6 +8,7 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -250,16 +251,12 @@ func TestRelayCoreUninitializedEnvironment(t *testing.T) {
 		defer core.Close()
 		router := core.MakeRouter()
 
-		serverHeaders := make(http.Header)
-		serverHeaders.Add("Authorization", string(problemEnv.Config.SDKKey))
-		req1 := st.BuildRequest("GET", "/all", nil, serverHeaders)
+		req1 := st.MakeSDKStreamEndpointRequest("", basictypes.ServerSideStream, problemEnv, st.SimpleUserJSON, 0)
 		rr1 := httptest.NewRecorder()
 		router.ServeHTTP(rr1, req1)
 		assert.Equal(t, http.StatusServiceUnavailable, rr1.Result().StatusCode)
 
-		mobileHeaders := make(http.Header)
-		mobileHeaders.Add("Authorization", string(problemEnv.Config.MobileKey))
-		req2 := st.BuildRequest("GET", "/mping", nil, mobileHeaders)
+		req2 := st.MakeSDKStreamEndpointRequest("", basictypes.MobilePingStream, problemEnv, st.SimpleUserJSON, 0)
 		rr2 := httptest.NewRecorder()
 		router.ServeHTTP(rr2, req2)
 		assert.Equal(t, http.StatusServiceUnavailable, rr2.Result().StatusCode)
@@ -281,15 +278,11 @@ func TestRelayCoreUninitializedEnvironment(t *testing.T) {
 		assert.NotNil(t, store)
 		store.Init(nil)
 
-		serverHeaders := make(http.Header)
-		serverHeaders.Add("Authorization", string(problemEnv.Config.SDKKey))
-		req1 := st.BuildRequest("GET", "/all", nil, serverHeaders)
+		req1 := st.MakeSDKStreamEndpointRequest("", basictypes.ServerSideStream, problemEnv, "", 0)
 		resp1 := st.WithStreamRequest(t, req1, router, func(ch <-chan eventsource.Event) { <-ch })
 		assert.Equal(t, http.StatusOK, resp1.StatusCode)
 
-		mobileHeaders := make(http.Header)
-		mobileHeaders.Add("Authorization", string(problemEnv.Config.MobileKey))
-		req2 := st.BuildRequest("GET", "/mping", nil, mobileHeaders)
+		req2 := st.MakeSDKStreamEndpointRequest("", basictypes.MobilePingStream, problemEnv, st.SimpleUserJSON, 0)
 		resp2 := st.WithStreamRequest(t, req2, router, func(ch <-chan eventsource.Event) { <-ch })
 		assert.Equal(t, http.StatusOK, resp2.StatusCode)
 	})
@@ -299,9 +292,9 @@ func oneEnvFails(
 	badSDKKey c.SDKKey,
 	returnClientInstanceAnyway bool,
 	gateCh <-chan struct{},
-) func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-	return func(sdkKey c.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-		client, _ := testclient.FakeLDClientFactory(true)(sdkKey, config)
+) sdks.ClientFactoryFunc {
+	return func(sdkKey c.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		client, _ := testclient.FakeLDClientFactory(true)(sdkKey, config, timeout)
 		if sdkKey == badSDKKey {
 			if gateCh != nil {
 				<-gateCh

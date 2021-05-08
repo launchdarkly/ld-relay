@@ -20,6 +20,9 @@ const (
 	// DefaultEventsURI is the default value for the base URI of LaunchDarkly services (event endpoints).
 	DefaultEventsURI = "https://events.launchdarkly.com"
 
+	// DefaultInitTimeout is the default value for MainConfig.InitTimeout if not specified.
+	DefaultInitTimeout = time.Second * 10
+
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
@@ -108,6 +111,7 @@ type MainConfig struct {
 	StreamURI                   ct.OptURLAbsolute        `conf:"STREAM_URI"`
 	BaseURI                     ct.OptURLAbsolute        `conf:"BASE_URI"`
 	Port                        ct.OptIntGreaterThanZero `conf:"PORT"`
+	InitTimeout                 ct.OptDuration           `conf:"INIT_TIMEOUT"`
 	HeartbeatInterval           ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime     ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
 	DisconnectedStatusTime      ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`

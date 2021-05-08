@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
 
@@ -42,7 +42,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(sdks.JSClient)(resp, req)
+	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
 
@@ -57,7 +57,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(sdks.JSClient)(resp, req)
+	evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 

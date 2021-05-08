@@ -3,7 +3,6 @@ package streams
 import (
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
@@ -28,14 +27,6 @@ type serverSideEnvStreamProvider struct {
 type serverSideEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
-}
-
-// NewServerSideStreamProvider creates a StreamProvider implementation for the server-side SDK "/all"
-// endpoint, which is used by all current server-side SDK versions.
-func NewServerSideStreamProvider(maxConnTime time.Duration) StreamProvider {
-	return &serverSideStreamProvider{
-		server: newSSEServer(maxConnTime),
-	}
 }
 
 func (s *serverSideStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -90,6 +81,10 @@ func (e *serverSideEnvStreamProvider) Close() {
 func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
 	out := make(chan eventsource.Event)
 	if !r.store.IsInitialized() {
+		// If the data store has never been populated, we won't send an initial event. This is desirable
+		// behavior because, if Relay is still waiting on flag data from LD, we want SDK clients to stay
+		// waiting on Relay; then once Relay gets a "put" event from the LD stream, it will broadcast that
+		// event to this stream.
 		close(out)
 		return out
 	}

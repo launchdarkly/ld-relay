@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
@@ -32,7 +32,7 @@ import (
 
 func getClientSideUserProperties(
 	clientCtx relayenv.EnvContext,
-	sdkKind sdks.Kind,
+	sdkKind basictypes.SDKKind,
 	req *http.Request,
 	w http.ResponseWriter,
 ) (lduser.User, bool) {
@@ -58,7 +58,7 @@ func getClientSideUserProperties(
 		return user, false
 	}
 
-	if clientCtx.IsSecureMode() && sdkKind == sdks.JSClient {
+	if clientCtx.IsSecureMode() && sdkKind == basictypes.JSClientSDK {
 		hash := req.URL.Query().Get("h")
 		valid := false
 		if hash != "" {
@@ -88,7 +88,7 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 
 // This handler is used for client-side streaming endpoints that require user properties. Currently it is
 // implemented the same as the ping stream once we have validated the user.
-func pingStreamHandlerWithUser(sdkKind sdks.Kind, streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithUser(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
@@ -146,7 +146,7 @@ func pollSegmentHandler(w http.ResponseWriter, req *http.Request) {
 // events.ld.com/mobile/events/diagnostic (mobile diagnostic)
 // events.ld.com/events/bulk/{envId} (JS)
 // events.ld.com/events/diagnostic/{envId} (JS)
-func bulkEventHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind, offline bool) http.Handler {
+func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataKind, offline bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if offline {
 			w.WriteHeader(http.StatusAccepted)
@@ -182,7 +182,7 @@ func bulkEventHandler(sdkKind sdks.Kind, eventsKind ldevents.EventDataKind, offl
 // app.ld.com/sdk/evalx/{envId}/user (REPORT)
 // app.ld/com/sdk/evalx/users/{user} (GET - with SDK key auth)
 // app.ld/com/sdk/evalx/user (REPORT - with SDK key auth)
-func evaluateAllFeatureFlags(sdkKind sdks.Kind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, false, sdkKind)
 	}
@@ -193,13 +193,13 @@ func evaluateAllFeatureFlags(sdkKind sdks.Kind) func(w http.ResponseWriter, req 
 // app.ld.com/sdk/eval/{envId}/user (REPORT)
 // app.ld/com/sdk/eval/users/{user} (GET - with SDK key auth)
 // app.ld/com/sdk/eval/user (REPORT - with SDK key auth)
-func evaluateAllFeatureFlagsValueOnly(sdkKind sdks.Kind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlagsValueOnly(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, true, sdkKind)
 	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind sdks.Kind) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind basictypes.SDKKind) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
@@ -248,11 +248,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	for _, item := range items {
 		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
 			switch sdkKind {
-			case sdks.JSClient:
+			case basictypes.JSClientSDK:
 				if !flag.ClientSideAvailability.UsingEnvironmentID {
 					continue
 				}
-			case sdks.Mobile:
+			case basictypes.MobileSDK:
 				if !flag.ClientSideAvailability.UsingMobileKey {
 					continue
 				}

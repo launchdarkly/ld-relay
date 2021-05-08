@@ -25,8 +25,8 @@ build:
 	go build .
 
 test:
-	go test -run=not-a-real-test ./...  # just ensures that the tests compile
-	go test -race -v ./...
+	go test -run=not-a-real-test -tags redis_unit_tests ./...  # just ensures that the tests compile
+	go test -race -v $(if $(LD_TEST_REDIS),-tags redis_unit_tests,) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
 	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi
