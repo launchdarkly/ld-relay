@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.2.0] - 2021-05-07
+### Added:
+- New [configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-main) `InitTimeout`, controlling how long the Relay Proxy will wait for its initial connection to LaunchDarkly; this was previously always 10 seconds.
+
 ## [6.1.7] - 2021-04-30
 ### Added:
 - In the [&#34;Proxy mode&#34;](https://github.com/launchdarkly/ld-relay/blob/v6/docs/proxy-mode.md) and [&#34;Daemon mode&#34;](https://github.com/launchdarkly/ld-relay/blob/v6/docs/daemon-mode.md) documentation pages, there is now a description of how the Relay Proxy behaves if it can&#39;t connect to LaunchDarkly, or if there is an invalid SDK key.
