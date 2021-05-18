@@ -42,7 +42,7 @@ make test
 
 To include tests of persistent data store behavior using Redis, assuming a Redis server is running at `localhost:6379`:
 ```
-LD_TEST_REDIS=true make test
+TAGS=redis_unit_tests make test
 ```
 
 To analyze test coverage:
