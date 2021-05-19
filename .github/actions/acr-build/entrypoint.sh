@@ -11,6 +11,8 @@ run_build() {
 
   az account set -s $ACR_SUBSCRIPTION_ID
 
+  echo "Container tag: $INPUT_REPO:$INPUT_IMAGETAG "
+
   # Run ACR Build
   az acr build -t $INPUT_REPO:$INPUT_IMAGETAG -r r1k8sacrdev --file Dockerfile.relativity --no-wait .
 
