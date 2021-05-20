@@ -1,0 +1,23 @@
+name: 'ACR Build'
+description: 'Builds a Docker Image in Azure Container Registry from the release tag.'
+author: 'Corey Wagehoft'
+
+branding:
+  color: orange
+  icon: lock
+
+inputs:
+  repo:
+    description: "The docker repo name"
+    required: true
+  imageTag:
+    description: "The docker image tag"
+    required: true
+  output:
+    description: "Output format"
+    default: "stdout"
+    required: false
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
