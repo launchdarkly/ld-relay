@@ -1,5 +1,8 @@
 version: 2.1
 
+orbs:
+  go: circleci/go@1.6.0
+
 experimental:
   notify:
     branches:
@@ -160,14 +163,8 @@ jobs:
         github.com/jstemmer/go-junit-report
     steps:
       - checkout
-      - run:
-          name: install Go # since we're using machine mode, we can't use a preinstalled Go Docker image
-          command: |
-            sudo apt update
-            sudo apt install -y software-properties-common
-            sudo add-apt-repository -y ppa:longsleep/golang-backports
-            sudo apt update
-            sudo apt install -y golang-go
+      - go/install: # since we're using machine mode, we can't use a preinstalled Go Docker image
+          version: 1.15.12
       - run: go version && go env
       - restore_cache:
           keys: 
@@ -181,10 +178,6 @@ jobs:
       - run: |
           mkdir -p $CIRCLE_TEST_REPORTS
           mkdir -p $CIRCLE_ARTIFACTS
-      - run:
-          name: (TEMPORARY FOR FEATURE BRANCH) copy SSH configuration for getting prerelease dependencies
-          command: |
-            cp -r $HOME/.ssh temp_ssh
       - run:
           name: Run integration tests
           command: LD_API_TOKEN=`echo $<<parameters.ld_api_token_env_var>>` make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
@@ -224,10 +217,6 @@ jobs:
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
-      - run:
-          name: (TEMPORARY FOR FEATURE BRANCH) copy SSH configuration for getting prerelease dependencies
-          command: |
-            cp -r $HOME/.ssh temp_ssh
       - run: make release
       - run: make docker-smoke-test
       - store_artifacts:
