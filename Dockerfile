@@ -4,8 +4,6 @@ FROM golang:1.15.2-alpine as builder
 
 RUN apk --no-cache add \
     libc-dev \
-    # TEMPORARY FOR FEATURE BRANCH: we need to include git in order to use prerelease dependencies
-    git openssh-client \
  && rm -rf /var/cache/apk/*
 
 ARG SRC_DIR=/go/ld-relay
@@ -19,13 +17,6 @@ COPY . .
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOPATH=/go
-
-# TEMPORARY FOR FEATURE BRANCH: allow fetching of prerelease dependencies - the SSH configuration
-# will be copied into the project directly by the CI script
-RUN mv temp_ssh ~/.ssh
-RUN chmod 400 ~/.ssh/id_rsa*
-RUN git config --global url.git@github.com:.insteadOf https://github.com/
-ENV GOPRIVATE=github.com/launchdarkly/*-private
 
 RUN go build -a -o ldr .
 

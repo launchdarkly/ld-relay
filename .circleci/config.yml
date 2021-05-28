@@ -182,10 +182,6 @@ jobs:
           mkdir -p $CIRCLE_TEST_REPORTS
           mkdir -p $CIRCLE_ARTIFACTS
       - run:
-          name: (TEMPORARY FOR FEATURE BRANCH) copy SSH configuration for getting prerelease dependencies
-          command: |
-            cp -r $HOME/.ssh temp_ssh
-      - run:
           name: Run integration tests
           command: LD_API_TOKEN=`echo $<<parameters.ld_api_token_env_var>>` make integration-test | tee $CIRCLE_ARTIFACTS/report.txt
       - run:
@@ -224,10 +220,6 @@ jobs:
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
-      - run:
-          name: (TEMPORARY FOR FEATURE BRANCH) copy SSH configuration for getting prerelease dependencies
-          command: |
-            cp -r $HOME/.ssh temp_ssh
       - run: make release
       - run: make docker-smoke-test
       - store_artifacts:
