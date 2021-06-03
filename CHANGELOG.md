@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.2.1] - 2021-06-03
+### Fixed:
+- Fixed a bug in JSON parsing that could cause floating-point numbers (in flag variation values, rule values, or user attributes) to be read incorrectly if the number format included an exponent and did not include a decimal point (for instance, `1e5`). Since there are several equally valid number formats in JSON (so `1e5` is exactly equivalent to `100000`), whether this bug showed up would depend on the format chosen by whatever software had most recently converted the number to JSON before it was re-read, which is hard to predict, but it would only be likely to happen with either integers that had more than four trailing zeroes or floating-point numbers with leading zeroes. This bug also existed in the LaunchDarkly Go SDK prior to version 5.3.1, so anyone who uses both the Relay Proxy and the Go SDK should update both.
+
 ## [6.2.0] - 2021-05-07
 ### Added:
 - New [configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-main) `InitTimeout`, controlling how long the Relay Proxy will wait for its initial connection to LaunchDarkly; this was previously always 10 seconds.
