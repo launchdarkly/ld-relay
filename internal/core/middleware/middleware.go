@@ -109,7 +109,14 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 	}
 }
 
-// CORS is a middleware function that sets the appropriate CORS headers on a browser response.
+// CORS is a middleware function that sets the appropriate CORS headers on a browser response
+// (not counting Access-Control-Allow-Methods, which is set by gorilla/mux's CORS middleware
+// based on the route handlers we've defined).
+//
+// Also, if the HTTP method is OPTIONS, it will short-circuit the rest of the middleware chain
+// so that the underlying handler is *not* called-- since an OPTIONS request should not do
+// anything except set the CORS response headers. Therefore, we should always put the
+// gorilla/mux CORS middleware before this one.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
@@ -132,7 +139,9 @@ func CORS(next http.Handler) http.Handler {
 			}
 			browser.SetCORSHeaders(w, origin)
 		}
-		next.ServeHTTP(w, r)
+		if r.Method != "OPTIONS" {
+			next.ServeHTTP(w, r)
+		}
 	})
 }
 

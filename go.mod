@@ -11,9 +11,8 @@ require (
 	github.com/aws/aws-sdk-go v1.37.2
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/gomodule/redigo v1.8.2
-	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
-	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f // indirect
-	github.com/gorilla/mux v1.6.3-0.20180517173623-c85619274f5d
+	github.com/googleapis/gax-go v1.0.3 // indirect
+	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
 	github.com/hashicorp/consul/api v1.5.0
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
