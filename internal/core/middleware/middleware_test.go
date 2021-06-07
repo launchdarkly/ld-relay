@@ -317,6 +317,30 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *tes
 	assert.Equal(t, "abc", resp.Result().Header.Get("Access-Control-Allow-Origin"))
 }
 
+func TestCORSMiddlewareOnlyCallsWrappedHandlerIfMethodIsNotOPTIONS(t *testing.T) {
+	totalTimesCalled := 0
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		totalTimesCalled++
+		w.WriteHeader(200)
+	})
+	corsHandler := CORS(wrappedHandler)
+
+	req1 := buildPreRoutedRequest("GET", nil, nil, nil, nil)
+	resp1 := httptest.NewRecorder()
+	corsHandler.ServeHTTP(resp1, req1)
+	assert.Equal(t, 200, resp1.Result().StatusCode)
+	assert.Equal(t, 1, totalTimesCalled)
+
+	headers := make(http.Header)
+	headers.Set("Origin", "blah")
+	req2 := buildPreRoutedRequest("OPTIONS", nil, headers, nil, nil)
+	resp2 := httptest.NewRecorder()
+	corsHandler.ServeHTTP(resp2, req2)
+	assert.Equal(t, 200, resp2.Result().StatusCode)
+	assert.Equal(t, "blah", resp2.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, 1, totalTimesCalled) // wrappedHandler was not called this time
+}
+
 func TestStreaming(t *testing.T) {
 	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
 	resp := httptest.NewRecorder()
