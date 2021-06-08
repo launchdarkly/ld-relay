@@ -39,23 +39,27 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	jsClientSelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, r)
 	offlineMode := r.config.OfflineMode.FileDataSource != ""
 
-	// Client-side evaluation
-	clientSideMiddlewareStack := middleware.Chain(
-		middleware.CORS,
-		jsClientSelector,
-		middleware.RequestCount(metrics.BrowserRequests))
+	// Client-side evaluation (for JS, not mobile)
+	jsClientSideMiddlewareStack := func(subrouter *mux.Router) mux.MiddlewareFunc {
+		return middleware.Chain(
+			mux.CORSMethodMiddleware(subrouter),
+			middleware.CORS,
+			jsClientSelector,
+			middleware.RequestCount(metrics.BrowserRequests),
+		)
+	}
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
-	goalsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(goalsRouter))
+	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter))
 	goalsRouter.HandleFunc("/{envId}", getGoals).Methods("GET", "OPTIONS")
 
 	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
-	clientSideSdkEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalRouter))
+	clientSideSdkEvalRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalRouter))
 	clientSideSdkEvalRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)).Methods("REPORT", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
-	clientSideSdkEvalXRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideSdkEvalXRouter))
+	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter))
 	clientSideSdkEvalXRouter.HandleFunc("/users/{user}", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("REPORT", "OPTIONS")
 
@@ -110,11 +114,11 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	jsPingWithUser := pingStreamHandlerWithUser(basictypes.JSClientSDK, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSidePingRouter), middleware.Streaming)
+	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter), middleware.Streaming)
 	clientSidePingRouter.Handle("", middleware.CountBrowserConns(jsPing)).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideStreamEvalRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideStreamEvalRouter), middleware.Streaming)
+	clientSideStreamEvalRouter.Use(jsClientSideMiddlewareStack(clientSideStreamEvalRouter), middleware.Streaming)
 	// For now we implement eval as simply ping
 	clientSideStreamEvalRouter.Handle("/{user}", middleware.CountBrowserConns(jsPingWithUser)).Methods("GET", "OPTIONS")
 	clientSideStreamEvalRouter.Handle("", middleware.CountBrowserConns(jsPingWithUser)).Methods("REPORT", "OPTIONS")
@@ -127,15 +131,15 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
-	clientSideBulkEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
+	clientSideBulkEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter))
 	clientSideBulkEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
-	clientSideDiagnosticEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideBulkEventsRouter))
+	clientSideDiagnosticEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter))
 	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
-	clientSideImageEventsRouter.Use(clientSideMiddlewareStack, mux.CORSMethodMiddleware(clientSideImageEventsRouter))
+	clientSideImageEventsRouter.Use(jsClientSideMiddlewareStack(clientSideImageEventsRouter))
 	clientSideImageEventsRouter.HandleFunc("", getEventsImage).Methods("GET", "OPTIONS")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
