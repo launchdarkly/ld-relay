@@ -14,7 +14,7 @@ workflows:
           name: Go latest
           # This build has a deliberately unpinned version so that if a new Go major version
           # is released before we have updated the build, we can detect any problems early
-          docker-image: cimg/go:latest
+          docker-image: cimg/go:current
           run-lint: true
           test-coverage: true
       - go-test:
