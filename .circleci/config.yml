@@ -4,7 +4,6 @@ experimental:
   notify:
     branches:
       only:
-        - master
         - v5
         - v6
 
@@ -12,15 +11,23 @@ workflows:
   workflow:
     jobs:
       - go-test:
-          name: Go 1.15
-          docker-image: cimg/go:1.15.2
+          name: Go latest
+          # This build has a deliberately unpinned version so that if a new Go major version
+          # is released before we have updated the build, we can detect any problems early
+          docker-image: circleci/golang:latest
           run-lint: true
           test-coverage: true
       - go-test:
+          name: Go 1.16
+          docker-image: cimg/go:1.16
+      - go-test:
+          name: Go 1.15
+          docker-image: cimg/go:1.15
+      - go-test:
           name: Go 1.14
-          docker-image: cimg/go:1.14.9
+          docker-image: cimg/go:1.14
       - benchmarks:
-          docker-image: cimg/go:1.15.2
+          docker-image: cimg/go:1.15
       - integration-test
       - test-publish
       - publish:
@@ -211,7 +218,7 @@ jobs:
   test-publish:
     docker:
       - &release_docker_image
-        image: cimg/go:1.15.2
+        image: cimg/go:1.15.13
         environment:
           <<: *environment
 
