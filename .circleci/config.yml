@@ -78,15 +78,19 @@ workflows:
             only: v6
     jobs:
       - package-build-test:
+          name: package build - Go latest
           docker-image: circleci/golang:latest
           use-go-install: true
       - package-build-test:
+          name: package build - Go 1.16
           docker-image: cimg/go:1.16
           use-go-install: true
       - package-build-test:
+          name: package build - Go 1.15
           docker-image: cimg/go:1.15
           use-go-install: false
       - package-build-test:
+          name: package build - Go 1.14
           docker-image: cimg/go:1.14
           use-go-install: false
 
