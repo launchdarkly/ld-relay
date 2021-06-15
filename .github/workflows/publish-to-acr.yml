@@ -33,7 +33,7 @@ jobs:
         uses: ./.github/actions/acr-build
         id: acr-build
         with:
-           repo: launchdarkly/ld-relay
+           repo: r1/toggles/ld-relay
            imageTag: ${{ steps.getversion.outputs.version }}
         env:
            CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
