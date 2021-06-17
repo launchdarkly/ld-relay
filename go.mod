@@ -27,8 +27,8 @@ require (
 	go.opencensus.io v0.23.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.2.3
+	gopkg.in/launchdarkly/go-sdk-common.v2 v2.3.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.2.2
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.3.1
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.3.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.4.0
 )
