@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.3.0] - 2021-06-17
+### Added:
+- The internal SDK logic used in evaluating flags for client-side SDKs now supports the ability to control the proportion of traffic allocation to an experiment. This works in conjunction with a new platform feature now available to early access customers.
+
 ## [6.2.2] - 2021-06-07
 ### Changed:
 - Updated the third-party packages that provide metrics integration for DataDog, Prometheus, and StackDriver to their latest releases. These are the latest versions of the OpenCensus integrations; the Relay Proxy is not yet using OpenTelemetry, the newer API that will replace OpenCensus. This update does not fix any known bugs or add any new metrics capabilities to the Relay Proxy; its purpose is to fix potential dependency conflicts in the build.
