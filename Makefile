@@ -21,7 +21,7 @@ COVERAGE_ENFORCER_FLAGS=\
   	-skipfiles 'internal/core/sharedtest/' \
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
-OPTIONAL_TAGS_PARAM=$(if,${TAGS},-tags ${TAGS},)
+OPTIONAL_TAGS_PARAM=$(if ${TAGS},-tags ${TAGS},)
 ALL_TEST_TAGS=big_segment_external_store_tests,integrationtests,redis_unit_tests
 
 build:
