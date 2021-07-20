@@ -308,9 +308,13 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		store := c.storeAdapter.GetStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
 		var bigSegConfig interfaces.BigSegmentsConfiguration
+		var bigSegErr error
 		if c.sdkBigSegmentFactory != nil {
-			bigSegConfig, err = c.sdkBigSegmentFactory.CreateBigSegmentsConfiguration(
+			bigSegConfig, bigSegErr = c.sdkBigSegmentFactory.CreateBigSegmentsConfiguration(
 				sdks.NewSimpleClientContext(string(sdkKey), c.sdkConfig))
+			if bigSegErr != nil && err == nil {
+				err = bigSegErr
+			}
 		}
 		if bigSegConfig == nil {
 			c.evaluator = ldeval.NewEvaluator(dataProvider)
