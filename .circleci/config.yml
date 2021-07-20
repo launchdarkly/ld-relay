@@ -96,6 +96,7 @@ jobs:
             github.com/jstemmer/go-junit-report
           TAGS: redis_unit_tests,big_segment_external_store_tests
       - image: redis
+      - image: amazon/dynamodb-local
 
     steps:
       - checkout
