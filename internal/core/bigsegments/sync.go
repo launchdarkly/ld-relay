@@ -205,7 +205,6 @@ func isHTTPErrorRecoverable(statusCode int) bool {
 func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 	client := s.httpConfig.Client()
 
-	s.loggers.Infof("Polling %s", s.pollURI)
 	request, err := http.NewRequest("GET", s.pollURI, nil)
 	if err != nil {
 		return false, err
@@ -224,6 +223,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 		request.URL.RawQuery = query.Encode()
 	}
 
+	s.loggers.Debugf("Polling %s", request.URL)
 	response, err := client.Do(request)
 	if err != nil {
 		return false, err
@@ -245,7 +245,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 }
 
 func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
-	s.loggers.Infof("Making stream request to %s", s.streamURI)
+	s.loggers.Debugf("Making stream request to %s", s.streamURI)
 	request, err := http.NewRequest("GET", s.streamURI, nil)
 	if err != nil {
 		return nil, err
@@ -306,6 +306,7 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, erro
 	}
 
 	for _, patch := range patches {
+		s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
 		if err := s.store.applyPatch(patch); err != nil {
 			return 0, err
 		}
