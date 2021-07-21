@@ -239,9 +239,9 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 		return false, err
 	}
 
-	count, err := s.applyPatches(responseBody)
+	totalCount, _, err := s.applyPatches(responseBody)
 
-	return count == 0, err
+	return totalCount == 0, err
 }
 
 func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
@@ -280,8 +280,12 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 			}
 
 			s.loggers.Debug("Received update(s) from stream")
-			if _, err := s.applyPatches([]byte(event.Data())); err != nil {
+			totalCount, appliedCount, err := s.applyPatches([]byte(event.Data()))
+			if err != nil {
 				return err
+			}
+			if appliedCount < totalCount {
+				return nil // forces a restart if we got an out-of-order patch
 			}
 
 			if err := s.store.setSynchronizedOn(ldtime.UnixMillisNow()); err != nil {
@@ -298,11 +302,12 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 	}
 }
 
-func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, error) {
+// Returns total number of patches, number of patches applied, error
+func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, int, error) {
 	var patches []bigSegmentPatch
 	err := json.Unmarshal(jsonData, &patches)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	successCount := 0
@@ -310,18 +315,16 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, erro
 		s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
 		success, err := s.store.applyPatch(patch)
 		if err != nil {
-			return 0, err
+			return len(patches), successCount, err
 		}
 		if !success {
 			s.loggers.Warnf("Received a patch to previous version %q which was not the latest known version; skipping", patch.PreviousVersion)
-			continue
+			break
 		}
 		successCount++
 	}
 	if successCount > 0 {
 		s.loggers.Infof("Applied %d updates", successCount)
 	}
-	// Here we'll return the actual count, rather than successCount, because the caller will want to know
-	// if there were any patches at all in the data
-	return len(patches), nil
+	return len(patches), successCount, nil
 }
