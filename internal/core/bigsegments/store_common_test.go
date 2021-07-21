@@ -39,6 +39,10 @@ func testGenericAll(
 
 	t.Run("applyPatchSequence", func(t *testing.T) {
 		withBigSegmentStore(t, func(store BigSegmentStore, operations bigSegmentOperations) {
+			// first set synchronizedOn, so we can verify that applying a patch does *not* change that value
+			initialSyncTime := ldtime.UnixMillisecondTime(99999)
+			require.NoError(t, store.setSynchronizedOn(initialSyncTime))
+
 			// apply initial patch that adds users
 			success, err := store.applyPatch(patch1)
 			require.NoError(t, err)
@@ -78,6 +82,22 @@ func testGenericAll(
 			require.NoError(t, err)
 			require.False(t, success)
 
+			// verify that the stored cursor was updated
+			cursor, err = store.getCursor()
+			require.NoError(t, err)
+			assert.Equal(t, patch2.Version, cursor)
+
+			// verify that the sync time is still there
+			syncTime, err := store.GetSynchronizedOn()
+			require.NoError(t, err)
+			assert.Equal(t, initialSyncTime, syncTime)
+
+			// now update the sync time and verify that that doesn't affect the cursor
+			newSyncTime := initialSyncTime + 1
+			require.NoError(t, store.setSynchronizedOn(newSyncTime))
+			syncTime, err = store.GetSynchronizedOn()
+			require.NoError(t, err)
+			assert.Equal(t, newSyncTime, syncTime)
 			cursor, err = store.getCursor()
 			require.NoError(t, err)
 			assert.Equal(t, patch2.Version, cursor)
