@@ -30,11 +30,15 @@ type BigSegmentSynchronizer interface {
 	// Start begins synchronization of an environment.
 	//
 	// This method does not block.
+	//
+	// If the BigSegmentSynchronizer has already been started, or has been closed, this has no effect.
 	Start()
 
-	// Close ends synchronization of an evironment.
+	// Close ends synchronization of an environment.
 	//
 	// This method does not block.
+	//
+	// The BigSegmentSynchronizer cannot be restarted after calling Close.
 	Close()
 }
 
@@ -60,6 +64,7 @@ type defaultBigSegmentSynchronizer struct {
 	envID      config.EnvironmentID
 	sdkKey     config.SDKKey
 	closeChan  chan struct{}
+	startOnce  sync.Once
 	closeOnce  sync.Once
 	loggers    ldlog.Loggers
 }
@@ -111,7 +116,9 @@ func (m httpStatusError) Error() string {
 }
 
 func (s *defaultBigSegmentSynchronizer) Start() {
-	go s.syncSupervisor()
+	s.startOnce.Do(func() {
+		go s.syncSupervisor()
+	})
 }
 
 func (s *defaultBigSegmentSynchronizer) Close() {

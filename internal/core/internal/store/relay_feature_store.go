@@ -46,6 +46,15 @@ func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
 	return store
 }
 
+// GetUpdates returns the EnvStreamUpdates that will receive all updates sent to this store. This is
+// exposed for testing so that we can simulate receiving updates from LaunchDarkly to this component.
+func (a *SSERelayDataStoreAdapter) GetUpdates() streams.EnvStreamUpdates {
+	a.mu.RLock()
+	updates := a.updates
+	a.mu.RUnlock()
+	return updates
+}
+
 // NewSSERelayDataStoreAdapter creates a new instance where the store has not yet been created.
 func NewSSERelayDataStoreAdapter(
 	wrappedFactory interfaces.DataStoreFactory,
