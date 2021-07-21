@@ -96,7 +96,7 @@ func (store *dynamoDBBigSegmentStore) makeTransactionItem(updateExpression, attr
 	}
 }
 
-func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
+func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, error) {
 	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 
 	var conditionExpression *string
@@ -163,7 +163,18 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 			TransactItems: transactionBatch,
 		})
 		if err != nil {
-			return err
+			// DynamoDB doesn't seem to provide a more convenient programmatic way to distinguish
+			// "transaction was cancelled due to the condition check" from other errors here; we
+			// need to go to this trouble because we want the synchronizer to be able to log an
+			// out-of-order update in a clear way that doesn't look like a random database error.
+			if tce, ok := err.(*dynamodb.TransactionCanceledException); ok {
+				for _, reason := range tce.CancellationReasons {
+					if reason.Code != nil && *reason.Code == "ConditionalCheckFailed" {
+						return false, nil
+					}
+				}
+			}
+			return false, err
 		}
 		transactionBatch = transactionBatch[:0]
 	}
@@ -183,7 +194,10 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 	}
 
 	_, err := store.client.PutItem(&putCursorInput)
-	return err
+	if err == nil {
+		return true, nil
+	}
+	return false, err
 }
 
 func (store *dynamoDBBigSegmentStore) getCursor() (string, error) {

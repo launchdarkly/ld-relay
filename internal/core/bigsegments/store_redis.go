@@ -2,7 +2,6 @@ package bigsegments
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -77,8 +76,10 @@ func newRedisBigSegmentStore(
 }
 
 // applyPatch is used to apply updates to the store.
-func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
+func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, error) {
 	ctx := context.Background()
+
+	updated := false
 
 	err := r.client.Watch(ctx, func(tx *redis.Tx) error {
 		cursor, err := r.client.Get(ctx, redisCursorKey(r.prefix)).Result()
@@ -86,8 +87,8 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 			return err
 		}
 
-		if err != redis.Nil && cursor != patch.PreviousVersion {
-			return errors.New("attempted to apply old patch")
+		if err == nil && cursor != patch.PreviousVersion {
+			return err
 		}
 
 		result, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
@@ -134,13 +135,16 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 		if err != nil {
 			return nil
 		}
-		if len(result) > 0 {
-			return result[0].Err()
+		for _, r := range result {
+			if r.Err() != nil {
+				return r.Err()
+			}
 		}
+		updated = true
 		return nil
 	}, redisLockKey(r.prefix))
 
-	return err
+	return updated, err
 }
 
 func (r *redisBigSegmentStore) getCursor() (string, error) {

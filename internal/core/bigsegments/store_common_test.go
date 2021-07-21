@@ -21,6 +21,11 @@ func testGenericAll(
 	t *testing.T,
 	withBigSegmentStore func(t *testing.T, action func(BigSegmentStore, bigSegmentOperations)),
 ) {
+	patch1 := newPatchBuilder("segment.g1", "1", "").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+	patch2 := newPatchBuilder("segment.g1", "2", "1").
+		removeIncludes("included1").removeExcludes("excluded1").build()
+
 	t.Run("synchronizedOn", func(t *testing.T) {
 		withBigSegmentStore(t, func(store BigSegmentStore, operations bigSegmentOperations) {
 			sync1, err := store.GetSynchronizedOn()
@@ -40,8 +45,9 @@ func testGenericAll(
 	t.Run("applyPatchSequence", func(t *testing.T) {
 		withBigSegmentStore(t, func(store BigSegmentStore, operations bigSegmentOperations) {
 			// apply initial patch that adds users
-			err := store.applyPatch(patch1)
+			success, err := store.applyPatch(patch1)
 			require.NoError(t, err)
+			require.True(t, success)
 
 			cursor, err := store.getCursor()
 			require.NoError(t, err)
@@ -56,8 +62,9 @@ func testGenericAll(
 			assert.Equal(t, true, membership)
 
 			// apply second patch in sequence that removes users
-			err = store.applyPatch(patch2)
+			success, err = store.applyPatch(patch2)
 			require.NoError(t, err)
+			require.True(t, success)
 
 			cursor, err = store.getCursor()
 			require.NoError(t, err)
@@ -72,8 +79,9 @@ func testGenericAll(
 			assert.Equal(t, false, membership)
 
 			// apply old patch
-			err = store.applyPatch(patch1)
-			require.Error(t, err)
+			success, err = store.applyPatch(patch1)
+			require.NoError(t, err)
+			require.False(t, success)
 
 			cursor, err = store.getCursor()
 			require.NoError(t, err)
@@ -101,8 +109,9 @@ func testGenericAll(
 				},
 			}
 
-			err := store.applyPatch(patch)
+			success, err := store.applyPatch(patch)
 			require.NoError(t, err)
+			require.True(t, success)
 
 			membership, err := operations.isUserIncluded(patch.SegmentID, strconv.FormatUint(uint64(userCount-1), 10))
 			assert.Equal(t, true, membership)
