@@ -16,7 +16,7 @@ import (
 const (
 	tablePartitionKey         = "namespace"
 	tableSortKey              = "key"
-	dynamoDBCursorAttr        = "cursor"
+	dynamoDBCursorAttr        = "lastVersion"
 	dynamoDBIncludedAttr      = "included"
 	dynamoDBExcludedAttr      = "excluded"
 	dynamoDBSyncTimeAttr      = "synchronizedOn"
@@ -96,28 +96,27 @@ func (store *dynamoDBBigSegmentStore) makeTransactionItem(updateExpression, attr
 	}
 }
 
+func makeCursorUpdateCondition(previousVersion string) (string, map[string]*string, map[string]*dynamodb.AttributeValue) {
+	names := map[string]*string{"#0": aws.String(dynamoDBCursorAttr)}
+	if previousVersion == "" {
+		return "attribute_not_exists(#0)", names, nil
+	}
+	return "#0 = :0", names, map[string]*dynamodb.AttributeValue{
+		":0": {S: aws.String(previousVersion)},
+	}
+}
+
 func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, error) {
 	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 
-	var conditionExpression *string
-	var expressionAttributeValues map[string]*dynamodb.AttributeValue
-	if patch.PreviousVersion == "" {
-		conditionExpression = aws.String("attribute_not_exists(#0)")
-	} else {
-		conditionExpression = aws.String("#0 = :0")
-		expressionAttributeValues = map[string]*dynamodb.AttributeValue{
-			":0": {S: aws.String(patch.PreviousVersion)},
-		}
-	}
+	txConditionExpression, txExprAttrNames, txExprAttrValues := makeCursorUpdateCondition(patch.PreviousVersion)
 
 	conditionCheckItem := &dynamodb.TransactWriteItem{
 		ConditionCheck: &dynamodb.ConditionCheck{
-			ConditionExpression:       conditionExpression,
-			ExpressionAttributeValues: expressionAttributeValues,
+			ConditionExpression:       aws.String(txConditionExpression),
 			TableName:                 aws.String(store.table),
-			ExpressionAttributeNames: map[string]*string{
-				"#0": aws.String(dynamoDBCursorAttr),
-			},
+			ExpressionAttributeNames:  txExprAttrNames,
+			ExpressionAttributeValues: txExprAttrValues,
 			Key: map[string]*dynamodb.AttributeValue{
 				tablePartitionKey: {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
 				tableSortKey:      {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
@@ -179,21 +178,26 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, e
 		transactionBatch = transactionBatch[:0]
 	}
 
-	putCursorInput := dynamodb.PutItemInput{
-		ConditionExpression:       conditionExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
+	updateConditionExpression, updateExprAttrNames, updateExprAttrValues := makeCursorUpdateCondition(patch.PreviousVersion)
+	if updateExprAttrValues == nil {
+		updateExprAttrValues = map[string]*dynamodb.AttributeValue{}
+	}
+	updateExprAttrValues[":1"] = &dynamodb.AttributeValue{
+		S: aws.String(patch.Version),
+	}
+	updateCursorInput := dynamodb.UpdateItemInput{
+		ConditionExpression:       aws.String(updateConditionExpression),
 		TableName:                 aws.String(store.table),
-		ExpressionAttributeNames: map[string]*string{
-			"#0": aws.String(dynamoDBCursorAttr),
+		ExpressionAttributeNames:  updateExprAttrNames,
+		ExpressionAttributeValues: updateExprAttrValues,
+		Key: map[string]*dynamodb.AttributeValue{
+			tablePartitionKey: {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			tableSortKey:      {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
 		},
-		Item: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey:  {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			tableSortKey:       {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			dynamoDBCursorAttr: {S: aws.String(patch.Version)},
-		},
+		UpdateExpression: aws.String("SET #0 = :1"),
 	}
 
-	_, err := store.client.PutItem(&putCursorInput)
+	_, err := store.client.UpdateItem(&updateCursorInput)
 	if err == nil {
 		return true, nil
 	}
@@ -227,12 +231,18 @@ func (store *dynamoDBBigSegmentStore) getCursor() (string, error) {
 func (store *dynamoDBBigSegmentStore) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
 	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 	unixMilliseconds := strconv.FormatUint(uint64(synchronizedOn), 10)
-	_, err := store.client.PutItem(&dynamodb.PutItemInput{
+	_, err := store.client.UpdateItem(&dynamodb.UpdateItemInput{
 		TableName: aws.String(store.table),
-		Item: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey:    {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			tableSortKey:         {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			dynamoDBSyncTimeAttr: {N: aws.String(unixMilliseconds)},
+		Key: map[string]*dynamodb.AttributeValue{
+			tablePartitionKey: {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			tableSortKey:      {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+		},
+		UpdateExpression:         aws.String("SET #0 = :0"),
+		ExpressionAttributeNames: map[string]*string{"#0": aws.String(dynamoDBSyncTimeAttr)},
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":0": {
+				N: aws.String(unixMilliseconds),
+			},
 		},
 	})
 	return err
