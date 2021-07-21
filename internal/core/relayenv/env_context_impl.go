@@ -19,6 +19,7 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
@@ -105,6 +106,12 @@ type envContextStoreQueries struct {
 	context *envContextImpl
 }
 
+// Implementation of the EnvStreamUpdates interface that intercepts all updates from the SDK to the
+// data store.
+type envContextStreamUpdates struct {
+	context *envContextImpl
+}
+
 // NewEnvContext creates the internal implementation of EnvContext.
 //
 // It immediately begins trying to initialize the SDK client for this environment. Since that might
@@ -188,7 +195,9 @@ func NewEnvContext(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
 			envConfig.EnvID, envConfig.SDKKey, envLoggers)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
-		envContext.bigSegmentSync.Start()
+		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
+		// start until we know that at least one big segment exists. That's implemented by the
+		// envContextStreamUpdates methods.
 
 		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
 		// to really query the big segment store. Currently it always returns true because we are always
@@ -210,6 +219,10 @@ func NewEnvContext(
 	envContext.envStreams = envStreams
 	thingsToCleanUp.AddCloser(envStreams)
 
+	envStreamUpdates := &envContextStreamUpdates{
+		context: envContext,
+	}
+
 	for c := range credentials {
 		envStreams.AddCredential(c)
 	}
@@ -228,7 +241,7 @@ func NewEnvContext(
 	if dataStoreFactory == nil {
 		dataStoreFactory = ldcomponents.InMemoryDataStore()
 	}
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreams)
+	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates)
 	envContext.storeAdapter = storeAdapter
 
 	var eventDispatcher *events.EventDispatcher
@@ -601,6 +614,46 @@ func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretyp
 		return s.GetAll(kind)
 	}
 	return nil, nil
+}
+
+func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Collection) {
+	// We use this delegator, rather than sending updates directory to context.envStreams, so that we
+	// can detect the presence of a big segment and turn on the big segment synchronizer as needed.
+	u.context.envStreams.SendAllDataUpdate(allData)
+	if u.context.bigSegmentSync == nil {
+		return
+	}
+	hasBigSegment := false
+	for _, coll := range allData {
+		if coll.Kind == ldstoreimpl.Segments() {
+			for _, keyedItem := range coll.Items {
+				if s, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok && s.Unbounded {
+					hasBigSegment = true
+					break
+				}
+			}
+		}
+	}
+	if hasBigSegment {
+		u.context.bigSegmentSync.Start() // has no effect if already started
+	}
+}
+
+func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
+	// See comments in SendAllDataUpdate.
+	u.context.envStreams.SendSingleItemUpdate(kind, key, item)
+	if u.context.bigSegmentSync == nil {
+		return
+	}
+	hasBigSegment := false
+	if kind == ldstoreimpl.Segments() {
+		if s, ok := item.Item.(*ldmodel.Segment); ok && s.Unbounded {
+			hasBigSegment = true
+		}
+	}
+	if hasBigSegment {
+		u.context.bigSegmentSync.Start() // has no effect if already started
+	}
 }
 
 func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {
