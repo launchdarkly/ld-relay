@@ -20,8 +20,8 @@ require (
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
-	github.com/launchdarkly/go-server-sdk-dynamodb v1.0.2-0.20210719224259-3642ae210de9
-	github.com/launchdarkly/go-server-sdk-redis-redigo v1.1.1-0.20210719224103-ef0ca88cd442
+	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.0
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v1.2.0
 	github.com/stretchr/testify v1.7.0
@@ -31,5 +31,5 @@ require (
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
 	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.0
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.4.0-alpha.bigsegments.3
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.5.0
 )
