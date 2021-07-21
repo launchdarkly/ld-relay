@@ -26,7 +26,7 @@ type bigSegmentStoreMock struct {
 	syncTimeCh chan ldtime.UnixMillisecondTime
 }
 
-func (s *bigSegmentStoreMock) applyPatch(patch bigSegmentPatch) error {
+func (s *bigSegmentStoreMock) applyPatch(patch bigSegmentPatch) (bool, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -34,7 +34,7 @@ func (s *bigSegmentStoreMock) applyPatch(patch bigSegmentPatch) error {
 
 	s.patchCh <- patch
 
-	return nil
+	return true, nil
 }
 
 func (s *bigSegmentStoreMock) getCursor() (string, error) {

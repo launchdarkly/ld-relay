@@ -305,14 +305,23 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, erro
 		return 0, err
 	}
 
+	successCount := 0
 	for _, patch := range patches {
 		s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
-		if err := s.store.applyPatch(patch); err != nil {
+		success, err := s.store.applyPatch(patch)
+		if err != nil {
 			return 0, err
 		}
+		if !success {
+			s.loggers.Warnf("Received a patch for version %q which was not the latest known version; skipping")
+			continue
+		}
+		successCount++
 	}
-	if len(patches) > 0 {
-		s.loggers.Infof("Applied %d updates", len(patches))
+	if successCount > 0 {
+		s.loggers.Infof("Applied %d updates", successCount)
 	}
+	// Here we'll return the actual count, rather than successCount, because the caller will want to know
+	// if there were any patches at all in the data
 	return len(patches), nil
 }

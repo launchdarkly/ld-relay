@@ -19,8 +19,10 @@ type BigSegmentStore interface {
 	// The rest of the interface methods are non-exported because they're only relevant within
 	// this package, and no implementations of the interface are created outside of this package.
 
-	// applyPatch is used to apply updates to the store.
-	applyPatch(patch bigSegmentPatch) error
+	// applyPatch is used to apply updates to the store. If successful, it returns (true, nil); if
+	// the patch was not applied because its PreviousVersion did not match the current cursor, it
+	// returns (false, nil); a non-nil second value indicates a database error.
+	applyPatch(patch bigSegmentPatch) (bool, error)
 	// getCursor loads the synchronization cursor from the external store.
 	getCursor() (string, error)
 	// setSynchronizedOn stores the synchronization time in the external store
@@ -73,7 +75,7 @@ type nullBigSegmentStore struct{}
 
 func (s *nullBigSegmentStore) Close() error { return nil }
 
-func (s *nullBigSegmentStore) applyPatch(patch bigSegmentPatch) error { return nil }
+func (s *nullBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, error) { return false, nil }
 
 func (s *nullBigSegmentStore) getCursor() (string, error) { return "", nil }
 
