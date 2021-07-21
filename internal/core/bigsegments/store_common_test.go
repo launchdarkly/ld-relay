@@ -21,6 +21,11 @@ func testGenericAll(
 	t *testing.T,
 	withBigSegmentStore func(t *testing.T, action func(BigSegmentStore, bigSegmentOperations)),
 ) {
+	patch1 := newPatchBuilder("segment.g1", "1", "").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+	patch2 := newPatchBuilder("segment.g1", "2", "1").
+		removeIncludes("included1").removeExcludes("excluded1").build()
+
 	t.Run("synchronizedOn", func(t *testing.T) {
 		withBigSegmentStore(t, func(store BigSegmentStore, operations bigSegmentOperations) {
 			sync1, err := store.GetSynchronizedOn()

@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	unboundedPollPath      = "/sdk/big-segments/revisions"
-	unboundedStreamPath    = "/big-segments"
-	streamReadTimeout      = 5 * time.Minute
-	retryInterval          = 10 * time.Second
-	synchronizedOnInterval = 30 * time.Second
+	unboundedPollPath          = "/sdk/big-segments/revisions"
+	unboundedStreamPath        = "/big-segments"
+	streamReadTimeout          = 5 * time.Minute
+	defaultStreamRetryInterval = 10 * time.Second
+	synchronizedOnInterval     = 30 * time.Second
 )
 
 // BigSegmentSynchronizer synchronizes big segment state for a given environment.
@@ -53,15 +53,16 @@ type BigSegmentSynchronizerFactory func(
 
 // defaultBigSegmentSynchronizer is the standard implementation of BigSegmentSynchronizer.
 type defaultBigSegmentSynchronizer struct {
-	httpConfig httpconfig.HTTPConfig
-	store      BigSegmentStore
-	pollURI    string
-	streamURI  string
-	envID      config.EnvironmentID
-	sdkKey     config.SDKKey
-	closeChan  chan struct{}
-	closeOnce  sync.Once
-	loggers    ldlog.Loggers
+	httpConfig          httpconfig.HTTPConfig
+	store               BigSegmentStore
+	pollURI             string
+	streamURI           string
+	envID               config.EnvironmentID
+	sdkKey              config.SDKKey
+	streamRetryInterval time.Duration
+	closeChan           chan struct{}
+	closeOnce           sync.Once
+	loggers             ldlog.Loggers
 }
 
 // DefaultBigSegmentSynchronizerFactory creates the default implementation of BigSegmentSynchronizer.
@@ -87,14 +88,15 @@ func newDefaultBigSegmentSynchronizer(
 	loggers ldlog.Loggers,
 ) *defaultBigSegmentSynchronizer {
 	s := defaultBigSegmentSynchronizer{
-		httpConfig: httpConfig,
-		store:      store,
-		pollURI:    strings.TrimSuffix(pollURI, "/") + unboundedPollPath,
-		streamURI:  strings.TrimSuffix(streamURI, "/") + unboundedStreamPath,
-		envID:      envID,
-		sdkKey:     sdkKey,
-		closeChan:  make(chan struct{}),
-		loggers:    loggers,
+		httpConfig:          httpConfig,
+		store:               store,
+		pollURI:             strings.TrimSuffix(pollURI, "/") + unboundedPollPath,
+		streamURI:           strings.TrimSuffix(streamURI, "/") + unboundedStreamPath,
+		envID:               envID,
+		sdkKey:              sdkKey,
+		streamRetryInterval: defaultStreamRetryInterval,
+		closeChan:           make(chan struct{}),
+		loggers:             loggers,
 	}
 
 	s.loggers.SetPrefix("BigSegmentSynchronizer:")
@@ -122,7 +124,7 @@ func (s *defaultBigSegmentSynchronizer) Close() {
 
 func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 	for {
-		timer := time.NewTimer(retryInterval)
+		timer := time.NewTimer(s.streamRetryInterval)
 		err := s.sync()
 		if err != nil {
 			s.loggers.Error("Synchronization failed:", err)
@@ -173,6 +175,7 @@ func (s *defaultBigSegmentSynchronizer) sync() error {
 			continue
 		}
 
+		s.loggers.Debug("Marking store as synchronized")
 		err = s.store.setSynchronizedOn(ldtime.UnixMillisNow())
 		if err != nil {
 			s.loggers.Error("Updating store timestamp failed:", err)
@@ -276,6 +279,7 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 		select {
 		case event, ok := <-stream.Events:
 			if !ok {
+				s.loggers.Debug("Stream ended")
 				return nil
 			}
 
@@ -324,7 +328,11 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, int,
 		successCount++
 	}
 	if successCount > 0 {
-		s.loggers.Infof("Applied %d updates", successCount)
+		updatesDesc := "updates"
+		if successCount == 1 {
+			updatesDesc = "update"
+		}
+		s.loggers.Infof("Applied %d %s", successCount, updatesDesc)
 	}
 	return len(patches), successCount, nil
 }
