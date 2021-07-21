@@ -12,23 +12,23 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-func bigSegmentsLockKey(prefix string) string {
+func redisLockKey(prefix string) string {
 	return fmt.Sprintf("%s:big_segments_lock", prefix)
 }
 
-func bigSegmentsCursorKey(prefix string) string {
+func redisCursorKey(prefix string) string {
 	return fmt.Sprintf("%s:big_segments_cursor", prefix)
 }
 
-func bigSegmentsIncludeKey(prefix string, userHashKey string) string {
+func redisIncludeKey(prefix string, userHashKey string) string {
 	return fmt.Sprintf("%s:big_segment_include:%s", prefix, userHashKey)
 }
 
-func bigSegmentsExcludeKey(prefix string, userHashKey string) string {
+func redisExcludeKey(prefix string, userHashKey string) string {
 	return fmt.Sprintf("%s:big_segment_exclude:%s", prefix, userHashKey)
 }
 
-func bigSegmentsSynchronizedKey(prefix string) string {
+func redisSynchronizedKey(prefix string) string {
 	return fmt.Sprintf("%s:big_segments_synchronized_on", prefix)
 }
 
@@ -81,7 +81,7 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 	ctx := context.Background()
 
 	err := r.client.Watch(ctx, func(tx *redis.Tx) error {
-		cursor, err := r.client.Get(ctx, bigSegmentsCursorKey(r.prefix)).Result()
+		cursor, err := r.client.Get(ctx, redisCursorKey(r.prefix)).Result()
 		if err != nil && err != redis.Nil {
 			return err
 		}
@@ -91,39 +91,39 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 		}
 
 		result, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			err = pipe.Set(ctx, bigSegmentsLockKey(r.prefix), "", 0).Err()
+			err = pipe.Set(ctx, redisLockKey(r.prefix), "", 0).Err()
 			if err != nil {
 				return err
 			}
 
-			err = pipe.Set(ctx, bigSegmentsCursorKey(r.prefix), patch.Version, 0).Err()
+			err = pipe.Set(ctx, redisCursorKey(r.prefix), patch.Version, 0).Err()
 			if err != nil {
 				return err
 			}
 
 			for _, v := range patch.Changes.Included.Add {
-				err := pipe.SAdd(ctx, bigSegmentsIncludeKey(r.prefix, v), patch.SegmentID).Err()
+				err := pipe.SAdd(ctx, redisIncludeKey(r.prefix, v), patch.SegmentID).Err()
 				if err != nil {
 					return err
 				}
 			}
 
 			for _, v := range patch.Changes.Included.Remove {
-				err := pipe.SRem(ctx, bigSegmentsIncludeKey(r.prefix, v), patch.SegmentID).Err()
+				err := pipe.SRem(ctx, redisIncludeKey(r.prefix, v), patch.SegmentID).Err()
 				if err != nil {
 					return err
 				}
 			}
 
 			for _, v := range patch.Changes.Excluded.Add {
-				err := pipe.SAdd(ctx, bigSegmentsExcludeKey(r.prefix, v), patch.SegmentID).Err()
+				err := pipe.SAdd(ctx, redisExcludeKey(r.prefix, v), patch.SegmentID).Err()
 				if err != nil {
 					return err
 				}
 			}
 
 			for _, v := range patch.Changes.Excluded.Remove {
-				err := pipe.SRem(ctx, bigSegmentsExcludeKey(r.prefix, v), patch.SegmentID).Err()
+				err := pipe.SRem(ctx, redisExcludeKey(r.prefix, v), patch.SegmentID).Err()
 				if err != nil {
 					return err
 				}
@@ -138,13 +138,13 @@ func (r *redisBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 			return result[0].Err()
 		}
 		return nil
-	}, bigSegmentsLockKey(r.prefix))
+	}, redisLockKey(r.prefix))
 
 	return err
 }
 
 func (r *redisBigSegmentStore) getCursor() (string, error) {
-	cursor, err := r.client.Get(context.Background(), bigSegmentsCursorKey(r.prefix)).Result()
+	cursor, err := r.client.Get(context.Background(), redisCursorKey(r.prefix)).Result()
 	if err == redis.Nil {
 		return "", nil
 	}
@@ -157,11 +157,11 @@ func (r *redisBigSegmentStore) getCursor() (string, error) {
 
 func (r *redisBigSegmentStore) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
 	unixMilliseconds := strconv.FormatUint(uint64(synchronizedOn), 10)
-	return r.client.Set(context.Background(), bigSegmentsSynchronizedKey(r.prefix), unixMilliseconds, 0).Err()
+	return r.client.Set(context.Background(), redisSynchronizedKey(r.prefix), unixMilliseconds, 0).Err()
 }
 
 func (r *redisBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecondTime, error) {
-	synchronizedOn, err := r.client.Get(context.Background(), bigSegmentsSynchronizedKey(r.prefix)).Result()
+	synchronizedOn, err := r.client.Get(context.Background(), redisSynchronizedKey(r.prefix)).Result()
 	if err == redis.Nil {
 		return 0, nil
 	}

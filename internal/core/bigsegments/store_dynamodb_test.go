@@ -35,11 +35,14 @@ var (
 )
 
 func TestDynamoDBGenericAll(t *testing.T) {
-	testGenericAll(t, withDynamoDBStoreGeneric)
+	require.NoError(t, createTableIfNecessary())
+
+	t.Run("without prefix", func(t *testing.T) { testGenericAll(t, withDynamoDBStoreGeneric("")) })
+	t.Run("with prefix", func(t *testing.T) { testGenericAll(t, withDynamoDBStoreGeneric("testprefix")) })
 }
 
 func (store *dynamoDBBigSegmentStore) checkSetIncludes(attribute, segmentKey, userKey string) (bool, error) {
-	bigSegmentsUserDataKeyWithPrefix := store.addPrefix(bigSegmentsUserDataKey)
+	bigSegmentsUserDataKeyWithPrefix := dynamoDBUserDataKey(store.prefix)
 
 	result, err := store.client.GetItem(&dynamodb.GetItemInput{
 		TableName:      aws.String(store.table),
@@ -70,36 +73,25 @@ func (store *dynamoDBBigSegmentStore) checkSetIncludes(attribute, segmentKey, us
 func dynamoDBMakeOperations(store *dynamoDBBigSegmentStore) bigSegmentOperations {
 	return bigSegmentOperations{
 		isUserIncluded: func(segmentKey string, userKey string) (bool, error) {
-			return store.checkSetIncludes(bigSegmentsIncludedAttr, segmentKey, userKey)
+			return store.checkSetIncludes(dynamoDBIncludedAttr, segmentKey, userKey)
 		},
 		isUserExcluded: func(segmentKey string, userKey string) (bool, error) {
-			return store.checkSetIncludes(bigSegmentsExcludedAttr, segmentKey, userKey)
+			return store.checkSetIncludes(dynamoDBExcludedAttr, segmentKey, userKey)
 		},
 	}
 }
 
-func withDynamoDBStore(t *testing.T, action func(*dynamoDBBigSegmentStore)) {
-	require.NoError(t, createTableIfNecessary())
-	require.NoError(t, clearTestData(""))
-	url, err := ct.NewOptURLAbsoluteFromString(localEndpoint)
-	require.NoError(t, err)
-	store, err := newDynamoDBBigSegmentStore(url, testDynamoDBConfig, ldlog.NewDisabledLoggers(), testTableName, "")
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	defer store.Close()
-	action(store)
-}
-
-func withDynamoDBStoreGeneric(t *testing.T, action func(BigSegmentStore, bigSegmentOperations)) {
-	require.NoError(t, createTableIfNecessary())
-	require.NoError(t, clearTestData(""))
-	url, err := ct.NewOptURLAbsoluteFromString(localEndpoint)
-	require.NoError(t, err)
-	store, err := newDynamoDBBigSegmentStore(url, testDynamoDBConfig, ldlog.NewDisabledLoggers(), testTableName, "")
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	defer store.Close()
-	action(store, dynamoDBMakeOperations(store))
+func withDynamoDBStoreGeneric(prefix string) func(*testing.T, func(BigSegmentStore, bigSegmentOperations)) {
+	return func(t *testing.T, action func(BigSegmentStore, bigSegmentOperations)) {
+		require.NoError(t, clearTestData(prefix))
+		url, err := ct.NewOptURLAbsoluteFromString(localEndpoint)
+		require.NoError(t, err)
+		store, err := newDynamoDBBigSegmentStore(url, testDynamoDBConfig, ldlog.NewDisabledLoggers(), testTableName, prefix)
+		require.NoError(t, err)
+		require.NotNil(t, store)
+		defer store.Close()
+		action(store, dynamoDBMakeOperations(store))
+	}
 }
 
 func createTestClient() (*dynamodb.DynamoDB, error) {

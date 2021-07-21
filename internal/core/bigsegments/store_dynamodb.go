@@ -16,12 +16,10 @@ import (
 const (
 	tablePartitionKey         = "namespace"
 	tableSortKey              = "key"
-	bigSegmentsMetadataKey    = "big_segments_metadata"
-	bigSegmentsUserDataKey    = "big_segments_user"
-	bigSegmentsCursorAttr     = "cursor"
-	bigSegmentsIncludedAttr   = "included"
-	bigSegmentsExcludedAttr   = "excluded"
-	bigSegmentsSyncTimeAttr   = "synchronizedOn"
+	dynamoDBCursorAttr        = "cursor"
+	dynamoDBIncludedAttr      = "included"
+	dynamoDBExcludedAttr      = "excluded"
+	dynamoDBSyncTimeAttr      = "synchronizedOn"
 	updateExpressionAdd       = "ADD #0 :0"
 	updateExpressionRemove    = "DELETE #0 :0"
 	dynamoTransactionMaxItems = 25
@@ -33,6 +31,21 @@ type dynamoDBBigSegmentStore struct {
 	loggers ldlog.Loggers
 	table   string
 	prefix  string
+}
+
+func dynamoDBMetadataKey(prefix string) string {
+	return dynamoDBPrefixedKey(prefix, "big_segments_metadata")
+}
+
+func dynamoDBUserDataKey(prefix string) string {
+	return dynamoDBPrefixedKey(prefix, "big_segments_user")
+}
+
+func dynamoDBPrefixedKey(prefix, key string) string {
+	if prefix == "" {
+		return key
+	}
+	return prefix + ":" + key
 }
 
 func newDynamoDBBigSegmentStore(
@@ -76,7 +89,7 @@ func (store *dynamoDBBigSegmentStore) makeTransactionItem(updateExpression, attr
 				":0": {SS: []*string{aws.String(segmentID)}},
 			},
 			Key: map[string]*dynamodb.AttributeValue{
-				tablePartitionKey: {S: aws.String(store.addPrefix(bigSegmentsUserDataKey))},
+				tablePartitionKey: {S: aws.String(dynamoDBUserDataKey(store.prefix))},
 				tableSortKey:      {S: aws.String(userKey)},
 			},
 		},
@@ -84,7 +97,7 @@ func (store *dynamoDBBigSegmentStore) makeTransactionItem(updateExpression, attr
 }
 
 func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
-	bigSegmentsMetadataKeyWithPrefix := store.addPrefix(bigSegmentsMetadataKey)
+	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 
 	var conditionExpression *string
 	var expressionAttributeValues map[string]*dynamodb.AttributeValue
@@ -103,7 +116,7 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 			ExpressionAttributeValues: expressionAttributeValues,
 			TableName:                 aws.String(store.table),
 			ExpressionAttributeNames: map[string]*string{
-				"#0": aws.String(bigSegmentsCursorAttr),
+				"#0": aws.String(dynamoDBCursorAttr),
 			},
 			Key: map[string]*dynamodb.AttributeValue{
 				tablePartitionKey: {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
@@ -118,22 +131,22 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 	transactionItems := make([]*dynamodb.TransactWriteItem, 0, totalItems)
 
 	for _, user := range patch.Changes.Included.Add {
-		item := store.makeTransactionItem(updateExpressionAdd, bigSegmentsIncludedAttr, patch.SegmentID, user)
+		item := store.makeTransactionItem(updateExpressionAdd, dynamoDBIncludedAttr, patch.SegmentID, user)
 		transactionItems = append(transactionItems, item)
 	}
 
 	for _, user := range patch.Changes.Excluded.Add {
-		item := store.makeTransactionItem(updateExpressionAdd, bigSegmentsExcludedAttr, patch.SegmentID, user)
+		item := store.makeTransactionItem(updateExpressionAdd, dynamoDBExcludedAttr, patch.SegmentID, user)
 		transactionItems = append(transactionItems, item)
 	}
 
 	for _, user := range patch.Changes.Included.Remove {
-		item := store.makeTransactionItem(updateExpressionRemove, bigSegmentsIncludedAttr, patch.SegmentID, user)
+		item := store.makeTransactionItem(updateExpressionRemove, dynamoDBIncludedAttr, patch.SegmentID, user)
 		transactionItems = append(transactionItems, item)
 	}
 
 	for _, user := range patch.Changes.Excluded.Remove {
-		item := store.makeTransactionItem(updateExpressionRemove, bigSegmentsExcludedAttr, patch.SegmentID, user)
+		item := store.makeTransactionItem(updateExpressionRemove, dynamoDBExcludedAttr, patch.SegmentID, user)
 		transactionItems = append(transactionItems, item)
 	}
 
@@ -160,12 +173,12 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 		ExpressionAttributeValues: expressionAttributeValues,
 		TableName:                 aws.String(store.table),
 		ExpressionAttributeNames: map[string]*string{
-			"#0": aws.String(bigSegmentsCursorAttr),
+			"#0": aws.String(dynamoDBCursorAttr),
 		},
 		Item: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey:     {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			tableSortKey:          {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			bigSegmentsCursorAttr: {S: aws.String(patch.Version)},
+			tablePartitionKey:  {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			tableSortKey:       {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			dynamoDBCursorAttr: {S: aws.String(patch.Version)},
 		},
 	}
 
@@ -174,22 +187,23 @@ func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) error {
 }
 
 func (store *dynamoDBBigSegmentStore) getCursor() (string, error) {
+	metadataKey := dynamoDBMetadataKey(store.prefix)
 	result, err := store.client.GetItem(&dynamodb.GetItemInput{
 		TableName:      aws.String(store.table),
 		ConsistentRead: aws.Bool(true),
 		ExpressionAttributeNames: map[string]*string{
-			"#0": aws.String(bigSegmentsCursorAttr),
+			"#0": aws.String(dynamoDBCursorAttr),
 		},
 		Key: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey: {S: aws.String(bigSegmentsMetadataKey)},
-			tableSortKey:      {S: aws.String(bigSegmentsMetadataKey)},
+			tablePartitionKey: {S: aws.String(metadataKey)},
+			tableSortKey:      {S: aws.String(metadataKey)},
 		},
 		ProjectionExpression: aws.String("#0"),
 	})
 	if err != nil || len(result.Item) == 0 {
 		return "", err
 	}
-	item := result.Item[bigSegmentsCursorAttr]
+	item := result.Item[dynamoDBCursorAttr]
 	if item == nil || item.S == nil {
 		return "", nil
 	}
@@ -197,21 +211,21 @@ func (store *dynamoDBBigSegmentStore) getCursor() (string, error) {
 }
 
 func (store *dynamoDBBigSegmentStore) setSynchronizedOn(synchronizedOn ldtime.UnixMillisecondTime) error {
-	bigSegmentsMetadataKeyWithPrefix := store.addPrefix(bigSegmentsMetadataKey)
+	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 	unixMilliseconds := strconv.FormatUint(uint64(synchronizedOn), 10)
 	_, err := store.client.PutItem(&dynamodb.PutItemInput{
 		TableName: aws.String(store.table),
 		Item: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey:       {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			tableSortKey:            {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
-			bigSegmentsSyncTimeAttr: {N: aws.String(unixMilliseconds)},
+			tablePartitionKey:    {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			tableSortKey:         {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
+			dynamoDBSyncTimeAttr: {N: aws.String(unixMilliseconds)},
 		},
 	})
 	return err
 }
 
 func (store *dynamoDBBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecondTime, error) {
-	bigSegmentsMetadataKeyWithPrefix := store.addPrefix(bigSegmentsMetadataKey)
+	bigSegmentsMetadataKeyWithPrefix := dynamoDBMetadataKey(store.prefix)
 	result, err := store.client.GetItem(&dynamodb.GetItemInput{
 		TableName:      aws.String(store.table),
 		ConsistentRead: aws.Bool(true),
@@ -219,12 +233,12 @@ func (store *dynamoDBBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecon
 			tablePartitionKey: {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
 			tableSortKey:      {S: aws.String(bigSegmentsMetadataKeyWithPrefix)},
 		},
-		ProjectionExpression: aws.String(bigSegmentsSyncTimeAttr),
+		ProjectionExpression: aws.String(dynamoDBSyncTimeAttr),
 	})
 	if err != nil || len(result.Item) == 0 {
 		return 0, err
 	}
-	item := result.Item[bigSegmentsSyncTimeAttr]
+	item := result.Item[dynamoDBSyncTimeAttr]
 	if item == nil || item.N == nil {
 		return 0, nil
 	}
@@ -233,13 +247,6 @@ func (store *dynamoDBBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecon
 		return 0, nil
 	}
 	return ldtime.UnixMillisecondTime(value), nil
-}
-
-func (store *dynamoDBBigSegmentStore) addPrefix(key string) string {
-	if store.prefix == "" {
-		return key
-	}
-	return store.prefix + ":" + key
 }
 
 func (store *dynamoDBBigSegmentStore) Close() error {

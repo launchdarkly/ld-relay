@@ -36,10 +36,10 @@ func withRedisStoreGeneric(t *testing.T, action func(BigSegmentStore, bigSegment
 func redisMakeOperations(store *redisBigSegmentStore) bigSegmentOperations {
 	return bigSegmentOperations{
 		isUserIncluded: func(segmentKey string, userKey string) (bool, error) {
-			return store.client.SIsMember(context.Background(), bigSegmentsIncludeKey(testPrefix, userKey), segmentKey).Result()
+			return store.client.SIsMember(context.Background(), redisIncludeKey(testPrefix, userKey), segmentKey).Result()
 		},
 		isUserExcluded: func(segmentKey string, userKey string) (bool, error) {
-			return store.client.SIsMember(context.Background(), bigSegmentsExcludeKey(testPrefix, userKey), segmentKey).Result()
+			return store.client.SIsMember(context.Background(), redisExcludeKey(testPrefix, userKey), segmentKey).Result()
 		},
 	}
 }
