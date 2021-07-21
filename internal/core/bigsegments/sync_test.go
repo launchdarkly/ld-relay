@@ -314,6 +314,12 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			requirePatch(t, storeMock, patch2)
 
 			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+
+			assert.Equal(t, []string{
+				"BigSegmentSynchronizer: Applied 1 update",
+				"BigSegmentSynchronizer: Applied 1 update",
+			}, mockLog.GetOutput(ldlog.Info))
+			mockLog.AssertMessageMatch(t, true, ldlog.Warn, `"non-matching-previous-version" which was not the latest`)
 		})
 	})
 }
