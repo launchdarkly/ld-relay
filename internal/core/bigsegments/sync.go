@@ -313,7 +313,7 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, erro
 			return 0, err
 		}
 		if !success {
-			s.loggers.Warnf("Received a patch for version %q which was not the latest known version; skipping")
+			s.loggers.Warnf("Received a patch to previous version %q which was not the latest known version; skipping", patch.PreviousVersion)
 			continue
 		}
 		successCount++
