@@ -130,8 +130,9 @@ func (s *defaultBigSegmentSynchronizer) Close() {
 }
 
 func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
+	isRetry := false
 	for {
-		err := s.sync()
+		err := s.sync(isRetry)
 		if err != nil {
 			s.loggers.Error("Synchronization failed:", err)
 			if statusError, ok := err.(httpStatusError); ok {
@@ -140,6 +141,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 				}
 			}
 		}
+		s.loggers.Warn("Will retry")
 		timer := time.NewTimer(s.streamRetryInterval)
 		defer timer.Stop()
 		select {
@@ -147,10 +149,11 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 			return
 		case <-timer.C:
 		}
+		isRetry = true
 	}
 }
 
-func (s *defaultBigSegmentSynchronizer) sync() error {
+func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 	s.loggers.Debug("Polling for big segment updates")
 	for {
 	SyncLoop:
@@ -162,6 +165,10 @@ func (s *defaultBigSegmentSynchronizer) sync() error {
 				done, err := s.poll()
 				if err != nil {
 					return err
+				}
+				if isRetry {
+					s.loggers.Warn("Re-established connection")
+					isRetry = false
 				}
 				if done {
 					break SyncLoop
