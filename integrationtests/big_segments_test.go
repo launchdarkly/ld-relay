@@ -47,10 +47,22 @@ func makeBigSegmentTestDataForEnvs(envs []environmentInfo) []bigSegmentTestData 
 }
 
 func testBigSegments(t *testing.T, manager *integrationTestManager) {
+	doAll := func(t *testing.T, dbParams databaseTestParams) {
+		t.Run("big segment exists before Relay is started", func(t *testing.T) {
+			doBigSegmentsTestWithPreExistingSegment(t, manager, dbParams)
+		})
+		t.Run("first big segment is created after Relay is started", func(t *testing.T) {
+			doBigSegmentsTestWithFirstSegmentAddedAfterStartup(t, manager, dbParams)
+		})
+		t.Run("another big segment is created after synchronizer has started", func(t *testing.T) {
+			doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(t, manager, dbParams)
+		})
+	}
 	t.Run("Redis", func(t *testing.T) {
-		doBigSegmentsTestWithPreExistingSegment(t, manager, redisDatabaseTestParams)
-		doBigSegmentsTestWithFirstSegmentAddedAfterStartup(t, manager, redisDatabaseTestParams)
-		doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(t, manager, redisDatabaseTestParams)
+		doAll(t, redisDatabaseTestParams)
+	})
+	t.Run("DynamoDB", func(t *testing.T) {
+		doAll(t, dynamoDBDatabaseTestParams)
 	})
 }
 
