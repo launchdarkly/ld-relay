@@ -73,22 +73,16 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			stats.Record(ctx, privateNewConnMeasure.M(2))
 			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
 			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 2}
-			startTime := time.Now()
-			for {
-				if time.Since(startTime) >= time.Second {
-					require.Fail(t, "did not receive expected metrics")
-				}
+			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
 				assert.True(t, metricsEvent.StartDate >= start)
 				assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
 				assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
 				assert.Equal(t, relayID, metricsEvent.RelayID)
-				if len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
-					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn {
-					break
-				}
-				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
-			}
+				return len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
+					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn
+			}, time.Second*5, time.Millisecond*100, "did not receive expected metrics")
 		})
 	})
 
