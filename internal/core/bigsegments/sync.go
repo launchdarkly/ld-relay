@@ -131,7 +131,6 @@ func (s *defaultBigSegmentSynchronizer) Close() {
 
 func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 	for {
-		timer := time.NewTimer(s.streamRetryInterval)
 		err := s.sync()
 		if err != nil {
 			s.loggers.Error("Synchronization failed:", err)
@@ -141,6 +140,8 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 				}
 			}
 		}
+		timer := time.NewTimer(s.streamRetryInterval)
+		defer timer.Stop()
 		select {
 		case <-s.closeChan:
 			return
@@ -269,6 +270,11 @@ func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 	stream, err := es.SubscribeWithRequestAndOptions(request,
 		es.StreamOptionHTTPClient(client),
 		es.StreamOptionReadTimeout(streamReadTimeout),
+		es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+		es.StreamOptionErrorHandler(func(err error) es.StreamErrorHandlerResult {
+			s.loggers.Warnf("Stream connection failed: %s", err)
+			return es.StreamErrorHandlerResult{CloseNow: true}
+		}),
 	)
 	if err != nil {
 		if se, ok := err.(es.SubscriptionError); ok {
@@ -285,6 +291,7 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 		timer := time.NewTimer(synchronizedOnInterval)
 		select {
 		case event, ok := <-stream.Events:
+			timer.Stop()
 			if !ok {
 				s.loggers.Debug("Stream ended")
 				return nil
@@ -308,6 +315,7 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				return err
 			}
 		case <-s.closeChan:
+			timer.Stop()
 			return nil
 		}
 	}

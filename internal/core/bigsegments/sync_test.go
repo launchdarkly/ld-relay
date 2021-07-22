@@ -8,7 +8,6 @@ import (
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -119,10 +118,7 @@ func TestBasicSync(t *testing.T) {
 			storeMock := newBigSegmentStoreMock()
 			defer storeMock.Close()
 
-			httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
-			require.NoError(t, err)
-
-			segmentSync := newDefaultBigSegmentSynchronizer(httpConfig, storeMock,
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
 			defer segmentSync.Close()
 			segmentSync.Start()
@@ -198,10 +194,7 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			storeMock := newBigSegmentStoreMock()
 			defer storeMock.Close()
 
-			httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
-			require.NoError(t, err)
-
-			segmentSync := newDefaultBigSegmentSynchronizer(httpConfig, storeMock,
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
 			defer segmentSync.Close()
 			segmentSync.Start()
@@ -272,10 +265,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			storeMock := newBigSegmentStoreMock()
 			defer storeMock.Close()
 
-			httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
-			require.NoError(t, err)
-
-			segmentSync := newDefaultBigSegmentSynchronizer(httpConfig, storeMock,
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
 				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
 			segmentSync.streamRetryInterval = time.Millisecond
 			defer segmentSync.Close()
@@ -320,6 +310,107 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 				"BigSegmentSynchronizer: Applied 1 update",
 			}, mockLog.GetOutput(ldlog.Info))
 			mockLog.AssertMessageMatch(t, true, ldlog.Warn, `"non-matching-previous-version" which was not the latest`)
+		})
+	})
+}
+
+func TestSyncRetryIfStreamFails(t *testing.T) {
+	// In this test, we set up a successful poll and stream. Then we force the stream to close.
+	// The synchronizer should start over with a new poll and stream.
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	patch1 := newPatchBuilder("segment.g1", "1", "").build()
+	patch2 := newPatchBuilder("segment.g1", "2", "1").build()
+	patch3 := newPatchBuilder("segment.g1", "3", "2").build()
+	patch4 := newPatchBuilder("segment.g1", "4", "3").build()
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{patch1}, nil), // poll 1: initial connection
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 2: completion of poll 1
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 3: done in conjunction with stream 1
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{patch3}, nil), // poll 4: retry after stream fails
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 5: completion of poll 4
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 6: done in conjunction with stream 2
+		),
+	)
+
+	sseHandler1, sseControl1 := httphelpers.SSEHandler(makePatchEvent(patch2))
+	sseHandler2, _ := httphelpers.SSEHandler(makePatchEvent(patch4))
+	streamsHandler, streamRequestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(sseHandler1, sseHandler2),
+	)
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamsHandler, func(streamServer *httptest.Server) {
+			startTime := ldtime.UnixMillisNow()
+
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
+			segmentSync.streamRetryInterval = time.Millisecond
+			defer segmentSync.Close()
+			segmentSync.Start()
+
+			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq1, "")
+			requirePatch(t, storeMock, patch1)
+			require.Equal(t, 0, len(storeMock.syncTimeCh))
+
+			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq2, patch1.Version)
+
+			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq3, patch1.Version)
+
+			require.Equal(t, 0, len(storeMock.patchCh))
+
+			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+
+			syncTime := <-storeMock.syncTimeCh
+			assert.True(t, syncTime >= startTime)
+			assert.True(t, syncTime <= ldtime.UnixMillisNow())
+
+			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			assertStreamRequest(t, streamReq1)
+			requirePatch(t, storeMock, patch2)
+
+			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+
+			// Now cause stream 1 to close
+			sseControl1.Close()
+
+			// Expect another poll+stream cycle; this time we get patch3 from the poll, patch4 from the stream
+			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq4, patch2.Version)
+			requirePatch(t, storeMock, patch3)
+
+			pollReq5 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq5, patch3.Version)
+
+			pollReq6 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq6, patch3.Version)
+
+			streamReq2 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			assertStreamRequest(t, streamReq2)
+			requirePatch(t, storeMock, patch4)
+
+			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+
+			assert.Equal(t, []string{
+				"BigSegmentSynchronizer: Applied 1 update",
+				"BigSegmentSynchronizer: Applied 1 update",
+				"BigSegmentSynchronizer: Applied 1 update",
+				"BigSegmentSynchronizer: Applied 1 update",
+			}, mockLog.GetOutput(ldlog.Info))
+			assert.Equal(t, []string{
+				"BigSegmentSynchronizer: Stream connection failed: EOF",
+			}, mockLog.GetOutput(ldlog.Warn))
+			assert.Len(t, mockLog.GetOutput(ldlog.Error), 0)
 		})
 	})
 }
