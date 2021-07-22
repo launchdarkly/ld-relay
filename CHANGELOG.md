@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.0] - 2021-07-22
+### Added:
+- The Relay Proxy now supports evaluation of Big Segments. An Early Access Program for creating and syncing Big Segments from customer data platforms is available to enterprise customers.
+
 ## [6.3.1] - 2021-07-08
 ### Fixed:
 - The base OS image for the Docker image has been changed from `alpine:3.12.0` to `alpine:3.14.0`, the latest stable version of Alpine. This fixes known vulnerabilities in Alpine 3.12.0 ([here](https://snyk.io/test/docker/alpine%3A3.12.0) is one list of them). There are no changes to the Relay Proxy itself in this release.
