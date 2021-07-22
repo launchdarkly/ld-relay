@@ -234,11 +234,11 @@ func (a *apiHelper) createFlags(projsAndEnvs projsAndEnvs) error {
 }
 
 func (a *apiHelper) createBooleanFlagThatUsesSegment(
+	flagKey string,
 	project projectInfo,
 	envs []environmentInfo,
 	segmentKey string,
-) (string, error) {
-	flagKey := flagKeyForProj(project)
+) error {
 	flagPost := ldapi.FeatureFlagBody{
 		Name: flagKey,
 		Key:  flagKey,
@@ -251,7 +251,7 @@ func (a *apiHelper) createBooleanFlagThatUsesSegment(
 	_, _, err := a.apiClient.FeatureFlagsApi.PostFeatureFlag(a.apiContext, project.key, flagPost, nil)
 	err = a.logResult("Create flag "+flagKey+" in "+project.key, err)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	for _, env := range envs {
@@ -268,10 +268,10 @@ func (a *apiHelper) createBooleanFlagThatUsesSegment(
 			ldapi.PatchComment{Patch: patches})
 		err = a.logResult("Configure flag "+flagKey+" for "+env.key, err)
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
-	return flagKey, nil
+	return nil
 }
 
 func (a *apiHelper) createBigSegment(
