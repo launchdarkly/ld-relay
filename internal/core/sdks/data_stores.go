@@ -4,10 +4,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
+
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo"
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
@@ -50,27 +51,12 @@ func ConfigureDataStore(
 	loggers ldlog.Loggers,
 ) (interfaces.DataStoreFactory, DataStoreEnvironmentInfo, error) {
 	if allConfig.Redis.URL.IsDefined() {
-		dbConfig := allConfig.Redis
-		redisURL := dbConfig.URL.String()
+		// Our config validation already takes care of normalizing the Redis parameters so that if a
+		// host & port were specified, they are transformed into a URL.
+		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
 
-		if dbConfig.TLS {
-			if strings.HasPrefix(redisURL, "redis:") {
-				// Redigo's DialUseTLS option will not work if you're specifying a URL.
-				redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
-			}
-		}
+		loggers.Infof("Using Redis data store: %s with prefix: %s", redisURL, envConfig.Prefix)
 
-		loggers.Infof("Using Redis feature store: %s with prefix: %s", redisURL, envConfig.Prefix)
-
-		var dialOptions []redigo.DialOption
-		if dbConfig.Password != "" {
-			dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
-		}
-
-		builder := ldredis.DataStore().
-			URL(redisURL).
-			Prefix(envConfig.Prefix).
-			DialOptions(dialOptions...)
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "redis",
 			DBServer: redisURL,
@@ -80,13 +66,13 @@ func ConfigureDataStore(
 			storeInfo.DBPrefix = ldredis.DefaultPrefix
 		}
 
-		return ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+		return ldcomponents.PersistentDataStore(redisBuilder).
+			CacheTime(allConfig.Redis.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
 	if allConfig.Consul.Host != "" {
 		dbConfig := allConfig.Consul
-		loggers.Infof("Using Consul feature store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
+		loggers.Infof("Using Consul data store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
 
 		builder := ldconsul.DataStore().
 			Prefix(envConfig.Prefix)
@@ -111,39 +97,77 @@ func ConfigureDataStore(
 	}
 
 	if allConfig.DynamoDB.Enabled {
-		// Note that the global TableName can be omitted if you specify a TableName for each environment
-		// (this is why we need an Enabled property here, since the other properties are all optional).
-		// You can also specify a prefix for each environment, as with the other databases.
-		dbConfig := allConfig.DynamoDB
-		tableName := envConfig.TableName
-		if tableName == "" {
-			tableName = dbConfig.TableName
+		builder, tableName, err := makeDynamoDBDataStoreBuilder(allConfig, envConfig)
+		if err != nil {
+			return nil, DataStoreEnvironmentInfo{}, err
 		}
-		if tableName == "" {
-			return nil, DataStoreEnvironmentInfo{}, errDynamoDBWithNoTableName
-		}
-		loggers.Infof("Using DynamoDB feature store: %s with prefix: %s", tableName, envConfig.Prefix)
-		builder := lddynamodb.DataStore(tableName).
-			Prefix(envConfig.Prefix)
-		if dbConfig.URL.IsDefined() {
-			awsOptions := session.Options{
-				Config: aws.Config{
-					Endpoint: aws.String(dbConfig.URL.String()),
-				},
-			}
-			builder.SessionOptions(awsOptions)
-		}
+
+		loggers.Infof("Using DynamoDB data store: %s with prefix: %s", tableName, envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "dynamodb",
-			DBServer: dbConfig.URL.String(),
+			DBServer: allConfig.DynamoDB.URL.String(),
 			DBPrefix: envConfig.Prefix,
 			DBTable:  tableName,
 		}
 
 		return ldcomponents.PersistentDataStore(builder).
-			CacheTime(dbConfig.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
+			CacheTime(allConfig.DynamoDB.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
+}
+
+func makeRedisDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (builder *ldredis.DataStoreBuilder, url string) {
+	dbConfig := allConfig.Redis
+	redisURL := dbConfig.URL.String()
+
+	if dbConfig.TLS {
+		if strings.HasPrefix(redisURL, "redis:") {
+			// Redigo's DialUseTLS option will not work if you're specifying a URL.
+			redisURL = "rediss:" + strings.TrimPrefix(redisURL, "redis:")
+		}
+	}
+
+	var dialOptions []redigo.DialOption
+	if dbConfig.Password != "" {
+		dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
+	}
+
+	b := ldredis.DataStore().
+		URL(redisURL).
+		Prefix(envConfig.Prefix).
+		DialOptions(dialOptions...)
+	return b, redisURL
+}
+
+func makeDynamoDBDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (*lddynamodb.DataStoreBuilder, string, error) {
+	// Note that the global TableName can be omitted if you specify a TableName for each environment
+	// (this is why we need an Enabled property here, since the other properties are all optional).
+	// You can also specify a prefix for each environment, as with the other databases.
+	dbConfig := allConfig.DynamoDB
+	tableName := envConfig.TableName
+	if tableName == "" {
+		tableName = dbConfig.TableName
+	}
+	if tableName == "" {
+		return nil, "", errDynamoDBWithNoTableName
+	}
+	builder := lddynamodb.DataStore(tableName).
+		Prefix(envConfig.Prefix)
+	if dbConfig.URL.IsDefined() {
+		awsOptions := session.Options{
+			Config: aws.Config{
+				Endpoint: aws.String(dbConfig.URL.String()),
+			},
+		}
+		builder.SessionOptions(awsOptions)
+	}
+	return builder, tableName, nil
 }

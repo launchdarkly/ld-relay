@@ -39,7 +39,11 @@ Making a `GET` request to the URL path `/status` provides JSON information about
         "database": "redis",
         "dbServer": "redis://my-redis-host",
         "dbPrefix": "env1"
-      }
+      },
+      "bigSegmentStatus": {
+        "potentiallyStale": true,
+        "lastSynchronizedOn": 1618859993000
+       }
     },
     "environment2": {
       "sdkKey": "sdk-********-****-****-****-*******99999",
@@ -52,7 +56,11 @@ Making a `GET` request to the URL path `/status` provides JSON information about
         "lastError": {
           "kind": "NETWORK_ERROR",
           "time": 12000000
-        }
+        },
+      },
+      "bigSegmentStatus": {
+        "potentiallyStale": true,
+        "lastSynchronizedOn": 1618859993000
       },
       "dataStoreStatus": {
         "state": "VALID",
@@ -84,6 +92,9 @@ The status properties are defined as follows:
     - `dbServer`, if present, is the configured database URL or hostname.
     - `dbPrefix`, if present, is the configured database key prefix for this environment.
     - `dbTable`, if present, is the DynamoDB table name for this environment.
+- The `bigSegmentStatus` properties are relevant if you are utilizing big segments.
+    - `potentiallyStale` is a boolean that indicates if big segments are potentially not fully synchronized. This might be because initial synchronization has not completed, or due to a networking error.
+    - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure big segments were synchronized. Active but incomplete synchronization does not update this timestamp.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](../configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
 - `version` is the version of the Relay Proxy.

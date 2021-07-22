@@ -96,6 +96,8 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			TLSKey:                      "key",
 			TLSMinVersion:               NewOptTLSVersion(tls.VersionTLS12),
 			LogLevel:                    NewOptLogLevel(ldlog.Warn),
+			BigSegmentsStaleAsDegraded:  true,
+			BigSegmentsStaleThreshold:   ct.NewOptDuration(10 * time.Minute),
 		}
 		c.Events = EventsConfig{
 			SendEvents:    true,
@@ -141,6 +143,8 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"TLS_KEY":                        "key",
 		"TLS_MIN_VERSION":                "1.2",
 		"LOG_LEVEL":                      "warn",
+		"BIG_SEGMENTS_STALE_AS_DEGRADED": "true",
+		"BIG_SEGMENTS_STALE_THRESHOLD":   "10m",
 		"USE_EVENTS":                     "1",
 		"EVENTS_HOST":                    "http://events",
 		"EVENTS_FLUSH_INTERVAL":          "120s",
@@ -178,6 +182,8 @@ TLSCert = "cert"
 TLSKey = "key"
 TLSMinVersion = "1.2"
 LogLevel = "warn"
+BigSegmentsStaleAsDegraded = 1
+BigSegmentsStaleThreshold = 10m
 
 [Events]
 SendEvents = 1

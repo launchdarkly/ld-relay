@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
@@ -17,10 +18,13 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
+	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -46,35 +50,65 @@ func errInitMetrics(err error) error {
 	return fmt.Errorf("failed to initialize metrics for environment: %w", err)
 }
 
+// EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
+// own type because there are a lot of them, and many are irrelevant in tests.
+type EnvContextImplParams struct {
+	Identifiers                   EnvIdentifiers
+	EnvConfig                     config.EnvConfig
+	AllConfig                     config.Config
+	ClientFactory                 sdks.ClientFactoryFunc
+	DataStoreFactory              interfaces.DataStoreFactory
+	DataStoreInfo                 sdks.DataStoreEnvironmentInfo
+	StreamProviders               []streams.StreamProvider
+	JSClientContext               JSClientContext
+	MetricsManager                *metrics.Manager
+	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
+	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
+	UserAgent                     string
+	LogNameMode                   LogNameMode
+	Loggers                       ldlog.Loggers
+}
+
 type envContextImpl struct {
-	mu               sync.RWMutex
-	clients          map[config.SDKKey]sdks.LDClientContext
-	storeAdapter     *store.SSERelayDataStoreAdapter
-	loggers          ldlog.Loggers
-	credentials      map[config.SDKCredential]bool // true if not deprecated
-	identifiers      EnvIdentifiers
-	secureMode       bool
-	envStreams       *streams.EnvStreams
-	streamProviders  []streams.StreamProvider
-	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
-	jsContext        JSClientContext
-	eventDispatcher  *events.EventDispatcher
-	sdkConfig        ld.Config
-	sdkClientFactory sdks.ClientFactoryFunc
-	sdkInitTimeout   time.Duration
-	metricsManager   *metrics.Manager
-	metricsEnv       *metrics.EnvironmentManager
-	metricsEventPub  events.EventPublisher
-	dataStoreInfo    sdks.DataStoreEnvironmentInfo
-	globalLoggers    ldlog.Loggers
-	ttl              time.Duration
-	initErr          error
-	creationTime     time.Time
+	mu                   sync.RWMutex
+	clients              map[config.SDKKey]sdks.LDClientContext
+	storeAdapter         *store.SSERelayDataStoreAdapter
+	loggers              ldlog.Loggers
+	credentials          map[config.SDKCredential]bool // true if not deprecated
+	identifiers          EnvIdentifiers
+	secureMode           bool
+	envStreams           *streams.EnvStreams
+	streamProviders      []streams.StreamProvider
+	handlers             map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	jsContext            JSClientContext
+	evaluator            ldeval.Evaluator
+	eventDispatcher      *events.EventDispatcher
+	bigSegmentSync       bigsegments.BigSegmentSynchronizer
+	bigSegmentStore      bigsegments.BigSegmentStore
+	sdkBigSegments       *ldstoreimpl.BigSegmentStoreWrapper
+	sdkConfig            ld.Config
+	sdkBigSegmentFactory interfaces.BigSegmentsConfigurationFactory
+	sdkClientFactory     sdks.ClientFactoryFunc
+	sdkInitTimeout       time.Duration
+	metricsManager       *metrics.Manager
+	metricsEnv           *metrics.EnvironmentManager
+	metricsEventPub      events.EventPublisher
+	dataStoreInfo        sdks.DataStoreEnvironmentInfo
+	globalLoggers        ldlog.Loggers
+	ttl                  time.Duration
+	initErr              error
+	creationTime         time.Time
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
 // accessing our data store.
 type envContextStoreQueries struct {
+	context *envContextImpl
+}
+
+// Implementation of the EnvStreamUpdates interface that intercepts all updates from the SDK to the
+// data store.
+type envContextStreamUpdates struct {
 	context *envContextImpl
 }
 
@@ -88,27 +122,20 @@ type envContextStoreQueries struct {
 // NewEnvContext can also immediately return an error, with a nil EnvContext, if the configuration is
 // invalid.
 func NewEnvContext(
-	identifiers EnvIdentifiers,
-	envConfig config.EnvConfig,
-	allConfig config.Config,
-	clientFactory sdks.ClientFactoryFunc,
-	dataStoreFactory interfaces.DataStoreFactory,
-	dataStoreInfo sdks.DataStoreEnvironmentInfo,
-	streamProviders []streams.StreamProvider,
-	jsClientContext JSClientContext,
-	metricsManager *metrics.Manager,
-	userAgent string,
-	logNameMode LogNameMode,
-	loggers ldlog.Loggers,
+	params EnvContextImplParams,
 	readyCh chan<- EnvContext,
+	// readyCh is a separate parameter because it's not a property of the environment itself, but
+	// just part of the semantics of the constructor
 ) (EnvContext, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
-	offlineMode := allConfig.OfflineMode.FileDataSource != ""
+	offlineMode := params.AllConfig.OfflineMode.FileDataSource != ""
+	envConfig := params.EnvConfig
+	allConfig := params.AllConfig
 
-	envLoggers := loggers
-	logPrefix := makeLogPrefix(logNameMode, envConfig.SDKKey, envConfig.EnvID)
+	envLoggers := params.Loggers
+	logPrefix := makeLogPrefix(params.LogNameMode, envConfig.SDKKey, envConfig.EnvID)
 	envLoggers.SetPrefix(logPrefix)
 	envLoggers.SetMinLevel(
 		envConfig.LogLevel.GetOrElse(
@@ -116,7 +143,7 @@ func NewEnvContext(
 		),
 	)
 
-	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, userAgent, loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, params.UserAgent, params.Loggers)
 	if err != nil {
 		return nil, err
 	}
@@ -131,25 +158,60 @@ func NewEnvContext(
 	}
 
 	envContext := &envContextImpl{
-		identifiers:      identifiers,
+		identifiers:      params.Identifiers,
 		clients:          make(map[config.SDKKey]sdks.LDClientContext),
 		credentials:      credentials,
 		loggers:          envLoggers,
 		secureMode:       envConfig.SecureMode,
-		streamProviders:  streamProviders,
+		streamProviders:  params.StreamProviders,
 		handlers:         make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
-		jsContext:        jsClientContext,
-		sdkClientFactory: clientFactory,
+		jsContext:        params.JSClientContext,
+		sdkClientFactory: params.ClientFactory,
 		sdkInitTimeout:   allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
-		metricsManager:   metricsManager,
-		globalLoggers:    loggers,
+		metricsManager:   params.MetricsManager,
+		globalLoggers:    params.Loggers,
 		ttl:              envConfig.TTL.GetOrElse(0),
-		dataStoreInfo:    dataStoreInfo,
+		dataStoreInfo:    params.DataStoreInfo,
 		creationTime:     time.Now(),
 	}
 
+	bigSegmentStoreFactory := params.BigSegmentStoreFactory
+	if bigSegmentStoreFactory == nil {
+		bigSegmentStoreFactory = bigsegments.DefaultBigSegmentStoreFactory
+	}
+	bigSegmentStore, err := bigSegmentStoreFactory(envConfig, allConfig, envLoggers)
+	if err != nil {
+		return nil, err
+	}
+	if bigSegmentStore != nil {
+		thingsToCleanUp.AddCloser(bigSegmentStore)
+		envContext.bigSegmentStore = bigSegmentStore
+
+		factory := params.BigSegmentSynchronizerFactory
+		if factory == nil {
+			factory = bigsegments.DefaultBigSegmentSynchronizerFactory
+		}
+		envContext.bigSegmentSync = factory(
+			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
+			envConfig.EnvID, envConfig.SDKKey, envLoggers)
+		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
+		// start until we know that at least one big segment exists. That's implemented by the
+		// envContextStreamUpdates methods.
+
+		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
+		// to really query the big segment store. Currently it always returns true because we are always
+		// running the synchronizer.
+		allowBigSegmentStatusQueries := func() bool { return true }
+		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
+		if err != nil {
+			return nil, err
+		}
+		envContext.sdkBigSegmentFactory = sdkBigSegments
+	}
+
 	envStreams := streams.NewEnvStreams(
-		streamProviders,
+		params.StreamProviders,
 		envContextStoreQueries{envContext},
 		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
 		envLoggers,
@@ -157,10 +219,14 @@ func NewEnvContext(
 	envContext.envStreams = envStreams
 	thingsToCleanUp.AddCloser(envStreams)
 
+	envStreamUpdates := &envContextStreamUpdates{
+		context: envContext,
+	}
+
 	for c := range credentials {
 		envStreams.AddCredential(c)
 	}
-	for _, sp := range streamProviders {
+	for _, sp := range params.StreamProviders {
 		handlers := make(map[config.SDKCredential]http.Handler)
 		for c := range credentials {
 			h := sp.Handler(c)
@@ -171,7 +237,11 @@ func NewEnvContext(
 		envContext.handlers[sp] = handlers
 	}
 
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreams)
+	dataStoreFactory := params.DataStoreFactory
+	if dataStoreFactory == nil {
+		dataStoreFactory = ldcomponents.InMemoryDataStore()
+	}
+	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates)
 	envContext.storeAdapter = storeAdapter
 
 	var eventDispatcher *events.EventDispatcher
@@ -199,7 +269,7 @@ func NewEnvContext(
 
 	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && !offlineMode
 	var em *metrics.EnvironmentManager
-	if metricsManager != nil {
+	if params.MetricsManager != nil {
 		if enableDiagnostics {
 			pubLoggers := envLoggers
 			pubLoggers.SetPrefix(logPrefix + " (usage metrics)")
@@ -212,13 +282,13 @@ func NewEnvContext(
 			envContext.metricsEventPub = eventsPublisher
 		}
 
-		em, err = metricsManager.AddEnvironment(identifiers.GetDisplayName(), envContext.metricsEventPub)
+		em, err = params.MetricsManager.AddEnvironment(params.Identifiers.GetDisplayName(), envContext.metricsEventPub)
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}
 	}
 	envContext.metricsEnv = em
-	thingsToCleanUp.AddFunc(func() { metricsManager.RemoveEnvironment(em) })
+	thingsToCleanUp.AddFunc(func() { params.MetricsManager.RemoveEnvironment(em) })
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
@@ -247,6 +317,32 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
 		c.clients[sdkKey] = client
+
+		store := c.storeAdapter.GetStore()
+		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+		var bigSegConfig interfaces.BigSegmentsConfiguration
+		var bigSegErr error
+		if c.sdkBigSegmentFactory != nil {
+			bigSegConfig, bigSegErr = c.sdkBigSegmentFactory.CreateBigSegmentsConfiguration(
+				sdks.NewSimpleClientContext(string(sdkKey), c.sdkConfig))
+			if bigSegErr != nil && err == nil {
+				err = bigSegErr
+			}
+		}
+		if bigSegConfig == nil {
+			c.evaluator = ldeval.NewEvaluator(dataProvider)
+		} else {
+			c.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapper(
+				bigSegConfig.GetStore(),
+				nil,
+				bigSegConfig.GetStatusPollInterval(),
+				bigSegConfig.GetStaleAfter(),
+				bigSegConfig.GetUserCacheSize(),
+				bigSegConfig.GetUserCacheTime(),
+				c.loggers,
+			)
+			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
+		}
 	}
 	c.initErr = err
 	c.mu.Unlock()
@@ -383,6 +479,17 @@ func (c *envContextImpl) GetStore() interfaces.DataStore {
 	return c.storeAdapter.GetStore()
 }
 
+func (c *envContextImpl) GetEvaluator() ldeval.Evaluator {
+	c.mu.RLock()
+	ret := c.evaluator
+	c.mu.RUnlock()
+	return ret
+}
+
+func (c *envContextImpl) GetBigSegmentStore() bigsegments.BigSegmentStore {
+	return c.bigSegmentStore
+}
+
 func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
@@ -483,6 +590,15 @@ func (c *envContextImpl) Close() error {
 	if c.eventDispatcher != nil {
 		c.eventDispatcher.Close()
 	}
+	if c.bigSegmentSync != nil {
+		c.bigSegmentSync.Close()
+	}
+	if c.bigSegmentStore != nil {
+		_ = c.bigSegmentStore.Close()
+	}
+	if c.sdkBigSegments != nil {
+		c.sdkBigSegments.Close()
+	}
 	return nil
 }
 
@@ -498,6 +614,46 @@ func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretyp
 		return s.GetAll(kind)
 	}
 	return nil, nil
+}
+
+func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Collection) {
+	// We use this delegator, rather than sending updates directory to context.envStreams, so that we
+	// can detect the presence of a big segment and turn on the big segment synchronizer as needed.
+	u.context.envStreams.SendAllDataUpdate(allData)
+	if u.context.bigSegmentSync == nil {
+		return
+	}
+	hasBigSegment := false
+	for _, coll := range allData {
+		if coll.Kind == ldstoreimpl.Segments() {
+			for _, keyedItem := range coll.Items {
+				if s, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok && s.Unbounded {
+					hasBigSegment = true
+					break
+				}
+			}
+		}
+	}
+	if hasBigSegment {
+		u.context.bigSegmentSync.Start() // has no effect if already started
+	}
+}
+
+func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
+	// See comments in SendAllDataUpdate.
+	u.context.envStreams.SendSingleItemUpdate(kind, key, item)
+	if u.context.bigSegmentSync == nil {
+		return
+	}
+	hasBigSegment := false
+	if kind == ldstoreimpl.Segments() {
+		if s, ok := item.Item.(*ldmodel.Segment); ok && s.Unbounded {
+			hasBigSegment = true
+		}
+	}
+	if hasBigSegment {
+		u.context.bigSegmentSync.Start() // has no effect if already started
+	}
 }
 
 func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {

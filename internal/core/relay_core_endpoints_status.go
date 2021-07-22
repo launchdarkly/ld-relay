@@ -35,17 +35,26 @@ type StatusRep struct {
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	SDKKey           string              `json:"sdkKey"`
-	EnvID            string              `json:"envId,omitempty"`
-	EnvKey           string              `json:"envKey,omitempty"`
-	EnvName          string              `json:"envName,omitempty"`
-	ProjKey          string              `json:"projKey,omitempty"`
-	ProjName         string              `json:"projName,omitempty"`
-	MobileKey        string              `json:"mobileKey,omitempty"`
-	ExpiringSDKKey   string              `json:"expiringSdkKey,omitempty"`
-	Status           string              `json:"status"`
-	ConnectionStatus ConnectionStatusRep `json:"connectionStatus"`
-	DataStoreStatus  DataStoreStatusRep  `json:"dataStoreStatus"`
+	SDKKey           string               `json:"sdkKey"`
+	EnvID            string               `json:"envId,omitempty"`
+	EnvKey           string               `json:"envKey,omitempty"`
+	EnvName          string               `json:"envName,omitempty"`
+	ProjKey          string               `json:"projKey,omitempty"`
+	ProjName         string               `json:"projName,omitempty"`
+	MobileKey        string               `json:"mobileKey,omitempty"`
+	ExpiringSDKKey   string               `json:"expiringSdkKey,omitempty"`
+	Status           string               `json:"status"`
+	ConnectionStatus ConnectionStatusRep  `json:"connectionStatus"`
+	DataStoreStatus  DataStoreStatusRep   `json:"dataStoreStatus"`
+	BigSegmentStatus *BigSegmentStatusRep `json:"bigSegmentStatus,omitempty"`
+}
+
+// BigSegmentStatusRep is the big segment status representation returned by the status endpoint.
+//
+// This is exported for use in integration test code.
+type BigSegmentStatusRep struct {
+	PotentiallyStale   bool                       `json:"potentiallyStale"`
+	LastSynchronizedOn ldtime.UnixMillisecondTime `json:"lastSynchronizedOn"`
 }
 
 // ConnectionStatusRep is the data source status representation returned by the status endpoint.
@@ -174,6 +183,22 @@ func statusHandler(core *RelayCore) http.Handler {
 					status.Status = statusEnvDisconnected
 					healthy = false
 				}
+			}
+
+			bigSegmentStore := clientCtx.GetBigSegmentStore()
+			if bigSegmentStore != nil {
+				bigSegmentStatus := BigSegmentStatusRep{}
+				synchronizedOn, err := bigSegmentStore.GetSynchronizedOn()
+				bigSegmentStatus.LastSynchronizedOn = synchronizedOn
+				now := ldtime.UnixMillisNow()
+				stalenessThreshold := core.config.Main.BigSegmentsStaleThreshold.GetOrElse(config.DefaultBigSegmentsStaleThreshold)
+				if err != nil || synchronizedOn.IsDefined() || now > (synchronizedOn+ldtime.UnixMillisecondTime(stalenessThreshold.Milliseconds())) {
+					bigSegmentStatus.PotentiallyStale = true
+					if err != nil || core.config.Main.BigSegmentsStaleAsDegraded {
+						healthy = false
+					}
+				}
+				status.BigSegmentStatus = &bigSegmentStatus
 			}
 
 			storeInfo := clientCtx.GetDataStoreInfo()

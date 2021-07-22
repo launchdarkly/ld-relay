@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -23,10 +24,8 @@ import (
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
-	"github.com/antihax/optional"
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,9 +61,7 @@ type integrationTestManager struct {
 	streamURL          string
 	sdkURL             string
 	httpClient         *http.Client
-	apiClient          *ldapi.APIClient
-	apiContext         context.Context
-	apiBaseURL         string
+	apiHelper          *apiHelper
 	dockerImage        *docker.Image
 	dockerContainer    *docker.Container
 	dockerNetwork      *docker.Network
@@ -74,35 +71,6 @@ type integrationTestManager struct {
 	statusPollInterval time.Duration
 	loggers            ldlog.Loggers
 	requestLogger      *requestLogger
-}
-
-type projectInfo struct {
-	key  string
-	name string
-}
-
-type environmentInfo struct {
-	id        config.EnvironmentID
-	key       string
-	name      string
-	sdkKey    config.SDKKey
-	mobileKey config.MobileKey
-}
-
-type projsAndEnvs map[projectInfo][]environmentInfo
-
-func (pe projsAndEnvs) enumerateEnvs(fn func(projectInfo, environmentInfo)) {
-	for proj, envs := range pe {
-		for _, env := range envs {
-			fn(proj, env)
-		}
-	}
-}
-
-func (pe projsAndEnvs) countEnvs() int {
-	n := 0
-	pe.enumerateEnvs(func(projectInfo, environmentInfo) { n++ })
-	return n
 }
 
 func newIntegrationTestManager() (*integrationTestManager, error) {
@@ -157,15 +125,20 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
+	apiHelper := &apiHelper{
+		apiClient:  apiClient,
+		apiContext: apiContext,
+		apiBaseURL: apiBaseURL,
+		loggers:    loggers,
+	}
+
 	return &integrationTestManager{
 		params:             params,
 		baseURL:            baseURL,
 		streamURL:          streamURL,
 		sdkURL:             sdkURL,
 		httpClient:         httpClient,
-		apiClient:          apiClient,
-		apiContext:         apiContext,
-		apiBaseURL:         apiBaseURL,
+		apiHelper:          apiHelper,
 		dockerImage:        dockerImage,
 		dockerNetwork:      network,
 		relaySharedDir:     relaySharedDir,
@@ -183,215 +156,6 @@ func (m *integrationTestManager) close() {
 	}
 	_ = m.dockerNetwork.Delete()
 	_ = os.RemoveAll(m.relaySharedDir)
-}
-
-func (m *integrationTestManager) logResult(desc string, err error) error {
-	if err == nil {
-		m.loggers.Infof("%s: OK", desc)
-		return nil
-	}
-	addInfo := ""
-	if gse, ok := err.(ldapi.GenericSwaggerError); ok {
-		body := string(gse.Body())
-		addInfo = " - " + string(body)
-	}
-	m.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
-	return err
-}
-
-func (m *integrationTestManager) createProjectsAndEnvironments(numProjects, numEnvironments int) (projsAndEnvs, error) {
-	ret := make(projsAndEnvs)
-	for i := 0; i < numProjects; i++ {
-		proj, envs, err := m.createProject(numEnvironments)
-		if err != nil {
-			_ = m.deleteProjects(ret)
-			return nil, err
-		}
-		ret[proj] = envs
-	}
-	return ret, nil
-}
-
-func (m *integrationTestManager) deleteProjects(projsAndEnvs projsAndEnvs) error {
-	for p := range projsAndEnvs {
-		if err := m.deleteProject(p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (m *integrationTestManager) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
-	projKey := randomApiKey("relayi9n-")
-	projName := projKey
-	projectBody := ldapi.ProjectBody{
-		Name: projName,
-		Key:  projKey,
-	}
-	for i := 0; i < numEnvironments; i++ {
-		envKey := randomApiKey("env-")
-		envName := envKey
-		projectBody.Environments = append(projectBody.Environments, ldapi.EnvironmentPost{
-			Name:  envName,
-			Key:   envKey,
-			Color: "000000",
-		})
-	}
-	project, _, err := m.apiClient.ProjectsApi.PostProject(m.apiContext, projectBody)
-	if err != nil {
-		return projectInfo{}, nil, m.logResult("Create project", err)
-	}
-	var envInfos []environmentInfo
-	for _, env := range project.Environments {
-		envInfos = append(envInfos, environmentInfo{
-			id:        config.EnvironmentID(env.Id),
-			key:       env.Key,
-			name:      env.Name,
-			sdkKey:    config.SDKKey(env.ApiKey),
-			mobileKey: config.MobileKey(env.MobileKey),
-		})
-	}
-	m.loggers.Infof("Created project %q\n", projKey)
-	return projectInfo{key: projKey, name: projName}, envInfos, nil
-}
-
-func randomApiKey(prefix string) string {
-	return (prefix + uuid.New())[0:20]
-}
-
-func (m *integrationTestManager) deleteProject(project projectInfo) error {
-	_, err := m.apiClient.ProjectsApi.DeleteProject(m.apiContext, project.key)
-	return m.logResult(fmt.Sprintf("Delete project %q", project.key), err)
-}
-
-func (m *integrationTestManager) addEnvironment(project projectInfo) (environmentInfo, error) {
-	envKey := randomApiKey("env-")
-	envName := envKey
-	envBody := ldapi.EnvironmentPost{
-		Key:   envKey,
-		Name:  envName,
-		Color: "000000",
-	}
-	env, _, err := m.apiClient.EnvironmentsApi.PostEnvironment(m.apiContext, project.key, envBody)
-	if err != nil {
-		return environmentInfo{}, m.logResult("Create environment", err)
-	}
-	m.loggers.Infof("created environment %q\n", envKey)
-	return environmentInfo{
-		id:        config.EnvironmentID(env.Id),
-		key:       env.Key,
-		name:      env.Name,
-		sdkKey:    config.SDKKey(env.ApiKey),
-		mobileKey: config.MobileKey(env.MobileKey),
-	}, nil
-}
-
-func (m *integrationTestManager) deleteEnvironment(project projectInfo, env environmentInfo) error {
-	_, err := m.apiClient.EnvironmentsApi.DeleteEnvironment(m.apiContext, project.key, env.key)
-	return m.logResult(fmt.Sprintf("Delete environment %q", env.key), err)
-}
-
-func (m *integrationTestManager) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
-	config.SDKKey, error) {
-	var apiOptions *ldapi.ResetEnvironmentSDKKeyOpts
-	if !expirationTime.IsZero() {
-		apiOptions = &ldapi.ResetEnvironmentSDKKeyOpts{Expiry: optional.NewInt64(int64(ldtime.UnixMillisFromTime(expirationTime)))}
-	}
-	envResult, _, err := m.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(m.apiContext, project.key, env.key, apiOptions)
-	var newKey config.SDKKey
-	if err == nil {
-		newKey = config.SDKKey(envResult.ApiKey)
-	}
-	return newKey, m.logResult(fmt.Sprintf("Change SDK key for environment %q", env.key), err)
-}
-
-func (m *integrationTestManager) rotateMobileKey(project projectInfo, env environmentInfo) (config.MobileKey, error) {
-	envResult, _, err := m.apiClient.EnvironmentsApi.ResetEnvironmentMobileKey(m.apiContext, project.key, env.key, nil)
-	var newKey config.MobileKey
-	if err == nil {
-		newKey = config.MobileKey(envResult.MobileKey)
-	}
-	return newKey, m.logResult(fmt.Sprintf("Change mobile key for environment %q", env.key), err)
-}
-
-func (m *integrationTestManager) createAutoConfigKey(policyResources []string) (autoConfigID, config.AutoConfigKey, error) {
-	body := ldapi.RelayProxyConfigBody{
-		Name: uuid.New(),
-		Policy: []ldapi.Policy{
-			{
-				Resources: policyResources,
-				Actions:   []string{"*"},
-				Effect:    "allow",
-			},
-		},
-	}
-	entity, _, err := m.apiClient.RelayProxyConfigurationsApi.PostRelayAutoConfig(m.apiContext, body)
-	return autoConfigID(entity.Id), config.AutoConfigKey(entity.FullKey), m.logResult("Create auto-config key", err)
-}
-
-func (m *integrationTestManager) updateAutoConfigPolicy(id autoConfigID, newPolicyResources []string) error {
-	var patchValue interface{} = newPolicyResources
-	patchOps := []ldapi.PatchOperation{
-		{Op: "replace", Path: "/policy/0/resources", Value: &patchValue},
-	}
-	_, _, err := m.apiClient.RelayProxyConfigurationsApi.PatchRelayProxyConfig(m.apiContext, string(id), patchOps)
-	return m.logResult("Update auto-config policy", err)
-}
-
-func (m *integrationTestManager) deleteAutoConfigKey(id autoConfigID) error {
-	_, err := m.apiClient.RelayProxyConfigurationsApi.DeleteRelayProxyConfig(m.apiContext, string(id))
-	return m.logResult("Delete auto-config key", err)
-}
-
-// createFlag creates a flag in the specified project, and configures each environment to return a specific
-// value for that flag in that environment which we'll check for later in verifyFlagValues.
-func (m *integrationTestManager) createFlag(
-	proj projectInfo,
-	envs []environmentInfo,
-	flagKey string,
-	valueForEnv func(environmentInfo) ldvalue.Value,
-) error {
-
-	flagPost := ldapi.FeatureFlagBody{
-		Name: flagKey,
-		Key:  flagKey,
-	}
-	for _, env := range envs {
-		valueAsInterface := valueForEnv(env).AsArbitraryValue()
-		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
-	}
-
-	_, _, err := m.apiClient.FeatureFlagsApi.PostFeatureFlag(m.apiContext, proj.key, flagPost, nil)
-	err = m.logResult("Create flag "+flagKey+" in "+proj.key, err)
-	if err != nil {
-		return err
-	}
-
-	for i, env := range envs {
-		var varIndex interface{} = i
-		envPrefix := fmt.Sprintf("/environments/%s", env.key)
-		patches := []ldapi.PatchOperation{
-			{Op: "replace", Path: envPrefix + "/offVariation", Value: &varIndex},
-		}
-		_, _, err = m.apiClient.FeatureFlagsApi.PatchFeatureFlag(m.apiContext, proj.key, flagKey,
-			ldapi.PatchComment{Patch: patches})
-		err = m.logResult("Configure flag "+flagKey+" for "+env.key, err)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *integrationTestManager) createFlags(projsAndEnvs projsAndEnvs) error {
-	for proj, envs := range projsAndEnvs {
-		err := m.createFlag(proj, envs, flagKeyForProj(proj), flagValueForEnv)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]string) error {
@@ -520,34 +284,45 @@ func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs pr
 // verifyFlagValues hits Relay's polling evaluation endpoint and verifies that it returns the expected
 // flags and values, based on the standard way we create flags for our test environments in createFlag.
 func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs projsAndEnvs) {
-	userBase64 := "eyJrZXkiOiJmb28ifQ" // properties don't matter, just has to be a valid base64 user object
+	userJSON := `{"key":"any-user-key"}`
 
 	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-		req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/eval/users/"+userBase64, nil)
-		require.NoError(t, err)
-		req.Header.Add("Authorization", string(env.sdkKey))
-
-		resp, err := m.makeHTTPRequestToRelay(req)
-		require.NoError(t, err)
-		if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
-			defer resp.Body.Close()
-			data, err := ioutil.ReadAll(resp.Body)
-			require.NoError(t, err)
-
-			respJSON := ldvalue.Parse(data)
-			expectedValue := flagValueForEnv(env)
-			if expectedValue.Equal(respJSON.GetByKey(flagKeyForProj(proj))) {
-				m.loggers.Infof("Got expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
-			} else {
-				m.loggers.Errorf("Did not get expected flag values for enviroment %s with SDK key %s", env.key, env.sdkKey)
-				m.loggers.Errorf("Response was: %s", respJSON)
-				t.Fail()
-			}
+		valuesObject := m.getFlagValues(t, proj, env, userJSON)
+		expectedValue := flagValueForEnv(env)
+		if expectedValue.Equal(valuesObject.GetByKey(flagKeyForProj(proj))) {
+			m.loggers.Infof("Got expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
 		} else {
-			m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
-				env.key, env.sdkKey, resp.StatusCode)
+			m.loggers.Errorf("Did not get expected flag values for enviroment %s with SDK key %s", env.key, env.sdkKey)
+			m.loggers.Errorf("Response was: %s", valuesObject)
+			t.Fail()
 		}
 	})
+}
+
+func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/eval/users/"+userBase64, nil)
+	require.NoError(t, err)
+	req.Header.Add("Authorization", string(env.sdkKey))
+	resp, err := m.makeHTTPRequestToRelay(req)
+	require.NoError(t, err)
+	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
+		defer resp.Body.Close()
+		data, err := ioutil.ReadAll(resp.Body)
+		require.NoError(t, err)
+		valuesObject := ldvalue.Parse(data)
+		if !valuesObject.Equal(ldvalue.Null()) {
+			return valuesObject
+		}
+		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
+			env.key, env.sdkKey, string(data))
+		t.FailNow()
+	} else {
+		m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
+			env.key, env.sdkKey, resp.StatusCode)
+		t.FailNow()
+	}
+	return ldvalue.Null()
 }
 
 func (m *integrationTestManager) withExtraContainer(

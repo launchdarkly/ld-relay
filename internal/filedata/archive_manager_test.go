@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,10 +166,10 @@ func TestFileUpdatedWithInvalidDataAndDoesNotBecomeValid(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		writeMalformedArchive(p.filePath)
-		<-time.After(maxRetryDuration + time.Millisecond*100)
+
+		requireLogMessage(t, p.mockLog, ldlog.Error, "giving up until next change")
 
 		p.requireNoMoreMessages()
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "giving up until next change")
 	})
 }
 
@@ -181,7 +182,8 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		writeMalformedArchive(p.filePath)
-		<-time.After(time.Millisecond * 100)
+
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
@@ -191,7 +193,6 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 		// consecutive errors.
 
 		p.expectEnvironmentsUpdated(testEnv1a)
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "file is invalid")
 		p.expectReloaded()
 	})
 }
@@ -205,13 +206,13 @@ func TestFileDeletedAndThenRecreatedWithValidData(t *testing.T) {
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		require.NoError(t, os.Remove(p.filePath))
-		<-time.After(time.Millisecond * 100)
+
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "file not found")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a)
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "file not found")
 		p.expectReloaded()
 	})
 }
@@ -225,17 +226,29 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 		p.expectEnvironmentsAdded(testEnv1, testEnv2)
 
 		require.NoError(t, os.Remove(p.filePath))
-		<-time.After(time.Millisecond * 200)
+
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "file not found")
 
 		writeMalformedArchive(p.filePath)
-		<-time.After(time.Millisecond * 200)
+
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
 
 		p.expectEnvironmentsUpdated(testEnv1a)
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "file not found")
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "file is invalid")
 		p.expectReloaded()
 	})
+}
+
+func requireLogMessage(t *testing.T, mockLog *ldlogtest.MockLog, level ldlog.LogLevel, expectedSubstring string) {
+	require.Eventuallyf(t, func() bool {
+		warnings := mockLog.GetOutput(level)
+		for _, w := range warnings {
+			if strings.Contains(w, expectedSubstring) {
+				return true
+			}
+		}
+		return false
+	}, time.Second*5, time.Millisecond*100, "wanted log message (%s) containing %q", level, expectedSubstring)
 }

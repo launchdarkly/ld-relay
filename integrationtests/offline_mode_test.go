@@ -31,7 +31,7 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
 
 			err := downloadRelayArchive(manager, testData.autoConfigKey, filePath)
-			manager.logResult("Download data archive from /relay/latest-all to "+filePath, err)
+			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
 			require.NoError(t, err)
 
 			manager.startRelay(t, map[string]string{
@@ -48,20 +48,20 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 }
 
 func withOfflineModeTestData(t *testing.T, manager *integrationTestManager, fn func(offlineModeTestData)) {
-	projsAndEnvs, err := manager.createProjectsAndEnvironments(2, 2)
+	projsAndEnvs, err := manager.apiHelper.createProjectsAndEnvironments(2, 2)
 	require.NoError(t, err)
-	defer manager.deleteProjects(projsAndEnvs)
+	defer manager.apiHelper.deleteProjects(projsAndEnvs)
 
 	policyResources := []string{}
 	for p := range projsAndEnvs {
 		policyResources = append(policyResources, fmt.Sprintf("proj/%s:env/*", p.key))
 	}
-	configID, configKey, err := manager.createAutoConfigKey(policyResources)
+	configID, configKey, err := manager.apiHelper.createAutoConfigKey(policyResources)
 	require.NoError(t, err)
 
-	defer manager.deleteAutoConfigKey(configID)
+	defer manager.apiHelper.deleteAutoConfigKey(configID)
 
-	require.NoError(t, manager.createFlags(projsAndEnvs))
+	require.NoError(t, manager.apiHelper.createFlags(projsAndEnvs))
 
 	testData := offlineModeTestData{
 		projsAndEnvs:  projsAndEnvs,

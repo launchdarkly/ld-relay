@@ -45,42 +45,46 @@ func relayCoreEndToEndTest(t *testing.T, config c.Config, ldStreamHandler http.H
 	relayMockLog := ldlogtest.NewMockLog()
 	defer relayMockLog.DumpIfTestFailed(t)
 
+	pollHandler := httphelpers.HandlerWithStatus(404)
 	streamHandler, requestsCh := httphelpers.RecordingHandler(ldStreamHandler)
 	eventsHandler := httphelpers.HandlerWithStatus(202)
 
-	httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
-		httphelpers.WithServer(eventsHandler, func(eventsServer *httptest.Server) {
-			config.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(streamServer.URL)
-			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
-			core, err := NewRelayCore(
-				config,
-				relayMockLog.Loggers,
-				nil,
-				"1.2.3",
-				"FakeRelay",
-				relayenv.LogNameIsEnvID,
-			)
-			require.NoError(t, err)
-			defer core.Close()
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
+			httphelpers.WithServer(eventsHandler, func(eventsServer *httptest.Server) {
+				config.Main.BaseURI, _ = configtypes.NewOptURLAbsoluteFromString(pollServer.URL)
+				config.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(streamServer.URL)
+				config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
+				core, err := NewRelayCore(
+					config,
+					relayMockLog.Loggers,
+					nil,
+					"1.2.3",
+					"FakeRelay",
+					relayenv.LogNameIsEnvID,
+				)
+				require.NoError(t, err)
+				defer core.Close()
 
-			for _, env := range config.Environment {
-				streamReq := st.ExpectTestRequest(t, requestsCh, time.Second*5)
-				assert.Equal(t, string(env.SDKKey), streamReq.Request.Header.Get("Authorization"))
-			}
-
-			httphelpers.WithServer(core.MakeRouter(), func(relayServer *httptest.Server) {
-				mockLog := ldlogtest.NewMockLog()
-				mockLog.Loggers.SetPrefix("TestClient:")
-				defer mockLog.DumpIfTestFailed(t)
-				p := relayCoreEndToEndTestParams{
-					t:            t,
-					requestsCh:   requestsCh,
-					relayURL:     relayServer.URL,
-					relayMockLog: relayMockLog,
-					loggers:      mockLog.Loggers,
-					singleLogger: mockLog.Loggers.ForLevel(ldlog.Info),
+				for _, env := range config.Environment {
+					streamReq := st.ExpectTestRequest(t, requestsCh, time.Second*5)
+					assert.Equal(t, string(env.SDKKey), streamReq.Request.Header.Get("Authorization"))
 				}
-				action(p)
+
+				httphelpers.WithServer(core.MakeRouter(), func(relayServer *httptest.Server) {
+					mockLog := ldlogtest.NewMockLog()
+					mockLog.Loggers.SetPrefix("TestClient:")
+					defer mockLog.DumpIfTestFailed(t)
+					p := relayCoreEndToEndTestParams{
+						t:            t,
+						requestsCh:   requestsCh,
+						relayURL:     relayServer.URL,
+						relayMockLog: relayMockLog,
+						loggers:      mockLog.Loggers,
+						singleLogger: mockLog.Loggers.ForLevel(ldlog.Info),
+					}
+					action(p)
+				})
 			})
 		})
 	})
