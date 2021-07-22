@@ -409,6 +409,8 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			}, mockLog.GetOutput(ldlog.Info))
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Stream connection failed: EOF",
+				"BigSegmentSynchronizer: Will retry",
+				"BigSegmentSynchronizer: Re-established connection",
 			}, mockLog.GetOutput(ldlog.Warn))
 			assert.Len(t, mockLog.GetOutput(ldlog.Error), 0)
 		})
