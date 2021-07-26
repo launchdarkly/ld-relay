@@ -80,7 +80,7 @@ If you want to shut down all Relay Proxy components, connections, goroutines, an
 
 
 ### Additional Notes
-If your vulnerability scanner is picking up [this issue](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160) check out [the solution](https://github.com/launchdarkly/ld-relay/issues/150) in place for the standalone relay:
+If your vulnerability scanner is picking up [this issue](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160) check out [the solution](https://github.com/launchdarkly/ld-relay/issues/150):
 ```shell
 go mod edit -replace github.com/dgrijalva/jwt-go=github.com/golang-jwt/jwt@v3.2.1+incompatible
 go mod tidy
