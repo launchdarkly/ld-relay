@@ -2,6 +2,11 @@ repo:
   public: ld-relay
   private: ld-relay-private
 
+circleci:
+  linux:
+    image: cimg/go:1.15.13
+    context: org-global
+
 template:
   name: go
 
