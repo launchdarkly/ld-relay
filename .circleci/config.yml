@@ -33,14 +33,6 @@ workflows:
           docker-image: cimg/go:1.15
       - integration-test
       - test-publish
-      - publish:
-          filters:
-            tags:
-              only: /\d+\.\d+\.\d+(-.*)?/
-            branches:
-              only: /v\d+/
-          requires:
-            - Go 1.14
       - dependency-scan:
           context: org-global
 
@@ -269,8 +261,9 @@ jobs:
 
   test-publish:
     docker:
-      - &release_docker_image
-        image: cimg/go:1.15.13
+      # We must keep this image tag in sync with the image that will really be used for releases,
+      # which is specified in .ldrelease/config.yml.
+      - image: cimg/go:1.15.13
         environment:
           <<: *environment
 
@@ -281,25 +274,5 @@ jobs:
       - run: sudo apt-get install rpm
       - run: make release
       - run: make docker-smoke-test
-      - store_artifacts:
-          path: dist/
-
-  publish:
-    docker:
-      - <<: *release_docker_image
-
-    steps:
-      - checkout
-      - setup_remote_docker  # start docker engine
-      - run: sudo apt-get update
-      - run: sudo apt-get install rpm
-      - run:
-          name: Releasing and publishing
-          command: |
-            make release
-            if [ "$CIRCLE_PROJECT_REPONAME" = "ld-relay" ]; then
-                docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-                make publish
-            fi
       - store_artifacts:
           path: dist/
