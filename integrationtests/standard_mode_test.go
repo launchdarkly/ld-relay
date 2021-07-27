@@ -23,7 +23,7 @@ func testStandardMode(t *testing.T, manager *integrationTestManager) {
 			envVars["LD_CLIENT_SIDE_ID_"+string(env.name)] = string(env.id)
 		})
 		manager.startRelay(t, envVars)
-		defer manager.stopRelay()
+		defer manager.stopRelay(t)
 
 		manager.awaitEnvironments(t, testData.projsAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
 			return string(env.name)
