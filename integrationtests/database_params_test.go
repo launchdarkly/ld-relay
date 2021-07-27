@@ -58,9 +58,8 @@ func (p databaseTestParams) withStartedRelay(
 		vars["LD_ENV_"+env.name] = string(env.sdkKey)
 		vars["LD_PREFIX_"+env.name] = env.prefix
 	}
-	vars["LD_LOG_LEVEL"] = "DEBUG"
 	manager.startRelay(t, vars)
-	defer manager.stopRelay()
+	defer manager.stopRelay(t)
 
 	expectedDataStoreStatuses := make(map[string]core.DataStoreStatusRep)
 	for _, env := range environments {

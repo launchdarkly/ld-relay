@@ -13,6 +13,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,6 +73,8 @@ type integrationTestManager struct {
 	statusPollInterval time.Duration
 	loggers            ldlog.Loggers
 	requestLogger      *requestLogger
+	relayLog           []string
+	relayLogLock       sync.Mutex
 }
 
 func newIntegrationTestManager() (*integrationTestManager, error) {
@@ -149,8 +153,8 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	}, nil
 }
 
-func (m *integrationTestManager) close() {
-	m.stopRelay()
+func (m *integrationTestManager) close(t *testing.T) {
+	m.stopRelay(t)
 	if m.dockerImage.IsCustomBuild() {
 		_ = m.dockerImage.Delete()
 	}
@@ -167,7 +171,8 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
 		EnvVar("BASE_URI", m.baseURL).
 		EnvVar("STREAM_URI", m.streamURL).
-		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true")
+		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true").
+		EnvVar("LOG_LEVEL", "debug")
 	for k, v := range envVars {
 		cb.EnvVar(k, v)
 	}
@@ -182,16 +187,33 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 	}
 
 	go container.FollowLogs(oshelpers.NewLineParsingWriter(func(line string) {
-		// just write directly to stdout here, because Relay already adds its own log timestamps
-		fmt.Println("[Relay] " + line)
+		// just write directly to stdout here, because Relay already adds its own log timestamps -
+		// but suppress debug output because we'll dump it later if the test failed
+		if !strings.Contains(line, " DEBUG: ") {
+			fmt.Println("[Relay] ", line)
+		}
+		m.relayLogLock.Lock()
+		m.relayLog = append(m.relayLog, line)
+		m.relayLogLock.Unlock()
 	}))
 
 	m.relayBaseURL = fmt.Sprintf("http://localhost:%d", config.DefaultPort)
 	return nil
 }
 
-func (m *integrationTestManager) stopRelay() error {
+func (m *integrationTestManager) stopRelay(t *testing.T) error {
 	if m.dockerContainer != nil {
+		if t.Failed() {
+			logs := m.getRelayLog()
+			if len(logs) > 0 {
+				fmt.Println("===")
+				fmt.Println("Dumping full Relay log, including debug output, because the test failed:")
+				for _, line := range logs {
+					fmt.Println("[Relay] ", line)
+				}
+				fmt.Println("===")
+			}
+		}
 		if err := m.dockerContainer.Stop(); err != nil {
 			return err
 		}
@@ -199,8 +221,18 @@ func (m *integrationTestManager) stopRelay() error {
 			return err
 		}
 		m.dockerContainer = nil
+		m.relayLogLock.Lock()
+		m.relayLog = nil
+		m.relayLogLock.Unlock()
 	}
 	return nil
+}
+
+func (m *integrationTestManager) getRelayLog() []string {
+	m.relayLogLock.Lock()
+	ret := append([]string(nil), m.relayLog...)
+	m.relayLogLock.Unlock()
+	return ret
 }
 
 func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (*http.Response, error) {

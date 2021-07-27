@@ -37,7 +37,7 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			manager.startRelay(t, map[string]string{
 				"FILE_DATA_SOURCE": filepath.Join(relayContainerSharedDir, fileName),
 			})
-			defer manager.stopRelay()
+			defer manager.stopRelay(t)
 
 			manager.awaitEnvironments(t, testData.projsAndEnvs, true, func(proj projectInfo, env environmentInfo) string {
 				return string(env.id)
