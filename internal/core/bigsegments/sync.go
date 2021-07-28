@@ -53,6 +53,7 @@ type BigSegmentSynchronizerFactory func(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
+	logPrefix string,
 ) BigSegmentSynchronizer
 
 // defaultBigSegmentSynchronizer is the standard implementation of BigSegmentSynchronizer.
@@ -79,8 +80,9 @@ func DefaultBigSegmentSynchronizerFactory(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
+	logPrefix string,
 ) BigSegmentSynchronizer {
-	return newDefaultBigSegmentSynchronizer(httpConfig, store, pollURI, streamURI, envID, sdkKey, loggers)
+	return newDefaultBigSegmentSynchronizer(httpConfig, store, pollURI, streamURI, envID, sdkKey, loggers, logPrefix)
 }
 
 func newDefaultBigSegmentSynchronizer(
@@ -91,6 +93,7 @@ func newDefaultBigSegmentSynchronizer(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
+	logPrefix string,
 ) *defaultBigSegmentSynchronizer {
 	s := defaultBigSegmentSynchronizer{
 		httpConfig:          httpConfig,
@@ -104,7 +107,11 @@ func newDefaultBigSegmentSynchronizer(
 		loggers:             loggers,
 	}
 
-	s.loggers.SetPrefix("BigSegmentSynchronizer:")
+	if logPrefix != "" {
+		logPrefix += " "
+	}
+	logPrefix += "BigSegmentSynchronizer:"
+	s.loggers.SetPrefix(logPrefix)
 
 	return &s
 }
