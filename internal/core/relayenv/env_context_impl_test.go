@@ -673,6 +673,7 @@ func (f *mockBigSegmentSynchronizerFactory) create(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
+	logPrefix string,
 ) bigsegments.BigSegmentSynchronizer {
 	f.synchronizer = &mockBigSegmentSynchronizer{}
 	return f.synchronizer
@@ -688,6 +689,10 @@ func (s *mockBigSegmentSynchronizer) Start() {
 	s.lock.Lock()
 	s.started = true
 	s.lock.Unlock()
+}
+
+func (s *mockBigSegmentSynchronizer) HasSynced() bool {
+	return true
 }
 
 func (s *mockBigSegmentSynchronizer) Close() {

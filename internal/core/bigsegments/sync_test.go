@@ -119,7 +119,7 @@ func TestBasicSync(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -195,7 +195,7 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -266,7 +266,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
 			segmentSync.streamRetryInterval = time.Millisecond
 			defer segmentSync.Close()
 			segmentSync.Start()
@@ -351,7 +351,7 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers)
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
 			segmentSync.streamRetryInterval = time.Millisecond
 			defer segmentSync.Close()
 			segmentSync.Start()

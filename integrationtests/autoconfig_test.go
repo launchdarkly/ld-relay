@@ -197,7 +197,7 @@ func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integ
 	manager.startRelay(t, map[string]string{
 		"AUTO_CONFIG_KEY": string(testData.autoConfigKey),
 	})
-	defer manager.stopRelay()
+	defer manager.stopRelay(t)
 
 	manager.awaitEnvironments(t, projAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
 		return string(env.id)
@@ -274,7 +274,7 @@ func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action 
 	manager.startRelay(t, map[string]string{
 		"AUTO_CONFIG_KEY": string(testData.autoConfigKey),
 	})
-	defer manager.stopRelay()
+	defer manager.stopRelay(t)
 
 	action(testData)
 }

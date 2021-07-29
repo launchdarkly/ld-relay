@@ -17,7 +17,7 @@ func TestEndToEnd(t *testing.T) {
 	manager, err := newIntegrationTestManager()
 	require.NoError(t, err)
 
-	defer manager.close()
+	defer manager.close(t)
 
 	t.Run("standard mode", func(t *testing.T) {
 		testStandardMode(t, manager)

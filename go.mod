@@ -33,3 +33,6 @@ require (
 	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.0
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.5.0
 )
+
+// https://github.com/launchdarkly/ld-relay/issues/150
+replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
