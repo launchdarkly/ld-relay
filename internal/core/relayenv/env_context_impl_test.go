@@ -690,6 +690,10 @@ func (s *mockBigSegmentSynchronizer) Start() {
 	s.lock.Unlock()
 }
 
+func (s *mockBigSegmentSynchronizer) HasSynced() bool {
+	return true
+}
+
 func (s *mockBigSegmentSynchronizer) Close() {
 	s.lock.Lock()
 	s.closed = true

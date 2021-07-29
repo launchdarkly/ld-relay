@@ -34,6 +34,13 @@ type BigSegmentSynchronizer interface {
 	// If the BigSegmentSynchronizer has already been started, or has been closed, this has no effect.
 	Start()
 
+	// HasSynced returns true if the synchronizer has ever successfully synced the data.
+	//
+	// We use this to determine whether Relay's internal SDK instances should bother trying to query
+	// big segments metadata. If we haven't yet written any metadata, then trying to do so would
+	// produce useless errors.
+	HasSynced() bool
+
 	// Close ends synchronization of an environment.
 	//
 	// This method does not block.
@@ -64,6 +71,8 @@ type defaultBigSegmentSynchronizer struct {
 	envID               config.EnvironmentID
 	sdkKey              config.SDKKey
 	streamRetryInterval time.Duration
+	hasSynced           bool
+	syncedLock          sync.RWMutex
 	startOnce           sync.Once
 	closeChan           chan struct{}
 	closeOnce           sync.Once
@@ -121,6 +130,13 @@ func (s *defaultBigSegmentSynchronizer) Start() {
 	s.startOnce.Do(func() {
 		go s.syncSupervisor()
 	})
+}
+
+func (s *defaultBigSegmentSynchronizer) HasSynced() bool {
+	s.syncedLock.RLock()
+	ret := s.hasSynced
+	s.syncedLock.RUnlock()
+	return ret
 }
 
 func (s *defaultBigSegmentSynchronizer) Close() {
@@ -191,7 +207,7 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 		}
 
 		s.loggers.Debug("Marking store as synchronized")
-		err = s.store.setSynchronizedOn(ldtime.UnixMillisNow())
+		err = s.setSynced()
 		if err != nil {
 			s.loggers.Error("Updating store timestamp failed:", err)
 			return err
@@ -199,6 +215,17 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 
 		return s.consumeStream(stream)
 	}
+}
+
+func (s *defaultBigSegmentSynchronizer) setSynced() error {
+	err := s.store.setSynchronizedOn(ldtime.UnixMillisNow())
+	if err != nil {
+		return err
+	}
+	s.syncedLock.Lock()
+	s.hasSynced = true
+	s.syncedLock.Unlock()
+	return nil
 }
 
 // Tests whether an HTTP error status represents a condition that might resolve
@@ -313,11 +340,11 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				return nil // forces a restart if we got an out-of-order patch
 			}
 
-			if err := s.store.setSynchronizedOn(ldtime.UnixMillisNow()); err != nil {
+			if err := s.setSynced(); err != nil {
 				return err
 			}
 		case <-timer.C:
-			err := s.store.setSynchronizedOn(ldtime.UnixMillisNow())
+			err := s.setSynced()
 			if err != nil {
 				return err
 			}

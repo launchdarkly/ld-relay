@@ -200,9 +200,10 @@ func NewEnvContext(
 		// envContextStreamUpdates methods.
 
 		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
-		// to really query the big segment store. Currently it always returns true because we are always
-		// running the synchronizer.
-		allowBigSegmentStatusQueries := func() bool { return true }
+		// to really query the big segment store. If we have never written any big segment metadata to the
+		// store (because there aren't any big segments), then we don't want the SDK instances to do this
+		// query, because it would cause spurious error logging.
+		allowBigSegmentStatusQueries := envContext.bigSegmentSync.HasSynced
 		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
 		if err != nil {
 			return nil, err
