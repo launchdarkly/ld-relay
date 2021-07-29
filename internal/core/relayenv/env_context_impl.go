@@ -193,7 +193,7 @@ func NewEnvContext(
 		}
 		envContext.bigSegmentSync = factory(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
-			envConfig.EnvID, envConfig.SDKKey, envLoggers)
+			envConfig.EnvID, envConfig.SDKKey, envLoggers, logPrefix)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
 		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
 		// start until we know that at least one big segment exists. That's implemented by the

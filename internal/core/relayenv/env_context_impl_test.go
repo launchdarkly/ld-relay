@@ -673,6 +673,7 @@ func (f *mockBigSegmentSynchronizerFactory) create(
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
 	loggers ldlog.Loggers,
+	logPrefix string,
 ) bigsegments.BigSegmentSynchronizer {
 	f.synchronizer = &mockBigSegmentSynchronizer{}
 	return f.synchronizer
