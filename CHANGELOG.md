@@ -2,6 +2,12 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.1] - 2021-07-29
+### Fixed:
+- Updated a dependency to address a vulnerability ([CVE-2020-26160](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160)) in a module used by the Prometheus metrics integration. ([#150](https://github.com/launchdarkly/ld-relay/issues/150))
+- Fixed a problem (introduced in v6.4.0) that was causing Relay Proxy to log error messages if Redis or DynamoDB was enabled and you were _not_ using the new big segments feature.
+- When using big segments, log messages related to the processing of big segment data were hard to interpret because they did not indicate which environment they were for. Now, they have an environment name or ID prefix like other Relay Proxy log messages that are environment-specific.
+
 ## [6.4.0] - 2021-07-22
 ### Added:
 - The Relay Proxy now supports evaluation of Big Segments. An Early Access Program for creating and syncing Big Segments from customer data platforms is available to enterprise customers.
