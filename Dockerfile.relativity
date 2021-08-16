@@ -28,14 +28,10 @@ RUN addgroup -g 1000 -S ldr-user && \
     chown 1000:1000 /ldr
 
 RUN apk add --no-cache \
-    curl \
-    tshark \
+    curl \    
     ca-certificates \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
-
-RUN usermod -aG wireshark root
-RUN newgrp wireshark
 
 ARG SRC_DIR=/go/ld-relay
 
