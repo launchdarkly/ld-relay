@@ -22,6 +22,8 @@ RUN go build -a -o ldr .
 
 FROM r1k8sacrdev.azurecr.io/r1/base/security-alpine3:v3
 
+RUN apk --update --no-cache add tshark
+
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
     mkdir /ldr && \
