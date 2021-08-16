@@ -28,7 +28,7 @@ RUN addgroup -g 1000 -S ldr-user && \
     chown 1000:1000 /ldr
 
 RUN apk add --no-cache \
-    curl \    
+    curl \
     ca-certificates \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
