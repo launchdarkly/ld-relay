@@ -32,7 +32,8 @@ RUN apk add --no-cache \
     tshark \
     ca-certificates \
  && update-ca-certificates \
- && rm -rf /var/cache/apk/*
+ && rm -rf /var/cache/apk/* \
+ && chmod +x /usr/bin/dumpcap
 
 ARG SRC_DIR=/go/ld-relay
 
