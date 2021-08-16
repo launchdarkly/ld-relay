@@ -33,6 +33,10 @@ RUN apk add --no-cache \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
+RUN apk add tshark
+RUN usermod -aG wireshark root
+RUN newgrp wireshark
+
 ARG SRC_DIR=/go/ld-relay
 
 COPY --from=builder ${SRC_DIR}/ldr /usr/bin/ldr
