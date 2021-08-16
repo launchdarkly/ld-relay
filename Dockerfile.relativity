@@ -28,12 +28,10 @@ RUN addgroup -g 1000 -S ldr-user && \
     chown 1000:1000 /ldr
 
 RUN apk add --no-cache \
-    curl \
-    tshark \
+    curl \    
     ca-certificates \
  && update-ca-certificates \
- && rm -rf /var/cache/apk/* \
- && chmod +x /usr/bin/dumpcap
+ && rm -rf /var/cache/apk/*
 
 ARG SRC_DIR=/go/ld-relay
 
