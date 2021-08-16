@@ -26,6 +26,8 @@ RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
     mkdir /ldr && \
     chown 1000:1000 /ldr
+    
+RUN apk --update --no-cache add tshark
 
 RUN apk add --no-cache \
     curl \
