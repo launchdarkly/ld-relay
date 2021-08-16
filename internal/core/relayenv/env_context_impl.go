@@ -195,6 +195,27 @@ func NewEnvContext(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
 			envConfig.EnvID, envConfig.SDKKey, envLoggers, logPrefix)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		segmentUpdateCh := envContext.bigSegmentSync.SegmentUpdatesCh()
+		if segmentUpdateCh != nil {
+			go func() {
+				for range segmentUpdateCh {
+					// BigSegmentSynchronizer sends to this channel after processing a batch of
+					// big segment updates. The value it sends is a list of segment keys, but in
+					// the current implementation, we don't care what those keys are because we'll
+					// just be broadcasting a "ping" to all connected client-side SDKs. In the future
+					// if we have real evaluation streams, we'll need to determine which flags should
+					// be re-evaluated based on the segments.
+					if envContext.envStreams != nil {
+						// Note, the nil check there is probably unnecessary because envContext.envStreams
+						// should always be set (below) before the BigSegmentSynchronizer would ever actually
+						// be running, but the extra sanity check doesn't hurt.
+						envContext.envStreams.InvalidateClientSideState()
+					}
+					// If we shut down the environment, the BigSegmentSynchronizer will be closed which
+					// will also cause this channel to be closed, exiting this goroutine.
+				}
+			}()
+		}
 		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
 		// start until we know that at least one big segment exists. That's implemented by the
 		// envContextStreamUpdates methods.
@@ -655,6 +676,10 @@ func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKin
 	if hasBigSegment {
 		u.context.bigSegmentSync.Start() // has no effect if already started
 	}
+}
+
+func (u *envContextStreamUpdates) InvalidateClientSideState() {
+	u.context.envStreams.InvalidateClientSideState()
 }
 
 func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {

@@ -88,8 +88,14 @@ func ExpectNoTestRequests(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, t
 
 // ExpectStreamEvent is a shortcut for reading from an SSE stream with a timeout.
 func ExpectStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) eventsource.Event {
+	return ExpectStreamChEvent(t, stream.Events, timeout)
+}
+
+// ExpectStreamChEvent is a shortcut for reading from an SSE stream channel with a timeout.
+func ExpectStreamChEvent(t *testing.T, ch <-chan eventsource.Event, timeout time.Duration) eventsource.Event {
 	select {
-	case e := <-stream.Events:
+	case e := <-ch:
+		require.NotNil(t, e)
 		return e
 	case <-time.After(timeout):
 		require.Fail(t, "timed out waiting for stream event")
@@ -99,8 +105,13 @@ func ExpectStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Du
 
 // ExpectNoStreamEvent causes a test failure if an event is seen on an SSE stream.
 func ExpectNoStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) {
+	ExpectNoStreamChEvent(t, stream.Events, timeout)
+}
+
+// ExpectNoStreamChEvent causes a test failure if an event is seen on an SSE stream channel.
+func ExpectNoStreamChEvent(t *testing.T, ch <-chan eventsource.Event, timeout time.Duration) {
 	select {
-	case <-stream.Events:
+	case <-ch:
 		require.Fail(t, "received unexpected stream event")
 	case <-time.After(timeout):
 	}
