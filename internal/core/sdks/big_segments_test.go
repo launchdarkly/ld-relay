@@ -24,7 +24,7 @@ func assertBigSegmentsConfigured(
 	ec config.EnvConfig,
 ) *ldlogtest.MockLog {
 	mockLog := ldlogtest.NewMockLog()
-	factory, err := ConfigureBigSegments(c, ec, nil, mockLog.Loggers)
+	factory, err := ConfigureBigSegments(c, ec, mockLog.Loggers)
 	require.NoError(t, err)
 	assert.Equal(t, expected, factory)
 	return mockLog
@@ -46,11 +46,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 				URL: optRedisURL,
 			},
 		}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: ldredis.DataStore().URL(redisURL),
-			},
-		)
+		expected := ldcomponents.BigSegments(ldredis.DataStore().URL(redisURL))
 		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisURL)
 	})
@@ -62,11 +58,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 			},
 		}
 		ec := config.EnvConfig{Prefix: "abc"}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: ldredis.DataStore().URL(redisURL).Prefix("abc"),
-			},
-		)
+		expected := ldcomponents.BigSegments(ldredis.DataStore().URL(redisURL).Prefix("abc"))
 		log := assertBigSegmentsConfigured(t, expected, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisURL+" with prefix: abc")
 	})
@@ -78,11 +70,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 				TLS: true,
 			},
 		}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: ldredis.DataStore().URL(redisSecureURL),
-			},
-		)
+		expected := ldcomponents.BigSegments(ldredis.DataStore().URL(redisSecureURL))
 		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisSecureURL)
 	})
@@ -98,11 +86,7 @@ func TestBigSegmentsDynamoDB(t *testing.T) {
 				TableName: table,
 			},
 		}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: lddynamodb.DataStore(table),
-			},
-		)
+		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table))
 		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
 	})
@@ -114,11 +98,7 @@ func TestBigSegmentsDynamoDB(t *testing.T) {
 			},
 		}
 		ec := config.EnvConfig{TableName: table}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: lddynamodb.DataStore(table),
-			},
-		)
+		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table))
 		log := assertBigSegmentsConfigured(t, expected, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
 	})
@@ -131,11 +111,7 @@ func TestBigSegmentsDynamoDB(t *testing.T) {
 			},
 		}
 		ec := config.EnvConfig{Prefix: "abc"}
-		expected := ldcomponents.BigSegments(
-			bigSegmentsStoreWrapperFactory{
-				wrappedFactory: lddynamodb.DataStore(table).Prefix("abc"),
-			},
-		)
+		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table).Prefix("abc"))
 		log := assertBigSegmentsConfigured(t, expected, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table+" with prefix: abc")
 	})

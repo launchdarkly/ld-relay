@@ -205,10 +205,10 @@ func NewEnvContext(
 					// just be broadcasting a "ping" to all connected client-side SDKs. In the future
 					// if we have real evaluation streams, we'll need to determine which flags should
 					// be re-evaluated based on the segments.
+					if envContext.sdkBigSegments != nil {
+						envContext.sdkBigSegments.ClearCache()
+					}
 					if envContext.envStreams != nil {
-						// Note, the nil check there is probably unnecessary because envContext.envStreams
-						// should always be set (below) before the BigSegmentSynchronizer would ever actually
-						// be running, but the extra sanity check doesn't hurt.
 						envContext.envStreams.InvalidateClientSideState()
 					}
 					// If we shut down the environment, the BigSegmentSynchronizer will be closed which
@@ -219,13 +219,7 @@ func NewEnvContext(
 		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
 		// start until we know that at least one big segment exists. That's implemented by the
 		// envContextStreamUpdates methods.
-
-		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
-		// to really query the big segment store. If we have never written any big segment metadata to the
-		// store (because there aren't any big segments), then we don't want the SDK instances to do this
-		// query, because it would cause spurious error logging.
-		allowBigSegmentStatusQueries := envContext.bigSegmentSync.HasSynced
-		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
+		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, params.Loggers)
 		if err != nil {
 			return nil, err
 		}
@@ -354,13 +348,16 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		if bigSegConfig == nil {
 			c.evaluator = ldeval.NewEvaluator(dataProvider)
 		} else {
-			c.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapper(
-				bigSegConfig.GetStore(),
+			c.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapperWithConfig(
+				ldstoreimpl.BigSegmentsConfigurationProperties{
+					Store:              bigSegConfig.GetStore(),
+					StatusPollInterval: bigSegConfig.GetStatusPollInterval(),
+					StaleAfter:         bigSegConfig.GetStaleAfter(),
+					UserCacheSize:      bigSegConfig.GetUserCacheSize(),
+					UserCacheTime:      bigSegConfig.GetUserCacheTime(),
+					StartPolling:       false, // we will start it later if we see a big segment
+				},
 				nil,
-				bigSegConfig.GetStatusPollInterval(),
-				bigSegConfig.GetStaleAfter(),
-				bigSegConfig.GetUserCacheSize(),
-				bigSegConfig.GetUserCacheTime(),
 				c.loggers,
 			)
 			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
@@ -674,7 +671,8 @@ func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKin
 		}
 	}
 	if hasBigSegment {
-		u.context.bigSegmentSync.Start() // has no effect if already started
+		u.context.bigSegmentSync.Start()                // has no effect if already started
+		u.context.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}
 }
 
