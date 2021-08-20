@@ -56,9 +56,9 @@ func WithStreamRequest(
 
 	go func() {
 		handler.ServeHTTP(w, reqWithContext)
-		eventCh <- nil
 		assert.Equal(t, http.StatusOK, w.Code)
 		AssertStreamingContentType(t, w.Header())
+		eventCh <- nil
 		wg.Done()
 	}()
 	dec := eventsource.NewDecoder(bodyReader)

@@ -2,6 +2,7 @@ package bigsegments
 
 import (
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -91,6 +92,17 @@ func requirePatch(t *testing.T, s *bigSegmentStoreMock, expectedPatch bigSegment
 	}
 }
 
+func requireUpdates(t *testing.T, ch <-chan UpdatesSummary, expectedKeys []string) {
+	select {
+	case u := <-ch:
+		sort.Strings(u.SegmentKeysUpdated)
+		sort.Strings(expectedKeys)
+		require.Equal(t, expectedKeys, u.SegmentKeysUpdated)
+	case <-time.After(time.Second):
+		require.Fail(t, "timed out waiting for updates")
+	}
+}
+
 func TestBasicSync(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
@@ -123,6 +135,12 @@ func TestBasicSync(t *testing.T) {
 			defer segmentSync.Close()
 			segmentSync.Start()
 
+			updatesCh := segmentSync.SegmentUpdatesCh()
+			go func() {
+				for range updatesCh {
+				}
+			}() // just ensures that the synchronizer won't be blocked by the channel
+
 			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
@@ -153,6 +171,81 @@ func TestBasicSync(t *testing.T) {
 				"BigSegmentSynchronizer: Applied 1 update",
 			}, mockLog.GetOutput(ldlog.Info))
 			assert.Len(t, mockLog.GetOutput(ldlog.Warn), 0)
+		})
+	})
+}
+
+func TestSyncSendsUpdates(t *testing.T) {
+	// Scenario:
+	// - Polling returns 3 patches (in 2 poll responses); these are aggregated into one UpdatesSummary
+	// - Then the stream returns 1 more patch which generates another UpdatesSummary
+	// We're also testing that segment IDs are aggregated into segment keys, i.e. "segment1.g1" and
+	// "segment1.g2" together are reported as one update to "segment1".
+	mockLog := ldlogtest.NewMockLog()
+	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	defer mockLog.DumpIfTestFailed(t)
+
+	poll1Patch1 := newPatchBuilder("segment1.g1", "1", "").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+	poll2Patch1 := newPatchBuilder("segment1.g2", "2", "1").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+	poll2Patch2 := newPatchBuilder("segment2.g3", "3", "2").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+	streamPatch := newPatchBuilder("segment2.g3", "4", "3").
+		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{poll1Patch1}, nil),
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{poll2Patch1, poll2Patch2}, nil),
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),
+		),
+	)
+
+	sseHandler, _ := httphelpers.SSEHandler(makePatchEvent(streamPatch))
+	streamHandler, streamRequestsCh := httphelpers.RecordingHandler(sseHandler)
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+			defer segmentSync.Close()
+			segmentSync.Start()
+
+			updatesCh := segmentSync.SegmentUpdatesCh()
+
+			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq1, "")
+			requirePatch(t, storeMock, poll1Patch1)
+			require.Equal(t, 0, len(storeMock.syncTimeCh))
+
+			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq2, poll1Patch1.Version)
+			requirePatch(t, storeMock, poll2Patch1)
+			requirePatch(t, storeMock, poll2Patch2)
+
+			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq3, poll2Patch2.Version)
+
+			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq4, poll2Patch2.Version)
+
+			require.Equal(t, 0, len(storeMock.patchCh))
+
+			requireUpdates(t, updatesCh, []string{"segment1", "segment2"})
+
+			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+
+			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			assertStreamRequest(t, streamReq1)
+			requirePatch(t, storeMock, streamPatch)
+
+			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+
+			requireUpdates(t, updatesCh, []string{"segment2"})
 		})
 	})
 }

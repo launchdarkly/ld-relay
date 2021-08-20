@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
@@ -19,6 +20,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
@@ -651,6 +653,56 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	assert.True(t, synchronizer.isStarted())
 }
 
+func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.T) {
+	envConfig := st.EnvClientSide.Config
+	allConfig := config.Config{}
+
+	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
+		return bigsegments.NewNullBigSegmentStore(), nil
+	}
+	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour)
+	sdkStartedCh := make(chan EnvContext)
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:                     envConfig,
+		AllConfig:                     allConfig,
+		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
+		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
+		ClientFactory:                 testclient.FakeLDClientFactory(true),
+		StreamProviders:               []streams.StreamProvider{jsClientStreams},
+		Loggers:                       mockLog.Loggers,
+	}, sdkStartedCh)
+	require.NoError(t, err)
+	defer env.Close()
+
+	synchronizer := fakeSynchronizerFactory.synchronizer
+	require.NotNil(t, synchronizer)
+
+	streamHandler := env.GetStreamHandler(jsClientStreams, envConfig.EnvID)
+
+	// Make sure the data store is initialized, otherwise the client-side endpoint won't broadcast a ping
+	<-sdkStartedCh
+	_ = env.GetStore().Init(nil)
+
+	req, _ := http.NewRequest("GET", "", nil)
+	sharedtest.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
+		initEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Minute)
+		assert.Equal(t, "ping", initEvent.Event())
+
+		sharedtest.ExpectNoStreamChEvent(t, eventCh, time.Millisecond*100)
+
+		synchronizer.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
+
+		pingEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Second)
+		assert.Equal(t, "ping", pingEvent.Event())
+	})
+}
+
 // This method forces the metrics events exporter to post an event to the event publisher, and then triggers a
 // flush of the event publisher. Because both of those actions are asynchronous, it may be necessary to call it
 // more than once to ensure that the newly posted event is included in the flush.
@@ -675,14 +727,15 @@ func (f *mockBigSegmentSynchronizerFactory) create(
 	loggers ldlog.Loggers,
 	logPrefix string,
 ) bigsegments.BigSegmentSynchronizer {
-	f.synchronizer = &mockBigSegmentSynchronizer{}
+	f.synchronizer = &mockBigSegmentSynchronizer{updateCh: make(chan bigsegments.UpdatesSummary)}
 	return f.synchronizer
 }
 
 type mockBigSegmentSynchronizer struct {
-	started bool
-	closed  bool
-	lock    sync.Mutex
+	started  bool
+	closed   bool
+	updateCh chan bigsegments.UpdatesSummary
+	lock     sync.Mutex
 }
 
 func (s *mockBigSegmentSynchronizer) Start() {
@@ -693,6 +746,10 @@ func (s *mockBigSegmentSynchronizer) Start() {
 
 func (s *mockBigSegmentSynchronizer) HasSynced() bool {
 	return true
+}
+
+func (s *mockBigSegmentSynchronizer) SegmentUpdatesCh() <-chan bigsegments.UpdatesSummary {
+	return s.updateCh
 }
 
 func (s *mockBigSegmentSynchronizer) Close() {

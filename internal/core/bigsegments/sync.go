@@ -23,6 +23,8 @@ const (
 	streamReadTimeout          = 5 * time.Minute
 	defaultStreamRetryInterval = 10 * time.Second
 	synchronizedOnInterval     = 30 * time.Second
+
+	segmentUpdatesChannelBufferSize = 20
 )
 
 // BigSegmentSynchronizer synchronizes big segment state for a given environment.
@@ -41,12 +43,26 @@ type BigSegmentSynchronizer interface {
 	// produce useless errors.
 	HasSynced() bool
 
+	// SegmentUpdatesCh returns a channel for notifications about segment data updates.
+	//
+	// Each value posted to this channel represents a batch of updates that the synchronizer has
+	// applied. The caller is responsible for reading the channel to avoid blocking the
+	// synchronizer.
+	SegmentUpdatesCh() <-chan UpdatesSummary
+
 	// Close ends synchronization of an environment.
 	//
 	// This method does not block.
 	//
 	// The BigSegmentSynchronizer cannot be restarted after calling Close.
 	Close()
+}
+
+// UpdatesSummary describes a batch of updates that the synchronizer has applied.
+type UpdatesSummary struct {
+	// SegmentKeysUpdated is a slice of segment keys (plain keys as used by the SDK-- not segment
+	// IDs, i.e. there is no generation suffix).
+	SegmentKeysUpdated []string
 }
 
 // BigSegmentSynchronizerFactory creates an implementation of BigSegmentSynchronizer. We
@@ -72,12 +88,21 @@ type defaultBigSegmentSynchronizer struct {
 	envID               config.EnvironmentID
 	sdkKey              config.SDKKey
 	streamRetryInterval time.Duration
+	segmentUpdatesChan  chan UpdatesSummary
 	hasSynced           bool
 	syncedLock          sync.RWMutex
 	startOnce           sync.Once
 	closeChan           chan struct{}
 	closeOnce           sync.Once
 	loggers             ldlog.Loggers
+}
+
+type segmentChangesSummary map[string]struct{}
+
+type applyPatchesResult struct {
+	totalPatchesCount   int
+	patchesAppliedCount int
+	segmentsUpdated     segmentChangesSummary
 }
 
 // DefaultBigSegmentSynchronizerFactory creates the default implementation of BigSegmentSynchronizer.
@@ -112,6 +137,7 @@ func newDefaultBigSegmentSynchronizer(
 		envID:               envID,
 		sdkKey:              sdkKey,
 		streamRetryInterval: defaultStreamRetryInterval,
+		segmentUpdatesChan:  make(chan UpdatesSummary, segmentUpdatesChannelBufferSize),
 		closeChan:           make(chan struct{}),
 		loggers:             loggers,
 	}
@@ -146,7 +172,18 @@ func (s *defaultBigSegmentSynchronizer) HasSynced() bool {
 	return ret
 }
 
+func (s *defaultBigSegmentSynchronizer) SegmentUpdatesCh() <-chan UpdatesSummary {
+	return s.segmentUpdatesChan
+}
+
 func (s *defaultBigSegmentSynchronizer) Close() {
+	// If we haven't yet started, we still need to close the updates channel; calling
+	// startOnce.Do also ensures that Start() will have no effect after this
+	s.startOnce.Do(func() {
+		close(s.segmentUpdatesChan)
+	})
+	// If we had already started, then there's a goroutine which will detect the closing
+	// of closeChan, and that goroutine will take care of closing the updates channel
 	s.closeOnce.Do(func() {
 		close(s.closeChan)
 	})
@@ -169,6 +206,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 		defer timer.Stop()
 		select {
 		case <-s.closeChan:
+			close(s.segmentUpdatesChan)
 			return
 		case <-timer.C:
 		}
@@ -178,6 +216,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 
 func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 	s.loggers.Debug("Polling for big segment updates")
+	segmentsUpdated := make(segmentChangesSummary)
 	for {
 	SyncLoop:
 		for {
@@ -185,7 +224,7 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 			case <-s.closeChan:
 				return nil
 			default:
-				done, err := s.poll()
+				done, updates, err := s.poll()
 				if err != nil {
 					return err
 				}
@@ -193,6 +232,7 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 					s.loggers.Warn("Re-established connection")
 					isRetry = false
 				}
+				segmentsUpdated.addAll(updates)
 				if done {
 					break SyncLoop
 				}
@@ -205,10 +245,11 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 		}
 		defer stream.Close()
 
-		done, err := s.poll()
+		done, updates, err := s.poll()
 		if err != nil {
 			return err
 		}
+		segmentsUpdated.addAll(updates)
 		if !done {
 			continue
 		}
@@ -219,6 +260,8 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 			s.loggers.Error("Updating store timestamp failed:", err)
 			return err
 		}
+
+		s.notifySegmentsUpdated(segmentsUpdated)
 
 		return s.consumeStream(stream)
 	}
@@ -254,19 +297,19 @@ func isHTTPErrorRecoverable(statusCode int) bool {
 	return true
 }
 
-func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
+func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, error) {
 	client := s.httpConfig.Client()
 
 	request, err := http.NewRequest("GET", s.pollURI, nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	request.Header.Set("Authorization", string(s.sdkKey))
 
 	cursor, err := s.store.getCursor()
 	if err != nil {
-		return false, err
+		return false, segmentChangesSummary{}, err
 	}
 
 	if cursor != "" {
@@ -278,22 +321,22 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, error) {
 	s.loggers.Debugf("Polling %s", request.URL)
 	response, err := client.Do(request)
 	if err != nil {
-		return false, err
+		return false, segmentChangesSummary{}, err
 	}
 	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != 200 {
-		return false, &httpStatusError{response.StatusCode}
+		return false, segmentChangesSummary{}, &httpStatusError{response.StatusCode}
 	}
 
 	responseBody, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return false, err
+		return false, segmentChangesSummary{}, err
 	}
 
-	totalCount, _, err := s.applyPatches(responseBody)
+	applyPatchResult, err := s.applyPatches(responseBody)
 
-	return totalCount == 0, err
+	return applyPatchResult.totalPatchesCount == 0, applyPatchResult.segmentsUpdated, err
 }
 
 func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
@@ -339,11 +382,12 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 			}
 
 			s.loggers.Debug("Received update(s) from stream")
-			totalCount, appliedCount, err := s.applyPatches([]byte(event.Data()))
+			applyPatchResult, err := s.applyPatches([]byte(event.Data()))
 			if err != nil {
 				return err
 			}
-			if appliedCount < totalCount {
+			s.notifySegmentsUpdated(applyPatchResult.segmentsUpdated)
+			if applyPatchResult.patchesAppliedCount < applyPatchResult.totalPatchesCount {
 				return nil // forces a restart if we got an out-of-order patch
 			}
 
@@ -362,33 +406,72 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 	}
 }
 
-// Returns total number of patches, number of patches applied, error
-func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (int, int, error) {
+// Returns total number of patches, number of patches applied, raw segment IDs, error
+func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (applyPatchesResult, error) {
 	var patches []bigSegmentPatch
 	err := json.Unmarshal(jsonData, &patches)
 	if err != nil {
-		return 0, 0, err
+		return applyPatchesResult{}, err
 	}
 
-	successCount := 0
+	ret := applyPatchesResult{
+		totalPatchesCount: len(patches),
+		segmentsUpdated:   make(segmentChangesSummary),
+	}
 	for _, patch := range patches {
 		s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
 		success, err := s.store.applyPatch(patch)
 		if err != nil {
-			return len(patches), successCount, err
+			return ret, err
 		}
 		if !success {
 			s.loggers.Warnf("Received a patch to previous version %q which was not the latest known version; skipping", patch.PreviousVersion)
 			break
 		}
-		successCount++
+		ret.patchesAppliedCount++
+		ret.segmentsUpdated.addSegmentID(patch.SegmentID)
 	}
-	if successCount > 0 {
+	if ret.patchesAppliedCount > 0 {
 		updatesDesc := "updates"
-		if successCount == 1 {
+		if ret.patchesAppliedCount == 1 {
 			updatesDesc = "update"
 		}
-		s.loggers.Infof("Applied %d %s", successCount, updatesDesc)
+		s.loggers.Infof("Applied %d %s", ret.patchesAppliedCount, updatesDesc)
 	}
-	return len(patches), successCount, nil
+	return ret, nil
+}
+
+func (s *defaultBigSegmentSynchronizer) notifySegmentsUpdated(segmentsUpdated segmentChangesSummary) {
+	keys := segmentsUpdated.getUpdatedSegmentKeys()
+	if len(keys) != 0 {
+		s.segmentUpdatesChan <- UpdatesSummary{SegmentKeysUpdated: keys}
+	}
+}
+
+func segmentIDToSegmentKey(segmentID string) string {
+	if p := strings.LastIndexByte(segmentID, '.'); p > 0 {
+		return segmentID[0:p]
+	}
+	return segmentID
+}
+
+func (s *segmentChangesSummary) addSegmentID(segmentID string) {
+	(*s)[segmentIDToSegmentKey(segmentID)] = struct{}{}
+}
+
+func (s *segmentChangesSummary) addAll(other segmentChangesSummary) {
+	for key := range other {
+		(*s)[key] = struct{}{}
+	}
+}
+
+func (s *segmentChangesSummary) getUpdatedSegmentKeys() []string {
+	if len(*s) == 0 {
+		return nil
+	}
+	ret := make([]string, 0, len(*s))
+	for key := range *s {
+		ret = append(ret, key)
+	}
+	return ret
 }
