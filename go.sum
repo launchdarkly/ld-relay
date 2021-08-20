@@ -892,11 +892,13 @@ gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1/go.mod h1:UETsxDtKpoDGUrwliXl1L7OG
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0/go.mod h1:KdRntsUUWlt6RnsgNIJbxJpvFcycu5I+LVfRlALtTK8=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.0 h1:813bQeHC2RA8Ed2lmdnAzk4LHxEmvRkGSQ3WPAi4kMs=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.0/go.mod h1:qzksXz/FZFSgeL5QaJVotUXvZ1wEBFnRvWyPf+DxZqs=
+gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1 h1:4v47KQovSlRem1mJqMcloqaLGlkpKnniswdtWdnC8I0=
+gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1/go.mod h1:qzksXz/FZFSgeL5QaJVotUXvZ1wEBFnRvWyPf+DxZqs=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0/go.mod h1:XtGu5BjXAEP2zV2EfFI7Xnz2VeSTvzzfpSQxOMIUflw=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.5.0 h1:oLoM39C7Bsq9d8KTgNblzE3fTxC6G1U0Crl0tE+u1ns=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.5.0/go.mod h1:H5usiz+AjIVg6ROrfV734z2BwYj5DqWqPJVKlkRG4S4=
-gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0-alpha.relay.1 h1:aJ54j0PIAIHKzNcr9GWFpnXeVMFbv/Deh7X2Zcw5qM8=
-gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0-alpha.relay.1/go.mod h1:H5usiz+AjIVg6ROrfV734z2BwYj5DqWqPJVKlkRG4S4=
+gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0 h1:ZqE97LUuo7V5ESdAz9JRF3nJMnbZPjfCpl0K7j5L628=
+gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0/go.mod h1:6dIDoWoz6m/qowIej8KKwBUcZavvRty+0kxu3NHH+jY=
 gopkg.in/resty.v1 v1.12.0/go.mod h1:mDo4pnntr5jdWRML875a/NmxYqAlA73dVijT2AXvQQo=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 h1:uRGJdciOHaEIrze2W8Q3AKkepLTh2hOroT7a+7czfdQ=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7/go.mod h1:dt/ZhP58zS4L8KSrWDmTeBkI65Dw0HsyUHuEVlX15mw=
