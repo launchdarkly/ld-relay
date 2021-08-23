@@ -122,6 +122,8 @@ func (m *mockEnvStreamsUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind,
 	m.singleItem = append(m.singleItem, sharedtest.ReceivedItemUpdate{kind, key, item})
 }
 
+func (m *mockEnvStreamsUpdates) InvalidateClientSideState() {}
+
 func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []ldstoretypes.Collection {
 	switch {
 	case len(m.allData) == 1:

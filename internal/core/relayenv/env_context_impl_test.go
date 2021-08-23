@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
@@ -19,6 +20,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
@@ -27,7 +29,9 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 
 	"github.com/stretchr/testify/assert"
@@ -462,56 +466,6 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	})
 }
 
-// func TestSDKIsConfiguredWithBigSegmentStoreIfBigSegmentsAreEnabled(t *testing.T) {
-// 	// Currently, big segments are enabled as long as there is a compatible data store. This test doesn't
-// 	// use a real store, it just verifies that the proper configuration would be passed to the SDK constructor.
-// 	envConfig := st.EnvMain.Config
-// 	allConfig := config.Config{}
-// 	allConfig.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://localhost:6379")
-
-// 	clientCh := make(chan *testclient.FakeLDClient, 1)
-// 	receivedSDKConfig := make(chan ld.Config)
-// 	clientFactory := func(sdkKey config.SDKKey, config ld.Config) (sdks.LDClientContext, error) {
-// 		receivedSDKConfig <- config
-// 		return testclient.FakeLDClientFactoryWithChannel(true, clientCh)(sdkKey, config)
-// 	}
-
-// 	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
-// 		return bigsegments.NewNullBigSegmentStore(), nil
-// 	}
-// 	fakeSynchronizerFactory := func(
-// 		httpConfig httpconfig.HTTPConfig,
-// 		store bigsegments.BigSegmentStore,
-// 		pollURI string,
-// 		streamURI string,
-// 		envID config.EnvironmentID,
-// 		sdkKey config.SDKKey,
-// 		loggers ldlog.Loggers,
-// 	) bigsegments.BigSegmentSynchronizer {
-// 		return &mockBigSegmentSynchronizer{}
-// 	}
-
-// 	mockLog := ldlogtest.NewMockLog()
-// 	defer mockLog.DumpIfTestFailed(t)
-
-// 	env, err := NewEnvContext(EnvContextImplParams{
-// 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
-// 		EnvConfig:                     envConfig,
-// 		AllConfig:                     allConfig,
-// 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
-// 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory,
-// 		ClientFactory:                 clientFactory,
-// 		Loggers:                       mockLog.Loggers,
-// 	}, nil)
-// 	require.NoError(t, err)
-// 	defer env.Close()
-
-// 	sdkConfig := <-receivedSDKConfig
-// 	assert.NotNil(t, sdkConfig.BigSegments)
-// 	// We're assuming here that sdks.ConfigureBigSegments behaves correctly; that's tested in more
-// 	// detail in the unit tests in the sdks package.
-// }
-
 func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	allConfig := config.Config{}
@@ -531,7 +485,10 @@ func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
-		Loggers:                       mockLog.Loggers,
+		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
+			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+		),
+		Loggers: mockLog.Loggers,
 	}, nil)
 	require.NoError(t, err)
 
@@ -564,7 +521,10 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
-		Loggers:                       mockLog.Loggers,
+		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
+			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+		),
+		Loggers: mockLog.Loggers,
 	}, nil)
 	require.NoError(t, err)
 	defer env.Close()
@@ -623,7 +583,10 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
-		Loggers:                       mockLog.Loggers,
+		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
+			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+		),
+		Loggers: mockLog.Loggers,
 	}, nil)
 	require.NoError(t, err)
 	defer env.Close()
@@ -651,6 +614,59 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	assert.True(t, synchronizer.isStarted())
 }
 
+func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.T) {
+	envConfig := st.EnvClientSide.Config
+	allConfig := config.Config{}
+
+	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
+		return bigsegments.NewNullBigSegmentStore(), nil
+	}
+	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour)
+	sdkStartedCh := make(chan EnvContext)
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
+		EnvConfig:                     envConfig,
+		AllConfig:                     allConfig,
+		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
+		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
+		ClientFactory:                 testclient.FakeLDClientFactory(true),
+		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
+			mockSDKBigSegmentStoreFactory{&st.NoOpSDKBigSegmentStore{}},
+		),
+		StreamProviders: []streams.StreamProvider{jsClientStreams},
+		Loggers:         mockLog.Loggers,
+	}, sdkStartedCh)
+	require.NoError(t, err)
+	defer env.Close()
+
+	synchronizer := fakeSynchronizerFactory.synchronizer
+	require.NotNil(t, synchronizer)
+
+	streamHandler := env.GetStreamHandler(jsClientStreams, envConfig.EnvID)
+
+	// Make sure the data store is initialized, otherwise the client-side endpoint won't broadcast a ping
+	<-sdkStartedCh
+	_ = env.GetStore().Init(nil)
+
+	req, _ := http.NewRequest("GET", "", nil)
+	sharedtest.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
+		initEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Minute)
+		assert.Equal(t, "ping", initEvent.Event())
+
+		sharedtest.ExpectNoStreamChEvent(t, eventCh, time.Millisecond*100)
+
+		synchronizer.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
+
+		pingEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Second)
+		assert.Equal(t, "ping", pingEvent.Event())
+	})
+}
+
 // This method forces the metrics events exporter to post an event to the event publisher, and then triggers a
 // flush of the event publisher. Because both of those actions are asynchronous, it may be necessary to call it
 // more than once to ensure that the newly posted event is included in the flush.
@@ -675,14 +691,15 @@ func (f *mockBigSegmentSynchronizerFactory) create(
 	loggers ldlog.Loggers,
 	logPrefix string,
 ) bigsegments.BigSegmentSynchronizer {
-	f.synchronizer = &mockBigSegmentSynchronizer{}
+	f.synchronizer = &mockBigSegmentSynchronizer{updateCh: make(chan bigsegments.UpdatesSummary)}
 	return f.synchronizer
 }
 
 type mockBigSegmentSynchronizer struct {
-	started bool
-	closed  bool
-	lock    sync.Mutex
+	started  bool
+	closed   bool
+	updateCh chan bigsegments.UpdatesSummary
+	lock     sync.Mutex
 }
 
 func (s *mockBigSegmentSynchronizer) Start() {
@@ -693,6 +710,10 @@ func (s *mockBigSegmentSynchronizer) Start() {
 
 func (s *mockBigSegmentSynchronizer) HasSynced() bool {
 	return true
+}
+
+func (s *mockBigSegmentSynchronizer) SegmentUpdatesCh() <-chan bigsegments.UpdatesSummary {
+	return s.updateCh
 }
 
 func (s *mockBigSegmentSynchronizer) Close() {
@@ -711,4 +732,12 @@ func (s *mockBigSegmentSynchronizer) isClosed() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.closed
+}
+
+type mockSDKBigSegmentStoreFactory struct {
+	store interfaces.BigSegmentStore
+}
+
+func (m mockSDKBigSegmentStoreFactory) CreateBigSegmentStore(c interfaces.ClientContext) (interfaces.BigSegmentStore, error) {
+	return m.store, nil
 }

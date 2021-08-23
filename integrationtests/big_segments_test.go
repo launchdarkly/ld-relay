@@ -79,6 +79,11 @@ func verifyEvaluationWithBigSegment(
 	for i, env := range environments {
 		expectedValuesByEnv[env.key] = segmentTestData[i].expectedFlagValuesForUser
 	}
+
+	// Poll the evaluation endpoint until we see the expected flag values. We're using a
+	// longer timeout here than we use in tests that don't involve big segments, because
+	// the user segment state caching inside the SDK makes it hard to say how soon we'll
+	// see the effect of an update.
 	success := assert.Eventually(t, func() bool {
 		for i, env := range environments {
 			latestValues := make(map[string]ldvalue.Value)
@@ -89,7 +94,8 @@ func verifyEvaluationWithBigSegment(
 			latestValuesByEnv[env.key] = latestValues
 		}
 		return reflect.DeepEqual(latestValuesByEnv, expectedValuesByEnv)
-	}, time.Second*10, time.Millisecond*100, "Did not see expected flag values from Relay")
+	}, time.Second*20, time.Millisecond*100, "Did not see expected flag values from Relay")
+
 	if !success {
 		manager.loggers.Infof("Last values for each environment and user were: %s", latestValuesByEnv)
 		manager.loggers.Infof("Expected: %s", expectedValuesByEnv)

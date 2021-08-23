@@ -63,20 +63,24 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
-RELEASE_CMD=curl -sL https://git.io/goreleaser | VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+RELEASE_CMD=curl -sL https://git.io/goreleaser | GOPATH=$(mktemp -d) VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
 
+# Note that we're setting GOPATH to a temporary location when running goreleaser, because
+# we want it to start from a clean state even if we've previously run a build - and also
+# because during a release, we may need to run this command under another account and we
+# don't want to mess up file permissions in the regular GOPATH.
 publish:
 	$(RELEASE_CMD)
 
-release:
+products-for-release:
 	$(RELEASE_CMD) --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
-test-centos test-debian test-docker test-docker-standalone: release
+test-centos test-debian test-docker test-docker-standalone: products-for-release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
 docker-smoke-test: test-centos test-debian test-docker test-docker-standalone
 
-.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone integration-test benchmarks
+.PHONY: docker build lint publish products-for-release test test-centos test-debian test-docker test-all test-docker-standalone integration-test benchmarks

@@ -72,14 +72,21 @@ workflows:
           branches:
             only: v6
     jobs:
-      - package-build-test:
-          name: package build - Go latest
-          docker-image: circleci/golang:latest
-          use-go-install: true
-      - package-build-test:
-          name: package build - Go 1.16
-          docker-image: cimg/go:1.16
-          use-go-install: true
+      # Note: package-build-test is currently disabled for Go 1.16+ because, due to the
+      # "replace" directive in go.mod to work around the known issue with jwt-go, and
+      # the rule in newer Go versions that "replace" isn't allowed with "go install",
+      # there is no one-line command that will work for this in Go 1.16+. We should be
+      # able to re-enable these tests once https://github.com/go-kit/kit/pull/1172 is
+      # released and we can update to a newer go-kit version, since that is the source
+      # of the problematic transitive dependency.
+      # - package-build-test:
+      #     name: package build - Go latest
+      #     docker-image: circleci/golang:latest
+      #     use-go-install: true
+      # - package-build-test:
+      #     name: package build - Go 1.16
+      #     docker-image: cimg/go:1.16
+      #     use-go-install: true
       - package-build-test:
           name: package build - Go 1.15
           docker-image: cimg/go:1.15
@@ -272,7 +279,7 @@ jobs:
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
-      - run: make release
+      - run: make products-for-release
       - run: make docker-smoke-test
       - store_artifacts:
           path: dist/

@@ -78,6 +78,10 @@ func (e *clientSidePingEnvStreamProvider) SendSingleItemUpdate(kind ldstoretypes
 	e.server.Publish(e.channels, MakePingEvent())
 }
 
+func (e *clientSidePingEnvStreamProvider) InvalidateClientSideState() {
+	e.server.Publish(e.channels, MakePingEvent())
+}
+
 func (e *clientSidePingEnvStreamProvider) SendHeartbeat() {
 	e.server.PublishComment(e.channels, "")
 }

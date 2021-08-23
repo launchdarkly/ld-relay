@@ -71,6 +71,8 @@ func (e *serverSideFlagsOnlyEnvStreamProvider) SendSingleItemUpdate(kind ldstore
 	}
 }
 
+func (e *serverSideFlagsOnlyEnvStreamProvider) InvalidateClientSideState() {}
+
 func (e *serverSideFlagsOnlyEnvStreamProvider) SendHeartbeat() {
 	e.server.PublishComment(e.channels, "")
 }

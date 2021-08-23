@@ -64,40 +64,40 @@ type EnvContextImplParams struct {
 	MetricsManager                *metrics.Manager
 	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
 	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
+	SDKBigSegmentsConfigFactory   interfaces.BigSegmentsConfigurationFactory // set only in tests
 	UserAgent                     string
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
 }
 
 type envContextImpl struct {
-	mu                   sync.RWMutex
-	clients              map[config.SDKKey]sdks.LDClientContext
-	storeAdapter         *store.SSERelayDataStoreAdapter
-	loggers              ldlog.Loggers
-	credentials          map[config.SDKCredential]bool // true if not deprecated
-	identifiers          EnvIdentifiers
-	secureMode           bool
-	envStreams           *streams.EnvStreams
-	streamProviders      []streams.StreamProvider
-	handlers             map[streams.StreamProvider]map[config.SDKCredential]http.Handler
-	jsContext            JSClientContext
-	evaluator            ldeval.Evaluator
-	eventDispatcher      *events.EventDispatcher
-	bigSegmentSync       bigsegments.BigSegmentSynchronizer
-	bigSegmentStore      bigsegments.BigSegmentStore
-	sdkBigSegments       *ldstoreimpl.BigSegmentStoreWrapper
-	sdkConfig            ld.Config
-	sdkBigSegmentFactory interfaces.BigSegmentsConfigurationFactory
-	sdkClientFactory     sdks.ClientFactoryFunc
-	sdkInitTimeout       time.Duration
-	metricsManager       *metrics.Manager
-	metricsEnv           *metrics.EnvironmentManager
-	metricsEventPub      events.EventPublisher
-	dataStoreInfo        sdks.DataStoreEnvironmentInfo
-	globalLoggers        ldlog.Loggers
-	ttl                  time.Duration
-	initErr              error
-	creationTime         time.Time
+	mu               sync.RWMutex
+	clients          map[config.SDKKey]sdks.LDClientContext
+	storeAdapter     *store.SSERelayDataStoreAdapter
+	loggers          ldlog.Loggers
+	credentials      map[config.SDKCredential]bool // true if not deprecated
+	identifiers      EnvIdentifiers
+	secureMode       bool
+	envStreams       *streams.EnvStreams
+	streamProviders  []streams.StreamProvider
+	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	jsContext        JSClientContext
+	evaluator        ldeval.Evaluator
+	eventDispatcher  *events.EventDispatcher
+	bigSegmentSync   bigsegments.BigSegmentSynchronizer
+	bigSegmentStore  bigsegments.BigSegmentStore
+	sdkBigSegments   *ldstoreimpl.BigSegmentStoreWrapper
+	sdkConfig        ld.Config
+	sdkClientFactory sdks.ClientFactoryFunc
+	sdkInitTimeout   time.Duration
+	metricsManager   *metrics.Manager
+	metricsEnv       *metrics.EnvironmentManager
+	metricsEventPub  events.EventPublisher
+	dataStoreInfo    sdks.DataStoreEnvironmentInfo
+	globalLoggers    ldlog.Loggers
+	ttl              time.Duration
+	initErr          error
+	creationTime     time.Time
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -121,7 +121,7 @@ type envContextStreamUpdates struct {
 //
 // NewEnvContext can also immediately return an error, with a nil EnvContext, if the configuration is
 // invalid.
-func NewEnvContext(
+func NewEnvContext( //nolint:gocyclo
 	params EnvContextImplParams,
 	readyCh chan<- EnvContext,
 	// readyCh is a separate parameter because it's not a property of the environment itself, but
@@ -195,20 +195,30 @@ func NewEnvContext(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
 			envConfig.EnvID, envConfig.SDKKey, envLoggers, logPrefix)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		segmentUpdateCh := envContext.bigSegmentSync.SegmentUpdatesCh()
+		if segmentUpdateCh != nil {
+			go func() {
+				for range segmentUpdateCh {
+					// BigSegmentSynchronizer sends to this channel after processing a batch of
+					// big segment updates. The value it sends is a list of segment keys, but in
+					// the current implementation, we don't care what those keys are because we'll
+					// just be broadcasting a "ping" to all connected client-side SDKs. In the future
+					// if we have real evaluation streams, we'll need to determine which flags should
+					// be re-evaluated based on the segments.
+					if envContext.sdkBigSegments != nil {
+						envContext.sdkBigSegments.ClearCache()
+					}
+					if envContext.envStreams != nil {
+						envContext.envStreams.InvalidateClientSideState()
+					}
+					// If we shut down the environment, the BigSegmentSynchronizer will be closed which
+					// will also cause this channel to be closed, exiting this goroutine.
+				}
+			}()
+		}
 		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
 		// start until we know that at least one big segment exists. That's implemented by the
 		// envContextStreamUpdates methods.
-
-		// This function allows us to tell our big segment store wrapper (see sdks package) whether or not
-		// to really query the big segment store. If we have never written any big segment metadata to the
-		// store (because there aren't any big segments), then we don't want the SDK instances to do this
-		// query, because it would cause spurious error logging.
-		allowBigSegmentStatusQueries := envContext.bigSegmentSync.HasSynced
-		sdkBigSegments, err := sdks.ConfigureBigSegments(allConfig, envConfig, allowBigSegmentStatusQueries, params.Loggers)
-		if err != nil {
-			return nil, err
-		}
-		envContext.sdkBigSegmentFactory = sdkBigSegments
 	}
 
 	envStreams := streams.NewEnvStreams(
@@ -287,9 +297,9 @@ func NewEnvContext(
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}
+		thingsToCleanUp.AddFunc(func() { params.MetricsManager.RemoveEnvironment(em) })
 	}
 	envContext.metricsEnv = em
-	thingsToCleanUp.AddFunc(func() { params.MetricsManager.RemoveEnvironment(em) })
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
@@ -302,6 +312,42 @@ func NewEnvContext(
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
+	}
+
+	// If appropriate, create the SDK subcomponent that will be used for flag evaluations. We're
+	// creating and managing it separately from the full SDK instance that we'll be creating (in
+	// startSDKClient) - we use the SDK instance only for talking to LaunchDarkly and populating
+	// the data store, not for evaluating flags, because Relay needs to customize the evaluation
+	// behavior. The other component we need for evaluations is the Evaluator, but we can't create
+	// that one we get to startSDKClient because it has to be hooked up to the SDK's data store.
+	if bigSegmentStore != nil {
+		configFactory := params.SDKBigSegmentsConfigFactory
+		if configFactory == nil {
+			configFactory, err = sdks.ConfigureBigSegments(allConfig, envConfig, params.Loggers)
+			if err != nil {
+				return nil, err
+			}
+		}
+		bigSegConfig, err := configFactory.CreateBigSegmentsConfiguration(
+			sdks.NewSimpleClientContext(string(envConfig.SDKKey), envContext.sdkConfig))
+		if err != nil {
+			return nil, err
+		}
+		if bigSegConfig != nil {
+			envContext.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapperWithConfig(
+				ldstoreimpl.BigSegmentsConfigurationProperties{
+					Store:              bigSegConfig.GetStore(),
+					StatusPollInterval: bigSegConfig.GetStatusPollInterval(),
+					StaleAfter:         bigSegConfig.GetStaleAfter(),
+					UserCacheSize:      bigSegConfig.GetUserCacheSize(),
+					UserCacheTime:      bigSegConfig.GetUserCacheTime(),
+					StartPolling:       false, // we will start it later if we see a big segment
+				},
+				nil,
+				envLoggers,
+			)
+			thingsToCleanUp.AddFunc(envContext.sdkBigSegments.Close)
+		}
 	}
 
 	// Connecting may take time, so do this in parallel
@@ -319,29 +365,14 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	if client != nil {
 		c.clients[sdkKey] = client
 
+		// The data store instance is created by the SDK when it creates the client. Now that
+		// we have a data store, we can finish setting up the Evaluator that we'll use for this
+		// environment.
 		store := c.storeAdapter.GetStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		var bigSegConfig interfaces.BigSegmentsConfiguration
-		var bigSegErr error
-		if c.sdkBigSegmentFactory != nil {
-			bigSegConfig, bigSegErr = c.sdkBigSegmentFactory.CreateBigSegmentsConfiguration(
-				sdks.NewSimpleClientContext(string(sdkKey), c.sdkConfig))
-			if bigSegErr != nil && err == nil {
-				err = bigSegErr
-			}
-		}
-		if bigSegConfig == nil {
+		if c.sdkBigSegments == nil {
 			c.evaluator = ldeval.NewEvaluator(dataProvider)
 		} else {
-			c.sdkBigSegments = ldstoreimpl.NewBigSegmentStoreWrapper(
-				bigSegConfig.GetStore(),
-				nil,
-				bigSegConfig.GetStatusPollInterval(),
-				bigSegConfig.GetStaleAfter(),
-				bigSegConfig.GetUserCacheSize(),
-				bigSegConfig.GetUserCacheTime(),
-				c.loggers,
-			)
 			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
 		}
 	}
@@ -653,8 +684,13 @@ func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKin
 		}
 	}
 	if hasBigSegment {
-		u.context.bigSegmentSync.Start() // has no effect if already started
+		u.context.bigSegmentSync.Start()                // has no effect if already started
+		u.context.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}
+}
+
+func (u *envContextStreamUpdates) InvalidateClientSideState() {
+	u.context.envStreams.InvalidateClientSideState()
 }
 
 func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {

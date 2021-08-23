@@ -14,8 +14,23 @@ import (
 // components that publish updates to EnvStreams should use this interface rather than the implementation
 // type, both to clarify that they don't need other EnvStreams functionality and to simplify testing.
 type EnvStreamUpdates interface {
+	// SendAllDataUpdate signals an update to the entire SDK data set. The specified data items will be
+	// broadcast to all connected server-side SDKs in a "put" event, and all connected client-side SDKs
+	// will receive a "ping" event to refresh their state.
 	SendAllDataUpdate(allData []ldstoretypes.Collection)
+
+	// SendSingleItemUpdate signals an update to an individual SDK data item (flag or segment). The
+	// specified data item will be broadcast to all connected server-side SDKs in a "patch" event, and
+	// all connected client-side SDKs will receive a "ping" event to refresh their state.
 	SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor)
+
+	// InvalidateClientSideState signals an update that could affect client-side evaluations, but does
+	// not change any server-side data item. Updating big segment data is such an event, since the
+	// segment in the regular server-side SDK data does not change but evaluating the segment could
+	// now produce a different result. Nothing is broadcast to the server-side SDKs (since they have
+	// their own mechanisms for detecting big segment updates), but all connected client-side SDKs will
+	// receive a "ping" event to refresh their state.
+	InvalidateClientSideState()
 }
 
 // EnvStreams encapsulates streaming behavior for a specific environment.
@@ -136,6 +151,13 @@ func (es *EnvStreams) SendSingleItemUpdate(
 ) {
 	for _, esp := range es.getEnvStreamProviders() {
 		esp.SendSingleItemUpdate(kind, key, item)
+	}
+}
+
+// InvalidateClientSideState sends all appropriate stream updates for when client-side state should be refreshed.
+func (es *EnvStreams) InvalidateClientSideState() {
+	for _, esp := range es.getEnvStreamProviders() {
+		esp.InvalidateClientSideState()
 	}
 }
 
