@@ -1,16 +1,16 @@
+version: 2
+
 repo:
   public: ld-relay
   private: ld-relay-private
 
-circleci:
-  linux:
-    image: cimg/go:1.15.13
-    context: org-global
+jobs:
+  - docker:
+      image: cimg/go:1.15.13
+    template:
+      name: go
 
-template:
-  name: go
-
-releasableBranches:
+branches:
   - name: v6
   - name: v5
 

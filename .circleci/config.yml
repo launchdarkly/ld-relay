@@ -279,7 +279,7 @@ jobs:
       - setup_remote_docker  # start docker engine
       - run: sudo apt-get update
       - run: sudo apt-get install rpm
-      - run: make release
+      - run: make products-for-release
       - run: make docker-smoke-test
       - store_artifacts:
           path: dist/

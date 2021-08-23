@@ -50,6 +50,10 @@ nfpms:
         files:
           "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
 
+release:
+  disable: true # this disables releasing *to GitHub*; it will still push to Docker
+  # (we want Releaser to be responsible for doing all the GitHub release manipulations)
+
 dockers:
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Tag }}"
