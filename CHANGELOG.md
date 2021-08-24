@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.2] - 2021-08-24
+### Fixed:
+- When using [big segments](https://docs.launchdarkly.com/home/users/big-segments), the Relay Proxy was not correctly notifying already-connected client-side SDKs (mobile or browser apps) to get updated flag values if there was a live update to a big segment.
+
 ## [6.4.1] - 2021-07-29
 ### Fixed:
 - Updated a dependency to address a vulnerability ([CVE-2020-26160](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160)) in a module used by the Prometheus metrics integration. ([#150](https://github.com/launchdarkly/ld-relay/issues/150))
