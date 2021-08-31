@@ -318,4 +318,3 @@ For more details on changes related to configuration, read the [configuration do
 
 ### Fixed
 - The /sdk/goals/<envId> endpoint now supports caching and repeats any headers it received to the client.
-
