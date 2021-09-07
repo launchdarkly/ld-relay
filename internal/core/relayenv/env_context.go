@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 )
 
@@ -62,6 +64,14 @@ type EnvContext interface {
 	// GetStore returns the SDK data store instance for this environment. This is nil if initialization is not
 	// yet complete.
 	GetStore() interfaces.DataStore
+
+	// GetEvaluator returns an instance of the evaluation engine for evaluating feature flags in this environment.
+	// This is nil if initialization is not yet complete.
+	GetEvaluator() ldeval.Evaluator
+
+	// GetBigSegmentStore returns the big segment data store instance for this environment. If a big
+	// segment store is not configured this returns nil.
+	GetBigSegmentStore() bigsegments.BigSegmentStore
 
 	// GetLoggers returns a Loggers instance that is specific to this environment. We configure each of these to
 	// have its own prefix string and, optionally, its own log level.

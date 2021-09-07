@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
-
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
@@ -15,7 +13,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
@@ -50,21 +47,15 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	allConfig := config.Config{}
 	allConfig.Main.DisableInternalUsageMetrics = true
 
-	env, err := relayenv.NewEnvContext(
-		relayenv.EnvIdentifiers{ConfiguredName: envName},
-		envConfig,
-		allConfig,
-		testclient.FakeLDClientFactory(true),
-		ldcomponents.InMemoryDataStore(),
-		sdks.DataStoreEnvironmentInfo{},
-		nil,
-		relayenv.JSClientContext{},
-		manager,
-		"",
-		relayenv.LogNameIsEnvID,
-		mockLog.Loggers,
-		nil,
-	)
+	env, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+		Identifiers:    relayenv.EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:      envConfig,
+		AllConfig:      allConfig,
+		ClientFactory:  testclient.FakeLDClientFactory(true),
+		MetricsManager: manager,
+		LogNameMode:    relayenv.LogNameIsEnvID,
+		Loggers:        mockLog.Loggers,
+	}, nil)
 	require.NoError(t, err)
 	defer env.Close()
 

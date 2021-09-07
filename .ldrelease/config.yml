@@ -1,11 +1,17 @@
+version: 2
+
 repo:
   public: ld-relay
   private: ld-relay-private
 
-template:
-  name: go
+jobs:
+  - docker:
+      image: cimg/go:1.15.13
+      copyGitHistory: true
+    template:
+      name: go
 
-releasableBranches:
+branches:
   - name: v6
   - name: v5
 

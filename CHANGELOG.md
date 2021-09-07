@@ -2,6 +2,36 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.2] - 2021-08-24
+### Fixed:
+- When using [big segments](https://docs.launchdarkly.com/home/users/big-segments), the Relay Proxy was not correctly notifying already-connected client-side SDKs (mobile or browser apps) to get updated flag values if there was a live update to a big segment.
+
+## [6.4.1] - 2021-07-29
+### Fixed:
+- Updated a dependency to address a vulnerability ([CVE-2020-26160](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160)) in a module used by the Prometheus metrics integration. ([#150](https://github.com/launchdarkly/ld-relay/issues/150))
+- Fixed a problem (introduced in v6.4.0) that was causing Relay Proxy to log error messages if Redis or DynamoDB was enabled and you were _not_ using the new big segments feature.
+- When using big segments, log messages related to the processing of big segment data were hard to interpret because they did not indicate which environment they were for. Now, they have an environment name or ID prefix like other Relay Proxy log messages that are environment-specific.
+
+## [6.4.0] - 2021-07-22
+### Added:
+- The Relay Proxy now supports evaluation of Big Segments. An Early Access Program for creating and syncing Big Segments from customer data platforms is available to enterprise customers.
+
+## [6.3.1] - 2021-07-08
+### Fixed:
+- The base OS image for the Docker image has been changed from `alpine:3.12.0` to `alpine:3.14.0`, the latest stable version of Alpine. This fixes known vulnerabilities in Alpine 3.12.0 ([here](https://snyk.io/test/docker/alpine%3A3.12.0) is one list of them). There are no changes to the Relay Proxy itself in this release.
+
+## [6.3.0] - 2021-06-17
+### Added:
+- The internal SDK logic used in evaluating flags for client-side SDKs now supports the ability to control the proportion of traffic allocation to an experiment. This works in conjunction with a new platform feature now available to early access customers.
+
+## [6.2.2] - 2021-06-07
+### Changed:
+- Updated the third-party packages that provide metrics integration for DataDog, Prometheus, and StackDriver to their latest releases. These are the latest versions of the OpenCensus integrations; the Relay Proxy is not yet using OpenTelemetry, the newer API that will replace OpenCensus. This update does not fix any known bugs or add any new metrics capabilities to the Relay Proxy; its purpose is to fix potential dependency conflicts in the build.
+
+## [6.2.1] - 2021-06-03
+### Fixed:
+- Fixed a bug in JSON parsing that could cause floating-point numbers (in flag variation values, rule values, or user attributes) to be read incorrectly if the number format included an exponent and did not include a decimal point (for instance, `1e5`). Since there are several equally valid number formats in JSON (so `1e5` is exactly equivalent to `100000`), whether this bug showed up would depend on the format chosen by whatever software had most recently converted the number to JSON before it was re-read, which is hard to predict, but it would only be likely to happen with either integers that had more than four trailing zeroes or floating-point numbers with leading zeroes. This bug also existed in the LaunchDarkly Go SDK prior to version 5.3.1, so anyone who uses both the Relay Proxy and the Go SDK should update both.
+
 ## [6.2.0] - 2021-05-07
 ### Added:
 - New [configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-main) `InitTimeout`, controlling how long the Relay Proxy will wait for its initial connection to LaunchDarkly; this was previously always 10 seconds.

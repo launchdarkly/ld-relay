@@ -5,7 +5,6 @@ package testenv
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -30,21 +29,13 @@ func NewTestEnvContextWithClientFactory(
 		dataStoreFactory = sharedtest.ExistingDataStoreFactory{Instance: store}
 	}
 	readyCh := make(chan relayenv.EnvContext)
-	c, err := relayenv.NewEnvContext(
-		relayenv.EnvIdentifiers{ConfiguredName: name},
-		config.EnvConfig{},
-		config.Config{},
-		f,
-		dataStoreFactory,
-		sdks.DataStoreEnvironmentInfo{},
-		nil, //streamProviders,
-		relayenv.JSClientContext{},
-		nil,
-		"fake-user-agent",
-		relayenv.LogNameIsSDKKey,
-		ldlog.NewDisabledLoggers(),
-		readyCh,
-	)
+	c, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+		Identifiers:      relayenv.EnvIdentifiers{ConfiguredName: name},
+		ClientFactory:    f,
+		DataStoreFactory: dataStoreFactory,
+		UserAgent:        "fake-user-agent",
+		Loggers:          ldlog.NewDisabledLoggers(),
+	}, readyCh)
 	if err != nil {
 		panic(err)
 	}

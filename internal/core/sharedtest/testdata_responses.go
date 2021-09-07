@@ -64,7 +64,7 @@ func AssertEndpointSupportsOptionsRequest(
 }
 
 func AssertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod string, host string) {
-	assert.ElementsMatch(t, []string{endpointMethod, "OPTIONS", "OPTIONS"},
+	assert.ElementsMatch(t, []string{endpointMethod, "OPTIONS"},
 		strings.Split(resp.Header.Get("Access-Control-Allow-Methods"), ","))
 	assert.Equal(t, host, resp.Header.Get("Access-Control-Allow-Origin"))
 }

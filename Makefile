@@ -21,12 +21,15 @@ COVERAGE_ENFORCER_FLAGS=\
   	-skipfiles 'internal/core/sharedtest/' \
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
+OPTIONAL_TAGS_PARAM=$(if ${TAGS},-tags ${TAGS},)
+ALL_TEST_TAGS=big_segment_external_store_tests,integrationtests,redis_unit_tests
+
 build:
 	go build .
 
 test:
-	go test -run=not-a-real-test -tags redis_unit_tests ./...  # just ensures that the tests compile
-	go test -race -v $(if $(LD_TEST_REDIS),-tags redis_unit_tests,) ./...
+	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
+	go test -race -v $(OPTIONAL_TAGS_PARAM) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
 	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi
@@ -43,7 +46,8 @@ benchmarks: build
 
 $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 	@mkdir -p ./build
-	go test -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
+	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
+	go test $(OPTIONAL_TAGS_PARAM) -coverprofile $(COVERAGE_PROFILE_RAW) -coverpkg=./... ./...
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)
@@ -59,20 +63,24 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
-RELEASE_CMD=curl -sL https://git.io/goreleaser | VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
+RELEASE_CMD=curl -sL https://git.io/goreleaser | GOPATH=$(mktemp -d) VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
 
+# Note that we're setting GOPATH to a temporary location when running goreleaser, because
+# we want it to start from a clean state even if we've previously run a build - and also
+# because during a release, we may need to run this command under another account and we
+# don't want to mess up file permissions in the regular GOPATH.
 publish:
 	$(RELEASE_CMD)
 
-release:
+products-for-release:
 	$(RELEASE_CMD) --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
-test-centos test-debian test-docker test-docker-standalone: release
+test-centos test-debian test-docker test-docker-standalone: products-for-release
 	$(DOCKER_COMPOSE_TEST) up --force-recreate -d $(subst test,relay,$@)
 	trap "$(DOCKER_COMPOSE_TEST) logs && $(DOCKER_COMPOSE_TEST) rm -f" EXIT; $(DOCKER_COMPOSE_TEST) run --rm $@
 
 docker-smoke-test: test-centos test-debian test-docker test-docker-standalone
 
-.PHONY: docker build lint publish release test test-centos test-debian test-docker test-all test-docker-standalone integration-test benchmarks
+.PHONY: docker build lint publish products-for-release test test-centos test-debian test-docker test-all test-docker-standalone integration-test benchmarks

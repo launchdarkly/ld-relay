@@ -17,7 +17,7 @@ func TestEndToEnd(t *testing.T) {
 	manager, err := newIntegrationTestManager()
 	require.NoError(t, err)
 
-	defer manager.close()
+	defer manager.close(t)
 
 	t.Run("standard mode", func(t *testing.T) {
 		testStandardMode(t, manager)
@@ -33,5 +33,9 @@ func TestEndToEnd(t *testing.T) {
 
 	t.Run("database integrations", func(t *testing.T) {
 		testDatabaseIntegrations(t, manager)
+	})
+
+	t.Run("big segments", func(t *testing.T) {
+		testBigSegments(t, manager)
 	})
 }

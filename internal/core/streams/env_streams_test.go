@@ -29,6 +29,7 @@ type mockEnvStreamProvider struct {
 	store          EnvStoreQueries
 	allDataUpdates [][]ldstoretypes.Collection
 	itemUpdates    []sharedtest.ReceivedItemUpdate
+	clientSideUps  int
 	numHeartbeats  int
 	closed         bool
 	lock           sync.Mutex
@@ -59,6 +60,10 @@ func (e *mockEnvStreamProvider) SendAllDataUpdate(allData []ldstoretypes.Collect
 
 func (e *mockEnvStreamProvider) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
 	e.itemUpdates = append(e.itemUpdates, sharedtest.ReceivedItemUpdate{kind, key, item})
+}
+
+func (e *mockEnvStreamProvider) InvalidateClientSideState() {
+	e.clientSideUps++
 }
 
 func (e *mockEnvStreamProvider) SendHeartbeat() {
@@ -207,6 +212,30 @@ func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
 	assert.Equal(t, expected, esp1.itemUpdates)
 	assert.Len(t, esp2.itemUpdates, 0)
 	assert.Equal(t, expected, esp3.itemUpdates)
+}
+
+func TestInvalidateClientSideStateGoesToAllStreams(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
+	defer es.Close()
+
+	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
+	es.AddCredential(sdkKey1)
+	es.AddCredential(sdkKey2)
+	es.AddCredential(sdkKey3)
+
+	require.Len(t, sp.createdStreams, 3)
+	esp1, esp2, esp3 := sp.createdStreams[0], sp.createdStreams[1], sp.createdStreams[2]
+
+	es.RemoveCredential(sdkKey2)
+
+	es.InvalidateClientSideState()
+
+	assert.Equal(t, 1, esp1.clientSideUps)
+	assert.Equal(t, 0, esp2.clientSideUps)
+	assert.Equal(t, 1, esp3.clientSideUps)
 }
 
 func TestHeartbeatsGoToAllStreams(t *testing.T) {
