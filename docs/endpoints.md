@@ -97,6 +97,7 @@ The status properties are defined as follows:
     - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure big segments were synchronized. Active but incomplete synchronization does not update this timestamp.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](../configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
+    - When big segments are enabled, this value can also be `"degraded"` if big segments are potentially not fully synchronized as indicated by the `potentiallyStale` property in the `bigSegmentsStatus` object.
 - `version` is the version of the Relay Proxy.
 - `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
 
