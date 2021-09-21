@@ -8,6 +8,8 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +23,9 @@ func TestRedisGenericAll(t *testing.T) {
 }
 
 func makeStore(t *testing.T) *redisBigSegmentStore {
-	store, err := newRedisBigSegmentStore("redis://127.0.0.1:6379", testPrefix, true, ldlog.NewDisabledLoggers())
+	redisConfig := config.RedisConfig{}
+	redisConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://127.0.0.1:6379")
+	store, err := newRedisBigSegmentStore(redisConfig, testPrefix, true, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	require.NoError(t, store.client.FlushAll(context.Background()).Err())
 	return store

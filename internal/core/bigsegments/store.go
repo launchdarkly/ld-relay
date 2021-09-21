@@ -52,7 +52,7 @@ func DefaultBigSegmentStoreFactory(
 	// Currently, the only supported store type is Redis, and if Redis is enabled then big segments
 	// are enabled.
 	if allConfig.Redis.URL.IsDefined() {
-		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis.URL.String(), envConfig.Prefix, false, loggers)
+		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis, envConfig.Prefix, false, loggers)
 		if err != nil {
 			return nil, err
 		}

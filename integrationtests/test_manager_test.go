@@ -359,13 +359,14 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 
 func (m *integrationTestManager) withExtraContainer(
 	t *testing.T,
-	imageName, hostnamePrefix string,
+	imageName string,
+	args []string, hostnamePrefix string,
 	action func(*docker.Container),
 ) {
 	image, err := docker.PullImage(imageName)
 	require.NoError(t, err)
 	hostname := hostnamePrefix + "-" + uuid.New()
-	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).Build()
+	container, err := image.NewContainerBuilder().Name(hostname).Network(m.dockerNetwork).ContainerParams(args...).Build()
 	require.NoError(t, err)
 	container.Start()
 	go container.FollowLogs(oshelpers.NewLogWriter(os.Stdout, hostnamePrefix))

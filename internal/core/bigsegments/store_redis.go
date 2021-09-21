@@ -2,6 +2,7 @@ package bigsegments
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strconv"
 
@@ -9,6 +10,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/launchdarkly/ld-relay/v6/config"
 )
 
 func redisLockKey(prefix string) string {
@@ -40,14 +42,18 @@ type redisBigSegmentStore struct {
 
 // newRedisBigSegmentStore creates an instance of RedisBigSegmentStore.
 func newRedisBigSegmentStore(
-	url string,
+	redisConfig config.RedisConfig,
 	prefix string,
 	checkOnStartup bool,
 	loggers ldlog.Loggers,
 ) (*redisBigSegmentStore, error) {
 	opts := redis.UniversalOptions{}
 
-	parsed, err := redis.ParseURL(url)
+	// Relay's Redis configuration allows setting the server address either as a URL or as a
+	// host & port, but our config validation logic simplifies this so that it is always a URL.
+	// However, it is still possible to set the Password and TLS options separately from the
+	// URL, so we still need to check for those.
+	parsed, err := redis.ParseURL(redisConfig.URL.String())
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +62,12 @@ func newRedisBigSegmentStore(
 	opts.Username = parsed.Username
 	opts.Password = parsed.Password
 	opts.TLSConfig = parsed.TLSConfig
+	if redisConfig.Password != "" {
+		opts.Password = redisConfig.Password
+	}
+	if redisConfig.TLS && opts.TLSConfig == nil {
+		opts.TLSConfig = &tls.Config{ServerName: redisConfig.URL.Get().Hostname()}
+	}
 
 	store := redisBigSegmentStore{
 		client:  redis.NewUniversalClient(&opts),
