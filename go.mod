@@ -21,7 +21,7 @@ require (
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0
-	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1
 	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
 	github.com/pborman/uuid v1.2.0
 	github.com/stretchr/testify v1.7.0
