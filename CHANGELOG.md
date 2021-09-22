@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.3] - 2021-09-22
+### Fixed:
+- The Redis password and Redis TLS options, when set as separate configuration variables rather than as part of the Redis URL, did not work when using Redis for Big Segment data. This could also cause misleading log warnings even if Big Segments were not being used.
+- When using Redis, if the Redis URL contains a password, the password is now replaced with `xxxxx` in log messages and in the Relay Proxy status resource.
+
 ## [6.4.2] - 2021-08-24
 ### Fixed:
 - When using [big segments](https://docs.launchdarkly.com/home/users/big-segments), the Relay Proxy was not correctly notifying already-connected client-side SDKs (mobile or browser apps) to get updated flag values if there was a live update to a big segment.
