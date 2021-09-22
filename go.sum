@@ -328,8 +328,8 @@ github.com/launchdarkly/go-server-sdk-consul v1.0.0 h1:8yTFRUA9RsQVrSOyN4S3zDGWH
 github.com/launchdarkly/go-server-sdk-consul v1.0.0/go.mod h1:Uj+H4Wm3WEja1rdi+nR2Jq6fpl7dG9gtTgOAxjJV9SI=
 github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0 h1:fE0OwYjsItOOHR2/kq5StGGOHhMhX6QY1uLrs8FJLpM=
 github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0/go.mod h1:zKUi5j+UnvISac34dgjWtZ/N0rwlLrdAwWTBtu9rIPY=
-github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.0 h1:MqCaG5RBklGajqtYFRtCffiV3mv8yJQt+z2PxFGmf9s=
-github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.0/go.mod h1:rcydnSjPuE8w5HYeOg/l98QSFUT/lM9Txk9/pbyU30k=
+github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1 h1:5KhwXcx+0sqxjDf4m/irLCohe/8Fh72zzsC6XU3aTMc=
+github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1/go.mod h1:rcydnSjPuE8w5HYeOg/l98QSFUT/lM9Txk9/pbyU30k=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0 h1:L3kGILP/6ewikhzhdNkHy1b5y4zs50LueWenVF0sBbs=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/lightstep/lightstep-tracer-common/golang/gogo v0.0.0-20190605223551-bc2310a04743/go.mod h1:qklhhLq1aX+mtWk9cPHPzaBjWImj5ULL6C7HFJtXQMM=
