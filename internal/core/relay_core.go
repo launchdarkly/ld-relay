@@ -193,6 +193,7 @@ func (r *RelayCore) AddEnvironment(
 
 	if envConfig.EnvID != "" {
 		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
+		jsClientContext.Headers = envConfig.AllowedHeader.Values()
 
 		cachingTransport := httpcache.NewMemoryCacheTransport()
 		jsClientContext.Proxy = &httputil.ReverseProxy{

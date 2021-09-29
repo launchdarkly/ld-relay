@@ -48,10 +48,12 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 	// whichever section is not being used.
 	if c.AutoConfig.Key != "" {
 		c.OfflineMode.EnvAllowedOrigin = ct.OptStringList{}
+		c.OfflineMode.EnvAllowedHeader = ct.OptStringList{}
 		c.OfflineMode.EnvDatastorePrefix = ""
 		c.OfflineMode.EnvDatastoreTableName = ""
 	} else if c.OfflineMode.FileDataSource != "" {
 		c.AutoConfig.EnvAllowedOrigin = ct.OptStringList{}
+		c.AutoConfig.EnvAllowedHeader = ct.OptStringList{}
 		c.AutoConfig.EnvDatastorePrefix = ""
 		c.AutoConfig.EnvDatastoreTableName = ""
 	}
