@@ -120,24 +120,26 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var domains []string
+		var headers []string
 		if corsContext := browser.GetCORSContext(r.Context()); corsContext != nil {
 			domains = corsContext.AllowedOrigins()
+			headers = corsContext.AllowedHeaders()
 		}
 		if len(domains) > 0 {
 			for _, d := range domains {
 				if r.Header.Get("Origin") == d {
-					browser.SetCORSHeaders(w, d)
+					browser.SetCORSHeaders(w, d, headers)
 					return
 				}
 			}
 			// Not a valid origin, set allowed origin to any allowed origin
-			browser.SetCORSHeaders(w, domains[0])
+			browser.SetCORSHeaders(w, domains[0], headers)
 		} else {
 			origin := browser.DefaultAllowedOrigin
 			if r.Header.Get("Origin") != "" {
 				origin = r.Header.Get("Origin")
 			}
-			browser.SetCORSHeaders(w, origin)
+			browser.SetCORSHeaders(w, origin, headers)
 		}
 		if r.Method != "OPTIONS" {
 			next.ServeHTTP(w, r)

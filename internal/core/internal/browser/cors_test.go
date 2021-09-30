@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,10 @@ import (
 type mockCORSContext struct{}
 
 func (m mockCORSContext) AllowedOrigins() []string {
+	return nil
+}
+
+func (m mockCORSContext) AllowedHeaders() []string {
 	return nil
 }
 
@@ -33,11 +38,24 @@ func TestCORSContext(t *testing.T) {
 	t.Run("SetCORSHeaders", func(t *testing.T) {
 		origin := "http://good.cat"
 		rr := httptest.ResponseRecorder{}
-		SetCORSHeaders(&rr, origin)
+		SetCORSHeaders(&rr, origin, nil)
 		assert.Equal(t, origin, rr.Header().Get("Access-Control-Allow-Origin"))
 		assert.Equal(t, "false", rr.Header().Get("Access-Control-Allow-Credentials"))
 		assert.Equal(t, maxAge, rr.Header().Get("Access-Control-Max-Age"))
 		assert.Equal(t, allowedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
+		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
+	})
+
+	t.Run("SetCORSHeaders with additionalHeaders", func(t *testing.T) {
+		origin := "http://good.cat"
+		rr := httptest.ResponseRecorder{}
+		extraHeaders := []string{"Toast","Bread"}
+		expectedHeaders := strings.Join([]string{allowedHeaders, "Toast,Bread"}, ",")
+		SetCORSHeaders(&rr, origin, extraHeaders)
+		assert.Equal(t, origin, rr.Header().Get("Access-Control-Allow-Origin"))
+		assert.Equal(t, "false", rr.Header().Get("Access-Control-Allow-Credentials"))
+		assert.Equal(t, maxAge, rr.Header().Get("Access-Control-Max-Age"))
+		assert.Equal(t, expectedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
 		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
 	})
 }

@@ -52,6 +52,7 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 		Prefix:        maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID),
 		TableName:     maybeSubstituteEnvironmentID(f.TableName, params.EnvID),
 		AllowedOrigin: f.AllowedOrigin,
+		AllowedHeader: f.AllowedHeader,
 		SecureMode:    params.SecureMode,
 	}
 	if params.TTL != 0 {
