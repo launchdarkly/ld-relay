@@ -18,7 +18,6 @@ type EnvConfigFactory struct {
 	TableName string
 	//
 	AllowedOrigin ct.OptStringList
-    //
 	AllowedHeader ct.OptStringList
 }
 

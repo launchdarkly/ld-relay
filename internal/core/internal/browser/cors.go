@@ -61,7 +61,7 @@ func SetCORSHeaders(w http.ResponseWriter, origin string, extraAllowedHeaders []
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", maxAge)
-	if extraAllowedHeaders != nil && len(extraAllowedHeaders) > 0 {
+	if len(extraAllowedHeaders) > 0 {
 		additionalAllowedHeaders := strings.Join(extraAllowedHeaders, ",")
 		allowedHeaders = strings.Join([]string{allowedHeaders, additionalAllowedHeaders}, ",")
 	}
