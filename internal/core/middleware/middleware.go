@@ -104,6 +104,9 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				Credential: credential,
 			}
 			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
+			if sdkKind == basictypes.JSClientSDK {
+				req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
+			}
 			next.ServeHTTP(w, req)
 		})
 	}

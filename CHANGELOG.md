@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.4.5] - 2021-10-08
+### Fixed:
+- The options for setting allowable CORS origins for browser requests (`allowedOrigin`/`LD_ALLOWED_ORIGIN_envname`, etc.) were being ignored.
+
+## [6.4.4] - 2021-10-05
+### Fixed:
+- Updated Docker base image to [Alpine 3.14.2](https://alpinelinux.org/posts/Alpine-3.14.2-released.html), to fix `openssl` vulnerabilities CVE-2021-3711 and CVE-2021-3712.
+
 ## [6.4.3] - 2021-09-22
 ### Fixed:
 - The Redis password and Redis TLS options, when set as separate configuration variables rather than as part of the Redis URL, did not work when using Redis for Big Segment data. This could also cause misleading log warnings even if Big Segments were not being used.
