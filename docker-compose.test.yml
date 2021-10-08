@@ -20,12 +20,12 @@ services:
   relay-docker:
     image: launchdarkly/ld-relay
     env_file:
-      - test.env
+      - smoke-test.env
 
   relay-docker-standalone:
     build: .
     env_file:
-      - test.env
+      - smoke-test.env
 
   test-centos:
     image: cimg/go:1.13
