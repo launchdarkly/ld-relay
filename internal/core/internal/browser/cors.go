@@ -20,7 +20,8 @@ const (
 	maxAge         string             = "300"
 )
 
-var allowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
+// DefaultAllowedHeaders is the default value of the CORS header Access-Control-Allow-Headers.
+var DefaultAllowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 	"Cache-Control",
 	"Content-Type",
 	"Content-Length",
@@ -60,6 +61,6 @@ func SetCORSHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", maxAge)
-	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
+	w.Header().Set("Access-Control-Allow-Headers", DefaultAllowedHeaders)
 	w.Header().Set("Access-Control-Expose-Headers", "Date")
 }
