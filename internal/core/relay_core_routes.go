@@ -43,8 +43,8 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	jsClientSideMiddlewareStack := func(subrouter *mux.Router) mux.MiddlewareFunc {
 		return middleware.Chain(
 			mux.CORSMethodMiddleware(subrouter),
-			middleware.CORS,
-			jsClientSelector,
+			jsClientSelector, // selects an environment based on the client-side ID in the URL
+			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
 			middleware.RequestCount(metrics.BrowserRequests),
 		)
 	}

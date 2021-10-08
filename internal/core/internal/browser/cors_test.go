@@ -37,7 +37,7 @@ func TestCORSContext(t *testing.T) {
 		assert.Equal(t, origin, rr.Header().Get("Access-Control-Allow-Origin"))
 		assert.Equal(t, "false", rr.Header().Get("Access-Control-Allow-Credentials"))
 		assert.Equal(t, maxAge, rr.Header().Get("Access-Control-Max-Age"))
-		assert.Equal(t, allowedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
+		assert.Equal(t, DefaultAllowedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
 		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
 	})
 }
