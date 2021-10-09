@@ -41,6 +41,18 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 		})
 	})
 
+	t.Run("Access-Control-Allow-Header with custom values", func(t *testing.T) {
+		env := st.EnvClientSide
+		env.Config.AllowedHeader = configtypes.NewOptStringList([]string{"my-header-1", "my-header-2"})
+		config := c.Config{Environment: st.MakeEnvConfigs(env)}
+		DoTest(t, config, constructor, func(p TestParams) {
+			result, _ := st.DoRequest(endpoint.request(), p.Handler)
+			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
+				assert.Equal(t, browser.DefaultAllowedHeaders+",my-header-1,my-header-2", result.Header.Get("Access-Control-Allow-Headers"))
+			}
+		})
+	})
+
 	t.Run("default Access-Control-Allow-Origin", func(t *testing.T) {
 		config := c.Config{Environment: st.MakeEnvConfigs(st.EnvClientSide)}
 		DoTest(t, config, constructor, func(p TestParams) {

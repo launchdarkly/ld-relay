@@ -73,7 +73,7 @@ func validateConfigTLS(result *ct.ValidationResult, c *Config) {
 func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	if c.AutoConfig.Key == "" {
 		if c.AutoConfig.EnvDatastorePrefix != "" || c.AutoConfig.EnvDatastoreTableName != "" ||
-			len(c.AutoConfig.EnvAllowedOrigin.Values()) != 0 {
+			len(c.AutoConfig.EnvAllowedOrigin.Values()) != 0 || len(c.AutoConfig.EnvAllowedHeader.Values()) != 0 {
 			result.AddError(nil, errAutoConfPropertiesWithNoKey)
 		}
 	} else if len(c.Environment) != 0 {
@@ -81,7 +81,7 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	}
 	if c.OfflineMode.FileDataSource == "" {
 		if c.OfflineMode.EnvDatastorePrefix != "" || c.OfflineMode.EnvDatastoreTableName != "" ||
-			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 {
+			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 || len(c.OfflineMode.EnvAllowedHeader.Values()) != 0 {
 			result.AddError(nil, errOfflineModePropertiesWithNoFile)
 		}
 	} else {

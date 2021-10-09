@@ -48,6 +48,8 @@ LD_CLIENT_SIDE_ID_C=the client-side environment ID for environment C
 
 If you enable access by client-side JavaScript SDKs by setting `envId`, you can also specify that only requests from specific web sites should be allowed. This value is provided by the Relay Proxy in the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) HTTP header for cross-origin browser requests.
 
+If you need to allow extra headers to pass through during cross-origin browser requests, you can specify which headers should be allowed. This value is provided by the Relay Proxy in the [`Access-Control-Allow-Headers`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Headers) HTTP header for cross-origin browser requests.
+
 ```
 # Specifying allowed origins in a configuration file
 [Environment "B"]
@@ -55,6 +57,8 @@ If you enable access by client-side JavaScript SDKs by setting `envId`, you can 
     envId = "the client-side environment ID for environment B"
     allowedOrigin = "http://example.org"
     allowedOrigin = "http://another_example.net"
+    allowedHeader = "Timestamp"
+    allowedHeader = "Company-A-Identifier"
 ```
 
 ```
@@ -62,6 +66,7 @@ If you enable access by client-side JavaScript SDKs by setting `envId`, you can 
 LD_ENV_B=the SDK key for environment B
 LD_CLIENT_SIDE_ID_B=the client-side environment ID for environment B
 LD_ALLOWED_ORIGIN_B=http://example.org,http://another_example.net
+LD_ALLOWED_HEADER_B=Timestamp,Company-A-Identifier
 ```
 
 Also, if you expose any of the client-side relay endpoints externally, we strongly recommend that you use HTTPS, either by configuring the Relay Proxy itself to be a secure server, or by placing an HTTPS proxy server in front of it, rather than exposing the Relay Proxy directly. To learn more, read [Using TLS](./tls.md)
