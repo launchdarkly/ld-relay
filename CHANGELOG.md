@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.5.0] - 2021-10-11
+### Added:
+- It is now possible to add custom values for the `Access-Control-Allow-Headers` header that the Relay Proxy returns for cross-origin requests from browser clients, using a new [per-environment configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-offlinemode) `allowedHeader` or `$LD_ALLOWED_HEADER_EnvName`. This might be necessary to avoid cross-origin requests being rejected if you have an Internet gateway that uses a custom header for authentication.
+
 ## [6.4.5] - 2021-10-08
 ### Fixed:
 - The options for setting allowable CORS origins for browser requests (`allowedOrigin`/`LD_ALLOWED_ORIGIN_envname`, etc.) were being ignored.
