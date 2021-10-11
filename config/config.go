@@ -134,6 +134,7 @@ type AutoConfigConfig struct {
 	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
 	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
 	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
@@ -142,6 +143,7 @@ type OfflineModeConfig struct {
 	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
 	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
 	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.
@@ -222,6 +224,7 @@ type EnvConfig struct {
 	Prefix        string           `conf:"LD_PREFIX_"`     // used only if Redis, Consul, or DynamoDB is enabled
 	TableName     string           `conf:"LD_TABLE_NAME_"` // used only if DynamoDB is enabled
 	AllowedOrigin ct.OptStringList `conf:"LD_ALLOWED_ORIGIN_"`
+	AllowedHeader ct.OptStringList `conf:"LD_ALLOWED_HEADER_"`
 	SecureMode    bool             `conf:"LD_SECURE_MODE_"`
 	LogLevel      OptLogLevel      `conf:"LD_LOG_LEVEL_"`
 	TTL           ct.OptDuration   `conf:"LD_TTL_"`

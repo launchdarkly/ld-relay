@@ -70,9 +70,11 @@ func (t testEnvironments) GetAllEnvironments() []relayenv.EnvContext {
 
 type testCORSContext struct {
 	origins []string
+	headers []string
 }
 
 func (c testCORSContext) AllowedOrigins() []string { return c.origins }
+func (c testCORSContext) AllowedHeaders() []string { return c.headers }
 
 func nullHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
@@ -315,6 +317,18 @@ func TestCORSMiddlewareSetsAllowedOriginFromContextWhenOriginDoesNotMatch(t *tes
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
 	assert.Equal(t, "abc", resp.Result().Header.Get("Access-Control-Allow-Origin"))
+}
+
+func TestCORSMiddlewareSetsAllowedHeaderFromContext(t *testing.T) {
+	cc := testCORSContext{headers: []string{"ghi", "jkl"}}
+	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
+	req = req.WithContext(browser.WithCORSContext(req.Context(), cc))
+	resp := httptest.NewRecorder()
+
+	CORS(nullHandler()).ServeHTTP(resp, req)
+
+	assert.Equal(t, "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader+",ghi,jkl",
+	    resp.Result().Header.Get("Access-Control-Allow-Headers"))
 }
 
 func TestCORSMiddlewareOnlyCallsWrappedHandlerIfMethodIsNotOPTIONS(t *testing.T) {

@@ -123,6 +123,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: ct.NewOptStringList([]string{"https://oa", "https://rann"}),
+				AllowedHeader: ct.NewOptStringList([]string{"Timestamp-Valid","Random-Id-Valid"}),
 				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
@@ -163,6 +164,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_PREFIX_krypton":              "krypton-",
 		"LD_TABLE_NAME_krypton":          "krypton-table",
 		"LD_ALLOWED_ORIGIN_krypton":      "https://oa,https://rann",
+		"LD_ALLOWED_HEADER_krypton":      "Timestamp-Valid,Random-Id-Valid",
 		"LD_TTL_krypton":                 "5m",
 	}
 	c.fileContent = `
@@ -209,6 +211,8 @@ Prefix = "krypton-"
 TableName = "krypton-table"
 AllowedOrigin = "https://oa"
 AllowedOrigin = "https://rann"
+AllowedHeader = "Timestamp-Valid"
+AllowedHeader = "Random-Id-Valid"
 TTL = 5m
 `
 	return c
@@ -220,17 +224,21 @@ func makeValidConfigAutoConfig() testDataValidConfig {
 		c.AutoConfig = AutoConfigConfig{
 			Key:              AutoConfigKey("autokey"),
 			EnvAllowedOrigin: ct.NewOptStringList([]string{"http://first", "http://second"}),
+			EnvAllowedHeader: ct.NewOptStringList([]string{"First","Second"}),
 		}
 	}
 	c.envVars = map[string]string{
 		"AUTO_CONFIG_KEY":    "autokey",
 		"ENV_ALLOWED_ORIGIN": "http://first,http://second",
+		"ENV_ALLOWED_HEADER": "First,Second",
 	}
 	c.fileContent = `
 [AutoConfig]
 Key = autokey
 EnvAllowedOrigin = http://first
-EnvAllowedOrigin = http://second	
+EnvAllowedOrigin = http://second
+EnvAllowedHeader = First
+EnvAllowedHeader = Second
 `
 	return c
 }
@@ -243,6 +251,7 @@ func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 			EnvDatastorePrefix:    "prefix-$CID",
 			EnvDatastoreTableName: "table-$CID",
 			EnvAllowedOrigin:      ct.NewOptStringList([]string{"http://first", "http://second"}),
+			EnvAllowedHeader:      ct.NewOptStringList([]string{"First","Second"}),
 		}
 		c.DynamoDB.Enabled = true
 	}
@@ -251,6 +260,7 @@ func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 		"ENV_DATASTORE_PREFIX":     "prefix-$CID",
 		"ENV_DATASTORE_TABLE_NAME": "table-$CID",
 		"ENV_ALLOWED_ORIGIN":       "http://first,http://second",
+		"ENV_ALLOWED_HEADER":       "First,Second",
 		"USE_DYNAMODB":             "1",
 	}
 	c.fileContent = `
@@ -260,6 +270,8 @@ EnvDatastorePrefix = prefix-$CID
 EnvDatastoreTableName = table-$CID
 EnvAllowedOrigin = http://first
 EnvAllowedOrigin = http://second
+EnvAllowedHeader = First
+EnvAllowedHeader = Second
 
 [DynamoDB]
 Enabled = true
