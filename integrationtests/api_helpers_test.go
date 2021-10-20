@@ -288,7 +288,7 @@ func (a *apiHelper) createBigSegment(
 		Unbounded: true,
 	}
 	_, _, err := a.apiClient.UserSegmentsApi.PostUserSegment(a.apiContext, project.key, env.key, userSegmentBody)
-	if err = a.logResult("Create "+segmentKey, err); err != nil {
+	if err = a.logResult("Create segment '"+segmentKey+"' with unbounded set to true", err); err != nil {
 		return err
 	}
 
@@ -312,7 +312,7 @@ func (a *apiHelper) createBigSegment(
 	}
 	_, err = a.apiClient.UserSegmentsApi.UpdatedBigSegmentTargets(a.apiContext, project.key, env.key,
 		segmentKey, updates)
-	return a.logResult("Update "+segmentKey, err)
+	return a.logResult("Update big segment targets for "+segmentKey, err)
 }
 
 func makePatch(op, path string, value interface{}) ldapi.PatchOperation {

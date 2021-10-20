@@ -126,14 +126,21 @@ func (p *testEventsPublisher) Close()                                 {}
 func (p *testEventsPublisher) ReplaceCredential(config.SDKCredential) {}
 
 func (p *testEventsPublisher) expectMetricsEvent(t *testing.T, timeout time.Duration) relayMetricsEvent {
+	if ret, ok := p.maybeReceiveMetricsEvent(t, timeout); ok {
+		return ret
+	}
+	require.Fail(t, "timed out waiting for metrics event")
+	return relayMetricsEvent{}
+}
+
+func (p *testEventsPublisher) maybeReceiveMetricsEvent(t *testing.T, timeout time.Duration) (relayMetricsEvent, bool) {
 	select {
 	case eventData := <-p.events:
 		var metricsEvent relayMetricsEvent
 		require.NoError(t, json.Unmarshal(eventData, &metricsEvent))
-		return metricsEvent
+		return metricsEvent, true
 	case <-time.After(timeout):
-		require.Fail(t, "timed out waiting for metrics event")
-		return relayMetricsEvent{}
+		return relayMetricsEvent{}, false
 	}
 }
 

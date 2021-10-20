@@ -254,10 +254,18 @@ func TestHeartbeatsGoToAllStreams(t *testing.T) {
 	require.Len(t, sp.createdStreams, 2)
 	esp1, esp2 := sp.createdStreams[0], sp.createdStreams[1]
 
-	<-time.After(heartbeatInterval * 4)
-
-	assert.GreaterOrEqual(t, esp1.getNumHeartbeats(), 2)
-	assert.GreaterOrEqual(t, esp2.getNumHeartbeats(), 2)
+	var count1, count2 int
+	if !assert.Eventually(t,
+		func() bool {
+			count1 = esp1.getNumHeartbeats()
+			count2 = esp2.getNumHeartbeats()
+			return count1 >= 2 && count2 >= 2
+		},
+		time.Second,
+		time.Millisecond*20,
+		"Waited to see at least 2 heartbeats received by each stream") {
+		assert.Fail(t, "Got only %d and %d heartbeats", count1, count2)
+	}
 }
 
 func TestHeartbeatsAreStopped(t *testing.T) {
@@ -273,8 +281,9 @@ func TestHeartbeatsAreStopped(t *testing.T) {
 	require.Len(t, sp.createdStreams, 1)
 	esp1 := sp.createdStreams[0]
 
-	<-time.After(heartbeatInterval * 2) // just to make sure the heartbeat goroutine has already started
-	assert.GreaterOrEqual(t, esp1.getNumHeartbeats(), 1)
+	// Give the heartbeat goroutine time to start and send at least one heartbeat
+	assert.Eventually(t, func() bool { return esp1.getNumHeartbeats() >= 1 }, time.Second, time.Millisecond*20,
+		"Waited for heartbeats to start but timed out without seeing any")
 
 	es.Close()
 

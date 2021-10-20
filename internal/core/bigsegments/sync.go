@@ -419,7 +419,11 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (applyPatc
 		segmentsUpdated:   make(segmentChangesSummary),
 	}
 	for _, patch := range patches {
-		s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
+		if enableTraceLogging {
+			s.loggers.Debugf("Received patch: %+v", patch)
+		} else {
+			s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
+		}
 		success, err := s.store.applyPatch(patch)
 		if err != nil {
 			return ret, err

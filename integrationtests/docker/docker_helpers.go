@@ -198,7 +198,7 @@ func (n *Network) Delete() error {
 }
 
 func (n *Network) GetContainerIDs() ([]string, error) {
-	out, err := command("docker", "network", "inspect", n.name).RunAndGetOutput()
+	out, err := command("docker", "network", "inspect", n.name).ShowOutput(false).RunAndGetOutput()
 	if err != nil {
 		return nil, err
 	}
