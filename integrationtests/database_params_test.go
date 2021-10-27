@@ -22,6 +22,7 @@ const (
 
 type databaseTestParams struct {
 	dbImageName      string
+	dbDockerParams   []string
 	hostnamePrefix   string
 	setupFn          func(*integrationTestManager, *docker.Container) error
 	envVarsFn        func(*docker.Container) map[string]string
@@ -29,7 +30,7 @@ type databaseTestParams struct {
 }
 
 func (p databaseTestParams) withContainer(t *testing.T, manager *integrationTestManager, action func(*docker.Container)) {
-	manager.withExtraContainer(t, p.dbImageName, p.hostnamePrefix, func(dbContainer *docker.Container) {
+	manager.withExtraContainer(t, p.dbImageName, p.dbDockerParams, p.hostnamePrefix, func(dbContainer *docker.Container) {
 		containersOnNetwork, err := manager.dockerNetwork.GetContainerIDs()
 		require.NoError(t, err)
 		require.Len(t, containersOnNetwork, 1, "database container did not start or did not attach to the test network")
@@ -99,6 +100,25 @@ var redisDatabaseTestParams = databaseTestParams{
 		return map[string]string{
 			"USE_REDIS":  "true",
 			"REDIS_HOST": dbContainer.GetName(),
+		}
+	},
+	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {
+		return core.DataStoreStatusRep{
+			Database: "redis",
+			DBServer: fmt.Sprintf("redis://%s:6379", dbContainer.GetName()),
+		}
+	},
+}
+
+var redisWithPasswordDatabaseTestParams = databaseTestParams{
+	dbImageName:    "redis",
+	dbDockerParams: []string{"--requirepass", "secret"},
+	hostnamePrefix: "redis",
+	envVarsFn: func(dbContainer *docker.Container) map[string]string {
+		return map[string]string{
+			"USE_REDIS":      "true",
+			"REDIS_HOST":     dbContainer.GetName(),
+			"REDIS_PASSWORD": "secret",
 		}
 	},
 	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {

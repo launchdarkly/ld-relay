@@ -17,6 +17,10 @@ func testDatabaseIntegrations(t *testing.T, manager *integrationTestManager) {
 		doDatabaseTest(t, manager, redisDatabaseTestParams)
 	})
 
+	t.Run("Redis with password", func(t *testing.T) {
+		doDatabaseTest(t, manager, redisWithPasswordDatabaseTestParams)
+	})
+
 	t.Run("Consul", func(t *testing.T) {
 		doDatabaseTest(t, manager, consulDatabaseTestParams)
 	})

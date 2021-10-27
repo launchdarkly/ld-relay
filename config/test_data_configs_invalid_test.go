@@ -17,11 +17,13 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigTLSVersion(),
 		makeInvalidConfigAutoConfKeyWithEnvironments(),
 		makeInvalidConfigAutoConfAllowedOriginWithNoKey(),
+		makeInvalidConfigAutoConfAllowedHeaderWithNoKey(),
 		makeInvalidConfigAutoConfPrefixWithNoKey(),
 		makeInvalidConfigAutoConfTableNameWithNoKey(),
 		makeInvalidConfigFileDataWithAutoConfKey(),
 		makeInvalidConfigFileDataWithEnvironments(),
 		makeInvalidConfigOfflineModeAllowedOriginWithNoFile(),
+		makeInvalidConfigOfflineModeAllowedHeaderWithNoFile(),
 		makeInvalidConfigOfflineModePrefixWithNoFile(),
 		makeInvalidConfigOfflineModeTableNameWithNoFile(),
 		makeInvalidConfigRedisInvalidHostname(),
@@ -125,6 +127,19 @@ EnvAllowedOrigin = http://origin
 	return c
 }
 
+func makeInvalidConfigAutoConfAllowedHeaderWithNoKey() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "auto-conf allowed header with no key"}
+	c.envVarsError = errAutoConfPropertiesWithNoKey.Error()
+	c.envVars = map[string]string{
+		"ENV_ALLOWED_HEADER": "Timestamp",
+	}
+	c.fileContent = `
+[AutoConfig]
+EnvAllowedHeader = Timestamp
+`
+	return c
+}
+
 func makeInvalidConfigAutoConfPrefixWithNoKey() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "auto-conf prefix with no key"}
 	c.envVarsError = errAutoConfPropertiesWithNoKey.Error()
@@ -191,6 +206,16 @@ func makeInvalidConfigOfflineModeAllowedOriginWithNoFile() testDataInvalidConfig
 	c.fileContent = `
 [OfflineMode]
 EnvAllowedOrigin = http://origin
+`
+	return c
+}
+
+func makeInvalidConfigOfflineModeAllowedHeaderWithNoFile() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "offline mode allowed header with no file"}
+	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileContent = `
+[OfflineMode]
+EnvAllowedHeader = Timestamp
 `
 	return c
 }

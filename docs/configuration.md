@@ -85,6 +85,7 @@ Property in file         | Environment var            | Type   | Default | Descr
 `envDatastorePrefix`     | `ENV_DATASTORE_PREFIX`     | String |         | If using a Redis, Consul, or DynamoDB store, this string will be added to all database keys to distinguish them from any other environments that are using the database. _(6)_
 `envDatastoreTableName ` | `ENV_DATASTORE_TABLE_NAME` | String |         | If using a DynamoDB store, this specifies the table name. _(6)_
 `envAllowedOrigin`       | `ENV_ALLOWED_ORIGIN`       | URI    |         | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_ORIGIN` variable, specify a comma-delimited list).
+`envAllowedHeader`       | `ENV_ALLOWED_HEADER`       | String |         | If provided, adds the specify headers to the list of accepted headers for CORS requests. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_HEADER` variable, specify a comma-delimited list).
 
 _(6)_ When using a database store, if there are multiple environments, it is necessary to have a different prefix for each environment (or, if using DynamoDB, a different table name). The `envDataStorePrefix` and `envDatastoreTableName` properties support this by recognizing the special symbol `$CID` as a placeholder for the environment's client-side ID. For instance, if an environment's ID is `1234567890abcdef` and you set `envDatastorePrefix` to `ld-flags-$CID`, the actual prefix used for that environment will be `ld-flags-1234567890abcdef`.
 
@@ -99,6 +100,7 @@ Property in file         | Environment var            | Type   | Default | Descr
 `envDatastorePrefix`     | `ENV_DATASTORE_PREFIX`     | String |         | If using a Redis, Consul, or DynamoDB store, this string will be added to all database keys to distinguish them from any other environments that are using the database. _(6)_
 `envDatastoreTableName ` | `ENV_DATASTORE_TABLE_NAME` | String |         | If using a DynamoDB store, this specifies the table name. _(6)_
 `envAllowedOrigin`       | `ENV_ALLOWED_ORIGIN`       | URI    |         | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_ORIGIN` variable, specify a comma-delimited list).
+`envAllowedHeader`       | `ENV_ALLOWED_HEADER`       | String |         | If provided, adds the specify headers to the list of accepted headers for CORS requests. This variable can be provided multiple times per environment (if using the `ENV_ALLOWED_HEADER` variable, specify a comma-delimited list).
 
 Note that the last three properties have the same meanings and the same environment variables names as the corresponding properties in the `[AutoConfig]` section described above. It is not possible to use `[OfflineMode]` and `[AutoConfig]` at the same time.
 
@@ -131,6 +133,7 @@ Property in file | Environment var               | Type   | Description
 `prefix`         | `LD_PREFIX_MyEnvName`         | String | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.
 `tableName`      | `LD_TABLE_NAME_MyEnvName`     | String | If using DynamoDB, you can specify a different table for each environment. (Or, specify a single table in the `[DynamoDB]` section and use `prefix` to distinguish the environments.)
 `allowedOrigin`  | `LD_ALLOWED_ORIGIN_MyEnvName` | URI    | If provided, adds CORS headers to prevent access from other domains. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_ORIGIN_MyEnvName` variable, specify a comma-delimited list).
+`allowedHeader`  | `LD_ALLOWED_HEADER_MyEnvName` | String | If provided, adds the specify headers to the list of accepted headers for CORS requests. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_HEADER_MyEnvName` variable, specify a comma-delimited list).
 `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      | String | Should be `debug`, `info`, `warn`, `error`, or `none`. **See: [Logging](./logging.md)**
 `ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints. **See: [Using PHP](./php.md)**
 

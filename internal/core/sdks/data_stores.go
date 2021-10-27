@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
@@ -30,7 +31,8 @@ type DataStoreEnvironmentInfo struct {
 	// DBType is the type of database Relay is using, or "" for the default in-memory storage.
 	DBType string
 
-	// DBServer is the URL or host address of the database server, if applicable.
+	// DBServer is the URL or host address of the database server, if applicable. Passwords, if any,
+	// must be redacted in this string.
 	DBServer string
 
 	// DBPrefix is the key prefix used for this environment to distinguish it from data that might be in
@@ -54,12 +56,13 @@ func ConfigureDataStore(
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
+		redactedURL := util.RedactURL(redisURL)
 
-		loggers.Infof("Using Redis data store: %s with prefix: %s", redisURL, envConfig.Prefix)
+		loggers.Infof("Using Redis data store: %s with prefix: %s", redactedURL, envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "redis",
-			DBServer: redisURL,
+			DBServer: redactedURL,
 			DBPrefix: envConfig.Prefix,
 		}
 		if storeInfo.DBPrefix == "" {

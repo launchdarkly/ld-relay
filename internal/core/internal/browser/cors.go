@@ -20,7 +20,8 @@ const (
 	maxAge         string             = "300"
 )
 
-var allowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
+// DefaultAllowedHeaders is the default value of the CORS header Access-Control-Allow-Headers.
+var DefaultAllowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 	"Cache-Control",
 	"Content-Type",
 	"Content-Length",
@@ -35,6 +36,7 @@ var allowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 // can be attached to a request context with WithCORSContext().
 type CORSContext interface {
 	AllowedOrigins() []string
+	AllowedHeaders() []string
 }
 
 // GetCORSContext returns the CORSContext that has been attached to this Context with WithCORSContext(),
@@ -56,10 +58,14 @@ func WithCORSContext(parent context.Context, cc CORSContext) context.Context {
 
 // SetCORSHeaders sets a standard set of CORS headers on an HTTP response. This is meant to be the same
 // behavior that the LaunchDarkly service endpoints uses for client-side JS requests.
-func SetCORSHeaders(w http.ResponseWriter, origin string) {
+func SetCORSHeaders(w http.ResponseWriter, origin string, extraAllowedHeaders []string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "false")
 	w.Header().Set("Access-Control-Max-Age", maxAge)
-	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
+	allAllowedHeaders := DefaultAllowedHeaders
+	if len(extraAllowedHeaders) > 0 {
+		allAllowedHeaders = allAllowedHeaders + "," + strings.Join(extraAllowedHeaders, ",")
+	}
+	w.Header().Set("Access-Control-Allow-Headers", allAllowedHeaders)
 	w.Header().Set("Access-Control-Expose-Headers", "Date")
 }

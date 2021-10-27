@@ -18,6 +18,7 @@ type EnvConfigFactory struct {
 	TableName string
 	//
 	AllowedOrigin ct.OptStringList
+	AllowedHeader ct.OptStringList
 }
 
 // NewEnvConfigFactoryForAutoConfig creates an EnvConfigFactory based on the auto-configuration mode settings.
@@ -26,6 +27,7 @@ func NewEnvConfigFactoryForAutoConfig(c config.AutoConfigConfig) EnvConfigFactor
 		DataStorePrefix: c.EnvDatastorePrefix,
 		TableName:       c.EnvDatastoreTableName,
 		AllowedOrigin:   c.EnvAllowedOrigin,
+		AllowedHeader:   c.EnvAllowedHeader,
 	}
 }
 
@@ -35,6 +37,7 @@ func NewEnvConfigFactoryForOfflineMode(c config.OfflineModeConfig) EnvConfigFact
 		DataStorePrefix: c.EnvDatastorePrefix,
 		TableName:       c.EnvDatastoreTableName,
 		AllowedOrigin:   c.EnvAllowedOrigin,
+		AllowedHeader:   c.EnvAllowedHeader,
 	}
 }
 
@@ -48,6 +51,7 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 		Prefix:        maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID),
 		TableName:     maybeSubstituteEnvironmentID(f.TableName, params.EnvID),
 		AllowedOrigin: f.AllowedOrigin,
+		AllowedHeader: f.AllowedHeader,
 		SecureMode:    params.SecureMode,
 	}
 	if params.TTL != 0 {
