@@ -2,6 +2,12 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.5.1] - 2021-11-16
+### Fixed:
+- Updated the Go runtime version in the Docker image to 1.16.10. This addresses known security issues in earlier versions of Go as reported in the CVE database.
+- Updated the Alpine version in the Docker image to 3.14.3. See [Alpine 3.14.3 release notes](https://www.alpinelinux.org/posts/Alpine-3.14.3-released.html) regarding issues addressed in this release.
+- Updated the dependency version of `github.com/hashicorp/consul/api` to v1.11.0. This was to address vulnerabilities that have been reported against earlier versions of Consul. We believe that those CVE reports are somewhat misleading since they refer to the Consul _server_, rather than the API library, but vulnerability scanners often conflate the two and the only known workaround is to update the API version (see https://github.com/hashicorp/consul/issues/10674).
+
 ## [6.5.0] - 2021-10-11
 ### Added:
 - It is now possible to add custom values for the `Access-Control-Allow-Headers` header that the Relay Proxy returns for cross-origin requests from browser clients, using a new [per-environment configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-offlinemode) `allowedHeader` or `$LD_ALLOWED_HEADER_EnvName`. This might be necessary to avoid cross-origin requests being rejected if you have an Internet gateway that uses a custom header for authentication.
