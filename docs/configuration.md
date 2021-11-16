@@ -270,3 +270,12 @@ Property in file | Environment var       | Type    | Default | Description
 `domain`         | `PROXY_AUTH_DOMAIN`   | String  |         | Domain name for proxy authentication, if applicable.
 `caCertFiles`    | `PROXY_CA_CERTS`      | String  |         | List of file paths to additional CA certificates that should be trusted (in PEM format). For multiple files, if using a configuration file, you can specify `caCertFiles` multiple times; if using environment variables, you can set `PROXY_CA_CERTS` to a comma-delimited list.
 `ntlmAuth`       | `PROXY_AUTH_NTLM`     | Boolean | `false` | Enables NTLM proxy authentication (requires user, password, and domain).
+
+
+### Experimental/testing variables
+
+The current version of the Relay Proxy also supports the following environment variables. These do not have an equivalent in a configuration file; they are not intended for production use; and they are not guaranteed to work in any other Relay Proxy versions.
+
+| Environment var             | Type     | Default | Description
+| --------------------------- | :------: | :------ | -----------
+| `LD_TRACE_LOG_BIG_SEGMENTS` | Boolean  | `false` | Enables extra logging at `debug` level, even more verbose than `debug` level normally is, specifically for big segments data. Use this with extreme caution since it may log detailed transactions for big segments which could potentially include millions of users. This option is intended only for debugging issues related to big segments under the guidance of LaunchDarkly support.

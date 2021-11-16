@@ -3,12 +3,15 @@
 package integrationtests
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
+
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +26,11 @@ type bigSegmentTestData struct {
 	includedByRuleUserKeys    []string
 	allUserKeys               []string
 	expectedFlagValuesForUser map[string]ldvalue.Value
+	explanationForUser        map[string]string
+}
+
+var enableBigSegmentsTraceLoggingVar = map[string]string{
+	"LD_TRACE_LOG_BIG_SEGMENTS": "true",
 }
 
 func makeBigSegmentTestDataForEnvs(envs []environmentInfo) []bigSegmentTestData {
@@ -40,6 +48,15 @@ func makeBigSegmentTestDataForEnvs(envs []environmentInfo) []bigSegmentTestData 
 			userKey1: ldvalue.Bool(true),
 			userKey2: ldvalue.Bool(true),
 			userKey3: ldvalue.Bool(false),
+		}
+		info.explanationForUser = map[string]string{
+			userKey1: "this user should be included in the big segment and not excluded;" +
+				" a false value indicates that we did not receive the patch that included the user",
+			userKey2: "this user should be included in a segment rule and not excluded;" +
+				" a false value indicates that we did not receive the patch that included the user," +
+				" and also did not receive the regular SDK data with the segment rule",
+			userKey3: "this user should be included in a segment rule but excluded from the big segment;" +
+				" a true value indicates that we did not receive the patch that excluded the user",
 		}
 		ret = append(ret, info)
 	}
@@ -77,13 +94,17 @@ func verifyEvaluationWithBigSegment(
 	manager *integrationTestManager,
 	projectInfo projectInfo,
 	environments []environmentInfo,
-	flagKey string,
+	flagKey, segmentKey string,
 	segmentTestData []bigSegmentTestData,
 ) bool {
+	testDataByEnv := make(map[string]bigSegmentTestData)
 	latestValuesByEnv := make(map[string]map[string]ldvalue.Value)
 	expectedValuesByEnv := make(map[string]map[string]ldvalue.Value)
+	envsByKey := make(map[string]environmentInfo)
 	for i, env := range environments {
+		testDataByEnv[env.key] = segmentTestData[i]
 		expectedValuesByEnv[env.key] = segmentTestData[i].expectedFlagValuesForUser
+		envsByKey[env.key] = env
 	}
 
 	// Poll the evaluation endpoint until we see the expected flag values. We're using a
@@ -91,6 +112,7 @@ func verifyEvaluationWithBigSegment(
 	// the user segment state caching inside the SDK makes it hard to say how soon we'll
 	// see the effect of an update.
 	success := assert.Eventually(t, func() bool {
+		ok := true
 		for i, env := range environments {
 			latestValues := make(map[string]ldvalue.Value)
 			for _, userKey := range segmentTestData[i].allUserKeys {
@@ -98,13 +120,34 @@ func verifyEvaluationWithBigSegment(
 				latestValues[userKey] = manager.getFlagValues(t, projectInfo, env, userJSON).GetByKey(flagKey)
 			}
 			latestValuesByEnv[env.key] = latestValues
+			if !reflect.DeepEqual(latestValues, testDataByEnv[env.key].expectedFlagValuesForUser) {
+				ok = false
+			}
 		}
-		return reflect.DeepEqual(latestValuesByEnv, expectedValuesByEnv)
+		return ok
 	}, time.Second*20, time.Millisecond*100, "Did not see expected flag values from Relay")
 
 	if !success {
-		manager.loggers.Infof("Last values for each environment and user were: %s", latestValuesByEnv)
-		manager.loggers.Infof("Expected: %s", expectedValuesByEnv)
+		manager.loggers.Infof("EXPLANATION OF TEST FAILURE FOLLOWS:")
+		manager.loggers.Infof("I evaluated the flag %q, which tests membership in the segment %q, for multiple users in each test environment...",
+			flagKey, segmentKey)
+		for envKey, testData := range testDataByEnv {
+			actualValues := latestValuesByEnv[envKey]
+			expectedValues := testData.expectedFlagValuesForUser
+			if !reflect.DeepEqual(actualValues, expectedValues) {
+				env := envsByKey[envKey]
+				manager.loggers.Infof("Got wrong results for the following users in environment ID %q (SDK key %q, shown as [env: ...%s] in logs):",
+					env.id, env.sdkKey, env.sdkKey[len(env.sdkKey)-4:])
+				for userKey, expectedValue := range expectedValues {
+					actualValue := actualValues[userKey]
+					if !actualValue.Equal(expectedValue) {
+						userHash := hashForUserKey(userKey)
+						manager.loggers.Infof("--- User %q (hash value %q): expected value %s, actual value %s. Explanation: %s",
+							userKey, userHash, expectedValue, actualValue, testData.explanationForUser[userKey])
+					}
+				}
+			}
+		}
 	}
 	return success
 }
@@ -145,8 +188,8 @@ func doBigSegmentsTestWithPreExistingSegment(
 		err = manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey, projectInfo, environments, segmentKey)
 		require.NoError(t, err)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, nil, func() {
-			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey, segmentTestData)
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func() {
+			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey, segmentKey, segmentTestData)
 		})
 	})
 }
@@ -170,7 +213,7 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 		segmentKey := "big-segment-key"
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, nil, func() {
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func() {
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey,
@@ -181,7 +224,7 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 			err := manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey, projectInfo, environments, segmentKey)
 			require.NoError(t, err)
 
-			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey, segmentTestData)
+			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey, segmentKey, segmentTestData)
 		})
 	})
 }
@@ -207,7 +250,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 		segmentKey2 := "big-segment-key2"
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, nil, func() {
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func() {
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey1,
@@ -218,7 +261,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 			require.NoError(t, err)
 
 			// As soon as flagKey1 starts working, we know the first segment has been received
-			if !verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey1, segmentTestData) {
+			if !verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey1, segmentKey1, segmentTestData) {
 				return // unexpected failure
 			}
 
@@ -232,7 +275,13 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 			err = manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey2, projectInfo, environments, segmentKey2)
 			require.NoError(t, err)
 
-			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey2, segmentTestData)
+			verifyEvaluationWithBigSegment(t, manager, projectInfo, environments, flagKey2, segmentKey2, segmentTestData)
 		})
 	})
+}
+
+// This logic is duplicated from the Go SDK because the implementation is not exported
+func hashForUserKey(key string) string {
+	hashBytes := sha256.Sum256([]byte(key))
+	return base64.StdEncoding.EncodeToString(hashBytes[:])
 }

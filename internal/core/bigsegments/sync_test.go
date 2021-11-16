@@ -92,6 +92,16 @@ func requirePatch(t *testing.T, s *bigSegmentStoreMock, expectedPatch bigSegment
 	}
 }
 
+func requireNoMorePatches(t *testing.T, s *bigSegmentStoreMock) {
+	if len(s.patchCh) > 0 {
+		var patches []bigSegmentPatch
+		for len(s.patchCh) > 0 {
+			patches = append(patches, <-s.patchCh)
+		}
+		require.Fail(t, "did not expect any more patches, but got: %+v", patches)
+	}
+}
+
 func requireUpdates(t *testing.T, ch <-chan UpdatesSummary, expectedKeys []string) {
 	select {
 	case u := <-ch:
@@ -152,7 +162,7 @@ func TestBasicSync(t *testing.T) {
 			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
-			require.Equal(t, 0, len(storeMock.patchCh))
+			requireNoMorePatches(t, storeMock)
 
 			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
 
@@ -233,7 +243,7 @@ func TestSyncSendsUpdates(t *testing.T) {
 			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq4, poll2Patch2.Version)
 
-			require.Equal(t, 0, len(storeMock.patchCh))
+			requireNoMorePatches(t, storeMock)
 
 			requireUpdates(t, updatesCh, []string{"segment1", "segment2"})
 
@@ -303,7 +313,7 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
-			require.Equal(t, 0, len(storeMock.patchCh))
+			requireNoMorePatches(t, storeMock)
 			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
 
 			syncTime := <-storeMock.syncTimeCh
@@ -375,7 +385,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
-			require.Equal(t, 0, len(storeMock.patchCh))
+			requireNoMorePatches(t, storeMock)
 
 			syncTime := <-storeMock.syncTimeCh
 			assert.True(t, syncTime >= startTime)
@@ -460,7 +470,7 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
-			require.Equal(t, 0, len(storeMock.patchCh))
+			requireNoMorePatches(t, storeMock)
 
 			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
 

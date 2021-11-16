@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# See comments in .ldrelease/config.yml for an explanation of the build/release process.
+
 # Called from publish.sh or publish-dry-run.sh - parameter is the Makefile target to run
 TARGET=$1
 

@@ -21,6 +21,9 @@ workflows:
           run-lint: true
           test-coverage: true
       - go-test:
+          name: Go 1.17
+          docker-image: cimg/go:1.17
+      - go-test:
           name: Go 1.16
           docker-image: cimg/go:1.16
       - go-test:
@@ -183,7 +186,7 @@ jobs:
         type: string
         default: LD_API_TOKEN_STG
     machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202107-02
       docker_layer_caching: true
     environment:
       LD_BASE_URL: <<parameters.ld_base_url>>
@@ -196,13 +199,13 @@ jobs:
     steps:
       - checkout
       - go/install: # since we're using machine mode, we can't use a preinstalled Go Docker image
-          version: 1.15.12
+          version: 1.16.10
       - run: go version && go env
       - restore_cache:
           keys: 
             - deps-relay-i9ntest-{{ checksum "go.mod" }}    
       - run: go get -u $COMMON_GO_PACKAGES
-      - run: go test -t integrationtests -i ./integrationtests # just install the dependencies for the tests
+      - run: go test -tags integrationtests -i ./integrationtests # just install the dependencies for the tests
       - save_cache:
           key: deps-relay-i9ntest-{{ checksum "go.mod" }}    
           paths:
@@ -270,7 +273,7 @@ jobs:
     docker:
       # We must keep this image tag in sync with the image that will really be used for releases,
       # which is specified in .ldrelease/config.yml.
-      - image: cimg/go:1.15.13
+      - image: cimg/go:1.16.10
         environment:
           <<: *environment
 
