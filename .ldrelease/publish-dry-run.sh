@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# See comments in .ldrelease/config.yml for an explanation of the build/release process.
+
 # The "products-for-release" makefile target does a goreleaser build but doesn't push to DockerHub
 $(dirname $0)/run-publish-target.sh products-for-release
 

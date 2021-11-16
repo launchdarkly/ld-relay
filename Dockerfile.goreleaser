@@ -1,6 +1,8 @@
 # This is the Dockerfile used for release (published to dockerhub by goreleaser)
 
-FROM alpine:3.14.2
+# See .ldrelease/config.yml for an explanation of the build/release process.
+
+FROM alpine:3.14.3
 
 RUN apk add --no-cache \
     curl \
