@@ -26,6 +26,7 @@ require (
 	github.com/pborman/uuid v1.2.0
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
+	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
