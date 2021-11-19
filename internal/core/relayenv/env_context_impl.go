@@ -121,7 +121,7 @@ type envContextStreamUpdates struct {
 //
 // NewEnvContext can also immediately return an error, with a nil EnvContext, if the configuration is
 // invalid.
-func NewEnvContext( //nolint:gocyclo
+func NewEnvContext(
 	params EnvContextImplParams,
 	readyCh chan<- EnvContext,
 	// readyCh is a separate parameter because it's not a property of the environment itself, but
