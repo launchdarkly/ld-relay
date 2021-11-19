@@ -70,14 +70,10 @@ func NewStreamManager(
 	initialRetryDelay time.Duration,
 	loggers ldlog.Loggers,
 ) *StreamManager {
-	baseURI := streamURI
-	if baseURI == "" {
-		baseURI = config.DefaultStreamURI // COVERAGE: never happens in unit tests
-	}
 	loggers.SetPrefix("[AutoConfiguration]")
 	return &StreamManager{
 		key:               key,
-		uri:               strings.TrimSuffix(baseURI, "/") + autoConfigStreamPath,
+		uri:               strings.TrimSuffix(streamURI, "/") + autoConfigStreamPath,
 		handler:           handler,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		expiredKeys:       make(chan expiredKey),

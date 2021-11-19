@@ -57,11 +57,24 @@ func warnEnvWithoutDBDisambiguation(envName string, canUseTableName bool) string
 func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	var result ct.ValidationResult
 
+	validateConfigDefaultURLs(c)
 	validateConfigTLS(&result, c)
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, loggers)
 
 	return result.GetError()
+}
+
+func validateConfigDefaultURLs(c *Config) {
+	if !c.Main.BaseURI.IsDefined() {
+		c.Main.BaseURI = defaultBaseURI
+	}
+	if !c.Main.StreamURI.IsDefined() {
+		c.Main.StreamURI = defaultStreamURI
+	}
+	if !c.Events.EventsURI.IsDefined() {
+		c.Events.EventsURI = defaultEventsURI
+	}
 }
 
 func validateConfigTLS(result *ct.ValidationResult, c *Config) {
