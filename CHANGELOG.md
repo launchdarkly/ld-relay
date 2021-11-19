@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.5.2] - 2021-11-19
+### Changed:
+- Building the Relay Proxy from source code now requires Go 1.16 or higher.
+
+### Fixed:
+- Queries for Big Segment data were failing if `BaseURI` had not been explicitly set in the configuration. This error would appear in the log as "BigSegmentSynchronizer: Synchronization failed ... unsupported protocol scheme".
+- Updated dependencies to remove a transitive dependency on `jwt-go`. This had previously required a `replace` directive as a workaround (https://github.com/launchdarkly/ld-relay/issues/150), which is no longer necessary.
+- Updated the `golang.org/x/crypto` package to a newer version that does not have the vulnerability [CVE-2020-29652](https://nvd.nist.gov/vuln/detail/CVE-2020-29652). Practically speaking this was not a vulnerability in the Relay Proxy, because the potential attack involved a feature of that package that the Relay Proxy does not use (SSH).
+
 ## [6.5.1] - 2021-11-16
 ### Fixed:
 - Updated the Go runtime version in the Docker image to 1.16.10. This addresses known security issues in earlier versions of Go as reported in the CVE database.
