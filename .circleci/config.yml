@@ -26,14 +26,8 @@ workflows:
       - go-test:
           name: Go 1.16
           docker-image: cimg/go:1.16
-      - go-test:
-          name: Go 1.15
-          docker-image: cimg/go:1.15
-      - go-test:
-          name: Go 1.14
-          docker-image: cimg/go:1.14
       - benchmarks:
-          docker-image: cimg/go:1.15
+          docker-image: cimg/go:1.16
       - integration-test
       - test-publish
       - dependency-scan:
@@ -67,37 +61,28 @@ workflows:
     when:
       equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
 
-  daily-package-build-test:
-    triggers:
-    - schedule:
-        cron: "0 8 * * *"
-        filters:
-          branches:
-            only: v6
-    jobs:
-      # Note: package-build-test is currently disabled for Go 1.16+ because, due to the
-      # "replace" directive in go.mod to work around the known issue with jwt-go, and
-      # the rule in newer Go versions that "replace" isn't allowed with "go install",
-      # there is no one-line command that will work for this in Go 1.16+. We should be
-      # able to re-enable these tests once https://github.com/go-kit/kit/pull/1172 is
-      # released and we can update to a newer go-kit version, since that is the source
-      # of the problematic transitive dependency.
+  # The daily-package-build-test job is temporarily disabled - we will re-enable it for Go 1.16 & 1.17
+  # once the latest public release no longer contains a replace directive in go.mod.
+  # daily-package-build-test:
+  #   triggers:
+  #   - schedule:
+  #       cron: "0 8 * * *"
+  #       filters:
+  #         branches:
+  #           only: v6
+  #   jobs:
       # - package-build-test:
       #     name: package build - Go latest
       #     docker-image: circleci/golang:latest
       #     use-go-install: true
       # - package-build-test:
+      #     name: package build - Go 1.17
+      #     docker-image: cimg/go:1.17
+      #     use-go-install: true
+      # - package-build-test:
       #     name: package build - Go 1.16
       #     docker-image: cimg/go:1.16
       #     use-go-install: true
-      - package-build-test:
-          name: package build - Go 1.15
-          docker-image: cimg/go:1.15
-          use-go-install: false
-      - package-build-test:
-          name: package build - Go 1.14
-          docker-image: cimg/go:1.14
-          use-go-install: false
 
 jobs:
   dependency-scan:
