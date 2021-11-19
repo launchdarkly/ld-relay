@@ -21,7 +21,6 @@ var (
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
-	errDefaultURLInvalid       = errors.New("unexpected error: default URL for this property is invalid")
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
