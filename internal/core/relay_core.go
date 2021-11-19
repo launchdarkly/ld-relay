@@ -27,7 +27,6 @@ import (
 
 var (
 	errAlreadyClosed         = errors.New("this Relay was already shut down")
-	errDefaultBaseURLInvalid = errors.New("unexpected error: default base URL is invalid")
 	errInitializationTimeout = errors.New("timed out waiting for environments to initialize")
 	errSomeEnvironmentFailed = errors.New("one or more environments failed to initialize")
 )
@@ -113,15 +112,7 @@ func NewRelayCore(
 		Loggers:                       loggers,
 	}
 
-	if c.Main.BaseURI.IsDefined() {
-		r.baseURL = *c.Main.BaseURI.Get()
-	} else {
-		u, err := url.Parse(config.DefaultBaseURI)
-		if err != nil {
-			return nil, errDefaultBaseURLInvalid
-		}
-		r.baseURL = *u
-	}
+	r.baseURL = *c.Main.BaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
 	for envName, envConfig := range c.Environment {
 		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)

@@ -269,14 +269,8 @@ func NewEnvContext( //nolint:gocyclo
 	}
 	envContext.eventDispatcher = eventDispatcher
 
-	streamURI := allConfig.Main.StreamURI.String()
-	if streamURI == "" {
-		streamURI = config.DefaultStreamURI
-	}
-	eventsURI := allConfig.Events.EventsURI.String()
-	if eventsURI == "" {
-		eventsURI = config.DefaultEventsURI
-	}
+	streamURI := allConfig.Main.StreamURI.String()   // config.ValidateConfig has ensured that this has a value
+	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
 	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && !offlineMode
 	var em *metrics.EnvironmentManager
