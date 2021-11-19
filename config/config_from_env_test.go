@@ -34,7 +34,7 @@ func TestConfigFromEnvironmentWithInvalidProperties(t *testing.T) {
 
 func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 	t.Run("can add SDK key to existing environment", func(t *testing.T) {
-		var startingConfig, expectedConfig Config
+		var startingConfig Config
 		startingConfig.Environment = map[string]*EnvConfig{
 			"envname": &EnvConfig{
 				Prefix: "p",
@@ -43,6 +43,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		vars := map[string]string{
 			"LD_ENV_envname": "my-key",
 		}
+		expectedConfig := configDefaults
 		expectedConfig.Environment = map[string]*EnvConfig{
 			"envname": &EnvConfig{
 				SDKKey: SDKKey("my-key"),
@@ -59,11 +60,12 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 	})
 
 	t.Run("can change REDIS_PORT when REDIS_HOST was set", func(t *testing.T) {
-		var startingConfig, expectedConfig Config
+		var startingConfig Config
 		startingConfig.Redis.Host = "redishost"
 		vars := map[string]string{
 			"REDIS_PORT": "2222",
 		}
+		expectedConfig := configDefaults
 		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
 		withEnvironment(vars, func() {
 			c := startingConfig
@@ -75,12 +77,13 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 	})
 
 	t.Run("can change REDIS_HOST when REDIS_PORT was set", func(t *testing.T) {
-		var startingConfig, expectedConfig Config
+		var startingConfig Config
 		startingConfig.Redis.Port = mustOptIntGreaterThanZero(2222)
 		vars := map[string]string{
 			"USE_REDIS":  "1",
 			"REDIS_HOST": "redishost",
 		}
+		expectedConfig := configDefaults
 		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
 		withEnvironment(vars, func() {
 			c := startingConfig

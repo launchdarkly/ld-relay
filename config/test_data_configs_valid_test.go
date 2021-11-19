@@ -21,8 +21,18 @@ type testDataValidConfig struct {
 	warnings    []string
 }
 
+var configDefaults = Config{
+	Main: MainConfig{
+		BaseURI:   defaultBaseURI,
+		StreamURI: defaultStreamURI,
+	},
+	Events: EventsConfig{
+		EventsURI: defaultEventsURI,
+	},
+}
+
 func (tdc testDataValidConfig) assertResult(t *testing.T, actualConfig Config, mockLog *ldlogtest.MockLog) {
-	var expectedConfig Config
+	expectedConfig := configDefaults
 	tdc.makeConfig(&expectedConfig)
 	assert.Equal(t, expectedConfig, actualConfig)
 	for _, message := range tdc.warnings {
@@ -123,7 +133,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: ct.NewOptStringList([]string{"https://oa", "https://rann"}),
-				AllowedHeader: ct.NewOptStringList([]string{"Timestamp-Valid","Random-Id-Valid"}),
+				AllowedHeader: ct.NewOptStringList([]string{"Timestamp-Valid", "Random-Id-Valid"}),
 				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
@@ -224,7 +234,7 @@ func makeValidConfigAutoConfig() testDataValidConfig {
 		c.AutoConfig = AutoConfigConfig{
 			Key:              AutoConfigKey("autokey"),
 			EnvAllowedOrigin: ct.NewOptStringList([]string{"http://first", "http://second"}),
-			EnvAllowedHeader: ct.NewOptStringList([]string{"First","Second"}),
+			EnvAllowedHeader: ct.NewOptStringList([]string{"First", "Second"}),
 		}
 	}
 	c.envVars = map[string]string{
@@ -251,7 +261,7 @@ func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 			EnvDatastorePrefix:    "prefix-$CID",
 			EnvDatastoreTableName: "table-$CID",
 			EnvAllowedOrigin:      ct.NewOptStringList([]string{"http://first", "http://second"}),
-			EnvAllowedHeader:      ct.NewOptStringList([]string{"First","Second"}),
+			EnvAllowedHeader:      ct.NewOptStringList([]string{"First", "Second"}),
 		}
 		c.DynamoDB.Enabled = true
 	}
