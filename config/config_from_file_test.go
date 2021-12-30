@@ -122,21 +122,21 @@ Port = "-1"`,
 
 	t.Run("parses valid URI", func(t *testing.T) {
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
+			makeConfig: func(c *Config) { c.Main.StreamURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
 			fileContent: `[Main]
-BaseUri = "http://some/uri"`,
+StreamUri = "http://some/uri"`,
 		})
 	})
 
 	t.Run("rejects invalid URI", func(t *testing.T) {
 		testFileWithInvalidConfig(t,
 			`[Main]
-BaseUri = "::"`,
+StreamUri = "::"`,
 			"not a valid URL/URI",
 		)
 		testFileWithInvalidConfig(t,
 			`[Main]
-BaseUri = "not/absolute"`,
+StreamUri = "not/absolute"`,
 			"must be an absolute URL/URI",
 		)
 	})

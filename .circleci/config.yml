@@ -54,9 +54,10 @@ workflows:
             only: v6
     jobs:
       - integration-test:
-          ld_base_url: https://app.launchdarkly.com
+          ld_api_url: https://app.launchdarkly.com
           ld_stream_url: https://stream.launchdarkly.com
           ld_sdk_url: https://sdk.launchdarkly.com
+          ld_client_sdk_url: https://clientsdk.launchdarkly.com
           ld_api_token_env_var: LD_API_TOKEN_PROD
     when:
       equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
@@ -158,7 +159,7 @@ jobs:
 
   integration-test:
     parameters:
-      ld_base_url:
+      ld_api_url:
         type: string
         default: https://ld-stg.launchdarkly.com
       ld_stream_url:
@@ -167,6 +168,9 @@ jobs:
       ld_sdk_url:
         type: string
         default: https://sdk-stg.launchdarkly.com
+      ld_client_sdk_url:
+        type: string
+        default: https://clientsdk-stg.launchdarkly.com
       ld_api_token_env_var:
         type: string
         default: LD_API_TOKEN_STG
@@ -174,9 +178,10 @@ jobs:
       image: ubuntu-2004:202107-02
       docker_layer_caching: true
     environment:
-      LD_BASE_URL: <<parameters.ld_base_url>>
+      LD_API_URL: <<parameters.ld_api_url>>
       LD_STREAM_URL: <<parameters.ld_stream_url>>
       LD_SDK_URL: <<parameters.ld_sdk_url>>
+      LD_CLIENT_SDK_URL: <<parameters.ld_client_sdk_url>>
       CIRCLE_TEST_REPORTS: /tmp/circle-reports
       CIRCLE_ARTIFACTS: /tmp/circle-artifacts
       COMMON_GO_PACKAGES: >

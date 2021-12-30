@@ -66,8 +66,21 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 }
 
 func validateConfigDefaultURLs(c *Config) {
-	if !c.Main.BaseURI.IsDefined() {
+	switch {
+	case !c.Main.BaseURI.IsDefined(),
+		*c.Main.BaseURI.Get() == *defaultBaseURI.Get(),
+		*c.Main.BaseURI.Get() == *oldDefaultBaseURI.Get():
 		c.Main.BaseURI = defaultBaseURI
+		if !c.Main.ClientSideBaseURI.IsDefined() {
+			c.Main.ClientSideBaseURI = defaultClientSideBaseURI
+		}
+	default:
+		// BaseuRI was set to some custom value, which may mean the customer has a private
+		// instance. In that case, the default for ClientSideBaseURI if not specified should be to
+		// make it the same as BaseURI.
+		if !c.Main.ClientSideBaseURI.IsDefined() {
+			c.Main.ClientSideBaseURI = c.Main.BaseURI
+		}
 	}
 	if !c.Main.StreamURI.IsDefined() {
 		c.Main.StreamURI = defaultStreamURI
