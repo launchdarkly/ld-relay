@@ -79,11 +79,3 @@ func createRelayConfig() config.Config {
 ```
 
 If you want to shut down all Relay Proxy components, connections, goroutines, and port listeners while your application is still running, call the `Relay`'s `Close()` method. You are allowed to start a new `Relay` instance after doing this. (In fact, you can always start a new `Relay` instance even if one already exists, as long as they're not using the same port. However, there's normally no reason to do this.)
-
-
-### Additional Notes
-If your vulnerability scanner is picking up [this issue](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160) check out [the solution](https://github.com/launchdarkly/ld-relay/issues/150):
-```shell
-go mod edit -replace github.com/dgrijalva/jwt-go=github.com/golang-jwt/jwt@v3.2.1+incompatible
-go mod tidy
-```
