@@ -46,7 +46,8 @@ For **Duration** settings, the value should be be an integer followed by `ms`, `
 Property in file         | Environment var      | Type    | Default | Description
 ------------------------ | -------------------- | :-----: | :------ | -----------
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
-`baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service.
+`baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service for server-side SDKs.
+`clientSideBaseUri`      | `CLIENT_SIDE_BASE_URI` | URI   | _(1)_   | URI for the LaunchDarkly polling service for client-side SDKs.
 `exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
 `exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
@@ -64,7 +65,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `bigSegmentsStaleAsDegraded` | `BIG_SEGMENTS_STALE_AS_DEGRADED` | Boolean | `false` | Indicates if environments should be considered degraded if big segments are not fully synchronized.
 `BigSegmentsStaleThreshold` | `BIG_SEGMENTS_STALE_THRESHOLD` | Duration | `5m` | Indicates how long until big segments should be considered stale.
 
-_(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
+_(1)_ The default values for `streamUri`, `baseUri`, and `clientSideBaseUri` are `https://stream.launchdarkly.com`, `https://sdk.launchdarkly.com`, and `https://clientsdk.launchdarkly.com` respectively. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
 
 _(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags; this is only useful if you have enabled Redis or another database, so that it will store the flags there.
 

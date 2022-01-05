@@ -1,3 +1,4 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
@@ -34,9 +35,10 @@ import (
 )
 
 const (
-	defaultAppBaseURL         = "https://ld-stg.launchdarkly.com"
+	defaultAPIBaseURL         = "https://ld-stg.launchdarkly.com"
 	defaultStreamBaseURL      = "https://stream-stg.launchdarkly.com"
-	defaultSDKURL             = "https://sdk-stg.launchdarkly.com"
+	defaultSDKBaseURL         = "https://sdk-stg.launchdarkly.com"
+	defaultClientSDKBaseURL   = "https://clientsdk-stg.launchdarkly.com"
 	defaultStatusPollTimeout  = time.Second * 5
 	defaultStatusPollInterval = time.Millisecond * 100
 	relayContainerSharedDir   = "/tmp/relay-shared"
@@ -45,9 +47,10 @@ const (
 type autoConfigID string
 
 type integrationTestParams struct {
-	LDAppBaseURL    ct.OptString `conf:"LD_BASE_URL"`
+	LDAPIBaseURL    ct.OptString `conf:"LD_API_URL"`
 	LDStreamBaseURL ct.OptString `conf:"LD_STREAM_URL"`
-	LDSDKURL        ct.OptString `conf:"LD_SDK_URL"`
+	LDSDKBaseURL    ct.OptString `conf:"LD_SDK_URL"`
+	LDClientSDKURL  ct.OptString `conf:"LD_CLIENT_SDK_URL"`
 	APIToken        string       `conf:"LD_API_TOKEN,required"`
 	RelayTagOrSHA   string       `conf:"RELAY_TAG_OR_SHA"`
 	HTTPLogging     bool         `conf:"HTTP_LOGGING"`
@@ -59,9 +62,10 @@ type integrationTestParams struct {
 // assertions like querying Relay's status until it matches some expected condition.
 type integrationTestManager struct {
 	params             integrationTestParams
-	baseURL            string
+	apiURL             string
 	streamURL          string
 	sdkURL             string
+	clientSDKURL       string
 	httpClient         *http.Client
 	apiHelper          *apiHelper
 	dockerImage        *docker.Image
@@ -89,10 +93,10 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
-	baseURL := params.LDAppBaseURL.GetOrElse(defaultAppBaseURL)
+	apiBaseURL := params.LDAPIBaseURL.GetOrElse(defaultAPIBaseURL) + "/api/v2"
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
-	sdkURL := params.LDSDKURL.GetOrElse(defaultSDKURL)
-	apiBaseURL := baseURL + "/api/v2"
+	sdkURL := params.LDSDKBaseURL.GetOrElse(defaultSDKBaseURL)
+	clientSDKURL := params.LDClientSDKURL.GetOrElse(defaultClientSDKBaseURL)
 
 	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, loggers: loggers}
 	requestLogger.loggers.SetPrefix("[HTTP]")
@@ -138,9 +142,10 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 
 	return &integrationTestManager{
 		params:             params,
-		baseURL:            baseURL,
+		apiURL:             apiBaseURL,
 		streamURL:          streamURL,
 		sdkURL:             sdkURL,
+		clientSDKURL:       clientSDKURL,
 		httpClient:         httpClient,
 		apiHelper:          apiHelper,
 		dockerImage:        dockerImage,
@@ -169,10 +174,20 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 		Name("relay-"+uuid.New()).
 		Network(m.dockerNetwork).
 		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
-		EnvVar("BASE_URI", m.baseURL).
-		EnvVar("STREAM_URI", m.streamURL).
 		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true").
 		EnvVar("LOG_LEVEL", "debug")
+	// Set the Relay config variables for base URIs only if we're *not* using the production defaults.
+	// This verifies that Relay's own default behavior is correct.
+	if m.streamURL != "https://stream.launchdarkly.com" {
+		cb.EnvVar("STREAM_URI", m.streamURL)
+	}
+	if m.sdkURL != "https://sdk.launchdarkly.com" {
+		cb.EnvVar("BASE_URI", m.sdkURL)
+	}
+	if m.clientSDKURL != "https://clientsdk.launchdarkly.com" {
+		cb.EnvVar("CLIENT_SIDE_BASE_URI", m.clientSDKURL)
+	}
+
 	for k, v := range envVars {
 		cb.EnvVar(k, v)
 	}
