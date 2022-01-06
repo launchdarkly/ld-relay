@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.0] - 2022-01-05
+### Added:
+- New configuration property `clientSideBaseURI` (environment variable `CLIENT_SIDE_BASE_URI`) for unusual cases where a custom domain is being used specifically for client-side SDK polling requests. This and other base URI options will never need to be set by most users.
+
+### Changed:
+- If the base URI properties are not overridden with custom settings, the Relay Proxy now uses the hostnames `sdk.launchdarkly.com` and `clientsdk.launchdarkly.com` instead of `app.launchdarkly.com` when making requests to certain LaunchDarkly endpoints. This has no effect on the Relay Proxy's functionality, but allows LaunchDarkly's load-balancing behavior to work more efficiently.
+
 ## [6.5.2] - 2021-11-19
 ### Changed:
 - Building the Relay Proxy from source code now requires Go 1.16 or higher.
