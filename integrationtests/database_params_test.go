@@ -1,8 +1,10 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -49,7 +51,7 @@ func (p databaseTestParams) withStartedRelay(
 	dbContainer *docker.Container,
 	environments []environmentInfo,
 	addVars map[string]string,
-	action func(),
+	action func(core.StatusRep),
 ) {
 	vars := p.envVarsFn(dbContainer)
 	for k, v := range addVars {
@@ -87,10 +89,11 @@ func (p databaseTestParams) withStartedRelay(
 	})
 	if !success {
 		fmt.Println("Expected to see data store statuses:", expectedDataStoreStatuses)
-		fmt.Println("Last status received was:", lastStatus)
+		jsonStatus, _ := json.Marshal(lastStatus)
+		fmt.Println("Last status received was:", string(jsonStatus))
 	}
 
-	action()
+	action(lastStatus)
 }
 
 var redisDatabaseTestParams = databaseTestParams{

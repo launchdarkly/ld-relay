@@ -53,6 +53,7 @@ type EnvironmentStatusRep struct {
 //
 // This is exported for use in integration test code.
 type BigSegmentStatusRep struct {
+	Available          bool                       `json:"available"`
 	PotentiallyStale   bool                       `json:"potentiallyStale"`
 	LastSynchronizedOn ldtime.UnixMillisecondTime `json:"lastSynchronizedOn"`
 }
@@ -189,13 +190,18 @@ func statusHandler(core *RelayCore) http.Handler {
 			if bigSegmentStore != nil {
 				bigSegmentStatus := BigSegmentStatusRep{}
 				synchronizedOn, err := bigSegmentStore.GetSynchronizedOn()
-				bigSegmentStatus.LastSynchronizedOn = synchronizedOn
-				now := ldtime.UnixMillisNow()
-				stalenessThreshold := core.config.Main.BigSegmentsStaleThreshold.GetOrElse(config.DefaultBigSegmentsStaleThreshold)
-				if err != nil || synchronizedOn.IsDefined() || now > (synchronizedOn+ldtime.UnixMillisecondTime(stalenessThreshold.Milliseconds())) {
-					bigSegmentStatus.PotentiallyStale = true
-					if err != nil || core.config.Main.BigSegmentsStaleAsDegraded {
-						healthy = false
+				if err != nil {
+					bigSegmentStatus.Available = false
+				} else {
+					bigSegmentStatus.Available = true
+					bigSegmentStatus.LastSynchronizedOn = synchronizedOn
+					now := ldtime.UnixMillisNow()
+					stalenessThreshold := core.config.Main.BigSegmentsStaleThreshold.GetOrElse(config.DefaultBigSegmentsStaleThreshold)
+					if !synchronizedOn.IsDefined() || now > (synchronizedOn+ldtime.UnixMillisecondTime(stalenessThreshold.Milliseconds())) {
+						bigSegmentStatus.PotentiallyStale = true
+						if core.config.Main.BigSegmentsStaleAsDegraded {
+							healthy = false
+						}
 					}
 				}
 				status.BigSegmentStatus = &bigSegmentStatus

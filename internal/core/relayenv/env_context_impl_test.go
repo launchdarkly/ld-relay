@@ -495,6 +495,10 @@ func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 	if assert.NotNil(t, fakeSynchronizerFactory.synchronizer) {
 		assert.False(t, fakeSynchronizerFactory.synchronizer.isStarted())
 		assert.False(t, fakeSynchronizerFactory.synchronizer.isClosed())
+
+		// We shouldn't expose the store until some big segments exist, so that Relay doesn't report
+		// misleading big segments status info in its status resource.
+		assert.Nil(t, env.GetBigSegmentStore())
 	}
 
 	env.Close()
@@ -562,6 +566,10 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	updates.SendAllDataUpdate(dataWithBigSegment)
 
 	assert.True(t, synchronizer.isStarted())
+
+	// Now we should expose the big segment store so that Relay can include big segment status information
+	// in its status resource.
+	assert.NotNil(t, env.GetBigSegmentStore())
 }
 
 func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *testing.T) {
