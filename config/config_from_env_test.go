@@ -36,7 +36,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 	t.Run("can add SDK key to existing environment", func(t *testing.T) {
 		var startingConfig Config
 		startingConfig.Environment = map[string]*EnvConfig{
-			"envname": &EnvConfig{
+			"envname": {
 				Prefix: "p",
 			},
 		}
@@ -45,7 +45,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		}
 		expectedConfig := configDefaults
 		expectedConfig.Environment = map[string]*EnvConfig{
-			"envname": &EnvConfig{
+			"envname": {
 				SDKKey: SDKKey("my-key"),
 				Prefix: "p",
 			},
@@ -180,19 +180,19 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("parses valid URI", func(t *testing.T) {
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
-			envVars:    map[string]string{"BASE_URI": "http://some/uri"},
+			makeConfig: func(c *Config) { c.Main.StreamURI = newOptURLAbsoluteMustBeValid("http://some/uri") },
+			envVars:    map[string]string{"STREAM_URI": "http://some/uri"},
 		})
 	})
 
 	t.Run("rejects invalid URI", func(t *testing.T) {
 		testInvalidConfigVars(t,
-			map[string]string{"BASE_URI": "::"},
-			"BASE_URI: not a valid URL/URI",
+			map[string]string{"STREAM_URI": "::"},
+			"STREAM_URI: not a valid URL/URI",
 		)
 		testInvalidConfigVars(t,
-			map[string]string{"BASE_URI": "not/absolute"},
-			"BASE_URI: must be an absolute URL/URI",
+			map[string]string{"STREAM_URI": "not/absolute"},
+			"STREAM_URI: must be an absolute URL/URI",
 		)
 	})
 
