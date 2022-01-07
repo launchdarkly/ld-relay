@@ -59,6 +59,7 @@ Making a `GET` request to the URL path `/status` provides JSON information about
         },
       },
       "bigSegmentStatus": {
+        "available": true,
         "potentiallyStale": true,
         "lastSynchronizedOn": 1618859993000
       },
@@ -92,12 +93,13 @@ The status properties are defined as follows:
     - `dbServer`, if present, is the configured database URL or hostname.
     - `dbPrefix`, if present, is the configured database key prefix for this environment.
     - `dbTable`, if present, is the DynamoDB table name for this environment.
-- The `bigSegmentStatus` properties are relevant if you are utilizing big segments.
-    - `potentiallyStale` is a boolean that indicates if big segments are potentially not fully synchronized. This might be because initial synchronization has not completed, or due to a networking error.
-    - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure big segments were synchronized. Active but incomplete synchronization does not update this timestamp.
+- The `bigSegmentStatus` properties are relevant if you are utilizing Big Segments.
+    - `available` is a boolean that is `true` if the database being used for Big Segments seems to be working, or `false` if the most recent database operation failed.
+    - `potentiallyStale` is a boolean that indicates if Big Segments are potentially not fully synchronized. This might be because initial synchronization has not completed, or due to a networking error.
+    - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure Big Segments were synchronized. Active but incomplete synchronization does not update this timestamp.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
     - In [automatic configuration mode](../configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
-    - When big segments are enabled, this value can also be `"degraded"` if big segments are potentially not fully synchronized as indicated by the `potentiallyStale` property in the `bigSegmentsStatus` object.
+    - When Big Segments are enabled, this value will also be `"degraded"` if the Big Segments status has an `available` property of `false` (indicating a database error), or if `potentiallyStale` is `true` (meaning Big Segments are potentially not fully synchronized) _and_ the configuration setting `bigSegmentsStaleAsDegraded` is enabled.
 - `version` is the version of the Relay Proxy.
 - `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
 

@@ -1,3 +1,4 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
@@ -6,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,9 +46,13 @@ func doDatabaseTest(
 		environments[0].prefix = "prefix1"
 		environments[1].prefix = "prefix2"
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, nil, func() {
-			// withStartedRelay verifies that it started up correctly and is reporting
-			// a valid data store status - we don't need to do anything additional here
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, nil, func(status core.StatusRep) {
+			// withStartedRelay has already verified that it started up correctly and is reporting
+			// a valid data store status; we'll just additionally verify that it is *not* reporting
+			// any Big Segment status, since there isn't any Big Segments data
+			for _, e := range status.Environments {
+				assert.Nil(t, e.BigSegmentStatus)
+			}
 		})
 	})
 }

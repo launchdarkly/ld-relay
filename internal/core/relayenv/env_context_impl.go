@@ -86,6 +86,7 @@ type envContextImpl struct {
 	eventDispatcher  *events.EventDispatcher
 	bigSegmentSync   bigsegments.BigSegmentSynchronizer
 	bigSegmentStore  bigsegments.BigSegmentStore
+	bigSegmentsExist bool
 	sdkBigSegments   *ldstoreimpl.BigSegmentStoreWrapper
 	sdkConfig        ld.Config
 	sdkClientFactory sdks.ClientFactoryFunc
@@ -513,7 +514,14 @@ func (c *envContextImpl) GetEvaluator() ldeval.Evaluator {
 }
 
 func (c *envContextImpl) GetBigSegmentStore() bigsegments.BigSegmentStore {
-	return c.bigSegmentStore
+	c.mu.RLock()
+	enabled := c.bigSegmentsExist
+	c.mu.RUnlock()
+
+	if enabled {
+		return c.bigSegmentStore
+	}
+	return nil
 }
 
 func (c *envContextImpl) GetLoggers() ldlog.Loggers {
@@ -628,6 +636,18 @@ func (c *envContextImpl) Close() error {
 	return nil
 }
 
+func (c *envContextImpl) setBigSegmentsExist() {
+	c.mu.Lock()
+	alreadyExisted := c.bigSegmentsExist
+	c.bigSegmentsExist = true
+	c.mu.Unlock()
+
+	if !alreadyExisted && c.bigSegmentSync != nil {
+		c.bigSegmentSync.Start()
+		c.sdkBigSegments.SetPollingActive(true) // has no effect if already active
+	}
+}
+
 func (q envContextStoreQueries) IsInitialized() bool {
 	if s := q.context.storeAdapter.GetStore(); s != nil {
 		return s.IsInitialized()
@@ -649,6 +669,7 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 	if u.context.bigSegmentSync == nil {
 		return
 	}
+
 	hasBigSegment := false
 	for _, coll := range allData {
 		if coll.Kind == ldstoreimpl.Segments() {
@@ -661,7 +682,7 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 		}
 	}
 	if hasBigSegment {
-		u.context.bigSegmentSync.Start() // has no effect if already started
+		u.context.setBigSegmentsExist()
 	}
 }
 
@@ -678,8 +699,7 @@ func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKin
 		}
 	}
 	if hasBigSegment {
-		u.context.bigSegmentSync.Start()                // has no effect if already started
-		u.context.sdkBigSegments.SetPollingActive(true) // has no effect if already active
+		u.context.setBigSegmentsExist()
 	}
 }
 
