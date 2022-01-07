@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.1] - 2022-01-06
+### Fixed:
+- The Relay Proxy status resource could incorrectly report the overall status as "degraded" if a database was enabled, even if everything was working normally. This was due to incorrectly assuming that Big Segments data would be present, when the Big Segments feature was not being used. This has been fixed so that now if there are no Big Segments, the status resource does not include a `bigSegmentStatus` property and the overall status is calculated correctly.
+
 ## [6.6.0] - 2022-01-05
 ### Added:
 - New configuration property `clientSideBaseURI` (environment variable `CLIENT_SIDE_BASE_URI`) for unusual cases where a custom domain is being used specifically for client-side SDK polling requests. This and other base URI options will never need to be set by most users.
