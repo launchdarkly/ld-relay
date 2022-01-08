@@ -29,7 +29,7 @@ workflows:
       - benchmarks:
           docker-image: cimg/go:1.16
       - integration-test
-      - test-publish
+      - docker-images-test
 
   # Run hourly integration tests on the private v6 branch
   hourly-integration-test-stg:
@@ -247,7 +247,7 @@ jobs:
           name: Run benchmarks
           command: make benchmarks
 
-  test-publish:
+  docker-images-test:
     docker:
       # We must keep this image tag in sync with the image that will really be used for releases,
       # which is specified in .ldrelease/config.yml.
@@ -258,9 +258,27 @@ jobs:
     steps:
       - checkout
       - setup_remote_docker  # start docker engine
-      - run: sudo apt-get update
-      - run: sudo apt-get install rpm
-      - run: make products-for-release
-      - run: make docker-smoke-test
+
+      - run:
+          name: add package source for Trivy
+          command: |
+            sudo apt-get install wget apt-transport-https gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+
+      - run:
+          name: install packages
+          command: |
+            sudo apt-get update
+            sudo apt-get install rpm trivy
+
+      - run:
+          name: build Docker images and run smoke test
+          command: make docker-smoke-test
+
+      - run:
+          name: Trivy security scan
+          command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+
       - store_artifacts:
           path: dist/
