@@ -60,28 +60,36 @@ workflows:
     when:
       equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
 
-  # The daily-package-build-test job is temporarily disabled - we will re-enable it for Go 1.16 & 1.17
-  # once the latest public release no longer contains a replace directive in go.mod.
-  # daily-package-build-test:
-  #   triggers:
-  #   - schedule:
-  #       cron: "0 8 * * *"
-  #       filters:
-  #         branches:
-  #           only: v6
-  #   jobs:
-      # - package-build-test:
-      #     name: package build - Go latest
-      #     docker-image: circleci/golang:latest
-      #     use-go-install: true
-      # - package-build-test:
-      #     name: package build - Go 1.17
-      #     docker-image: cimg/go:1.17
-      #     use-go-install: true
-      # - package-build-test:
-      #     name: package build - Go 1.16
-      #     docker-image: cimg/go:1.16
-      #     use-go-install: true
+  daily-package-build-test:
+    triggers:
+    - schedule:
+        cron: "0 8 * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - package-build-test:
+          name: package build - Go latest
+          docker-image: circleci/golang:latest
+          use-go-install: true
+      - package-build-test:
+          name: package build - Go 1.17
+          docker-image: cimg/go:1.17
+          use-go-install: true
+      - package-build-test:
+          name: package build - Go 1.16
+          docker-image: cimg/go:1.16
+          use-go-install: true
+
+  daily-security-scan:
+    triggers:
+    - schedule:
+        cron: "0 12 * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - security-scan-only
 
 jobs:
   go-test:
@@ -279,6 +287,43 @@ jobs:
       - run:
           name: Trivy security scan
           command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+          # Note that the "latest" here is not the latest published image in DockerHub;
+          # it's the one that was just built locally in the previous step.
 
       - store_artifacts:
           path: dist/
+
+  security-scan-only:
+    docker:
+      # We must keep this image tag in sync with the image that will really be used for releases,
+      # which is specified in .ldrelease/config.yml.
+      - image: cimg/go:1.16.10
+        environment:
+          <<: *environment
+
+    steps:
+      - checkout
+      - setup_remote_docker  # start docker engine
+
+      - run:
+          name: add package source for Trivy
+          command: |
+            sudo apt-get install wget apt-transport-https gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+
+      - run:
+          name: install packages
+          command: |
+            sudo apt-get update
+            sudo apt-get install rpm trivy
+
+      - run:
+          name: build Docker images
+          command: make products-for-release
+
+      - run:
+          name: Trivy security scan
+          command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+          # Note that the "latest" here is not the latest published image in DockerHub;
+          # it's the one that was just built locally in the previous step.
