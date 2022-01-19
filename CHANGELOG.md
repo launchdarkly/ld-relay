@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.3] - 2022-01-19
+### Changed:
+- Updated the Docker image to use Go 1.17.6. The previous Go version, 1.16.10, was reported to have security vulnerabilities [CVE-2021-29923](https://nvd.nist.gov/vuln/detail/CVE-2021-29923) and [CVE-2021-44716](https://nvd.nist.gov/vuln/detail/CVE-2021-44716).
+
 ## [6.6.2] - 2022-01-11
 ### Changed:
 - A security scan with [Trivy](https://aquasecurity.github.io/trivy) is now included in every CI build, including both the compiled Relay Proxy executable and the Docker image.
