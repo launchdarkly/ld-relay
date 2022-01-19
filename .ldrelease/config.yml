@@ -38,7 +38,7 @@ repo:
 
 jobs:
   - docker:
-      image: cimg/go:1.16.10
+      image: cimg/go:1.17.6   # See "Runtime platform versions" in CONTRIBUTING.md
       copyGitHistory: true
     template:
       name: go

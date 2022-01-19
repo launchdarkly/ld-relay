@@ -61,3 +61,17 @@ As this is a larger codebase than most LaunchDarkly open-source projects, we hav
 
 * No packages outside of `internal/` should export any symbols other than the ones that are necessary to support usage of the Relay Proxy [as a library](./docs/in-app.md). Anything else that is visible becomes part of the supported external API for this project and can't be changed without a new major version, so be careful not to export any irrelevant implementation details. Anything within `internal/` can safely be changed.
 * Package imports should be grouped as follows: 1. all built-in Go packages; 2. all packages that are part of this repository (`github.com/launchdarkly/ld-relay/...`); 3. all other LaunchDarkly packages (`github.com/launchdarkly/...`, `gopkg.in/launchdarkly/...`); 4. all third-party packages.
+
+### Runtime platform versions (Go and Alpine) for Docker
+
+The published `ld-relay` Docker image embeds specific versions of the Alpine OS and the Go runtime. We update these to take advantage of patch releases for both Alpine and Go.
+
+These versions are specified in several places. For the published `ld-relay` image:
+
+* The Alpine version is specified by the `FROM` line in `Dockerfile.goreleaser`.
+* The Go version is specified by the `image` property in `.ldrelease/config.yml`. Basically, we run a Docker container with some version of Go in it, and within that container we will be running `goreleaser`. Then the `goreleaser` tool will look at `Dockerfile.goreleaser` to provide the base image, and it will embed whatever version of the Go runtime it is running on in the published executable.
+
+When we change these versions, we should also update our test builds to match the versions we are releasing with:
+
+* In `.circleci/config.yml`, update the default value of `go-release-version`.
+* In `Dockerfile` (which is used for CI tests, not for the release), update the `FROM` line to an image in the format `golang:$(GO_VERSION)-alpine$(ALPINE_VERSION)`.
