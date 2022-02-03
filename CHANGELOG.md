@@ -2,6 +2,17 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.3] - 2022-01-19
+### Changed:
+- Updated the Docker image to use Go 1.17.6. The previous Go version, 1.16.10, was reported to have security vulnerabilities [CVE-2021-29923](https://nvd.nist.gov/vuln/detail/CVE-2021-29923) and [CVE-2021-44716](https://nvd.nist.gov/vuln/detail/CVE-2021-44716).
+
+## [6.6.2] - 2022-01-11
+### Changed:
+- A security scan with [Trivy](https://aquasecurity.github.io/trivy) is now included in every CI build, including both the compiled Relay Proxy executable and the Docker image.
+
+### Fixed:
+- Updated dependency `golang.org/x/text` to v0.3.7 due to vulnerability [GO-2021-0113](https://osv.dev/vulnerability/GO-2021-0113).
+
 ## [6.6.1] - 2022-01-06
 ### Fixed:
 - The Relay Proxy status resource could incorrectly report the overall status as "degraded" if a database was enabled, even if everything was working normally. This was due to incorrectly assuming that Big Segments data would be present, when the Big Segments feature was not being used. This has been fixed so that now if there are no Big Segments, the status resource does not include a `bigSegmentStatus` property and the overall status is calculated correctly.
