@@ -2,6 +2,7 @@ package autoconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -86,9 +87,9 @@ func NewStreamManager(
 }
 
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
-// receives a value when the connection has either been made or permanently failed.
-func (s *StreamManager) Start() <-chan struct{} {
-	readyCh := make(chan struct{}, 1)
+// receives nil for a successful connection, or an error if it has permanently failed.
+func (s *StreamManager) Start() <-chan error {
+	readyCh := make(chan error, 1)
 	go s.subscribe(readyCh)
 	return readyCh
 }
@@ -100,19 +101,19 @@ func (s *StreamManager) Close() {
 	})
 }
 
-func (s *StreamManager) subscribe(readyCh chan<- struct{}) {
+func (s *StreamManager) subscribe(readyCh chan<- error) {
 	req, _ := http.NewRequest("GET", s.uri, nil)
 	req.Header.Set("Authorization", string(s.key))
 	s.loggers.Infof(logMsgStreamConnecting, s.uri)
 
 	var readyOnce sync.Once
-	signalReady := func() { readyOnce.Do(func() { readyCh <- struct{}{} }) }
+	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
 
 	errorHandler := func(err error) es.StreamErrorHandlerResult {
 		if se, ok := err.(es.SubscriptionError); ok {
 			if se.Code == 401 || se.Code == 403 {
 				s.loggers.Error(logMsgBadKey)
-				signalReady()
+				signalReady(errors.New("invalid auto-configuration key"))
 				return es.StreamErrorHandlerResult{CloseNow: true}
 			}
 			s.loggers.Warnf(logMsgStreamHTTPError, se.Code)
@@ -147,11 +148,11 @@ func (s *StreamManager) subscribe(readyCh chan<- struct{}) {
 
 	if err != nil {
 		s.loggers.Errorf(logMsgStreamOtherError, err)
-		signalReady()
+		signalReady(err)
 		return
 	}
 
-	signalReady()
+	signalReady(nil)
 	s.consumeStream(stream)
 }
 
