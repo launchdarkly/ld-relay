@@ -48,7 +48,7 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
 `baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service for server-side SDKs.
 `clientSideBaseUri`      | `CLIENT_SIDE_BASE_URI` | URI   | _(1)_   | URI for the LaunchDarkly polling service for client-side SDKs.
-`exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
+`exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization. The default behavior is that it will terminate (with a non-zero exit code) if the configuration options are completely invalid, or if there is an incorrect `AutoConfig` key, but will remain running if there is an error specific to one environment (such as an invalid SDK key). Setting this option to `true` makes it terminate in both cases.
 `exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
