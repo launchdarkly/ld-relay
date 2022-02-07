@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.4] - 2022-02-07
+### Fixed:
+- In auto-configuration mode, if the auto-configuration key is invalid, the Relay Proxy should exit with an error code just as it would for other kinds of invalid configuration properties, since there is no way for it to perform any useful functions without having environment information. ([#165](https://github.com/launchdarkly/ld-relay/issues/165))
+
 ## [6.6.3] - 2022-01-19
 ### Changed:
 - Updated the Docker image to use Go 1.17.6. The previous Go version, 1.16.10, was reported to have security vulnerabilities [CVE-2021-29923](https://nvd.nist.gov/vuln/detail/CVE-2021-29923) and [CVE-2021-44716](https://nvd.nist.gov/vuln/detail/CVE-2021-44716).
