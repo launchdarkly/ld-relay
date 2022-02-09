@@ -46,8 +46,9 @@ For **Duration** settings, the value should be be an integer followed by `ms`, `
 Property in file         | Environment var      | Type    | Default | Description
 ------------------------ | -------------------- | :-----: | :------ | -----------
 `streamUri`              | `STREAM_URI`         | URI     | _(1)_   | URI for the LaunchDarkly streaming service.
-`baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service.
-`exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization.
+`baseUri`                | `BASE_URI`           | URI     | _(1)_   | URI for the LaunchDarkly polling service for server-side SDKs.
+`clientSideBaseUri`      | `CLIENT_SIDE_BASE_URI` | URI   | _(1)_   | URI for the LaunchDarkly polling service for client-side SDKs.
+`exitOnError`            | `EXIT_ON_ERROR`      | Boolean | `false` | Close the Relay Proxy if it encounters any error during initialization. The default behavior is that it will terminate (with a non-zero exit code) if the configuration options are completely invalid, or if there is an incorrect `AutoConfig` key, but will remain running if there is an error specific to one environment (such as an invalid SDK key). Setting this option to `true` makes it terminate in both cases.
 `exitAlways`             | `EXIT_ALWAYS`        | Boolean | `false`  | Close the Relay Proxy immediately after initializing all environments (do not start an HTTP server). _(2)_
 `ignoreConnectionErrors` | `IGNORE_CONNECTION_ERRORS` | Boolean | `false` | Ignore any initial connectivity issues with LaunchDarkly. Best used when network connectivity is not reliable.
 `port`                   | `PORT`               | Number  | `8030`  | Port the Relay Proxy should listen on.
@@ -62,9 +63,9 @@ Property in file         | Environment var      | Type    | Default | Descriptio
 `tlsMinVersion`          | `TLS_MIN_VERSION`    | String  |         | Set to "1.2", etc., to enforce a minimum TLS version for secure requests.
 `logLevel`               | `LOG_LEVEL`          | String  | `info`  | Should be `debug`, `info`, `warn`, `error`, or `none`. **See: [Logging](./logging.md)**
 `bigSegmentsStaleAsDegraded` | `BIG_SEGMENTS_STALE_AS_DEGRADED` | Boolean | `false` | Indicates if environments should be considered degraded if big segments are not fully synchronized.
-`BigSegmentsStaleThreshold` | `BIG_SEGMENTS_STALE_THRESHOLD` | Duration | `5m` | Indicates how long until big segments should be considered stale.
+`bigSegmentsStaleThreshold` | `BIG_SEGMENTS_STALE_THRESHOLD` | Duration | `5m` | Indicates how long until big segments should be considered stale.
 
-_(1)_ The default values for `streamUri` and `baseUri` are `https://app.launchdarkly.com` and `https://stream.launchdarkly.com`. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
+_(1)_ The default values for `streamUri`, `baseUri`, and `clientSideBaseUri` are `https://stream.launchdarkly.com`, `https://sdk.launchdarkly.com`, and `https://clientsdk.launchdarkly.com` respectively. You should never need to change these URIs unless a) you are using a special instance of the LaunchDarkly service, in which case support will tell you how to set them, or b) you are accessing LaunchDarkly via a reverse proxy or some other mechanism that rewrites URLs.
 
 _(2)_ The `exitAlways` mode is intended for use cases where you do not want to maintain a long-running Relay Proxy instance, but only execute it at specific times to get flags; this is only useful if you have enabled Redis or another database, so that it will store the flags there.
 
@@ -270,3 +271,12 @@ Property in file | Environment var       | Type    | Default | Description
 `domain`         | `PROXY_AUTH_DOMAIN`   | String  |         | Domain name for proxy authentication, if applicable.
 `caCertFiles`    | `PROXY_CA_CERTS`      | String  |         | List of file paths to additional CA certificates that should be trusted (in PEM format). For multiple files, if using a configuration file, you can specify `caCertFiles` multiple times; if using environment variables, you can set `PROXY_CA_CERTS` to a comma-delimited list.
 `ntlmAuth`       | `PROXY_AUTH_NTLM`     | Boolean | `false` | Enables NTLM proxy authentication (requires user, password, and domain).
+
+
+### Experimental/testing variables
+
+The current version of the Relay Proxy also supports the following environment variables. These do not have an equivalent in a configuration file; they are not intended for production use; and they are not guaranteed to work in any other Relay Proxy versions.
+
+| Environment var             | Type     | Default | Description
+| --------------------------- | :------: | :------ | -----------
+| `LD_TRACE_LOG_BIG_SEGMENTS` | Boolean  | `false` | Enables extra logging at `debug` level, even more verbose than `debug` level normally is, specifically for big segments data. Use this with extreme caution since it may log detailed transactions for big segments which could potentially include millions of users. This option is intended only for debugging issues related to big segments under the guidance of LaunchDarkly support.

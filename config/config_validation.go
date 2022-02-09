@@ -57,11 +57,37 @@ func warnEnvWithoutDBDisambiguation(envName string, canUseTableName bool) string
 func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	var result ct.ValidationResult
 
+	validateConfigDefaultURLs(c)
 	validateConfigTLS(&result, c)
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, loggers)
 
 	return result.GetError()
+}
+
+func validateConfigDefaultURLs(c *Config) {
+	switch {
+	case !c.Main.BaseURI.IsDefined(),
+		*c.Main.BaseURI.Get() == *defaultBaseURI.Get(),
+		*c.Main.BaseURI.Get() == *oldDefaultBaseURI.Get():
+		c.Main.BaseURI = defaultBaseURI
+		if !c.Main.ClientSideBaseURI.IsDefined() {
+			c.Main.ClientSideBaseURI = defaultClientSideBaseURI
+		}
+	default:
+		// BaseuRI was set to some custom value, which may mean the customer has a private
+		// instance. In that case, the default for ClientSideBaseURI if not specified should be to
+		// make it the same as BaseURI.
+		if !c.Main.ClientSideBaseURI.IsDefined() {
+			c.Main.ClientSideBaseURI = c.Main.BaseURI
+		}
+	}
+	if !c.Main.StreamURI.IsDefined() {
+		c.Main.StreamURI = defaultStreamURI
+	}
+	if !c.Events.EventsURI.IsDefined() {
+		c.Events.EventsURI = defaultEventsURI
+	}
 }
 
 func validateConfigTLS(result *ct.ValidationResult, c *Config) {

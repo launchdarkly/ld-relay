@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
@@ -122,7 +123,18 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			0,
 			core.Loggers,
 		)
-		_ = r.autoConfigStream.Start()
+		autoConfigResult := r.autoConfigStream.Start()
+		go func() {
+			err := <-autoConfigResult
+			if err != nil {
+				// This channel only emits a non-nil error if it's an unrecoverable error, in which case
+				// Relay should quit. The ExitOnError option doesn't affect this, because a failure of
+				// auto-config is more serious than any environment-specific failure; Relay can't possibly
+				// do anything useful without a configuration. The StreamManager has already logged the
+				// error by this point, so we just need to quit.
+				os.Exit(1)
+			}
+		}()
 	}
 
 	if hasFileDataSource {

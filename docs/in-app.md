@@ -4,6 +4,8 @@
 
 If you need to customize the Relay Proxy's behavior and runtime environment in ways that the usual configuration settings don't support, you can incorporate the Relay Proxy code into your own application and let it provide service endpoints on a server that you configure.
 
+Building the Relay Proxy code requires Go 1.16 or later.
+
 Here is an example of how you might run the Relay Proxy endpoints inside your web server beneath a path called `/relay`, using [Gorilla](https://github.com/gorilla/mux) to set up the service routes.
 
 ```go
@@ -77,11 +79,3 @@ func createRelayConfig() config.Config {
 ```
 
 If you want to shut down all Relay Proxy components, connections, goroutines, and port listeners while your application is still running, call the `Relay`'s `Close()` method. You are allowed to start a new `Relay` instance after doing this. (In fact, you can always start a new `Relay` instance even if one already exists, as long as they're not using the same port. However, there's normally no reason to do this.)
-
-
-### Additional Notes
-If your vulnerability scanner is picking up [this issue](https://www.whitesourcesoftware.com/vulnerability-database/CVE-2020-26160) check out [the solution](https://github.com/launchdarkly/ld-relay/issues/150):
-```shell
-go mod edit -replace github.com/dgrijalva/jwt-go=github.com/golang-jwt/jwt@v3.2.1+incompatible
-go mod tidy
-```

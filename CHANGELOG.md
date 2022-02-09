@@ -2,6 +2,47 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.4] - 2022-02-07
+### Fixed:
+- In auto-configuration mode, if the auto-configuration key is invalid, the Relay Proxy should exit with an error code just as it would for other kinds of invalid configuration properties, since there is no way for it to perform any useful functions without having environment information. ([#165](https://github.com/launchdarkly/ld-relay/issues/165))
+
+## [6.6.3] - 2022-01-19
+### Changed:
+- Updated the Docker image to use Go 1.17.6. The previous Go version, 1.16.10, was reported to have security vulnerabilities [CVE-2021-29923](https://nvd.nist.gov/vuln/detail/CVE-2021-29923) and [CVE-2021-44716](https://nvd.nist.gov/vuln/detail/CVE-2021-44716).
+
+## [6.6.2] - 2022-01-11
+### Changed:
+- A security scan with [Trivy](https://aquasecurity.github.io/trivy) is now included in every CI build, including both the compiled Relay Proxy executable and the Docker image.
+
+### Fixed:
+- Updated dependency `golang.org/x/text` to v0.3.7 due to vulnerability [GO-2021-0113](https://osv.dev/vulnerability/GO-2021-0113).
+
+## [6.6.1] - 2022-01-06
+### Fixed:
+- The Relay Proxy status resource could incorrectly report the overall status as "degraded" if a database was enabled, even if everything was working normally. This was due to incorrectly assuming that Big Segments data would be present, when the Big Segments feature was not being used. This has been fixed so that now if there are no Big Segments, the status resource does not include a `bigSegmentStatus` property and the overall status is calculated correctly.
+
+## [6.6.0] - 2022-01-05
+### Added:
+- New configuration property `clientSideBaseURI` (environment variable `CLIENT_SIDE_BASE_URI`) for unusual cases where a custom domain is being used specifically for client-side SDK polling requests. This and other base URI options will never need to be set by most users.
+
+### Changed:
+- If the base URI properties are not overridden with custom settings, the Relay Proxy now uses the hostnames `sdk.launchdarkly.com` and `clientsdk.launchdarkly.com` instead of `app.launchdarkly.com` when making requests to certain LaunchDarkly endpoints. This has no effect on the Relay Proxy's functionality, but allows LaunchDarkly's load-balancing behavior to work more efficiently.
+
+## [6.5.2] - 2021-11-19
+### Changed:
+- Building the Relay Proxy from source code now requires Go 1.16 or higher.
+
+### Fixed:
+- Queries for Big Segment data were failing if `BaseURI` had not been explicitly set in the configuration. This error would appear in the log as "BigSegmentSynchronizer: Synchronization failed ... unsupported protocol scheme".
+- Updated dependencies to remove a transitive dependency on `jwt-go`. This had previously required a `replace` directive as a workaround (https://github.com/launchdarkly/ld-relay/issues/150), which is no longer necessary.
+- Updated the `golang.org/x/crypto` package to a newer version that does not have the vulnerability [CVE-2020-29652](https://nvd.nist.gov/vuln/detail/CVE-2020-29652). Practically speaking this was not a vulnerability in the Relay Proxy, because the potential attack involved a feature of that package that the Relay Proxy does not use (SSH).
+
+## [6.5.1] - 2021-11-16
+### Fixed:
+- Updated the Go runtime version in the Docker image to 1.16.10. This addresses known security issues in earlier versions of Go as reported in the CVE database.
+- Updated the Alpine version in the Docker image to 3.14.3. See [Alpine 3.14.3 release notes](https://www.alpinelinux.org/posts/Alpine-3.14.3-released.html) regarding issues addressed in this release.
+- Updated the dependency version of `github.com/hashicorp/consul/api` to v1.11.0. This was to address vulnerabilities that have been reported against earlier versions of Consul. We believe that those CVE reports are somewhat misleading since they refer to the Consul _server_, rather than the API library, but vulnerability scanners often conflate the two and the only known workaround is to update the API version (see https://github.com/hashicorp/consul/issues/10674).
+
 ## [6.5.0] - 2021-10-11
 ### Added:
 - It is now possible to add custom values for the `Access-Control-Allow-Headers` header that the Relay Proxy returns for cross-origin requests from browser clients, using a new [per-environment configuration option](https://github.com/launchdarkly/ld-relay/blob/v6/docs/configuration.md#file-section-offlinemode) `allowedHeader` or `$LD_ALLOWED_HEADER_EnvName`. This might be necessary to avoid cross-origin requests being rejected if you have an Internet gateway that uses a custom header for authentication.

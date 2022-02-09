@@ -3,6 +3,14 @@ version: 2.1
 orbs:
   go: circleci/go@1.6.0
 
+parameters:
+  # See "Runtime platform versions" in CONTRIBUTING.md
+  # We define go-release-version here as a pipeline parameter not because we intend to
+  # override it in any parameterized builds, but just as a convenient shareable constant
+  go-release-version:
+    type: string
+    default: "1.17.6"
+
 experimental:
   notify:
     branches:
@@ -21,20 +29,15 @@ workflows:
           run-lint: true
           test-coverage: true
       - go-test:
+          name: Go 1.17
+          docker-image: cimg/go:1.17
+      - go-test:
           name: Go 1.16
           docker-image: cimg/go:1.16
-      - go-test:
-          name: Go 1.15
-          docker-image: cimg/go:1.15
-      - go-test:
-          name: Go 1.14
-          docker-image: cimg/go:1.14
       - benchmarks:
-          docker-image: cimg/go:1.15
+          docker-image: cimg/go:1.16
       - integration-test
-      - test-publish
-      - dependency-scan:
-          context: org-global
+      - docker-images-test
 
   # Run hourly integration tests on the private v6 branch
   hourly-integration-test-stg:
@@ -57,9 +60,10 @@ workflows:
             only: v6
     jobs:
       - integration-test:
-          ld_base_url: https://app.launchdarkly.com
+          ld_api_url: https://app.launchdarkly.com
           ld_stream_url: https://stream.launchdarkly.com
           ld_sdk_url: https://sdk.launchdarkly.com
+          ld_client_sdk_url: https://clientsdk.launchdarkly.com
           ld_api_token_env_var: LD_API_TOKEN_PROD
     when:
       equal: ["https://github.com/launchdarkly/ld-relay-private", <<pipeline.project.git_url>>]
@@ -72,41 +76,30 @@ workflows:
           branches:
             only: v6
     jobs:
-      # Note: package-build-test is currently disabled for Go 1.16+ because, due to the
-      # "replace" directive in go.mod to work around the known issue with jwt-go, and
-      # the rule in newer Go versions that "replace" isn't allowed with "go install",
-      # there is no one-line command that will work for this in Go 1.16+. We should be
-      # able to re-enable these tests once https://github.com/go-kit/kit/pull/1172 is
-      # released and we can update to a newer go-kit version, since that is the source
-      # of the problematic transitive dependency.
-      # - package-build-test:
-      #     name: package build - Go latest
-      #     docker-image: circleci/golang:latest
-      #     use-go-install: true
-      # - package-build-test:
-      #     name: package build - Go 1.16
-      #     docker-image: cimg/go:1.16
-      #     use-go-install: true
       - package-build-test:
-          name: package build - Go 1.15
-          docker-image: cimg/go:1.15
-          use-go-install: false
+          name: package build - Go latest
+          docker-image: circleci/golang:latest
+          use-go-install: true
       - package-build-test:
-          name: package build - Go 1.14
-          docker-image: cimg/go:1.14
-          use-go-install: false
+          name: package build - Go 1.17
+          docker-image: cimg/go:1.17
+          use-go-install: true
+      - package-build-test:
+          name: package build - Go 1.16
+          docker-image: cimg/go:1.16
+          use-go-install: true
+
+  daily-security-scan:
+    triggers:
+    - schedule:
+        cron: "0 12 * * *"
+        filters:
+          branches:
+            only: v6
+    jobs:
+      - security-scan-only
 
 jobs:
-  dependency-scan:
-    docker:
-      - image: circleci/openjdk:11.0.3-jdk-stretch
-    steps:
-      - checkout
-      - run: bash <(curl --retry 5 -s -L https://github.com/whitesource/unified-agent-distribution/raw/master/standAlone/wss_agent.sh) -apiKey $WHITESOURCE_API_KEY -userKey $WHITESOURCE_USER_KEY -c ./.circleci/whitesource.cfg -d ~/ -project $CIRCLE_PROJECT_REPONAME -projectVersion $CIRCLE_BRANCH -logLevel debug
-      - store_artifacts:
-          path: ./whitesource
-          destination: artifacts
-
   go-test:
     parameters:
       docker-image:
@@ -123,16 +116,16 @@ jobs:
         environment: &environment
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
           CIRCLE_ARTIFACTS: /tmp/circle-artifacts
-          COMMON_GO_PACKAGES: >
-            github.com/jstemmer/go-junit-report
           TAGS: redis_unit_tests,big_segment_external_store_tests
       - image: redis
       - image: amazon/dynamodb-local
 
     steps:
       - checkout
-      - run: go get -u $COMMON_GO_PACKAGES
       - run: go version && go env
+      - run:
+          name: install go-junit-report
+          command: go install github.com/jstemmer/go-junit-report@v0.9.1
       - when:
           condition: <<parameters.run-lint>>
           steps:
@@ -170,7 +163,7 @@ jobs:
 
   integration-test:
     parameters:
-      ld_base_url:
+      ld_api_url:
         type: string
         default: https://ld-stg.launchdarkly.com
       ld_stream_url:
@@ -179,34 +172,34 @@ jobs:
       ld_sdk_url:
         type: string
         default: https://sdk-stg.launchdarkly.com
+      ld_client_sdk_url:
+        type: string
+        default: https://clientsdk-stg.launchdarkly.com
       ld_api_token_env_var:
         type: string
         default: LD_API_TOKEN_STG
     machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202107-02
       docker_layer_caching: true
     environment:
-      LD_BASE_URL: <<parameters.ld_base_url>>
+      LD_API_URL: <<parameters.ld_api_url>>
       LD_STREAM_URL: <<parameters.ld_stream_url>>
       LD_SDK_URL: <<parameters.ld_sdk_url>>
+      LD_CLIENT_SDK_URL: <<parameters.ld_client_sdk_url>>
       CIRCLE_TEST_REPORTS: /tmp/circle-reports
       CIRCLE_ARTIFACTS: /tmp/circle-artifacts
-      COMMON_GO_PACKAGES: >
-        github.com/jstemmer/go-junit-report
     steps:
       - checkout
       - go/install: # since we're using machine mode, we can't use a preinstalled Go Docker image
-          version: 1.15.12
+          version: <<pipeline.parameters.go-release-version>>
+          cache: false
       - run: go version && go env
-      - restore_cache:
-          keys: 
-            - deps-relay-i9ntest-{{ checksum "go.mod" }}    
-      - run: go get -u $COMMON_GO_PACKAGES
-      - run: go test -t integrationtests -i ./integrationtests # just install the dependencies for the tests
-      - save_cache:
-          key: deps-relay-i9ntest-{{ checksum "go.mod" }}    
-          paths:
-            - /home/circleci/.go_workspace
+      - go/load-cache
+      - run:
+          name: install go-junit-report
+          command: go install github.com/jstemmer/go-junit-report@v0.9.1
+      - run: go test -tags integrationtests -i ./integrationtests # just install the dependencies for the tests
+      - go/save-cache
       - run: |
           mkdir -p $CIRCLE_TEST_REPORTS
           mkdir -p $CIRCLE_ARTIFACTS
@@ -266,20 +259,71 @@ jobs:
           name: Run benchmarks
           command: make benchmarks
 
-  test-publish:
+  docker-images-test:
     docker:
-      # We must keep this image tag in sync with the image that will really be used for releases,
-      # which is specified in .ldrelease/config.yml.
-      - image: cimg/go:1.15.13
+      - image: cimg/go:<<pipeline.parameters.go-release-version>>
         environment:
           <<: *environment
 
     steps:
       - checkout
       - setup_remote_docker  # start docker engine
-      - run: sudo apt-get update
-      - run: sudo apt-get install rpm
-      - run: make products-for-release
-      - run: make docker-smoke-test
+
+      - run:
+          name: add package source for Trivy
+          command: |
+            sudo apt-get install wget apt-transport-https gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+
+      - run:
+          name: install packages
+          command: |
+            sudo apt-get update
+            sudo apt-get install rpm trivy
+
+      - run:
+          name: build Docker images and run smoke test
+          command: make docker-smoke-test
+
+      - run:
+          name: Trivy security scan
+          command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+          # Note that the "latest" here is not the latest published image in DockerHub;
+          # it's the one that was just built locally in the previous step.
+
       - store_artifacts:
           path: dist/
+
+  security-scan-only:
+    docker:
+      - image: cimg/go:<<pipeline.parameters.go-release-version>>
+        environment:
+          <<: *environment
+
+    steps:
+      - checkout
+      - setup_remote_docker  # start docker engine
+
+      - run:
+          name: add package source for Trivy
+          command: |
+            sudo apt-get install wget apt-transport-https gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+
+      - run:
+          name: install packages
+          command: |
+            sudo apt-get update
+            sudo apt-get install rpm trivy
+
+      - run:
+          name: build Docker images
+          command: make products-for-release
+
+      - run:
+          name: Trivy security scan
+          command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+          # Note that the "latest" here is not the latest published image in DockerHub;
+          # it's the one that was just built locally in the previous step.

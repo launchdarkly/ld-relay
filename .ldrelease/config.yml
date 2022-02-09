@@ -1,3 +1,35 @@
+
+# Configuration for releasing ld-relay using the Releaser tool.
+#
+# The flow is as follows:
+#
+# 1. Releaser starts a Golang Docker container, using the Docker image that is
+# specified below. That's what determines the version of Go we're building with.
+#
+# 2. Releaser obtains any necessary credentials specified in secrets.properties.
+#
+# 3. Releaser runs update-version.sh to update the version string in the source
+# source code.
+#
+# 4. Releaser runs prepare.sh, build.sh, and publish.sh.
+#
+# 5. From publish.sh, we execute a Makefile target that runs Goreleaser.
+# Goreleaser, using the configuration in .goreleaser.yml, builds the ld-relay
+# binary for the default Linux architecture (in the project root directory).
+# It also builds binaries for other platforms (as archives and/or package files)
+# in a "dist" subdirectory.
+#
+# 6. Goreleaser builds a Docker image, using the configuration in
+# Dockerfile.goreleaser. Note that Dockerfile.goreleaser does not include any
+# build steps for Relay, because the ld-relay binary has already been built; it
+# just copies that binary into the image.
+#
+# 7. Goreleaser pushes the Docker image to DockerHub.
+#
+# 8. In run-publish-target.sh (called from publish.sh) we copy the binaries from
+# "dist" into a special location that will cause Releaser to attach them to the
+# GitHub release it creates.
+
 version: 2
 
 repo:
@@ -6,7 +38,7 @@ repo:
 
 jobs:
   - docker:
-      image: cimg/go:1.15.13
+      image: cimg/go:1.17.6   # See "Runtime platform versions" in CONTRIBUTING.md
       copyGitHistory: true
     template:
       name: go

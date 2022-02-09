@@ -27,7 +27,6 @@ import (
 
 var (
 	errAlreadyClosed         = errors.New("this Relay was already shut down")
-	errDefaultBaseURLInvalid = errors.New("unexpected error: default base URL is invalid")
 	errInitializationTimeout = errors.New("timed out waiting for environments to initialize")
 	errSomeEnvironmentFailed = errors.New("one or more environments failed to initialize")
 )
@@ -53,7 +52,7 @@ type RelayCore struct {
 	clientInitCh                  chan relayenv.EnvContext
 	fullyConfigured               bool
 	config                        config.Config
-	baseURL                       url.URL
+	clientSideSDKBaseURL          url.URL
 	Version                       string
 	userAgent                     string
 	envLogNameMode                relayenv.LogNameMode
@@ -113,15 +112,7 @@ func NewRelayCore(
 		Loggers:                       loggers,
 	}
 
-	if c.Main.BaseURI.IsDefined() {
-		r.baseURL = *c.Main.BaseURI.Get()
-	} else {
-		u, err := url.Parse(config.DefaultBaseURI)
-		if err != nil {
-			return nil, errDefaultBaseURLInvalid
-		}
-		r.baseURL = *u
-	}
+	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
 	for envName, envConfig := range c.Environment {
 		env, resultCh, err := r.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
@@ -199,9 +190,9 @@ func (r *RelayCore) AddEnvironment(
 		jsClientContext.Proxy = &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				url := req.URL
-				url.Scheme = r.baseURL.Scheme
-				url.Host = r.baseURL.Host
-				req.Host = r.baseURL.Hostname()
+				url.Scheme = r.clientSideSDKBaseURL.Scheme
+				url.Host = r.clientSideSDKBaseURL.Host
+				req.Host = r.clientSideSDKBaseURL.Hostname()
 			},
 			ModifyResponse: func(resp *http.Response) error {
 				// Leave access control to our own cors middleware

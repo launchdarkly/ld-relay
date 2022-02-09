@@ -111,15 +111,18 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 	t.Run("it ignores metrics for other relays", func(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
-			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIDTagKey, uuid.New()))
+			differentRelayID := uuid.New()
+			ctxForDifferentRelay, _ := tag.New(ctx, tag.Upsert(relayIDTagKey, differentRelayID))
 			stats.Record(ctxForDifferentRelay, privateConnMeasure.M(1))
 			stats.Record(ctx, privateConnMeasure.M(1))
 
-			startTime := time.Now()
-			for time.Since(startTime) < time.Millisecond*200 {
-				metricsEvent := publisher.expectMetricsEvent(t, time.Millisecond*200)
-				require.Equal(t, relayMetricsKind, metricsEvent.Kind)
-				assert.Equal(t, relayID, metricsEvent.RelayID)
+			// Any metrics events that we receive should only be for relayID, not differentRelayID
+			deadline := time.Now().Add(time.Millisecond * 300)
+			for time.Now().Before(deadline) {
+				if metricsEvent, ok := publisher.maybeReceiveMetricsEvent(t, deadline.Sub(time.Now())); ok {
+					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+					assert.Equal(t, relayID, metricsEvent.RelayID)
+				}
 			}
 		})
 	})

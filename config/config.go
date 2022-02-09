@@ -11,13 +11,22 @@ const (
 	// DefaultPort is the port that Relay runs on if not otherwise specified.
 	DefaultPort = 8030
 
-	// DefaultBaseURI is the default value for the base URI of LaunchDarkly services (polling endpoints).
-	DefaultBaseURI = "https://app.launchdarkly.com"
+	// DefaultBaseURI is the default value for Config.BaseURI. This is the base URI of LaunchDarkly
+	// services for server-side SDKs other than streaming, such as polling and Big Segment services.
+	DefaultBaseURI = "https://sdk.launchdarkly.com"
 
-	// DefaultStreamURI is the default value for the base URI of LaunchDarkly services (streaming endpoints).
+	// DefaultClientSideBaseURI is the default value for Config.ClientSideBaseURI. This is the base
+	// URI of LaunchDarkly services for client-side SDKs other than streaming, such as polling and goals.
+	DefaultClientSideBaseURI = "https://clientsdk.launchdarkly.com"
+
+	// DefaultStreamURI is the default value for Config.StreamURI. This is the base URI of the
+	// LaunchDarkly streaming service for server-side SDKs. The Relay Proxy does not need an equivalent
+	// for client-side SDKs, because in its own connections to LaunchDarkly it always pretends to be a
+	// server-side SDK.
 	DefaultStreamURI = "https://stream.launchdarkly.com"
 
-	// DefaultEventsURI is the default value for the base URI of LaunchDarkly services (event endpoints).
+	// DefaultEventsURI is the default value for Config.EventsURI. This is the base URI of the
+	// LaunchDarkly service for recording events.
 	DefaultEventsURI = "https://events.launchdarkly.com"
 
 	// DefaultInitTimeout is the default value for MainConfig.InitTimeout if not specified.
@@ -62,7 +71,12 @@ const (
 )
 
 var (
-	defaultRedisURL, _ = ct.NewOptURLAbsoluteFromString("redis://localhost:6379") //nolint:gochecknoglobals
+	defaultBaseURI, _           = ct.NewOptURLAbsoluteFromString(DefaultBaseURI)                 //nolint:gochecknoglobals
+	oldDefaultBaseURI, _        = ct.NewOptURLAbsoluteFromString("https://app.launchdarkly.com") //nolint:gochecknoglobals
+	defaultClientSideBaseURI, _ = ct.NewOptURLAbsoluteFromString(DefaultClientSideBaseURI)       //nolint:gochecknoglobals
+	defaultStreamURI, _         = ct.NewOptURLAbsoluteFromString(DefaultStreamURI)               //nolint:gochecknoglobals
+	defaultEventsURI, _         = ct.NewOptURLAbsoluteFromString(DefaultEventsURI)               //nolint:gochecknoglobals
+	defaultRedisURL, _          = ct.NewOptURLAbsoluteFromString("redis://localhost:6379")       //nolint:gochecknoglobals
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -113,6 +127,7 @@ type MainConfig struct {
 	IgnoreConnectionErrors      bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
 	StreamURI                   ct.OptURLAbsolute        `conf:"STREAM_URI"`
 	BaseURI                     ct.OptURLAbsolute        `conf:"BASE_URI"`
+	ClientSideBaseURI           ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
 	Port                        ct.OptIntGreaterThanZero `conf:"PORT"`
 	InitTimeout                 ct.OptDuration           `conf:"INIT_TIMEOUT"`
 	HeartbeatInterval           ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`

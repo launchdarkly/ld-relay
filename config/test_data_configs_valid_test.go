@@ -21,8 +21,19 @@ type testDataValidConfig struct {
 	warnings    []string
 }
 
+var configDefaults = Config{
+	Main: MainConfig{
+		BaseURI:           defaultBaseURI,
+		ClientSideBaseURI: defaultClientSideBaseURI,
+		StreamURI:         defaultStreamURI,
+	},
+	Events: EventsConfig{
+		EventsURI: defaultEventsURI,
+	},
+}
+
 func (tdc testDataValidConfig) assertResult(t *testing.T, actualConfig Config, mockLog *ldlogtest.MockLog) {
-	var expectedConfig Config
+	expectedConfig := configDefaults
 	tdc.makeConfig(&expectedConfig)
 	assert.Equal(t, expectedConfig, actualConfig)
 	for _, message := range tdc.warnings {
@@ -49,6 +60,9 @@ func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
 func makeValidConfigs() []testDataValidConfig {
 	return []testDataValidConfig{
 		makeValidConfigAllBaseProperties(),
+		makeValidConfigCustomBaseURIOnly(),
+		makeValidConfigExplicitDefaultBaseURI(),
+		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
 		makeValidConfigFileData(),
@@ -83,6 +97,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		c.Main = MainConfig{
 			Port:                        mustOptIntGreaterThanZero(8333),
 			BaseURI:                     newOptURLAbsoluteMustBeValid("http://base"),
+			ClientSideBaseURI:           newOptURLAbsoluteMustBeValid("http://clientbase"),
 			StreamURI:                   newOptURLAbsoluteMustBeValid("http://stream"),
 			ExitOnError:                 true,
 			ExitAlways:                  true,
@@ -107,7 +122,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			InlineUsers:   true,
 		}
 		c.Environment = map[string]*EnvConfig{
-			"earth": &EnvConfig{
+			"earth": {
 				SDKKey:    "earth-sdk",
 				MobileKey: "earth-mob",
 				EnvID:     "earth-env",
@@ -115,7 +130,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				TableName: "earth-table",
 				LogLevel:  NewOptLogLevel(ldlog.Debug),
 			},
-			"krypton": &EnvConfig{
+			"krypton": {
 				SDKKey:        "krypton-sdk",
 				MobileKey:     "krypton-mob",
 				EnvID:         "krypton-env",
@@ -123,7 +138,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				Prefix:        "krypton-",
 				TableName:     "krypton-table",
 				AllowedOrigin: ct.NewOptStringList([]string{"https://oa", "https://rann"}),
-				AllowedHeader: ct.NewOptStringList([]string{"Timestamp-Valid","Random-Id-Valid"}),
+				AllowedHeader: ct.NewOptStringList([]string{"Timestamp-Valid", "Random-Id-Valid"}),
 				TTL:           ct.NewOptDuration(5 * time.Minute),
 			},
 		}
@@ -131,6 +146,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c.envVars = map[string]string{
 		"PORT":                           "8333",
 		"BASE_URI":                       "http://base",
+		"CLIENT_SIDE_BASE_URI":           "http://clientbase",
 		"STREAM_URI":                     "http://stream",
 		"EXIT_ON_ERROR":                  "1",
 		"EXIT_ALWAYS":                    "1",
@@ -171,6 +187,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 [Main]
 Port = 8333
 BaseUri = "http://base"
+ClientSideBaseUri = "http://clientbase"
 StreamUri = "http://stream"
 ExitOnError = 1
 ExitAlways = 1
@@ -224,7 +241,7 @@ func makeValidConfigAutoConfig() testDataValidConfig {
 		c.AutoConfig = AutoConfigConfig{
 			Key:              AutoConfigKey("autokey"),
 			EnvAllowedOrigin: ct.NewOptStringList([]string{"http://first", "http://second"}),
-			EnvAllowedHeader: ct.NewOptStringList([]string{"First","Second"}),
+			EnvAllowedHeader: ct.NewOptStringList([]string{"First", "Second"}),
 		}
 	}
 	c.envVars = map[string]string{
@@ -243,6 +260,48 @@ EnvAllowedHeader = Second
 	return c
 }
 
+func makeValidConfigCustomBaseURIOnly() testDataValidConfig {
+	c := testDataValidConfig{name: "custom base URI"}
+	c.makeConfig = func(c *Config) {
+		c.Main.BaseURI = newOptURLAbsoluteMustBeValid("http://custom-base")
+		c.Main.ClientSideBaseURI = c.Main.BaseURI
+	}
+	c.envVars = map[string]string{
+		"BASE_URI": "http://custom-base",
+	}
+	c.fileContent = `
+[Main]
+BaseURI = http://custom-base
+`
+	return c
+}
+
+func makeValidConfigExplicitDefaultBaseURI() testDataValidConfig {
+	c := testDataValidConfig{name: "base URI explicitly set to default"}
+	c.makeConfig = func(c *Config) {}
+	c.envVars = map[string]string{
+		"BASE_URI": "https://sdk.launchdarkly.com",
+	}
+	c.fileContent = `
+[Main]
+BaseURI = https://sdk.launchdarkly.com
+`
+	return c
+}
+
+func makeValidConfigExplicitOldDefaultBaseURI() testDataValidConfig {
+	c := testDataValidConfig{name: "base URI explicitly set to old default"}
+	c.makeConfig = func(c *Config) {}
+	c.envVars = map[string]string{
+		"BASE_URI": "https://app.launchdarkly.com",
+	}
+	c.fileContent = `
+[Main]
+BaseURI = https://app.launchdarkly.com
+`
+	return c
+}
+
 func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 	c := testDataValidConfig{name: "auto-config properties with database"}
 	c.makeConfig = func(c *Config) {
@@ -251,7 +310,7 @@ func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 			EnvDatastorePrefix:    "prefix-$CID",
 			EnvDatastoreTableName: "table-$CID",
 			EnvAllowedOrigin:      ct.NewOptStringList([]string{"http://first", "http://second"}),
-			EnvAllowedHeader:      ct.NewOptStringList([]string{"First","Second"}),
+			EnvAllowedHeader:      ct.NewOptStringList([]string{"First", "Second"}),
 		}
 		c.DynamoDB.Enabled = true
 	}
@@ -399,7 +458,7 @@ func makeValidConfigRedisOneEnvNoPrefix() testDataValidConfig {
 			URL: newOptURLAbsoluteMustBeValid("redis://localhost:6379"),
 		}
 		c.Environment = map[string]*EnvConfig{
-			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+			"env1": {SDKKey: SDKKey("key1")},
 		}
 	}
 	c.envVars = map[string]string{
@@ -463,7 +522,7 @@ func makeValidConfigConsulOneEnvNoPrefix() testDataValidConfig {
 			Host: defaultConsulHost,
 		}
 		c.Environment = map[string]*EnvConfig{
-			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+			"env1": {SDKKey: SDKKey("key1")},
 		}
 	}
 	c.envVars = map[string]string{
@@ -572,8 +631,8 @@ func makeValidConfigDynamoDBMultiEnvsWithTable() testDataValidConfig {
 			Enabled: true,
 		}
 		c.Environment = map[string]*EnvConfig{
-			"env1": &EnvConfig{SDKKey: SDKKey("key1"), TableName: "table1"},
-			"env2": &EnvConfig{SDKKey: SDKKey("key2"), TableName: "table2"},
+			"env1": {SDKKey: SDKKey("key1"), TableName: "table1"},
+			"env2": {SDKKey: SDKKey("key2"), TableName: "table2"},
 		}
 	}
 	c.envVars = map[string]string{
@@ -605,7 +664,7 @@ func makeValidConfigDynamoDBOneEnvNoPrefixOrTable() testDataValidConfig {
 			Enabled: true,
 		}
 		c.Environment = map[string]*EnvConfig{
-			"env1": &EnvConfig{SDKKey: SDKKey("key1")},
+			"env1": {SDKKey: SDKKey("key1")},
 		}
 	}
 	c.envVars = map[string]string{
