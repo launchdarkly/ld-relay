@@ -148,11 +148,13 @@ func newEventSummarizingRelay(
 		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
 		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
 	}
+	baseHeaders := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	baseHeaders.Del("Authorization") // we'll set this in makeEventSender()
 	er := &eventSummarizingRelay{
 		queues:       make(map[EventPayloadMetadata]*eventSummarizingRelayQueue),
 		authKey:      credential,
 		httpClient:   httpConfig.SDKHTTPConfig.CreateHTTPClient(),
-		baseHeaders:  httpConfig.SDKHTTPConfig.GetDefaultHeaders(),
+		baseHeaders:  baseHeaders,
 		storeAdapter: storeAdapter,
 		eventsConfig: eventsConfig,
 		eventsURI:    strings.TrimRight(getEventsURI(config), "/") + remotePath,
