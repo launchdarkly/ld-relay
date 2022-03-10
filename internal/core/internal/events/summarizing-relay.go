@@ -390,7 +390,6 @@ func (er *eventSummarizingRelay) runPeriodicCleanupTaskUntilClosed(cleanupInterv
 			return
 
 		case <-ticker.C:
-			er.loggers.Debug("Checking for inactive summarizing relay instances")
 			unused := make([]*eventSummarizingRelayQueue, 0, 10) // arbitrary initial capacity
 			er.lock.Lock()
 			if len(er.queues) <= 1 {

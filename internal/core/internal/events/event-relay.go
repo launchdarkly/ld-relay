@@ -207,7 +207,7 @@ func NewEventDispatcher(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
-	eventQueueCleanupInterval time.Duration,
+	eventQueueCleanupInterval time.Duration, // normally zero to use the default; overridden in tests
 ) *EventDispatcher {
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
