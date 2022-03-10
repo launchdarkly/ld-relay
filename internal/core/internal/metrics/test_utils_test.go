@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -116,7 +117,7 @@ func newTestEventsPublisher() *testEventsPublisher {
 	}
 }
 
-func (p *testEventsPublisher) Publish(events ...json.RawMessage) {
+func (p *testEventsPublisher) Publish(context events.EventPayloadMetadata, events ...json.RawMessage) {
 	for _, e := range events {
 		p.events <- e
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
@@ -59,6 +60,10 @@ var testJSClientEndpointInfo = testEndpointInfo{
 }
 var allTestEndpoints = []testEndpointInfo{testServerEndpointInfo, testMobileEndpointInfo, testJSClientEndpointInfo}
 
+type eventRelayTestOptions struct {
+	eventQueueCleanupInterval time.Duration
+}
+
 type eventRelayTestParams struct {
 	dispatcher *EventDispatcher
 	requestsCh <-chan httphelpers.HTTPRequestInfo
@@ -70,6 +75,16 @@ func eventRelayTest(
 	t *testing.T,
 	testEnv st.TestEnv,
 	eventsConfig config.EventsConfig,
+	fn func(eventRelayTestParams),
+) {
+	eventRelayTestWithOptions(t, testEnv, eventsConfig, eventRelayTestOptions{}, fn)
+}
+
+func eventRelayTestWithOptions(
+	t *testing.T,
+	testEnv st.TestEnv,
+	eventsConfig config.EventsConfig,
+	opts eventRelayTestOptions,
 	fn func(eventRelayTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
@@ -97,6 +112,7 @@ func eventRelayTest(
 			eventsConfig,
 			httpConfig,
 			makeStoreAdapterWithExistingStore(store),
+			opts.eventQueueCleanupInterval,
 		)
 		defer dispatcher.Close()
 
@@ -182,7 +198,7 @@ func TestSummarizingEventHandlers(t *testing.T) {
 				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
 				assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-				assert.JSONEq(t, expectedSummarizedFeatureEventsOutputUnknownFlagWithVersion, string(r.Body))
+				m.In(t).Assert(r.Body, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputUnknownFlagWithVersion))
 			})
 		})
 	}

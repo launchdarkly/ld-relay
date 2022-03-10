@@ -32,7 +32,7 @@ require (
 	github.com/launchdarkly/go-server-sdk-consul v1.0.1
 	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0
 	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1
-	github.com/launchdarkly/go-test-helpers/v2 v2.2.0
+	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
