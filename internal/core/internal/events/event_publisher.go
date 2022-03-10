@@ -259,8 +259,7 @@ func (p *HTTPEventPublisher) flush() {
 	// Notes on implementation of this method:
 	// - We are creating a new ldevents.EventSender for each payload delivery, because potentially
 	// each one could have different headers (based on EventPayloadMetadata) and also because the
-	// authorization key could change at any time. However, EventSender does not maintain any state
-	// so the overhead of this is minimal.
+	// authorization key could change at any time. See comment on makeEventSender().
 	// - In the common case where we do *not* receive events with multiple distinct EventsMetadata
 	// values, we can save a tiny bit of overhead by reusing a single buffer. But if there are
 	// multiple values (and therefore multiple queues), we don't want to keep accumulating buffers
@@ -327,6 +326,14 @@ func (p *HTTPEventPublisher) Close() { //nolint:golint // method is already docu
 	})
 }
 
+// makeEventSender creates a new instance of the EventSender component that is provided by go-sdk-events,
+// configuring it to have the appropriate HTTP request headers.
+//
+// This component provides the standard behavior for error handling and retries on event posts. It does
+// not create its own goroutine or HTTP client or do any computations other than the minimum needed to
+// send each request, so there's not much overhead to creating and disposing of instances. And since the
+// current implementation doesn't allow the configured headers to be changed on a per-request basis, it's
+// simplest for us to just create a new instance if the relevant configuration may have changed.
 func makeEventSender(
 	httpClient *http.Client,
 	eventsURI string,

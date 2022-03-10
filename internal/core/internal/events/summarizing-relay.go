@@ -228,6 +228,7 @@ func (er *eventSummarizingRelay) replaceCredential(newCredential c.SDKCredential
 	if reflect.TypeOf(newCredential) == reflect.TypeOf(er.authKey) {
 		er.authKey = newCredential
 		for metadata, queue := range er.queues {
+			// See comment on makeEventSender() about why we create a new one in this situation.
 			sender := makeEventSender(er.httpClient, er.eventsURI, er.baseHeaders, newCredential, metadata, er.loggers)
 			queue.eventSender.setWrapped(sender)
 		}
