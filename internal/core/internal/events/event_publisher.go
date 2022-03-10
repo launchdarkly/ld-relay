@@ -156,6 +156,7 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 
 	client := httpConfig.Client()
 	baseHeaders := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	baseHeaders.Del("Authorization") // we don't necessarily want an SDK key here - we'll decide in makeEventSender()
 	inputQueue := make(chan interface{}, inputQueueSize)
 	p := &HTTPEventPublisher{
 		baseHeaders: baseHeaders,
