@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
+	"time"
 
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
-
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 
-	c "github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
@@ -21,6 +21,7 @@ import (
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
@@ -32,20 +33,39 @@ func errUnknownEventKind(kind string) error {
 	return fmt.Errorf("unexpected event kind: %s", kind)
 }
 
+// eventSummarizingRelay is a component that takes events received from a PHP SDK, in event schema 2--
+// where private attribute redaction has already been done, but summary event computation and user
+// deduplication has not been done-- and feeds them through the Go SDK's EventProcessor to produce
+// the final event data in the normal schema to be sent to LaunchDarkly. The EventProcessor takes care
+// of flushing the final events at the configured interval.
+//
+// Like HTTPEventPublisher, this supports proxying events in separate payloads if we received them
+// with different request metadata (e.g. tags). To do this, we have to maintain a separate
+// EventProcessor instance for each unique metadata set we've seen.
 type eventSummarizingRelay struct {
-	eventProcessor ldevents.EventProcessor
-	storeAdapter   *store.SSERelayDataStoreAdapter
-	eventSender    *reconfigurableEventSender
-	loggers        ldlog.Loggers
+	queues       map[EventPayloadMetadata]*eventSummarizingRelayQueue
+	authKey      c.SDKCredential
+	httpClient   *http.Client
+	baseHeaders  http.Header
+	storeAdapter *store.SSERelayDataStoreAdapter
+	eventsConfig ldevents.EventsConfiguration
+	eventsURI    string
+	loggers      ldlog.Loggers
+	closer       chan struct{}
+	lock         sync.Mutex
+	closeOnce    sync.Once
 }
 
-type reconfigurableEventSender struct {
-	eventSender ldevents.EventSender
-	httpClient  *http.Client
-	eventsURI   string
-	headers     http.Header
-	loggers     ldlog.Loggers
-	lock        sync.Mutex
+type eventSummarizingRelayQueue struct {
+	metadata       EventPayloadMetadata
+	eventProcessor ldevents.EventProcessor
+	eventSender    *delegatingEventSender
+	active         bool
+}
+
+type delegatingEventSender struct {
+	wrapped ldevents.EventSender
+	lock    sync.Mutex
 }
 
 type receivedEventUser struct {
@@ -118,35 +138,57 @@ func newEventSummarizingRelay(
 	storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers,
 	remotePath string,
+	eventQueueCleanupInterval time.Duration,
 ) *eventSummarizingRelay {
-	httpClient := httpConfig.SDKHTTPConfig.CreateHTTPClient()
-	headers := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
-	headers.Set("Authorization", credential.GetAuthorizationHeaderValue())
-	eventsURI := strings.TrimRight(getEventsURI(config), "/") + remotePath
-	eventSender := newReconfigurableEventSender(httpClient, eventsURI, headers, loggers)
-
 	eventsConfig := ldevents.EventsConfiguration{
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		InlineUsersInEvents:   config.InlineUsers,
-		EventSender:           eventSender,
 		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
 		Loggers:               loggers,
 		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
 		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
 	}
-	ep := ldevents.NewDefaultEventProcessor(eventsConfig)
-
-	return &eventSummarizingRelay{
-		eventProcessor: ep,
-		storeAdapter:   storeAdapter,
-		eventSender:    eventSender,
-		loggers:        loggers,
+	er := &eventSummarizingRelay{
+		queues:       make(map[EventPayloadMetadata]*eventSummarizingRelayQueue),
+		authKey:      credential,
+		httpClient:   httpConfig.SDKHTTPConfig.CreateHTTPClient(),
+		baseHeaders:  httpConfig.SDKHTTPConfig.GetDefaultHeaders(),
+		storeAdapter: storeAdapter,
+		eventsConfig: eventsConfig,
+		eventsURI:    strings.TrimRight(getEventsURI(config), "/") + remotePath,
+		loggers:      loggers,
+		closer:       make(chan struct{}),
 	}
+	go er.runPeriodicCleanupTaskUntilClosed(eventQueueCleanupInterval)
+	return er
 }
 
-func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVersion int) bool {
+func (er *eventSummarizingRelay) enqueue(metadata EventPayloadMetadata, rawEvents []json.RawMessage) bool {
+	er.lock.Lock()
+	if er.queues == nil {
+		// this instance has been shut down
+		er.lock.Unlock()
+		return false
+	}
+	queue := er.queues[metadata]
+	if queue == nil {
+		sender := &delegatingEventSender{
+			wrapped: makeEventSender(er.httpClient, er.eventsURI, er.baseHeaders, er.authKey, metadata, er.loggers),
+		}
+		eventsConfig := er.eventsConfig
+		eventsConfig.EventSender = sender
+		queue = &eventSummarizingRelayQueue{
+			metadata:       metadata,
+			eventSender:    sender,
+			eventProcessor: ldevents.NewDefaultEventProcessor(eventsConfig),
+		}
+		er.queues[metadata] = queue
+	}
+	queue.active = true // see runPeriodicCleanupTaskUntilClosed()
+	er.lock.Unlock()
+
 	for _, rawEvent := range rawEvents {
-		evt, err := er.translateEvent(rawEvent, schemaVersion)
+		evt, err := er.translateEvent(rawEvent, metadata.SchemaVersion)
 		if err != nil {
 			er.loggers.Errorf("Error in event processing, event was discarded: %s", err)
 			continue
@@ -154,17 +196,41 @@ func (er *eventSummarizingRelay) enqueue(rawEvents []json.RawMessage, schemaVers
 		if evt != nil {
 			switch e := evt.(type) {
 			case ldevents.FeatureRequestEvent:
-				er.eventProcessor.RecordFeatureRequestEvent(e)
+				queue.eventProcessor.RecordFeatureRequestEvent(e)
 			case ldevents.IdentifyEvent:
-				er.eventProcessor.RecordIdentifyEvent(e)
+				queue.eventProcessor.RecordIdentifyEvent(e)
 			case ldevents.CustomEvent:
-				er.eventProcessor.RecordCustomEvent(e)
+				queue.eventProcessor.RecordCustomEvent(e)
 			case ldevents.AliasEvent:
-				er.eventProcessor.RecordAliasEvent(e)
+				queue.eventProcessor.RecordAliasEvent(e)
 			}
 		}
 	}
 	return true
+}
+
+func (er *eventSummarizingRelay) flush() { //nolint:unused // used only in tests
+	processors := make([]ldevents.EventProcessor, 0, 10) // arbitrary initial capacity
+	er.lock.Lock()
+	for _, queue := range er.queues {
+		processors = append(processors, queue.eventProcessor)
+	}
+	er.lock.Unlock()
+	for _, p := range processors {
+		p.Flush()
+	}
+}
+
+func (er *eventSummarizingRelay) replaceCredential(newCredential c.SDKCredential) {
+	er.lock.Lock()
+	if reflect.TypeOf(newCredential) == reflect.TypeOf(er.authKey) {
+		er.authKey = newCredential
+		for metadata, queue := range er.queues {
+			sender := makeEventSender(er.httpClient, er.eventsURI, er.baseHeaders, newCredential, metadata, er.loggers)
+			queue.eventSender.setWrapped(sender)
+		}
+	}
+	er.lock.Unlock()
 }
 
 func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schemaVersion int) (interface{}, error) {
@@ -295,41 +361,79 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 	return nil, errUnknownEventKind(kindFieldOnly.Kind)
 }
 
+func (er *eventSummarizingRelay) runPeriodicCleanupTaskUntilClosed(cleanupInterval time.Duration) {
+	// We maintain a separate EventProcessor instance for each unique metadata set we've seen. To
+	// avoid accumulating zombie instances if some unique value was seen once but then not seen
+	// again, we periodically check whether each instance has received any events since the last
+	// check, and shut it down if not. A new one will be created later if necessary by
+	// eventSummarizingRelay.enqueue()-- therefore, to avoid the overhead of constantly setting
+	// up and tearing down instances (since EventProcessor maintains a lot of state), we normally
+	// use a long interval for this check.
+	if cleanupInterval == 0 {
+		cleanupInterval = defaultEventQueueCleanupInterval
+		if cleanupInterval < er.eventsConfig.FlushInterval {
+			cleanupInterval = er.eventsConfig.FlushInterval * 2
+		}
+	}
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-er.closer:
+			er.lock.Lock()
+			queues := er.queues
+			er.queues = nil
+			er.lock.Unlock()
+			for _, queue := range queues {
+				_ = queue.eventProcessor.Close()
+			}
+			return
+
+		case <-ticker.C:
+			er.loggers.Debug("Checking for inactive summarizing relay instances")
+			unused := make([]*eventSummarizingRelayQueue, 0, 10) // arbitrary initial capacity
+			er.lock.Lock()
+			if len(er.queues) <= 1 {
+				// We'll only bother doing this cleanup logic if more than one instance exists, since the
+				// most common use case would be that there is no metadata or that it's always the same.
+				er.lock.Unlock()
+				continue
+			}
+			for _, queue := range er.queues {
+				if !queue.active {
+					unused = append(unused, queue)
+				} else {
+					queue.active = false // reset it, will recheck at next tick
+				}
+			}
+			for _, queue := range unused {
+				delete(er.queues, queue.metadata)
+			}
+			er.lock.Unlock()
+
+			for _, queue := range unused {
+				er.loggers.Debugf("Shutting down inactive summarizing relay for %+v", queue.metadata)
+				_ = queue.eventProcessor.Close()
+			}
+		}
+	}
+}
+
 func (er *eventSummarizingRelay) close() {
-	_ = er.eventProcessor.Close()
+	er.closeOnce.Do(func() {
+		er.closer <- struct{}{}
+	})
 }
 
-func newReconfigurableEventSender(
-	httpClient *http.Client,
-	eventsURI string,
-	headers http.Header,
-	loggers ldlog.Loggers,
-) *reconfigurableEventSender {
-	eventSender := ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
-	return &reconfigurableEventSender{
-		eventSender: eventSender,
-		httpClient:  httpClient,
-		eventsURI:   eventsURI,
-		headers:     headers,
-		loggers:     loggers,
-	}
-}
-
-func (r *reconfigurableEventSender) replaceCredential(newCredential c.SDKCredential) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	headers := make(http.Header)
-	for k, v := range r.headers {
-		headers[k] = v
-	}
-	headers.Set("Authorization", newCredential.GetAuthorizationHeaderValue())
-	r.headers = headers
-	r.eventSender = ldevents.NewDefaultEventSender(r.httpClient, r.eventsURI, "", r.headers, r.loggers)
-}
-
-func (r *reconfigurableEventSender) SendEventData(kind ldevents.EventDataKind, data []byte, count int) ldevents.EventSenderResult {
-	r.lock.Lock()
-	sender := r.eventSender
-	r.lock.Unlock()
+func (d *delegatingEventSender) SendEventData(kind ldevents.EventDataKind, data []byte, count int) ldevents.EventSenderResult {
+	d.lock.Lock()
+	sender := d.wrapped
+	d.lock.Unlock()
 	return sender.SendEventData(kind, data, count)
+}
+
+func (d *delegatingEventSender) setWrapped(newWrappedSender ldevents.EventSender) {
+	d.lock.Lock()
+	d.wrapped = newWrappedSender
+	d.lock.Unlock()
 }

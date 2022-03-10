@@ -265,7 +265,7 @@ func NewEnvContext(
 			eventLoggers := envLoggers
 			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
 			eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
-				envLoggers, allConfig.Events, httpConfig, storeAdapter)
+				envLoggers, allConfig.Events, httpConfig, storeAdapter, 0)
 		}
 	}
 	envContext.eventDispatcher = eventDispatcher

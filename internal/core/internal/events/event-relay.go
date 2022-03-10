@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
@@ -25,12 +25,18 @@ type eventVerbatimRelay struct {
 	publisher EventPublisher
 }
 
+const defaultEventQueueCleanupInterval = time.Hour
+
 const (
-	// SummaryEventsSchemaVersion is the minimum event schema that supports summary events
+	// SummaryEventsSchemaVersion is the minimum event schema that supports summary events.
 	SummaryEventsSchemaVersion = 3
 
-	// EventSchemaHeader is an HTTP header that describes the schema version for event requests
+	// EventSchemaHeader is an HTTP header that describes the schema version for event requests.
 	EventSchemaHeader = "X-LaunchDarkly-Event-Schema"
+
+	// TagsHeader is an HTTP header that may be sent by SDKs that support application metadata.
+	// We copy the value of this header when proxying events.
+	TagsHeader = "X-LaunchDarkly-Tags"
 )
 
 // EventDispatcher relays events to LaunchDarkly for an environment
@@ -40,16 +46,17 @@ type EventDispatcher struct {
 }
 
 type analyticsEventEndpointDispatcher struct {
-	config           c.EventsConfig
-	httpClient       *http.Client
-	httpConfig       httpconfig.HTTPConfig
-	authKey          c.SDKCredential
-	remotePath       string
-	verbatimRelay    *eventVerbatimRelay
-	summarizingRelay *eventSummarizingRelay
-	storeAdapter     *store.SSERelayDataStoreAdapter
-	loggers          ldlog.Loggers
-	mu               sync.Mutex
+	config                    c.EventsConfig
+	httpClient                *http.Client
+	httpConfig                httpconfig.HTTPConfig
+	authKey                   c.SDKCredential
+	remotePath                string
+	verbatimRelay             *eventVerbatimRelay
+	summarizingRelay          *eventSummarizingRelay
+	storeAdapter              *store.SSERelayDataStoreAdapter
+	eventQueueCleanupInterval time.Duration
+	loggers                   ldlog.Loggers
+	mu                        sync.Mutex
 }
 
 type diagnosticEventEndpointDispatcher struct {
@@ -82,16 +89,14 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 			return
 		}
 
-		payloadVersion, _ := strconv.Atoi(req.Header.Get(EventSchemaHeader))
-		if payloadVersion == 0 {
-			payloadVersion = 1
-		}
-		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), payloadVersion, r.remotePath)
-		if payloadVersion >= SummaryEventsSchemaVersion {
+		metadata := GetEventPayloadMetadata(req)
+
+		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), metadata.SchemaVersion, r.remotePath)
+		if metadata.SchemaVersion >= SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
-			r.getVerbatimRelay().enqueue(evts)
+			r.getVerbatimRelay().enqueue(metadata, evts)
 		} else {
-			r.getSummarizingRelay().enqueue(evts, payloadVersion)
+			r.getSummarizingRelay().enqueue(metadata, evts)
 		}
 	})
 }
@@ -102,7 +107,7 @@ func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential c.SDK
 	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
 		r.authKey = newCredential
 		if r.summarizingRelay != nil {
-			r.summarizingRelay.eventSender.replaceCredential(newCredential)
+			r.summarizingRelay.replaceCredential(newCredential)
 		}
 		if r.verbatimRelay != nil {
 			r.verbatimRelay.publisher.ReplaceCredential(newCredential)
@@ -176,7 +181,8 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.storeAdapter, r.loggers, r.remotePath)
+		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.storeAdapter,
+			r.loggers, r.remotePath, r.eventQueueCleanupInterval)
 	}
 	return r.summarizingRelay
 }
@@ -188,7 +194,7 @@ func (r *analyticsEventEndpointDispatcher) flush() { //nolint:unused // used onl
 		r.verbatimRelay.publisher.Flush()
 	}
 	if r.summarizingRelay != nil {
-		r.summarizingRelay.eventProcessor.Flush()
+		r.summarizingRelay.flush()
 	}
 }
 
@@ -201,11 +207,12 @@ func NewEventDispatcher(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
+	eventQueueCleanupInterval time.Duration,
 ) *EventDispatcher {
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
 			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, storeAdapter, loggers, "/bulk"),
+				config, httpConfig, storeAdapter, loggers, "/bulk", eventQueueCleanupInterval),
 		},
 		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
 			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
@@ -213,12 +220,12 @@ func NewEventDispatcher(
 	}
 	if mobileKey != "" {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, storeAdapter, loggers, "/mobile")
+			config, httpConfig, storeAdapter, loggers, "/mobile", eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID != "" {
 		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
-			"/events/bulk/"+string(envID))
+			"/events/bulk/"+string(envID), eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
@@ -273,15 +280,17 @@ func newAnalyticsEventEndpointDispatcher(
 	storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers,
 	remotePath string,
+	eventQueueCleanupInterval time.Duration,
 ) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
-		authKey:      authKey,
-		config:       config,
-		httpClient:   httpConfig.Client(),
-		httpConfig:   httpConfig,
-		storeAdapter: storeAdapter,
-		loggers:      loggers,
-		remotePath:   remotePath,
+		authKey:                   authKey,
+		config:                    config,
+		httpClient:                httpConfig.Client(),
+		httpConfig:                httpConfig,
+		storeAdapter:              storeAdapter,
+		loggers:                   loggers,
+		remotePath:                remotePath,
+		eventQueueCleanupInterval: eventQueueCleanupInterval,
 	}
 }
 
@@ -310,8 +319,8 @@ func newEventVerbatimRelay(
 	return res
 }
 
-func (er *eventVerbatimRelay) enqueue(evts []json.RawMessage) {
-	er.publisher.Publish(evts...)
+func (er *eventVerbatimRelay) enqueue(metadata EventPayloadMetadata, evts []json.RawMessage) {
+	er.publisher.Publish(metadata, evts...)
 }
 
 func (er *eventVerbatimRelay) close() {
