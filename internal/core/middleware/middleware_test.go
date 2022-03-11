@@ -11,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
@@ -277,8 +276,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "*", resp.Result().Header.Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "false", resp.Result().Header.Get("Access-Control-Allow-Credentials"))
 	assert.Equal(t, "300", resp.Result().Header.Get("Access-Control-Max-Age"))
-	assert.Equal(t, "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader,
-		resp.Result().Header.Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, browser.DefaultAllowedHeaders, resp.Result().Header.Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "Date", resp.Result().Header.Get("Access-Control-Expose-Headers"))
 }
 
@@ -327,8 +325,8 @@ func TestCORSMiddlewareSetsAllowedHeaderFromContext(t *testing.T) {
 
 	CORS(nullHandler()).ServeHTTP(resp, req)
 
-	assert.Equal(t, "Cache-Control,Content-Type,Content-Length,Accept-Encoding,X-LaunchDarkly-User-Agent,X-LaunchDarkly-Payload-ID,X-LaunchDarkly-Wrapper,"+events.EventSchemaHeader+",ghi,jkl",
-	    resp.Result().Header.Get("Access-Control-Allow-Headers"))
+	expectedHeaders := browser.DefaultAllowedHeaders + ",ghi,jkl"
+	assert.Equal(t, expectedHeaders, resp.Result().Header.Get("Access-Control-Allow-Headers"))
 }
 
 func TestCORSMiddlewareOnlyCallsWrappedHandlerIfMethodIsNotOPTIONS(t *testing.T) {
