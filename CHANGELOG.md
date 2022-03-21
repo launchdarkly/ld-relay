@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.6.5] - 2022-03-17
+### Fixed:
+- Updated Docker image to use Alpine 3.14.4. The previous Alpine version, 3.14.3, was reported to have security vulnerability [CVE-2022-0778](https://nvd.nist.gov/vuln/detail/CVE-2022-0778) in OpenSSL, although the Relay Proxy itself uses Go's implementation of TLS rather than OpenSSL.
+
 ## [6.6.4] - 2022-02-07
 ### Fixed:
 - In auto-configuration mode, if the auto-configuration key is invalid, the Relay Proxy should exit with an error code just as it would for other kinds of invalid configuration properties, since there is no way for it to perform any useful functions without having environment information. ([#165](https://github.com/launchdarkly/ld-relay/issues/165))
