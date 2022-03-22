@@ -3,7 +3,7 @@ package metrics
 import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"go.opencensus.io/stats/view"

@@ -5,9 +5,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 )
 
 // SSERelayDataStoreAdapter is used to create the data store wrapper that manages updates. When data is
@@ -79,7 +79,7 @@ func (a *SSERelayDataStoreAdapter) CreateDataStore(
 	sw = newStreamUpdatesStoreWrapper(
 		a.updates,
 		wrappedStore,
-		context.GetLogging().GetLoggers(),
+		context.GetLogging().Loggers,
 	)
 
 	a.mu.Lock()

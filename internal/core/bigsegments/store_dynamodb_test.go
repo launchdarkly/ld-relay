@@ -1,3 +1,4 @@
+//go:build big_segment_external_store_tests
 // +build big_segment_external_store_tests
 
 package bigsegments
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"

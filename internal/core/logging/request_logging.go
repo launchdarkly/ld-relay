@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 // RequestLoggerMiddleware decorates a Handler with debug-level logging of all requests.

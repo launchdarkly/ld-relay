@@ -1,6 +1,6 @@
 package sharedtest
 
-import "gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+import "github.com/launchdarkly/go-server-sdk/v6/interfaces"
 
 // NoOpSDKBigSegmentStore is a stub implementation of the SDK's BigSegmentStore (not the type
 // of the same name that Relay uses internally).
@@ -14,8 +14,8 @@ func (m *NoOpSDKBigSegmentStore) GetMetadata() (interfaces.BigSegmentStoreMetada
 	return interfaces.BigSegmentStoreMetadata{}, nil
 }
 
-func (m *NoOpSDKBigSegmentStore) GetUserMembership(
-	userHash string,
+func (m *NoOpSDKBigSegmentStore) GetMembership(
+	contextHash string,
 ) (interfaces.BigSegmentMembership, error) {
 	return nil, nil
 }

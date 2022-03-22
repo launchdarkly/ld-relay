@@ -13,7 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 )
 
 func getEventsImage(w http.ResponseWriter, req *http.Request) {

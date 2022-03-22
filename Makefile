@@ -29,7 +29,7 @@ build:
 
 test:
 	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
-	go test -race -v $(OPTIONAL_TAGS_PARAM) ./...
+	go test -race $(OPTIONAL_TAGS_PARAM) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
 	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi

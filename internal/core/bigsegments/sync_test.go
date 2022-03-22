@@ -11,9 +11,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,7 +98,7 @@ func requireNoMorePatches(t *testing.T, s *bigSegmentStoreMock) {
 		for len(s.patchCh) > 0 {
 			patches = append(patches, <-s.patchCh)
 		}
-		require.Fail(t, "did not expect any more patches, but got: %+v", patches)
+		require.Fail(t, "did not expect any more patches, but got some", "patches: %+v", patches)
 	}
 }
 

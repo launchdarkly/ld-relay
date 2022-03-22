@@ -8,18 +8,18 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-server-sdk/v6/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"github.com/launchdarkly/go-test-helpers/v2/ldservices"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,21 +156,21 @@ func (p relayCoreEndToEndTestParams) expectSuccessFromAllEndpoints(testEnv st.Te
 	serverSideEvent := p.expectStreamEvent(testEnv, basictypes.ServerSideStream)
 	assert.Equal(p.t, "put", serverSideEvent.Event())
 	jsonData := ldvalue.Parse([]byte(serverSideEvent.Data()))
-	assert.Equal(p.t, []string{testFlag.Key}, jsonData.GetByKey("data").GetByKey("flags").Keys())
+	assert.Equal(p.t, []string{testFlag.Key}, jsonData.GetByKey("data").GetByKey("flags").Keys(nil))
 
 	serverSideFlagsEvent := p.expectStreamEvent(testEnv, basictypes.ServerSideFlagsOnlyStream)
 	assert.Equal(p.t, "put", serverSideFlagsEvent.Event())
 	jsonFlagsData := ldvalue.Parse([]byte(serverSideFlagsEvent.Data()))
-	assert.Equal(p.t, []string{testFlag.Key}, jsonFlagsData.Keys())
+	assert.Equal(p.t, []string{testFlag.Key}, jsonFlagsData.Keys(nil))
 
 	mobileEvent := p.expectStreamEvent(testEnv, basictypes.MobilePingStream)
 	assert.Equal(p.t, "ping", mobileEvent.Event())
 
 	mobileEval := p.expectEvalResult(testEnv, basictypes.MobileSDK)
-	assert.Equal(p.t, []string{testFlag.Key}, mobileEval.Keys())
+	assert.Equal(p.t, []string{testFlag.Key}, mobileEval.Keys(nil))
 
 	jsClientEval := p.expectEvalResult(testEnv, basictypes.JSClientSDK)
-	assert.Equal(p.t, []string{testFlag.Key}, jsClientEval.Keys())
+	assert.Equal(p.t, []string{testFlag.Key}, jsClientEval.Keys(nil))
 }
 
 func TestRelayCoreEndToEndSuccess(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

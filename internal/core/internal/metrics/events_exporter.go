@@ -7,7 +7,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"go.opencensus.io/stats/view"
 )

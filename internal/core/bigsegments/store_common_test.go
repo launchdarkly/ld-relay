@@ -1,3 +1,4 @@
+//go:build big_segment_external_store_tests
 // +build big_segment_external_store_tests
 
 package bigsegments
@@ -6,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

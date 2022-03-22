@@ -1,8 +1,8 @@
 package metrics
 
 import (
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	datadog "github.com/DataDog/opencensus-go-exporter-datadog"
 	"go.opencensus.io/stats/view"

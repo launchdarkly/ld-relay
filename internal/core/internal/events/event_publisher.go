@@ -13,7 +13,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldlogv2 "gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
 )
 
@@ -155,7 +156,10 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	closer := make(chan struct{})
 
 	client := httpConfig.Client()
-	baseHeaders := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	baseHeaders := make(http.Header)
+	for k, v := range httpConfig.SDKHTTPConfig.DefaultHeaders {
+		baseHeaders[k] = v
+	}
 	baseHeaders.Del("Authorization") // we don't necessarily want an SDK key here - we'll decide in makeEventSender()
 	inputQueue := make(chan interface{}, inputQueueSize)
 	p := &HTTPEventPublisher{
@@ -352,5 +356,14 @@ func makeEventSender(
 	if metadata.Tags != "" {
 		headers.Set(TagsHeader, metadata.Tags)
 	}
-	return ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggers)
+	return ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggersV3toV2(loggers))
+}
+
+func loggersV3toV2(loggers ldlog.Loggers) ldlogv2.Loggers {
+	var ret ldlogv2.Loggers
+	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error} {
+		ret.SetBaseLoggerForLevel(ldlogv2.LogLevel(level), loggers.ForLevel(level))
+	}
+	ret.SetMinLevel(ldlogv2.LogLevel(loggers.GetMinLevel()))
+	return ret
 }

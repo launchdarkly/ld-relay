@@ -13,8 +13,8 @@ import (
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 )
 
 func TestStartWithValidFile(t *testing.T) {

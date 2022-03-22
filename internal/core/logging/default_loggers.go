@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 // MakeDefaultLoggers returns a Loggers instance configured with Relay's standard log format.

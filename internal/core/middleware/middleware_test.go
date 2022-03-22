@@ -16,8 +16,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/lduser"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"

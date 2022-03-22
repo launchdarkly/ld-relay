@@ -9,7 +9,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/pborman/uuid"
 )
@@ -202,5 +202,5 @@ func (n *Network) GetContainerIDs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ldvalue.Parse([]byte(out)).GetByIndex(0).GetByKey("Containers").Keys(), nil
+	return ldvalue.Parse([]byte(out)).GetByIndex(0).GetByKey("Containers").Keys(nil), nil
 }

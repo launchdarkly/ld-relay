@@ -3,15 +3,15 @@ package sdks
 import (
 	"testing"
 
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

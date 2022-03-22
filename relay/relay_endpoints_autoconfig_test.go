@@ -16,12 +16,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

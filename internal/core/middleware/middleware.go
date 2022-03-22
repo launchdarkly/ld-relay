@@ -12,8 +12,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
 
 	"github.com/gorilla/mux"
 )
@@ -162,8 +162,8 @@ func Streaming(next http.Handler) http.Handler {
 
 // UserFromBase64 decodes a base64-encoded go-server-sdk user.
 // If any decoding/unmarshaling errors occur or the user is missing the "key" attribute an error is returned.
-func UserFromBase64(base64User string) (lduser.User, error) {
-	var user lduser.User
+func UserFromBase64(base64User string) (ldcontext.Context, error) {
+	var user ldcontext.Context
 	idStr, decodeErr := base64urlDecode(base64User)
 	if decodeErr != nil {
 		return user, errInvalidUserBase64

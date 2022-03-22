@@ -1,12 +1,12 @@
 package sharedtest
 
 import (
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-sdk-common/v3/ldattr"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 )
 
 type TestFlag struct {
@@ -51,7 +51,7 @@ var Flag5ClientSide = TestFlag{
 var Flag6ClientSideNotMobile = TestFlag{
 	Flag: ldbuilders.NewFlagBuilder("rule-match-experiment-flag-key").On(true).
 		AddRule(ldbuilders.NewRuleBuilder().ID("rule-id").Variation(0).TrackEvents(true).
-			Clauses(ldbuilders.Negate(ldbuilders.Clause(lduser.KeyAttribute, ldmodel.OperatorIn, ldvalue.String("not-a-real-user-key"))))).
+			Clauses(ldbuilders.Negate(ldbuilders.Clause(ldattr.KeyAttr, ldmodel.OperatorIn, ldvalue.String("not-a-real-user-key"))))).
 		Variations(ldvalue.Int(4)).ClientSideUsingEnvironmentID(true).ClientSideUsingMobileKey(false).Version(1).Build(),
 	ExpectedValue:  4,
 	ExpectedReason: map[string]interface{}{"kind": "RULE_MATCH", "ruleIndex": 0, "ruleId": "rule-id"},

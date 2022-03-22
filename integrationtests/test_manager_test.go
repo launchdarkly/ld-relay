@@ -26,8 +26,8 @@ import (
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"

@@ -1,3 +1,4 @@
+//go:build redis_unit_tests
 // +build redis_unit_tests
 
 package core
@@ -10,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v6/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-test-helpers/v2/ldservices"
 )
 
 var basicRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(time.Minute)}

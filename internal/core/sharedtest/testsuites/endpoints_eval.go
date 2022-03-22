@@ -9,7 +9,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
+	"github.com/launchdarkly/go-sdk-common/v3/lduser"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -179,7 +179,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 				t.Run("secure mode - hash matches", func(t *testing.T) {
 					s1 := s
 					s1.credential = st.EnvClientSideSecureMode.Config.EnvID
-					s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForUser(user))
+					s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForContext(user))
 					result, body := st.DoRequest(s1.request(), p.Handler)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {

@@ -6,9 +6,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 )
 
 // LDClientContext defines a minimal interface for a LaunchDarkly client.
@@ -18,7 +18,7 @@ import (
 // the test code needs to mock only this interface.
 type LDClientContext interface {
 	Initialized() bool
-	SecureModeHash(lduser.User) string
+	SecureModeHash(ldcontext.Context) string
 	GetDataSourceStatus() interfaces.DataSourceStatus
 	GetDataStoreStatus() DataStoreStatusInfo
 	Close() error

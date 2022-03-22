@@ -13,10 +13,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/testhelpers"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/testhelpers"
 
 	"github.com/stretchr/testify/require"
 )
@@ -48,8 +48,8 @@ func (c *FakeLDClient) Initialized() bool {
 	return c.initialized
 }
 
-func (c *FakeLDClient) SecureModeHash(user lduser.User) string {
-	return FakeHashForUser(user)
+func (c *FakeLDClient) SecureModeHash(context ldcontext.Context) string {
+	return FakeHashForContext(context)
 }
 
 func (c *FakeLDClient) GetDataSourceStatus() interfaces.DataSourceStatus {
@@ -91,8 +91,8 @@ func (c *FakeLDClient) AwaitClose(t *testing.T, timeout time.Duration) {
 	}
 }
 
-func FakeHashForUser(user lduser.User) string {
-	return "fake-hash-" + user.GetKey()
+func FakeHashForContext(context ldcontext.Context) string {
+	return "fake-hash-" + context.Key()
 }
 
 func FakeLDClientFactory(shouldBeInitialized bool) sdks.ClientFactoryFunc {

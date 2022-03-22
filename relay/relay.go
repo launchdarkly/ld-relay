@@ -16,8 +16,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
 )
 
 var (

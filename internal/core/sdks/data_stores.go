@@ -7,12 +7,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"

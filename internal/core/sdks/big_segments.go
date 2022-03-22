@@ -3,9 +3,9 @@ package sdks
 import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 )
 
 // ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay

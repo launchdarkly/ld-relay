@@ -8,8 +8,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 
 	"github.com/gorilla/mux"
 )

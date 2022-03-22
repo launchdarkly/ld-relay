@@ -13,10 +13,10 @@ import (
 
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

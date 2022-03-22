@@ -16,8 +16,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 )
 
 type eventVerbatimRelay struct {
@@ -30,6 +30,9 @@ const defaultEventQueueCleanupInterval = time.Hour
 const (
 	// SummaryEventsSchemaVersion is the minimum event schema that supports summary events.
 	SummaryEventsSchemaVersion = 3
+
+	// CurrentEventsSchemaVersion is the latest event schema version.
+	CurrentEventsSchemaVersion = 4
 
 	// EventSchemaHeader is an HTTP header that describes the schema version for event requests.
 	EventSchemaHeader = "X-LaunchDarkly-Event-Schema"

@@ -1,3 +1,4 @@
+//go:build big_segment_external_store_tests
 // +build big_segment_external_store_tests
 
 package bigsegments
@@ -6,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v6/config"

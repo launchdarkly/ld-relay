@@ -14,15 +14,16 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldvaluev3 "github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldreason"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
 )
 
 var (
@@ -144,11 +145,14 @@ func newEventSummarizingRelay(
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		InlineUsersInEvents:   config.InlineUsers,
 		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
-		Loggers:               loggers,
+		Loggers:               loggersV3toV2(loggers),
 		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
 		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
 	}
-	baseHeaders := httpConfig.SDKHTTPConfig.GetDefaultHeaders()
+	baseHeaders := make(http.Header)
+	for k, v := range httpConfig.SDKHTTPConfig.DefaultHeaders {
+		baseHeaders[k] = v
+	}
 	baseHeaders.Del("Authorization") // we'll set this in makeEventSender()
 	er := &eventSummarizingRelay{
 		queues:       make(map[EventPayloadMetadata]*eventSummarizingRelayQueue),
@@ -303,10 +307,11 @@ func (er *eventSummarizingRelay) translateEvent(rawEvent json.RawMessage, schema
 			if data.Item != nil {
 				flag := data.Item.(*ldmodel.FeatureFlag)
 				newEvent.TrackEvents = flag.TrackEvents
-				newEvent.DebugEventsUntilDate = flag.DebugEventsUntilDate
+				newEvent.DebugEventsUntilDate = ldtime.UnixMillisecondTime(flag.DebugEventsUntilDate)
 				if schemaVersion <= 1 && !e.Variation.IsDefined() {
+					eventValue := valueV2toV3(e.Value)
 					for i, value := range flag.Variations {
-						if value.Equal(e.Value) {
+						if value.Equal(eventValue) {
 							n := i
 							newEvent.Variation = ldvalue.NewOptionalInt(n)
 							break
@@ -438,4 +443,8 @@ func (d *delegatingEventSender) setWrapped(newWrappedSender ldevents.EventSender
 	d.lock.Lock()
 	d.wrapped = newWrappedSender
 	d.lock.Unlock()
+}
+
+func valueV2toV3(oldValue ldvalue.Value) ldvaluev3.Value {
+	return ldvaluev3.CopyArbitraryValue(oldValue.AsArbitraryValue())
 }

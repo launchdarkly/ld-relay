@@ -3,9 +3,9 @@ package envfactory
 import (
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
 )
 
 // These representation types are used by both the autoconfig package and the filedata package,

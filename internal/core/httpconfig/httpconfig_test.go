@@ -10,10 +10,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func TestUserAgentHeader(t *testing.T) {
 	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "abc", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
-	headers := hc.SDKHTTPConfig.GetDefaultHeaders()
+	headers := hc.SDKHTTPConfig.DefaultHeaders
 	assert.Contains(t, headers.Get("User-Agent"), "abc")
 }
 
@@ -31,7 +31,7 @@ func TestNoAuthorizationHeader(t *testing.T) {
 	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
-	headers := hc.SDKHTTPConfig.GetDefaultHeaders()
+	headers := hc.SDKHTTPConfig.DefaultHeaders
 	assert.Equal(t, "", headers.Get("Authorization"))
 }
 
@@ -39,7 +39,7 @@ func TestAuthorizationHeader(t *testing.T) {
 	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.SDKKey("key"), "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
-	headers := hc.SDKHTTPConfig.GetDefaultHeaders()
+	headers := hc.SDKHTTPConfig.DefaultHeaders
 	assert.Equal(t, "key", headers.Get("Authorization"))
 }
 

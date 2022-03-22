@@ -7,9 +7,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 )
 
 var testFileDataFlag1 = ldbuilders.NewFlagBuilder("flag1").Version(1).Build()

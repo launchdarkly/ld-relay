@@ -19,12 +19,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	"gopkg.in/launchdarkly/go-jsonstream.v1/jwriter"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-jsonstream/v2/jwriter"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	ldevents "github.com/launchdarkly/go-sdk-events/v2"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 
 	"github.com/gorilla/mux"
 )
@@ -34,8 +34,8 @@ func getClientSideUserProperties(
 	sdkKind basictypes.SDKKind,
 	req *http.Request,
 	w http.ResponseWriter,
-) (lduser.User, bool) {
-	var user lduser.User
+) (ldcontext.Context, bool) {
+	var user ldcontext.Context
 	var userDecodeErr error
 
 	if req.Method == "REPORT" {
@@ -224,13 +224,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if user.GetKey() == "" {
+	if user.Key() == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(util.ErrorJSONMsg("User must have a 'key' attribute"))
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.GetKey())
+	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.Key())
 
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
@@ -256,11 +256,12 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 					continue
 				}
 			}
-			detail := evaluator.Evaluate(flag, user, nil)
+			result := evaluator.Evaluate(flag, user, nil)
+			detail := result.Detail
 			if valueOnly {
 				detail.Value.WriteToJSONWriter(responseObj.Name(flag.Key))
 			} else {
-				isExperiment := flag.IsExperimentationEnabled(detail.Reason)
+				isExperiment := result.IsExperiment
 				valueObj := responseObj.Name(flag.Key).Object()
 				detail.Value.WriteToJSONWriter(valueObj.Name("value"))
 				detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))

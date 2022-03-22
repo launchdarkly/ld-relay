@@ -1,6 +1,6 @@
 package sharedtest
 
-import "gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
+import "github.com/launchdarkly/go-server-sdk/v6/interfaces"
 
 type ExistingDataSourceFactory struct{ Instance interfaces.DataSource }
 type DataSourceThatNeverStarts struct{}

@@ -17,14 +17,14 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ldeval "gopkg.in/launchdarkly/go-server-sdk-evaluation.v1"
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldmodel"
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v2"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -307,14 +307,16 @@ func NewEnvContext(
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
 	envContext.sdkConfig = ld.Config{
-		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
-		Events:           ldcomponents.SendEvents().BaseURI(eventsURI),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
+		ServiceEndpoints: interfaces.ServiceEndpoints{
+			Streaming: streamURI,
+			Events:    eventsURI,
+		},
 	}
 
 	// If appropriate, create the SDK subcomponent that will be used for flag evaluations. We're
@@ -342,8 +344,8 @@ func NewEnvContext(
 					Store:              bigSegConfig.GetStore(),
 					StatusPollInterval: bigSegConfig.GetStatusPollInterval(),
 					StaleAfter:         bigSegConfig.GetStaleAfter(),
-					UserCacheSize:      bigSegConfig.GetUserCacheSize(),
-					UserCacheTime:      bigSegConfig.GetUserCacheTime(),
+					ContextCacheSize:   bigSegConfig.GetContextCacheSize(),
+					ContextCacheTime:   bigSegConfig.GetContextCacheTime(),
 					StartPolling:       false, // we will start it later if we see a big segment
 				},
 				nil,
@@ -376,7 +378,8 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		if c.sdkBigSegments == nil {
 			c.evaluator = ldeval.NewEvaluator(dataProvider)
 		} else {
-			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
+			c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider,
+				ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
 		}
 	}
 	c.initErr = err
