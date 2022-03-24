@@ -264,8 +264,16 @@ func NewEnvContext(
 			envLoggers.Info("Proxying events for this environment")
 			eventLoggers := envLoggers
 			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
-			eventDispatcher = events.NewEventDispatcher(envConfig.SDKKey, envConfig.MobileKey, envConfig.EnvID,
-				envLoggers, allConfig.Events, httpConfig, storeAdapter)
+			eventDispatcher = events.NewEventDispatcher(
+				envConfig.SDKKey,
+				envConfig.MobileKey,
+				envConfig.EnvID,
+				envLoggers,
+				allConfig.Events,
+				httpConfig,
+				storeAdapter,
+				0, // 0 here means "use the default interval for any periodic cleanup task you may need to run"
+			)
 		}
 	}
 	envContext.eventDispatcher = eventDispatcher

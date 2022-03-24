@@ -169,7 +169,7 @@ func (e *openCensusEventsExporter) flush() {
 	e.mu.Unlock()
 
 	json, _ := json.Marshal(event)
-	e.publisher.Publish(json)
+	e.publisher.Publish(events.EventPayloadMetadata{}, json)
 }
 
 func (e *openCensusEventsExporter) close() {
