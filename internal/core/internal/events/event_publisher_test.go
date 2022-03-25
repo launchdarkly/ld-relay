@@ -13,6 +13,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
 
@@ -29,21 +30,52 @@ func defaultHTTPConfig() httpconfig.HTTPConfig {
 	return hc
 }
 
-func TestHTTPEventPublisher(t *testing.T) {
+func TestHTTPEventPublisherSimple(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))
 		defer publisher.Close()
-		publisher.Publish(json.RawMessage(`"hello"`))
-		publisher.Publish(json.RawMessage(`"hello again"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello again"`))
 		publisher.Flush()
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		assert.JSONEq(t, `["hello", "hello again"]`, string(r.Body))
+		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello", "hello again"]`))
+	})
+}
+
+func TestHTTPEventPublisherMultiQueuesWithMetadata(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionURI(server.URL))
+		defer publisher.Close()
+		publisher.Publish(EventPayloadMetadata{Tags: "a"}, json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{Tags: "b"}, json.RawMessage(`"ok"`))
+		publisher.Publish(EventPayloadMetadata{Tags: "a"}, json.RawMessage(`"hello again"`))
+		publisher.Publish(EventPayloadMetadata{Tags: "b"}, json.RawMessage(`"thanks"`))
+		publisher.Flush()
+		r1 := st.ExpectTestRequest(t, requestsCh, time.Second)
+		r2 := st.ExpectTestRequest(t, requestsCh, time.Second)
+		if r1.Request.Header.Get(TagsHeader) == "b" {
+			r2, r1 = r1, r2
+		}
+		assert.Equal(t, "/bulk", r1.Request.URL.Path)
+		assert.Equal(t, string(testSDKKey), r1.Request.Header.Get("Authorization"))
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r1.Request.Header.Get(EventSchemaHeader))
+		assert.Equal(t, "a", r1.Request.Header.Get(TagsHeader))
+		m.In(t).Assert(r1.Body, m.JSONStrEqual(`["hello", "hello again"]`))
+
+		assert.Equal(t, "/bulk", r2.Request.URL.Path)
+		assert.Equal(t, string(testSDKKey), r2.Request.Header.Get("Authorization"))
+		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r2.Request.Header.Get(EventSchemaHeader))
+		assert.Equal(t, "b", r2.Request.Header.Get(TagsHeader))
+		m.In(t).Assert(r2.Body, m.JSONStrEqual(`["ok", "thanks"]`))
 	})
 }
 
@@ -55,13 +87,13 @@ func TestHTTPEventPublisherOptionEndpointURI(t *testing.T) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
 			OptionEndpointURI(server.URL+"/special-path"))
 		defer publisher.Close()
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Flush()
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/special-path", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		assert.JSONEq(t, `["hello"]`, string(r.Body))
+		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
 	})
 }
 
@@ -81,10 +113,10 @@ func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
 			OptionURI(server.URL), OptionFlushInterval(time.Millisecond))
 		defer publisher.Close()
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
-		assert.JSONEq(t, `["hello"]`, string(r.Body))
+		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
 		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 	})
 }
@@ -110,13 +142,13 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
 			OptionURI(server.URL), OptionCapacity(1))
 		defer publisher.Close()
-		publisher.Publish(json.RawMessage(`"hello"`))
-		publisher.Publish(json.RawMessage(`"goodbye"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"goodbye"`))
 		publisher.Flush()
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		assert.JSONEq(t, `["hello"]`, string(r.Body))
+		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
 	})
 }
 
@@ -132,7 +164,7 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
 				OptionURI(server.URL))
 			defer publisher.Close()
-			publisher.Publish(json.RawMessage(`"hello"`))
+			publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 			timeStart := time.Now()
 			publisher.Flush()
 			req1 := <-requestsCh
@@ -164,11 +196,11 @@ func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
 		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
 			OptionURI(server.URL))
 		defer publisher.Close()
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Flush()
 		<-requestsCh
 		time.Sleep(time.Millisecond * 100) // no good way to know when it's processed the 401 response
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Flush()
 		st.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
 	})
@@ -184,7 +216,7 @@ func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
 		defer publisher.Close()
 
 		publisher.ReplaceCredential(newSDKKey)
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Flush()
 
 		r1 := st.ExpectTestRequest(t, requestsCh, time.Second)
@@ -192,7 +224,7 @@ func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
 
 		// Providing a new MobileKey when this publisher is currently using an SDKKey has no effect
 		publisher.ReplaceCredential(config.MobileKey("ignore-this"))
-		publisher.Publish(json.RawMessage(`"hello"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Flush()
 
 		r2 := st.ExpectTestRequest(t, requestsCh, time.Second)

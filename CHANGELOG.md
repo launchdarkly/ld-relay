@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.0] - 2022-03-24
+### Added:
+- The Relay Proxy will now forward application metadata information that is included in HTTP headers from any SDKs that have this feature, if the application configures such data.
+
 ## [6.6.5] - 2022-03-17
 ### Fixed:
 - Updated Docker image to use Alpine 3.14.4. The previous Alpine version, 3.14.3, was reported to have security vulnerability [CVE-2022-0778](https://nvd.nist.gov/vuln/detail/CVE-2022-0778) in OpenSSL, although the Relay Proxy itself uses Go's implementation of TLS rather than OpenSSL.
