@@ -3,6 +3,7 @@ package events
 import (
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -154,37 +156,80 @@ func TestEventDispatcherCreatesHandlersOnlyForConfiguredCredentials(t *testing.T
 }
 
 func TestVerbatimEventHandlers(t *testing.T) {
-	for _, e := range allTestEndpoints {
-		t.Run(string(e.sdkKind), func(t *testing.T) {
-			eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
-				req := st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly),
-					headersWithEventSchema(SummaryEventsSchemaVersion))
-				handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
-				require.NotNil(t, handler)
-				w := httptest.NewRecorder()
-				handler(w, req)
-				assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+	t.Run("single schema version", func(t *testing.T) {
+		for _, e := range allTestEndpoints {
+			t.Run(string(e.sdkKind), func(t *testing.T) {
+				eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
+					req := st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly),
+						headersWithEventSchema(CurrentEventsSchemaVersion))
+					handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
+					require.NotNil(t, handler)
+					w := httptest.NewRecorder()
+					handler(w, req)
+					assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
-				p.dispatcher.flush()
+					p.dispatcher.flush()
 
-				r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
-				assert.Equal(t, "POST", r.Request.Method)
-				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
-				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
-				assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-				assert.Equal(t, eventPayloadForVerbatimOnly, string(r.Body))
+					r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+					assert.Equal(t, "POST", r.Request.Method)
+					assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
+					assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
+					assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, eventPayloadForVerbatimOnly, string(r.Body))
+				})
 			})
-		})
-	}
+		}
+	})
+
+	t.Run("multiple schema versions", func(t *testing.T) {
+		for _, e := range allTestEndpoints {
+			t.Run(string(e.sdkKind), func(t *testing.T) {
+				eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
+					req1 := st.BuildRequest("POST", "/", []byte(`["fake-event-v3-1","fake-event-v3-2"]`),
+						headersWithEventSchema(3))
+					req2 := st.BuildRequest("POST", "/", []byte(`["fake-event-v4-1","fake-event-v4-2"]`),
+						headersWithEventSchema(4))
+					req3 := st.BuildRequest("POST", "/", []byte(`["fake-event-v3-3"]`),
+						headersWithEventSchema(3))
+					for _, req := range []*http.Request{req1, req2, req3} {
+						handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
+						require.NotNil(t, handler)
+						w := httptest.NewRecorder()
+						handler(w, req)
+						assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+					}
+
+					p.dispatcher.flush()
+
+					received := []httphelpers.HTTPRequestInfo{
+						st.ExpectTestRequest(t, p.requestsCh, time.Second),
+						st.ExpectTestRequest(t, p.requestsCh, time.Second),
+					}
+					sort.Slice(received, func(i, j int) bool { return string(received[i].Body) < string(received[j].Body) })
+					for _, r := range received {
+						assert.Equal(t, "POST", r.Request.Method)
+						assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
+						assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
+					}
+					assert.Equal(t, "3", received[0].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, `["fake-event-v3-1","fake-event-v3-2","fake-event-v3-3"]`, string(received[0].Body))
+					assert.Equal(t, "4", received[1].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, `["fake-event-v4-1","fake-event-v4-2"]`, string(received[1].Body))
+				})
+			})
+		}
+	})
 }
 
 func TestSummarizingEventHandlers(t *testing.T) {
 	// The summarizing relay logic is tested in more detail in summarizing-relay_test.go. The test here
 	// just verifies that we are indeed using the summarizing relay for these endpoints.
+	summarizeEventsParams := makeBasicSummarizeEventsParams()
 	for _, e := range allTestEndpoints {
 		t.Run(string(e.sdkKind), func(t *testing.T) {
 			eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
-				req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
+				req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+					headersWithEventSchema(summarizeEventsParams.schemaVersion))
 				handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
 				require.NotNil(t, handler)
 				w := httptest.NewRecorder()
@@ -197,8 +242,8 @@ func TestSummarizingEventHandlers(t *testing.T) {
 				assert.Equal(t, "POST", r.Request.Method)
 				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
-				assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-				m.In(t).Assert(r.Body, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputUnknownFlagWithVersion))
+				assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+				m.In(t).Assert(r.Body, m.JSONStrEqual(summarizeEventsParams.expectedEventsJSON))
 			})
 		})
 	}
@@ -229,6 +274,8 @@ func TestDiagnosticEventForwarding(t *testing.T) {
 }
 
 func TestEventDispatcherReplaceCredential(t *testing.T) {
+	summarizeEventsParams := makeBasicSummarizeEventsParams()
+
 	eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
 		// First, just post some events to all the dispatchers to make sure they've been lazily created.
 		// We don't need to check for the original credential in the request headers, because we already
@@ -237,17 +284,16 @@ func TestEventDispatcherReplaceCredential(t *testing.T) {
 			if e.newCredential == nil {
 				continue
 			}
-			for _, schemaVersion := range []int{0, 2} {
-				req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(schemaVersion))
-				handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
-				require.NotNil(t, handler)
-				w := httptest.NewRecorder()
-				handler(w, req)
-				assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+			req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+				headersWithEventSchema(summarizeEventsParams.schemaVersion))
+			handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
+			require.NotNil(t, handler)
+			w := httptest.NewRecorder()
+			handler(w, req)
+			assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
-				p.dispatcher.flush()
-				_ = st.ExpectTestRequest(t, p.requestsCh, time.Second)
-			}
+			p.dispatcher.flush()
+			_ = st.ExpectTestRequest(t, p.requestsCh, time.Second)
 		}
 
 		// Now change both the SDK key and the mobile key (the environment ID can't change)
@@ -259,18 +305,17 @@ func TestEventDispatcherReplaceCredential(t *testing.T) {
 			if e.newCredential == nil {
 				continue
 			}
-			for _, schemaVersion := range []int{0, 2} {
-				req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(schemaVersion))
-				handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
-				require.NotNil(t, handler)
-				w := httptest.NewRecorder()
-				handler(w, req)
-				assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
+			req := st.BuildRequest("POST", "/", []byte(summarizeEventsParams.inputEventsJSON),
+				headersWithEventSchema(summarizeEventsParams.schemaVersion))
+			handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
+			require.NotNil(t, handler)
+			w := httptest.NewRecorder()
+			handler(w, req)
+			assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
-				p.dispatcher.flush()
-				r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
-				assert.Equal(t, e.newCredential.GetAuthorizationHeaderValue(), r.Request.Header.Get("Authorization"))
-			}
+			p.dispatcher.flush()
+			r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+			assert.Equal(t, e.newCredential.GetAuthorizationHeaderValue(), r.Request.Header.Get("Authorization"))
 		}
 	})
 }
@@ -316,4 +361,10 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 		headers.Set(EventSchemaHeader, strconv.Itoa(schemaVersion))
 	}
 	return headers
+}
+
+func makeStoreAdapterWithExistingStore(s interfaces.DataStore) *store.SSERelayDataStoreAdapter {
+	a := store.NewSSERelayDataStoreAdapter(st.ExistingDataStoreFactory{Instance: s}, nil)
+	_, _ = a.CreateDataStore(st.SDKContextImpl{}, nil) // ensure the wrapped store has been created
+	return a
 }

@@ -30,13 +30,13 @@ require (
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v2 v2.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.1
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.1
+	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.2
+	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.2
 	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.0-alpha.3
 	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.0-alpha.3
-	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.1
+	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.2
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.3
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.1
+	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.2
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/miekg/dns v1.1.43 // indirect
@@ -50,8 +50,6 @@ require (
 	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
-	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect

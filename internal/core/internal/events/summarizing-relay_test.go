@@ -10,47 +10,15 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/lduser"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func makeTestFlag(trackEvents bool, debugEventsUntilDate ldtime.UnixMillisecondTime) ldmodel.FeatureFlag {
-	return ldbuilders.NewFlagBuilder("flagkey").
-		Version(22). // deliberately different version from the event data - we should use the version from the event
-		Variations(ldvalue.String("a"), ldvalue.String("b")).
-		TrackEvents(trackEvents).
-		DebugEventsUntilDate(debugEventsUntilDate).
-		Build()
-}
-
-func makeTestFlagForPHP(trackEvents bool, debugEventsUntilDate ldtime.UnixMillisecondTime) ldmodel.FeatureFlag {
-	// Schema version 2 means the events are coming from the PHP SDK, which *does* provide "variation",
-	// unlike other old SDKs. To verify that we are using the variation number from the event, instead
-	// of trying to infer it from the flag variations, we'll deliberately change the flag variations so
-	// none of them match the value in the event.
-	flag := makeTestFlag(trackEvents, debugEventsUntilDate)
-	flag.Variations = []ldvalue.Value{ldvalue.String("x"), ldvalue.String("y")}
-	return flag
-}
-
-func makeStoreAdapterWithExistingStore(s interfaces.DataStore) *store.SSERelayDataStoreAdapter {
-	a := store.NewSSERelayDataStoreAdapter(st.ExistingDataStoreFactory{Instance: s}, nil)
-	_, _ = a.CreateDataStore(st.SDKContextImpl{}, nil) // ensure the wrapped store has been created
-	return a
-}
 
 func expectSummarizedPayload(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) string {
 	r := expectSummarizedPayloadRequest(t, requestsCh)
@@ -59,199 +27,35 @@ func expectSummarizedPayload(t *testing.T, requestsCh <-chan httphelpers.HTTPReq
 
 func expectSummarizedPayloadRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) httphelpers.HTTPRequestInfo {
 	r := st.ExpectTestRequest(t, requestsCh, time.Second)
-	assert.Equal(t, strconv.Itoa(SummaryEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+	assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 	assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"))
 	return r
 }
 
-func TestSummarizeFeatureEventsForExistingFlag(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		flag := makeTestFlag(false, 0)
-		_, _ = st.UpsertFlag(p.dataStore, flag)
+func TestSummarizeEvents(t *testing.T) {
+	for _, ep := range makeAllSummarizeEventsParams() {
+		t.Run(ep.name, func(t *testing.T) {
+			var tryParse interface{}
+			if err := json.Unmarshal([]byte(ep.inputEventsJSON), &tryParse); err != nil {
+				require.NoError(t, err, "test input was not valid JSON: %s", ep.inputEventsJSON)
+			}
+			if err := json.Unmarshal([]byte(ep.expectedEventsJSON), &tryParse); err != nil {
+				require.NoError(t, err, "test expectation was not valid JSON: %s", ep.expectedEventsJSON)
+			}
+			eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
+				if ep.storedFlag.Key != "" {
+					_, _ = st.UpsertFlag(p.dataStore, ep.storedFlag)
+				}
 
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
+				req := st.BuildRequest("POST", "/", []byte(ep.inputEventsJSON), headersWithEventSchema(ep.schemaVersion))
+				p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+				p.dispatcher.flush()
 
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutput))
-	})
-}
-
-func TestSummarizeFeatureEventsForExistingFlagWithTrackEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		flag := makeTestFlag(true, 0)
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputTrackEvents))
-	})
-}
-
-func TestSummarizeFeatureEventsForExistingFlagWithInlineUsersAndInlineUsers(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{InlineUsers: true}, func(p eventRelayTestParams) {
-		flag := makeTestFlag(true, 0)
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputTrackEventsInlineUsers))
-	})
-}
-
-func TestSummarizeFeatureEventsForExistingFlagWithDebugEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		flag := makeTestFlag(false, ldtime.UnixMillisNow()+1000000)
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputDebugEvents))
-	})
-}
-
-func TestSummarizeFeatureEventsForUnknownFlagWithoutVersion(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsWithoutVersion), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputUnknownFlagWithoutVersion))
-	})
-}
-
-func TestSummarizeFeatureEventsForUnknownFlagWithEventVersion(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputUnknownFlagWithVersion))
-	})
-}
-
-func TestSummarizeSchemaV2FeatureEventsForExistingFlag(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		flag := makeTestFlagForPHP(false, 0)
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutput))
-	})
-}
-
-func TestSummarizeSchemaV2FeatureEventsForExistingFlagWithTrackEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		// Here we're not setting trackEvents in the flag; it's specified by the event from the PHP SDK.
-		flag := makeTestFlag(false, 0)
-		flag.Variations = []ldvalue.Value{ldvalue.String("x"), ldvalue.String("y")}
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2TrackEvents), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputTrackEvents))
-	})
-}
-
-func TestSummarizeSchemaV2FeatureEventsForExistingFlagWithDebugEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		// Here we're not setting debugEventsUntilDate in the flag; it's specified by the event from the PHP SDK.
-		flag := makeTestFlag(false, 0)
-		flag.Variations = []ldvalue.Value{ldvalue.String("x"), ldvalue.String("y")}
-		_, _ = st.UpsertFlag(p.dataStore, flag)
-
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2DebugEvents), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputDebugEvents))
-	})
-}
-
-func TestSummarizeSchemaV2FeatureEventsForUnknownFlag(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(summarizableFeatureEventsSchemaV2WithoutVersion), headersWithEventSchema(2))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedFeatureEventsOutputUnknownFlagWithoutVersion))
-	})
-}
-
-func TestSummarizeCustomEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(summarizableCustomEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(expectedSummarizedCustomEvents))
-	})
-}
-
-func TestSummarizeCustomEventsWithInlineUsersLeavesEventsUnchanged(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{InlineUsers: true}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(summarizableCustomEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(summarizableCustomEvents))
-	})
-}
-
-func TestSummarizeIdentifyEventsLeavesEventsUnchanged(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(identifyEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(identifyEvents))
-	})
-}
-
-func TestSummarizeAliasEventsLeavesEventsUnchanged(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(aliasEvents), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(aliasEvents))
-	})
-}
-
-func TestSummarizingRelayDiscardsMalformedEvents(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		req := st.BuildRequest("POST", "/", []byte(malformedEventsAndGoodIdentifyEventsInWellFormedJSON), headersWithEventSchema(0))
-		p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
-		p.dispatcher.flush()
-
-		payload := expectSummarizedPayload(t, p.requestsCh)
-		m.In(t).Assert(payload, m.JSONStrEqual(identifyEvents))
-	})
+				payload := expectSummarizedPayload(t, p.requestsCh)
+				m.In(t).Assert(payload, m.JSONStrEqual(ep.expectedEventsJSON))
+			})
+		})
+	}
 }
 
 func TestSummarizingRelayProcessesEventsSeparatelyForDifferentTags(t *testing.T) {
@@ -363,11 +167,4 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1b"))),
 		)))
 	})
-}
-
-func TestCanSeePrivateAttrsOfPHPEventUser(t *testing.T) {
-	var ru receivedEventUser
-	require.NoError(t, json.Unmarshal([]byte(`{"key": "k", "name": "n", "privateAttrs": ["email"]}`), &ru))
-	assert.Equal(t, lduser.NewUserBuilder("k").Name("n").Build(), ru.eventUser.User)
-	assert.Equal(t, []string{"email"}, ru.eventUser.AlreadyFilteredAttributes)
 }
