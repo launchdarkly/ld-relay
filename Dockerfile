@@ -7,7 +7,7 @@ RUN apk --no-cache add \
     libc-dev \
  && rm -rf /var/cache/apk/*
 
-RUN apk upgrade openssl  # for CVE-2022-0778 - this fix is not yet available in an Alpine Docker image
+RUN apk upgrade openssl libretls  # for CVE-2022-0778 - this fix is not yet available in an Alpine Docker image
 
 ARG SRC_DIR=/go/ld-relay
 
