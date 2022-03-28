@@ -11,7 +11,7 @@ RUN apk add --no-cache \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
-RUN apk upgrade openssl  # for CVE-2022-0778 - this fix is not yet available in an Alpine Docker image
+RUN apk upgrade openssl libretls  # for CVE-2022-0778 - this fix is not yet available in an Alpine Docker image
 
 COPY ld-relay /usr/bin/ldr
 
