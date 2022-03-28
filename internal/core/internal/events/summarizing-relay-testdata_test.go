@@ -13,6 +13,13 @@ import (
 // from the original event, since the PHP SDK has already handled private attribute redaction. So,
 // the "context" property in the transformed event will have an old-style user object in it. Those
 // are still allowed in the new schema.
+// - We're not trying to cover all the possible behaviors of the event processor here with regard
+// to summary event output, context deduplication, etc. Those are already covered by the unit tests
+// in go-sdk-events. It's enough for us to verify that 1. we're actually using the EventProcessor
+// and sending its output, and 2. we are correctly building the inputs for the EventProcessor
+// methods that we're calling. So the test cases here only need to cover the possible branches for
+// the decisions we're making, like "what kind of event is this" and "do we need to compute any
+// properties that weren't provided in the event, from flag data".
 
 type summarizeEventsParams struct {
 	name               string
