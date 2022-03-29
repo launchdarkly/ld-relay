@@ -2,7 +2,7 @@
 
 # See .ldrelease/config.yml for an explanation of the build/release process.
 
-FROM alpine:3.14.4
+FROM alpine:3.14.5
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk add --no-cache \
@@ -10,8 +10,6 @@ RUN apk add --no-cache \
     ca-certificates \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
-
-RUN apk upgrade openssl libretls  # for CVE-2022-0778 - this fix is not yet available in an Alpine Docker image
 
 COPY ld-relay /usr/bin/ldr
 
