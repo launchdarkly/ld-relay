@@ -11,6 +11,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -48,7 +49,7 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
 				st.AssertExpectedCORSHeaders(t, result, "GET", "*")
 			}
-			st.ExpectBody(string(fakeGoalsData))(t, body)
+			m.In(t).Assert(body, st.ExpectBody(string(fakeGoalsData)))
 		})
 
 		t.Run("options", func(t *testing.T) {

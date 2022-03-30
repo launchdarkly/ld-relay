@@ -224,7 +224,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if user.Key() == "" {
+	if !user.Multiple() && user.Key() == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(util.ErrorJSONMsg("User must have a 'key' attribute"))
 		return

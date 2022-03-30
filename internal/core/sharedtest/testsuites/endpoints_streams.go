@@ -183,8 +183,8 @@ func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
 	expectedFlagsData := []byte(streams.MakeServerSideFlagsOnlyPutEvent(st.AllData).Data())
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"flags stream", "GET", "/flags", nil, sdkKey, 200, nil}, "put", expectedFlagsData},
-		{endpointTestParams{"all stream", "GET", "/all", nil, sdkKey, 200, nil}, "put", expectedAllData},
+		{endpointTestParams{"flags stream", "GET", "/flags", nil, sdkKey, 200, st.ExpectNoBody()}, "put", expectedFlagsData},
+		{endpointTestParams{"all stream", "GET", "/all", nil, sdkKey, 200, st.ExpectNoBody()}, "put", expectedAllData},
 	}
 
 	var config c.Config
@@ -203,11 +203,11 @@ func DoMobileStreamsTest(t *testing.T, constructor TestConstructor) {
 	userJSON := []byte(`{"key":"me"}`)
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"mobile ping", "GET", "/mping", nil, env.Config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile ping", "GET", "/mping", nil, env.Config.MobileKey, 200, st.ExpectNoBody()},
 			"ping", nil},
-		{endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.Config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
 			"ping", nil},
-		{endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.Config.MobileKey, 200, nil},
+		{endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
 			"ping", nil},
 	}
 
@@ -227,11 +227,11 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 	userJSON, _ := json.Marshal(user)
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"client-side get ping", "GET", "/ping/$ENV", nil, envID, 200, nil},
+		{endpointTestParams{"client-side get ping", "GET", "/ping/$ENV", nil, envID, 200, st.ExpectNoBody()},
 			"ping", nil},
-		{endpointTestParams{"client-side get eval stream", "GET", "/eval/$ENV/$DATA", userJSON, envID, 200, nil},
+		{endpointTestParams{"client-side get eval stream", "GET", "/eval/$ENV/$DATA", userJSON, envID, 200, st.ExpectNoBody()},
 			"ping", nil},
-		{endpointTestParams{"client-side report eval stream", "REPORT", "/eval/$ENV", userJSON, envID, 200, nil},
+		{endpointTestParams{"client-side report eval stream", "REPORT", "/eval/$ENV", userJSON, envID, 200, st.ExpectNoBody()},
 			"ping", nil},
 	}
 

@@ -8,6 +8,8 @@ import (
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,13 +21,13 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 		{"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", st.Flag1ServerSide.Flag.Key), nil, sdkKeyMain,
 			http.StatusOK, st.ExpectJSONEntity(st.Flag1ServerSide.Flag)},
 		{"get unknown flag", "GET", "/sdk/flags/no-such-flag", nil, sdkKeyMain,
-			http.StatusNotFound, nil},
+			http.StatusNotFound, st.ExpectNoBody()},
 		{"get all flags", "GET", "/sdk/flags", nil, sdkKeyMain,
 			http.StatusOK, st.ExpectJSONEntity(st.FlagsMap(st.AllFlags))},
 		{"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", st.Segment1.Key), nil, sdkKeyMain,
 			http.StatusOK, st.ExpectJSONEntity(st.Segment1)},
 		{"get unknown segment", "GET", "/sdk/segments/no-such-segment", nil, sdkKeyMain,
-			http.StatusNotFound, nil},
+			http.StatusNotFound, st.ExpectNoBody()},
 	}
 
 	var config c.Config
@@ -43,9 +45,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							st.AssertNonStreamingHeaders(t, result.Header)
-							if s.bodyMatcher != nil {
-								s.bodyMatcher(t, body)
-							}
+							m.In(t).Assert(body, s.bodyMatcher)
 							etag := result.Header.Get("Etag")
 							assert.NotEqual(t, "", etag)
 						}
