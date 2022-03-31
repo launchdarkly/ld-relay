@@ -12,7 +12,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testsuites"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -66,41 +65,23 @@ var autoConfigTestEnvs = map[c.EnvironmentID]st.TestEnv{
 // environment list has been obtained; we just want to make sure it starts up correctly in
 // general and test for any specific responses that should be different.
 
-func relayForEndpointTestsWithAutoConfig(config c.Config, loggers ldlog.Loggers) testsuites.TestParams {
-	autoConfigEvent := transformEnvConfigsToAutoConfig(config)
+func withStartedAutoConfigRelay(t *testing.T, configWithEnvs c.Config, action func(relayTestParams)) {
+	autoConfigEvent := transformEnvConfigsToAutoConfig(configWithEnvs)
 	autoConfigHandler, autoConfigStream := httphelpers.SSEHandler(&autoConfigEvent)
+	defer autoConfigStream.Close()
+
 	server := httptest.NewServer(autoConfigHandler)
+	defer server.Close()
 
-	entConfig := config
-	entConfig.AutoConfig.Key = testAutoConfKey
-	entConfig.Environment = nil
-	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+	fullConfig := configWithEnvs
+	fullConfig.AutoConfig.Key = testAutoConfKey
+	fullConfig.Environment = nil
+	fullConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-	r, err := newRelayInternal(entConfig, relayInternalOptions{
-		loggers:       loggers,
-		clientFactory: testclient.CreateDummyClient,
+	withStartedRelayCustom(t, fullConfig, relayTestBehavior{skipWaitForEnvironments: true}, func(p relayTestParams) {
+		waitForAutoConfigInit(t, p.relay, configWithEnvs)
+		action(p)
 	})
-	if err != nil {
-		panic(err)
-	}
-	waitForAutoConfigInit(r, config)
-
-	return testsuites.TestParams{
-		Core:    r.core,
-		Handler: r.Handler,
-		Closer: func() {
-			r.Close()
-			autoConfigStream.Close()
-			server.Close()
-		},
-	}
-}
-
-func TestRelayEnterpriseCoreEndpointsWithAutoConfig(t *testing.T) {
-	// We don't run the entire test suite in auto-config mode, since most things behave the same way they do
-	// without auto-config once the environment list has been obtained.
-	ctor := testsuites.TestConstructor(relayForEndpointTestsWithAutoConfig)
-	ctor.RunTest(t, "status", DoAutoConfigStatusEndpointTests)
 }
 
 func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
@@ -132,7 +113,7 @@ func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{Event: autoconfig.PutEvent, Data: string(jsonData)}
 }
 
-func waitForAutoConfigInit(r *Relay, configWithEnvs c.Config) {
+func waitForAutoConfigInit(t *testing.T, r *Relay, configWithEnvs c.Config) {
 	// Auto-config initialization is done in the background, so we need to wait until it has happened before
 	// we run the tests
 	expectedEnvCount := 0
@@ -152,18 +133,18 @@ func waitForAutoConfigInit(r *Relay, configWithEnvs c.Config) {
 				return
 			}
 		case <-deadline:
-			panic("timed out waiting for auto-configuration to happen")
+			require.Fail(t, "timed out waiting for auto-configuration to happen")
 		}
 	}
 }
 
-func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestConstructor) {
+func TestAutoConfigStatusEndpoints(t *testing.T) {
 	t.Run("basic status properties", func(t *testing.T) {
 		envConfig := testEnvBasic
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
-		testsuites.DoTest(t, config, constructor, func(p testsuites.TestParams) {
+		withStartedAutoConfigRelay(t, config, func(p relayTestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 
@@ -187,7 +168,7 @@ func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestCo
 				status, "environments", envKey, "status")
 
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
-			st.AssertJSONPathMatch(t, p.Core.Version, status, "version")
+			st.AssertJSONPathMatch(t, p.relay.core.Version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
 		})
 	})
@@ -195,9 +176,9 @@ func DoAutoConfigStatusEndpointTests(t *testing.T, constructor testsuites.TestCo
 	t.Run("expiring SDK key", func(t *testing.T) {
 		envConfig := testEnvWithExpiringKey
 		config := c.Config{Environment: st.MakeEnvConfigs(envConfig)}
-		testsuites.DoTest(t, config, constructor, func(p testsuites.TestParams) {
+		withStartedAutoConfigRelay(t, config, func(p relayTestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 

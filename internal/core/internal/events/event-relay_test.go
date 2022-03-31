@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -161,7 +162,7 @@ func TestVerbatimEventHandlers(t *testing.T) {
 			t.Run(string(e.sdkKind), func(t *testing.T) {
 				eventRelayTest(t, st.EnvWithAllCredentials, config.EventsConfig{}, func(p eventRelayTestParams) {
 					req := st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly),
-						headersWithEventSchema(CurrentEventsSchemaVersion))
+						headersWithEventSchema(constants.CurrentEventsSchemaVersion))
 					handler := p.dispatcher.GetHandler(e.sdkKind, ldevents.AnalyticsEventDataKind)
 					require.NotNil(t, handler)
 					w := httptest.NewRecorder()
@@ -174,7 +175,7 @@ func TestVerbatimEventHandlers(t *testing.T) {
 					assert.Equal(t, "POST", r.Request.Method)
 					assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 					assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
-					assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
 					assert.Equal(t, eventPayloadForVerbatimOnly, string(r.Body))
 				})
 			})
@@ -211,9 +212,9 @@ func TestVerbatimEventHandlers(t *testing.T) {
 						assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 						assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
 					}
-					assert.Equal(t, "3", received[0].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, "3", received[0].Request.Header.Get(constants.EventSchemaHeader))
 					assert.Equal(t, `["fake-event-v3-1","fake-event-v3-2","fake-event-v3-3"]`, string(received[0].Body))
-					assert.Equal(t, "4", received[1].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, "4", received[1].Request.Header.Get(constants.EventSchemaHeader))
 					assert.Equal(t, `["fake-event-v4-1","fake-event-v4-2"]`, string(received[1].Body))
 				})
 			})
@@ -242,7 +243,7 @@ func TestSummarizingEventHandlers(t *testing.T) {
 				assert.Equal(t, "POST", r.Request.Method)
 				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
-				assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
+				assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
 				m.In(t).Assert(r.Body, m.JSONStrEqual(summarizeEventsParams.expectedEventsJSON))
 			})
 		})
@@ -358,7 +359,7 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
 	if schemaVersion > 0 {
-		headers.Set(EventSchemaHeader, strconv.Itoa(schemaVersion))
+		headers.Set(constants.EventSchemaHeader, strconv.Itoa(schemaVersion))
 	}
 	return headers
 }

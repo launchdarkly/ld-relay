@@ -12,6 +12,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
@@ -70,9 +71,9 @@ type EventPayloadMetadata struct {
 // GetEventPayloadMetadata parses EventPayloadMetadata values from an HTTP request.
 func GetEventPayloadMetadata(req *http.Request) EventPayloadMetadata {
 	ret := EventPayloadMetadata{
-		Tags: req.Header.Get(TagsHeader),
+		Tags: req.Header.Get(constants.TagsHeader),
 	}
-	ret.SchemaVersion, _ = strconv.Atoi(req.Header.Get(EventSchemaHeader))
+	ret.SchemaVersion, _ = strconv.Atoi(req.Header.Get(constants.EventSchemaHeader))
 	if ret.SchemaVersion <= 0 {
 		ret.SchemaVersion = 1
 	}
@@ -311,7 +312,7 @@ func (p *HTTPEventPublisher) flush() {
 				ret.Set("Authorization", authKey.GetAuthorizationHeaderValue())
 			}
 			if tags != "" {
-				ret.Set(TagsHeader, tags)
+				ret.Set(constants.TagsHeader, tags)
 			}
 			return ret
 		}

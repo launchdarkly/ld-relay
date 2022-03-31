@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"net/http"
@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
+func TestEndpointsStatus(t *testing.T) {
 	t.Run("basic properties", func(t *testing.T) {
 		var config c.Config
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvClientSide, st.EnvMobile)
 
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 
@@ -51,7 +51,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 				status, "environments", st.EnvMobile.Name, "status")
 
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
-			st.AssertJSONPathMatch(t, p.Core.Version, status, "version")
+			st.AssertJSONPathMatch(t, p.relay.core.Version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
 		})
 	})
@@ -61,10 +61,10 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
 		config.Main.DisconnectedStatusTime = ct.NewOptDuration(time.Minute)
 
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.relay.core.GetEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
 			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
@@ -74,7 +74,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 			})
 
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 
@@ -97,10 +97,10 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
 		config.Main.DisconnectedStatusTime = ct.NewOptDuration(threshold)
 
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.Core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.relay.core.GetEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
 			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
@@ -112,7 +112,7 @@ func DoStatusEndpointTests(t *testing.T, constructor TestConstructor) {
 			time.Sleep(threshold + (time.Millisecond * 10))
 
 			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 

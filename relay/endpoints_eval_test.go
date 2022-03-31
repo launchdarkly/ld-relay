@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"encoding/json"
@@ -25,13 +25,7 @@ var basicUserJSON = jsonhelpers.ToJSON(st.BasicUserForTestFlags)
 var basicContextJSON = jsonhelpers.ToJSON(
 	ldcontext.NewMulti(ldcontext.NewWithKind("other", "wrongkey"), st.BasicUserForTestFlags))
 
-func DoEvalEndpointsTests(t *testing.T, constructor TestConstructor) {
-	constructor.RunTest(t, "server-side", DoServerSideEvalRoutesTest)
-	constructor.RunTest(t, "mobile", DoMobileEvalRoutesTest)
-	constructor.RunTest(t, "JS client", DoJSClientEvalRoutesTest)
-}
-
-func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEvalServerSide(t *testing.T) {
 	env := st.EnvMain
 	sdkKey := env.Config.SDKKey
 	expectedServerEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, false, false))
@@ -49,7 +43,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -57,7 +51,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 					r := req
 					t.Run(r.name, func(t *testing.T) {
 						t.Run("success", func(t *testing.T) {
-							result, body := st.DoRequest(s.request(r), p.Handler)
+							result, body := st.DoRequest(s.request(r), p.relay)
 
 							if assert.Equal(t, r.expectedStatus, result.StatusCode) {
 								st.AssertNonStreamingHeaders(t, result.Header)
@@ -68,7 +62,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 						t.Run("unknown SDK key", func(t *testing.T) {
 							s1 := s
 							s1.credential = st.UndefinedSDKKey
-							result, _ := st.DoRequest(s1.request(r), p.Handler)
+							result, _ := st.DoRequest(s1.request(r), p.relay)
 
 							assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 						})
@@ -78,7 +72,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 							t.Run(u.name, func(t *testing.T) {
 								r1 := r
 								r1.data = u.userJSON
-								result, _ := st.DoRequest(s.request(r1), p.Handler)
+								result, _ := st.DoRequest(s.request(r1), p.relay)
 
 								assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 							})
@@ -90,7 +84,7 @@ func DoServerSideEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	})
 }
 
-func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEvalMobile(t *testing.T) {
 	env := st.EnvMobile
 	mobileKey := env.Config.MobileKey
 	expectedMobileEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.MobileFlags, false, false))
@@ -113,7 +107,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -121,7 +115,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 					r := req
 					t.Run(r.name, func(t *testing.T) {
 						t.Run("success", func(t *testing.T) {
-							result, body := st.DoRequest(s.request(r), p.Handler)
+							result, body := st.DoRequest(s.request(r), p.relay)
 
 							if assert.Equal(t, r.expectedStatus, result.StatusCode) {
 								m.In(t).Assert(body, r.bodyMatcher)
@@ -132,7 +126,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 						t.Run("unknown mobile key", func(t *testing.T) {
 							s1 := s
 							s1.credential = st.UndefinedMobileKey
-							result, _ := st.DoRequest(s1.request(r), p.Handler)
+							result, _ := st.DoRequest(s1.request(r), p.relay)
 
 							assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 						})
@@ -142,7 +136,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 							t.Run(u.name, func(t *testing.T) {
 								r1 := r
 								r1.data = u.userJSON
-								result, _ := st.DoRequest(s.request(r1), p.Handler)
+								result, _ := st.DoRequest(s.request(r1), p.relay)
 
 								assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 							})
@@ -154,7 +148,7 @@ func DoMobileEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	})
 }
 
-func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEvalJSClient(t *testing.T) {
 	env := st.EnvClientSide
 	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
@@ -182,7 +176,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvClientSide, st.EnvClientSideSecureMode)
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -190,7 +184,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 					r := req
 					t.Run(r.name, func(t *testing.T) {
 						t.Run("success", func(t *testing.T) {
-							result, body := st.DoRequest(s.request(r), p.Handler)
+							result, body := st.DoRequest(s.request(r), p.relay)
 
 							if assert.Equal(t, r.expectedStatus, result.StatusCode) {
 								st.AssertNonStreamingHeaders(t, result.Header)
@@ -203,7 +197,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 							s1 := s
 							s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 							s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForContext(user))
-							result, body := st.DoRequest(s1.request(r), p.Handler)
+							result, body := st.DoRequest(s1.request(r), p.relay)
 
 							if assert.Equal(t, r.expectedStatus, result.StatusCode) {
 								st.AssertNonStreamingHeaders(t, result.Header)
@@ -216,7 +210,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 							s1 := s
 							s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 							s1.path = st.AddQueryParam(s1.path, "h=incorrect")
-							result, _ := st.DoRequest(s1.request(r), p.Handler)
+							result, _ := st.DoRequest(s1.request(r), p.relay)
 
 							assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 						})
@@ -224,7 +218,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 						t.Run("secure mode - hash not provided", func(t *testing.T) {
 							s1 := s
 							s1.credential = st.EnvClientSideSecureMode.Config.EnvID
-							result, _ := st.DoRequest(s1.request(r), p.Handler)
+							result, _ := st.DoRequest(s1.request(r), p.relay)
 
 							assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 						})
@@ -232,7 +226,7 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 						t.Run("unknown environment ID", func(t *testing.T) {
 							s1 := s
 							s1.credential = st.UndefinedEnvID
-							result, _ := st.DoRequest(s1.request(r), p.Handler)
+							result, _ := st.DoRequest(s1.request(r), p.relay)
 							assert.Equal(t, http.StatusNotFound, result.StatusCode)
 						})
 
@@ -241,14 +235,14 @@ func DoJSClientEvalRoutesTest(t *testing.T, constructor TestConstructor) {
 							t.Run(u.name, func(t *testing.T) {
 								r1 := r
 								r1.data = u.userJSON
-								result, _ := st.DoRequest(s.request(r1), p.Handler)
+								result, _ := st.DoRequest(s.request(r1), p.relay)
 
 								assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 							})
 						}
 
 						t.Run("options", func(t *testing.T) {
-							st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(r), s.method)
+							st.AssertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(r), s.method)
 						})
 					})
 				}

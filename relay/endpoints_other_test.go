@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsJSClientGoals(t *testing.T) {
 	env := st.EnvClientSide
 	envID := env.Config.EnvID
 	fakeGoalsData := []byte(`["got some goals"]`)
@@ -39,12 +39,12 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 	config.Main.BaseURI, _ = ct.NewOptURLAbsoluteFromString(fakeServerWithGoalsEndpoint.URL)
 	config.Environment = st.MakeEnvConfigs(env)
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		url := fmt.Sprintf("http://localhost/sdk/goals/%s", envID)
 
 		t.Run("requests", func(t *testing.T) {
 			r := st.BuildRequest("GET", url, nil, nil)
-			result, body := st.DoRequest(r, p.Handler)
+			result, body := st.DoRequest(r, p.relay)
 			st.AssertNonStreamingHeaders(t, result.Header)
 			if assert.Equal(t, http.StatusOK, result.StatusCode) {
 				st.AssertExpectedCORSHeaders(t, result, "GET", "*")
@@ -53,7 +53,7 @@ func DoJSClientGoalsEndpointTest(t *testing.T, constructor TestConstructor) {
 		})
 
 		t.Run("options", func(t *testing.T) {
-			st.AssertEndpointSupportsOptionsRequest(t, p.Handler, url, "GET")
+			st.AssertEndpointSupportsOptionsRequest(t, p.relay, url, "GET")
 		})
 	})
 }

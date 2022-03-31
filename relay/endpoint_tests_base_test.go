@@ -1,44 +1,73 @@
-package testsuites
+package relay
 
 import (
 	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	c "github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+
+	"github.com/stretchr/testify/require"
 )
 
-// TestParams is information that is passed to test code with DoTest.
-type TestParams struct {
-	Core    *core.RelayCore
-	Handler http.Handler
-	Closer  func()
+type relayTestBehavior struct {
+	// All of the following are opt-in so the false behavior is the one we're most likely to use in tests.
+	skipWaitForEnvironments bool // true = we're using auto-config or expect startup to fail; false = wait for all environments
+	useRealSDKClient        bool // true = use real end-to-end HTTP; false = use a mock SDK client
+	doNotEnableDebugLogging bool // true = leave the default log level in place; false = enable debug logging
 }
 
-// TestConstructor is provided by whatever Relay variant is calling the test suite, to provide the appropriate
-// setup and teardown for that variant.
-type TestConstructor func(config.Config, ldlog.Loggers) TestParams
-
-// RunTest is a shortcut for running a subtest method with this parameter.
-func (c TestConstructor) RunTest(t *testing.T, name string, testFn func(*testing.T, TestConstructor)) {
-	t.Run(name, func(t *testing.T) { testFn(t, c) })
+type relayTestParams struct {
+	relay   *Relay
+	mockLog *ldlogtest.MockLog
 }
 
-// DoTest some code against a new Relay instance that is set up with the specified configuration.
-func DoTest(t *testing.T, c config.Config, constructor TestConstructor, action func(TestParams)) {
+// withStartedRelay initializes a Relay instance, runs a block of test code against it, and then
+// ensures that everything is cleaned up.
+//
+// Log output is redirected to a MockLog which can be read by tests.
+//
+// Normally, the Relay instance will use testclient.CreateDummyClient to substitute a test
+// fixture for the SDK client. However, for tests that really want to do HTTP, if you set any
+// of the BaseURI properties in the configuration, it will use a real SDK client.
+func withStartedRelay(t *testing.T, config c.Config, action func(relayTestParams)) {
+	withStartedRelayCustom(t, config, relayTestBehavior{}, action)
+}
+
+// withStartedRelayCustom is the same as withStartedRelay but allows more customization of the
+// test setup.
+func withStartedRelayCustom(t *testing.T, config c.Config, behavior relayTestBehavior, action func(relayTestParams)) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	p := constructor(c, mockLog.Loggers)
-	defer p.Closer()
-	action(p)
+
+	if !config.Main.LogLevel.IsDefined() && !behavior.doNotEnableDebugLogging {
+		config.Main.LogLevel = c.NewOptLogLevel(ldlog.Debug)
+		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	}
+	options := relayInternalOptions{loggers: mockLog.Loggers}
+	if !behavior.useRealSDKClient {
+		options.clientFactory = testclient.CreateDummyClient
+	}
+	relay, err := newRelayInternal(config, options)
+	require.NoError(t, err)
+	defer relay.Close()
+	if !behavior.skipWaitForEnvironments {
+		require.NoError(t, relay.core.WaitForAllClients(time.Second))
+	}
+
+	action(relayTestParams{
+		relay:   relay,
+		mockLog: mockLog,
+	})
 }
 
 // Test parameters for an endpoint that we want to test. The "data" parameter is used as the request body if

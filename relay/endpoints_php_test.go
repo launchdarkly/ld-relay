@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
+func TestEndpointsPHPPolling(t *testing.T) {
 	sdkKeyMain := st.EnvMain.Config.SDKKey
 	sdkKeyWithTTL := st.EnvWithTTL.Config.SDKKey
 
@@ -33,7 +33,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvWithTTL)
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -41,7 +41,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 					etag := ""
 
 					t.Run("success", func(t *testing.T) {
-						result, body := st.DoRequest(s.request(), p.Handler)
+						result, body := st.DoRequest(s.request(), p.relay)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							st.AssertNonStreamingHeaders(t, result.Header)
@@ -54,7 +54,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 					t.Run("success - environment has TTL", func(t *testing.T) {
 						s1 := s
 						s1.credential = sdkKeyWithTTL
-						result, _ := st.DoRequest(s1.request(), p.Handler)
+						result, _ := st.DoRequest(s1.request(), p.relay)
 
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							assert.NotEqual(t, "", result.Header.Get("Expires"))
@@ -65,7 +65,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 						t.Run("query with same ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", etag)
-							result, _ := st.DoRequest(r, p.Handler)
+							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
 						})
@@ -73,7 +73,7 @@ func DoPHPPollingEndpointsTests(t *testing.T, constructor TestConstructor) {
 						t.Run("query with different ETag is cached", func(t *testing.T) {
 							r := s.request()
 							r.Header.Set("If-None-Match", "different-from-"+etag)
-							result, _ := st.DoRequest(r, p.Handler)
+							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusOK, result.StatusCode)
 						})

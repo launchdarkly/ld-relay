@@ -10,7 +10,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
+	"github.com/launchdarkly/ld-relay/v6/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"

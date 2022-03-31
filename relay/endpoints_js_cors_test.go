@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
+	"github.com/launchdarkly/ld-relay/v6/internal/browser"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -20,7 +20,7 @@ import (
 // Since we use the same CORS middleware for all browser endpoints, we will only use a single
 // endpoint for these tests.
 
-func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
+func TestEndpointsJSClientCORS(t *testing.T) {
 	env := st.EnvClientSide
 	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
@@ -33,8 +33,8 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 
 	t.Run("default Access-Control-Allow-Headers", func(t *testing.T) {
 		config := c.Config{Environment: st.MakeEnvConfigs(st.EnvClientSide)}
-		DoTest(t, config, constructor, func(p TestParams) {
-			result, _ := st.DoRequest(endpoint.request(), p.Handler)
+		withStartedRelay(t, config, func(p relayTestParams) {
+			result, _ := st.DoRequest(endpoint.request(), p.relay)
 			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
 				assert.Equal(t, browser.DefaultAllowedHeaders, result.Header.Get("Access-Control-Allow-Headers"))
 			}
@@ -45,8 +45,8 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 		env := st.EnvClientSide
 		env.Config.AllowedHeader = configtypes.NewOptStringList([]string{"my-header-1", "my-header-2"})
 		config := c.Config{Environment: st.MakeEnvConfigs(env)}
-		DoTest(t, config, constructor, func(p TestParams) {
-			result, _ := st.DoRequest(endpoint.request(), p.Handler)
+		withStartedRelay(t, config, func(p relayTestParams) {
+			result, _ := st.DoRequest(endpoint.request(), p.relay)
 			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
 				assert.Equal(t, browser.DefaultAllowedHeaders+",my-header-1,my-header-2", result.Header.Get("Access-Control-Allow-Headers"))
 			}
@@ -55,8 +55,8 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 
 	t.Run("default Access-Control-Allow-Origin", func(t *testing.T) {
 		config := c.Config{Environment: st.MakeEnvConfigs(st.EnvClientSide)}
-		DoTest(t, config, constructor, func(p TestParams) {
-			result, _ := st.DoRequest(endpoint.request(), p.Handler)
+		withStartedRelay(t, config, func(p relayTestParams) {
+			result, _ := st.DoRequest(endpoint.request(), p.relay)
 			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
 				assert.Equal(t, browser.DefaultAllowedOrigin, result.Header.Get("Access-Control-Allow-Origin"))
 			}
@@ -69,10 +69,10 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 		env := st.EnvClientSide
 		env.Config.AllowedOrigin = configtypes.NewOptStringList([]string{allowedOrigin1, allowedOrigin2})
 		config := c.Config{Environment: st.MakeEnvConfigs(env)}
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			req := endpoint.request()
 			req.Header.Set("Origin", allowedOrigin2)
-			result, _ := st.DoRequest(req, p.Handler)
+			result, _ := st.DoRequest(req, p.relay)
 			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
 				assert.Equal(t, allowedOrigin2, result.Header.Get("Access-Control-Allow-Origin"))
 			}
@@ -86,10 +86,10 @@ func DoJSClientCORSBehaviorTests(t *testing.T, constructor TestConstructor) {
 		env := st.EnvClientSide
 		env.Config.AllowedOrigin = configtypes.NewOptStringList([]string{allowedOrigin1, allowedOrigin2})
 		config := c.Config{Environment: st.MakeEnvConfigs(env)}
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			req := endpoint.request()
 			req.Header.Set("Origin", actualOrigin)
-			result, _ := st.DoRequest(req, p.Handler)
+			result, _ := st.DoRequest(req, p.relay)
 			if assert.Equal(t, endpoint.expectedStatus, result.StatusCode) {
 				// The defined behavior here, when the actual origin didn't match any of the configured
 				// allowable ones, is that we return the *first* configured one.
