@@ -11,7 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events/oldevents"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
-	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
+	events_base "github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
@@ -287,7 +287,7 @@ func makeEventSender(
 		headers[k] = v
 	}
 	if metadata.Tags != "" {
-		headers.Set(constants.TagsHeader, metadata.Tags)
+		headers.Set(events_base.TagsHeader, metadata.Tags)
 	}
 	if authKey.GetAuthorizationHeaderValue() != "" {
 		headers.Set("Authorization", authKey.GetAuthorizationHeaderValue())

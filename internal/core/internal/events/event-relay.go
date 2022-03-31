@@ -12,7 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
-	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
+	events_base "github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -81,7 +81,7 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 		metadata := GetEventPayloadMetadata(req)
 
 		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), metadata.SchemaVersion, r.remotePath)
-		if metadata.SchemaVersion >= constants.SummaryEventsSchemaVersion {
+		if metadata.SchemaVersion >= events_base.SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(metadata, evts)
 		} else {

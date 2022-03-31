@@ -11,7 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
+	events_base "github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
@@ -28,7 +28,7 @@ func expectSummarizedPayload(t *testing.T, requestsCh <-chan httphelpers.HTTPReq
 
 func expectSummarizedPayloadRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) httphelpers.HTTPRequestInfo {
 	r := st.ExpectTestRequest(t, requestsCh, time.Second)
-	assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
+	assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r.Request.Header.Get(events_base.EventSchemaHeader))
 	assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"))
 	return r
 }
@@ -73,8 +73,8 @@ func TestSummarizingRelayProcessesEventsSeparatelyForDifferentTags(t *testing.T)
 	payload1b := `[` + customEventData1b + `]`
 	payload2 := `[` + customEventData2 + `]`
 	headers1, headers2 := headersWithEventSchema(0), headersWithEventSchema(0)
-	headers1.Set(constants.TagsHeader, "tags1")
-	headers2.Set(constants.TagsHeader, "tags2")
+	headers1.Set(events_base.TagsHeader, "tags1")
+	headers2.Set(events_base.TagsHeader, "tags2")
 
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		req1a := st.BuildRequest("POST", "/", []byte(payload1a), headers1)
@@ -87,12 +87,12 @@ func TestSummarizingRelayProcessesEventsSeparatelyForDifferentTags(t *testing.T)
 
 		request1 := expectSummarizedPayloadRequest(t, p.requestsCh)
 		request2 := expectSummarizedPayloadRequest(t, p.requestsCh)
-		if request2.Request.Header.Get(constants.TagsHeader) == "tags1" {
+		if request2.Request.Header.Get(events_base.TagsHeader) == "tags1" {
 			request1, request2 = request2, request1
 		}
 
-		assert.Equal(t, "tags1", request1.Request.Header.Get(constants.TagsHeader))
-		assert.Equal(t, "tags2", request2.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, "tags1", request1.Request.Header.Get(events_base.TagsHeader))
+		assert.Equal(t, "tags2", request2.Request.Header.Get(events_base.TagsHeader))
 
 		m.In(t).Assert(json.RawMessage(request1.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
@@ -120,8 +120,8 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 	payload1b := `[` + customEventData1b + `]`
 	payload2 := `[` + customEventData2 + `]`
 	headers1, headers2 := headersWithEventSchema(0), headersWithEventSchema(0)
-	headers1.Set(constants.TagsHeader, "tags1")
-	headers2.Set(constants.TagsHeader, "tags2")
+	headers1.Set(events_base.TagsHeader, "tags1")
+	headers2.Set(events_base.TagsHeader, "tags2")
 
 	// Force eventQueueCleanupInterval to be very brief, so that the EventProcessor instances created
 	// for the two tags will be torn down again soon after they stop receiving events.
@@ -139,12 +139,12 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 		// know that that has happened.
 		request1a := expectSummarizedPayloadRequest(t, p.requestsCh)
 		request2 := expectSummarizedPayloadRequest(t, p.requestsCh)
-		if request2.Request.Header.Get(constants.TagsHeader) == "tags1" {
+		if request2.Request.Header.Get(events_base.TagsHeader) == "tags1" {
 			request1a, request2 = request2, request1a
 		}
 
-		assert.Equal(t, "tags1", request1a.Request.Header.Get(constants.TagsHeader))
-		assert.Equal(t, "tags2", request2.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, "tags1", request1a.Request.Header.Get(events_base.TagsHeader))
+		assert.Equal(t, "tags2", request2.Request.Header.Get(events_base.TagsHeader))
 
 		m.In(t).Assert(json.RawMessage(request1a.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
@@ -162,7 +162,7 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 		p.dispatcher.flush()
 
 		request1b := expectSummarizedPayloadRequest(t, p.requestsCh)
-		assert.Equal(t, "tags1", request1b.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, "tags1", request1b.Request.Header.Get(events_base.TagsHeader))
 		m.In(t).Assert(json.RawMessage(request1b.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1b"))),

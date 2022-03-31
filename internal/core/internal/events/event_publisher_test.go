@@ -12,7 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	constants "github.com/launchdarkly/ld-relay/v6/internal/events"
+	events_base "github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -45,7 +45,7 @@ func TestHTTPEventPublisherSimple(t *testing.T) {
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r.Request.Header.Get(events_base.EventSchemaHeader))
 		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello", "hello again"]`))
 	})
 }
@@ -69,27 +69,27 @@ func TestHTTPEventPublisherMultiQueuesWithMetadata(t *testing.T) {
 			received = append(received, st.ExpectTestRequest(t, requestsCh, time.Second))
 		}
 		requestSortKey := func(r httphelpers.HTTPRequestInfo) string {
-			return r.Request.Header.Get(constants.EventSchemaHeader) + "," + r.Request.Header.Get(constants.TagsHeader)
+			return r.Request.Header.Get(events_base.EventSchemaHeader) + "," + r.Request.Header.Get(events_base.TagsHeader)
 		}
 		sort.Slice(received, func(i, j int) bool { return requestSortKey(received[i]) < requestSortKey(received[j]) })
 		r0, r1, r2 := received[0], received[1], received[2]
 
 		assert.Equal(t, "/bulk", r0.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r0.Request.Header.Get("Authorization"))
-		assert.Equal(t, "3", r0.Request.Header.Get(constants.EventSchemaHeader))
-		assert.Equal(t, "a", r0.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, "3", r0.Request.Header.Get(events_base.EventSchemaHeader))
+		assert.Equal(t, "a", r0.Request.Header.Get(events_base.TagsHeader))
 		m.In(t).Assert(r0.Body, m.JSONStrEqual(`["also this"]`))
 
 		assert.Equal(t, "/bulk", received[0].Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r1.Request.Header.Get("Authorization"))
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r1.Request.Header.Get(constants.EventSchemaHeader))
-		assert.Equal(t, "a", r1.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r1.Request.Header.Get(events_base.EventSchemaHeader))
+		assert.Equal(t, "a", r1.Request.Header.Get(events_base.TagsHeader))
 		m.In(t).Assert(r1.Body, m.JSONStrEqual(`["hello", "hello again"]`))
 
 		assert.Equal(t, "/bulk", r2.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r2.Request.Header.Get("Authorization"))
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r2.Request.Header.Get(constants.EventSchemaHeader))
-		assert.Equal(t, "b", r2.Request.Header.Get(constants.TagsHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r2.Request.Header.Get(events_base.EventSchemaHeader))
+		assert.Equal(t, "b", r2.Request.Header.Get(events_base.TagsHeader))
 		m.In(t).Assert(r2.Body, m.JSONStrEqual(`["ok", "thanks"]`))
 	})
 }
@@ -107,7 +107,7 @@ func TestHTTPEventPublisherOptionURIPath(t *testing.T) {
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/special-path", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r.Request.Header.Get(events_base.EventSchemaHeader))
 		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
 	})
 }
@@ -132,7 +132,7 @@ func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r.Request.Header.Get(events_base.EventSchemaHeader))
 	})
 }
 
@@ -162,7 +162,7 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 		publisher.Flush()
 		r := st.ExpectTestRequest(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
-		assert.Equal(t, strconv.Itoa(constants.CurrentEventsSchemaVersion), r.Request.Header.Get(constants.EventSchemaHeader))
+		assert.Equal(t, strconv.Itoa(events_base.CurrentEventsSchemaVersion), r.Request.Header.Get(events_base.EventSchemaHeader))
 		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
 	})
 }
