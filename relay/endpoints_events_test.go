@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"encoding/json"
@@ -11,9 +11,9 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/browser"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/events"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
@@ -22,12 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func DoEventProxyTests(t *testing.T, constructor TestConstructor) {
-	constructor.RunTest(t, "server-side", DoServerSideEventProxyTest)
-	constructor.RunTest(t, "mobile", DoMobileEventProxyTest)
-	constructor.RunTest(t, "JS client", DoJSClientEventProxyTest)
-}
-
 type publishedEvent struct {
 	url     string
 	data    []byte
@@ -35,7 +29,7 @@ type publishedEvent struct {
 }
 
 type relayEventsTestParams struct {
-	TestParams
+	relayTestParams
 	publishedEvents chan publishedEvent
 }
 
@@ -53,7 +47,7 @@ func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) 
 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a
 // test server to receie any events that are proxied by Relay.
-func relayEventsTest(t *testing.T, config c.Config, constructor TestConstructor, action func(relayEventsTestParams)) {
+func relayEventsTest(t *testing.T, config c.Config, action func(relayEventsTestParams)) {
 	eventsCh := make(chan publishedEvent, 10)
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -68,9 +62,9 @@ func relayEventsTest(t *testing.T, config c.Config, constructor TestConstructor,
 	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
 	config.Events.FlushInterval = ct.NewOptDuration(time.Second)
 
-	DoTest(t, config, constructor, func(pBase TestParams) {
+	withStartedRelay(t, config, func(pBase relayTestParams) {
 		p := relayEventsTestParams{
-			TestParams:      pBase,
+			relayTestParams: pBase,
 			publishedEvents: eventsCh,
 		}
 		action(p)
@@ -91,7 +85,7 @@ func makeTestFeatureEventPayload(userKey string) []byte {
 	return data
 }
 
-func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEventProxyServerSide(t *testing.T) {
 	env := st.EnvMain
 	sdkKey := env.Config.SDKKey
 	var config c.Config
@@ -105,10 +99,10 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 		return st.BuildRequest("POST", "http://localhost/bulk", body, header)
 	}
 
-	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, func(p relayEventsTestParams) {
 		t.Run("bulk post", func(t *testing.T) {
 			r := makeRequest(sdkKey)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, body)
@@ -119,7 +113,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 
 		t.Run("unknown SDK key", func(t *testing.T) {
 			r := makeRequest(st.UndefinedSDKKey)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 
 			assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 		})
@@ -130,7 +124,7 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header.Set("Content-Type", "application/json")
 			header.Set("Authorization", string(sdkKey))
 			r := st.BuildRequest("POST", "http://localhost/diagnostic", eventData, header)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)
@@ -141,15 +135,15 @@ func DoServerSideEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			r := makeRequest(sdkKey)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 			assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
 		})
 	})
 }
 
-func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEventProxyMobile(t *testing.T) {
 	env := st.EnvMobile
 	mobileKey := env.Config.MobileKey
 	var config c.Config
@@ -169,13 +163,13 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 		return st.BuildRequest("POST", url, body, header)
 	}
 
-	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, func(p relayEventsTestParams) {
 		for i, path := range bulkEndpoints {
 			body := makeBody(i)
 
 			t.Run("bulk post "+path, func(t *testing.T) {
 				r := makeRequest(path, body, mobileKey)
-				result, _ := st.DoRequest(r, p.Handler)
+				result, _ := st.DoRequest(r, p.relay)
 
 				if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 					event := p.requirePublishedEvent(t, body)
@@ -186,7 +180,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 
 			t.Run("unknown SDK key", func(t *testing.T) {
 				r := makeRequest(path, body, st.UndefinedMobileKey)
-				result, _ := st.DoRequest(r, p.Handler)
+				result, _ := st.DoRequest(r, p.relay)
 
 				assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 			})
@@ -197,7 +191,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header := make(http.Header)
 			header.Set("Authorization", string(mobileKey))
 			r := st.BuildRequest("POST", "http://localhost/mobile/events/diagnostic", eventData, header)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)
@@ -208,11 +202,11 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			for i, path := range bulkEndpoints {
 				t.Run("bulk post "+path, func(t *testing.T) {
 					r := makeRequest(path, makeBody(i), mobileKey)
-					result, _ := st.DoRequest(r, p.Handler)
+					result, _ := st.DoRequest(r, p.relay)
 					assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
 				})
 			}
@@ -220,7 +214,7 @@ func DoMobileEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 }
 
-func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsEventProxyJSClient(t *testing.T) {
 	env := st.EnvClientSide
 	envID := env.Config.EnvID
 	eventData := makeTestFeatureEventPayload("me")
@@ -234,7 +228,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 	var config c.Config
 	config.Environment = st.MakeEnvConfigs(env)
 
-	relayEventsTest(t, config, constructor, func(p relayEventsTestParams) {
+	relayEventsTest(t, config, func(p relayEventsTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -243,7 +237,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if s.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 					}
-					result, body := st.DoRequest(r, p.Handler)
+					result, body := st.DoRequest(r, p.relay)
 
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						st.AssertNonStreamingHeaders(t, result.Header)
@@ -263,13 +257,13 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if s1.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 					}
-					result, _ := st.DoRequest(r, p.Handler)
+					result, _ := st.DoRequest(r, p.relay)
 
 					assert.Equal(t, http.StatusNotFound, result.StatusCode)
 				})
 
 				t.Run("options", func(t *testing.T) {
-					st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
+					st.AssertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(), s.method)
 				})
 			})
 		}
@@ -280,7 +274,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 			header := make(http.Header)
 			header.Set("Content-Type", "application/json")
 			r := st.BuildRequest("POST", "http://localhost"+expectedPath, eventData, header)
-			result, _ := st.DoRequest(r, p.Handler)
+			result, _ := st.DoRequest(r, p.relay)
 
 			if assert.Equal(t, http.StatusAccepted, result.StatusCode) {
 				event := p.requirePublishedEvent(t, eventData)
@@ -291,7 +285,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 	})
 
 	t.Run("events disabled", func(t *testing.T) {
-		DoTest(t, config, constructor, func(p TestParams) {
+		withStartedRelay(t, config, func(p relayTestParams) {
 			for _, spec := range specs {
 				s := spec
 				t.Run(s.name, func(t *testing.T) {
@@ -299,7 +293,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if s.method != "GET" {
 						r.Header.Set(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 					}
-					result, _ := st.DoRequest(r, p.Handler)
+					result, _ := st.DoRequest(r, p.relay)
 					assert.Equal(t, http.StatusServiceUnavailable, result.StatusCode)
 				})
 			}

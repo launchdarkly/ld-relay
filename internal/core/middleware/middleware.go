@@ -8,7 +8,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/browser"
+	"github.com/launchdarkly/ld-relay/v6/internal/browser"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 

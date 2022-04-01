@@ -1,4 +1,4 @@
-package core
+package relay
 
 import (
 	"io/ioutil"
@@ -11,7 +11,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v6/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -32,16 +31,22 @@ var testFlag = ldbuilders.NewFlagBuilder("test-flag").Version(1).
 	ClientSideUsingMobileKey(true).ClientSideUsingEnvironmentID(true). // ensures that it'll show up in all endpoints
 	Build()
 
-type relayCoreEndToEndTestParams struct {
+type relayEndToEndTestParams struct {
+	relayTestParams
 	t            *testing.T
 	requestsCh   <-chan httphelpers.HTTPRequestInfo
 	relayURL     string
-	relayMockLog *ldlogtest.MockLog
 	loggers      ldlog.Loggers
 	singleLogger ldlog.BaseLogger
 }
 
-func relayCoreEndToEndTest(t *testing.T, config c.Config, ldStreamHandler http.Handler, action func(p relayCoreEndToEndTestParams)) {
+func relayEndToEndTest(
+	t *testing.T,
+	config c.Config,
+	behavior relayTestBehavior,
+	ldStreamHandler http.Handler,
+	action func(p relayEndToEndTestParams),
+) {
 	relayMockLog := ldlogtest.NewMockLog()
 	defer relayMockLog.DumpIfTestFailed(t)
 
@@ -55,52 +60,45 @@ func relayCoreEndToEndTest(t *testing.T, config c.Config, ldStreamHandler http.H
 				config.Main.BaseURI, _ = configtypes.NewOptURLAbsoluteFromString(pollServer.URL)
 				config.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(streamServer.URL)
 				config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
-				core, err := NewRelayCore(
-					config,
-					relayMockLog.Loggers,
-					nil,
-					"1.2.3",
-					"FakeRelay",
-					relayenv.LogNameIsEnvID,
-				)
-				require.NoError(t, err)
-				defer core.Close()
 
-				for _, env := range config.Environment {
-					streamReq := st.ExpectTestRequest(t, requestsCh, time.Second*5)
-					assert.Equal(t, string(env.SDKKey), streamReq.Request.Header.Get("Authorization"))
-				}
-
-				httphelpers.WithServer(core.MakeRouter(), func(relayServer *httptest.Server) {
-					mockLog := ldlogtest.NewMockLog()
-					mockLog.Loggers.SetPrefix("TestClient:")
-					defer mockLog.DumpIfTestFailed(t)
-					p := relayCoreEndToEndTestParams{
-						t:            t,
-						requestsCh:   requestsCh,
-						relayURL:     relayServer.URL,
-						relayMockLog: relayMockLog,
-						loggers:      mockLog.Loggers,
-						singleLogger: mockLog.Loggers.ForLevel(ldlog.Info),
+				behavior.useRealSDKClient = true
+				withStartedRelayCustom(t, config, behavior, func(p relayTestParams) {
+					for _, env := range config.Environment {
+						streamReq := st.ExpectTestRequest(t, requestsCh, time.Second*5)
+						assert.Equal(t, string(env.SDKKey), streamReq.Request.Header.Get("Authorization"))
 					}
-					action(p)
+
+					httphelpers.WithServer(p.relay, func(relayServer *httptest.Server) {
+						mockLog := ldlogtest.NewMockLog()
+						mockLog.Loggers.SetPrefix("TestClient:")
+						defer mockLog.DumpIfTestFailed(t)
+						p1 := relayEndToEndTestParams{
+							relayTestParams: p,
+							t:               t,
+							requestsCh:      requestsCh,
+							relayURL:        relayServer.URL,
+							loggers:         mockLog.Loggers,
+							singleLogger:    mockLog.Loggers.ForLevel(ldlog.Info),
+						}
+						action(p1)
+					})
 				})
 			})
 		})
 	})
 }
 
-func (p relayCoreEndToEndTestParams) waitForSuccessfulInit() {
+func (p relayEndToEndTestParams) waitForSuccessfulInit() {
 	p.waitForLogMessage(ldlog.Info, "Initialized LaunchDarkly client for", "Relay initialization")
 }
 
-func (p relayCoreEndToEndTestParams) waitForLogMessage(level ldlog.LogLevel, pattern, conditionDesc string) {
+func (p relayEndToEndTestParams) waitForLogMessage(level ldlog.LogLevel, pattern, conditionDesc string) {
 	require.Eventually(p.t, func() bool {
-		return p.relayMockLog.HasMessageMatch(level, pattern)
+		return p.mockLog.HasMessageMatch(level, pattern)
 	}, time.Second*2, time.Millisecond*50, "timed out waiting for %s", conditionDesc)
 }
 
-func (p relayCoreEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind basictypes.StreamKind) (
+func (p relayEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind basictypes.StreamKind) (
 	*eventsource.Stream, *eventsource.SubscriptionError) {
 	req := st.MakeSDKStreamEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
 	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(p.singleLogger))
@@ -112,7 +110,7 @@ func (p relayCoreEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind ba
 	return stream, nil
 }
 
-func (p relayCoreEndToEndTestParams) expectStreamEvent(testEnv st.TestEnv, kind basictypes.StreamKind) eventsource.Event {
+func (p relayEndToEndTestParams) expectStreamEvent(testEnv st.TestEnv, kind basictypes.StreamKind) eventsource.Event {
 	stream, err := p.subscribeStream(testEnv, kind)
 	require.Nil(p.t, err)
 	require.NotNil(p.t, stream)
@@ -120,7 +118,7 @@ func (p relayCoreEndToEndTestParams) expectStreamEvent(testEnv st.TestEnv, kind 
 	return st.ExpectStreamEvent(p.t, stream, time.Second*5)
 }
 
-func (p relayCoreEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv, kind basictypes.StreamKind) {
+func (p relayEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv, kind basictypes.StreamKind) {
 	stream, err := p.subscribeStream(testEnv, kind)
 	require.Nil(p.t, err)
 	require.NotNil(p.t, stream)
@@ -128,13 +126,13 @@ func (p relayCoreEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv,
 	st.ExpectNoStreamEvent(p.t, stream, time.Millisecond*100)
 }
 
-func (p relayCoreEndToEndTestParams) expectStreamError(testEnv st.TestEnv, kind basictypes.StreamKind, status int) {
+func (p relayEndToEndTestParams) expectStreamError(testEnv st.TestEnv, kind basictypes.StreamKind, status int) {
 	_, err := p.subscribeStream(testEnv, kind)
 	require.NotNil(p.t, err)
 	assert.Equal(p.t, status, err.Code)
 }
 
-func (p relayCoreEndToEndTestParams) expectEvalResult(testEnv st.TestEnv, kind basictypes.SDKKind) ldvalue.Value {
+func (p relayEndToEndTestParams) expectEvalResult(testEnv st.TestEnv, kind basictypes.SDKKind) ldvalue.Value {
 	req := st.MakeSDKEvalEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(p.t, err)
@@ -145,14 +143,14 @@ func (p relayCoreEndToEndTestParams) expectEvalResult(testEnv st.TestEnv, kind b
 	return ldvalue.Parse(body)
 }
 
-func (p relayCoreEndToEndTestParams) expectEvalError(testEnv st.TestEnv, kind basictypes.SDKKind, status int) {
+func (p relayEndToEndTestParams) expectEvalError(testEnv st.TestEnv, kind basictypes.SDKKind, status int) {
 	req := st.MakeSDKEvalEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(p.t, err)
 	require.Equal(p.t, status, resp.StatusCode)
 }
 
-func (p relayCoreEndToEndTestParams) expectSuccessFromAllEndpoints(testEnv st.TestEnv) {
+func (p relayEndToEndTestParams) expectSuccessFromAllEndpoints(testEnv st.TestEnv) {
 	serverSideEvent := p.expectStreamEvent(testEnv, basictypes.ServerSideStream)
 	assert.Equal(p.t, "put", serverSideEvent.Event())
 	jsonData := ldvalue.Parse([]byte(serverSideEvent.Data()))
@@ -173,24 +171,25 @@ func (p relayCoreEndToEndTestParams) expectSuccessFromAllEndpoints(testEnv st.Te
 	assert.Equal(p.t, []string{testFlag.Key}, jsClientEval.Keys(nil))
 }
 
-func TestRelayCoreEndToEndSuccess(t *testing.T) {
+func TestRelayEndToEndSuccess(t *testing.T) {
 	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
 	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
 	testEnv := st.EnvWithAllCredentials
 
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}
-	relayCoreEndToEndTest(t, config, streamHandler, func(p relayCoreEndToEndTestParams) {
+	relayEndToEndTest(t, config, relayTestBehavior{}, streamHandler, func(p relayEndToEndTestParams) {
 		p.waitForSuccessfulInit()
 		p.expectSuccessFromAllEndpoints(testEnv)
 	})
 }
 
-func TestRelayCoreEndToEndPermanentFailure(t *testing.T) {
+func TestRelayEndToEndPermanentFailure(t *testing.T) {
 	streamHandler := httphelpers.HandlerWithStatus(401)
 	testEnv := st.EnvWithAllCredentials
 
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}
-	relayCoreEndToEndTest(t, config, streamHandler, func(p relayCoreEndToEndTestParams) {
+	behavior := relayTestBehavior{skipWaitForEnvironments: true}
+	relayEndToEndTest(t, config, behavior, streamHandler, func(p relayEndToEndTestParams) {
 		p.waitForLogMessage(ldlog.Error, "Error initializing LaunchDarkly client for", "initialization failure")
 		p.expectStreamError(testEnv, basictypes.ServerSideStream, 401)
 		p.expectStreamError(testEnv, basictypes.ServerSideFlagsOnlyStream, 401)
@@ -223,7 +222,8 @@ func TestRelayCoreEndToEndInitTimeoutWithUninitializedDataStore(t *testing.T) {
 		},
 		Environment: st.MakeEnvConfigs(testEnv),
 	}
-	relayCoreEndToEndTest(t, config, delayBeforeStreamHandler, func(p relayCoreEndToEndTestParams) {
+	behavior := relayTestBehavior{skipWaitForEnvironments: true}
+	relayEndToEndTest(t, config, behavior, delayBeforeStreamHandler, func(p relayEndToEndTestParams) {
 		p.waitForLogMessage(ldlog.Error, "timeout encountered waiting for LaunchDarkly client initialization",
 			"initialization timeout")
 		p.expectStreamWithNoEvent(testEnv, basictypes.ServerSideStream)

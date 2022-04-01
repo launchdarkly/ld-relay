@@ -1,4 +1,4 @@
-package testsuites
+package relay
 
 import (
 	"encoding/json"
@@ -20,12 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func DoStreamEndpointsTests(t *testing.T, constructor TestConstructor) {
-	constructor.RunTest(t, "server-side", DoServerSideStreamsTest)
-	constructor.RunTest(t, "mobile", DoMobileStreamsTest)
-	constructor.RunTest(t, "JS client", DoJSClientStreamsTest)
-}
-
 type streamEndpointTestParams struct {
 	endpointTestParams
 	expectedEvent string
@@ -35,34 +29,33 @@ type streamEndpointTestParams struct {
 func (s streamEndpointTestParams) runBasicStreamTests(
 	t *testing.T,
 	baseConfig c.Config,
-	constructor TestConstructor,
 	invalidCredential c.SDKCredential,
 	invalidCredentialExpectedStatus int,
 ) {
 	configWithoutTimeLimit := baseConfig
 	configWithoutTimeLimit.Main.MaxClientConnectionTime = ct.OptDuration{}
 
-	DoTest(t, configWithoutTimeLimit, constructor, func(p TestParams) {
+	withStartedRelay(t, configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("success", func(t *testing.T) {
-			s.assertRequestReceivesEvent(t, p.Handler, 200*time.Millisecond)
+			s.assertRequestReceivesEvent(t, p.relay, 200*time.Millisecond)
 		})
 
 		t.Run("invalid credential", func(t *testing.T) {
 			s1 := s
 			s1.credential = invalidCredential
-			result, _ := st.DoRequest(s1.request(), p.Handler)
+			result, _ := st.DoRequest(s1.request(), p.relay)
 
 			assert.Equal(t, invalidCredentialExpectedStatus, result.StatusCode)
 		})
 	})
 
-	DoTest(t, configWithoutTimeLimit, constructor, func(p TestParams) {
+	withStartedRelay(t, configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env, inited := p.Core.GetEnvironment(s.credential)
+			env, inited := p.relay.core.GetEnvironment(s.credential)
 			require.NotNil(t, env)
 			require.True(t, inited)
 
-			st.WithStreamRequest(t, s.request(), p.Handler, func(eventCh <-chan eventsource.Event) {
+			st.WithStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
 				select {
 				case event := <-eventCh:
 					if event == nil {
@@ -74,7 +67,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 					return
 				}
 
-				p.Core.RemoveEnvironment(env)
+				p.relay.core.RemoveEnvironment(env)
 
 				select {
 				case event := <-eventCh:
@@ -92,9 +85,9 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 	configWithTimeLimit := baseConfig
 	configWithTimeLimit.Main.MaxClientConnectionTime = ct.NewOptDuration(maxConnTime)
 
-	DoTest(t, configWithTimeLimit, constructor, func(p TestParams) {
+	withStartedRelay(t, configWithTimeLimit, func(p relayTestParams) {
 		t.Run("connection time limit", func(t *testing.T) {
-			s.assertStreamClosesAutomatically(t, p.Handler, maxConnTime)
+			s.assertStreamClosesAutomatically(t, p.relay, maxConnTime)
 		})
 	})
 }
@@ -176,7 +169,7 @@ func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *htt
 	return w.Result()
 }
 
-func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsStreamingServerSide(t *testing.T) {
 	env := st.EnvMain
 	sdkKey := env.Config.SDKKey
 	expectedAllData := []byte(streams.MakeServerSidePutEvent(st.AllData).Data())
@@ -193,12 +186,12 @@ func DoServerSideStreamsTest(t *testing.T, constructor TestConstructor) {
 	for _, spec := range specs {
 		s := spec
 		t.Run(s.name, func(t *testing.T) {
-			s.runBasicStreamTests(t, config, constructor, st.UndefinedSDKKey, http.StatusUnauthorized)
+			s.runBasicStreamTests(t, config, st.UndefinedSDKKey, http.StatusUnauthorized)
 		})
 	}
 }
 
-func DoMobileStreamsTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsStreamingMobile(t *testing.T) {
 	env := st.EnvMobile
 	userJSON := []byte(`{"key":"me"}`)
 
@@ -216,11 +209,11 @@ func DoMobileStreamsTest(t *testing.T, constructor TestConstructor) {
 
 	for _, spec := range specs {
 		s := spec
-		s.runBasicStreamTests(t, config, constructor, st.UndefinedMobileKey, http.StatusUnauthorized)
+		s.runBasicStreamTests(t, config, st.UndefinedMobileKey, http.StatusUnauthorized)
 	}
 }
 
-func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
+func TestEndpointsStreamingJSClient(t *testing.T) {
 	env := st.EnvClientSide
 	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
@@ -240,10 +233,10 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 
 	for _, spec := range specs {
 		s := spec
-		s.runBasicStreamTests(t, config, constructor, st.UndefinedEnvID, http.StatusNotFound)
+		s.runBasicStreamTests(t, config, st.UndefinedEnvID, http.StatusNotFound)
 	}
 
-	DoTest(t, config, constructor, func(p TestParams) {
+	withStartedRelay(t, config, func(p relayTestParams) {
 		for _, spec := range specs {
 			s := spec
 			t.Run(s.name, func(t *testing.T) {
@@ -252,14 +245,14 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 						s1 := s
 						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 						s1.path = st.AddQueryParam(s1.path, "h="+testclient.FakeHashForContext(user))
-						s1.assertRequestReceivesEvent(t, p.Handler, 0)
+						s1.assertRequestReceivesEvent(t, p.relay, 0)
 					})
 
 					t.Run("secure mode - hash does not match", func(t *testing.T) {
 						s1 := s
 						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
 						s1.path = st.AddQueryParam(s1.path, "h=incorrect")
-						result := doStreamRequestExpectingError(s1.request(), p.Handler)
+						result := doStreamRequestExpectingError(s1.request(), p.relay)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
@@ -267,14 +260,14 @@ func DoJSClientStreamsTest(t *testing.T, constructor TestConstructor) {
 					t.Run("secure mode - hash not provided", func(t *testing.T) {
 						s1 := s
 						s1.credential = st.EnvClientSideSecureMode.Config.EnvID
-						result := doStreamRequestExpectingError(s1.request(), p.Handler)
+						result := doStreamRequestExpectingError(s1.request(), p.relay)
 
 						assert.Equal(t, http.StatusBadRequest, result.StatusCode)
 					})
 				}
 
 				t.Run("options", func(t *testing.T) {
-					st.AssertEndpointSupportsOptionsRequest(t, p.Handler, s.localURL(), s.method)
+					st.AssertEndpointSupportsOptionsRequest(t, p.relay, s.localURL(), s.method)
 				})
 			})
 		}

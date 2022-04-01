@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/store"
+	events_base "github.com/launchdarkly/ld-relay/v6/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -25,21 +26,6 @@ type eventVerbatimRelay struct {
 }
 
 const defaultEventQueueCleanupInterval = time.Hour
-
-const (
-	// SummaryEventsSchemaVersion is the minimum event schema that supports summary events.
-	SummaryEventsSchemaVersion = 3
-
-	// CurrentEventsSchemaVersion is the latest event schema version.
-	CurrentEventsSchemaVersion = 4
-
-	// EventSchemaHeader is an HTTP header that describes the schema version for event requests.
-	EventSchemaHeader = "X-LaunchDarkly-Event-Schema"
-
-	// TagsHeader is an HTTP header that may be sent by SDKs that support application metadata.
-	// We copy the value of this header when proxying events.
-	TagsHeader = "X-LaunchDarkly-Tags"
-)
 
 // EventDispatcher relays events to LaunchDarkly for an environment
 type EventDispatcher struct {
@@ -95,7 +81,7 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 		metadata := GetEventPayloadMetadata(req)
 
 		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), metadata.SchemaVersion, r.remotePath)
-		if metadata.SchemaVersion >= SummaryEventsSchemaVersion {
+		if metadata.SchemaVersion >= events_base.SummaryEventsSchemaVersion {
 			// New-style events that have already gone through summarization - deliver them as-is
 			r.getVerbatimRelay().enqueue(metadata, evts)
 		} else {
