@@ -16,6 +16,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,7 +226,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 	eventData := makeTestFeatureEventPayload("me")
 
 	specs := []endpointTestParams{
-		{"post events", "POST", "/events/bulk/$ENV", eventData, envID, http.StatusAccepted, nil},
+		{"post events", "POST", "/events/bulk/$ENV", eventData, envID, http.StatusAccepted, st.ExpectNoBody()},
 		{"get events image", "GET", "/a/$ENV.gif?d=$DATA", eventData, envID, http.StatusOK,
 			st.ExpectBody(string(browser.Transparent1PixelImageData))},
 	}
@@ -247,10 +248,7 @@ func DoJSClientEventProxyTest(t *testing.T, constructor TestConstructor) {
 					if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 						st.AssertNonStreamingHeaders(t, result.Header)
 						st.AssertExpectedCORSHeaders(t, result, s.method, "*")
-
-						if s.bodyMatcher != nil {
-							s.bodyMatcher(t, body)
-						}
+						m.In(t).Assert(body, s.bodyMatcher)
 
 						event := p.requirePublishedEvent(t, eventData)
 						assert.Equal(t, fmt.Sprintf("/events/bulk/%s", envID), event.url)

@@ -12,6 +12,8 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
 
+	"github.com/launchdarkly/go-test-helpers/v2/jsonhelpers"
+
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 )
@@ -55,7 +57,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
-	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
+	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
 	resp := httptest.NewRecorder()
 	evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)(resp, req)
 

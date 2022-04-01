@@ -2,30 +2,31 @@ package sharedtest
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+
 	"github.com/stretchr/testify/assert"
 )
 
-type BodyMatcher func(t *testing.T, body []byte)
-
-func ExpectBody(expectedBody string) BodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.EqualValues(t, expectedBody, body)
-	}
+func ExpectBody(expectedBody string) m.Matcher {
+	return m.Equal([]byte(expectedBody))
 }
 
-func ExpectJSONBody(expectedBody string) BodyMatcher {
-	return func(t *testing.T, body []byte) {
-		assert.JSONEq(t, expectedBody, string(body))
-	}
+func ExpectJSONBody(expectedBody string) m.Matcher {
+	fmt.Println(expectedBody)
+	return m.JSONStrEqual(expectedBody)
 }
 
-func ExpectJSONEntity(entity interface{}) BodyMatcher {
-	bytes, _ := json.Marshal(entity)
-	return ExpectJSONBody(string(bytes))
+func ExpectJSONEntity(entity interface{}) m.Matcher {
+	return m.JSONEqual(entity)
+}
+
+func ExpectNoBody() m.Matcher {
+	return m.Length().Should(m.Equal(0)) // works for either nil body or empty []byte{}
 }
 
 func AssertNonStreamingHeaders(t *testing.T, h http.Header) {

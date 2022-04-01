@@ -2,12 +2,15 @@ package sharedtest
 
 import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldattr"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
 )
+
+var BasicUserForTestFlags = ldcontext.New("me")
 
 type TestFlag struct {
 	Flag              ldmodel.FeatureFlag
@@ -64,10 +67,28 @@ var Flag7Mobile = TestFlag{
 	ExpectedVariation: 0,
 	ExpectedReason:    map[string]interface{}{"kind": "OFF"},
 }
+var Flag8ContextAware = TestFlag{
+	// This flag is designed to evaluate correctly with BasicUserForTestFlags
+	Flag: ldbuilders.NewFlagBuilder("context-aware-flag-key").
+		On(true).
+		FallthroughVariation(0).
+		Variations(ldvalue.String("wrong"), ldvalue.String("right")).
+		AddRule(
+			ldbuilders.NewRuleBuilder().Variation(1).ID("r").Clauses(
+				ldbuilders.ClauseWithKind("user", "key", "in", ldvalue.String(BasicUserForTestFlags.Key())),
+			),
+		).
+		ClientSideUsingEnvironmentID(true).
+		ClientSideUsingMobileKey(true).
+		Version(1).Build(),
+	ExpectedValue:     "right",
+	ExpectedVariation: 1,
+	ExpectedReason:    map[string]interface{}{"kind": "RULE_MATCH", "ruleId": "r", "ruleIndex": 0},
+}
 var AllFlags = []TestFlag{Flag1ServerSide, Flag2ServerSide, Flag3ServerSideNotMobile, Flag4ClientSide,
-	Flag5ClientSide, Flag6ClientSideNotMobile, Flag7Mobile}
-var ClientSideFlags = []TestFlag{Flag4ClientSide, Flag5ClientSide, Flag6ClientSideNotMobile}
-var MobileFlags = []TestFlag{Flag1ServerSide, Flag2ServerSide, Flag4ClientSide, Flag5ClientSide, Flag7Mobile}
+	Flag5ClientSide, Flag6ClientSideNotMobile, Flag7Mobile, Flag8ContextAware}
+var ClientSideFlags = []TestFlag{Flag4ClientSide, Flag5ClientSide, Flag6ClientSideNotMobile, Flag8ContextAware}
+var MobileFlags = []TestFlag{Flag1ServerSide, Flag2ServerSide, Flag4ClientSide, Flag5ClientSide, Flag7Mobile, Flag8ContextAware}
 
 var Segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
@@ -82,6 +103,7 @@ var AllData = []ldstoretypes.Collection{
 			{Key: Flag5ClientSide.Flag.Key, Item: FlagDesc(Flag5ClientSide.Flag)},
 			{Key: Flag6ClientSideNotMobile.Flag.Key, Item: FlagDesc(Flag6ClientSideNotMobile.Flag)},
 			{Key: Flag7Mobile.Flag.Key, Item: FlagDesc(Flag7Mobile.Flag)},
+			{Key: Flag8ContextAware.Flag.Key, Item: FlagDesc(Flag8ContextAware.Flag)},
 		},
 	},
 	{

@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 )
 
 // TestParams is information that is passed to test code with DoTest.
@@ -49,25 +51,64 @@ type endpointTestParams struct {
 	data           []byte
 	credential     config.SDKCredential
 	expectedStatus int
-	bodyMatcher    st.BodyMatcher
+	bodyMatcher    m.Matcher
+}
+
+type endpointMultiTestParams struct {
+	name       string
+	method     string
+	path       string
+	credential config.SDKCredential
+	requests   []endpointTestPerRequestParams
+}
+
+type endpointTestPerRequestParams struct {
+	name           string
+	data           []byte
+	expectedStatus int
+	bodyMatcher    m.Matcher
+}
+
+func makeEndpointTestPerRequestParams(userJSON []byte, contextJSON []byte, bodyMatcher m.Matcher) []endpointTestPerRequestParams {
+	return []endpointTestPerRequestParams{
+		{"user", userJSON, http.StatusOK, bodyMatcher},
+		{"context", contextJSON, http.StatusOK, bodyMatcher},
+	}
+}
+
+func (e endpointTestParams) toMulti() endpointMultiTestParams {
+	return endpointMultiTestParams{
+		name: e.name, method: e.method, path: e.path, credential: e.credential,
+		requests: []endpointTestPerRequestParams{
+			{"", e.data, e.expectedStatus, e.bodyMatcher},
+		},
+	}
 }
 
 func (e endpointTestParams) request() *http.Request {
-	return st.BuildRequest(e.method, e.localURL(), e.data, e.header())
+	return e.toMulti().request(e.toMulti().requests[0])
 }
 
-func (e endpointTestParams) header() http.Header {
+func (e endpointMultiTestParams) request(r endpointTestPerRequestParams) *http.Request {
+	return st.BuildRequest(e.method, e.localURL(r), r.data, e.header(r))
+}
+
+func (e endpointMultiTestParams) header(r endpointTestPerRequestParams) http.Header {
 	h := make(http.Header)
 	if e.credential != nil && e.credential.GetAuthorizationHeaderValue() != "" {
 		h.Set("Authorization", e.credential.GetAuthorizationHeaderValue())
 	}
-	if e.data != nil && e.method != "GET" {
+	if r.data != nil && e.method != "GET" {
 		h.Set("Content-Type", "application/json")
 	}
 	return h
 }
 
 func (e endpointTestParams) localURL() string {
+	return e.toMulti().localURL(e.toMulti().requests[0])
+}
+
+func (e endpointMultiTestParams) localURL(r endpointTestPerRequestParams) string {
 	p := e.path
 	if strings.Contains(p, "$ENV") {
 		if env, ok := e.credential.(config.EnvironmentID); ok {
@@ -77,15 +118,15 @@ func (e endpointTestParams) localURL() string {
 		}
 	}
 	if strings.Contains(p, "$USER") {
-		if e.data != nil {
-			p = strings.ReplaceAll(p, "$USER", base64.StdEncoding.EncodeToString(e.data))
+		if r.data != nil {
+			p = strings.ReplaceAll(p, "$USER", base64.StdEncoding.EncodeToString(r.data))
 		} else {
 			panic("test endpoint URL had $USER but did not specify any data")
 		}
 	}
 	if strings.Contains(p, "$DATA") {
-		if e.data != nil {
-			p = strings.ReplaceAll(p, "$DATA", base64.StdEncoding.EncodeToString(e.data))
+		if r.data != nil {
+			p = strings.ReplaceAll(p, "$DATA", base64.StdEncoding.EncodeToString(r.data))
 		} else {
 			panic("test endpoint URL had $DATA but did not specify any data")
 		}
