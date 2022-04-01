@@ -14,8 +14,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldlogv2 "gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	ldevents "gopkg.in/launchdarkly/go-sdk-events.v1"
+	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 )
 
 const (
@@ -26,7 +25,7 @@ const (
 )
 
 var (
-	defaultEventsEndpointURI, _ = url.Parse("https://events.launchdarkly.com/bulk") //nolint:gochecknoglobals
+	defaultEventsBaseURI, _ = url.Parse("https://events.launchdarkly.com") //nolint:gochecknoglobals
 )
 
 // EventPublisher is the interface for the component that buffers events and delivers them to LaunchDarkly.
@@ -82,6 +81,8 @@ func GetEventPayloadMetadata(req *http.Request) EventPayloadMetadata {
 
 // HTTPEventPublisher is the standard implementation of EventPublisher.
 type HTTPEventPublisher struct {
+	baseURI     string
+	uriPath     string
 	eventsURI   url.URL
 	loggers     ldlog.Loggers
 	client      *http.Client
@@ -114,26 +115,23 @@ type OptionType interface {
 	apply(*HTTPEventPublisher) error
 }
 
-// OptionURI specifies a custom base URI for the events service.
-type OptionURI string
+// OptionBaseURI specifies a custom base URI for the events service.
+type OptionBaseURI string
 
-func (o OptionURI) apply(p *HTTPEventPublisher) error { //nolint:unparam
-	u, err := url.Parse(strings.TrimRight(string(o), "/") + defaultEventsURIPath)
+func (o OptionBaseURI) apply(p *HTTPEventPublisher) error {
+	_, err := url.Parse(strings.TrimRight(string(o), "/") + defaultEventsURIPath)
 	if err == nil {
-		p.eventsURI = *u
+		p.baseURI = string(o)
 	}
 	return nil
 }
 
-// OptionEndpointURI specifies a complete custom URI for the events service (not a base URI).
-type OptionEndpointURI string
+// OptionURIPath specifies a custom endpoint URI path for the events service.
+type OptionURIPath string
 
-func (o OptionEndpointURI) apply(p *HTTPEventPublisher) error {
-	u, err := url.Parse(string(o))
-	if err == nil {
-		p.eventsURI = *u
-	}
-	return err
+func (o OptionURIPath) apply(p *HTTPEventPublisher) error {
+	p.uriPath = string(o)
+	return nil
 }
 
 // OptionFlushInterval specifies the interval for automatic flushes.
@@ -165,7 +163,7 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	p := &HTTPEventPublisher{
 		baseHeaders: baseHeaders,
 		client:      client,
-		eventsURI:   *defaultEventsEndpointURI,
+		eventsURI:   *defaultEventsBaseURI,
 		authKey:     authKey,
 		closer:      closer,
 		capacity:    defaultCapacity,
@@ -301,20 +299,35 @@ func (p *HTTPEventPublisher) flush() {
 		}
 		p.wg.Add(1)
 
-		sender := makeEventSender(
-			p.client,
-			p.eventsURI.String(),
-			p.baseHeaders,
-			authKey,
-			metadata,
-			p.loggers,
-		)
+		schemaVersion := metadata.SchemaVersion
+		tags := metadata.Tags
+
+		getBaseHeaders := func() http.Header {
+			ret := make(http.Header)
+			for k, v := range p.baseHeaders {
+				ret[k] = v
+			}
+			if authKey != nil && authKey.GetAuthorizationHeaderValue() != "" {
+				ret.Set("Authorization", authKey.GetAuthorizationHeaderValue())
+			}
+			if tags != "" {
+				ret.Set(TagsHeader, tags)
+			}
+			return ret
+		}
 
 		go func() {
 			// The EventSender created by ldevents.NewDefaultEventSender implements the standard retry behavior,
 			// and error logging, in its SendEventData method. Retries could cause this call to block for a while,
 			// so it's run on a separate goroutine.
-			result := sender.SendEventData(ldevents.AnalyticsEventDataKind, payload, count)
+			sendConfig := ldevents.EventSenderConfiguration{
+				Client:        p.client,
+				BaseURI:       p.baseURI,
+				BaseHeaders:   getBaseHeaders,
+				SchemaVersion: schemaVersion,
+				Loggers:       p.loggers,
+			}
+			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)
 			p.wg.Done()
 			if result.MustShutDown {
 				p.Close()
@@ -328,42 +341,4 @@ func (p *HTTPEventPublisher) Close() { //nolint:golint // method is already docu
 		close(p.closer)
 		p.wg.Wait()
 	})
-}
-
-// makeEventSender creates a new instance of the EventSender component that is provided by go-sdk-events,
-// configuring it to have the appropriate HTTP request headers.
-//
-// This component provides the standard behavior for error handling and retries on event posts. It does
-// not create its own goroutine or HTTP client or do any computations other than the minimum needed to
-// send each request, so there's not much overhead to creating and disposing of instances. And since the
-// current implementation doesn't allow the configured headers to be changed on a per-request basis, it's
-// simplest for us to just create a new instance if the relevant configuration may have changed.
-func makeEventSender(
-	httpClient *http.Client,
-	eventsURI string,
-	baseHeaders http.Header,
-	authKey config.SDKCredential,
-	metadata EventPayloadMetadata,
-	loggers ldlog.Loggers,
-) ldevents.EventSender {
-	headers := make(http.Header)
-	for k, v := range baseHeaders {
-		headers[k] = v
-	}
-	if authHeader := authKey.GetAuthorizationHeaderValue(); authHeader != "" {
-		headers.Set("Authorization", authHeader)
-	}
-	if metadata.Tags != "" {
-		headers.Set(TagsHeader, metadata.Tags)
-	}
-	return ldevents.NewDefaultEventSender(httpClient, eventsURI, "", headers, loggersV3toV2(loggers))
-}
-
-func loggersV3toV2(loggers ldlog.Loggers) ldlogv2.Loggers {
-	var ret ldlogv2.Loggers
-	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error} {
-		ret.SetBaseLoggerForLevel(ldlogv2.LogLevel(level), loggers.ForLevel(level))
-	}
-	ret.SetMinLevel(ldlogv2.LogLevel(loggers.GetMinLevel()))
-	return ret
 }

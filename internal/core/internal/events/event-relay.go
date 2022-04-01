@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -63,10 +62,11 @@ type analyticsEventEndpointDispatcher struct {
 }
 
 type diagnosticEventEndpointDispatcher struct {
-	httpClient        *http.Client
-	httpConfig        httpconfig.HTTPConfig
-	remoteEndpointURI string
-	loggers           ldlog.Loggers
+	httpClient *http.Client
+	httpConfig httpconfig.HTTPConfig
+	baseURI    string
+	uriPath    string
+	loggers    ldlog.Loggers
 }
 
 // GetHandler returns the HTTP handler for an endpoint, or nil if none is defined
@@ -133,14 +133,15 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 	consumeEvents(w, req, d.loggers, func(body []byte) {
 		// We are just operating as a reverse proxy and passing the request on verbatim to LD; we do not
 		// need to parse the JSON.
-		d.loggers.Debugf("Received diagnostic event to be proxied to %s", d.remoteEndpointURI)
+		d.loggers.Debugf("Received diagnostic event to be proxied to %s/%s", d.baseURI, d.uriPath)
 
-		// We use the default EventSender from ldevents, which provides the standard retry logic and logging.
-		// Since we don't want to use a fixed set of headers, but instead pass along the same headers we got
-		// from the request, we're creating a new EventSender each time; that's a little inefficient, but
-		// diagnostic events are relatively infrequent.
-		sender := ldevents.NewDefaultEventSender(d.httpClient, "", d.remoteEndpointURI, req.Header, d.loggers)
-		_ = sender.SendEventData(ldevents.DiagnosticEventDataKind, body, 1)
+		sendConfig := ldevents.EventSenderConfiguration{
+			Client:      d.httpClient,
+			BaseURI:     d.baseURI,
+			BaseHeaders: func() http.Header { return req.Header },
+			Loggers:     d.loggers,
+		}
+		_ = ldevents.SendEventDataWithRetry(sendConfig, ldevents.DiagnosticEventDataKind, d.uriPath, body, 1)
 	})
 }
 
@@ -269,10 +270,11 @@ func newDiagnosticEventEndpointDispatcher(
 ) *diagnosticEventEndpointDispatcher {
 	eventsURI := getEventsURI(config)
 	return &diagnosticEventEndpointDispatcher{
-		httpClient:        httpConfig.Client(),
-		httpConfig:        httpConfig,
-		remoteEndpointURI: strings.TrimRight(eventsURI, "/") + remotePath,
-		loggers:           loggers,
+		httpClient: httpConfig.Client(),
+		httpConfig: httpConfig,
+		baseURI:    eventsURI,
+		uriPath:    remotePath,
+		loggers:    loggers,
 	}
 }
 
@@ -307,7 +309,8 @@ func newEventVerbatimRelay(
 	eventsURI := getEventsURI(config)
 	opts := []OptionType{
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
-		OptionEndpointURI(strings.TrimRight(eventsURI, "/") + remotePath),
+		OptionBaseURI(eventsURI),
+		OptionURIPath(remotePath),
 	}
 
 	opts = append(opts, OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)))

@@ -288,7 +288,7 @@ func NewEnvContext(
 			pubLoggers := envLoggers
 			pubLoggers.SetPrefix(logPrefix + " (usage metrics)")
 			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, pubLoggers,
-				events.OptionURI(eventsURI))
+				events.OptionBaseURI(eventsURI))
 			if err != nil {
 				return nil, errInitPublisher(err)
 			}

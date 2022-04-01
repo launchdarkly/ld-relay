@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/bigsegments"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/events"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -425,13 +427,15 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 
 		rr := httptest.NewRecorder()
 		headers := make(http.Header)
-		headers.Add("Content-Type", "application/json")
-		headers.Add("Authorization", string(st.EnvMain.Config.SDKKey))
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", string(st.EnvMain.Config.SDKKey))
+		headers.Set("X-LaunchDarkly-Event-Schema", strconv.Itoa(events.SummaryEventsSchemaVersion))
 		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
 		req := st.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
 		eventDispatchHandler(rr, req)
 		require.Equal(t, 202, rr.Result().StatusCode)
 
+		// Because the event schema version is >= 3, the event data should be forwarded verbatim with no processing.
 		eventPost := st.ExpectTestRequest(t, requestsCh, time.Second)
 		require.Equal(t, string(st.EnvMain.Config.SDKKey), eventPost.Request.Header.Get("Authorization"))
 		require.Equal(t, string(body), string(eventPost.Body))
