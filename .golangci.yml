@@ -51,7 +51,7 @@ issues:
     - path: internal/metrics/measures.go  # see explanation in that file
       linters:
         - gochecknoglobals
-    - path: core/sharedtest/
+    - path: internal/sharedtest/
       linters:
         - bodyclose
         - goconst
