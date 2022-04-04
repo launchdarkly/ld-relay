@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
 
 	"github.com/launchdarkly/go-test-helpers/v2/jsonhelpers"
 

@@ -4,9 +4,9 @@ import (
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/logging"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
+	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v6/internal/middleware"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"

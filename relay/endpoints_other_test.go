@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"

@@ -12,8 +12,8 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/browser"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"

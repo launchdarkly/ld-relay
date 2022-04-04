@@ -9,8 +9,8 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/browser"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
+	"github.com/launchdarkly/ld-relay/v6/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"

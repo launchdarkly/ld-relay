@@ -7,7 +7,7 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/browser"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/lduser"
