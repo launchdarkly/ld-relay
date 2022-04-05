@@ -9,10 +9,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/core"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 

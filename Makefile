@@ -18,7 +18,7 @@ COVERAGE_PROFILE_RAW_HTML=./build/coverage_raw.html
 COVERAGE_PROFILE_FILTERED=./build/coverage.out
 COVERAGE_PROFILE_FILTERED_HTML=./build/coverage.html
 COVERAGE_ENFORCER_FLAGS=\
-  	-skipfiles 'internal/core/sharedtest/' \
+  	-skipfiles 'internal/sharedtest/' \
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
 OPTIONAL_TAGS_PARAM=$(if ${TAGS},-tags ${TAGS},)

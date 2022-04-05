@@ -48,20 +48,15 @@ linter-settings:
 
 issues:
   exclude-rules:
-    - path: core/internal/metrics/measures.go  # see explanation in that file
+    - path: internal/metrics/measures.go  # see explanation in that file
       linters:
         - gochecknoglobals
-    - path: core/sharedtest/
+    - path: internal/sharedtest/
       linters:
         - bodyclose
         - goconst
         - gochecknoglobals
         - golint
-    - path: enterprise/ld-relay-enterprise.go  # temporary exclusion because linter is confused by two command-line entry points
-      linters:
-        - deadcode
-        - golint
-        - unused
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

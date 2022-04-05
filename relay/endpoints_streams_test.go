@@ -8,9 +8,9 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"

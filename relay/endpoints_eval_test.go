@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	"github.com/launchdarkly/go-sdk-common/v3/lduser"

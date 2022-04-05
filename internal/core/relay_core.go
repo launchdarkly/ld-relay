@@ -13,10 +13,10 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/streams"
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
