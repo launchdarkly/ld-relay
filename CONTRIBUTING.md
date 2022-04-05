@@ -66,12 +66,9 @@ As this is a larger codebase than most LaunchDarkly open-source projects, we hav
 
 The published `ld-relay` Docker image embeds specific versions of the Alpine OS and the Go runtime. We update these to take advantage of patch releases for both Alpine and Go.
 
-These versions are specified in several places. For the published `ld-relay` image:
+These versions are specified in several places. To ensure that they're updated consistently, and that the CI builds are using the same, use the following scripts:
 
-* The Alpine version is specified by the `FROM` line in `Dockerfile.goreleaser`.
-* The Go version is specified by the `image` property in `.ldrelease/config.yml`. Basically, we run a Docker container with some version of Go in it, and within that container we will be running `goreleaser`. Then the `goreleaser` tool will look at `Dockerfile.goreleaser` to provide the base image, and it will embed whatever version of the Go runtime it is running on in the published executable.
+* `./scripts/update-go-version.sh VERSION` - updates CI and Docker configuration to use the specified Go version (do not include the `v` prefix).
+* `./scripts/update-alpine-version.sh VERSION` - updates CI and Docker configuration to use the specified Alpine version.
 
-When we change these versions, we should also update our test builds to match the versions we are releasing with:
-
-* In `.circleci/config.yml`, update the default value of `go-release-version`.
-* In `Dockerfile` (which is used for CI tests, not for the release), update the `FROM` line to an image in the format `golang:$(GO_VERSION)-alpine$(ALPINE_VERSION)`.
+The script `./scripts/verify-release-versions.sh` verifies that the current configurations are consistent. This is run automatically in CI, and also whenever you use the scripts above.
