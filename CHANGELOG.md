@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.2] - 2022-04-04
+### Fixed:
+- Updated Docker image to use Alpine 3.14.6. The previous Alpine version, 3.14.5, was reported to have security vulnerability [CVE-2022-28391](https://nvd.nist.gov/vuln/detail/CVE-2022-28391). See also the [Alpine 3.14.6 changelog](https://git.alpinelinux.org/aports/log/?h=v3.14.6). ([#178](https://github.com/launchdarkly/ld-relay/issues/178))
+
+## [6.7.1] - 2022-03-28
+### Fixed:
+- Updated Docker image to use Alpine 3.14.5. The previous Alpine version, 3.14.4, was reported to have security vulnerabilities [CVE-2022-0778](https://nvd.nist.gov/vuln/detail/CVE-2022-0778) and [CVE-2018-25032](https://nvd.nist.gov/vuln/detail/CVE-2022-0778). See also the [Alpine 3.14.5 changelog](https://git.alpinelinux.org/aports/log/?h=v3.14.5). ([#175](https://github.com/launchdarkly/ld-relay/issues/175))
+
 ## [6.7.0] - 2022-03-24
 ### Added:
 - The Relay Proxy will now forward application metadata information that is included in HTTP headers from any SDKs that have this feature, if the application configures such data.

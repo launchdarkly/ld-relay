@@ -270,6 +270,10 @@ jobs:
       - setup_remote_docker  # start docker engine
 
       - run:
+          name: verify Go and Alpine versions
+          command: ./scripts/verify-release-versions.sh
+
+      - run:
           name: add package source for Trivy
           command: |
             sudo apt-get install wget apt-transport-https gnupg lsb-release
