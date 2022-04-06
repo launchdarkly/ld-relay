@@ -57,7 +57,7 @@ func withStartedRelayCustom(t *testing.T, config c.Config, behavior relayTestBeh
 	require.NoError(t, err)
 	defer relay.Close()
 	if !behavior.skipWaitForEnvironments {
-		require.NoError(t, relay.core.WaitForAllClients(time.Second))
+		require.NoError(t, relay.waitForAllClients(time.Second))
 	}
 
 	action(relayTestParams{

@@ -87,7 +87,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1.AwaitClose(t, time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.core.GetEnvironment(testAutoConfEnv1.sdkKey)
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.sdkKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -185,7 +185,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		newCredentials := credentialsAsSet(env.GetCredentials()...)
-		foundEnvWithOldKey, _ := p.relay.core.GetEnvironment(oldKey)
+		foundEnvWithOldKey, _ := p.relay.getEnvironment(oldKey)
 		assert.Equal(t, env, foundEnvWithOldKey)
 
 		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
@@ -198,7 +198,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		}
 
 		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
-		noEnv, _ := p.relay.core.GetEnvironment(oldKey)
+		noEnv, _ := p.relay.getEnvironment(oldKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -217,7 +217,7 @@ func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.core.GetEnvironment(testAutoConfEnv1.mobKey)
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.mobKey)
 		assert.Nil(t, noEnv)
 	})
 }

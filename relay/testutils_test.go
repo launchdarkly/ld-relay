@@ -25,7 +25,7 @@ type relayTestHelper struct {
 func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
 	var e relayenv.EnvContext
 	require.Eventually(h.t, func() bool {
-		e, _ = h.relay.core.GetEnvironment(envID)
+		e, _ = h.relay.getEnvironment(envID)
 		return e != nil
 	}, time.Second, time.Millisecond*5)
 	return e
@@ -33,17 +33,17 @@ func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvCon
 
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
 	require.Eventually(h.t, func() bool {
-		e, _ := h.relay.core.GetEnvironment(envID)
+		e, _ := h.relay.getEnvironment(envID)
 		return e == nil
 	}, timeout, time.Millisecond*5)
 }
 
 func (h relayTestHelper) assertEnvLookup(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
-	foundEnv, _ := h.relay.core.GetEnvironment(expected.EnvID)
+	foundEnv, _ := h.relay.getEnvironment(expected.EnvID)
 	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.core.GetEnvironment(expected.MobileKey)
+	foundEnv, _ = h.relay.getEnvironment(expected.MobileKey)
 	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.core.GetEnvironment(expected.SDKKey)
+	foundEnv, _ = h.relay.getEnvironment(expected.SDKKey)
 	assert.Equal(h.t, env, foundEnv)
 
 	h.assertSDKEndpointsAvailability(true, expected.SDKKey, expected.MobileKey, expected.EnvID)

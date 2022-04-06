@@ -46,7 +46,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	_, _, err := a.r.core.AddEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	_, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
@@ -65,7 +65,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
-	env, _ := a.r.core.GetEnvironment(ae.Params.EnvID)
+	env, _ := a.r.getEnvironment(ae.Params.EnvID)
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		return
@@ -91,9 +91,9 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 }
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
-	env, _ := a.r.core.GetEnvironment(id)
+	env, _ := a.r.getEnvironment(id)
 	if env != nil {
-		a.r.core.RemoveEnvironment(env)
+		a.r.removeEnvironment(env)
 		delete(a.envUpdates, id)
 	}
 }

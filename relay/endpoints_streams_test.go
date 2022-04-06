@@ -51,7 +51,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 
 	withStartedRelay(t, configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env, inited := p.relay.core.GetEnvironment(s.credential)
+			env, inited := p.relay.getEnvironment(s.credential)
 			require.NotNil(t, env)
 			require.True(t, inited)
 
@@ -67,7 +67,7 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 					return
 				}
 
-				p.relay.core.RemoveEnvironment(env)
+				p.relay.removeEnvironment(env)
 
 				select {
 				case event := <-eventCh:

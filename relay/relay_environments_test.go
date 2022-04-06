@@ -1,4 +1,4 @@
-package core
+package relay
 
 import (
 	"errors"
@@ -23,70 +23,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func makeBasicCore(config c.Config) (*RelayCore, error) {
-	return NewRelayCore(config, ldlog.NewDisabledLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
+func makeBasicRelay(config c.Config) (*Relay, error) {
+	return newRelayInternal(config, relayInternalOptions{
+		clientFactory: testclient.FakeLDClientFactory(true),
+		loggers:       ldlog.NewDisabledLoggers(),
+	})
 }
 
 func TestNewRelayCoreRejectsConfigWithContradictoryProperties(t *testing.T) {
 	// it is an error to enable TLS but not provide a cert or key
 	config := c.Config{Main: c.MainConfig{TLSEnabled: true}}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TLS cert")
-	assert.Nil(t, core)
+	assert.Nil(t, relay)
 }
 
-func TestRelayCoreGetEnvironment(t *testing.T) {
+func TestRelayGetEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	env, inited := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	env, inited := relay.getEnvironment(st.EnvMain.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.True(t, inited)
 	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env, inited = relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.True(t, inited)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = core.GetEnvironment(st.EnvClientSide.Config.SDKKey)
+	env, inited = relay.getEnvironment(st.EnvClientSide.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.True(t, inited)
 	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = core.GetEnvironment(st.EnvMobile.Config.MobileKey)
+	env, inited = relay.getEnvironment(st.EnvMobile.Config.MobileKey)
 	require.NotNil(t, env)
 	assert.True(t, inited)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = core.GetEnvironment(st.EnvClientSide.Config.EnvID)
+	env, inited = relay.getEnvironment(st.EnvClientSide.Config.EnvID)
 	require.NotNil(t, env)
 	assert.True(t, inited)
 	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = core.GetEnvironment(st.UndefinedSDKKey)
+	env, inited = relay.getEnvironment(st.UndefinedSDKKey)
 	assert.Nil(t, env)
 	assert.True(t, inited)
 
-	env, inited = core.GetEnvironment(st.UnsupportedSDKCredential{})
+	env, inited = relay.getEnvironment(st.UnsupportedSDKCredential{})
 	assert.Nil(t, env)
 	assert.True(t, inited)
 }
 
-func TestRelayCoreGetAllEnvironments(t *testing.T) {
+func TestRelayGetAllEnvironments(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile, st.EnvClientSide),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	envs := core.GetAllEnvironments()
+	envs := relay.getAllEnvironments()
 	assert.Len(t, envs, 3)
 	var names []string
 	for _, e := range envs {
@@ -97,21 +100,21 @@ func TestRelayCoreGetAllEnvironments(t *testing.T) {
 	assert.Contains(t, names, st.EnvClientSide.Name)
 }
 
-func TestRelayCoreAddEnvironment(t *testing.T) {
+func TestRelayAddEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	env, resultCh, err := core.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
+	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 	require.NotNil(t, resultCh)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env1, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env1, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	assert.Equal(t, env, env1)
 
 	select {
@@ -122,120 +125,122 @@ func TestRelayCoreAddEnvironment(t *testing.T) {
 	}
 }
 
-func TestRelayCoreAddEnvironmentAfterClosed(t *testing.T) {
+func TestRelayAddEnvironmentAfterClosed(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	core.Close()
+	_ = relay.Close()
 
-	env, resultCh, err := core.AddEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
+	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
 	assert.Error(t, err)
 	assert.Nil(t, env)
 	assert.Nil(t, resultCh)
 }
 
-func TestRelayCoreRemoveEnvironment(t *testing.T) {
+func TestRelayRemoveEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	env, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	removed := core.RemoveEnvironment(env)
-	assert.True(t, removed)
+	relay.removeEnvironment(env)
 
-	noEnv, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	noEnv, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	assert.Nil(t, noEnv)
 }
 
-func TestRelayCoreRemoveUnknownEnvironment(t *testing.T) {
+func TestRelayRemoveUnknownEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
 	env := testenv.NewTestEnvContext("unknown", true, st.NewInMemoryStore())
 
-	assert.False(t, core.RemoveEnvironment(env))
+	relay.removeEnvironment(env)
+	// just shows that it doesn't panic or anything
 }
 
-func TestRelayCoreAddedEnvironmentCredential(t *testing.T) {
+func TestRelayAddedEnvironmentCredential(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	env, _ := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	env, _ := relay.getEnvironment(st.EnvMain.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
 	extraKey := c.SDKKey(string(st.EnvMain.Config.SDKKey) + "-extra")
-	noEnv, _ := core.GetEnvironment(extraKey)
+	noEnv, _ := relay.getEnvironment(extraKey)
 	assert.Nil(t, noEnv)
 
-	core.AddedEnvironmentCredential(env, extraKey)
+	relay.addedEnvironmentCredential(env, extraKey)
 
-	env1, _ := core.GetEnvironment(extraKey)
+	env1, _ := relay.getEnvironment(extraKey)
 	assert.Equal(t, env, env1)
 }
 
-func TestRelayCoreRemovingEnvironmentCredential(t *testing.T) {
+func TestRelayRemovingEnvironmentCredential(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
-	core, err := makeBasicCore(config)
+	relay, err := makeBasicRelay(config)
 	require.NoError(t, err)
-	defer core.Close()
+	defer relay.Close()
 
-	core.RemovingEnvironmentCredential(st.EnvMain.Config.SDKKey)
+	relay.removingEnvironmentCredential(st.EnvMain.Config.SDKKey)
 
-	noEnv, _ := core.GetEnvironment(st.EnvMain.Config.SDKKey)
+	noEnv, _ := relay.getEnvironment(st.EnvMain.Config.SDKKey)
 	assert.Nil(t, noEnv)
 
-	env, _ := core.GetEnvironment(st.EnvMobile.Config.SDKKey)
+	env, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	assert.Len(t, core.GetAllEnvironments(), 2) // EnvMain is not removed from this list
+	assert.Len(t, relay.getAllEnvironments(), 2) // EnvMain is not removed from this list
 }
 
-func TestRelayCoreWaitForAllEnvironments(t *testing.T) {
+func TestRelayWaitForAllEnvironments(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
 
 	t.Run("returns nil if all environments initialize successfully", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(), testclient.FakeLDClientFactory(true), "", "", false)
+		relay, err := makeBasicRelay(config)
 		require.NoError(t, err)
-		defer core.Close()
+		defer relay.Close()
 
-		err = core.WaitForAllClients(time.Second)
+		err = relay.waitForAllClients(time.Second)
 		assert.NoError(t, err)
 	})
 
 	t.Run("returns error if any environment does not initialize successfully", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
-			oneEnvFails(st.EnvMobile.Config.SDKKey, false, nil), "", "", false)
+		relay, err := newRelayInternal(config, relayInternalOptions{
+			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, false, nil),
+			loggers:       ldlog.NewDisabledLoggers(),
+		})
 		require.NoError(t, err)
-		defer core.Close()
+		defer relay.Close()
 
-		err = core.WaitForAllClients(time.Second)
+		err = relay.waitForAllClients(time.Second)
 		assert.Error(t, err)
 	})
 }
 
-func TestRelayCoreUninitializedEnvironment(t *testing.T) {
+func TestRelayUninitializedEnvironment(t *testing.T) {
 	config := c.Config{
 		Environment: st.MakeEnvConfigs(st.EnvMain, st.EnvMobile),
 	}
@@ -245,11 +250,13 @@ func TestRelayCoreUninitializedEnvironment(t *testing.T) {
 		gateCh := make(chan struct{})
 		defer close(gateCh)
 
-		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
-			oneEnvFails(problemEnv.Config.SDKKey, true, gateCh), "", "", false)
+		relay, err := newRelayInternal(config, relayInternalOptions{
+			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, true, gateCh),
+			loggers:       ldlog.NewDisabledLoggers(),
+		})
 		require.NoError(t, err)
-		defer core.Close()
-		router := core.MakeRouter()
+		defer relay.Close()
+		router := relay.makeRouter()
 
 		req1 := st.MakeSDKStreamEndpointRequest("", basictypes.ServerSideStream, problemEnv, st.SimpleUserJSON, 0)
 		rr1 := httptest.NewRecorder()
@@ -263,16 +270,18 @@ func TestRelayCoreUninitializedEnvironment(t *testing.T) {
 	})
 
 	t.Run("handlers accept requests for environment that failed to initialize", func(t *testing.T) {
-		core, err := NewRelayCore(config, ldlog.NewDisabledLoggers(),
-			oneEnvFails(problemEnv.Config.SDKKey, true, nil), "", "", false)
+		relay, err := newRelayInternal(config, relayInternalOptions{
+			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, true, nil),
+			loggers:       ldlog.NewDisabledLoggers(),
+		})
 		require.NoError(t, err)
-		defer core.Close()
-		router := core.MakeRouter()
+		defer relay.Close()
+		router := relay.makeRouter()
 
-		err = core.WaitForAllClients(time.Millisecond * 100)
+		err = relay.waitForAllClients(time.Millisecond * 100)
 		assert.Error(t, err)
 
-		env, _ := core.GetEnvironment(problemEnv.Config.SDKKey)
+		env, _ := relay.getEnvironment(problemEnv.Config.SDKKey)
 		assert.NotNil(t, env)
 		store := env.GetStore()
 		assert.NotNil(t, store)

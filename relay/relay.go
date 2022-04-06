@@ -3,16 +3,23 @@ package relay
 import (
 	"errors"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/gregjones/httpcache"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 	"github.com/launchdarkly/ld-relay/v6/relay/version"
 
@@ -24,14 +31,35 @@ var (
 	errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
 )
 
-// Relay relays endpoints to and from the LaunchDarkly service
+// Relay represents the overall Relay Proxy application.
+//
+// It can also be referenced externally in order to embed Relay Proxy functionality into a customized
+// application; see docs/in-app.md.
+//
+// This type deliberately exports no methods other than ServeHTTP and Close. Everything else is an
+// implementation detail which is subject to change.
 type Relay struct {
 	http.Handler
-	core             *core.RelayCore
-	autoConfigStream *autoconfig.StreamManager
-	archiveManager   filedata.ArchiveManagerInterface
-	config           config.Config
-	loggers          ldlog.Loggers
+	allEnvironments               []relayenv.EnvContext
+	envsByCredential              map[config.SDKCredential]relayenv.EnvContext
+	metricsManager                *metrics.Manager
+	clientFactory                 sdks.ClientFactoryFunc
+	serverSideStreamProvider      streams.StreamProvider
+	serverSideFlagsStreamProvider streams.StreamProvider
+	mobileStreamProvider          streams.StreamProvider
+	jsClientStreamProvider        streams.StreamProvider
+	clientInitCh                  chan relayenv.EnvContext
+	fullyConfigured               bool
+	clientSideSDKBaseURL          url.URL
+	version                       string
+	userAgent                     string
+	envLogNameMode                relayenv.LogNameMode
+	closed                        bool
+	lock                          sync.RWMutex
+	autoConfigStream              *autoconfig.StreamManager
+	archiveManager                filedata.ArchiveManagerInterface
+	config                        config.Config
+	loggers                       ldlog.Loggers
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -73,7 +101,13 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
-	userAgent := "LDRelay/" + version.Version
+	loggers := options.loggers
+	clientFactory := options.clientFactory
+
+	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
+		return nil, err
+	}
+
 	hasAutoConfigKey := c.AutoConfig.Key != ""
 	hasFileDataSource := c.OfflineMode.FileDataSource != ""
 
@@ -86,23 +120,60 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		logNameMode = relayenv.LogNameIsEnvID
 	}
 
-	core, err := core.NewRelayCore(
-		c,
-		options.loggers,
-		options.clientFactory,
-		version.Version,
-		userAgent,
-		logNameMode,
-	)
-	if err != nil {
-		return nil, err
+	if clientFactory == nil {
+		clientFactory = sdks.DefaultClientFactory()
 	}
-	thingsToCleanUp.AddFunc(core.Close)
+
+	if c.Main.LogLevel.IsDefined() {
+		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
+	}
+
+	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
+	if err != nil {
+		return nil, errNewMetricsManagerFailed(err)
+	}
+	thingsToCleanUp.AddFunc(metricsManager.Close)
+
+	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
+
+	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
+
+	userAgent := "LDRelay/" + version.Version
 
 	r := &Relay{
-		core:    core,
-		config:  c,
-		loggers: options.loggers,
+		envsByCredential:              make(map[config.SDKCredential]relayenv.EnvContext),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime),
+		metricsManager:                metricsManager,
+		clientFactory:                 clientFactory,
+		clientInitCh:                  clientInitCh,
+		version:                       version.Version,
+		userAgent:                     userAgent,
+		envLogNameMode:                logNameMode,
+		config:                        c,
+		loggers:                       loggers,
+	}
+
+	thingsToCleanUp.AddCloser(r)
+
+	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
+
+	for envName, envConfig := range c.Environment {
+		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
+		if err != nil {
+			return nil, err
+		}
+		thingsToCleanUp.AddCloser(env)
+		go func() {
+			env := <-resultCh
+			r.clientInitCh <- env
+		}()
+	}
+
+	if len(c.Environment) > 0 || c.OfflineMode.FileDataSource != "" {
+		r.fullyConfigured = true // it's only in auto-config mode that we have any interval of not knowing what the environments are
 	}
 
 	if hasAutoConfigKey {
@@ -110,7 +181,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			c.Proxy,
 			c.AutoConfig.Key,
 			userAgent,
-			core.Loggers,
+			loggers,
 		)
 		if err != nil {
 			return nil, err
@@ -121,7 +192,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			&relayAutoConfigActions{r},
 			httpConfig,
 			0,
-			core.Loggers,
+			loggers,
 		)
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
@@ -145,7 +216,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		archiveManager, err := factory(
 			c.OfflineMode.FileDataSource,
 			&relayFileDataActions{r: r},
-			core.Loggers,
+			loggers,
 		)
 		if err != nil {
 			return nil, err
@@ -158,13 +229,13 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		options.loggers.Info("Running in one-shot mode - will exit immediately after initializing environments")
 		// Just wait until all clients have either started or failed, then exit without bothering
 		// to set up HTTP handlers.
-		err := r.core.WaitForAllClients(0)
+		err := r.waitForAllClients(0)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	r.Handler = core.MakeRouter()
+	r.Handler = r.makeRouter()
 	thingsToCleanUp.Clear() // we succeeded, don't close anything
 	return r, nil
 }
@@ -181,12 +252,262 @@ func defaultArchiveManagerFactory(filePath string, handler filedata.UpdateHandle
 // closing database connections if any, and stopping all Relay port listeners, goroutines,
 // and OpenCensus exporters.
 func (r *Relay) Close() error {
+	r.lock.Lock()
+	if r.closed {
+		r.lock.Unlock()
+		return nil
+	}
+
+	r.closed = true
+
+	envs := r.allEnvironments
+	r.allEnvironments = nil
+	r.envsByCredential = nil
+
+	r.lock.Unlock()
+
+	r.metricsManager.Close()
+
 	if r.autoConfigStream != nil {
 		r.autoConfigStream.Close()
 	}
 	if r.archiveManager != nil {
 		_ = r.archiveManager.Close()
 	}
-	r.core.Close()
+
+	for _, env := range envs {
+		if err := env.Close(); err != nil {
+			r.loggers.Warnf("unexpected error when closing environment: %s", err)
+		}
+	}
+
+	for _, sp := range r.allStreamProviders() {
+		sp.Close()
+	}
+
 	return nil
+}
+
+func (r *Relay) allStreamProviders() []streams.StreamProvider {
+	return []streams.StreamProvider{
+		r.serverSideStreamProvider,
+		r.serverSideFlagsStreamProvider,
+		r.mobileStreamProvider,
+		r.jsClientStreamProvider,
+	}
+}
+
+// getEnvironment returns the environment object corresponding to the given credential, or nil
+// if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
+// return value is normally true, but is false if Relay does not yet have a valid configuration
+// (which affects our error handling).
+func (r *Relay) getEnvironment(credential config.SDKCredential) (relayenv.EnvContext, bool) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if r.fullyConfigured {
+		return r.envsByCredential[credential], true
+	}
+	return nil, false
+}
+
+// getAllEnvironments returns all currently configured environments.
+func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	ret := make([]relayenv.EnvContext, len(r.allEnvironments))
+	copy(ret, r.allEnvironments)
+	return ret
+}
+
+// addEnvironment attempts to add a new environment. It returns an error only if the configuration
+// is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
+func (r *Relay) addEnvironment(
+	identifiers relayenv.EnvIdentifiers,
+	envConfig config.EnvConfig,
+	transformClientConfig func(ld.Config) ld.Config,
+) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	if r.closed {
+		return nil, nil, errAlreadyClosed
+	}
+
+	dataStoreFactory, dataStoreInfo, err := sdks.ConfigureDataStore(r.config, envConfig, r.loggers)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resultCh := make(chan relayenv.EnvContext, 1)
+
+	var jsClientContext relayenv.JSClientContext
+
+	if envConfig.EnvID != "" {
+		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
+		jsClientContext.Headers = envConfig.AllowedHeader.Values()
+
+		cachingTransport := httpcache.NewMemoryCacheTransport()
+		jsClientContext.Proxy = &httputil.ReverseProxy{
+			Director: func(req *http.Request) {
+				url := req.URL
+				url.Scheme = r.clientSideSDKBaseURL.Scheme
+				url.Host = r.clientSideSDKBaseURL.Host
+				req.Host = r.clientSideSDKBaseURL.Hostname()
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				// Leave access control to our own cors middleware
+				for h := range resp.Header {
+					if strings.HasPrefix(strings.ToLower(h), "access-control") {
+						resp.Header.Del(h)
+					}
+				}
+				return nil
+			},
+			Transport: cachingTransport,
+		}
+	}
+
+	wrappedClientFactory := func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if transformClientConfig != nil {
+			config = transformClientConfig(config)
+		}
+		return r.clientFactory(sdkKey, config, timeout)
+	}
+
+	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+		Identifiers:      identifiers,
+		EnvConfig:        envConfig,
+		AllConfig:        r.config,
+		ClientFactory:    wrappedClientFactory,
+		DataStoreFactory: dataStoreFactory,
+		DataStoreInfo:    dataStoreInfo,
+		StreamProviders:  r.allStreamProviders(),
+		JSClientContext:  jsClientContext,
+		MetricsManager:   r.metricsManager,
+		UserAgent:        r.userAgent,
+		LogNameMode:      r.envLogNameMode,
+		Loggers:          r.loggers,
+	}, resultCh)
+	if err != nil {
+		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
+	}
+
+	r.allEnvironments = append(r.allEnvironments, clientContext)
+	r.envsByCredential[envConfig.SDKKey] = clientContext
+	if envConfig.MobileKey != "" {
+		r.envsByCredential[envConfig.MobileKey] = clientContext
+	}
+	if envConfig.EnvID != "" {
+		r.envsByCredential[envConfig.EnvID] = clientContext
+	}
+
+	return clientContext, resultCh, nil
+}
+
+// removeEnvironment shuts down and removes an existing environment. All network connections, metrics
+// resources, and (if applicable) database connections, are immediately closed for this environment.
+// Subsequent requests using credentials for this environment will be rejected.
+func (r *Relay) removeEnvironment(env relayenv.EnvContext) {
+	r.lock.Lock()
+
+	found := false
+	for i, e := range r.allEnvironments {
+		if e == env {
+			r.allEnvironments = append(r.allEnvironments[:i], r.allEnvironments[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if found {
+		for _, c := range env.GetCredentials() {
+			delete(r.envsByCredential, c)
+		}
+	}
+
+	r.lock.Unlock()
+
+	if !found {
+		return
+	}
+
+	// At this point any more incoming requests that try to use this environment's credentials will
+	// be rejected, since it's already been removed from all of our maps above. Now, calling Close()
+	// on the environment will do the rest of the cleanup and disconnect any current clients.
+	if err := env.Close(); err != nil {
+		r.loggers.Warnf("unexpected error when closing environment: %s", err)
+	}
+}
+
+// setFullyConfigured updates the state of whether Relay has a valid set of environments.
+func (r *Relay) setFullyConfigured(fullyConfigured bool) {
+	r.lock.Lock()
+	r.fullyConfigured = fullyConfigured
+	r.lock.Unlock()
+}
+
+// addedEnvironmentCredential updates the RelayCore's environment mapping to reflect that a new
+// credential is now enabled for this EnvContext. This should be done only *after* calling
+// EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
+// credential immediately after this, it will work.
+func (r *Relay) addedEnvironmentCredential(env relayenv.EnvContext, newCredential config.SDKCredential) {
+	r.lock.Lock()
+	r.envsByCredential[newCredential] = env
+	r.lock.Unlock()
+}
+
+// removingEnvironmentCredential updates the RelayCore's environment mapping to reflect that this
+// credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
+// because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
+// reconnect using the same credential we want it to be rejected.
+func (r *Relay) removingEnvironmentCredential(oldCredential config.SDKCredential) {
+	r.lock.Lock()
+	delete(r.envsByCredential, oldCredential)
+	r.lock.Unlock()
+}
+
+// waitForAllClients blocks until all environments that were in the initial configuration have
+// reported back as either successfully connected or failed, or until the specified timeout (if the
+// timeout is non-zero).
+func (r *Relay) waitForAllClients(timeout time.Duration) error {
+	numEnvironments := len(r.allEnvironments)
+	numFinished := 0
+
+	var timeoutCh <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutCh = timer.C
+	}
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		failed := false
+		for numFinished < numEnvironments {
+			ctx := <-r.clientInitCh
+			numFinished++
+			if ctx.GetInitError() != nil {
+				failed = true
+			}
+			if r.config.Main.ExitOnError {
+				break // ExitOnError implies we shouldn't wait for more than one error
+			}
+		}
+		resultCh <- failed
+	}()
+
+	select {
+	case failed := <-resultCh:
+		if failed {
+			if r.config.Main.ExitOnError {
+				os.Exit(1)
+			}
+			return errSomeEnvironmentFailed
+		}
+		return nil
+	case <-timeoutCh:
+		return errInitializationTimeout
+	}
 }

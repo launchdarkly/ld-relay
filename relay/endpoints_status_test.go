@@ -6,7 +6,7 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 
@@ -31,27 +31,27 @@ func TestEndpointsStatus(t *testing.T) {
 			assert.Equal(t, http.StatusOK, result.StatusCode)
 			status := ldvalue.Parse(body)
 
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(st.EnvMain.Config.SDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(st.EnvMain.Config.SDKKey)),
 				status, "environments", st.EnvMain.Name, "sdkKey")
 			st.AssertJSONPathMatch(t, "connected", status, "environments", st.EnvMain.Name, "status")
 			st.AssertJSONPathMatch(t, "VALID", status, "environments", st.EnvMain.Name, "connectionStatus", "state")
 
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(st.EnvClientSide.Config.SDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(st.EnvClientSide.Config.SDKKey)),
 				status, "environments", st.EnvClientSide.Name, "sdkKey")
 			st.AssertJSONPathMatch(t, "507f1f77bcf86cd799439011",
 				status, "environments", st.EnvClientSide.Name, "envId")
 			st.AssertJSONPathMatch(t, "connected",
 				status, "environments", st.EnvClientSide.Name, "status")
 
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(st.EnvMobile.Config.SDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(st.EnvMobile.Config.SDKKey)),
 				status, "environments", st.EnvMobile.Name, "sdkKey")
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(st.EnvMobile.Config.MobileKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(st.EnvMobile.Config.MobileKey)),
 				status, "environments", st.EnvMobile.Name, "mobileKey")
 			st.AssertJSONPathMatch(t, "connected",
 				status, "environments", st.EnvMobile.Name, "status")
 
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
-			st.AssertJSONPathMatch(t, p.relay.core.Version, status, "version")
+			st.AssertJSONPathMatch(t, p.relay.version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
 		})
 	})
@@ -64,7 +64,7 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
 			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
@@ -100,7 +100,7 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.core.GetEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
 			require.NotNil(t, envMain)
 			require.True(t, inited)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)

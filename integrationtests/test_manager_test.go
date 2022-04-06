@@ -22,7 +22,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/api"
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
@@ -273,10 +273,10 @@ func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (
 	return resp, err
 }
 
-func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.StatusRep) bool) (core.StatusRep, bool) {
+func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(api.StatusRep) bool) (api.StatusRep, bool) {
 	require.NotNil(t, m.dockerContainer, "Relay was not started")
 	var lastOutput, lastError string
-	var lastStatus core.StatusRep
+	var lastStatus api.StatusRep
 	success := assert.Eventually(t, func() bool {
 		request, _ := http.NewRequest("GET", fmt.Sprintf("%s/status", m.relayBaseURL), nil)
 		resp, err := m.makeHTTPRequestToRelay(request)
@@ -295,7 +295,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 			}
 			lastOutput = output
 		}
-		var status core.StatusRep
+		var status api.StatusRep
 		require.NoError(t, json.Unmarshal([]byte(output), &status))
 		lastStatus = status
 		return fn(status)
@@ -305,7 +305,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 
 func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs,
 	expectNameAndKey bool, envMapKeyFn func(proj projectInfo, env environmentInfo) string) {
-	_, success := m.awaitRelayStatus(t, func(status core.StatusRep) bool {
+	_, success := m.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		if len(status.Environments) != projsAndEnvs.countEnvs() {
 			return false
 		}
@@ -392,7 +392,7 @@ func (m *integrationTestManager) withExtraContainer(
 	action(container)
 }
 
-func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep, expectNameAndKey bool) {
+func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus api.EnvironmentStatusRep, expectNameAndKey bool) {
 	assert.Equal(t, string(environment.id), envStatus.EnvID)
 	if expectNameAndKey {
 		assert.Equal(t, environment.name, envStatus.EnvName)

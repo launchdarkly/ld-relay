@@ -1,12 +1,14 @@
-package core
+package relay
 
 import (
 	"net/http"
 
+	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/logging"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
@@ -19,24 +21,24 @@ const (
 	serverSideFlagsOnlyStreamLogMessage = "Application requested server-side /flags stream"
 )
 
-// MakeRouter creates and configures a Router containing all of the standard routes for RelayCore. The Relay
-// or RelayEnterprise code may add additional routes.
+// makeRouter creates and configures a Router containing all of the standard routes for Relay.
 //
 // IMPORTANT: The route strings that are used here, such as "/sdk/evalx/{envId}/users/{user}", will appear
 // in metrics data under the "route" tag if Relay is configured to export metrics. Therefore, we should use
 // variable names like {envId} consistently and make sure they correspond to how the routes are shown in
 // docs/endpoints.md.
-func (r *RelayCore) MakeRouter() *mux.Router {
+func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
-	router.Use(logging.GlobalContextLoggersMiddleware(r.Loggers))
-	if r.Loggers.GetMinLevel() == ldlog.Debug {
-		router.Use(logging.RequestLoggerMiddleware(r.Loggers))
+	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
+	if r.loggers.GetMinLevel() == ldlog.Debug {
+		router.Use(logging.RequestLoggerMiddleware(r.loggers))
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
 
-	sdkKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, r)
-	mobileKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, r)
-	jsClientSelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, r)
+	environmentGetters := relayEnvironmentGetters{r}
+	sdkKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, environmentGetters)
+	mobileKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, environmentGetters)
+	jsClientSelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, environmentGetters)
 	offlineMode := r.config.OfflineMode.FileDataSource != ""
 
 	// Client-side evaluation (for JS, not mobile)
@@ -154,4 +156,17 @@ func (r *RelayCore) MakeRouter() *mux.Router {
 	))).Methods("GET")
 
 	return router
+}
+
+// Adapter that implements the middleware.RelayEnvironments interface to expose non-exported methods of Relay
+type relayEnvironmentGetters struct {
+	*Relay
+}
+
+func (r relayEnvironmentGetters) GetEnvironment(credential config.SDKCredential) (env relayenv.EnvContext, fullyConfigured bool) {
+	return r.getEnvironment(credential)
+}
+
+func (r relayEnvironmentGetters) GetAllEnvironments() []relayenv.EnvContext {
+	return r.getAllEnvironments()
 }

@@ -9,8 +9,8 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 
@@ -60,8 +60,8 @@ var autoConfigTestEnvs = map[c.EnvironmentID]st.TestEnv{
 }
 
 // Unlike relay_endpoints_test.go, which runs with a local configuration, here we are testing
-// endpoint responses for a Relay instance that is auto-configured. We don't run the full core
-// test suite this way, since most things behave the same with or without auto-config once the
+// endpoint responses for a Relay instance that is auto-configured. We don't run the full test
+// suite this way, since most things behave the same with or without auto-config once the
 // environment list has been obtained; we just want to make sure it starts up correctly in
 // general and test for any specific responses that should be different.
 
@@ -128,7 +128,7 @@ func waitForAutoConfigInit(t *testing.T, r *Relay, configWithEnvs c.Config) {
 	for {
 		select {
 		case <-ticker.C:
-			envs := r.core.GetAllEnvironments()
+			envs := r.getAllEnvironments()
 			if len(envs) == expectedEnvCount {
 				return
 			}
@@ -152,9 +152,9 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 
 			st.AssertJSONPathMatch(t, envKey,
 				status, "environments", envKey, "envId")
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(envConfig.Config.SDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.Config.SDKKey)),
 				status, "environments", envKey, "sdkKey")
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(envConfig.Config.MobileKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.Config.MobileKey)),
 				status, "environments", envKey, "mobileKey")
 			st.AssertJSONPathMatch(t, envConfig.EnvKey,
 				status, "environments", envKey, "envKey")
@@ -168,7 +168,7 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 				status, "environments", envKey, "status")
 
 			st.AssertJSONPathMatch(t, "healthy", status, "status")
-			st.AssertJSONPathMatch(t, p.relay.core.Version, status, "version")
+			st.AssertJSONPathMatch(t, p.relay.version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
 		})
 	})
@@ -186,9 +186,9 @@ func TestAutoConfigStatusEndpoints(t *testing.T) {
 
 			st.AssertJSONPathMatch(t, envKey,
 				status, "environments", envKey, "envId")
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(envConfig.Config.SDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.Config.SDKKey)),
 				status, "environments", envKey, "sdkKey")
-			st.AssertJSONPathMatch(t, core.ObscureKey(string(envConfig.ExpiringSDKKey)),
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.ExpiringSDKKey)),
 				status, "environments", envKey, "expiringSdkKey")
 		})
 	})
