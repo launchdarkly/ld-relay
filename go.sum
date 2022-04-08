@@ -287,8 +287,8 @@ github.com/launchdarkly/go-semver v1.0.2 h1:sYVRnuKyvxlmQCnCUyDkAhtmzSFRoX6rG2Xa
 github.com/launchdarkly/go-semver v1.0.2/go.mod h1:xFmMwXba5Mb+3h72Z+VeSs9ahCvKo2QFUTHRNHVqR28=
 github.com/launchdarkly/go-server-sdk-consul v1.0.1 h1:B1U3rJfCQLnWrbr4JrdXmuzPNVlcvCM8v2lHxKs3gmk=
 github.com/launchdarkly/go-server-sdk-consul v1.0.1/go.mod h1:8nkhSElct2I9eU0ufOsvt6IBIXVPipI3ZIA1sU9dXIc=
-github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0 h1:fE0OwYjsItOOHR2/kq5StGGOHhMhX6QY1uLrs8FJLpM=
-github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0/go.mod h1:zKUi5j+UnvISac34dgjWtZ/N0rwlLrdAwWTBtu9rIPY=
+github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1 h1:lbzt1Uw0BON3TaqSDRq12wFGsu8nv4tBkLmi9TgKrJI=
+github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1/go.mod h1:ZCuGJJ0QWvtFeU65+iIlwVAPvOXWg9B/PWhG10S0/OY=
 github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1 h1:5KhwXcx+0sqxjDf4m/irLCohe/8Fh72zzsC6XU3aTMc=
 github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1/go.mod h1:rcydnSjPuE8w5HYeOg/l98QSFUT/lM9Txk9/pbyU30k=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
@@ -784,12 +784,12 @@ gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1 h1:LfbZsHTPwjzhDbJ/IjYs0oc8rWcbyJM
 gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1/go.mod h1:UETsxDtKpoDGUrwliXl1L7OG68zjOO0aagDI8OnvDRw=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.0.0/go.mod h1:KdRntsUUWlt6RnsgNIJbxJpvFcycu5I+LVfRlALtTK8=
 gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.0/go.mod h1:qzksXz/FZFSgeL5QaJVotUXvZ1wEBFnRvWyPf+DxZqs=
-gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1 h1:4v47KQovSlRem1mJqMcloqaLGlkpKnniswdtWdnC8I0=
-gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1/go.mod h1:qzksXz/FZFSgeL5QaJVotUXvZ1wEBFnRvWyPf+DxZqs=
+gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0 h1:gA0F8n0sJ0K6LOLuyC28+O4garjdaU2T3m5mk1Fki8g=
+gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0/go.mod h1:qzksXz/FZFSgeL5QaJVotUXvZ1wEBFnRvWyPf+DxZqs=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.0.0/go.mod h1:XtGu5BjXAEP2zV2EfFI7Xnz2VeSTvzzfpSQxOMIUflw=
 gopkg.in/launchdarkly/go-server-sdk.v5 v5.5.0/go.mod h1:H5usiz+AjIVg6ROrfV734z2BwYj5DqWqPJVKlkRG4S4=
-gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0 h1:ZqE97LUuo7V5ESdAz9JRF3nJMnbZPjfCpl0K7j5L628=
-gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0/go.mod h1:6dIDoWoz6m/qowIej8KKwBUcZavvRty+0kxu3NHH+jY=
+gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0 h1:J9Jr4HzASdS8kLIwBY6qg6z9Y/iunRunZkcn95jakxk=
+gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0/go.mod h1:COCI4d9hoT5NUOVBpgIWGuNpbjj6lDlvDnm+kbcSgW4=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 h1:uRGJdciOHaEIrze2W8Q3AKkepLTh2hOroT7a+7czfdQ=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7/go.mod h1:dt/ZhP58zS4L8KSrWDmTeBkI65Dw0HsyUHuEVlX15mw=
 gopkg.in/warnings.v0 v0.1.2 h1:wFXVbFY8DY5/xOe1ECiWdKCzZlxgshcYVNkBHstARME=

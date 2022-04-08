@@ -307,14 +307,18 @@ func NewEnvContext(
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
 	envContext.sdkConfig = ld.Config{
-		DataSource:       ldcomponents.StreamingDataSource().BaseURI(streamURI),
+		DataSource:       ldcomponents.StreamingDataSource(),
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
-		Events:           ldcomponents.SendEvents().BaseURI(eventsURI),
+		Events:           ldcomponents.SendEvents(),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
+		ServiceEndpoints: interfaces.ServiceEndpoints{
+			Streaming: streamURI,
+			Events:    eventsURI,
+		},
 	}
 
 	// If appropriate, create the SDK subcomponent that will be used for flag evaluations. We're
@@ -373,11 +377,11 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// environment.
 		store := c.storeAdapter.GetStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		if c.sdkBigSegments == nil {
-			c.evaluator = ldeval.NewEvaluator(dataProvider)
-		} else {
-			c.evaluator = ldeval.NewEvaluatorWithBigSegments(dataProvider, c.sdkBigSegments)
+		var evalOptions []ldeval.EvaluatorOption
+		if c.sdkBigSegments != nil {
+			evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
 		}
+		c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
 	}
 	c.initErr = err
 	c.mu.Unlock()

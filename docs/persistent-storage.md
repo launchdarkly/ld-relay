@@ -52,3 +52,13 @@ If the database becomes unavailable, Relay's behavior (based on its use of the G
 - If the TTL is a negative number, the in-memory cache never expires. Relay continues to serve flags to SDK clients and updates the cache if it receives any flag updates from LaunchDarkly. As Relay will only read from the database upon service startup, it is recommended that you avoid restarting Relay while detecting database downtime. After the database becomes available again, Relay will write the contents of the cache back to the database. Use the "cached forever" mode with caution: it means that in a scenario where multiple Relay processes are sharing the database, and the current process loses connectivity to LaunchDarkly while other processes are still receiving updates and writing them to the database, the current process will have stale data.
 
 The in-memory cache only helps SDKs using the Relay in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. To learn more, read [Using the Relay Proxy in different modes](https://docs.launchdarkly.com/home/advanced/relay-proxy/using#using-the-relay-proxy-in-different-modes).
+
+## DynamoDB storage limitation
+
+As described in the notes for the [LaunchDarkly Go SDK DynamoDB integration](https://github.com/launchdarkly/go-server-sdk-dynamodb/blob/master/README.md#data-size-limitation), which is the internal implementation used by the Relay Proxy, it is not possible to store more than 400KB of JSON data for any one feature flag or segment when using DynamoDB. If the Relay Proxy receives such a large data item, it will log an error message such as this:
+
+```
+    The item "my-flag-key" in "features" was too large to store in DynamoDB and was dropped
+```
+
+Any SDKs that are using daemon mode to read directly from the database will not be able to see this flag or segment. If SDKs are connected in proxy mode, they may be able to receive the item from the Relay Proxy, but depending on caching behavior it may become unavailable later. Therefore, if you see this message, consider redesigning your flag/segment configurations, or else do not use the Relay Proxy for the environment that contains this data item.
