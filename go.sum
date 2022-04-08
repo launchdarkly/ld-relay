@@ -287,8 +287,8 @@ github.com/launchdarkly/go-semver v1.0.2 h1:sYVRnuKyvxlmQCnCUyDkAhtmzSFRoX6rG2Xa
 github.com/launchdarkly/go-semver v1.0.2/go.mod h1:xFmMwXba5Mb+3h72Z+VeSs9ahCvKo2QFUTHRNHVqR28=
 github.com/launchdarkly/go-server-sdk-consul v1.0.1 h1:B1U3rJfCQLnWrbr4JrdXmuzPNVlcvCM8v2lHxKs3gmk=
 github.com/launchdarkly/go-server-sdk-consul v1.0.1/go.mod h1:8nkhSElct2I9eU0ufOsvt6IBIXVPipI3ZIA1sU9dXIc=
-github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0 h1:fE0OwYjsItOOHR2/kq5StGGOHhMhX6QY1uLrs8FJLpM=
-github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0/go.mod h1:zKUi5j+UnvISac34dgjWtZ/N0rwlLrdAwWTBtu9rIPY=
+github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1 h1:lbzt1Uw0BON3TaqSDRq12wFGsu8nv4tBkLmi9TgKrJI=
+github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1/go.mod h1:ZCuGJJ0QWvtFeU65+iIlwVAPvOXWg9B/PWhG10S0/OY=
 github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1 h1:5KhwXcx+0sqxjDf4m/irLCohe/8Fh72zzsC6XU3aTMc=
 github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1/go.mod h1:rcydnSjPuE8w5HYeOg/l98QSFUT/lM9Txk9/pbyU30k=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
