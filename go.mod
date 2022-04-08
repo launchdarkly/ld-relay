@@ -48,8 +48,8 @@ require (
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
