@@ -9,7 +9,7 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant
   go-release-version:
     type: string
-    default: "1.17.6"
+    default: "1.17.9"
 
 experimental:
   notify:
