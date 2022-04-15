@@ -22,6 +22,7 @@ function ensure_file_was_changed() {
   filename=$1
   if (( $(diff ${filename} ${filename}.tmp | grep '^>' | wc -l) != 1 )); then
     echo "failed to update Go version in ${filename}; sed expression did not match any lines or matched more than one line"
+    diff ${filename} ${filename}.tmp || true
     for f in ${ldrelease_config_file} ${circleci_config_file} ${dockerfile_for_tests}; do
       rm -r ${f}.tmp
     done
@@ -34,14 +35,14 @@ sed <${ldrelease_config_file} >${ldrelease_config_file}.tmp \
 ensure_file_was_changed ${ldrelease_config_file}
 
 sed <${circleci_config_file} >${circleci_config_file}.tmp \
-  -e "/go-release-version:/,/default:/s#default: *\"[^\"]*\"#default: ${VERSION}#"
+  -e "/go-release-version:/,/default:/s#default: *\"[^\"]*\"#default: \"${VERSION}\"#"
 ensure_file_was_changed ${circleci_config_file}
 
 sed <${dockerfile_for_tests} >${dockerfile_for_tests}.tmp \
-  -e "s#FROM *golang:[^-]#FROM golang:${VERSION}#"
+  -e "s#FROM *golang:[^-]*#FROM golang:${VERSION}#"
 ensure_file_was_changed ${dockerfile_for_tests}
 
-for f in ${ldrelease_config_file} ${circleci_config_file}; do
+for f in ${ldrelease_config_file} ${circleci_config_file} ${dockerfile_for_tests}; do
   mv ${f}.tmp ${f}
   echo "updated ${f}"
 done
