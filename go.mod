@@ -50,7 +50,7 @@ require (
 	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )

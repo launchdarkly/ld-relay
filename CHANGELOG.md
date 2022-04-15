@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.3] - 2022-04-08
+### Fixed:
+- When using DynamoDB, if the Relay Proxy attempts to store a feature flag or segment whose total data size is over the 400KB limit for DynamoDB items, it will now log (at `Error` level) a message like `The item "my-flag-key" in "features" was too large to store in DynamoDB and was dropped` but will still process all other data updates. Previously, it would cause the Relay Proxy to enter an error state in which the oversized item would be pointlessly retried and other updates might be lost.
+- In flag evaluations for client-side SDKs, fixed an edge case where a circular reference in flag prerequisites (not allowed in a flag configuration, but possible to exist briefly under unlikely circumstances) could have caused a crash. See [Go SDK 5.7.0](https://github.com/launchdarkly/go-server-sdk/releases/tag/5.7.0) release notes.
+
+## [6.7.2] - 2022-04-04
+### Fixed:
+- Updated Docker image to use Alpine 3.14.6. The previous Alpine version, 3.14.5, was reported to have security vulnerability [CVE-2022-28391](https://nvd.nist.gov/vuln/detail/CVE-2022-28391). See also the [Alpine 3.14.6 changelog](https://git.alpinelinux.org/aports/log/?h=v3.14.6). ([#178](https://github.com/launchdarkly/ld-relay/issues/178))
+
 ## [6.7.1] - 2022-03-28
 ### Fixed:
 - Updated Docker image to use Alpine 3.14.5. The previous Alpine version, 3.14.4, was reported to have security vulnerabilities [CVE-2022-0778](https://nvd.nist.gov/vuln/detail/CVE-2022-0778) and [CVE-2018-25032](https://nvd.nist.gov/vuln/detail/CVE-2022-0778). See also the [Alpine 3.14.5 changelog](https://git.alpinelinux.org/aports/log/?h=v3.14.5). ([#175](https://github.com/launchdarkly/ld-relay/issues/175))

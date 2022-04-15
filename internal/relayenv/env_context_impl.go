@@ -309,6 +309,7 @@ func NewEnvContext(
 	envContext.sdkConfig = ld.Config{
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
+		Events:           ldcomponents.SendEvents(),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).
@@ -375,12 +376,11 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// environment.
 		store := c.storeAdapter.GetStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		if c.sdkBigSegments == nil {
-			c.evaluator = ldeval.NewEvaluator(dataProvider)
-		} else {
-			c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider,
-				ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
+		var evalOptions []ldeval.EvaluatorOption
+		if c.sdkBigSegments != nil {
+			evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
 		}
+		c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
 	}
 	c.initErr = err
 	c.mu.Unlock()
