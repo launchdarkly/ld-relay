@@ -11,6 +11,15 @@ parameters:
     type: string
     default: "1.17.9"
 
+  # We use a remote Docker host in some CI jobs that need to run Docker containers.
+  # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
+  # consistently failing when we ran jobs with recent cimg/go images, possibly due to
+  # an incompatibility with the Docker version in those images. The failure mode is as
+  # described here: https://discuss.circleci.com/t/fail-to-build-images-with-docker-compose/43678
+  remote-docker-version:
+    type: string
+    default: "20.10.12"
+
 experimental:
   notify:
     branches:
@@ -267,7 +276,8 @@ jobs:
 
     steps:
       - checkout
-      - setup_remote_docker  # start docker engine
+      - setup_remote_docker:  # start docker engine
+          version: <<pipeline.parameters.remote-docker-version>>
 
       - run:
           name: verify Go and Alpine versions
@@ -307,7 +317,8 @@ jobs:
 
     steps:
       - checkout
-      - setup_remote_docker  # start docker engine
+      - setup_remote_docker:  # start docker engine
+          version: <<pipeline.parameters.remote-docker-version>>
 
       - run:
           name: add package source for Trivy
