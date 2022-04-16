@@ -76,11 +76,13 @@ fi
 
 echo "Alpine versions are in sync"
 
+echo "Checking availability of Docker images..."
 for docker_image in \
   "cimg/go:${LDRELEASE_GO_VERSION}" \
   "alpine:${DOCKERFILE_RELEASES_ALPINE_VERSION}" \
   "golang:${LDRELEASE_GO_VERSION}-alpine${DOCKERFILE_TESTS_ALPINE_MINOR_VERSION}"
 do
-  docker pull ${docker_image} >/dev/null 2>/dev/null || { echo; echo "Docker image ${docker_image} is not available!"; exit 1; }
-  echo "verified that Docker image ${docker_image} is available"
+  echo -n "  ${docker_image}... "
+  docker pull ${docker_image} >/dev/null 2>/dev/null || { echo; echo "not available!"; exit 1; }
+  echo "available"
 done

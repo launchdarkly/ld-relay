@@ -19,7 +19,7 @@ require (
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
-	github.com/hashicorp/consul/api v1.11.0
+	github.com/hashicorp/consul/api v1.12.0
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v0.16.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
@@ -29,7 +29,7 @@ require (
 	github.com/launchdarkly/api-client-go v5.0.3+incompatible
 	github.com/launchdarkly/eventsource v1.6.2
 	github.com/launchdarkly/go-configtypes v1.1.0
-	github.com/launchdarkly/go-server-sdk-consul v1.0.1
+	github.com/launchdarkly/go-server-sdk-consul v1.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
