@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.5] - 2022-04-21
+### Fixed:
+- Updated the `golang.org/x/crypto` package to address CVE-2022-27191. ([#183](https://github.com/launchdarkly/ld-relay/issues/183))
+
 ## [6.7.4] - 2022-04-15
 ### Fixed:
 - Updated the Go version for release builds to 1.17.9 to address security warnings about earlier Go runtimes. ([#181](https://github.com/launchdarkly/ld-relay/issues/181))
