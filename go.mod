@@ -42,7 +42,7 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
-	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
+	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
