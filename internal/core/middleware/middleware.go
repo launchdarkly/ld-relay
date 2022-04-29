@@ -129,14 +129,14 @@ func CORS(next http.Handler) http.Handler {
 			headers = corsContext.AllowedHeaders()
 		}
 		if len(domains) > 0 {
+			domain := domains[0]
 			for _, d := range domains {
 				if r.Header.Get("Origin") == d {
-					browser.SetCORSHeaders(w, d, headers)
-					return
+					domain = d
+					break
 				}
 			}
-			// Not a valid origin, set allowed origin to any allowed origin
-			browser.SetCORSHeaders(w, domains[0], headers)
+			browser.SetCORSHeaders(w, domain, headers)
 		} else {
 			origin := browser.DefaultAllowedOrigin
 			if r.Header.Get("Origin") != "" {
