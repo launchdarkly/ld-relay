@@ -353,6 +353,26 @@ func TestCORSMiddlewareOnlyCallsWrappedHandlerIfMethodIsNotOPTIONS(t *testing.T)
 	assert.Equal(t, 1, totalTimesCalled) // wrappedHandler was not called this time
 }
 
+func TestCORSMiddlewareCallsWrappedHandlerWhenOriginMatchesAndMethodIsGET(t *testing.T) {
+	totalTimesCalled := 0
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		totalTimesCalled++
+		w.WriteHeader(200)
+	})
+	corsHandler := CORS(wrappedHandler)
+
+	headers := make(http.Header)
+	headers.Set("Origin", "blah")
+	cc := testCORSContext{origins: []string{"abc", "blah"}}
+	req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+	req = req.WithContext(browser.WithCORSContext(req.Context(), cc))
+	res := httptest.NewRecorder()
+	corsHandler.ServeHTTP(res, req)
+	assert.Equal(t, 200, res.Result().StatusCode)
+	assert.Equal(t, "blah", res.Result().Header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, 1, totalTimesCalled)
+}
+
 func TestStreaming(t *testing.T) {
 	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
 	resp := httptest.NewRecorder()
