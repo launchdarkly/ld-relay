@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.6] - 2022-04-29
+### Fixed:
+- Setting allowable CORS origin domains with any of the `allowedOrigin`/`ALLOWED_ORIGIN` configuration options did not work correctly: requests with a matching domain would return empty responses. (Thanks, [joshuaeilers](https://github.com/launchdarkly/ld-relay/pull/185)!)
+
 ## [6.7.5] - 2022-04-21
 ### Fixed:
 - Updated the `golang.org/x/crypto` package to address CVE-2022-27191. ([#183](https://github.com/launchdarkly/ld-relay/issues/183))
