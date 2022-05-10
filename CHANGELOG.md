@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.7] - 2022-05-10
+### Fixed:
+- Fixed an inefficiency in the SSE server implementation that could cause unnecessarily large temporary memory usage spikes when the Relay Proxy was sending large flag data sets to server-side SDK clients.
+
 ## [6.7.6] - 2022-04-29
 ### Fixed:
 - Setting allowable CORS origin domains with any of the `allowedOrigin`/`ALLOWED_ORIGIN` configuration options did not work correctly: requests with a matching domain would return empty responses. (Thanks, [joshuaeilers](https://github.com/launchdarkly/ld-relay/pull/185)!)
