@@ -274,8 +274,9 @@ github.com/launchdarkly/api-client-go v5.0.3+incompatible/go.mod h1:INGa7NUZYSwV
 github.com/launchdarkly/ccache v1.1.0 h1:voD1M+ZJXR3MREOKtBwgTF9hYHl1jg+vFKS/+VAkR2k=
 github.com/launchdarkly/ccache v1.1.0/go.mod h1:TlxzrlnzvYeXiLHmesMuvoZetu4Z97cV1SsdqqBJi1Q=
 github.com/launchdarkly/eventsource v1.4.3/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
-github.com/launchdarkly/eventsource v1.6.2 h1:5SbcIqzUomn+/zmJDrkb4LYw7ryoKFzH/0TbR0/3Bdg=
 github.com/launchdarkly/eventsource v1.6.2/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
+github.com/launchdarkly/eventsource v1.7.1 h1:StoRQeiPyrcQIXjlQ7b5jWMzHW4p+GGczN2r2oBhujg=
+github.com/launchdarkly/eventsource v1.7.1/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
 github.com/launchdarkly/go-configtypes v1.1.0 h1:Qsp/q607eXPJqUcQdSdAs0+vDG+luqVCmenS9a302EI=
 github.com/launchdarkly/go-configtypes v1.1.0/go.mod h1:AL0LzOSTYBAEeZJ8JpBWlz7BbHhxTQvOTcn7ZBgx7IA=
 github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1 h1:Iz5cg9mB/0vt5llZE+J0iGQ5+O/U8CWuRUUR7Ou8eNM=
