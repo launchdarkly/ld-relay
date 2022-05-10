@@ -19,7 +19,7 @@ require (
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
-	github.com/hashicorp/consul/api v1.11.0
+	github.com/hashicorp/consul/api v1.12.0
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v0.16.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
@@ -47,7 +47,7 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
-	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
+	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0

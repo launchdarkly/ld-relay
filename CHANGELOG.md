@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.6] - 2022-04-29
+### Fixed:
+- Setting allowable CORS origin domains with any of the `allowedOrigin`/`ALLOWED_ORIGIN` configuration options did not work correctly: requests with a matching domain would return empty responses. (Thanks, [joshuaeilers](https://github.com/launchdarkly/ld-relay/pull/185)!)
+
+## [6.7.5] - 2022-04-21
+### Fixed:
+- Updated the `golang.org/x/crypto` package to address CVE-2022-27191. ([#183](https://github.com/launchdarkly/ld-relay/issues/183))
+
+## [6.7.4] - 2022-04-15
+### Fixed:
+- Updated the Go version for release builds to 1.17.9 to address security warnings about earlier Go runtimes. ([#181](https://github.com/launchdarkly/ld-relay/issues/181))
+- Updated the version of the Consul API client due to a vulnerability warning. ([#181](https://github.com/launchdarkly/ld-relay/issues/181))
+
 ## [6.7.3] - 2022-04-08
 ### Fixed:
 - When using DynamoDB, if the Relay Proxy attempts to store a feature flag or segment whose total data size is over the 400KB limit for DynamoDB items, it will now log (at `Error` level) a message like `The item "my-flag-key" in "features" was too large to store in DynamoDB and was dropped` but will still process all other data updates. Previously, it would cause the Relay Proxy to enter an error state in which the oversized item would be pointlessly retried and other updates might be lost.
