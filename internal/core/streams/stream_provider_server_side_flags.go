@@ -1,7 +1,10 @@
 package streams
 
 import (
+	"crypto/md5"
 	"net/http"
+	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
@@ -27,6 +30,10 @@ type serverSideFlagsOnlyEnvStreamProvider struct {
 type serverSideFlagsOnlyEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
+
+	mu            sync.Mutex
+	cacheEvent    eventsource.Event
+	eventChecksum string
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -91,16 +98,55 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	}
 	go func() {
 		defer close(out)
-		if r.store.IsInitialized() {
-			flags, err := r.store.GetAll(ldstoreimpl.Features())
-
-			if err != nil {
-				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-			} else {
-				out <- MakeServerSideFlagsOnlyPutEvent(
-					[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
-			}
+		if !r.store.IsInitialized() {
+			return
 		}
+		flags, err := r.store.GetAll(ldstoreimpl.Features())
+
+		if err != nil {
+			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			return
+		}
+
+		checksum := hashKeyedItemDescriptors(flags)
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.eventChecksum == checksum {
+			out <- r.cacheEvent
+			return
+		}
+
+		event := MakeServerSideFlagsOnlyPutEvent(
+			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
+		r.eventChecksum = checksum
+		r.cacheEvent = event
+
+		out <- event
 	}()
 	return out
+}
+
+type keyVersion struct {
+	key     string
+	version int
+}
+
+func hashKeyedItemDescriptors(keyedItems []ldstoretypes.KeyedItemDescriptor) string {
+	kvs := make([]keyVersion, len(keyedItems))
+	for i, ki := range keyedItems {
+		kvs[i] = keyVersion{ki.Key, ki.Item.Version}
+	}
+
+	// We sort because the order of the data we get may not be consistent.
+	sort.Slice(kvs, func(a, b int) bool { return kvs[a].key < kvs[b].key })
+
+	h := md5.New()
+	for _, kv := range kvs {
+		h.Write([]byte(kv.key))
+		h.Write([]byte("#")) // something that won't be part of a key
+		h.Write([]byte(strconv.Itoa(kv.version)))
+		h.Write([]byte(";")) // something that won't be part of a version
+	}
+	checksum := string(h.Sum(nil))
+	return checksum
 }

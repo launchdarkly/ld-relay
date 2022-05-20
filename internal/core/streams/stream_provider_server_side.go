@@ -27,6 +27,10 @@ type serverSideEnvStreamProvider struct {
 type serverSideEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
+
+	mu            sync.Mutex
+	cacheEvent    eventsource.Event
+	eventChecksum string
 }
 
 func (s *serverSideStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -96,18 +100,35 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-		} else {
-			segments, err := r.store.GetAll(ldstoreimpl.Segments())
-			if err != nil {
-				r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
-			} else {
-				allData := []ldstoretypes.Collection{
-					{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
-					{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
-				}
-				out <- MakeServerSidePutEvent(allData)
-			}
+			return
 		}
+		segments, err := r.store.GetAll(ldstoreimpl.Segments())
+		if err != nil {
+			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
+			return
+		}
+
+		flagsChecksum := hashKeyedItemDescriptors(flags)
+		segmentsChecksum := hashKeyedItemDescriptors(segments)
+		eventChecksum := flagsChecksum + segmentsChecksum
+
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.eventChecksum == eventChecksum {
+			out <- r.cacheEvent
+			return
+		}
+
+		allData := []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
+			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
+		}
+		event := MakeServerSidePutEvent(allData)
+
+		r.eventChecksum = eventChecksum
+		r.cacheEvent = event
+
+		out <- event
 	}()
 	return out
 }
