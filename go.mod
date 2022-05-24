@@ -19,7 +19,7 @@ require (
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20171119193500-2bcd89a1743f
-	github.com/hashicorp/consul/api v1.11.0
+	github.com/hashicorp/consul/api v1.12.0
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v0.16.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
@@ -27,10 +27,10 @@ require (
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
 	github.com/kr/text v0.2.0 // indirect
 	github.com/launchdarkly/api-client-go v5.0.3+incompatible
-	github.com/launchdarkly/eventsource v1.6.2
+	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
-	github.com/launchdarkly/go-server-sdk-consul v1.0.1
-	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.0
+	github.com/launchdarkly/go-server-sdk-consul v1.0.2
+	github.com/launchdarkly/go-server-sdk-dynamodb v1.1.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/mattn/go-isatty v0.0.14 // indirect
@@ -42,14 +42,14 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
-	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
+	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.4.1
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.6.0
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
