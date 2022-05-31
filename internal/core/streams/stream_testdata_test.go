@@ -2,6 +2,7 @@ package streams
 
 import (
 	"errors"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -49,6 +50,7 @@ type mockStoreQueries struct {
 	fakeSegmentsError error
 	flags             []ldstoretypes.KeyedItemDescriptor
 	segments          []ldstoretypes.KeyedItemDescriptor
+	latency           time.Duration
 }
 
 func (q mockStoreQueries) IsInitialized() bool {
@@ -56,6 +58,9 @@ func (q mockStoreQueries) IsInitialized() bool {
 }
 
 func (q mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+	if q.latency > 0 {
+		time.Sleep(q.latency)
+	}
 	switch kind {
 	case ldstoreimpl.Features():
 		return q.flags, q.fakeFlagsError

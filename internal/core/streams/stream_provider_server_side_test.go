@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 
@@ -200,6 +201,87 @@ func TestStreamProviderServerSide(t *testing.T) {
 			defer esp.Close()
 
 			verifyHandlerHeartbeat(t, sp, esp, validCredential)
+		})
+	})
+
+	t.Run("Replay", func(t *testing.T) {
+		store := makeMockStore(nil, nil)
+		store.latency = 100 * time.Millisecond
+
+		repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+		newData := []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: store.flags},
+			{Kind: ldstoreimpl.Segments(), Items: store.segments},
+		}
+		expected := MakeServerSidePutEvent(newData)
+		expectedData := expected.Data()
+		t.Run("ConsecutiveCalls", func(t *testing.T) {
+			eventChannel := repo.Replay("", "")
+			select {
+			case actual := <-eventChannel:
+				if actual == nil {
+					t.Fatal("Expected an event from Replay")
+				}
+				if expectedData != actual.Data() {
+					t.Errorf("Replay() = %v; wanted %v", actual.Data(), expectedData)
+				}
+			case <-time.After(time.Second):
+				t.Error("expected an event to be returned")
+			}
+			eventChannel = repo.Replay("", "")
+			select {
+			case actual := <-eventChannel:
+				if actual == nil {
+					t.Fatal("Expected an event from Replay")
+				}
+				if expectedData != actual.Data() {
+					t.Errorf("Replay() = %v; wanted %v", actual.Data(), expectedData)
+				}
+			case <-time.After(time.Second):
+				t.Error("expected an event to be returned")
+			}
+
+		})
+		t.Run("ConcurrentCalls", func(t *testing.T) {
+			eventChannel1 := repo.Replay("", "")
+			eventChannel2 := repo.Replay("", "")
+			var event1, event2 eventsource.Event
+			var events int
+
+			for events < 2 {
+				select {
+				case event, ok := <-eventChannel1:
+					if !ok {
+						break
+					}
+					if event == nil {
+						t.Fatal("Expected an event from Replay")
+					}
+					if expectedData != event.Data() {
+						t.Errorf("Replay() = %v; wanted %v", event.Data(), expectedData)
+					}
+					event1 = event
+					events++
+				case event, ok := <-eventChannel2:
+					if !ok {
+						break
+					}
+					if event == nil {
+						t.Fatal("Expected an event from Replay")
+					}
+					if expectedData != event.Data() {
+						t.Errorf("Replay() = %v; wanted %v", event.Data(), expectedData)
+					}
+					event2 = event
+					events++
+				case <-time.After(time.Second):
+					t.Error("expected an event to be returned")
+				}
+			}
+			if event1 != event2 {
+				t.Error("Expected the same exact event to be returned from the flightgroup")
+			}
 		})
 	})
 }

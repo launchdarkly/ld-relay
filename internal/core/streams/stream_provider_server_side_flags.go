@@ -1,13 +1,12 @@
 package streams
 
 import (
-	"crypto/md5"
+	"fmt"
 	"net/http"
-	"sort"
-	"strconv"
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -31,9 +30,7 @@ type serverSideFlagsOnlyEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
 
-	mu            sync.Mutex
-	cacheEvent    eventsource.Event
-	eventChecksum string
+	flightGroup singleflight.Group
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -98,55 +95,37 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	}
 	go func() {
 		defer close(out)
-		if !r.store.IsInitialized() {
-			return
-		}
-		flags, err := r.store.GetAll(ldstoreimpl.Features())
-
+		event, err := r.getReplayEvent(channel, id)
 		if err != nil {
-			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return
 		}
-
-		checksum := hashKeyedItemDescriptors(flags)
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.eventChecksum == checksum {
-			out <- r.cacheEvent
-			return
-		}
-
-		event := MakeServerSideFlagsOnlyPutEvent(
-			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
-		r.eventChecksum = checksum
-		r.cacheEvent = event
-
 		out <- event
 	}()
 	return out
 }
 
-type keyVersion struct {
-	key     string
-	version int
-}
+func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent(channel, id string) (eventsource.Event, error) {
+	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
+		if !r.store.IsInitialized() {
+			return nil, fmt.Errorf("cannot replay events as store is not initialized.")
+		}
+		flags, err := r.store.GetAll(ldstoreimpl.Features())
 
-func hashKeyedItemDescriptors(keyedItems []ldstoretypes.KeyedItemDescriptor) string {
-	kvs := make([]keyVersion, len(keyedItems))
-	for i, ki := range keyedItems {
-		kvs[i] = keyVersion{ki.Key, ki.Item.Version}
+		if err != nil {
+			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			return nil, err
+		}
+
+		event := MakeServerSideFlagsOnlyPutEvent(
+			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
+		return event, nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	// We sort because the order of the data we get may not be consistent.
-	sort.Slice(kvs, func(a, b int) bool { return kvs[a].key < kvs[b].key })
-
-	h := md5.New()
-	for _, kv := range kvs {
-		h.Write([]byte(kv.key))
-		h.Write([]byte("#")) // something that won't be part of a key
-		h.Write([]byte(strconv.Itoa(kv.version)))
-		h.Write([]byte(";")) // something that won't be part of a version
-	}
-	checksum := string(h.Sum(nil))
-	return checksum
+	// panic if it's not an eventsource.Event - as this should be impossible
+	event := data.(eventsource.Event)
+	return event, nil
 }
