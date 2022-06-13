@@ -51,8 +51,8 @@ $(COVERAGE_PROFILE_RAW): $(ALL_SOURCES)
 
 $(LINTER_VERSION_FILE):
 	rm -f $(LINTER)
-	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s $(GOLANGCI_LINT_VERSION)
-	mkdir -p ./bin && touch $(LINTER_VERSION_FILE)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s $(GOLANGCI_LINT_VERSION)
+	touch $(LINTER_VERSION_FILE)
 
 lint: $(LINTER_VERSION_FILE)
 	$(LINTER) run ./...
