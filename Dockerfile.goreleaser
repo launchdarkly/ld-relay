@@ -6,7 +6,6 @@ FROM alpine:3.14.6
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk add --no-cache \
-    curl \
     ca-certificates \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
