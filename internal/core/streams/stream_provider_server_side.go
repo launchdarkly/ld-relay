@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -27,6 +28,8 @@ type serverSideEnvStreamProvider struct {
 type serverSideEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
+
+	flightGroup singleflight.Group
 }
 
 func (s *serverSideStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -92,22 +95,44 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 	}
 	go func() {
 		defer close(out)
+		event, err := r.getReplayEvent(channel, id)
+		if err != nil {
+			return
+		}
+		out <- event
+	}()
+	return out
+}
+
+// getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
+func (r *serverSideEnvStreamRepository) getReplayEvent(channel, id string) (eventsource.Event, error) {
+	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
 		flags, err := r.store.GetAll(ldstoreimpl.Features())
 
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-		} else {
-			segments, err := r.store.GetAll(ldstoreimpl.Segments())
-			if err != nil {
-				r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
-			} else {
-				allData := []ldstoretypes.Collection{
-					{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
-					{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
-				}
-				out <- MakeServerSidePutEvent(allData)
-			}
+			return nil, err
 		}
-	}()
-	return out
+		segments, err := r.store.GetAll(ldstoreimpl.Segments())
+		if err != nil {
+			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
+			return nil, err
+		}
+
+		allData := []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
+			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
+		}
+
+		event := MakeServerSidePutEvent(allData)
+		return event, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// panic if it's not an eventsource.Event - as this should be impossible
+	event := data.(eventsource.Event)
+	return event, nil
 }
