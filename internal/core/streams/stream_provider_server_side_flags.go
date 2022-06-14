@@ -1,7 +1,6 @@
 package streams
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -95,19 +94,18 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	}
 	go func() {
 		defer close(out)
-		event, err := r.getReplayEvent(channel, id)
-		if err != nil {
-			return
+		event, err := r.getReplayEvent()
+		if err == nil && event != nil {
+			out <- event
 		}
-		out <- event
 	}()
 	return out
 }
 
-func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent(channel, id string) (eventsource.Event, error) {
+func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.Event, error) {
 	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
 		if !r.store.IsInitialized() {
-			return nil, fmt.Errorf("cannot replay events as store is not initialized.")
+			return nil, nil
 		}
 		flags, err := r.store.GetAll(ldstoreimpl.Features())
 
