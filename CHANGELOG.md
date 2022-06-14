@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.8] - 2022-06-13
+### Fixed:
+- Updated Alpine version to 3.16.0 to address an OpenSSL vulnerability. Although the Relay Proxy does not use OpenSSL (it uses the Go runtime's TLS implementation), our policy is to patch all vulnerabilities detected in the Alpine OS used in our Docker image. ([#191](https://github.com/launchdarkly/ld-relay/issues/191))
+- Removed the unnecessary installation of `curl` in the Docker image, which caused security warnings about a vulnerable version of `libcurl` even though it was not being used. ([#191](https://github.com/launchdarkly/ld-relay/issues/191))
+
 ## [6.7.7] - 2022-05-10
 ### Fixed:
 - Fixed an inefficiency in the SSE server implementation that could cause unnecessarily large temporary memory usage spikes when the Relay Proxy was sending large flag data sets to server-side SDK clients.
