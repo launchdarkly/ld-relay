@@ -43,6 +43,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
+	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1

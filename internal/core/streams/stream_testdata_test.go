@@ -2,6 +2,7 @@ package streams
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
@@ -44,30 +45,76 @@ var (
 )
 
 type mockStoreQueries struct {
-	initialized       bool
-	fakeFlagsError    error
-	fakeSegmentsError error
-	flags             []ldstoretypes.KeyedItemDescriptor
-	segments          []ldstoretypes.KeyedItemDescriptor
+	isInitializedFn func() bool
+	getAllFn        func(ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error)
+	lock            sync.Mutex
 }
 
-func (q mockStoreQueries) IsInitialized() bool {
-	return q.initialized
+func newMockStoreQueries() *mockStoreQueries {
+	q := &mockStoreQueries{}
+	q.setupIsInitialized(true)
+	return q
 }
 
-func (q mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+func (q *mockStoreQueries) setupIsInitialized(value bool) {
+	q.setupIsInitializedFn(func() bool { return value })
+}
+
+func (q *mockStoreQueries) setupIsInitializedFn(fn func() bool) {
+	q.lock.Lock()
+	q.isInitializedFn = fn
+	q.lock.Unlock()
+}
+
+func (q *mockStoreQueries) setupGetAllFn(fn func(ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error)) {
+	q.lock.Lock()
+	q.getAllFn = fn
+	q.lock.Unlock()
+}
+
+func (q *mockStoreQueries) IsInitialized() bool {
+	q.lock.Lock()
+	fn := q.isInitializedFn
+	q.lock.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return false
+}
+
+func (q *mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+	q.lock.Lock()
+	fn := q.getAllFn
+	q.lock.Unlock()
+	if fn != nil {
+		return fn(kind)
+	}
+	return nil, nil
+}
+
+type simpleMockStore struct {
+	initialized bool
+	flags       []ldstoretypes.KeyedItemDescriptor
+	segments    []ldstoretypes.KeyedItemDescriptor
+}
+
+func (s simpleMockStore) IsInitialized() bool {
+	return s.initialized
+}
+
+func (s simpleMockStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
 	switch kind {
 	case ldstoreimpl.Features():
-		return q.flags, q.fakeFlagsError
+		return s.flags, nil
 	case ldstoreimpl.Segments():
-		return q.segments, q.fakeSegmentsError
+		return s.segments, nil
 	default:
 		return nil, nil
 	}
 }
 
-func makeMockStore(flags []ldmodel.FeatureFlag, segments []ldmodel.Segment) mockStoreQueries {
-	ret := mockStoreQueries{initialized: true}
+func makeMockStore(flags []ldmodel.FeatureFlag, segments []ldmodel.Segment) simpleMockStore {
+	ret := simpleMockStore{initialized: true}
 	for _, f := range flags {
 		var item interface{} = &f
 		if f.Deleted {
