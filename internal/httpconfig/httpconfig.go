@@ -8,10 +8,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v6/ldhttp"
 	"github.com/launchdarkly/go-server-sdk/v6/ldntlm"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 )
 
 var (
@@ -22,8 +22,8 @@ var (
 // HTTPConfig encapsulates ProxyConfig plus any other HTTP options we may support in the future (currently none).
 type HTTPConfig struct {
 	config.ProxyConfig
-	SDKHTTPConfigFactory interfaces.HTTPConfigurationFactory
-	SDKHTTPConfig        interfaces.HTTPConfiguration
+	SDKHTTPConfigFactory *ldcomponents.HTTPConfigurationBuilder
+	SDKHTTPConfig        subsystems.HTTPConfiguration
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
@@ -79,7 +79,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey config.SDKCredential,
 
 	var err error
 	ret.SDKHTTPConfigFactory = configBuilder
-	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(interfaces.BasicConfiguration{SDKKey: authKeyStr})
+	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(subsystems.BasicClientContext{SDKKey: authKeyStr})
 	return ret, err
 }
 

@@ -11,8 +11,8 @@ import (
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -51,7 +51,7 @@ func ConfigureDataStore(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 	loggers ldlog.Loggers,
-) (interfaces.DataStoreFactory, DataStoreEnvironmentInfo, error) {
+) (subsystems.DataStoreFactory, DataStoreEnvironmentInfo, error) {
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.

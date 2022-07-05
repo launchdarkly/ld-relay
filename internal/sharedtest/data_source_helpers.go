@@ -1,15 +1,15 @@
 package sharedtest
 
-import "github.com/launchdarkly/go-server-sdk/v6/interfaces"
+import "github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
-type ExistingDataSourceFactory struct{ Instance interfaces.DataSource }
+type ExistingDataSourceFactory struct{ Instance subsystems.DataSource }
 type DataSourceThatNeverStarts struct{}
 type DataSourceThatStartsWithoutInitializing struct{}
 
 func (f ExistingDataSourceFactory) CreateDataSource(
-	context interfaces.ClientContext,
-	updates interfaces.DataSourceUpdates,
-) (interfaces.DataSource, error) {
+	context subsystems.ClientContext,
+	updates subsystems.DataSourceUpdates,
+) (subsystems.DataSource, error) {
 	return f.Instance, nil
 }
 

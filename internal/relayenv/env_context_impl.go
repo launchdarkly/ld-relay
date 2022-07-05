@@ -22,9 +22,10 @@ import (
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -57,14 +58,14 @@ type EnvContextImplParams struct {
 	EnvConfig                     config.EnvConfig
 	AllConfig                     config.Config
 	ClientFactory                 sdks.ClientFactoryFunc
-	DataStoreFactory              interfaces.DataStoreFactory
+	DataStoreFactory              subsystems.DataStoreFactory
 	DataStoreInfo                 sdks.DataStoreEnvironmentInfo
 	StreamProviders               []streams.StreamProvider
 	JSClientContext               JSClientContext
 	MetricsManager                *metrics.Manager
 	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
 	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
-	SDKBigSegmentsConfigFactory   interfaces.BigSegmentsConfigurationFactory // set only in tests
+	SDKBigSegmentsConfigFactory   subsystems.BigSegmentsConfigurationFactory // set only in tests
 	UserAgent                     string
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
@@ -513,7 +514,7 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	return nil
 }
 
-func (c *envContextImpl) GetStore() interfaces.DataStore {
+func (c *envContextImpl) GetStore() subsystems.DataStore {
 	return c.storeAdapter.GetStore()
 }
 

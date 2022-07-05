@@ -11,18 +11,18 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 )
 
-func NewTestEnvContext(name string, shouldBeInitialized bool, store interfaces.DataStore) relayenv.EnvContext {
+func NewTestEnvContext(name string, shouldBeInitialized bool, store subsystems.DataStore) relayenv.EnvContext {
 	return NewTestEnvContextWithClientFactory(name, testclient.FakeLDClientFactory(shouldBeInitialized), store)
 }
 
 func NewTestEnvContextWithClientFactory(
 	name string,
 	f sdks.ClientFactoryFunc,
-	store interfaces.DataStore,
+	store subsystems.DataStore,
 ) relayenv.EnvContext {
 	dataStoreFactory := ldcomponents.InMemoryDataStore()
 	if store != nil {

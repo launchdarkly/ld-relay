@@ -18,7 +18,7 @@ const fakeTime = ldtime.UnixMillisecondTime(1000)
 
 func TestUnmarshalFeatureEvent(t *testing.T) {
 	t.Run("minimal properties", func(t *testing.T) {
-		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 			eventJSON := `{
 	"kind": "feature",
 	"creationDate": 1000,
@@ -44,7 +44,7 @@ func TestUnmarshalFeatureEvent(t *testing.T) {
 	})
 
 	t.Run("all properties", func(t *testing.T) {
-		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 			eventJSON := `{
 	"kind": "feature",
 	"creationDate": 1000,
@@ -87,7 +87,7 @@ func TestUnmarshalFeatureEvent(t *testing.T) {
 }
 
 func TestUnmarshalIdentifyEvent(t *testing.T) {
-	withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+	withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 		eventJSON := `{
 	"kind": "identify",
 	"creationDate": 1000,
@@ -115,7 +115,7 @@ func TestUnmarshalIdentifyEvent(t *testing.T) {
 
 func TestUnmarshalCustomEvent(t *testing.T) {
 	t.Run("minimal properties", func(t *testing.T) {
-		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 			eventJSON := `{
 	"kind": "custom",
 	"creationDate": 1000,
@@ -136,7 +136,7 @@ func TestUnmarshalCustomEvent(t *testing.T) {
 	})
 
 	t.Run("all properties", func(t *testing.T) {
-		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+		withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 			eventJSON := `{
 	"kind": "custom",
 	"creationDate": 1000,
@@ -171,7 +171,7 @@ func TestUnmarshalCustomEvent(t *testing.T) {
 }
 
 func TestUnmarshalOtherEvent(t *testing.T) {
-	withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext) {
+	withUserOrContext(t, func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext) {
 		eventJSON := `{
 	"kind": "alias",
 	"creationDate": 1000,
@@ -187,7 +187,7 @@ func TestUnmarshalOtherEvent(t *testing.T) {
 	})
 }
 
-func withUserOrContext(t *testing.T, action func(t *testing.T, contextPropStr string, expectedContext ldevents.EventContext)) {
+func withUserOrContext(t *testing.T, action func(t *testing.T, contextPropStr string, expectedContext ldevents.EventInputContext)) {
 	doTest := func(t *testing.T, propName, propValue string, c ldcontext.Context) {
 		action(t, `"`+propName+`": `+propValue, ldevents.PreserializedContext(c, []byte(propValue)))
 	}

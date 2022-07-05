@@ -11,6 +11,7 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 )
 
 const (
@@ -25,20 +26,20 @@ const (
 // first time and also if environments have changed due to a file update.
 type relayFileDataActions struct {
 	r          *Relay
-	envUpdates map[config.EnvironmentID]interfaces.DataSourceUpdates
+	envUpdates map[config.EnvironmentID]subsystems.DataSourceUpdates
 }
 
 type dataSourceFactoryToCaptureUpdates struct {
-	updatesCh chan<- interfaces.DataSourceUpdates
+	updatesCh chan<- subsystems.DataSourceUpdates
 }
 
 type stubDataSourceToCaptureUpdates struct {
-	dataSourceUpdates interfaces.DataSourceUpdates
-	updatesCh         chan<- interfaces.DataSourceUpdates
+	dataSourceUpdates subsystems.DataSourceUpdates
+	updatesCh         chan<- subsystems.DataSourceUpdates
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
-	updatesCh := make(chan interfaces.DataSourceUpdates)
+	updatesCh := make(chan subsystems.DataSourceUpdates)
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
 		config.DataSource = dataSourceFactoryToCaptureUpdates{updatesCh}
@@ -54,7 +55,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
-			a.envUpdates = make(map[config.EnvironmentID]interfaces.DataSourceUpdates)
+			a.envUpdates = make(map[config.EnvironmentID]subsystems.DataSourceUpdates)
 		}
 		a.envUpdates[ae.Params.EnvID] = updates
 		updates.Init(ae.SDKData)
@@ -99,9 +100,9 @@ func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
 }
 
 func (d dataSourceFactoryToCaptureUpdates) CreateDataSource(
-	ctx interfaces.ClientContext,
-	updates interfaces.DataSourceUpdates,
-) (interfaces.DataSource, error) {
+	ctx subsystems.ClientContext,
+	updates subsystems.DataSourceUpdates,
+) (subsystems.DataSource, error) {
 	return stubDataSourceToCaptureUpdates{updates, d.updatesCh}, nil
 }
 

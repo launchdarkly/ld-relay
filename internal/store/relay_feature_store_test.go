@@ -7,7 +7,8 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func TestStoreAdapterLazilyCreatesStore(t *testing.T) {
 	adapter := NewSSERelayDataStoreAdapter(factory, updates)
 	assert.Nil(t, adapter.GetStore())
 
-	context := sharedtest.SDKContextImpl{}
+	context := subsystems.BasicClientContext{}
 
 	created, err := adapter.CreateDataStore(context, nil)
 	require.NoError(t, err)
@@ -48,7 +49,7 @@ func TestStoreAdapterReturnsErrorIfStoreCannotBeCreated(t *testing.T) {
 	updates := &mockEnvStreamsUpdates{}
 
 	adapter := NewSSERelayDataStoreAdapter(factory, updates)
-	context := sharedtest.SDKContextImpl{}
+	context := subsystems.BasicClientContext{}
 	created, err := adapter.CreateDataStore(context, nil)
 
 	assert.Equal(t, fakeError, err)

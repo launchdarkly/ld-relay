@@ -6,8 +6,8 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 )
 
 var (
@@ -21,7 +21,7 @@ var (
 func TranslateFeatureEvent(
 	e FeatureEvent,
 	schemaVersion int,
-	dataStore interfaces.DataStore,
+	dataStore subsystems.DataStore,
 ) (ldevents.EvaluationData, error) {
 	evalData := ldevents.EvaluationData{
 		BaseEvent: ldevents.BaseEvent{

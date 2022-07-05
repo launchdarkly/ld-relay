@@ -10,8 +10,8 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +19,7 @@ import (
 
 func assertBigSegmentsConfigured(
 	t *testing.T,
-	expected interfaces.BigSegmentsConfigurationFactory,
+	expected subsystems.BigSegmentsConfigurationFactory,
 	c config.Config,
 	ec config.EnvConfig,
 ) *ldlogtest.MockLog {

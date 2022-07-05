@@ -18,7 +18,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

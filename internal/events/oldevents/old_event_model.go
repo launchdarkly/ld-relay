@@ -24,7 +24,7 @@ const (
 // because an SDK has already done so-- e.g. if private attributes had to be removed, they have already been
 // removed. So, we use the special "preserialized" mode that tells ldevents to treat this as a raw blob.
 type ReceivedEventContext struct {
-	ldevents.EventContext
+	ldevents.EventInputContext
 }
 
 // UnmarshalJSON captures the original JSON user data and treats it as a context.
@@ -34,7 +34,7 @@ func (r *ReceivedEventContext) UnmarshalJSON(data []byte) error {
 	if err := ldcontext.ContextSerialization.UnmarshalWithKindAndKeyOnly(&reader, &minimalContext); err != nil {
 		return err
 	}
-	r.EventContext = ldevents.PreserializedContext(minimalContext, data)
+	r.EventInputContext = ldevents.PreserializedContext(minimalContext, data)
 	return nil
 }
 
@@ -47,7 +47,7 @@ type OldEvent interface {
 //
 // See package comments in package_info.go for more details on how this differs from the new model.
 type FeatureEvent struct {
-	actualContext        ldevents.EventContext
+	actualContext        ldevents.EventInputContext
 	CreationDate         ldtime.UnixMillisecondTime `json:"creationDate"`
 	Key                  string                     `json:"key"`
 	User                 *ReceivedEventContext      `json:"user"`
@@ -67,7 +67,7 @@ func (e FeatureEvent) Kind() string { return featureKind } //nolint:golint
 //
 // See package comments in package_info.go for more details on how this differs from the new model.
 type IdentifyEvent struct {
-	actualContext ldevents.EventContext
+	actualContext ldevents.EventInputContext
 	CreationDate  ldtime.UnixMillisecondTime `json:"creationDate"`
 	User          *ReceivedEventContext      `json:"user"`
 	Context       *ReceivedEventContext      `json:"context"`
@@ -79,7 +79,7 @@ func (e IdentifyEvent) Kind() string { return identifyKind } //nolint:golint
 //
 // See package comments in package_info.go for more details on how this differs from the new model.
 type CustomEvent struct {
-	actualContext ldevents.EventContext
+	actualContext ldevents.EventInputContext
 	CreationDate  ldtime.UnixMillisecondTime `json:"creationDate"`
 	Key           string                     `json:"key"`
 	User          *ReceivedEventContext      `json:"user"`

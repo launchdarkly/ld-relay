@@ -16,14 +16,14 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/testhelpers"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
 	"github.com/stretchr/testify/require"
 )
 
 func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 	store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
-		testhelpers.NewSimpleClientContext(string(sdkKey)), nil)
+		subsystems.BasicClientContext{SDKKey: string(sdkKey)}, nil)
 	err := store.Init(sharedtest.AllData)
 	if err != nil {
 		panic(err)
@@ -105,7 +105,7 @@ func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
 		if config.DataStore != nil {
 			_, err := config.DataStore.CreateDataStore(
-				sharedtest.SDKContextImpl{},
+				subsystems.BasicClientContext{},
 				nil,
 			)
 			if err != nil {

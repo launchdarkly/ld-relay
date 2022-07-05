@@ -30,13 +30,13 @@ require (
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v2 v2.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.2
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.2
-	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.0-alpha.3
-	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.0-alpha.3
-	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.2
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.3
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.2
+	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.7
+	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.5
+	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.0-alpha.4
+	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.0-alpha.4
+	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.4
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.4
+	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.7
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/miekg/dns v1.1.43 // indirect
