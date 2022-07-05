@@ -1,13 +1,17 @@
 package streams
 
 import (
+	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
@@ -106,8 +110,13 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("initial event - store error for flags", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.fakeFlagsError = fakeError
+		store := newMockStoreQueries()
+		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+			if kind == ldstoreimpl.Features() {
+				return nil, fakeError
+			}
+			return nil, nil
+		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -119,8 +128,13 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("initial event - store error for segments", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.fakeSegmentsError = fakeError
+		store := newMockStoreQueries()
+		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+			if kind == ldstoreimpl.Segments() {
+				return nil, fakeError
+			}
+			return nil, nil
+		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -200,6 +214,109 @@ func TestStreamProviderServerSide(t *testing.T) {
 			defer esp.Close()
 
 			verifyHandlerHeartbeat(t, sp, esp, validCredential)
+		})
+	})
+
+	t.Run("Replay", func(t *testing.T) {
+		const flagKey = "flagkey"
+
+		expectReplayedEvents := func(t *testing.T, eventChannel <-chan eventsource.Event) []eventsource.Event {
+			out := make([]eventsource.Event, 0)
+			for {
+				select {
+				case e, ok := <-eventChannel:
+					if !ok {
+						return out // channel was closed; this is expected after the last event
+					}
+					out = append(out, e)
+				case <-time.After(time.Second):
+					require.Fail(t, "timed out waiting for replayed event (channel was not closed)")
+				}
+			}
+		}
+
+		queryThatIncrementsFlagVersionOnEachCall := func() func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+			nextVersion := 1
+			return func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+				if kind != ldstoreimpl.Features() {
+					return nil, nil
+				}
+				flag := ldbuilders.NewFlagBuilder("flagkey").Version(nextVersion).Build()
+				nextVersion++
+				return []ldstoretypes.KeyedItemDescriptor{
+					{Key: flag.Key, Item: sharedtest.FlagDesc(flag)},
+				}, nil
+			}
+		}
+
+		getFlagFromEventData := func(t *testing.T, e eventsource.Event) ldmodel.FeatureFlag {
+			require.Equal(t, "put", e.Event())
+			var data struct {
+				Data struct {
+					Flags map[string]ldmodel.FeatureFlag `json:"flags"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(e.Data()), &data))
+			require.Contains(t, data.Data.Flags, flagKey)
+			return data.Data.Flags[flagKey]
+		}
+
+		t.Run("second client connects after first computation is done", func(t *testing.T) {
+			store := newMockStoreQueries()
+			store.setupGetAllFn(queryThatIncrementsFlagVersionOnEachCall())
+			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+			eventCh1 := repo.Replay("", "")
+			events1 := expectReplayedEvents(t, eventCh1)
+			require.Len(t, events1, 1)
+
+			eventCh2 := repo.Replay("", "")
+			events2 := expectReplayedEvents(t, eventCh2)
+			require.Len(t, events2, 1)
+
+			assert.Equal(t, 1, getFlagFromEventData(t, events1[0]).Version)
+			assert.Equal(t, 2, getFlagFromEventData(t, events2[0]).Version) // two separate computations were done
+		})
+
+		t.Run("second client connects while first computation is still in progress", func(t *testing.T) {
+			underlyingQuery := queryThatIncrementsFlagVersionOnEachCall()
+			replayStarted := make(chan struct{}, 2)
+			replayCanFinish := make(chan struct{}, 1)
+			var gateFirstReplay sync.Once
+			store := newMockStoreQueries()
+			store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+				if kind != ldstoreimpl.Features() {
+					return nil, nil
+				}
+				replayStarted <- struct{}{}
+				ret, err := underlyingQuery(kind)
+				gateFirstReplay.Do(func() {
+					<-replayCanFinish
+				})
+
+				time.Sleep(time.Millisecond * 200)
+				// This delay is arbitrary and possibly overly timing-sensitive, but it looks like there is no
+				// way to really guarantee that the goroutine for the second Replay has started before we allow
+				// the first one to complete, without adding just-for-tests instrumentation inside of
+				// serverSideEnvStreamRepository.getReplayEvent().
+
+				return ret, err
+			})
+			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+
+			eventCh1 := repo.Replay("", "")
+			<-replayStarted
+			eventCh2 := repo.Replay("", "")
+			replayCanFinish <- struct{}{}
+
+			events1 := expectReplayedEvents(t, eventCh1)
+			require.Len(t, events1, 1)
+
+			events2 := expectReplayedEvents(t, eventCh2)
+			require.Len(t, events2, 1)
+
+			assert.Equal(t, 1, getFlagFromEventData(t, events1[0]).Version)
+			assert.Equal(t, 1, getFlagFromEventData(t, events2[0]).Version) // only one computation was done
 		})
 	})
 }

@@ -27,7 +27,7 @@ require (
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
 	github.com/kr/text v0.2.0 // indirect
 	github.com/launchdarkly/api-client-go v5.0.3+incompatible
-	github.com/launchdarkly/eventsource v1.6.2
+	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v2 v2.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.2
@@ -48,6 +48,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
+	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -27,6 +28,8 @@ type serverSideFlagsOnlyEnvStreamProvider struct {
 type serverSideFlagsOnlyEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
+
+	flightGroup singleflight.Group
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
@@ -91,16 +94,36 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	}
 	go func() {
 		defer close(out)
-		if r.store.IsInitialized() {
-			flags, err := r.store.GetAll(ldstoreimpl.Features())
-
-			if err != nil {
-				r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
-			} else {
-				out <- MakeServerSideFlagsOnlyPutEvent(
-					[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
-			}
+		event, err := r.getReplayEvent()
+		if err == nil && event != nil {
+			out <- event
 		}
 	}()
 	return out
+}
+
+func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.Event, error) {
+	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
+		if !r.store.IsInitialized() {
+			return nil, nil
+		}
+		flags, err := r.store.GetAll(ldstoreimpl.Features())
+
+		if err != nil {
+			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			return nil, err
+		}
+
+		event := MakeServerSideFlagsOnlyPutEvent(
+			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})
+		return event, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// panic if it's not an eventsource.Event - as this should be impossible
+	event := data.(eventsource.Event)
+	return event, nil
 }

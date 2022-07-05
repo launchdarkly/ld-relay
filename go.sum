@@ -277,8 +277,9 @@ github.com/launchdarkly/api-client-go v5.0.3+incompatible h1:eaAot/+EH1DL38jl14y
 github.com/launchdarkly/api-client-go v5.0.3+incompatible/go.mod h1:INGa7NUZYSwVozwPV7l6ikgD7pzSOpZvg9I5sqCZIWs=
 github.com/launchdarkly/ccache v1.1.0 h1:voD1M+ZJXR3MREOKtBwgTF9hYHl1jg+vFKS/+VAkR2k=
 github.com/launchdarkly/ccache v1.1.0/go.mod h1:TlxzrlnzvYeXiLHmesMuvoZetu4Z97cV1SsdqqBJi1Q=
-github.com/launchdarkly/eventsource v1.6.2 h1:5SbcIqzUomn+/zmJDrkb4LYw7ryoKFzH/0TbR0/3Bdg=
 github.com/launchdarkly/eventsource v1.6.2/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
+github.com/launchdarkly/eventsource v1.7.1 h1:StoRQeiPyrcQIXjlQ7b5jWMzHW4p+GGczN2r2oBhujg=
+github.com/launchdarkly/eventsource v1.7.1/go.mod h1:LHxSeb4OnqznNZxCSXbFghxS/CjIQfzHovNoAqbO/Wk=
 github.com/launchdarkly/go-configtypes v1.1.0 h1:Qsp/q607eXPJqUcQdSdAs0+vDG+luqVCmenS9a302EI=
 github.com/launchdarkly/go-configtypes v1.1.0/go.mod h1:AL0LzOSTYBAEeZJ8JpBWlz7BbHhxTQvOTcn7ZBgx7IA=
 github.com/launchdarkly/go-jsonstream/v2 v2.0.0 h1:5NBbJmQAiUVVfAGR6tPuMITGO2+8mxLD0Azyeqgq5Yw=
@@ -557,8 +558,9 @@ golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a/go.mod h1:RxMgew5VJxzue5/jJ
 golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20201207232520-09787c993a3a/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
-golang.org/x/sync v0.0.0-20210220032951-036812b2e83c h1:5KslGYwFpkhGh+Q16bwMP3cOontH8FOep7tGV86Y7SQ=
 golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+golang.org/x/sync v0.0.0-20220513210516-0976fa681c29 h1:w8s32wxx3sY+OjLlv9qltkLU5yvJzxjjgiHWLjdIcw4=
+golang.org/x/sync v0.0.0-20220513210516-0976fa681c29/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sys v0.0.0-20180823144017-11551d06cbcc/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180830151530-49385e6e1522/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180905080454-ebe1bf3edb33/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=

@@ -105,8 +105,10 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("initial event - store error for flags", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
-		store.fakeFlagsError = fakeError
+		store := newMockStoreQueries()
+		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+			return nil, fakeError
+		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())

@@ -4,8 +4,6 @@
 package integrationtests
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -173,6 +171,7 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 	cb := m.dockerImage.NewContainerBuilder().
 		Name("relay-"+uuid.New()).
 		Network(m.dockerNetwork).
+		PublishPort(config.DefaultPort, config.DefaultPort).
 		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
 		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true").
 		EnvVar("LOG_LEVEL", "debug")
@@ -251,25 +250,13 @@ func (m *integrationTestManager) getRelayLog() []string {
 }
 
 func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (*http.Response, error) {
-	// Here we're using a somewhat roundabout way to hit a Relay endpoint: we execute curl inside of
-	// the Relay container. We can't just use Docker port mapping (like, run it with -p 9999:8030 and
-	// then make an HTTP request to http://localhost:9999) because in CircleCI the container belongs
-	// to a special Docker host whose network isn't accessible in that way.
+	// This method provides logging of the request and response, and allows us to add any other special
+	// logic we might need for connecting to the Relay port.
 	m.requestLogger.logRequest(request)
-	curlArgs := []string{"curl", "-i", "--silent"}
-	for k, vv := range request.Header {
-		for _, v := range vv {
-			curlArgs = append(curlArgs, "-H")
-			curlArgs = append(curlArgs, fmt.Sprintf("%s:%s", k, v))
-		}
+	resp, err := http.DefaultClient.Do(request)
+	if err == nil {
+		m.requestLogger.logResponse(resp, true)
 	}
-	curlArgs = append(curlArgs, request.URL.String())
-	output, err := m.dockerContainer.CommandInContainer(curlArgs...).ShowOutput(false).RunAndGetOutput()
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader([]byte(output))), request)
-	m.requestLogger.logResponse(resp, true)
 	return resp, err
 }
 
