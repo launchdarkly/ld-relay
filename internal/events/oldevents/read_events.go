@@ -25,14 +25,14 @@ func UnmarshalEvent(rawEvent []byte) (OldEvent, error) {
 
 	var err error
 	var ret OldEvent
-	contextOrUser := func(context *ReceivedEventContext, user *ReceivedEventContext) (ldevents.EventContext, error) {
+	contextOrUser := func(context *ReceivedEventContext, user *ReceivedEventContext) (ldevents.EventInputContext, error) {
 		if context != nil {
-			return context.EventContext, nil
+			return context.EventInputContext, nil
 		}
 		if user != nil {
-			return user.EventContext, nil
+			return user.EventInputContext, nil
 		}
-		return ldevents.EventContext{}, errEventHadNoUserOrContext
+		return ldevents.EventInputContext{}, errEventHadNoUserOrContext
 	}
 
 	switch kindFieldOnly.Kind {

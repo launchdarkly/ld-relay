@@ -12,8 +12,8 @@ import (
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -27,7 +27,7 @@ import (
 
 func assertFactoryConfigured(
 	t *testing.T,
-	expected interfaces.DataStoreFactory,
+	expected subsystems.DataStoreFactory,
 	expectedInfo DataStoreEnvironmentInfo,
 	c config.Config,
 	ec config.EnvConfig,

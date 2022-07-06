@@ -8,9 +8,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 
 	"github.com/stretchr/testify/require"
 )
@@ -43,17 +43,17 @@ var (
 )
 
 type mockStore struct {
-	realStore        interfaces.DataStore
+	realStore        subsystems.DataStore
 	fakeError        error
 	statusMonitoring bool
 	closed           bool
 }
 
 type mockStoreFactory struct {
-	instance             interfaces.DataStore
+	instance             subsystems.DataStore
 	fakeError            error
-	receivedContext      interfaces.ClientContext
-	receivedStoreUpdates interfaces.DataStoreUpdates
+	receivedContext      subsystems.ClientContext
+	receivedStoreUpdates subsystems.DataStoreUpdates
 }
 
 type mockEnvStreamsUpdates struct {
@@ -103,9 +103,9 @@ func (s *mockStore) Close() error {
 }
 
 func (f *mockStoreFactory) CreateDataStore(
-	context interfaces.ClientContext,
-	storeUpdates interfaces.DataStoreUpdates,
-) (interfaces.DataStore, error) {
+	context subsystems.ClientContext,
+	storeUpdates subsystems.DataStoreUpdates,
+) (subsystems.DataStore, error) {
 	f.receivedContext = context
 	f.receivedStoreUpdates = storeUpdates
 	if f.fakeError != nil {

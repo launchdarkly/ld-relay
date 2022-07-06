@@ -2,10 +2,10 @@ package sharedtest
 
 import (
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 )
 
 type ReceivedItemUpdate struct {
@@ -15,29 +15,29 @@ type ReceivedItemUpdate struct {
 }
 
 type ExistingDataStoreFactory struct {
-	Instance interfaces.DataStore
+	Instance subsystems.DataStore
 }
 
 func (f ExistingDataStoreFactory) CreateDataStore(
-	interfaces.ClientContext,
-	interfaces.DataStoreUpdates,
-) (interfaces.DataStore, error) {
+	subsystems.ClientContext,
+	subsystems.DataStoreUpdates,
+) (subsystems.DataStore, error) {
 	return f.Instance, nil
 }
 
-func NewInMemoryStore() interfaces.DataStore {
-	store, err := ldcomponents.InMemoryDataStore().CreateDataStore(SDKContextImpl{}, nil)
+func NewInMemoryStore() subsystems.DataStore {
+	store, err := ldcomponents.InMemoryDataStore().CreateDataStore(subsystems.BasicClientContext{}, nil)
 	if err != nil {
 		panic(err)
 	}
 	return store
 }
 
-func UpsertFlag(store interfaces.DataStore, flag ldmodel.FeatureFlag) (bool, error) {
+func UpsertFlag(store subsystems.DataStore, flag ldmodel.FeatureFlag) (bool, error) {
 	return store.Upsert(ldstoreimpl.Features(), flag.Key, FlagDesc(flag))
 }
 
-func UpsertSegment(store interfaces.DataStore, segment ldmodel.Segment) (bool, error) {
+func UpsertSegment(store subsystems.DataStore, segment ldmodel.Segment) (bool, error) {
 	return store.Upsert(ldstoreimpl.Segments(), segment.Key, SegmentDesc(segment))
 }
 
@@ -53,7 +53,7 @@ func DeletedItem(version int) ldstoretypes.ItemDescriptor {
 	return ldstoretypes.ItemDescriptor{Version: version, Item: nil}
 }
 
-func MakeStoreWithData(initialized bool) interfaces.DataStore {
+func MakeStoreWithData(initialized bool) subsystems.DataStore {
 	store := NewInMemoryStore()
 	if initialized {
 		err := store.Init(AllData)

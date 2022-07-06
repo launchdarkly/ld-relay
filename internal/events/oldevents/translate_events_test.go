@@ -12,8 +12,8 @@ import (
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -175,7 +175,7 @@ func TestTranslateFeatureEvent(t *testing.T) {
 		t.Run(p.input, func(t *testing.T) {
 			fe := requireParsedEvent(t, p.input, FeatureEvent{}).(FeatureEvent)
 
-			var dataStore interfaces.DataStore
+			var dataStore subsystems.DataStore
 			if p.flag.Key != "" {
 				dataStore = mockDataStore{flag: &p.flag}
 			}

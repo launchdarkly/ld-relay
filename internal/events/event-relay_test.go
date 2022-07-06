@@ -18,7 +18,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
 
@@ -69,7 +69,7 @@ type eventRelayTestOptions struct {
 type eventRelayTestParams struct {
 	dispatcher *EventDispatcher
 	requestsCh <-chan httphelpers.HTTPRequestInfo
-	dataStore  interfaces.DataStore
+	dataStore  subsystems.DataStore
 	mockLog    *ldlogtest.MockLog
 }
 
@@ -363,8 +363,8 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 	return headers
 }
 
-func makeStoreAdapterWithExistingStore(s interfaces.DataStore) *store.SSERelayDataStoreAdapter {
+func makeStoreAdapterWithExistingStore(s subsystems.DataStore) *store.SSERelayDataStoreAdapter {
 	a := store.NewSSERelayDataStoreAdapter(st.ExistingDataStoreFactory{Instance: s}, nil)
-	_, _ = a.CreateDataStore(st.SDKContextImpl{}, nil) // ensure the wrapped store has been created
+	_, _ = a.CreateDataStore(subsystems.BasicClientContext{}, nil) // ensure the wrapped store has been created
 	return a
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 )
 
 // SSERelayDataStoreAdapter is used to create the data store wrapper that manages updates. When data is
@@ -25,8 +25,8 @@ import (
 // wrapped factory to produce the underlying data store, then creates our own store instance, and then
 // puts a reference to that instance inside itself where we can see it.
 type SSERelayDataStoreAdapter struct {
-	store          interfaces.DataStore
-	wrappedFactory interfaces.DataStoreFactory
+	store          subsystems.DataStore
+	wrappedFactory subsystems.DataStoreFactory
 	updates        streams.EnvStreamUpdates
 	mu             sync.RWMutex
 }
@@ -35,11 +35,11 @@ type SSERelayDataStoreAdapter struct {
 // may or may not yet have a data store.
 type DataStoreProvider interface {
 	// GetStore returns the current data store, or nil if it has not been created.
-	GetStore() interfaces.DataStore
+	GetStore() subsystems.DataStore
 }
 
 // GetStore returns the current data store, or nil if it has not been created.
-func (a *SSERelayDataStoreAdapter) GetStore() interfaces.DataStore {
+func (a *SSERelayDataStoreAdapter) GetStore() subsystems.DataStore {
 	a.mu.RLock()
 	store := a.store
 	a.mu.RUnlock()
@@ -57,7 +57,7 @@ func (a *SSERelayDataStoreAdapter) GetUpdates() streams.EnvStreamUpdates {
 
 // NewSSERelayDataStoreAdapter creates a new instance where the store has not yet been created.
 func NewSSERelayDataStoreAdapter(
-	wrappedFactory interfaces.DataStoreFactory,
+	wrappedFactory subsystems.DataStoreFactory,
 	updates streams.EnvStreamUpdates,
 ) *SSERelayDataStoreAdapter {
 	return &SSERelayDataStoreAdapter{
@@ -68,9 +68,9 @@ func NewSSERelayDataStoreAdapter(
 
 // CreateDataStore is called by the SDK when the LDClient is being created.
 func (a *SSERelayDataStoreAdapter) CreateDataStore(
-	context interfaces.ClientContext,
-	dataStoreUpdates interfaces.DataStoreUpdates,
-) (interfaces.DataStore, error) {
+	context subsystems.ClientContext,
+	dataStoreUpdates subsystems.DataStoreUpdates,
+) (subsystems.DataStore, error) {
 	var sw *streamUpdatesStoreWrapper
 	wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
 	if err != nil {
@@ -91,14 +91,14 @@ func (a *SSERelayDataStoreAdapter) CreateDataStore(
 // A DataStore implementation that delegates to an underlying store but also publish
 // but also publishes stream updates when the store is modified.
 type streamUpdatesStoreWrapper struct {
-	store   interfaces.DataStore
+	store   subsystems.DataStore
 	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
 }
 
 func newStreamUpdatesStoreWrapper(
 	updates streams.EnvStreamUpdates,
-	baseFeatureStore interfaces.DataStore,
+	baseFeatureStore subsystems.DataStore,
 	loggers ldlog.Loggers,
 ) *streamUpdatesStoreWrapper {
 	relayStore := &streamUpdatesStoreWrapper{

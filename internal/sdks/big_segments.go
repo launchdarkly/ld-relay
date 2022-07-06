@@ -4,8 +4,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 )
 
 // ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay
@@ -16,8 +16,8 @@ func ConfigureBigSegments(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 	loggers ldlog.Loggers,
-) (interfaces.BigSegmentsConfigurationFactory, error) {
-	var storeFactory interfaces.BigSegmentStoreFactory
+) (subsystems.BigSegmentsConfigurationFactory, error) {
+	var storeFactory subsystems.BigSegmentStoreFactory
 
 	if allConfig.Redis.URL.IsDefined() {
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)

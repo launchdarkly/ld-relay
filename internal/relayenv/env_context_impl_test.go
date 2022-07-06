@@ -30,10 +30,10 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 
 	"github.com/stretchr/testify/assert"
@@ -747,9 +747,9 @@ func (s *mockBigSegmentSynchronizer) isClosed() bool {
 }
 
 type mockSDKBigSegmentStoreFactory struct {
-	store interfaces.BigSegmentStore
+	store subsystems.BigSegmentStore
 }
 
-func (m mockSDKBigSegmentStoreFactory) CreateBigSegmentStore(c interfaces.ClientContext) (interfaces.BigSegmentStore, error) {
+func (m mockSDKBigSegmentStoreFactory) CreateBigSegmentStore(c subsystems.ClientContext) (subsystems.BigSegmentStore, error) {
 	return m.store, nil
 }

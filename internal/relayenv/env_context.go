@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v6/internal/events"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 )
 
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
@@ -63,7 +63,7 @@ type EnvContext interface {
 
 	// GetStore returns the SDK data store instance for this environment. This is nil if initialization is not
 	// yet complete.
-	GetStore() interfaces.DataStore
+	GetStore() subsystems.DataStore
 
 	// GetEvaluator returns an instance of the evaluation engine for evaluating feature flags in this environment.
 	// This is nil if initialization is not yet complete.

@@ -8,8 +8,9 @@ import (
 
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces/ldstoretypes"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,7 +104,7 @@ func TestDefaultClientFactory(t *testing.T) {
 	})
 }
 
-func makeInvalidHTTPConfiguration() interfaces.HTTPConfigurationFactory {
+func makeInvalidHTTPConfiguration() *ldcomponents.HTTPConfigurationBuilder {
 	// Just do something invalid enough to make SDK client creation fail
 	return ldcomponents.HTTPConfiguration().ProxyURL(":::")
 }
@@ -133,14 +134,14 @@ func TestDataStoreStatusTracking(t *testing.T) {
 }
 
 type fakeStore struct {
-	updates interfaces.DataStoreUpdates
+	updates subsystems.DataStoreUpdates
 }
 
 type fakeStoreFactory struct {
 	instance *fakeStore
 }
 
-func (f fakeStoreFactory) CreateDataStore(ctx interfaces.ClientContext, updates interfaces.DataStoreUpdates) (interfaces.DataStore, error) {
+func (f fakeStoreFactory) CreateDataStore(ctx subsystems.ClientContext, updates subsystems.DataStoreUpdates) (subsystems.DataStore, error) {
 	f.instance.updates = updates
 	return f.instance, nil
 }
