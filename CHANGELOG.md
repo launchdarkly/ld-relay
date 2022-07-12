@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.10] - 2022-07-12
+### Fixed:
+- Updated `libcrypto` and `libssl` in the Docker image to address an OpenSSL vulnerability. Although the Relay Proxy does not use OpenSSL (it uses the Go runtime's TLS implementation), our policy is to patch all vulnerabilities detected in the Alpine OS used in our Docker image. ([#195](https://github.com/launchdarkly/ld-relay/issues/195))
+
 ## [6.7.9] - 2022-07-01
 ### Changed:
 - If the Relay Proxy receives multiple server-side SDK connections for the same environment at nearly the same time, it can now prepare the flag/segment payload for all of them at once using a single buffer. Previously, a new buffer was always used for each connection, which could cause high transient memory usage if many SDKs connected in rapid succession and if the flag/segment data was large.
