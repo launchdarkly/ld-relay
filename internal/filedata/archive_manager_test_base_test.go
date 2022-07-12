@@ -123,7 +123,7 @@ func (p archiveManagerTestParams) requireMessage() testMessage {
 	select {
 	case m := <-p.messageHandler.received:
 		return m
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		require.Fail(p.t, "timed out waiting for message")
 		return testMessage{}
 	}
