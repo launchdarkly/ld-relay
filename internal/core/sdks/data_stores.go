@@ -163,6 +163,9 @@ func makeRedisDataStoreBuilder(
 	return b, redisURL
 }
 
+// GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters
+// used for DynamoDB. This function is exported to ensure consistency between the SDK
+// configuration and the internal big segment store for DynamoDB.
 func GetDynamoDBBasicProperties(
 	dbConfig config.DynamoDBConfig,
 	envConfig config.EnvConfig,
