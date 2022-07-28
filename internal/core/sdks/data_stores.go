@@ -121,12 +121,14 @@ func ConfigureDataStore(
 	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
 }
 
-func makeRedisDataStoreBuilder(
-	allConfig config.Config,
+// GetRedisBasicProperties transforms the configuration properties to the standard parameters
+// used for Redis. This function is exported to ensure consistency between the SDK
+// configuration and the internal big segment store for Redis.
+func GetRedisBasicProperties(
+	dbConfig config.RedisConfig,
 	envConfig config.EnvConfig,
-) (builder *ldredis.DataStoreBuilder, url string) {
-	dbConfig := allConfig.Redis
-	redisURL := dbConfig.URL.String()
+) (redisURL, prefix string) {
+	redisURL = dbConfig.URL.String()
 
 	if dbConfig.TLS {
 		if strings.HasPrefix(redisURL, "redis:") {
@@ -135,42 +137,65 @@ func makeRedisDataStoreBuilder(
 		}
 	}
 
+	prefix = envConfig.Prefix
+	if prefix == "" {
+		prefix = ldredis.DefaultPrefix
+	}
+
+	return
+}
+
+func makeRedisDataStoreBuilder(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (builder *ldredis.DataStoreBuilder, url string) {
+	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
+
 	var dialOptions []redigo.DialOption
-	if dbConfig.Password != "" {
-		dialOptions = append(dialOptions, redigo.DialPassword(dbConfig.Password))
+	if allConfig.Redis.Password != "" {
+		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
 	}
 
 	b := ldredis.DataStore().
 		URL(redisURL).
-		Prefix(envConfig.Prefix).
+		Prefix(prefix).
 		DialOptions(dialOptions...)
 	return b, redisURL
+}
+
+func GetDynamoDBBasicProperties(
+	dbConfig config.DynamoDBConfig,
+	envConfig config.EnvConfig,
+) (endpoint *string, tableName, prefix string) {
+	// Note that the global TableName can be omitted if you specify a TableName for each environment
+	// (this is why we need an Enabled property here, since the other properties are all optional).
+	// You can also specify a prefix for each environment, as with the other databases.
+	tableName = envConfig.TableName
+	if tableName == "" {
+		tableName = dbConfig.TableName
+	}
+
+	prefix = envConfig.Prefix
+
+	if dbConfig.URL.IsDefined() {
+		endpoint = aws.String(dbConfig.URL.String())
+	}
+
+	return
 }
 
 func makeDynamoDBDataStoreBuilder(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 ) (*lddynamodb.DataStoreBuilder, string, error) {
-	// Note that the global TableName can be omitted if you specify a TableName for each environment
-	// (this is why we need an Enabled property here, since the other properties are all optional).
-	// You can also specify a prefix for each environment, as with the other databases.
-	dbConfig := allConfig.DynamoDB
-	tableName := envConfig.TableName
-	if tableName == "" {
-		tableName = dbConfig.TableName
-	}
+	endpoint, tableName, prefix := GetDynamoDBBasicProperties(allConfig.DynamoDB, envConfig)
 	if tableName == "" {
 		return nil, "", errDynamoDBWithNoTableName
 	}
 	builder := lddynamodb.DataStore(tableName).
-		Prefix(envConfig.Prefix)
-	if dbConfig.URL.IsDefined() {
-		awsOptions := session.Options{
-			Config: aws.Config{
-				Endpoint: aws.String(dbConfig.URL.String()),
-			},
-		}
-		builder.SessionOptions(awsOptions)
+		Prefix(prefix)
+	if endpoint != nil {
+		builder.SessionOptions(session.Options{Config: aws.Config{Endpoint: endpoint}})
 	}
 	return builder, tableName, nil
 }
