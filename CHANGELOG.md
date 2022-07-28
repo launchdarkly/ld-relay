@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.12] - 2022-07-28
+### Fixed:
+- When using DynamoDB with Big Segments, if the configuration specified a different table name for each environment, that name was being ignored. The Relay Proxy was only respecting the per-environment table name setting for regular data storage, not for Big Segments. This has been fixed so Big Segments data now uses the correct table name. ([#199](https://github.com/launchdarkly/ld-relay/issues/199))
+
 ## [6.7.11] - 2022-07-20
 ### Fixed:
 - Updated Alpine version in Docker image to 3.16.1 and patched Go packages to address several vulnerability warnings. ([#197](https://github.com/launchdarkly/ld-relay/issues/197))
