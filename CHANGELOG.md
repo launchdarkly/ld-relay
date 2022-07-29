@@ -2,6 +2,28 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.12] - 2022-07-28
+### Fixed:
+- When using DynamoDB with Big Segments, if the configuration specified a different table name for each environment, that name was being ignored. The Relay Proxy was only respecting the per-environment table name setting for regular data storage, not for Big Segments. This has been fixed so Big Segments data now uses the correct table name. ([#199](https://github.com/launchdarkly/ld-relay/issues/199))
+
+## [6.7.11] - 2022-07-20
+### Fixed:
+- Updated Alpine version in Docker image to 3.16.1 and patched Go packages to address several vulnerability warnings. ([#197](https://github.com/launchdarkly/ld-relay/issues/197))
+
+## [6.7.10] - 2022-07-12
+### Fixed:
+- Updated `libcrypto` and `libssl` in the Docker image to address an OpenSSL vulnerability. Although the Relay Proxy does not use OpenSSL (it uses the Go runtime's TLS implementation), our policy is to patch all vulnerabilities detected in the Alpine OS used in our Docker image. ([#195](https://github.com/launchdarkly/ld-relay/issues/195))
+
+## [6.7.9] - 2022-07-01
+### Changed:
+- If the Relay Proxy receives multiple server-side SDK connections for the same environment at nearly the same time, it can now prepare the flag/segment payload for all of them at once using a single buffer. Previously, a new buffer was always used for each connection, which could cause high transient memory usage if many SDKs connected in rapid succession and if the flag/segment data was large.
+(Thanks, [moshegood](https://github.com/launchdarkly/ld-relay/pull/189)!)
+
+## [6.7.8] - 2022-06-13
+### Fixed:
+- Updated Alpine version to 3.16.0 to address an OpenSSL vulnerability. Although the Relay Proxy does not use OpenSSL (it uses the Go runtime's TLS implementation), our policy is to patch all vulnerabilities detected in the Alpine OS used in our Docker image. ([#191](https://github.com/launchdarkly/ld-relay/issues/191))
+- Removed the unnecessary installation of `curl` in the Docker image, which caused security warnings about a vulnerable version of `libcurl` even though it was not being used. ([#191](https://github.com/launchdarkly/ld-relay/issues/191))
+
 ## [6.7.7] - 2022-05-10
 ### Fixed:
 - Fixed an inefficiency in the SSE server implementation that could cause unnecessarily large temporary memory usage spikes when the Relay Proxy was sending large flag data sets to server-side SDK clients.

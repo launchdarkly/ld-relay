@@ -38,11 +38,15 @@ require (
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
 	github.com/onsi/gomega v1.13.0 // indirect
 	github.com/pborman/uuid v1.2.0
+	github.com/prometheus/client_golang v1.11.1 // indirect
 	github.com/prometheus/common v0.30.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
+	golang.org/x/net v0.0.0-20211209124913-491a49abca63 // indirect; fixes CVE-2021-44716
+	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
+	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect; fixes CVE-2022-29526
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1

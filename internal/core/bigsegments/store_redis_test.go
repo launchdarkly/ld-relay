@@ -1,3 +1,4 @@
+//go:build big_segment_external_store_tests
 // +build big_segment_external_store_tests
 
 package bigsegments
@@ -6,10 +7,11 @@ import (
 	"context"
 	"testing"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +27,7 @@ func TestRedisGenericAll(t *testing.T) {
 func makeStore(t *testing.T) *redisBigSegmentStore {
 	redisConfig := config.RedisConfig{}
 	redisConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString("redis://127.0.0.1:6379")
-	store, err := newRedisBigSegmentStore(redisConfig, testPrefix, true, ldlog.NewDisabledLoggers())
+	store, err := newRedisBigSegmentStore(redisConfig, config.EnvConfig{Prefix: testPrefix}, true, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	require.NoError(t, store.client.FlushAll(context.Background()).Err())
 	return store
