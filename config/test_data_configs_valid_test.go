@@ -83,6 +83,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
 		makeValidConfigDatadogMinimal(),
 		makeValidConfigDatadogAll(),
+		makeValidConfigNewrelicMinimal(),
+		makeValidConfigNewrelicAll(),
 		makeValidConfigStackdriverMinimal(),
 		makeValidConfigStackdriverAll(),
 		makeValidConfigPrometheusMinimal(),
@@ -726,6 +728,61 @@ TraceAddr = "trace"
 StatsAddr = "stats"
 Tag = "tag1:value1"
 Tag = "tag2:value2"
+`
+	return c
+}
+
+func makeValidConfigNewrelicMinimal() testDataValidConfig {
+	c := testDataValidConfig{name: "Newrelic - minimal parameters"}
+	c.makeConfig = func(c *Config) {
+		c.Newrelic = NewrelicConfig{
+			Enabled:     true,
+			InsightsKey: "sample_insights_key",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_NEWRELIC":          "1",
+		"NEWRELIC_INSIGHTS_KEY": "sample_insights_key",
+	}
+	c.fileContent = `
+[Newrelic]
+Enabled = true
+InsightsKey= sample_insights_key
+`
+	return c
+}
+
+func makeValidConfigNewrelicAll() testDataValidConfig {
+	c := testDataValidConfig{name: "Newrelic - all parameters"}
+	c.makeConfig = func(c *Config) {
+		c.Newrelic = NewrelicConfig{
+			Enabled:     true,
+			AppName:     "sample_ldrelay_namme",
+			InsightsKey: "sample_insights_key",
+			Prefix:      "pre-",
+			TraceURL:    "https://trace-api.newrelic.com/trace/v1",
+			MetricsURL:  "https://metric-api.newrelic.com/metric/v1",
+			EventsURL:   "https://insights-collector.newrelic.com",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_NEWRELIC":          "1",
+		"NEWRELIC_APPNAME":      "sample_ldrelay_namme",
+		"NEWRELIC_INSIGHTS_KEY": "sample_insights_key",
+		"NEWRELIC_PREFIX":       "pre-",
+		"NEWRELIC_TRACE_URL":    "https://trace-api.newrelic.com/trace/v1",
+		"NEWRELIC_METRICS_URL":  "https://metric-api.newrelic.com/metric/v1",
+		"NEWRELIC_EVENTS_URL":   "https://insights-collector.newrelic.com",
+	}
+	c.fileContent = `
+[Newrelic]
+Enabled= true
+AppName= "sample_ldrelay_namme"
+InsightsKey= "sample_insights_key"
+Prefix=  "pre-"
+TraceURL= "https://trace-api.newrelic.com/trace/v1"
+MetricsURL="https://metric-api.newrelic.com/metric/v1"
+EventsURL= "https://insights-collector.newrelic.com"
 `
 	return c
 }

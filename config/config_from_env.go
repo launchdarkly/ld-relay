@@ -130,6 +130,7 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 		}
 		sort.Strings(c.MetricsConfig.Datadog.Tag) // for test determinacy
 	}
+	reader.ReadStruct(&c.MetricsConfig.Newrelic, false)
 
 	reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
 	reader.ReadStruct(&c.MetricsConfig.Prometheus, false)

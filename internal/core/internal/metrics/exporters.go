@@ -28,7 +28,7 @@ type exporter interface {
 type exportersSet map[exporterType]exporter
 
 func allExporterTypes() []exporterType {
-	return []exporterType{datadogExporterType, prometheusExporterType, stackdriverExporterType}
+	return []exporterType{newrelicExporterType, datadogExporterType, prometheusExporterType, stackdriverExporterType}
 }
 
 // Attempts to create and register all of the types of exporters in exporterTypes that are actually

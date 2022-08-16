@@ -21,6 +21,12 @@ func TestRegisterExporters(t *testing.T) {
 				return mc.Datadog.Enabled
 			},
 		}
+		fakeNewrelicType := &testExporterTypeImpl{
+			name: "Newrelic",
+			checkEnabled: func(mc config.MetricsConfig) bool {
+				return mc.Newrelic.Enabled
+			},
+		}
 		fakePrometheusType := &testExporterTypeImpl{
 			name: "Prometheus",
 			checkEnabled: func(mc config.MetricsConfig) bool {
@@ -32,7 +38,7 @@ func TestRegisterExporters(t *testing.T) {
 		mc.Prometheus.Enabled = true
 		mockLog := ldlogtest.NewMockLog()
 
-		exporters, err := registerExporters([]exporterType{fakeDatadogType, fakePrometheusType},
+		exporters, err := registerExporters([]exporterType{fakeDatadogType, fakeNewrelicType, fakePrometheusType},
 			mc, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 1)

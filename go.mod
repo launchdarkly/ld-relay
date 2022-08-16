@@ -36,6 +36,8 @@ require (
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
+	github.com/newrelic/newrelic-opencensus-exporter-go v0.4.0 // indirect
+	github.com/newrelic/newrelic-telemetry-sdk-go v0.8.1 // indirect
 	github.com/onsi/gomega v1.13.0 // indirect
 	github.com/pborman/uuid v1.2.0
 	github.com/prometheus/client_golang v1.11.1 // indirect

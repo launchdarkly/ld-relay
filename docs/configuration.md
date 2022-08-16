@@ -237,6 +237,39 @@ USE_DATADOG=1
 DATADOG_TAG_firstTagName=firstTagValue
 DATADOG_TAG_secondTagName=secondTagValue
 ```
+### File section: `[Newrelic]`
+
+
+Property in file | Environment var       | Type    | Default | Description
+---------------- | --------------------- | :-----: | :------  | -----------
+`enabled`        | `USE_NEWRELIC`        | Boolean | false    | If true, enables exporting to New Relic.
+`insightsKey`    | `NEWRELIC_INSIGHTS_KEY` | Boolean |     | New Relic Insights insert key or User API key. [API Keys documentation](https://docs.newrelic.com/docs/apis/intro-apis/new-relic-api-keys/#overview-keys)
+`appName`        | `NEWRELIC_APPNAME`    | String  | ld-relay | Relay ID
+`prefix`         | `NEWRELIC_PREFIX`     | String  |          | The metrics prefix to be used by New Relic.
+`TraceURL`       | `NEWRELIC_TRACE_URL`  | String  |`https://trace-api.newrelic.com/trace/v1`         |  New Relic Trace API endpoint, see [endpoints](https://docs.newrelic.com/docs/distributed-tracing/trace-api/trace-api-general-requirements-limits/#requirements)
+`metricsURL`     | `NEWRELIC_METRICS_URL`| String  |`https://metric-api.newrelic.com/metric/v1`         |  New Relic Trace API endpoint, see [endpoints](https://docs.newrelic.com/docs/data-apis/ingest-apis/metric-api/report-metrics-metric-api/#api-endpoint)
+`eventsURL`      | `NEWRELIC_EVENTS_URL` | String  |`insights-collector.newrelic.com`         |  New Relic Trace API endpoint, see [endpoints](https://docs.newrelic.com/docs/data-apis/ingest-apis/event-api/introduction-event-api/#requirements)
+
+
+```
+# Configuration file example
+
+
+[Newrelic]
+enabled= true
+insightsKey="sample-insights-key"
+appName="localhost-ld-relay"
+prefix="sample_"
+```
+
+```
+# Environment variables example
+
+USE_NEWRELIC=1
+NEWRELIC_APPNAME="localhost-ld-relay"
+NEWRELIC_PREFIX="sample_"
+```
+
 
 
 ### File section: `[Stackdriver]`

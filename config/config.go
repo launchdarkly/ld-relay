@@ -263,6 +263,7 @@ type ProxyConfig struct {
 //
 // This corresponds to the [Datadog], [Stackdriver], and [Prometheus] sections in the configuration file.
 type MetricsConfig struct {
+	Newrelic    NewrelicConfig
 	Datadog     DatadogConfig
 	Stackdriver StackdriverConfig
 	Prometheus  PrometheusConfig
@@ -281,6 +282,23 @@ type DatadogConfig struct {
 	TraceAddr string   `conf:"DATADOG_TRACE_ADDR"`
 	StatsAddr string   `conf:"DATADOG_STATS_ADDR"`
 	Tag       []string // special handling in LoadConfigFromEnvironment
+}
+
+// NewrelicConfig configures the optional New Relic integration, which is used only if Enabled is true.
+//
+// This corresponds to the [Newrelic] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
+type NewrelicConfig struct {
+	Enabled     bool   `conf:"USE_NEWRELIC"`
+	AppName     string `conf:"NEWRELIC_APPNAME"`
+	InsightsKey string `conf:"NEWRELIC_INSIGHTS_KEY"`
+	Prefix      string `conf:"NEWRELIC_PREFIX"`
+	TraceURL    string `conf:"NEWRELIC_TRACE_URL"`
+	MetricsURL  string `conf:"NEWRELIC_METRICS_URL"`
+	EventsURL   string `conf:"NEWRELIC_EVENTS_URL"`
 }
 
 // StackdriverConfig configures the optional Stackdriver integration, which is used only if Enabled is true.

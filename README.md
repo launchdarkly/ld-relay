@@ -78,7 +78,7 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 
 ## Exporting metrics and traces
 
-The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus.
+The Relay Proxy may be configured to export statistics and route traces to Datadog, New Relic, Stackdriver, and Prometheus.
 
 **To learn more, read [Metrics Integrations](./docs/metrics.md)**.
 
