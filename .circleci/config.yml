@@ -106,7 +106,8 @@ workflows:
           branches:
             only: v6
     jobs:
-      - security-scan-only
+      - security-scan-of-current-build
+      - security-scan-of-published-image
 
 jobs:
   go-test:
@@ -309,7 +310,7 @@ jobs:
       - store_artifacts:
           path: dist/
 
-  security-scan-only:
+  security-scan-of-current-build:
     docker:
       - image: cimg/go:<<pipeline.parameters.go-release-version>>
         environment:
@@ -342,3 +343,37 @@ jobs:
           command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
           # Note that the "latest" here is not the latest published image in DockerHub;
           # it's the one that was just built locally in the previous step.
+
+  security-scan-of-published-image:
+    docker:
+      - image: cimg/go:<<pipeline.parameters.go-release-version>>
+        environment:
+          <<: *environment
+
+    steps:
+      - checkout
+      - setup_remote_docker:  # start docker engine
+          version: <<pipeline.parameters.remote-docker-version>>
+
+      - run:
+          name: add package source for Trivy
+          command: |
+            sudo apt-get install wget apt-transport-https gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+
+      - run:
+          name: install packages
+          command: |
+            sudo apt-get update
+            sudo apt-get install rpm trivy
+
+      - run:
+          name: Trivy security scan
+          command: trivy image --exit-code 1 launchdarkly/ld-relay:latest
+          # Here, because we did not locally rebuild the image, it is pulling the latest release
+          # from DockerHub and re-scanning that (to detect any vulnerabilities that were reported
+          # after the time of the release). This is important because, if our build installs the
+          # latest versions of things at the time that the build happens, a fresh build might be
+          # getting patches that the released version did not have.
+

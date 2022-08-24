@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	ct "github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/ld-relay/v6/config"
+
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -85,9 +86,12 @@ func dynamoDBMakeOperations(store *dynamoDBBigSegmentStore) bigSegmentOperations
 func withDynamoDBStoreGeneric(prefix string) func(*testing.T, func(BigSegmentStore, bigSegmentOperations)) {
 	return func(t *testing.T, action func(BigSegmentStore, bigSegmentOperations)) {
 		require.NoError(t, clearTestData(prefix))
-		url, err := ct.NewOptURLAbsoluteFromString(localEndpoint)
-		require.NoError(t, err)
-		store, err := newDynamoDBBigSegmentStore(url, testDynamoDBConfig, ldlog.NewDisabledLoggers(), testTableName, prefix)
+		store, err := newDynamoDBBigSegmentStore(
+			config.DynamoDBConfig{TableName: testTableName},
+			config.EnvConfig{Prefix: prefix},
+			testDynamoDBConfig,
+			ldlog.NewDisabledLoggers(),
+		)
 		require.NoError(t, err)
 		require.NotNil(t, store)
 		defer store.Close()
@@ -156,21 +160,21 @@ func createTableIfNecessary() error {
 	}
 	createParams := dynamodb.CreateTableInput{
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			&dynamodb.AttributeDefinition{
+			{
 				AttributeName: aws.String(tablePartitionKey),
 				AttributeType: aws.String(dynamodb.ScalarAttributeTypeS),
 			},
-			&dynamodb.AttributeDefinition{
+			{
 				AttributeName: aws.String(tableSortKey),
 				AttributeType: aws.String(dynamodb.ScalarAttributeTypeS),
 			},
 		},
 		KeySchema: []*dynamodb.KeySchemaElement{
-			&dynamodb.KeySchemaElement{
+			{
 				AttributeName: aws.String(tablePartitionKey),
 				KeyType:       aws.String(dynamodb.KeyTypeHash),
 			},
-			&dynamodb.KeySchemaElement{
+			{
 				AttributeName: aws.String(tableSortKey),
 				KeyType:       aws.String(dynamodb.KeyTypeRange),
 			},

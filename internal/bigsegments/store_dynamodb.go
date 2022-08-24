@@ -3,7 +3,9 @@ package bigsegments
 import (
 	"strconv"
 
-	ct "github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
+
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
@@ -49,14 +51,15 @@ func dynamoDBPrefixedKey(prefix, key string) string {
 }
 
 func newDynamoDBBigSegmentStore(
-	url ct.OptURLAbsolute,
+	dbConfig config.DynamoDBConfig,
+	envConfig config.EnvConfig,
 	config aws.Config,
 	loggers ldlog.Loggers,
-	table string,
-	prefix string,
 ) (*dynamoDBBigSegmentStore, error) {
-	if url.IsDefined() {
-		config.Endpoint = aws.String(url.String())
+	endpoint, table, prefix := sdks.GetDynamoDBBasicProperties(dbConfig, envConfig)
+
+	if endpoint != nil {
+		config.Endpoint = endpoint
 	}
 
 	sess, err := session.NewSession(&config)

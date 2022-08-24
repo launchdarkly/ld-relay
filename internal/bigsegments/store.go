@@ -52,15 +52,13 @@ func DefaultBigSegmentStoreFactory(
 	// Currently, the only supported store type is Redis, and if Redis is enabled then big segments
 	// are enabled.
 	if allConfig.Redis.URL.IsDefined() {
-		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis, envConfig.Prefix, false, loggers)
+		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis, envConfig, false, loggers)
 		if err != nil {
 			return nil, err
 		}
 		return bigSegmentRedis, nil
 	} else if allConfig.DynamoDB.Enabled {
-		dbConfig := allConfig.DynamoDB
-		return newDynamoDBBigSegmentStore(
-			dbConfig.URL, aws.Config{}, loggers, dbConfig.TableName, envConfig.Prefix)
+		return newDynamoDBBigSegmentStore(allConfig.DynamoDB, envConfig, aws.Config{}, loggers)
 	}
 	return nil, nil
 }
