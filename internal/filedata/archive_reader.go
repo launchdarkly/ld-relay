@@ -21,6 +21,8 @@ import (
 
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
 )
 
 const (
@@ -209,8 +211,11 @@ func readTar(r io.Reader, targetDir string) error {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		outPath := filepath.Join(targetDir, h.Name)
-		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
+		outPath, err := securejoin.SecureJoin(targetDir, h.Name)
+		if err != nil {
+			return err // COVERAGE: can't cause this condition in unit tests
+		}
+		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode)) //nolint:gosec // yes, we know the file path is a variable
 		if err != nil {
 			return err // COVERAGE: can't cause this condition in unit tests
 		}

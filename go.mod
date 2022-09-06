@@ -11,6 +11,7 @@ require (
 	github.com/armon/go-metrics v0.3.9 // indirect
 	github.com/aws/aws-sdk-go v1.40.45
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/cyphar/filepath-securejoin v0.2.3
 	github.com/fatih/color v1.12.0 // indirect
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-kit/log v0.2.0 // indirect
