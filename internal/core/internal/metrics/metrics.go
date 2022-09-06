@@ -176,5 +176,5 @@ func sanitizeTagValue(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "_"
 	}
-	return strings.Replace(v, "/", "_", -1)
+	return strings.ReplaceAll(v, "/", "_")
 }
