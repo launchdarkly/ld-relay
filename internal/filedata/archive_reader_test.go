@@ -1,7 +1,6 @@
 package filedata
 
 import (
-	"io/ioutil"
 	"os"
 	"sort"
 	"testing"
@@ -86,7 +85,7 @@ func TestEnvironmentHasMalformedMetadata(t *testing.T) {
 	helpers.WithTempFile(func(filePath string) {
 		writeArchive(t, filePath, false, func(dirPath string) {
 			badData := []byte("whatever")
-			require.NoError(t, ioutil.WriteFile(envMetadataFilePath(dirPath, testEnv1.id()), badData, 0600))
+			require.NoError(t, os.WriteFile(envMetadataFilePath(dirPath, testEnv1.id()), badData, 0600))
 			rehash(dirPath, testEnv1.id())
 		}, testEnv1)
 		ar, err := newArchiveReader(filePath)

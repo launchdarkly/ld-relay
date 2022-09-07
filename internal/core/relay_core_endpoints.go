@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"sort"
 	"strconv"
@@ -44,7 +43,7 @@ func getClientSideUserProperties(
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return user, false
 		}
-		body, _ := ioutil.ReadAll(req.Body)
+		body, _ := io.ReadAll(req.Body)
 		userDecodeErr = json.Unmarshal(body, &user)
 	} else {
 		base64User := mux.Vars(req)["user"]
@@ -119,7 +118,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	respData := serializeFlagsAsMap(data)
 	// Compute an overall Etag for the data set by hashing flag keys and versions
-	hash := sha1.New()                                                         // nolint:gas // just used for insecure hashing
+	hash := sha1.New()                                                         //nolint:gas // just used for insecure hashing
 	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
 	for _, item := range data {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))

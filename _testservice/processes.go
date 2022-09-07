@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strconv"
@@ -29,7 +28,7 @@ func startProcess(serviceName string, serviceArgs []string) error {
 	}
 	pid := cmd.Process.Pid
 
-	if err := ioutil.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
 		fmt.Fprintln(os.Stderr, "couldn't write PID file - killing process")
 		_ = cmd.Process.Kill()
 		return err
@@ -40,7 +39,7 @@ func startProcess(serviceName string, serviceArgs []string) error {
 
 func stopProcess(serviceName string) error {
 	pidFile := pidFileName(serviceName)
-	data, err := ioutil.ReadFile(pidFile)
+	data, err := os.ReadFile(pidFile)
 	if err != nil {
 		return fmt.Errorf("%s not found", pidFile)
 	}

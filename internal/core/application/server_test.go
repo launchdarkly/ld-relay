@@ -4,9 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +27,7 @@ func withSelfSignedCert(t *testing.T, action func(certFilePath, keyFilePath stri
 		helpers.WithTempFile(func(keyFilePath string) {
 			err := httphelpers.MakeSelfSignedCert(certFilePath, keyFilePath)
 			require.NoError(t, err)
-			certData, err := ioutil.ReadFile(certFilePath)
+			certData, err := os.ReadFile(certFilePath)
 			require.NoError(t, err)
 			certPool, err := x509.SystemCertPool()
 			if err != nil {

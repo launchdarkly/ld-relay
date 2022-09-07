@@ -1,3 +1,4 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
@@ -5,7 +6,6 @@ package integrationtests
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"net/http"
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
@@ -56,6 +56,6 @@ func copyBody(body *io.ReadCloser) []byte {
 	bodyCopy := bytes.NewBuffer(nil)
 	io.Copy(bodyCopy, *body)
 	(*body).Close()
-	*body = ioutil.NopCloser(bodyCopy)
+	*body = io.NopCloser(bodyCopy)
 	return bodyCopy.Bytes()
 }
