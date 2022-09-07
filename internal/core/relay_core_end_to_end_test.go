@@ -1,7 +1,7 @@
 package core
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -140,7 +140,7 @@ func (p relayCoreEndToEndTestParams) expectEvalResult(testEnv st.TestEnv, kind b
 	require.NoError(p.t, err)
 	defer resp.Body.Close()
 	require.Equal(p.t, 200, resp.StatusCode)
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	require.NoError(p.t, err)
 	return ldvalue.Parse(body)
 }

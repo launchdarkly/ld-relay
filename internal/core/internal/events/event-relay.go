@@ -2,7 +2,7 @@ package events
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -142,7 +142,7 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 }
 
 func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Loggers, thenExecute func([]byte)) {
-	body, bodyErr := ioutil.ReadAll(req.Body)
+	body, bodyErr := io.ReadAll(req.Body)
 
 	if bodyErr != nil { // COVERAGE: can't make this happen in unit tests
 		loggers.Errorf("Error reading event post body: %+v", bodyErr)

@@ -98,7 +98,7 @@ func requireNoMorePatches(t *testing.T, s *bigSegmentStoreMock) {
 		for len(s.patchCh) > 0 {
 			patches = append(patches, <-s.patchCh)
 		}
-		require.Fail(t, "did not expect any more patches, but got: %+v", patches)
+		require.Fail(t, "did not expect any more patches, but got some", "patches: %+v", patches)
 	}
 }
 

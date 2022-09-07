@@ -88,8 +88,8 @@ type DataStoreStatusRep struct {
 }
 
 var (
-	hexDigitRegex    = regexp.MustCompile(`[a-fA-F\d]`)        //nolint:gochecknoglobals
-	alphaPrefixRegex = regexp.MustCompile(`^[a-z][a-z][a-z]-`) //nolint:gochecknoglobals
+	hexDigitRegex    = regexp.MustCompile(`[a-fA-F\d]`)
+	alphaPrefixRegex = regexp.MustCompile(`^[a-z][a-z][a-z]-`)
 )
 
 // ObscureKey returns an obfuscated version of an SDK key or mobile key.

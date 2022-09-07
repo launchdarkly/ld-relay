@@ -344,7 +344,7 @@ func (r *RelayCore) WaitForAllClients(timeout time.Duration) error {
 	case failed := <-resultCh:
 		if failed {
 			if r.config.Main.ExitOnError {
-				os.Exit(1)
+				os.Exit(1) //nolint:gocritic // yes, we know the defer will not run after Exit
 			}
 			return errSomeEnvironmentFailed
 		}

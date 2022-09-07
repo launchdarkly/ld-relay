@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +20,8 @@ import (
 
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
 )
 
 const (
@@ -72,7 +73,7 @@ func getEnvIDFromMetadataFileName(filename string) config.EnvironmentID {
 // It verifies the checksum, but does not try to read the individual environment data until you call
 // GetEnvironmentMetadata or GetEnvironmentSDKData.
 func newArchiveReader(filePath string) (*archiveReader, error) {
-	dirPath, err := ioutil.TempDir("", "ld-relay-")
+	dirPath, err := os.MkdirTemp("", "ld-relay-")
 	if err != nil {
 		return nil, err // COVERAGE: can't cause this condition in unit tests (unexpected OS error)
 	}
@@ -82,7 +83,7 @@ func newArchiveReader(filePath string) (*archiveReader, error) {
 		}
 	}
 	envIDs := discoverEnvironmentIDs(dirPath)
-	expectedChecksum, err := ioutil.ReadFile(checksumFilePath(dirPath))
+	expectedChecksum, err := os.ReadFile(checksumFilePath(dirPath))
 	if err != nil {
 		return nil, errMissingEnvironmentFile(environmentsChecksumFileName, err)
 	}
@@ -112,7 +113,7 @@ func (ar *archiveReader) GetEnvironmentIDs() []config.EnvironmentID {
 
 // GetEnvironmentMetadata attempts to read the "$ENVID.json" file for the specified environment.
 func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (environmentMetadata, error) {
-	data, err := ioutil.ReadFile(envMetadataFilePath(ar.dirPath, envID))
+	data, err := os.ReadFile(envMetadataFilePath(ar.dirPath, envID))
 	if err != nil {
 		return environmentMetadata{}, err // COVERAGE: should be impossible if the checksum passed
 	}
@@ -134,7 +135,7 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 // data might not have changed for all environments. We check the metadata first, and if the DataID
 // property has not changed then we won't bother re-parsing the SDK data.
 func (ar *archiveReader) GetEnvironmentSDKData(envID config.EnvironmentID) ([]ldstoretypes.Collection, error) {
-	data, err := ioutil.ReadFile(envSDKDataFilePath(ar.dirPath, envID))
+	data, err := os.ReadFile(envSDKDataFilePath(ar.dirPath, envID))
 	if err != nil {
 		return nil, err // COVERAGE: should be impossible if the checksum passed
 	}
@@ -209,8 +210,11 @@ func readTar(r io.Reader, targetDir string) error {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		outPath := filepath.Join(targetDir, h.Name)
-		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
+		outPath, err := securejoin.SecureJoin(targetDir, h.Name)
+		if err != nil {
+			return err // COVERAGE: can't cause this condition in unit tests
+		}
+		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode)) //nolint:gosec // yes, we know the file path is a variable
 		if err != nil {
 			return err // COVERAGE: can't cause this condition in unit tests
 		}
@@ -227,7 +231,7 @@ func readTar(r io.Reader, targetDir string) error {
 }
 
 func discoverEnvironmentIDs(dirPath string) []config.EnvironmentID {
-	files, _ := ioutil.ReadDir(dirPath) // should never fail, but if it does, files will be nil anyway
+	files, _ := os.ReadDir(dirPath) // should never fail, but if it does, files will be nil anyway
 	var ret []config.EnvironmentID
 	for _, file := range files {
 		if isMetadataFileName(file.Name()) {

@@ -69,7 +69,10 @@ func newRedisBigSegmentStore(
 		opts.Password = redisConfig.Password
 	}
 	if redisConfig.TLS && opts.TLSConfig == nil {
-		opts.TLSConfig = &tls.Config{ServerName: redisConfig.URL.Get().Hostname()}
+		opts.TLSConfig = &tls.Config{
+			ServerName: redisConfig.URL.Get().Hostname(),
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 
 	store := redisBigSegmentStore{

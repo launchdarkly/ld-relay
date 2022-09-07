@@ -3,7 +3,7 @@ package bigsegments
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -329,7 +329,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, err
 		return false, segmentChangesSummary{}, &httpStatusError{response.StatusCode}
 	}
 
-	responseBody, err := ioutil.ReadAll(response.Body)
+	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return false, segmentChangesSummary{}, err
 	}
