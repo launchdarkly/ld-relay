@@ -33,11 +33,15 @@ func TestEndpointsEvalServerSide(t *testing.T) {
 	expectedServerEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.AllFlags, true, true))
 
 	specs := []endpointMultiTestParams{
-		{"server-side report eval", "REPORT", "/sdk/eval/user", sdkKey,
+		{"server-side user report eval", "REPORT", "/sdk/eval/user", sdkKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedServerEvalBody)},
-		{"server-side report evalx", "REPORT", "/sdk/evalx/user", sdkKey,
+		{"server-side context report evalx", "REPORT", "/sdk/evalx/context", sdkKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedServerEvalxBody)},
-		{"server-side report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey,
+		{"server-side context report evalx with reasons", "REPORT", "/sdk/evalx/context?withReasons=true", sdkKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedServerEvalxBodyWithReasons)},
+		{"server-side user report evalx", "REPORT", "/sdk/evalx/user", sdkKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedServerEvalxBody)},
+		{"server-side user report evalx with reasons", "REPORT", "/sdk/evalx/user?withReasons=true", sdkKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedServerEvalxBodyWithReasons)},
 	}
 	var config c.Config
@@ -92,16 +96,26 @@ func TestEndpointsEvalMobile(t *testing.T) {
 	expectedMobileEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.MobileFlags, true, true))
 
 	specs := []endpointMultiTestParams{
-		{"mobile report eval", "REPORT", "/msdk/eval/user", mobileKey,
+		{"mobile user report eval", "REPORT", "/msdk/eval/user", mobileKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalBody)},
-		{"mobile report evalx", "REPORT", "/msdk/evalx/user", mobileKey,
+		{"mobile context report evalx", "REPORT", "/msdk/evalx/context", mobileKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBody)},
-		{"mobile report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey,
+		{"mobile context report evalx with reasons", "REPORT", "/msdk/evalx/context?withReasons=true", mobileKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBodyWithReasons)},
-		{"mobile get eval", "GET", "/msdk/eval/users/$USER", mobileKey,
-			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalBody)},
-		{"mobile get evalx", "GET", "/msdk/evalx/users/$USER", mobileKey,
+		{"mobile user report evalx", "REPORT", "/msdk/evalx/user", mobileKey,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBody)},
+		{"mobile user report evalx with reasons", "REPORT", "/msdk/evalx/user?withReasons=true", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBodyWithReasons)},
+		{"mobile context get evalx", "GET", "/msdk/evalx/contexts/$USER", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBody)},
+		{"mobile context get evalx with reasons", "GET", "/msdk/evalx/contexts/$USER?withReasons=true", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBodyWithReasons)},
+		{"mobile user get eval", "GET", "/msdk/eval/users/$USER", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalBody)},
+		{"mobile user get evalx", "GET", "/msdk/evalx/users/$USER", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBody)},
+		{"mobile user get evalx with reasons", "GET", "/msdk/evalx/users/$USER?withReasons=true", mobileKey,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedMobileEvalxBodyWithReasons)},
 	}
 
 	var config c.Config
@@ -159,17 +173,25 @@ func TestEndpointsEvalJSClient(t *testing.T) {
 	expectedJSEvalxBodyWithReasons := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, true, true))
 
 	specs := []endpointMultiTestParams{
-		{"report eval", "REPORT", "/sdk/eval/$ENV/user", envID,
+		{"report user eval", "REPORT", "/sdk/eval/$ENV/user", envID,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalBody)},
-		{"report evalx", "REPORT", "/sdk/evalx/$ENV/user", envID,
+		{"report context evalx", "REPORT", "/sdk/evalx/$ENV/context", envID,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBody)},
-		{"report evalx with reasons", "REPORT", "/sdk/evalx/$ENV/user?withReasons=true", envID,
+		{"report context evalx with reasons", "REPORT", "/sdk/evalx/$ENV/context?withReasons=true", envID,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBodyWithReasons)},
-		{"get eval", "GET", "/sdk/eval/$ENV/users/$USER", envID,
-			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalBody)},
-		{"get evalx", "GET", "/sdk/evalx/$ENV/users/$USER", envID,
+		{"report user evalx", "REPORT", "/sdk/evalx/$ENV/user", envID,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBody)},
-		{"get evalx with reasons", "GET", "/sdk/evalx/$ENV/users/$USER?withReasons=true", envID,
+		{"report user evalx with reasons", "REPORT", "/sdk/evalx/$ENV/user?withReasons=true", envID,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBodyWithReasons)},
+		{"get user eval", "GET", "/sdk/eval/$ENV/users/$USER", envID,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalBody)},
+		{"get context evalx", "GET", "/sdk/evalx/$ENV/contexts/$USER", envID,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBody)},
+		{"get context evalx with reasons", "GET", "/sdk/evalx/$ENV/contexts/$USER?withReasons=true", envID,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBodyWithReasons)},
+		{"get user evalx", "GET", "/sdk/evalx/$ENV/users/$USER", envID,
+			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBody)},
+		{"get user evalx with reasons", "GET", "/sdk/evalx/$ENV/users/$USER?withReasons=true", envID,
 			makeEndpointTestPerRequestParams(basicUserJSON, basicContextJSON, expectedJSEvalxBodyWithReasons)},
 	}
 

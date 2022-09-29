@@ -29,50 +29,50 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func getClientSideUserProperties(
+func getClientSideContextProperties(
 	clientCtx relayenv.EnvContext,
 	sdkKind basictypes.SDKKind,
 	req *http.Request,
 	w http.ResponseWriter,
 ) (ldcontext.Context, bool) {
-	var user ldcontext.Context
-	var userDecodeErr error
+	var ldContext ldcontext.Context
+	var contextDecodeErr error
 
 	if req.Method == "REPORT" {
 		if req.Header.Get("Content-Type") != "application/json" {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
-			return user, false
+			return ldContext, false
 		}
 		body, _ := ioutil.ReadAll(req.Body)
-		userDecodeErr = json.Unmarshal(body, &user)
+		contextDecodeErr = json.Unmarshal(body, &ldContext)
 	} else {
-		base64User := mux.Vars(req)["user"]
-		user, userDecodeErr = middleware.UserFromBase64(base64User)
+		base64Context := mux.Vars(req)["context"] // this assumes we have used {context} as a placeholder in the route
+		ldContext, contextDecodeErr = middleware.ContextFromBase64(base64Context)
 	}
-	if userDecodeErr != nil {
+	if contextDecodeErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write(util.ErrorJSONMsg(userDecodeErr.Error()))
-		return user, false
+		_, _ = w.Write(util.ErrorJSONMsg(contextDecodeErr.Error()))
+		return ldContext, false
 	}
 
 	if clientCtx.IsSecureMode() && sdkKind == basictypes.JSClientSDK {
 		hash := req.URL.Query().Get("h")
 		valid := false
 		if hash != "" {
-			validHash := clientCtx.GetClient().SecureModeHash(user)
+			validHash := clientCtx.GetClient().SecureModeHash(ldContext)
 			valid = hash == validHash
 		}
 		if !valid {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write(util.ErrorJSONMsg("Environment is in secure mode, and user hash does not match."))
-			return user, false
+			_, _ = w.Write(util.ErrorJSONMsg("Environment is in secure mode, and context hash does not match."))
+			return ldContext, false
 		}
 	}
 
-	return user, true
+	return ldContext, true
 }
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
@@ -85,14 +85,14 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 	})
 }
 
-// This handler is used for client-side streaming endpoints that require user properties. Currently it is
-// implemented the same as the ping stream once we have validated the user.
-func pingStreamHandlerWithUser(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
+// This handler is used for client-side streaming endpoints that require context properties. Currently it is
+// implemented the same as the ping stream once we have validated the context.
+func pingStreamHandlerWithContext(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
-		if _, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w); ok {
+		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
 			clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
 	})
@@ -177,10 +177,12 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 }
 
 // Client-side evaluation endpoint, new schema with metadata:
-// app.ld.com/sdk/evalx/{envId}/users/{user} (GET)
-// app.ld.com/sdk/evalx/{envId}/user (REPORT)
-// app.ld/com/sdk/evalx/users/{user} (GET - with SDK key auth)
-// app.ld/com/sdk/evalx/user (REPORT - with SDK key auth)
+// /sdk/evalx/{envId}/contexts/{context} (GET)
+// /sdk/evalx/{envId}/context (REPORT)
+// /sdk/evalx/{envId}/users/{context} (GET)
+// /sdk/evalx/{envId}/user (REPORT)
+// /sdk/evalx/users/{context} (GET - with SDK key auth; this is a Relay-only endpoint)
+// /sdk/evalx/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
 func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, false, sdkKind)
@@ -188,10 +190,10 @@ func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWri
 }
 
 // Client-side evaluation endpoint, old schema with only values:
-// app.ld.com/sdk/eval/{envId}/users/{user} (GET)
-// app.ld.com/sdk/eval/{envId}/user (REPORT)
-// app.ld/com/sdk/eval/users/{user} (GET - with SDK key auth)
-// app.ld/com/sdk/eval/user (REPORT - with SDK key auth)
+// /sdk/eval/{envId}/users/{context} (GET)
+// /sdk/eval/{envId}/user (REPORT)
+// /sdk/eval/users/{context} (GET - with SDK key auth; this is a Relay-only endpoint)
+// /sdk/eval/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
 func evaluateAllFeatureFlagsValueOnly(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		evaluateAllShared(w, req, true, sdkKind)
@@ -204,7 +206,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 	store := clientCtx.Env.GetStore()
 	loggers := clientCtx.Env.GetLoggers()
 
-	user, ok := getClientSideUserProperties(clientCtx.Env, sdkKind, req, w)
+	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
 	if !ok {
 		return
 	}
@@ -224,13 +226,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 		}
 	}
 
-	if !user.Multiple() && user.Key() == "" {
+	if !ldContext.Multiple() && ldContext.Key() == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(util.ErrorJSONMsg("User must have a 'key' attribute"))
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for user: %s", sdkKind, user.Key())
+	loggers.Debugf("Application requested client-side flags (%s) for context: %s", sdkKind, ldContext.Key())
 
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
@@ -256,7 +258,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 					continue
 				}
 			}
-			result := evaluator.Evaluate(flag, user, nil)
+			result := evaluator.Evaluate(flag, ldContext, nil)
 			detail := result.Detail
 			if valueOnly {
 				detail.Value.WriteToJSONWriter(responseObj.Name(flag.Key))
