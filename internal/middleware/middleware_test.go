@@ -16,8 +16,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
 
-	"github.com/launchdarkly/go-sdk-common/v3/lduser"
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -382,45 +381,54 @@ func TestStreaming(t *testing.T) {
 	assert.Equal(t, "no", resp.Result().Header.Get("X-Accel-Buffering"))
 }
 
-func TestUserFromBase64(t *testing.T) {
+func TestContextFromBase64(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
-		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
-		expectedUser := lduser.NewUserBuilder("user-key").Name("n").Custom("good", ldvalue.Bool(true)).Build()
-		user, err := UserFromBase64(data)
+		contextJSON := `{"kind":"org","key":"a","name":"b","c":true}`
+		data := base64.StdEncoding.EncodeToString([]byte(contextJSON))
+		expectedContext := ldcontext.NewBuilder("a").Kind("org").Name("b").SetBool("c", true).Build()
+		context, err := ContextFromBase64(data)
 		assert.NoError(t, err)
-		assert.Equal(t, expectedUser, user)
+		assert.Equal(t, expectedContext, context)
 	})
 
 	t.Run("valid without padding", func(t *testing.T) {
-		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
-		data0 := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		contextJSON := `{"kind":"org","key":"a","name":"b","c":true}`
+		data0 := base64.StdEncoding.EncodeToString([]byte(contextJSON))
 		data1 := strings.TrimRightFunc(data0, func(c rune) bool { return c == '=' })
 		require.NotEqual(t, data0, data1)
-		expectedUser := lduser.NewUserBuilder("user-key").Name("n").Custom("good", ldvalue.Bool(true)).Build()
-		user, err := UserFromBase64(data1)
+		expectedContext := ldcontext.NewBuilder("a").Kind("org").Name("b").SetBool("c", true).Build()
+		context, err := ContextFromBase64(data1)
 		assert.NoError(t, err)
-		assert.Equal(t, expectedUser, user)
+		assert.Equal(t, expectedContext, context)
+	})
+
+	t.Run("valid - old-style user", func(t *testing.T) {
+		userJSON := `{"key":"a","name":"b","custom":{"c":true}}`
+		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
+		expectedContext := ldcontext.NewBuilder("a").Name("b").SetBool("c", true).Build()
+		context, err := ContextFromBase64(data)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedContext, context)
 	})
 
 	t.Run("invalid base64", func(t *testing.T) {
-		userJSON := `{"key":"user-key","name":"n","custom":{"good":true}}`
-		data := base64.StdEncoding.EncodeToString([]byte(userJSON)) + "x"
-		_, err := UserFromBase64(data)
+		contextJSON := `{"kind":"org","key":"a","name":"b","c":true}`
+		data := base64.StdEncoding.EncodeToString([]byte(contextJSON)) + "x"
+		_, err := ContextFromBase64(data)
 		assert.Error(t, err)
 	})
 
 	t.Run("malformed JSON", func(t *testing.T) {
-		userJSON := `{"sorry`
-		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
-		_, err := UserFromBase64(data)
+		contextJSON := `{"sorry`
+		data := base64.StdEncoding.EncodeToString([]byte(contextJSON))
+		_, err := ContextFromBase64(data)
 		assert.Error(t, err)
 	})
 
 	t.Run("user has no key", func(t *testing.T) {
 		userJSON := `{"name":"n"}`
 		data := base64.StdEncoding.EncodeToString([]byte(userJSON))
-		_, err := UserFromBase64(data)
+		_, err := ContextFromBase64(data)
 		assert.Error(t, err)
 	})
 }

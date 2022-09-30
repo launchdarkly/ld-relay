@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	errInvalidBase64     = errors.New("string did not decode as valid base64")
-	errInvalidUserBase64 = errors.New("user part of URL path did not decode as valid base64")
-	errInvalidUserJSON   = errors.New("user part of URL path did not decode to valid user as JSON")
+	errInvalidBase64        = errors.New("string did not decode as valid base64")
+	errInvalidContextBase64 = errors.New("context part of URL path did not decode as valid base64")
+	errInvalidContextJSON   = errors.New("context part of URL path did not decode to valid evaluation context as JSON")
 )
 
 // RelayEnvironments defines the methods for looking up environments. This is represented as an interface
@@ -160,21 +160,21 @@ func Streaming(next http.Handler) http.Handler {
 	})
 }
 
-// UserFromBase64 decodes a base64-encoded go-server-sdk user.
-// If any decoding/unmarshaling errors occur or the user is missing the "key" attribute an error is returned.
-func UserFromBase64(base64User string) (ldcontext.Context, error) {
-	var user ldcontext.Context
-	idStr, decodeErr := base64urlDecode(base64User)
+// ContextFromBase64 decodes a base64-encoded go-server-sdk evaluation context.
+// If any decoding/unmarshaling errors occur, or the decoded context is invalid by the rules of the Go SDK, an error is returned.
+func ContextFromBase64(base64Context string) (ldcontext.Context, error) {
+	var ldContext ldcontext.Context
+	jsonStr, decodeErr := base64urlDecode(base64Context)
 	if decodeErr != nil {
-		return user, errInvalidUserBase64
+		return ldContext, errInvalidContextBase64
 	}
 
-	jsonErr := json.Unmarshal(idStr, &user)
+	jsonErr := json.Unmarshal(jsonStr, &ldContext)
 
 	if jsonErr != nil {
-		return user, errInvalidUserJSON
+		return ldContext, errInvalidContextJSON
 	}
-	return user, nil
+	return ldContext, nil
 }
 
 func base64urlDecode(base64String string) ([]byte, error) {

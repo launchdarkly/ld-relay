@@ -15,6 +15,15 @@ In the tables below, `proxied subdomain` refers to which of those LaunchDarkly s
 
 Others are for functionality that is specific to the Relay Proxy.
 
+## Notes on request/path parameters
+
+* `{contextBase64}` means the JSON representation of an evaluation context converted to base64 encoding.
+  * The JSON representation could be either in the current evaluation context JSON format (example: `{"kind": "user", "key": "abc", "attr1": true}`), or the older user JSON format (example: `{"key": "abc", "custom": {"attr1": true}}`).
+  * In either case, the JSON data must be encoded using the [base64url](https://datatracker.ietf.org/doc/html/rfc4648#section-5) variant of base64 encoding.
+* `{envId}` means the client-side ID of a LaunchDarkly environment (typically a 32-character hexadecimal value, such as `6488674dc2ea1d6673731ba2`).
+* `{flagKey}` means the unique key of a feature flag.
+* `{segmentKey}` means the unique key of a segment.
+
 ## Specific to Relay Proxy
 
 ### Status (health check)
@@ -111,12 +120,14 @@ If you're building an SDK for a language which isn't officially supported by Lau
 
 These are equivalent to the polling endpoints for client-side/mobile SDKs, except that they use the SDK key as a credential rather than the mobile key or client-side environment ID.
 
-Endpoint                  | Method   | Description
---------------------------|:--------:|------------------------------------
-`/sdk/eval/users/{user}`  | `GET`    | Evaluates all flag values for the given user
-`/sdk/eval/user`          | `REPORT` | Same as above but request body is user JSON object
-`/sdk/evalx/users/{user}` | `GET`    | Same as `/sdk/eval/users/{user}`, but provides additional metadata such as evaluation reason
-`/sdk/evalx/user`         | `REPORT` | Same as above but request body is user JSON object
+Endpoint                              | Method   | Description
+--------------------------------------|:--------:|------------------------------------
+`/sdk/evalx/contexts/{contextBase64}` | `GET`    | Evaluates all flag values for the given evaluation context
+`/sdk/evalx/context`                  | `REPORT` | Same as above, but request body is the evaluation context JSON object (not in base64)
+`/sdk/evalx/users/{contextBase64}`    | `GET`    | Alternate name for `/sdk/evalx/contexts/{contextBase64}`
+`/sdk/evalx/user`                     | `REPORT` | Alternate name for `/sdk/evalx/context`
+`/sdk/eval/users/{contextBase64}`     | `GET`    | Legacy endpoint similar to `/sdk/evalx/users/{contextBase64}` but returning fewer properties
+`/sdk/eval/user`                      | `REPORT` | Legacy endpoint similar to `/sdk/eval/user` but returning fewer properties
 
 Example `curl` requests (default local URI and port):
 
@@ -139,9 +150,9 @@ Endpoint                     | Method | Proxied Subdomain | Description
 `/bulk`                      | `POST` | `events.` | Receives analytics events from SDKs
 `/diagnostic`                | `POST` | `events.` | Receives diagnostic data from SDKs
 `/flags`                     | `GET`  | `stream.` | SSE stream for flag data (older SDKs)
-`/sdk/flags`                 | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/flags/{key}`           | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/segments/{key}`        | `GET`  | `app.`    | Polling endpoint for [PHP SDK](./php.md)
+`/sdk/flags`                 | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
+`/sdk/flags/{flagKey}`       | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
+`/sdk/segments/{segmentKey}` | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
 
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
@@ -152,21 +163,21 @@ The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` head
 
 All of these require an `Authorization` header whose value is the mobile key. 
 
-`{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
-
-Endpoint                     | Method   | Proxied Subdomain | Description
------------------------------|:--------:|:---------------:|------------------------------------
-`/meval/{user}`              | `GET`    | `clientstream.` | SSE stream of "ping" and other events
-`/meval`                     | `REPORT` | `clientstream.` | Same as above but request body is user JSON object
-`/mobile`                    | `POST`   | `events.`       | For receiving events from mobile SDKs
-`/mobile/events`             | `POST`   | `events.`       | Same as above
-`/mobile/events/bulk`        | `POST`   | `events.`       | Same as above
-`/mobile/events/diagnostic`  | `POST`   | `events.`       | Same as above
-`/mping`                     | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
-`/msdk/eval/users/{user}`    | `GET`    | `app.`          | Polling endpoint, returns flag evaluation results for a user
-`/msdk/eval/user`            | `REPORT` | `app.`          | Same as above but request body is user JSON object
-`/msdk/evalx/users/{user}`   | `GET`    | `app.`          | Same as `/msdk/eval/users/{user}` for newer SDKs, with additional metadata
-`/msdk/evalx/user`           | `REPORT` | `app.`          | Same as above but request body is user JSON object
+Endpoint                               | Method   | Proxied Subdomain | Description
+---------------------------------------|:--------:|:---------------:|------------------------------------
+`/meval/{contextBase64}`               | `GET`    | `clientstream.` | SSE stream of "ping" and other events
+`/meval`                               | `REPORT` | `clientstream.` | Same as above, but request body is the evaluation context JSON object (not in base64)
+`/mobile`                              | `POST`   | `events.`       | For receiving events from mobile SDKs
+`/mobile/events`                       | `POST`   | `events.`       | Same as above
+`/mobile/events/bulk`                  | `POST`   | `events.`       | Same as above
+`/mobile/events/diagnostic`            | `POST`   | `events.`       | Same as above
+`/mping`                               | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
+`/msdk/evalx/contexts/{contextBase64}` | `GET`    | `clientsdk.`    | Polling endpoint, returns flag evaluation results for an evaluation context
+`/msdk/evalx/context`                  | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
+`/msdk/evalx/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/msdk/evalx/contexts/{contextBase64}` used by older SDKs
+`/msdk/evalx/user`                     | `REPORT` | `clientsdk.`    | Alternate name for `/msdk/evalx/context` used by older SDKs
+`/msdk/eval/users/{contextBase64}`     | `GET`    | `clientsdk.`    | Legacy endpoint similar to `/msdk/evalx/users/{contextBase64}` but returning fewer properties
+`/msdk/eval/user`                      | `REPORT` | `clientsdk.`    | Legacy endpoint similar to `/msdk/evalx/user` but returning fewer properties
 
 The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
@@ -175,22 +186,24 @@ The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` head
 
 `{envId}` is the 32-hexdigit client-side environment ID (e.g. `6488674dc2ea1d6673731ba2`).
 
-`{user}` is the base64 representation of a user JSON object (e.g. `{"key": "user1"}` => `eyJrZXkiOiAidXNlcjEifQ==`).
+`{context}` is the base64 representation of an evaluation context JSON object. These endpoints accept both the current evaluation context JSON format (example: `{"kind": "user", "key": "abc", "attr1": true}`) and the older user JSON format (example: `{"key": "abc", "custom": {"attr1": true}}`).
 
 These endpoints also support the `OPTION` method to enable CORS requests from browsers.
 
-Endpoint                          | Method   | Proxied Subdomain | Description
--------------------------------------|:--------:|:---------------:|------------------------------------
-`/a/{envId}.gif?d=*events*`       | `GET`    | `events.`       | Alternative analytics event mechanism used if browser does not allow CORS
-`/eval/{envId}/{user}`            | `GET`    | `clientstream.` | SSE stream of "ping" and other events for JS and other client-side SDK listeners
-`/eval/{envId}`                   | `REPORT` | `clientstream.` | Same as above but request body is user JSON object
-`/events/bulk/{envId}`            | `POST`   | `events.`       | Receives analytics events from SDKs
-`/events/diagnostic/{envId}`      | `POST`   | `events.`       | Receives diagnostic data from SDKs
-`/ping/{envId}`                   | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
-`/sdk/eval/{envId}/users/{user}`  | `GET`    | `app.`          | Polling endpoint for older SDKs, returns flag evaluation results for a user
-`/sdk/eval/{envId}/users`         | `REPORT` | `app.`          | Same as above but request body is user JSON object
-`/sdk/evalx/{envId}/users/{user}` | `GET`    | `app.`          | Polling endpoint, returns flag evaluation results and additional metadata
-`/sdk/evalx/{envId}/users`        | `REPORT` | `app.`          | Same as above but request body is user JSON object
-`/sdk/goals/{envId}`              | `GET`    | `app.`          | Provides goals data used by JS SDK
+Endpoint                                      | Method   | Proxied Subdomain | Description
+----------------------------------------------|:--------:|:---------------:|------------------------------------
+`/a/{envId}.gif?d=*events*`                   | `GET`    | `events.`       | Alternative analytics event mechanism used if browser does not allow CORS
+`/eval/{envId}/{contextBase64}`               | `GET`    | `clientstream.` | SSE stream of "ping" and other events for JS and other client-side SDK listeners
+`/eval/{envId}`                               | `REPORT` | `clientstream.` | Same as above but request body is the evaluation context JSON object (not in base64)
+`/events/bulk/{envId}`                        | `POST`   | `events.`       | Receives analytics events from SDKs
+`/events/diagnostic/{envId}`                  | `POST`   | `events.`       | Receives diagnostic data from SDKs
+`/ping/{envId}`                               | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
+`/sdk/evalx/{envId}/contexts/{contextBase64}` | `GET`    | `clientsdk.`    | Polling endpoint, returns flag evaluation results and additional metadata
+`/sdk/evalx/{envId}/contexts`                 | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
+`/sdk/evalx/{envId}/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs
+`/sdk/evalx/{envId}/users`                    | `REPORT` | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs
+`/sdk/eval/{envId}/users/{contextBase64}`     | `GET`    | `clientsdk.`    | Legacy endpoint similar to `/sdk/evalx/{envId}/users/{contextBase64}` but returning fewer properties
+`/sdk/eval/{envId}/users`                     | `REPORT` | `clientsdk.`    | Legacy endpoint similar to `/sdk/evalx/{envId}/users` but returning fewer properties
+`/sdk/goals/{envId}`                          | `GET`    | `clientsdk.`    | Provides goals data used by JS SDK
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.
