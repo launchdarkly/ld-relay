@@ -4,6 +4,8 @@
 package bigsegments
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -13,26 +15,16 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 )
 
 const (
 	testTableName = "LD_DYNAMODB_TEST_TABLE"
 	localEndpoint = "http://localhost:8000"
-)
-
-var (
-	testDynamoDBConfig = aws.Config{
-		Region:      aws.String("us-west-2"),
-		Endpoint:    aws.String(localEndpoint),
-		Credentials: credentials.NewStaticCredentials("dummy", "not", "used"),
-	}
 )
 
 func TestDynamoDBGenericAll(t *testing.T) {
@@ -45,26 +37,24 @@ func TestDynamoDBGenericAll(t *testing.T) {
 func (store *dynamoDBBigSegmentStore) checkSetIncludes(attribute, segmentKey, userKey string) (bool, error) {
 	bigSegmentsUserDataKeyWithPrefix := dynamoDBUserDataKey(store.prefix)
 
-	result, err := store.client.GetItem(&dynamodb.GetItemInput{
+	result, err := store.client.GetItem(context.Background(), &dynamodb.GetItemInput{
 		TableName:      aws.String(store.table),
 		ConsistentRead: aws.Bool(true),
-		Key: map[string]*dynamodb.AttributeValue{
-			tablePartitionKey: {S: aws.String(bigSegmentsUserDataKeyWithPrefix)},
-			tableSortKey:      {S: aws.String(userKey)},
+		Key: map[string]types.AttributeValue{
+			tablePartitionKey: attrValueOfString(bigSegmentsUserDataKeyWithPrefix),
+			tableSortKey:      attrValueOfString(userKey),
 		},
 	})
 	if err != nil || len(result.Item) == 0 {
 		return false, err
 	}
 	item := result.Item[attribute]
-	if item == nil || item.SS == nil {
+	ssValue, ok := item.(*types.AttributeValueMemberSS)
+	if !ok {
 		return false, nil
 	}
-	for _, v := range item.SS {
-		if v == nil {
-			continue
-		}
-		if *v == segmentKey {
+	for _, v := range ssValue.Value {
+		if v == segmentKey {
 			return true, nil
 		}
 	}
@@ -88,7 +78,7 @@ func withDynamoDBStoreGeneric(prefix string) func(*testing.T, func(BigSegmentSto
 		store, err := newDynamoDBBigSegmentStore(
 			config.DynamoDBConfig{TableName: testTableName},
 			config.EnvConfig{Prefix: prefix},
-			testDynamoDBConfig,
+			[]func(*dynamodb.Options){setTestDynamoDBOptions},
 			ldlog.NewDisabledLoggers(),
 		)
 		require.NoError(t, err)
@@ -98,13 +88,8 @@ func withDynamoDBStoreGeneric(prefix string) func(*testing.T, func(BigSegmentSto
 	}
 }
 
-func createTestClient() (*dynamodb.DynamoDB, error) {
-	sess, err := session.NewSession(&testDynamoDBConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return dynamodb.New(sess), nil
+func createTestClient() *dynamodb.Client {
+	return dynamodb.New(dynamodb.Options{}, setTestDynamoDBOptions)
 }
 
 func clearTestData(prefix string) error {
@@ -112,79 +97,80 @@ func clearTestData(prefix string) error {
 		prefix += ":"
 	}
 
-	client, err := createTestClient()
-	if err != nil {
-		return err
-	}
-	var items []map[string]*dynamodb.AttributeValue
+	client := createTestClient()
+	var items []map[string]types.AttributeValue
 
-	err = client.ScanPages(&dynamodb.ScanInput{
+	scanInput := dynamodb.ScanInput{
 		TableName:            aws.String(testTableName),
 		ConsistentRead:       aws.Bool(true),
 		ProjectionExpression: aws.String("#namespace, #key"),
-		ExpressionAttributeNames: map[string]*string{
-			"#namespace": aws.String(tablePartitionKey),
-			"#key":       aws.String(tableSortKey),
+		ExpressionAttributeNames: map[string]string{
+			"#namespace": tablePartitionKey,
+			"#key":       tableSortKey,
 		},
-	}, func(out *dynamodb.ScanOutput, lastPage bool) bool {
+	}
+	for {
+		out, err := client.Scan(context.Background(), &scanInput)
+		if err != nil {
+			return err
+		}
 		items = append(items, out.Items...)
-		return !lastPage
-	})
-	if err != nil {
-		return err
+		if out.LastEvaluatedKey == nil {
+			break
+		}
+		scanInput.ExclusiveStartKey = out.LastEvaluatedKey
 	}
 
-	var requests []*dynamodb.WriteRequest
+	var requests []types.WriteRequest
 	for _, item := range items {
-		if strings.HasPrefix(*item[tablePartitionKey].S, prefix) {
-			requests = append(requests, &dynamodb.WriteRequest{
-				DeleteRequest: &dynamodb.DeleteRequest{Key: item},
+		if strings.HasPrefix(attrValueToString(item[tablePartitionKey]), prefix) {
+			requests = append(requests, types.WriteRequest{
+				DeleteRequest: &types.DeleteRequest{Key: item},
 			})
 		}
 	}
-	return batchWriteRequests(client, testTableName, requests)
+	return batchWriteRequests(context.Background(), client, testTableName, requests)
 }
 
 func createTableIfNecessary() error {
-	client, err := createTestClient()
-	if err != nil {
-		return err
-	}
-	_, err = client.DescribeTable(&dynamodb.DescribeTableInput{TableName: aws.String(testTableName)})
+	client := createTestClient()
+	_, err := client.DescribeTable(context.Background(),
+		&dynamodb.DescribeTableInput{TableName: aws.String(testTableName)})
 	if err == nil {
 		return nil
 	}
-	if e, ok := err.(awserr.Error); !ok || e.Code() != dynamodb.ErrCodeResourceNotFoundException {
+	var resNotFoundErr *types.ResourceNotFoundException
+	if !errors.As(err, &resNotFoundErr) {
 		return err
 	}
 	createParams := dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+		AttributeDefinitions: []types.AttributeDefinition{
 			{
 				AttributeName: aws.String(tablePartitionKey),
-				AttributeType: aws.String(dynamodb.ScalarAttributeTypeS),
+				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
 				AttributeName: aws.String(tableSortKey),
-				AttributeType: aws.String(dynamodb.ScalarAttributeTypeS),
+				AttributeType: types.ScalarAttributeTypeS,
 			},
 		},
-		KeySchema: []*dynamodb.KeySchemaElement{
+		KeySchema: []types.KeySchemaElement{
 			{
 				AttributeName: aws.String(tablePartitionKey),
-				KeyType:       aws.String(dynamodb.KeyTypeHash),
+				KeyType:       types.KeyTypeHash,
 			},
 			{
 				AttributeName: aws.String(tableSortKey),
-				KeyType:       aws.String(dynamodb.KeyTypeRange),
+				KeyType:       types.KeyTypeRange,
 			},
 		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+		ProvisionedThroughput: &types.ProvisionedThroughput{
 			ReadCapacityUnits:  aws.Int64(1),
 			WriteCapacityUnits: aws.Int64(1),
 		},
 		TableName: aws.String(testTableName),
 	}
-	_, err = client.CreateTable(&createParams)
+	_, err = client.CreateTable(context.Background(), &createParams)
 	if err != nil {
 		return err
 	}
@@ -197,8 +183,9 @@ func createTableIfNecessary() error {
 		case <-deadline:
 			return fmt.Errorf("timed out waiting for new table to be ready")
 		case <-retry.C:
-			tableInfo, err := client.DescribeTable(&dynamodb.DescribeTableInput{TableName: aws.String(testTableName)})
-			if err == nil && *tableInfo.Table.TableStatus == dynamodb.TableStatusActive {
+			tableInfo, err := client.DescribeTable(context.Background(),
+				&dynamodb.DescribeTableInput{TableName: aws.String(testTableName)})
+			if err == nil && tableInfo.Table.TableStatus == types.TableStatusActive {
 				return nil
 			}
 		}
@@ -208,17 +195,18 @@ func createTableIfNecessary() error {
 // batchWriteRequests executes a list of write requests (PutItem or DeleteItem)
 // in batches of 25, which is the maximum BatchWriteItem can handle.
 func batchWriteRequests(
-	client dynamodbiface.DynamoDBAPI,
+	context context.Context,
+	client *dynamodb.Client,
 	table string,
-	requests []*dynamodb.WriteRequest,
+	requests []types.WriteRequest,
 ) error {
 	for len(requests) > 0 {
 		batchSize := int(math.Min(float64(len(requests)), 25))
 		batch := requests[:batchSize]
 		requests = requests[batchSize:]
 
-		_, err := client.BatchWriteItem(&dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]*dynamodb.WriteRequest{table: batch},
+		_, err := client.BatchWriteItem(context, &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]types.WriteRequest{table: batch},
 		})
 		if err != nil {
 			// COVERAGE: can't simulate this condition in unit tests because we will only get this
@@ -228,4 +216,21 @@ func batchWriteRequests(
 		}
 	}
 	return nil
+}
+
+func attrValueToString(value types.AttributeValue) string {
+	switch v := value.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	default:
+		return ""
+	}
+}
+
+func setTestDynamoDBOptions(o *dynamodb.Options) {
+	o.Region = "us-west-2"
+	o.EndpointResolver = dynamodb.EndpointResolverFromURL(localEndpoint)
+	o.Credentials = credentials.NewStaticCredentialsProvider("dummy", "not", "used")
 }
