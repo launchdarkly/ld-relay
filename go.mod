@@ -92,10 +92,10 @@ require (
 	go.opentelemetry.io/otel/metric v0.19.0 // indirect
 	go.opentelemetry.io/otel/trace v0.19.0 // indirect
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
-	golang.org/x/net v0.0.0-20211209124913-491a49abca63 // indirect; fixes CVE-2021-44716
+	golang.org/x/net v0.0.0-20220906165146-f3363e06e74c // indirect; fixes CVE-2022-27664
 	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c // indirect
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect; fixes CVE-2022-29526
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10 // indirect; fixes CVE-2022-29526
+	golang.org/x/text v0.3.8 // indirect; fixes CVE-2022-32149
 	google.golang.org/api v0.37.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20210126160654-44e461bb6506 // indirect
