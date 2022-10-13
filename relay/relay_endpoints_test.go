@@ -29,7 +29,7 @@ func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars m
 	return req
 }
 
-func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndStore(t *testing.T) {
+func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
@@ -50,10 +50,10 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
 	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)(resp, req)
+	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	b, _ := io.ReadAll(resp.Body)
-	assert.JSONEq(t, st.MakeEvalBody(st.ClientSideFlags, false, false), string(b))
+	assert.JSONEq(t, st.MakeEvalBody(st.ClientSideFlags, false), string(b))
 }

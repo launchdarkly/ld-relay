@@ -126,15 +126,13 @@ Endpoint                              | Method   | Description
 `/sdk/evalx/context`                  | `REPORT` | Same as above, but request body is the evaluation context JSON object (not in base64)
 `/sdk/evalx/users/{contextBase64}`    | `GET`    | Alternate name for `/sdk/evalx/contexts/{contextBase64}`
 `/sdk/evalx/user`                     | `REPORT` | Alternate name for `/sdk/evalx/context`
-`/sdk/eval/users/{contextBase64}`     | `GET`    | Legacy endpoint similar to `/sdk/evalx/users/{contextBase64}` but returning fewer properties
-`/sdk/eval/user`                      | `REPORT` | Legacy endpoint similar to `/sdk/eval/user` but returning fewer properties
 
 Example `curl` requests (default local URI and port):
 
 ```shell
-curl -X GET -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/eval/users/eyJrZXkiOiAiYTAwY2ViIn0=
+curl -X GET -H "Authorization: YOUR_SDK_KEY" localhost:8030/sdk/evalx/users/eyJraW5kIjogInVzZXIiLCAia2V5IjogImEwMGNlYiIsICJlbWFpbCI6ICJiYXJuaWVAZXhhbXBsZS5vcmcifQ
 
-curl -X REPORT localhost:8030/sdk/eval/user -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"key": "a00ceb", "email":"barnie@example.org"}'
+curl -X REPORT localhost:8030/sdk/evalx/context -H "Authorization: YOUR_SDK_KEY" -H "Content-Type: application/json" -d '{"kind": "user", "key": "a00ceb", "email": "barnie@example.org"}'
 ```
 
 
@@ -176,8 +174,6 @@ Endpoint                               | Method   | Proxied Subdomain | Descript
 `/msdk/evalx/context`                  | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
 `/msdk/evalx/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/msdk/evalx/contexts/{contextBase64}` used by older SDKs
 `/msdk/evalx/user`                     | `REPORT` | `clientsdk.`    | Alternate name for `/msdk/evalx/context` used by older SDKs
-`/msdk/eval/users/{contextBase64}`     | `GET`    | `clientsdk.`    | Legacy endpoint similar to `/msdk/evalx/users/{contextBase64}` but returning fewer properties
-`/msdk/eval/user`                      | `REPORT` | `clientsdk.`    | Legacy endpoint similar to `/msdk/evalx/user` but returning fewer properties
 
 The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
@@ -202,8 +198,6 @@ Endpoint                                      | Method   | Proxied Subdomain | D
 `/sdk/evalx/{envId}/contexts`                 | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
 `/sdk/evalx/{envId}/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs
 `/sdk/evalx/{envId}/users`                    | `REPORT` | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs
-`/sdk/eval/{envId}/users/{contextBase64}`     | `GET`    | `clientsdk.`    | Legacy endpoint similar to `/sdk/evalx/{envId}/users/{contextBase64}` but returning fewer properties
-`/sdk/eval/{envId}/users`                     | `REPORT` | `clientsdk.`    | Legacy endpoint similar to `/sdk/evalx/{envId}/users` but returning fewer properties
 `/sdk/goals/{envId}`                          | `GET`    | `clientsdk.`    | Provides goals data used by JS SDK
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.

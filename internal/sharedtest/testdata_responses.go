@@ -70,29 +70,26 @@ func AssertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod
 	assert.Equal(t, host, resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
-func MakeEvalBody(flags []TestFlag, fullData bool, reasons bool) string {
+func MakeEvalBody(flags []TestFlag, reasons bool) string {
 	obj := make(map[string]interface{})
 	for _, f := range flags {
 		value := f.ExpectedValue
-		if fullData {
-			m := map[string]interface{}{"value": value, "version": f.Flag.Version}
-			if value != nil {
-				m["variation"] = f.ExpectedVariation
-			} else {
-				m["variation"] = nil
-			}
-			if reasons || f.IsExperiment {
-				m["reason"] = f.ExpectedReason
-			}
-			if f.Flag.TrackEvents || f.IsExperiment {
-				m["trackEvents"] = true
-			}
-			if f.IsExperiment {
-				m["trackReason"] = true
-			}
-			value = m
+		m := map[string]interface{}{"value": value, "version": f.Flag.Version}
+		if value != nil {
+			m["variation"] = f.ExpectedVariation
+		} else {
+			m["variation"] = nil
 		}
-		obj[f.Flag.Key] = value
+		if reasons || f.IsExperiment {
+			m["reason"] = f.ExpectedReason
+		}
+		if f.Flag.TrackEvents || f.IsExperiment {
+			m["trackEvents"] = true
+		}
+		if f.IsExperiment {
+			m["trackReason"] = true
+		}
+		obj[f.Flag.Key] = m
 	}
 	out, _ := json.Marshal(obj)
 	return string(out)

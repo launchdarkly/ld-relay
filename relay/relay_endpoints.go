@@ -184,22 +184,11 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 // /sdk/evalx/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
 func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, false, sdkKind)
+		evaluateAllShared(w, req, sdkKind)
 	}
 }
 
-// Client-side evaluation endpoint, old schema with only values:
-// /sdk/eval/{envId}/users/{context} (GET)
-// /sdk/eval/{envId}/user (REPORT)
-// /sdk/eval/users/{context} (GET - with SDK key auth; this is a Relay-only endpoint)
-// /sdk/eval/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
-func evaluateAllFeatureFlagsValueOnly(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, true, sdkKind)
-	}
-}
-
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool, sdkKind basictypes.SDKKind) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
@@ -257,25 +246,23 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, valueOnly bool,
 					continue
 				}
 			}
+
 			result := evaluator.Evaluate(flag, ldContext, nil)
 			detail := result.Detail
-			if valueOnly {
-				detail.Value.WriteToJSONWriter(responseObj.Name(flag.Key))
-			} else {
-				isExperiment := result.IsExperiment
-				valueObj := responseObj.Name(flag.Key).Object()
-				detail.Value.WriteToJSONWriter(valueObj.Name("value"))
-				detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
-				valueObj.Name("version").Int(flag.Version)
-				valueObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
-				valueObj.Maybe("trackReason", isExperiment).Bool(true)
-				if withReasons || isExperiment {
-					detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
-				}
-				valueObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
-					Float64(float64(flag.DebugEventsUntilDate))
-				valueObj.End()
+			isExperiment := result.IsExperiment
+
+			valueObj := responseObj.Name(flag.Key).Object()
+			detail.Value.WriteToJSONWriter(valueObj.Name("value"))
+			detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
+			valueObj.Name("version").Int(flag.Version)
+			valueObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
+			valueObj.Maybe("trackReason", isExperiment).Bool(true)
+			if withReasons || isExperiment {
+				detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
 			}
+			valueObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
+				Float64(float64(flag.DebugEventsUntilDate))
+			valueObj.End()
 		}
 	}
 	responseObj.End()

@@ -335,7 +335,7 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 
 func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
 	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
-	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/eval/users/"+userBase64, nil)
+	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/evalx/users/"+userBase64, nil)
 	require.NoError(t, err)
 	req.Header.Add("Authorization", string(env.sdkKey))
 	resp, err := m.makeHTTPRequestToRelay(req)
@@ -344,9 +344,13 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 		defer resp.Body.Close()
 		data, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		valuesObject := ldvalue.Parse(data)
-		if !valuesObject.Equal(ldvalue.Null()) {
-			return valuesObject
+		flagData := ldvalue.Parse(data)
+		if !flagData.Equal(ldvalue.Null()) {
+			valuesObject := ldvalue.ObjectBuild()
+			for _, key := range flagData.Keys(nil) {
+				valuesObject.Set(key, flagData.GetByKey(key).GetByKey("value"))
+			}
+			return valuesObject.Build()
 		}
 		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
 			env.key, env.sdkKey, string(data))

@@ -71,8 +71,7 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 	if sdkKey != "" {
 		h.assertEndpointStatus(status200Or401, "GET", "/all", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/flags", sdkKey, nil)
-		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/eval/user", sdkKey, simpleUserJSON)
-		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/user", sdkKey, simpleUserJSON)
+		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/context", sdkKey, simpleUserJSON)
 	}
 	if mobileKey != "" {
 		h.assertEndpointStatus(status200Or401, "GET", "/mping", mobileKey, nil)

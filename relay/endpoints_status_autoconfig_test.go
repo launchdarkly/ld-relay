@@ -229,7 +229,7 @@ func TestRelayReturns503ForAllEnvironmentsUntilAutoConfigIsComplete(t *testing.T
 
 	<-handlerHasReceivedRequestCh
 
-	pollUrl := "http://fake/sdk/eval/users/eyJrZXkiOiJmb28ifQ"
+	pollUrl := "http://fake/sdk/evalx/users/eyJrZXkiOiJmb28ifQ"
 	req, _ := http.NewRequest("GET", pollUrl, nil)
 	req.Header.Add("Authorization", string(envConfig.Config.SDKKey))
 

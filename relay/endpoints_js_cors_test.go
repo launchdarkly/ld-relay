@@ -25,10 +25,10 @@ func TestEndpointsJSClientCORS(t *testing.T) {
 	envID := env.Config.EnvID
 	user := lduser.NewUser("me")
 	userJSON, _ := json.Marshal(user)
-	expectedJSEvalBody := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, false, false))
+	expectedJSEvalxBody := st.ExpectJSONBody(st.MakeEvalBody(st.ClientSideFlags, false))
 
 	endpoint := endpointTestParams{
-		"get eval", "GET", "/sdk/eval/$ENV/users/$USER", userJSON, envID, http.StatusOK, expectedJSEvalBody,
+		"get eval", "GET", "/sdk/evalx/$ENV/users/$USER", userJSON, envID, http.StatusOK, expectedJSEvalxBody,
 	}
 
 	t.Run("default Access-Control-Allow-Headers", func(t *testing.T) {

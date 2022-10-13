@@ -26,10 +26,6 @@ func ToBase64(s string) string {
 type SDKRequestVariant int
 
 const (
-	// Evalx indicates that a client-side request wants the "evalx" format rather than the older
-	// value-only format.
-	Evalx SDKRequestVariant = 2
-
 	// ReportMode means a client-side request should be done with REPORT rather than GET.
 	ReportMode SDKRequestVariant = 4
 )
@@ -49,19 +45,19 @@ func MakeSDKStreamEndpointRequest(
 		return BuildRequestWithAuth("GET", fmt.Sprintf("%s/flags", baseURL), testEnv.Config.SDKKey, nil)
 	case kind == basictypes.MobilePingStream && (variant&ReportMode == 0):
 		return BuildRequestWithAuth("GET",
-			fmt.Sprintf("%s/m%s/%s", baseURL, evalOrEvalx(variant), ToBase64(userJSON)),
+			fmt.Sprintf("%s/meval/%s", baseURL, ToBase64(userJSON)),
 			testEnv.Config.MobileKey, nil)
 	case kind == basictypes.MobilePingStream && (variant&ReportMode != 0):
 		return BuildRequestWithAuth("REPORT",
-			fmt.Sprintf("%s/m%s", baseURL, evalOrEvalx(variant)),
+			fmt.Sprintf("%s/meval", baseURL),
 			testEnv.Config.MobileKey, []byte(ToBase64(userJSON)))
 	case kind == basictypes.JSClientPingStream && (variant&ReportMode == 0):
 		return BuildRequest("GET",
-			fmt.Sprintf("%s/%s/%s/%s", baseURL, evalOrEvalx(variant), testEnv.Config.EnvID, ToBase64(userJSON)),
+			fmt.Sprintf("%s/eval/%s/%s", baseURL, testEnv.Config.EnvID, ToBase64(userJSON)),
 			nil, nil)
 	case kind == basictypes.JSClientPingStream && (variant&ReportMode != 0):
 		return BuildRequest("REPORT",
-			fmt.Sprintf("%s/%s/%s", baseURL, evalOrEvalx(variant), testEnv.Config.EnvID),
+			fmt.Sprintf("%s/eval/%s", baseURL, testEnv.Config.EnvID),
 			[]byte(ToBase64(userJSON)), nil)
 	default:
 		panic("invalid StreamKind value")
@@ -72,28 +68,21 @@ func MakeSDKEvalEndpointRequest(baseURL string, kind basictypes.SDKKind, testEnv
 	switch {
 	case kind == basictypes.MobileSDK && (variant&ReportMode == 0):
 		return BuildRequestWithAuth("GET",
-			fmt.Sprintf("%s/msdk/%s/users/%s", baseURL, evalOrEvalx(variant), ToBase64(userJSON)),
+			fmt.Sprintf("%s/msdk/evalx/users/%s", baseURL, ToBase64(userJSON)),
 			testEnv.Config.MobileKey, nil)
 	case kind == basictypes.MobileSDK && (variant&ReportMode != 0):
 		return BuildRequestWithAuth("REPORT",
-			fmt.Sprintf("%s/msdk/%s/user", baseURL, evalOrEvalx(variant)),
+			fmt.Sprintf("%s/msdk/evalx/user", baseURL),
 			testEnv.Config.MobileKey, []byte(ToBase64(userJSON)))
 	case kind == basictypes.JSClientSDK && (variant&ReportMode == 0):
 		return BuildRequestWithAuth("GET",
-			fmt.Sprintf("%s/sdk/%s/%s/users/%s", baseURL, evalOrEvalx(variant), testEnv.Config.EnvID, ToBase64(userJSON)),
+			fmt.Sprintf("%s/sdk/evalx/%s/users/%s", baseURL, testEnv.Config.EnvID, ToBase64(userJSON)),
 			nil, nil)
 	case kind == basictypes.JSClientSDK && (variant&ReportMode != 0):
 		return BuildRequestWithAuth("REPORT",
-			fmt.Sprintf("%s/sdk/%s/%s/user", baseURL, evalOrEvalx(variant), testEnv.Config.EnvID),
+			fmt.Sprintf("%s/sdk/evalx/%s/user", baseURL, testEnv.Config.EnvID),
 			nil, []byte(ToBase64(userJSON)))
 	default:
 		panic("invalid SDKKind value")
 	}
-}
-
-func evalOrEvalx(variant SDKRequestVariant) string {
-	if variant&Evalx == 0 {
-		return "eval"
-	}
-	return "evalx"
 }

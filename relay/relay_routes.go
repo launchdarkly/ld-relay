@@ -55,12 +55,6 @@ func (r *Relay) makeRouter() *mux.Router {
 	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter))
 	goalsRouter.HandleFunc("/{envId}", getGoals).Methods("GET", "OPTIONS")
 
-	clientSideSdkEvalRouter := router.PathPrefix("/sdk/eval/{envId}/").Subrouter()
-	clientSideSdkEvalRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalRouter))
-	clientSideSdkEvalRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
-	clientSideSdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(basictypes.JSClientSDK)).Methods("REPORT", "OPTIONS")
-	// not adding "context" versions of the "eval" routes because they are obsolete
-
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
 	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter))
 	clientSideSdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
@@ -76,11 +70,6 @@ func (r *Relay) makeRouter() *mux.Router {
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
 	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
-
-	serverSideEvalRouter := serverSideSdkRouter.PathPrefix("/eval/").Subrouter()
-	serverSideEvalRouter.Handle("/users/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(basictypes.ServerSDK)))).Methods("GET")
-	serverSideEvalRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlagsValueOnly(basictypes.ServerSDK)))).Methods("REPORT")
-	// not adding "context" versions of the "eval" routes because they are obsolete
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
@@ -102,11 +91,6 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
 	msdkRouter.Use(mobileMiddlewareStack)
-
-	msdkEvalRouter := msdkRouter.PathPrefix("/eval/").Subrouter()
-	msdkEvalRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlagsValueOnly(basictypes.MobileSDK)).Methods("GET")
-	msdkEvalRouter.HandleFunc("/user", evaluateAllFeatureFlagsValueOnly(basictypes.MobileSDK)).Methods("REPORT")
-	// not adding "context" versions of the "eval" routes because they are obsolete
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
 	msdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK)).Methods("GET")
