@@ -101,7 +101,8 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 		require.Eventually(t, func() bool {
 			_, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d", port))
 			require.Error(t, err)
-			return strings.Contains(err.Error(), "protocol version not supported")
+			return strings.Contains(err.Error(), "protocol version not supported") || strings.Contains(err.Error(), "tls: no supported version")
+			// the exact error message depends on the Go version
 		}, time.Second, time.Millisecond*10)
 		mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf("listening on port %d", port))
 		mockLog.AssertMessageMatch(t, true, ldlog.Info, "TLS enabled for server \\(minimum TLS version: 1.2\\)")
