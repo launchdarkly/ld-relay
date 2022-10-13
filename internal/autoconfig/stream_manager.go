@@ -30,8 +30,8 @@ const (
 
 var (
 	// These regexes are used for obfuscating keys in debug logging
-	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)  //nolint:gochecknoglobals
-	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`) //nolint:gochecknoglobals
+	sdkKeyJSONRegex = regexp.MustCompile(`"value": *"[^"]*([^"][^"][^"][^"])"`)
+	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
 // StreamManager manages the auto-configuration SSE stream.

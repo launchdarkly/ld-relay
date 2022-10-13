@@ -20,7 +20,6 @@ linters:
     - godox
     - gofmt
     - goimports
-    - golint
     - gosec
     - gosimple
     - govet
@@ -48,6 +47,9 @@ linter-settings:
 
 issues:
   exclude-rules:
+    - path: integrationtests
+      linters:
+        - stylecheck
     - path: internal/metrics/measures.go  # see explanation in that file
       linters:
         - gochecknoglobals
@@ -56,7 +58,6 @@ issues:
         - bodyclose
         - goconst
         - gochecknoglobals
-        - golint
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

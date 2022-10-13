@@ -2,7 +2,7 @@ package relay
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -164,7 +164,7 @@ func doStreamRequestExpectingError(req *http.Request, handler http.Handler) *htt
 	w, bodyReader := st.NewStreamRecorder()
 	handler.ServeHTTP(w, req)
 	go func() {
-		_, _ = ioutil.ReadAll(bodyReader)
+		_, _ = io.ReadAll(bodyReader)
 	}()
 	return w.Result()
 }

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -154,15 +153,15 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 			if err != nil {
 				panic(err)
 			}
-			ioutil.WriteFile(envMetadataFilePath(dirPath, te.rep.EnvID), fileData, 0600)
-			ioutil.WriteFile(envSDKDataFilePath(dirPath, te.rep.EnvID), te.sdkDataJSON(), 0600)
+			os.WriteFile(envMetadataFilePath(dirPath, te.rep.EnvID), fileData, 0600)
+			os.WriteFile(envSDKDataFilePath(dirPath, te.rep.EnvID), te.sdkDataJSON(), 0600)
 			h.Write(fileData)
 		}
 		checksum, err := computeEnvironmentsChecksum(dirPath, envIDs)
 		if err != nil {
 			panic(err)
 		}
-		err = ioutil.WriteFile(checksumFilePath(dirPath), checksum, 0600)
+		err = os.WriteFile(checksumFilePath(dirPath), checksum, 0600)
 		if err != nil {
 			panic(err)
 		}
@@ -225,7 +224,7 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 func writeMalformedArchive(filePath string) {
 	_ = os.Remove(filePath)
 	data := []byte("not valid")
-	err := ioutil.WriteFile(filePath, data, 0600)
+	err := os.WriteFile(filePath, data, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -256,7 +255,7 @@ func rehash(dirPath string, envIDs ...config.EnvironmentID) {
 	if err != nil {
 		panic(err)
 	}
-	err = ioutil.WriteFile(checksumFilePath(dirPath), newHash, 0660)
+	err = os.WriteFile(checksumFilePath(dirPath), newHash, 0660)
 	if err != nil {
 		panic(err)
 	}

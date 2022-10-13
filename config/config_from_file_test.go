@@ -1,7 +1,7 @@
 package config
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -181,7 +181,7 @@ LogLevel = "wrong"`,
 
 func testFileWithValidConfig(t *testing.T, tdc testDataValidConfig) {
 	helpers.WithTempFile(func(filename string) {
-		require.NoError(t, ioutil.WriteFile(filename, []byte(tdc.fileContent), 0))
+		require.NoError(t, os.WriteFile(filename, []byte(tdc.fileContent), 0))
 
 		var c Config
 		mockLog := ldlogtest.NewMockLog()
@@ -193,7 +193,7 @@ func testFileWithValidConfig(t *testing.T, tdc testDataValidConfig) {
 
 func testFileWithInvalidConfig(t *testing.T, fileContent string, errMessage string) {
 	helpers.WithTempFile(func(filename string) {
-		require.NoError(t, ioutil.WriteFile(filename, []byte(fileContent), 0))
+		require.NoError(t, os.WriteFile(filename, []byte(fileContent), 0))
 
 		var c Config
 		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())

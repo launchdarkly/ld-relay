@@ -61,7 +61,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	exporterMux := http.NewServeMux()
 	exporterMux.Handle("/metrics", exporter)
 
-	server := &http.Server{
+	server := &http.Server{ //nolint:gosec // known issue sc-168042
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: exporterMux,
 	}

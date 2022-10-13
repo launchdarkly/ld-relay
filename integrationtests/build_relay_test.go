@@ -5,7 +5,6 @@ package integrationtests
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -47,7 +46,7 @@ func getRelayDockerImage(relayTagOrSHA string, loggers ldlog.Loggers) (*docker.I
 
 	// Assume it is the SHA of a Git commit - try to check it out in a temporary directory
 	loggers.Infof("Building Relay Docker image from private tag or branch: %s", relayTagOrSHA)
-	path, err := ioutil.TempDir("", "relay-integration-test-")
+	path, err := os.MkdirTemp("", "relay-integration-test-")
 	if err != nil {
 		return nil, err
 	}
