@@ -31,11 +31,6 @@ workflows:
   workflow:
     jobs:
       - go-test:
-          name: Go latest
-          # This build has a deliberately unpinned version so that if a new Go major version
-          # is released before we have updated the build, we can detect any problems early
-          docker-image: circleci/golang:latest
-      - go-test:
           name: Go 1.19
           docker-image: cimg/go:1.19
           run-lint: true
@@ -85,9 +80,6 @@ workflows:
           branches:
             only: v6
     jobs:
-      - package-build-test:
-          name: package build - Go latest
-          docker-image: circleci/golang:latest
       - package-build-test:
           name: package build - Go 1.19
           docker-image: cimg/go:1.19
