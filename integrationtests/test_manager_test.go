@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -123,7 +123,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
-	relaySharedDir, err := ioutil.TempDir("", "relay-i9ntest-")
+	relaySharedDir, err := os.MkdirTemp("", "relay-i9ntest-")
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +274,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(api.Stat
 			}
 			return false
 		}
-		outData, err := ioutil.ReadAll(resp.Body)
+		outData, err := io.ReadAll(resp.Body)
 		output := string(outData)
 		if output != lastOutput {
 			if !m.params.HTTPLogging {
@@ -342,7 +342,7 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 	require.NoError(t, err)
 	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
 		defer resp.Body.Close()
-		data, err := ioutil.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		valuesObject := ldvalue.Parse(data)
 		if !valuesObject.Equal(ldvalue.Null()) {

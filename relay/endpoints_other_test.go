@@ -2,7 +2,7 @@ package relay
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +24,7 @@ func TestEndpointsJSClientGoals(t *testing.T) {
 
 	fakeGoalsEndpoint := mux.NewRouter()
 	fakeGoalsEndpoint.HandleFunc("/sdk/goals/{envId}", func(w http.ResponseWriter, req *http.Request) {
-		_, _ = ioutil.ReadAll(req.Body)
+		_, _ = io.ReadAll(req.Body)
 		if mux.Vars(req)["envId"] != string(envID) {
 			w.WriteHeader(http.StatusNotFound)
 			return

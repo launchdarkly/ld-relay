@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"sort"
 	"strconv"
@@ -19,7 +18,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
-	"github.com/launchdarkly/go-jsonstream/v2/jwriter"
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
@@ -44,7 +43,7 @@ func getClientSideContextProperties(
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return ldContext, false
 		}
-		body, _ := ioutil.ReadAll(req.Body)
+		body, _ := io.ReadAll(req.Body)
 		contextDecodeErr = json.Unmarshal(body, &ldContext)
 	} else {
 		base64Context := mux.Vars(req)["context"] // this assumes we have used {context} as a placeholder in the route
@@ -119,7 +118,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	respData := serializeFlagsAsMap(data)
 	// Compute an overall Etag for the data set by hashing flag keys and versions
-	hash := sha1.New()                                                         // nolint:gas // just used for insecure hashing
+	hash := sha1.New()                                                         //nolint:gas // just used for insecure hashing
 	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
 	for _, item := range data {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))

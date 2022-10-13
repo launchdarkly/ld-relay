@@ -502,7 +502,7 @@ func (r *Relay) waitForAllClients(timeout time.Duration) error {
 	case failed := <-resultCh:
 		if failed {
 			if r.config.Main.ExitOnError {
-				os.Exit(1)
+				os.Exit(1) //nolint:gocritic // yes, we know "defer timer.Stop()" won't execute if we exit the process
 			}
 			return errSomeEnvironmentFailed
 		}

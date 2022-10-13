@@ -1,4 +1,3 @@
-//nolint:golint,stylecheck
 package oshelpers
 
 import (

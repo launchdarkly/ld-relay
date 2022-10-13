@@ -18,14 +18,14 @@ require (
 	github.com/launchdarkly/api-client-go v5.0.3+incompatible
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
-	github.com/launchdarkly/go-jsonstream/v2 v2.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.7
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.5
+	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
+	github.com/launchdarkly/go-sdk-common/v3 v3.0.0-alpha.pub.14
+	github.com/launchdarkly/go-sdk-events/v2 v2.0.0-alpha.pub.8
 	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.0-alpha.4
 	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.0-alpha.4
-	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.4
+	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.8
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.4
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.7
+	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.10
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/pborman/uuid v1.2.0
 	github.com/stretchr/testify v1.7.0
@@ -33,6 +33,11 @@ require (
 	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
+)
+
+require (
+	github.com/launchdarkly/go-test-helpers/v3 v3.0.2 // indirect
+	golang.org/x/exp v0.0.0-20220823124025-807a23277127 // indirect
 )
 
 require (
@@ -49,7 +54,7 @@ require (
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/google/go-cmp v0.5.6 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -89,7 +94,7 @@ require (
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/net v0.0.0-20211209124913-491a49abca63 // indirect; fixes CVE-2021-44716
 	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c // indirect
-	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect; fixes CVE-2022-29526
+	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect; fixes CVE-2022-29526
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/api v0.37.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect

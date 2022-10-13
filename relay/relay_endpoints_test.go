@@ -1,7 +1,7 @@
 package relay
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,7 +39,7 @@ func TestReportFlagEvalFailsallowMethodOptionsHandlerWithUninitializedClientAndS
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
 
-	b, _ := ioutil.ReadAll(resp.Body)
+	b, _ := io.ReadAll(resp.Body)
 
 	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
 }
@@ -54,6 +54,6 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 
-	b, _ := ioutil.ReadAll(resp.Body)
+	b, _ := io.ReadAll(resp.Body)
 	assert.JSONEq(t, st.MakeEvalBody(st.ClientSideFlags, false, false), string(b))
 }

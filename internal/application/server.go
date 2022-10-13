@@ -20,13 +20,13 @@ func StartHTTPServer(
 	tlsMinVersion uint16,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
-	srv := &http.Server{
+	srv := &http.Server{ //nolint:gosec // known issue sc-168042
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: handler,
 	}
 
 	if tlsEnabled && tlsMinVersion != 0 {
-		srv.TLSConfig = &tls.Config{
+		srv.TLSConfig = &tls.Config{ //nolint:gosec // yes, we know we are potentially allowing TLS <1.2 if the customer demanded it.
 			MinVersion: tlsMinVersion,
 		}
 	}
