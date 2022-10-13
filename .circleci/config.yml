@@ -9,7 +9,7 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant
   go-release-version:
     type: string
-    default: "1.17.11"
+    default: "1.19.2"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
@@ -35,16 +35,16 @@ workflows:
           # This build has a deliberately unpinned version so that if a new Go major version
           # is released before we have updated the build, we can detect any problems early
           docker-image: circleci/golang:latest
+      - go-test:
+          name: Go 1.19
+          docker-image: cimg/go:1.19
           run-lint: true
           test-coverage: true
       - go-test:
-          name: Go 1.17
-          docker-image: cimg/go:1.17
-      - go-test:
-          name: Go 1.16
-          docker-image: cimg/go:1.16
+          name: Go 1.18
+          docker-image: cimg/go:1.18
       - benchmarks:
-          docker-image: cimg/go:1.16
+          docker-image: cimg/go:1.19
       - integration-test
       - docker-images-test
 
@@ -88,15 +88,12 @@ workflows:
       - package-build-test:
           name: package build - Go latest
           docker-image: circleci/golang:latest
-          use-go-install: true
       - package-build-test:
-          name: package build - Go 1.17
-          docker-image: cimg/go:1.17
-          use-go-install: true
+          name: package build - Go 1.19
+          docker-image: cimg/go:1.19
       - package-build-test:
-          name: package build - Go 1.16
-          docker-image: cimg/go:1.16
-          use-go-install: true
+          name: package build - Go 1.18
+          docker-image: cimg/go:1.18
 
   daily-security-scan:
     triggers:
@@ -226,30 +223,20 @@ jobs:
           path: /tmp/circle-artifacts
 
   # package-build-test verifies that it's possible to download and build Relay
-  # in a single step from the command line, using either "go get" or "go install"
-  # depending on the Go version. That uses the latest public release of Relay
-  # rather than whatever's in any particular branch, so we don't need to check
-  # out the code as we would in most other CI jobs.
+  # in a single step from the command line, using "go install". It uses the latest
+  # public release of Relay rather than whatever's in any particular branch, so we
+  # don't need to check out the code as we would in most other CI jobs.
   package-build-test:
     parameters:
       docker-image:
         type: string
-      use-go-install:
-        type: boolean
     
     docker:
       - image: <<parameters.docker-image>>
 
     steps:
       - run: go version
-      - when:
-          condition: <<parameters.use-go-install>>
-          steps:
-            - run: go install github.com/launchdarkly/ld-relay/v6@latest
-      - unless:
-          condition: <<parameters.use-go-install>>
-          steps:
-            - run: GO111MODULE=on go get github.com/launchdarkly/ld-relay/v6@latest
+      - run: go install github.com/launchdarkly/ld-relay/v6@latest
       - run:
           name: verify that executable was built
           command: ls -l $GOPATH/bin/ld-relay
