@@ -7,8 +7,6 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-
-	"github.com/aws/aws-sdk-go/aws"
 )
 
 // BigSegmentStore is the interface for interacting with an external big segment store. Each instance
@@ -58,7 +56,7 @@ func DefaultBigSegmentStoreFactory(
 		}
 		return bigSegmentRedis, nil
 	} else if allConfig.DynamoDB.Enabled {
-		return newDynamoDBBigSegmentStore(allConfig.DynamoDB, envConfig, aws.Config{}, loggers)
+		return newDynamoDBBigSegmentStore(allConfig.DynamoDB, envConfig, nil, loggers)
 	}
 	return nil, nil
 }

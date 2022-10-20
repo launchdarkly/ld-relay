@@ -10,13 +10,10 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	consul "github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/assert"
 )
@@ -224,89 +221,11 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 }
 
 func TestConfigureDataStoreDynamoDB(t *testing.T) {
-	table := "my-table"
-
-	t.Run("basic properties - global table name", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-			},
-		}
-		expected := ldcomponents.PersistentDataStore(
-			lddynamodb.DataStore(table),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table)
-	})
-
-	t.Run("basic properties - per-environment table name", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled: true,
-			},
-		}
-		ec := config.EnvConfig{TableName: table}
-		expected := ldcomponents.PersistentDataStore(
-			lddynamodb.DataStore(table),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table)
-	})
-
-	t.Run("prefix", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-			},
-		}
-		ec := config.EnvConfig{Prefix: "abc"}
-		expected := ldcomponents.PersistentDataStore(
-			lddynamodb.DataStore(table).Prefix("abc"),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table, DBPrefix: "abc"}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
-
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB data store: "+table+" with prefix: abc")
-	})
-
-	t.Run("TTL", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-				LocalTTL:  configtypes.NewOptDuration(time.Hour),
-			},
-		}
-		expected := ldcomponents.PersistentDataStore(
-			lddynamodb.DataStore(table),
-		).CacheTime(time.Hour)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBTable: table}
-		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-	})
-
-	t.Run("URL", func(t *testing.T) {
-		url := "http://fake-dynamodb"
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-			},
-		}
-		c.DynamoDB.URL, _ = configtypes.NewOptURLAbsoluteFromString(url)
-		expected := ldcomponents.PersistentDataStore(
-			lddynamodb.DataStore(table).SessionOptions(session.Options{
-				Config: aws.Config{
-					Endpoint: aws.String(url),
-				},
-			}),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
-		expectedInfo := DataStoreEnvironmentInfo{DBType: "dynamodb", DBServer: url, DBTable: table}
-		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-	})
+	// Unfortunately, there's no good way to test the DynamoDB builder property setters, because the
+	// internal configuration object that it creates has some function values inside it-- which makes
+	// equality tests impossible, and there's no way to inspect the fields directly. However, our
+	// unit tests and integration tests that run against a local DynamoDB instance do indirectly verify
+	// that we're setting most of these properties, since otherwise those tests wouldn't work.
 
 	t.Run("error - no table", func(t *testing.T) {
 		c := config.Config{

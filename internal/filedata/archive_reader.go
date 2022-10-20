@@ -20,6 +20,8 @@ import (
 
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
 )
 
 const (
@@ -208,8 +210,11 @@ func readTar(r io.Reader, targetDir string) error {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		outPath := filepath.Join(targetDir, h.Name)                                      //nolint:gosec // known issue sc-172904
-		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode)) //nolint:gosec // known issue sc-172904
+		outPath, err := securejoin.SecureJoin(targetDir, h.Name)
+		if err != nil {
+			return err // COVERAGE: can't cause this condition in unit tests
+		}
+		outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode)) //nolint:gosec // yes, we know the file path is a variable
 		if err != nil {
 			return err // COVERAGE: can't cause this condition in unit tests
 		}
