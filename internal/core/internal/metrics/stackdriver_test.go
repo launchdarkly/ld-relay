@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -84,7 +83,7 @@ func TestStackdriverExporterType(t *testing.T) {
 func withDefaultGoogleApplicationCredentials(data []byte, action func()) {
 	varName := "GOOGLE_APPLICATION_CREDENTIALS"
 	helpers.WithTempFile(func(filename string) {
-		ioutil.WriteFile(filename, data, 0644)
+		os.WriteFile(filename, data, 0644)
 		oldVar := os.Getenv(varName)
 		defer os.Setenv(varName, oldVar)
 		os.Setenv(varName, filename)

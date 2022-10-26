@@ -1,5 +1,5 @@
 
-GOLANGCI_LINT_VERSION=v1.27.0
+GOLANGCI_LINT_VERSION=v1.48.0
 
 LINTER=./bin/golangci-lint
 LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)
@@ -32,7 +32,7 @@ test:
 	go test -race -v $(OPTIONAL_TAGS_PARAM) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
-	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go get -u github.com/launchdarkly-labs/go-coverage-enforcer; fi
+	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go install github.com/launchdarkly-labs/go-coverage-enforcer@latest; fi
 	$(GOPATH)/bin/go-coverage-enforcer $(COVERAGE_ENFORCER_FLAGS) -outprofile $(COVERAGE_PROFILE_FILTERED) $(COVERAGE_PROFILE_RAW) || true
 	@# added || true because we don't currently want go-coverage-enforcer to stop the build due to coverage gaps
 	go tool cover -html $(COVERAGE_PROFILE_FILTERED) -o $(COVERAGE_PROFILE_FILTERED_HTML)

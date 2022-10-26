@@ -9,7 +9,7 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant
   go-release-version:
     type: string
-    default: "1.17.11"
+    default: "1.19.2"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
@@ -35,8 +35,14 @@ workflows:
           # This build has a deliberately unpinned version so that if a new Go major version
           # is released before we have updated the build, we can detect any problems early
           docker-image: circleci/golang:latest
+      - go-test:
+          name: Go 1.19
+          docker-image: cimg/go:1.19
           run-lint: true
           test-coverage: true
+      - go-test:
+          name: Go 1.18
+          docker-image: cimg/go:1.18
       - go-test:
           name: Go 1.17
           docker-image: cimg/go:1.17
@@ -135,7 +141,7 @@ jobs:
       - run: go version && go env
       - run:
           name: install go-junit-report
-          command: go install github.com/jstemmer/go-junit-report@v0.9.1
+          command: go install github.com/jstemmer/go-junit-report/v2@v2.0.0
       - when:
           condition: <<parameters.run-lint>>
           steps:

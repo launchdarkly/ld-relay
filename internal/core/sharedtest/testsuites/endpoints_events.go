@@ -3,7 +3,7 @@ package testsuites
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -56,7 +56,7 @@ func relayEventsTest(t *testing.T, config c.Config, constructor TestConstructor,
 	eventsCh := make(chan publishedEvent, 10)
 
 	eventsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		data, _ := ioutil.ReadAll(req.Body)
+		data, _ := io.ReadAll(req.Body)
 		eventsCh <- publishedEvent{url: req.URL.String(), data: data, authKey: req.Header.Get("Authorization")}
 		w.WriteHeader(http.StatusAccepted)
 	}))

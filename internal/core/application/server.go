@@ -20,13 +20,15 @@ func StartHTTPServer(
 	tlsMinVersion uint16,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
-	srv := &http.Server{
+	srv := &http.Server{ //nolint:gosec // see comment on next line
+		// The linter helpfully points out that setting ReadHeaderTimeout is advisable to avoid certain
+		// DDOS attacks. We will be doing this, but in a separate changeset.
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: handler,
 	}
 
 	if tlsEnabled && tlsMinVersion != 0 {
-		srv.TLSConfig = &tls.Config{
+		srv.TLSConfig = &tls.Config{ //nolint:gosec // linter doesn't want to see MinVersion being set to a variable
 			MinVersion: tlsMinVersion,
 		}
 	}

@@ -2,9 +2,9 @@ package httpconfig
 
 import (
 	"crypto/x509"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
@@ -72,7 +72,7 @@ func TestSimpleProxyWithCACert(t *testing.T) {
 
 	httphelpers.WithSelfSignedServer(handler, func(server *httptest.Server, certData []byte, certPool *x509.CertPool) {
 		helpers.WithTempFile(func(certFilePath string) {
-			require.NoError(t, ioutil.WriteFile(certFilePath, certData, 0))
+			require.NoError(t, os.WriteFile(certFilePath, certData, 0))
 			proxyConfig := config.ProxyConfig{}
 			proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 			proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})

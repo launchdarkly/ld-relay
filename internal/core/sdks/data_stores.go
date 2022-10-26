@@ -1,6 +1,7 @@
 package sdks
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -8,14 +9,15 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/util"
 
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul"
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v2"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo"
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
 	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	redigo "github.com/gomodule/redigo/redis"
 	consul "github.com/hashicorp/consul/api"
 )
@@ -197,8 +199,16 @@ func makeDynamoDBDataStoreBuilder(
 	}
 	builder := lddynamodb.DataStore(tableName).
 		Prefix(prefix)
-	if endpoint != nil {
-		builder.SessionOptions(session.Options{Config: aws.Config{Endpoint: endpoint}})
+	config, err := awsconfig.LoadDefaultConfig(context.Background())
+	if err != nil {
+		return nil, "", err
 	}
+	var options []func(*dynamodb.Options)
+	if endpoint != nil {
+		options = append(options, func(o *dynamodb.Options) {
+			o.EndpointResolver = dynamodb.EndpointResolverFromURL(*endpoint)
+		})
+	}
+	builder.ClientConfig(config, options...)
 	return builder, tableName, nil
 }
