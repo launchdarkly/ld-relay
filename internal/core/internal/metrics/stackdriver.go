@@ -5,7 +5,7 @@ import (
 
 	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 
-	"contrib.go.opencensus.io/exporter/stackdriver"
+	stackdriver "github.com/launchdarkly/opencensus-go-exporter-stackdriver"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
 )
