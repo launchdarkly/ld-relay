@@ -6,6 +6,9 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
 )
 
 // ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay
@@ -16,15 +19,15 @@ func ConfigureBigSegments(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 	loggers ldlog.Loggers,
-) (subsystems.BigSegmentsConfigurationFactory, error) {
-	var storeFactory subsystems.BigSegmentStoreFactory
+) (subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration], error) {
+	var storeFactory subsystems.ComponentConfigurer[subsystems.BigSegmentStore]
 
 	if allConfig.Redis.URL.IsDefined() {
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
+		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
 		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redisURL, envConfig.Prefix)
 		storeFactory = redisBuilder
 	} else if allConfig.DynamoDB.Enabled {
-		dynamoDBBuilder, tableName, err := makeDynamoDBDataStoreBuilder(allConfig, envConfig)
+		dynamoDBBuilder, tableName, err := makeDynamoDBDataStoreBuilder(lddynamodb.BigSegmentStore, allConfig, envConfig)
 		if err != nil {
 			return nil, err
 		}

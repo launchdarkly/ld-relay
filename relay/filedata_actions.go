@@ -26,20 +26,20 @@ const (
 // first time and also if environments have changed due to a file update.
 type relayFileDataActions struct {
 	r          *Relay
-	envUpdates map[config.EnvironmentID]subsystems.DataSourceUpdates
+	envUpdates map[config.EnvironmentID]subsystems.DataSourceUpdateSink
 }
 
 type dataSourceFactoryToCaptureUpdates struct {
-	updatesCh chan<- subsystems.DataSourceUpdates
+	updatesCh chan<- subsystems.DataSourceUpdateSink
 }
 
 type stubDataSourceToCaptureUpdates struct {
-	dataSourceUpdates subsystems.DataSourceUpdates
-	updatesCh         chan<- subsystems.DataSourceUpdates
+	dataSourceUpdates subsystems.DataSourceUpdateSink
+	updatesCh         chan<- subsystems.DataSourceUpdateSink
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
-	updatesCh := make(chan subsystems.DataSourceUpdates)
+	updatesCh := make(chan subsystems.DataSourceUpdateSink)
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
 		config.DataSource = dataSourceFactoryToCaptureUpdates{updatesCh}
@@ -55,7 +55,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
-			a.envUpdates = make(map[config.EnvironmentID]subsystems.DataSourceUpdates)
+			a.envUpdates = make(map[config.EnvironmentID]subsystems.DataSourceUpdateSink)
 		}
 		a.envUpdates[ae.Params.EnvID] = updates
 		updates.Init(ae.SDKData)
@@ -99,11 +99,10 @@ func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
 	}
 }
 
-func (d dataSourceFactoryToCaptureUpdates) CreateDataSource(
+func (d dataSourceFactoryToCaptureUpdates) Build(
 	ctx subsystems.ClientContext,
-	updates subsystems.DataSourceUpdates,
 ) (subsystems.DataSource, error) {
-	return stubDataSourceToCaptureUpdates{updates, d.updatesCh}, nil
+	return stubDataSourceToCaptureUpdates{ctx.GetDataSourceUpdateSink(), d.updatesCh}, nil
 }
 
 func (s stubDataSourceToCaptureUpdates) Close() error {

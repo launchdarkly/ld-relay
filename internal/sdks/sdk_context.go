@@ -14,10 +14,10 @@ func NewSimpleClientContext(sdkKey string, sdkConfig ld.Config) subsystems.Clien
 	if sdkConfig.HTTP == nil {
 		sdkConfig.HTTP = ldcomponents.HTTPConfiguration()
 	}
-	ret.HTTP, _ = sdkConfig.HTTP.CreateHTTPConfiguration(ret)
+	ret.HTTP, _ = sdkConfig.HTTP.Build(ret)
 	if sdkConfig.Logging == nil {
 		sdkConfig.Logging = ldcomponents.Logging()
 	}
-	ret.Logging = sdkConfig.Logging.CreateLoggingConfiguration(ret)
+	ret.Logging = sdkConfig.Logging.Build(ret)
 	return ret
 }

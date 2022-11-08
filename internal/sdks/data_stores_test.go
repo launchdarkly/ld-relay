@@ -22,9 +22,15 @@ import (
 // they verify that the data store builder that will be used for the SDK has been configured correctly based
 // on the Relay configuration.
 
+// Unfortunately, there's no good way to test the Redis or DynamoDB builder property setters, because
+// the internal configuration objects that they create have some function values inside them-- which
+// makes equality tests impossible, and there's no way to inspect the fields directly. However, our
+// unit tests and integration tests that run against a local Redis/DynamoDB instance do indirectly
+// verify that we're setting most of these properties, since otherwise those tests wouldn't work.
+
 func assertFactoryConfigured(
 	t *testing.T,
-	expected subsystems.DataStoreFactory,
+	expected subsystems.ComponentConfigurer[subsystems.DataStore],
 	expectedInfo DataStoreEnvironmentInfo,
 	c config.Config,
 	ec config.EnvConfig,
@@ -32,7 +38,9 @@ func assertFactoryConfigured(
 	mockLog := ldlogtest.NewMockLog()
 	factory, info, err := ConfigureDataStore(c, ec, mockLog.Loggers)
 	assert.NoError(t, err)
-	assert.Equal(t, expected, factory)
+	if expected != nil {
+		assert.Equal(t, expected, factory)
+	}
 	assert.Equal(t, expectedInfo, info)
 	return mockLog
 }
@@ -53,11 +61,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 				URL: optRedisURL,
 			},
 		}
-		expected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(redisURL),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL)
 	})
 
@@ -66,11 +71,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		redactedURL := "redis://username:xxxxx@redishost:3000"
 		var c config.Config
 		c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(urlWithPassword)
-		expected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(urlWithPassword),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redactedURL, DBPrefix: ldredis.DefaultPrefix}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redactedURL)
 	})
 
@@ -81,11 +83,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 			},
 		}
 		ec := config.EnvConfig{Prefix: "abc"}
-		expected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(redisURL).Prefix("abc"),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: "abc"}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
+		log := assertFactoryConfigured(t, nil, expectedInfo, c, ec)
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL+" with prefix: abc")
 	})
 
@@ -96,11 +95,8 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 				LocalTTL: configtypes.NewOptDuration(time.Hour),
 			},
 		}
-		expected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(redisURL),
-		).CacheTime(time.Hour)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
-		assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
 	})
 
 	t.Run("TLS", func(t *testing.T) {
@@ -110,31 +106,9 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 				TLS: true,
 			},
 		}
-		expected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(redisSecureURL),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisSecureURL, DBPrefix: ldredis.DefaultPrefix}
-		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
+		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisSecureURL)
-	})
-
-	t.Run("Password", func(t *testing.T) {
-		c := config.Config{
-			Redis: config.RedisConfig{
-				URL:      optRedisURL,
-				Password: "friend",
-			},
-		}
-		// We won't be able to compare the data store builder for equality, because the password parameter is
-		// implemented internally as a redigo *function* value. So instead we'll test for *not* being equal to
-		// what the builder would look like without the password.
-		notExpected := ldcomponents.PersistentDataStore(
-			ldredis.DataStore().URL(redisURL),
-		).CacheTime(config.DefaultDatabaseCacheTTL)
-
-		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
-		assert.NoError(t, err)
-		assert.NotEqual(t, notExpected, factory)
 	})
 }
 
@@ -221,12 +195,6 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 }
 
 func TestConfigureDataStoreDynamoDB(t *testing.T) {
-	// Unfortunately, there's no good way to test the DynamoDB builder property setters, because the
-	// internal configuration object that it creates has some function values inside it-- which makes
-	// equality tests impossible, and there's no way to inspect the fields directly. However, our
-	// unit tests and integration tests that run against a local DynamoDB instance do indirectly verify
-	// that we're setting most of these properties, since otherwise those tests wouldn't work.
-
 	t.Run("error - no table", func(t *testing.T) {
 		c := config.Config{
 			DynamoDB: config.DynamoDBConfig{

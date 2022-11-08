@@ -58,14 +58,14 @@ type EnvContextImplParams struct {
 	EnvConfig                     config.EnvConfig
 	AllConfig                     config.Config
 	ClientFactory                 sdks.ClientFactoryFunc
-	DataStoreFactory              subsystems.DataStoreFactory
+	DataStoreFactory              subsystems.ComponentConfigurer[subsystems.DataStore]
 	DataStoreInfo                 sdks.DataStoreEnvironmentInfo
 	StreamProviders               []streams.StreamProvider
 	JSClientContext               JSClientContext
 	MetricsManager                *metrics.Manager
 	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
 	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
-	SDKBigSegmentsConfigFactory   subsystems.BigSegmentsConfigurationFactory // set only in tests
+	SDKBigSegmentsConfigFactory   subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
 	UserAgent                     string
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
@@ -335,7 +335,7 @@ func NewEnvContext(
 				return nil, err
 			}
 		}
-		bigSegConfig, err := configFactory.CreateBigSegmentsConfiguration(
+		bigSegConfig, err := configFactory.Build(
 			sdks.NewSimpleClientContext(string(envConfig.SDKKey), envContext.sdkConfig))
 		if err != nil {
 			return nil, err
@@ -377,7 +377,12 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// environment.
 		store := c.storeAdapter.GetStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		var evalOptions []ldeval.EvaluatorOption
+		evalOptions := []ldeval.EvaluatorOption{
+			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
+			// are sending old-style user data with the "secondary" attribute. This option doesn't affect
+			// evaluations done for newer client-side SDKs that send contexts.
+			ldeval.EvaluatorOptionEnableSecondaryKey(true),
+		}
 		if c.sdkBigSegments != nil {
 			evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
 		}

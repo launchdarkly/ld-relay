@@ -26,7 +26,7 @@ func NewTestEnvContextWithClientFactory(
 ) relayenv.EnvContext {
 	dataStoreFactory := ldcomponents.InMemoryDataStore()
 	if store != nil {
-		dataStoreFactory = sharedtest.ExistingDataStoreFactory{Instance: store}
+		dataStoreFactory = sharedtest.ExistingInstance(store)
 	}
 	readyCh := make(chan relayenv.EnvContext)
 	c, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{

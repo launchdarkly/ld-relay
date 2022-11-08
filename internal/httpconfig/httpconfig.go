@@ -79,7 +79,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey config.SDKCredential,
 
 	var err error
 	ret.SDKHTTPConfigFactory = configBuilder
-	ret.SDKHTTPConfig, err = configBuilder.CreateHTTPConfiguration(subsystems.BasicClientContext{SDKKey: authKeyStr})
+	ret.SDKHTTPConfig, err = configBuilder.Build(subsystems.BasicClientContext{SDKKey: authKeyStr})
 	return ret, err
 }
 

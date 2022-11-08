@@ -26,7 +26,7 @@ import (
 // puts a reference to that instance inside itself where we can see it.
 type SSERelayDataStoreAdapter struct {
 	store          subsystems.DataStore
-	wrappedFactory subsystems.DataStoreFactory
+	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore]
 	updates        streams.EnvStreamUpdates
 	mu             sync.RWMutex
 }
@@ -57,7 +57,7 @@ func (a *SSERelayDataStoreAdapter) GetUpdates() streams.EnvStreamUpdates {
 
 // NewSSERelayDataStoreAdapter creates a new instance where the store has not yet been created.
 func NewSSERelayDataStoreAdapter(
-	wrappedFactory subsystems.DataStoreFactory,
+	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore],
 	updates streams.EnvStreamUpdates,
 ) *SSERelayDataStoreAdapter {
 	return &SSERelayDataStoreAdapter{
@@ -67,12 +67,11 @@ func NewSSERelayDataStoreAdapter(
 }
 
 // CreateDataStore is called by the SDK when the LDClient is being created.
-func (a *SSERelayDataStoreAdapter) CreateDataStore(
+func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
-	dataStoreUpdates subsystems.DataStoreUpdates,
 ) (subsystems.DataStore, error) {
 	var sw *streamUpdatesStoreWrapper
-	wrappedStore, err := a.wrappedFactory.CreateDataStore(context, dataStoreUpdates)
+	wrappedStore, err := a.wrappedFactory.Build(context)
 	if err != nil {
 		return nil, err // this will cause client initialization to fail immediately
 	}

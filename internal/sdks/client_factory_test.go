@@ -50,7 +50,7 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 		// For initialization timeout errors, the SDK *does* return a client along with the error -
 		// the test verifies that our wrapper logic preserves this
 		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
-			config.DataSource = sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatNeverStarts{}}
+			config.DataSource = sharedtest.ExistingInstance(sharedtest.DataSourceThatNeverStarts())
 			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
@@ -63,7 +63,7 @@ func TestClientFactoryFromLDClientFactory(t *testing.T) {
 		// For conditions where the data source did not successfully start but the configuration was valid, the
 		// SDK *does* return a client along with the error - the test verifies that our wrapper logic preserves this
 		factory := ClientFactoryFromLDClientFactory(func(sdkKey string, config ld.Config, timeout time.Duration) (*ld.LDClient, error) {
-			config.DataSource = sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatStartsWithoutInitializing{}}
+			config.DataSource = sharedtest.ExistingInstance(sharedtest.DataSourceThatStartsWithoutInitializing())
 			return ld.MakeCustomClient(string(sdkKey), config, timeout)
 		})
 		require.NotNil(t, factory)
@@ -95,7 +95,7 @@ func TestDefaultClientFactory(t *testing.T) {
 		// See TestClientFactoryFromLDClientFactory for the rationale for this test.
 		// We can't test the timeout case because currently the timeout is hard-coded to 10 seconds.
 		config := ld.Config{
-			DataSource: sharedtest.ExistingDataSourceFactory{Instance: sharedtest.DataSourceThatStartsWithoutInitializing{}},
+			DataSource: sharedtest.ExistingInstance(sharedtest.DataSourceThatStartsWithoutInitializing()),
 			Logging:    ldcomponents.NoLogging(),
 		}
 		client, err := DefaultClientFactory()("sdk-key", config, time.Second)
@@ -134,15 +134,15 @@ func TestDataStoreStatusTracking(t *testing.T) {
 }
 
 type fakeStore struct {
-	updates subsystems.DataStoreUpdates
+	updates subsystems.DataStoreUpdateSink
 }
 
 type fakeStoreFactory struct {
 	instance *fakeStore
 }
 
-func (f fakeStoreFactory) CreateDataStore(ctx subsystems.ClientContext, updates subsystems.DataStoreUpdates) (subsystems.DataStore, error) {
-	f.instance.updates = updates
+func (f fakeStoreFactory) Build(ctx subsystems.ClientContext) (subsystems.DataStore, error) {
+	f.instance.updates = ctx.GetDataStoreUpdateSink()
 	return f.instance, nil
 }
 
