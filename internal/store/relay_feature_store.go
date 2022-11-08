@@ -66,7 +66,7 @@ func NewSSERelayDataStoreAdapter(
 	}
 }
 
-// CreateDataStore is called by the SDK when the LDClient is being created.
+// Build is called by the SDK when the LDClient is being created.
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
