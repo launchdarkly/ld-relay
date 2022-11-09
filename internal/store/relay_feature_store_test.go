@@ -31,7 +31,7 @@ func TestStoreAdapterLazilyCreatesStore(t *testing.T) {
 
 	context := subsystems.BasicClientContext{}
 
-	created, err := adapter.CreateDataStore(context, nil)
+	created, err := adapter.Build(context)
 	require.NoError(t, err)
 	require.IsType(t, &streamUpdatesStoreWrapper{}, created)
 	assert.Equal(t, context, factory.receivedContext)
@@ -50,7 +50,7 @@ func TestStoreAdapterReturnsErrorIfStoreCannotBeCreated(t *testing.T) {
 
 	adapter := NewSSERelayDataStoreAdapter(factory, updates)
 	context := subsystems.BasicClientContext{}
-	created, err := adapter.CreateDataStore(context, nil)
+	created, err := adapter.Build(context)
 
 	assert.Equal(t, fakeError, err)
 	assert.Nil(t, created)

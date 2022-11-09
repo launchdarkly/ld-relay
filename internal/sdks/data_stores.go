@@ -53,11 +53,11 @@ func ConfigureDataStore(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
 	loggers ldlog.Loggers,
-) (subsystems.DataStoreFactory, DataStoreEnvironmentInfo, error) {
+) (subsystems.ComponentConfigurer[subsystems.DataStore], DataStoreEnvironmentInfo, error) {
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(allConfig, envConfig)
+		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
 		redactedURL := util.RedactURL(redisURL)
 
 		loggers.Infof("Using Redis data store: %s with prefix: %s", redactedURL, envConfig.Prefix)
@@ -102,7 +102,7 @@ func ConfigureDataStore(
 	}
 
 	if allConfig.DynamoDB.Enabled {
-		builder, tableName, err := makeDynamoDBDataStoreBuilder(allConfig, envConfig)
+		builder, tableName, err := makeDynamoDBDataStoreBuilder(lddynamodb.DataStore, allConfig, envConfig)
 		if err != nil {
 			return nil, DataStoreEnvironmentInfo{}, err
 		}
@@ -147,10 +147,11 @@ func GetRedisBasicProperties(
 	return
 }
 
-func makeRedisDataStoreBuilder(
+func makeRedisDataStoreBuilder[T any](
+	constructor func() *ldredis.StoreBuilder[T],
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (builder *ldredis.DataStoreBuilder, url string) {
+) (builder *ldredis.StoreBuilder[T], url string) {
 	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
 
 	var dialOptions []redigo.DialOption
@@ -158,7 +159,7 @@ func makeRedisDataStoreBuilder(
 		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
 	}
 
-	b := ldredis.DataStore().
+	b := constructor().
 		URL(redisURL).
 		Prefix(prefix).
 		DialOptions(dialOptions...)
@@ -189,15 +190,16 @@ func GetDynamoDBBasicProperties(
 	return
 }
 
-func makeDynamoDBDataStoreBuilder(
+func makeDynamoDBDataStoreBuilder[T any](
+	constructor func(string) *lddynamodb.StoreBuilder[T],
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (*lddynamodb.DataStoreBuilder, string, error) {
+) (*lddynamodb.StoreBuilder[T], string, error) {
 	endpoint, tableName, prefix := GetDynamoDBBasicProperties(allConfig.DynamoDB, envConfig)
 	if tableName == "" {
 		return nil, "", errDynamoDBWithNoTableName
 	}
-	builder := lddynamodb.DataStore(tableName).
+	builder := constructor(tableName).
 		Prefix(prefix)
 	config, err := awsconfig.LoadDefaultConfig(context.Background())
 	if err != nil {

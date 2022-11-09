@@ -14,19 +14,8 @@ type ReceivedItemUpdate struct {
 	Item ldstoretypes.ItemDescriptor
 }
 
-type ExistingDataStoreFactory struct {
-	Instance subsystems.DataStore
-}
-
-func (f ExistingDataStoreFactory) CreateDataStore(
-	subsystems.ClientContext,
-	subsystems.DataStoreUpdates,
-) (subsystems.DataStore, error) {
-	return f.Instance, nil
-}
-
 func NewInMemoryStore() subsystems.DataStore {
-	store, err := ldcomponents.InMemoryDataStore().CreateDataStore(subsystems.BasicClientContext{}, nil)
+	store, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
 	if err != nil {
 		panic(err)
 	}

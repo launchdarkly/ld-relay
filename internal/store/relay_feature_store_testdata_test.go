@@ -53,7 +53,7 @@ type mockStoreFactory struct {
 	instance             subsystems.DataStore
 	fakeError            error
 	receivedContext      subsystems.ClientContext
-	receivedStoreUpdates subsystems.DataStoreUpdates
+	receivedStoreUpdates subsystems.DataStoreUpdateSink
 }
 
 type mockEnvStreamsUpdates struct {
@@ -102,12 +102,11 @@ func (s *mockStore) Close() error {
 	return s.realStore.Close()
 }
 
-func (f *mockStoreFactory) CreateDataStore(
+func (f *mockStoreFactory) Build(
 	context subsystems.ClientContext,
-	storeUpdates subsystems.DataStoreUpdates,
 ) (subsystems.DataStore, error) {
 	f.receivedContext = context
-	f.receivedStoreUpdates = storeUpdates
+	f.receivedStoreUpdates = context.GetDataStoreUpdateSink()
 	if f.fakeError != nil {
 		return nil, f.fakeError
 	}

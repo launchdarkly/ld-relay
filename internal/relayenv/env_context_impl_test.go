@@ -19,7 +19,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v6/internal/streams"
@@ -490,7 +489,7 @@ func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
 		Loggers: mockLog.Loggers,
 	}, nil)
@@ -530,7 +529,7 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
 		Loggers: mockLog.Loggers,
 	}, nil)
@@ -549,7 +548,7 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 		{
 			Kind: ldstoreimpl.Segments(),
 			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: "s1", Item: sharedtest.SegmentDesc(s1)},
+				{Key: "s1", Item: st.SegmentDesc(s1)},
 			},
 		},
 	}
@@ -562,8 +561,8 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 		{
 			Kind: ldstoreimpl.Segments(),
 			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: "s1", Item: sharedtest.SegmentDesc(s1)},
-				{Key: "s2", Item: sharedtest.SegmentDesc(s2)},
+				{Key: "s1", Item: st.SegmentDesc(s1)},
+				{Key: "s2", Item: st.SegmentDesc(s2)},
 			},
 		},
 	}
@@ -596,7 +595,7 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			mockSDKBigSegmentStoreFactory{&sharedtest.NoOpSDKBigSegmentStore{}},
+			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
 		Loggers: mockLog.Loggers,
 	}, nil)
@@ -611,17 +610,17 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	updates := env.(*envContextImpl).storeAdapter.GetUpdates()
 
 	f1 := ldbuilders.NewFlagBuilder("f1").Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Features(), f1.Key, sharedtest.FlagDesc(f1))
+	updates.SendSingleItemUpdate(ldstoreimpl.Features(), f1.Key, st.FlagDesc(f1))
 
 	assert.False(t, synchronizer.isStarted())
 
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s1.Key, sharedtest.SegmentDesc(s1))
+	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s1.Key, st.SegmentDesc(s1))
 
 	assert.False(t, synchronizer.isStarted())
 
 	s2 := ldbuilders.NewSegmentBuilder("s2").Unbounded(true).Generation(1).Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s2.Key, sharedtest.SegmentDesc(s2))
+	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s2.Key, st.SegmentDesc(s2))
 
 	assert.True(t, synchronizer.isStarted())
 }
@@ -648,7 +647,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
 		ClientFactory:                 testclient.FakeLDClientFactory(true),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			mockSDKBigSegmentStoreFactory{&st.NoOpSDKBigSegmentStore{}},
+			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
 		StreamProviders: []streams.StreamProvider{jsClientStreams},
 		Loggers:         mockLog.Loggers,
@@ -666,15 +665,15 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	_ = env.GetStore().Init(nil)
 
 	req, _ := http.NewRequest("GET", "", nil)
-	sharedtest.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
-		initEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Minute)
+	st.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
+		initEvent := st.ExpectStreamChEvent(t, eventCh, time.Minute)
 		assert.Equal(t, "ping", initEvent.Event())
 
-		sharedtest.ExpectNoStreamChEvent(t, eventCh, time.Millisecond*100)
+		st.ExpectNoStreamChEvent(t, eventCh, time.Millisecond*100)
 
 		synchronizer.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
 
-		pingEvent := sharedtest.ExpectStreamChEvent(t, eventCh, time.Second)
+		pingEvent := st.ExpectStreamChEvent(t, eventCh, time.Second)
 		assert.Equal(t, "ping", pingEvent.Event())
 	})
 }
@@ -744,12 +743,4 @@ func (s *mockBigSegmentSynchronizer) isClosed() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.closed
-}
-
-type mockSDKBigSegmentStoreFactory struct {
-	store subsystems.BigSegmentStore
-}
-
-func (m mockSDKBigSegmentStoreFactory) CreateBigSegmentStore(c subsystems.ClientContext) (subsystems.BigSegmentStore, error) {
-	return m.store, nil
 }

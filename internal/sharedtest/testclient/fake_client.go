@@ -22,8 +22,8 @@ import (
 )
 
 func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
-	store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).CreateDataStore(
-		subsystems.BasicClientContext{SDKKey: string(sdkKey)}, nil)
+	store, _ := sdkConfig.DataStore.(*store.SSERelayDataStoreAdapter).Build(
+		subsystems.BasicClientContext{SDKKey: string(sdkKey)})
 	err := store.Init(sharedtest.AllData)
 	if err != nil {
 		panic(err)
@@ -104,9 +104,8 @@ func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *
 		// We're not creating a real client, but we still need to invoke the DataStoreFactory as the
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
 		if config.DataStore != nil {
-			_, err := config.DataStore.CreateDataStore(
+			_, err := config.DataStore.Build(
 				subsystems.BasicClientContext{},
-				nil,
 			)
 			if err != nil {
 				return nil, err
