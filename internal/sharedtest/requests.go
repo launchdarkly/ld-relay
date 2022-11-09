@@ -12,7 +12,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 
-	"github.com/launchdarkly/eventsource"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/require"
@@ -63,18 +62,6 @@ func DoRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 	}
 
 	return result, body
-}
-
-// ExpectStreamEvent is a shortcut for reading from an SSE stream with a timeout.
-func ExpectStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) eventsource.Event {
-	return helpers.RequireValue(t, stream.Events, timeout, "timed out waiting for stream event")
-}
-
-// ExpectNoStreamEvent causes a test failure if an event is seen on an SSE stream.
-func ExpectNoStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) {
-	if !helpers.AssertNoMoreValues(t, stream.Events, timeout, "received unexpected stream event") {
-		t.FailNow()
-	}
 }
 
 // CallHandlerAndAwaitStatus calls an HTTP handler directly with a request and then blocks
