@@ -18,6 +18,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ld "github.com/launchdarkly/go-server-sdk/v6"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,12 +118,8 @@ func TestRelayAddEnvironment(t *testing.T) {
 	env1, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
 	assert.Equal(t, env, env1)
 
-	select {
-	case env2 := <-resultCh:
-		assert.Equal(t, env, env2)
-	case <-time.After(time.Second):
-		assert.Fail(t, "timed out waiting for new environment to initialize")
-	}
+	env2 := helpers.RequireValue(t, resultCh, time.Second, "timed out waiting for new environment to initialize")
+	assert.Equal(t, env, env2)
 }
 
 func TestRelayAddEnvironmentAfterClosed(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"

@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
 
 func eventShouldCauseStreamRestart(t *testing.T, event httphelpers.SSEEvent) {
@@ -77,12 +78,8 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 	streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
 		p.startStream()
 		<-p.requestsCh // first request
-		select {
-		case <-p.requestsCh: // got expected stream restart
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, expectedWarning)
-		case <-time.After(time.Second):
-			require.Fail(t, "timed out waiting for stream restart")
-		}
+		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, expectedWarning)
 		msg := p.requireMessage()
 		assert.NotNil(t, msg.add)
 		p.requireReceivedAllMessage()

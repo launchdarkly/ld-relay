@@ -39,7 +39,7 @@ require (
 	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.0-alpha.pub.9
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.5
 	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.12
-	github.com/launchdarkly/go-test-helpers/v2 v2.3.2
+	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.0
 	github.com/prometheus/client_golang v1.11.1 // indirect; override to address CVE-2022-21698
@@ -62,7 +62,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.13.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.16.17 // indirect
 	github.com/aws/smithy-go v1.13.2 // indirect
-	github.com/launchdarkly/go-test-helpers/v3 v3.0.2 // indirect
 	golang.org/x/exp v0.0.0-20220823124025-807a23277127 // indirect
 )
 

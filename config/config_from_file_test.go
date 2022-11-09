@@ -12,7 +12,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
 
 func TestConfigFromFileWithValidProperties(t *testing.T) {

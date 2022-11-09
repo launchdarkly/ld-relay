@@ -16,10 +16,10 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type publishedEvent struct {
@@ -34,15 +34,9 @@ type relayEventsTestParams struct {
 }
 
 func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) publishedEvent {
-	timeout := time.After(time.Second * 3)
-	select {
-	case event := <-p.publishedEvents:
-		assert.JSONEq(t, string(data), string(event.data))
-		return event
-	case <-timeout:
-		require.Fail(t, "did not get event within 3 seconds")
-		return publishedEvent{} // won't get here
-	}
+	event := helpers.RequireValue(t, p.publishedEvents, time.Second*3)
+	assert.JSONEq(t, string(data), string(event.data))
+	return event
 }
 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a

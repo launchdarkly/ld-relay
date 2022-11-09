@@ -14,6 +14,7 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
 
 const (
@@ -135,21 +136,17 @@ func (p *testEventsPublisher) expectMetricsEvent(t *testing.T, timeout time.Dura
 }
 
 func (p *testEventsPublisher) maybeReceiveMetricsEvent(t *testing.T, timeout time.Duration) (relayMetricsEvent, bool) {
-	select {
-	case eventData := <-p.events:
+	eventData, ok, _ := helpers.TryReceive(p.events, timeout)
+	if ok {
 		var metricsEvent relayMetricsEvent
 		require.NoError(t, json.Unmarshal(eventData, &metricsEvent))
 		return metricsEvent, true
-	case <-time.After(timeout):
-		return relayMetricsEvent{}, false
 	}
+	return relayMetricsEvent{}, false
 }
 
 func (p *testEventsPublisher) expectNoMetricsEvent(t *testing.T, timeout time.Duration) {
-	select {
-	case <-p.events:
-		require.Fail(t, "received unexpected metrics event")
-	case <-time.After(timeout):
-		break
+	if !helpers.AssertNoMoreValues(t, p.events, timeout, "received unexpected metrics event") {
+		t.FailNow()
 	}
 }

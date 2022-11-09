@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"github.com/launchdarkly/go-test-helpers/v2/ldservices"
+	"github.com/launchdarkly/go-test-helpers/v3/ldservices"
 )
 
 func streamerEndpointHandler() http.Handler {

@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
 
 func NewTestEnvContext(name string, shouldBeInitialized bool, store subsystems.DataStore) relayenv.EnvContext {
@@ -29,7 +30,7 @@ func NewTestEnvContextWithClientFactory(
 		dataStoreFactory = sharedtest.ExistingInstance(store)
 	}
 	readyCh := make(chan relayenv.EnvContext)
-	c, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+	_, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
 		Identifiers:      relayenv.EnvIdentifiers{ConfiguredName: name},
 		ClientFactory:    f,
 		DataStoreFactory: dataStoreFactory,
@@ -39,12 +40,10 @@ func NewTestEnvContextWithClientFactory(
 	if err != nil {
 		panic(err)
 	}
-	select {
-	case <-readyCh:
+	if c, ok, _ := helpers.TryReceive(readyCh, time.Second); ok {
 		return c
-	case <-time.After(time.Second):
-		panic("timed out waiting for client initialization")
 	}
+	panic("timed out waiting for client initialization")
 }
 
 func MakeTestContextWithData() relayenv.EnvContext {

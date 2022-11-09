@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

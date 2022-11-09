@@ -7,7 +7,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

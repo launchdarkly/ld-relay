@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
@@ -19,6 +18,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,21 +90,12 @@ func offlineModeTest(
 }
 
 func (p offlineModeTestParams) awaitClient() testclient.CapturedLDClient {
-	select {
-	case c := <-p.clientsCreatedCh:
-		return c
-	case <-time.After(time.Second):
-		require.Fail(p.t, "timed out waiting for client creation")
-		return testclient.CapturedLDClient{}
-	}
+	return helpers.RequireValue(p.t, p.clientsCreatedCh, time.Second, "timed out waiting for client creation")
 }
 
 func (p offlineModeTestParams) shouldNotCreateClient(timeout time.Duration) {
-	select {
-	case <-p.clientsCreatedCh:
-		require.Fail(p.t, "unexpectedly created client")
-	case <-time.After(timeout):
-		break
+	if !helpers.AssertNoMoreValues(p.t, p.clientsCreatedCh, timeout, "unexpectedly created client") {
+		p.t.FailNow()
 	}
 }
 
@@ -208,8 +200,8 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 			req := sharedtest.BuildRequest("POST", server.URL+"/bulk", []byte(body), headers)
 			p.relay.Handler.ServeHTTP(rr, req)
 
-			require.Equal(t, 202, rr.Result().StatusCode)                        // event post was accepted
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
+			require.Equal(t, 202, rr.Result().StatusCode)                   // event post was accepted
+			helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
 		})
 	})
 }

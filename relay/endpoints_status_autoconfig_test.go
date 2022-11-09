@@ -20,7 +20,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ld "github.com/launchdarkly/go-server-sdk/v6"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

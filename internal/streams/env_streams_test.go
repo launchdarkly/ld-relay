@@ -13,6 +13,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,10 +288,5 @@ func TestHeartbeatsAreStopped(t *testing.T) {
 
 	es.Close()
 
-	select {
-	case _, ok := <-es.heartbeatsDone:
-		assert.False(t, ok, "heartbeatsDone channel should have been closed")
-	case <-time.After(time.Second):
-		assert.Fail(t, "heartbeatsDone channel should have been closed")
-	}
+	helpers.AssertChannelClosed(t, es.heartbeatsDone, time.Second, "heartbeatsDone channel should have been closed")
 }

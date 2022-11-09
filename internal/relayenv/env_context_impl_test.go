@@ -33,7 +33,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,23 +45,11 @@ import (
 const envName = "envname"
 
 func requireEnvReady(t *testing.T, readyCh <-chan EnvContext) EnvContext {
-	select {
-	case e := <-readyCh:
-		return e
-	case <-time.After(time.Second):
-		require.Fail(t, "timed out waiting for environment")
-		return nil
-	}
+	return helpers.RequireValue(t, readyCh, time.Second, "timed out waiting for environment")
 }
 
 func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *testclient.FakeLDClient {
-	select {
-	case c := <-clientCh:
-		return c
-	case <-time.After(time.Second):
-		require.Fail(t, "timed out waiting for client")
-		return nil
-	}
+	return helpers.RequireValue(t, clientCh, time.Second, "timed out waiting for client")
 }
 
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
@@ -255,11 +244,8 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.NotEqual(t, client1, client2)
 	assert.Equal(t, env.GetClient(), client2)
 
-	select {
-	case <-client1.CloseCh:
-		require.Fail(t, "client for deprecated key should not have been closed")
-	case <-time.After(time.Millisecond * 20):
-		break
+	if !helpers.AssertNoMoreValues(t, client1.CloseCh, time.Millisecond*20, "client for deprecated key should not have been closed") {
+		t.FailNow()
 	}
 
 	env.RemoveCredential(envConfig.SDKKey)
@@ -435,7 +421,7 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 		require.Equal(t, 202, rr.Result().StatusCode)
 
 		// Because the event schema version is >= 3, the event data should be forwarded verbatim with no processing.
-		eventPost := st.ExpectTestRequest(t, requestsCh, time.Second)
+		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
 		require.Equal(t, string(st.EnvMain.Config.SDKKey), eventPost.Request.Header.Get("Authorization"))
 		require.Equal(t, string(body), string(eventPost.Body))
 	})
@@ -666,14 +652,16 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 
 	req, _ := http.NewRequest("GET", "", nil)
 	st.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
-		initEvent := st.ExpectStreamChEvent(t, eventCh, time.Minute)
+		initEvent := helpers.RequireValue(t, eventCh, time.Minute)
 		assert.Equal(t, "ping", initEvent.Event())
 
-		st.ExpectNoStreamChEvent(t, eventCh, time.Millisecond*100)
+		if !helpers.AssertNoMoreValues(t, eventCh, time.Millisecond*100) {
+			t.FailNow()
+		}
 
 		synchronizer.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
 
-		pingEvent := st.ExpectStreamChEvent(t, eventCh, time.Second)
+		pingEvent := helpers.RequireValue(t, eventCh, time.Second)
 		assert.Equal(t, "ping", pingEvent.Event())
 	})
 }

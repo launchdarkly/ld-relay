@@ -5,13 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -49,7 +51,7 @@ func verifyEventVerbatimRelay(t *testing.T, p autoConfTestParams, url string, au
 	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
-	gotReq := st.ExpectTestRequest(t, p.eventRequestsCh, time.Second*5)
+	gotReq := helpers.RequireValue(t, p.eventRequestsCh, time.Second*5)
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
 }
 
@@ -64,7 +66,7 @@ func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string,
 	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
-	gotReq := st.ExpectTestRequest(t, p.eventRequestsCh, time.Second*5)
+	gotReq := helpers.RequireValue(t, p.eventRequestsCh, time.Second*5)
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
 	eventsValue := ldvalue.Parse(gotReq.Body)
 	assert.Equal(p.t, "summary", eventsValue.GetByIndex(eventsValue.Count()-1).GetByKey("kind").StringValue())
@@ -112,11 +114,8 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
 		assert.Equal(t, []config.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
 
-		select {
-		case <-client1.CloseCh:
-			require.Fail(t, "should not have closed client for deprecated key yet")
-		case <-time.After(time.Millisecond * 300):
-			break
+		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+			t.FailNow()
 		}
 	})
 }
@@ -190,11 +189,8 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 
 		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
 
-		select {
-		case <-client1.CloseCh:
-			break
-		case <-time.After(time.Millisecond * 300):
-			require.Fail(t, "timed out waiting for client with old key to close")
+		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Millisecond*300, "timed out waiting for client with old key to close") {
+			t.FailNow()
 		}
 
 		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
