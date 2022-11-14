@@ -12,7 +12,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
 
-	"github.com/launchdarkly/go-test-helpers/v2/jsonhelpers"
+	"github.com/launchdarkly/go-test-helpers/v3/jsonhelpers"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"

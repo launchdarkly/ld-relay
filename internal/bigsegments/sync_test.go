@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,12 +85,8 @@ func assertStreamRequest(t *testing.T, req httphelpers.HTTPRequestInfo) {
 }
 
 func requirePatch(t *testing.T, s *bigSegmentStoreMock, expectedPatch bigSegmentPatch) {
-	select {
-	case patch := <-s.patchCh:
-		require.Equal(t, expectedPatch, patch)
-	case <-time.After(time.Second):
-		require.Fail(t, "timed out waiting for patch")
-	}
+	patch := helpers.RequireValue(t, s.patchCh, time.Second, "timed out waiting for patch")
+	require.Equal(t, expectedPatch, patch)
 }
 
 func requireNoMorePatches(t *testing.T, s *bigSegmentStoreMock) {
@@ -103,14 +100,10 @@ func requireNoMorePatches(t *testing.T, s *bigSegmentStoreMock) {
 }
 
 func requireUpdates(t *testing.T, ch <-chan UpdatesSummary, expectedKeys []string) {
-	select {
-	case u := <-ch:
-		sort.Strings(u.SegmentKeysUpdated)
-		sort.Strings(expectedKeys)
-		require.Equal(t, expectedKeys, u.SegmentKeysUpdated)
-	case <-time.After(time.Second):
-		require.Fail(t, "timed out waiting for updates")
-	}
+	u := helpers.RequireValue(t, ch, time.Second, "timed out waiting for updates")
+	sort.Strings(u.SegmentKeysUpdated)
+	sort.Strings(expectedKeys)
+	require.Equal(t, expectedKeys, u.SegmentKeysUpdated)
 }
 
 func TestBasicSync(t *testing.T) {
@@ -151,30 +144,34 @@ func TestBasicSync(t *testing.T) {
 				}
 			}() // just ensures that the synchronizer won't be blocked by the channel
 
-			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
 			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
-			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
 
-			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
 			requireNoMorePatches(t, storeMock)
 
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			syncTime := <-storeMock.syncTimeCh
 			assert.True(t, syncTime >= startTime)
 			assert.True(t, syncTime <= ldtime.UnixMillisNow())
 
-			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq1)
 			requirePatch(t, storeMock, patch2)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Applied 1 update",
@@ -227,33 +224,37 @@ func TestSyncSendsUpdates(t *testing.T) {
 
 			updatesCh := segmentSync.SegmentUpdatesCh()
 
-			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, poll1Patch1)
 			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
-			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, poll1Patch1.Version)
 			requirePatch(t, storeMock, poll2Patch1)
 			requirePatch(t, storeMock, poll2Patch2)
 
-			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, poll2Patch2.Version)
 
-			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq4 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq4, poll2Patch2.Version)
 
 			requireNoMorePatches(t, storeMock)
 
 			requireUpdates(t, updatesCh, []string{"segment1", "segment2"})
 
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
-			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq1)
 			requirePatch(t, storeMock, streamPatch)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			requireUpdates(t, updatesCh, []string{"segment2"})
 		})
@@ -302,29 +303,33 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			defer segmentSync.Close()
 			segmentSync.Start()
 
-			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
 			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
-			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
 
-			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
 			requireNoMorePatches(t, storeMock)
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			syncTime := <-storeMock.syncTimeCh
 			assert.True(t, syncTime >= startTime)
 			assert.True(t, syncTime <= ldtime.UnixMillisNow())
 
-			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq1)
 			requirePatch(t, storeMock, patch2)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Applied 1 update",
@@ -374,15 +379,15 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			defer segmentSync.Close()
 			segmentSync.Start()
 
-			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
 			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
-			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
 
-			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
 			requireNoMorePatches(t, storeMock)
@@ -391,22 +396,26 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			assert.True(t, syncTime >= startTime)
 			assert.True(t, syncTime <= ldtime.UnixMillisNow())
 
-			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq1)
 
-			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq4 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq4, patch1.Version)
 
-			streamReq2 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq2 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq2)
 
-			pollReq5 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq5 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq5, patch1.Version)
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			requirePatch(t, storeMock, patch2)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Applied 1 update",
@@ -459,50 +468,56 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			defer segmentSync.Close()
 			segmentSync.Start()
 
-			pollReq1 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
 			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
-			pollReq2 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
 
-			pollReq3 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
 			requireNoMorePatches(t, storeMock)
 
-			sharedtest.ExpectNoTestRequests(t, requestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			syncTime := <-storeMock.syncTimeCh
 			assert.True(t, syncTime >= startTime)
 			assert.True(t, syncTime <= ldtime.UnixMillisNow())
 
-			streamReq1 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq1)
 			requirePatch(t, storeMock, patch2)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			// Now cause stream 1 to close
 			sseControl1.Close()
 
 			// Expect another poll+stream cycle; this time we get patch3 from the poll, patch4 from the stream
-			pollReq4 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq4 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq4, patch2.Version)
 			requirePatch(t, storeMock, patch3)
 
-			pollReq5 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq5 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq5, patch3.Version)
 
-			pollReq6 := sharedtest.ExpectTestRequest(t, requestsCh, time.Second)
+			pollReq6 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq6, patch3.Version)
 
-			streamReq2 := sharedtest.ExpectTestRequest(t, streamRequestsCh, time.Second)
+			streamReq2 := helpers.RequireValue(t, streamRequestsCh, time.Second)
 			assertStreamRequest(t, streamReq2)
 			requirePatch(t, storeMock, patch4)
 
-			sharedtest.ExpectNoTestRequests(t, streamRequestsCh, time.Millisecond*50)
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
 
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Applied 1 update",

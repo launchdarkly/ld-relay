@@ -8,7 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
-	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 )
 
 // Test parameters for an endpoint that we want to test. The "data" parameter is used as the request body if

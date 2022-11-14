@@ -18,7 +18,8 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,7 +65,7 @@ func relayEndToEndTest(
 				behavior.useRealSDKClient = true
 				withStartedRelayCustom(t, config, behavior, func(p relayTestParams) {
 					for _, env := range config.Environment {
-						streamReq := st.ExpectTestRequest(t, requestsCh, time.Second*5)
+						streamReq := helpers.RequireValue(t, requestsCh, time.Second*5)
 						assert.Equal(t, string(env.SDKKey), streamReq.Request.Header.Get("Authorization"))
 					}
 
@@ -115,7 +116,7 @@ func (p relayEndToEndTestParams) expectStreamEvent(testEnv st.TestEnv, kind basi
 	require.Nil(p.t, err)
 	require.NotNil(p.t, stream)
 	defer stream.Close()
-	return st.ExpectStreamEvent(p.t, stream, time.Second*5)
+	return helpers.RequireValue(p.t, stream.Events, time.Second*5, "timed out waiting for stream event")
 }
 
 func (p relayEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv, kind basictypes.StreamKind) {
@@ -123,7 +124,9 @@ func (p relayEndToEndTestParams) expectStreamWithNoEvent(testEnv st.TestEnv, kin
 	require.Nil(p.t, err)
 	require.NotNil(p.t, stream)
 	defer stream.Close()
-	st.ExpectNoStreamEvent(p.t, stream, time.Millisecond*100)
+	if !helpers.AssertNoMoreValues(p.t, stream.Events, time.Millisecond*100, "received unexpected stream event") {
+		p.t.FailNow()
+	}
 }
 
 func (p relayEndToEndTestParams) expectStreamError(testEnv st.TestEnv, kind basictypes.StreamKind, status int) {

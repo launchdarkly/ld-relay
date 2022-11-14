@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 	"github.com/launchdarkly/ld-relay/v6/config"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/require"
 )
@@ -64,58 +64,6 @@ func DoRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 	return result, body
 }
 
-// ExpectTestRequest is a shortcut for reading from an httphelpers request-capturing channel with a timeout.
-func ExpectTestRequest(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, timeout time.Duration) httphelpers.HTTPRequestInfo {
-	select {
-	case r := <-ch:
-		return r
-	case <-time.After(timeout):
-		require.Fail(t, "timed out waiting for request")
-		return httphelpers.HTTPRequestInfo{}
-	}
-}
-
-// ExpectNoTestRequests causes a test failure if an httphelpers request-capturing channel is not empty.
-func ExpectNoTestRequests(t *testing.T, ch <-chan httphelpers.HTTPRequestInfo, timeout time.Duration) {
-	select {
-	case <-ch:
-		require.Fail(t, "received unexpected request")
-	case <-time.After(timeout):
-		break
-	}
-}
-
-// ExpectStreamEvent is a shortcut for reading from an SSE stream with a timeout.
-func ExpectStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) eventsource.Event {
-	return ExpectStreamChEvent(t, stream.Events, timeout)
-}
-
-// ExpectStreamChEvent is a shortcut for reading from an SSE stream channel with a timeout.
-func ExpectStreamChEvent(t *testing.T, ch <-chan eventsource.Event, timeout time.Duration) eventsource.Event {
-	select {
-	case e := <-ch:
-		require.NotNil(t, e)
-		return e
-	case <-time.After(timeout):
-		require.Fail(t, "timed out waiting for stream event")
-		return nil
-	}
-}
-
-// ExpectNoStreamEvent causes a test failure if an event is seen on an SSE stream.
-func ExpectNoStreamEvent(t *testing.T, stream *eventsource.Stream, timeout time.Duration) {
-	ExpectNoStreamChEvent(t, stream.Events, timeout)
-}
-
-// ExpectNoStreamChEvent causes a test failure if an event is seen on an SSE stream channel.
-func ExpectNoStreamChEvent(t *testing.T, ch <-chan eventsource.Event, timeout time.Duration) {
-	select {
-	case <-ch:
-		require.Fail(t, "received unexpected stream event")
-	case <-time.After(timeout):
-	}
-}
-
 // CallHandlerAndAwaitStatus calls an HTTP handler directly with a request and then blocks
 // until the handler has started a response, returning the response status (and cancelling
 // the request). We use this when we don't need to wait for a complete response (or when there's
@@ -150,12 +98,8 @@ func (s *simpleResponseSink) awaitResponseStarted(timeout time.Duration) bool {
 	}
 	ch := s.startedCh
 	s.lock.Unlock()
-	select {
-	case <-ch:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
+	_, ok, _ := helpers.TryReceive(ch, timeout)
+	return ok
 }
 
 func (s *simpleResponseSink) getStatus() int {

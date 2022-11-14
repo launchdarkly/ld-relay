@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -223,15 +224,14 @@ func TestStreamProviderServerSide(t *testing.T) {
 		expectReplayedEvents := func(t *testing.T, eventChannel <-chan eventsource.Event) []eventsource.Event {
 			out := make([]eventsource.Event, 0)
 			for {
-				select {
-				case e, ok := <-eventChannel:
-					if !ok {
-						return out // channel was closed; this is expected after the last event
-					}
-					out = append(out, e)
-				case <-time.After(time.Second):
+				e, ok, closed := helpers.TryReceive(eventChannel, time.Second)
+				if closed {
+					return out // channel was closed; this is expected after the last event
+				}
+				if !ok {
 					require.Fail(t, "timed out waiting for replayed event (channel was not closed)")
 				}
+				out = append(out, e)
 			}
 		}
 

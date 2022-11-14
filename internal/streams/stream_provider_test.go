@@ -9,6 +9,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+
 	"github.com/launchdarkly/eventsource"
 
 	"github.com/stretchr/testify/assert"
@@ -53,39 +55,26 @@ func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential
 		expected := testEvent{event: "put", data: "data"}
 		server.Publish([]string{key}, expected)
 
-		select {
-		case e := <-eventCh:
-			require.NotNil(t, e)
-			assert.Equal(t, expected.Event(), e.Event())
-			assert.Equal(t, expected.Data(), e.Data())
-		case <-time.After(time.Second):
-			assert.Fail(t, "timed out waiting for event")
-		}
+		e := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for event")
+		require.NotNil(t, e)
+		assert.Equal(t, expected.Event(), e.Event())
+		assert.Equal(t, expected.Data(), e.Data())
 	})
 }
 
 func expectEvent(t *testing.T, eventCh <-chan eventsource.Event, expected eventsource.Event) {
-	select {
-	case e := <-eventCh:
-		require.NotNil(t, e)
-		assert.Equal(t, expected.Event(), e.Event())
-		if strings.HasPrefix(e.Data(), "{") {
-			assert.JSONEq(t, expected.Data(), e.Data())
-		} else {
-			assert.Equal(t, expected.Data(), e.Data())
-		}
-	case <-time.After(time.Second):
-		require.Fail(t, "timed out waiting for event")
+	e := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for event")
+	require.NotNil(t, e)
+	assert.Equal(t, expected.Event(), e.Event())
+	if strings.HasPrefix(e.Data(), "{") {
+		assert.JSONEq(t, expected.Data(), e.Data())
+	} else {
+		assert.Equal(t, expected.Data(), e.Data())
 	}
 }
 
 func expectNoEvent(t *testing.T, eventCh <-chan eventsource.Event) {
-	select {
-	case e := <-eventCh:
-		assert.Fail(t, "received unexpected event", "%+v", e)
-	case <-time.After(time.Millisecond * 50):
-		return
-	}
+	helpers.AssertNoMoreValues(t, eventCh, time.Millisecond*50, "received unexpected event")
 }
 
 func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential config.SDKCredential, expected eventsource.Event) {
@@ -140,31 +129,21 @@ func verifyHandlerHeartbeat(
 	sharedtest.WithStreamRequestLines(t, req, handler, func(linesCh <-chan string) {
 	ReadInitialEvent:
 		for {
-			select {
-			case line := <-linesCh:
-				if strings.HasPrefix(line, ":") {
-					assert.Fail(t, "received comment too soon")
-					return
-				}
-				if line == "\n" {
-					break ReadInitialEvent
-				}
-			case <-time.After(time.Second):
-				assert.Fail(t, "timed out waiting for initial event")
+			line := helpers.RequireValue(t, linesCh, time.Second)
+			if strings.HasPrefix(line, ":") {
+				assert.Fail(t, "received comment too soon")
 				return
+			}
+			if line == "\n" {
+				break ReadInitialEvent
 			}
 		}
 
 		esp.SendHeartbeat()
 
-		select {
-		case line := <-linesCh:
-			if !strings.HasPrefix(line, ":") {
-				assert.Fail(t, "received unexpected non-comment data")
-			}
-		case <-time.After(time.Second):
-			assert.Fail(t, "timed out waiting for heartbeat")
-			return
+		line := helpers.RequireValue(t, linesCh, time.Second, "timed out waiting for heartbeat")
+		if !strings.HasPrefix(line, ":") {
+			assert.Fail(t, "received unexpected non-comment data")
 		}
 	})
 }

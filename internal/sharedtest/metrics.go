@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/require"
 	"go.opencensus.io/stats/view"
@@ -117,13 +118,5 @@ func (e *TestMetricsExporter) AwaitData(t *testing.T, timeout time.Duration, log
 }
 
 func (e *TestMetricsExporter) AwaitSpan(t *testing.T, timeout time.Duration) *trace.SpanData {
-	deadline := time.After(timeout)
-	for {
-		select {
-		case s := <-e.spansCh:
-			return s
-		case <-deadline:
-			require.Fail(t, "timed out waiting for metrics data")
-		}
-	}
+	return helpers.RequireValue(t, e.spansCh, timeout, "timed out waiting for metrics data")
 }

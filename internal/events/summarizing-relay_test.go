@@ -13,8 +13,9 @@ import (
 	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func expectSummarizedPayload(t *testing.T, requestsCh <-chan httphelpers.HTTPReq
 }
 
 func expectSummarizedPayloadRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) httphelpers.HTTPRequestInfo {
-	r := st.ExpectTestRequest(t, requestsCh, time.Second)
+	r := helpers.RequireValue(t, requestsCh, time.Second)
 	assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 	assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"))
 	return r

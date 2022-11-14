@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/lduser"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,27 +57,13 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 			require.True(t, inited)
 
 			st.WithStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
-				select {
-				case event := <-eventCh:
-					if event == nil {
-						assert.Fail(t, "stream closed unexpectedly")
-						return
-					}
-				case <-time.After(time.Second * 3):
-					assert.Fail(t, "timed out waiting for initial event")
-					return
-				}
+				_ = helpers.RequireValue(t, eventCh, time.Second*3, "timed out waiting for initial event")
 
 				p.relay.removeEnvironment(env)
 
-				select {
-				case event := <-eventCh:
-					if event != nil {
-						assert.Fail(t, "expected end of stream, got another event")
-					}
-				case <-time.After(time.Second):
-					assert.Fail(t, "timed out waiting for stream to be closed")
-				}
+				// The WithStreamRequest helper adds a nil value at the end of the stream
+				endOfStreamMarker := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for stream to be closed")
+				require.Nil(t, endOfStreamMarker)
 			})
 		})
 	})
@@ -98,33 +85,20 @@ func (s streamEndpointTestParams) assertRequestReceivesEvent(
 	timeToWaitAfterEvent time.Duration,
 ) {
 	resp := st.WithStreamRequest(t, s.request(), handler, func(eventCh <-chan eventsource.Event) {
-		eventTimeout := time.NewTimer(time.Second * 3)
-		defer eventTimeout.Stop()
-		select {
-		case event := <-eventCh:
-			if event == nil {
+		event := helpers.RequireValue(t, eventCh, time.Second*3, "timed out waiting for event")
+		assert.Equal(t, s.expectedEvent, event.Event())
+		if s.expectedData != nil {
+			assert.JSONEq(t, string(s.expectedData), event.Data())
+		}
+		// Now wait a little longer to make sure the stream doesn't close unexpectedly, to verify that
+		// we did not mistakenly enable the max connection time feature.
+		if timeToWaitAfterEvent > 0 {
+			event, _, closed := helpers.TryReceive(eventCh, timeToWaitAfterEvent)
+			if closed {
 				assert.Fail(t, "stream closed unexpectedly")
-				return
+			} else if event != nil {
+				assert.Fail(t, "received unexpected second event")
 			}
-			assert.Equal(t, s.expectedEvent, event.Event())
-			if s.expectedData != nil {
-				assert.JSONEq(t, string(s.expectedData), event.Data())
-			}
-			// Now wait a little longer to make sure the stream doesn't close unexpectedly, to verify that
-			// we did not mistakenly enable the max connection time feature.
-			if timeToWaitAfterEvent > 0 {
-				select {
-				case event := <-eventCh:
-					if event == nil {
-						assert.Fail(t, "stream closed unexpectedly")
-					} else {
-						assert.Fail(t, "received unexpected second event")
-					}
-				case <-time.After(timeToWaitAfterEvent):
-				}
-			}
-		case <-eventTimeout.C:
-			assert.Fail(t, "timed out waiting for event")
 		}
 	})
 	if _, ok := s.credential.(c.EnvironmentID); ok {

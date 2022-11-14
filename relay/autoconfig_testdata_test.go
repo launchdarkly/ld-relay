@@ -8,7 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
 
 const testAutoConfKey = c.AutoConfigKey("test-auto-conf-key")

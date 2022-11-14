@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
@@ -17,8 +18,6 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-
-	"github.com/stretchr/testify/require"
 )
 
 func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
@@ -83,11 +82,8 @@ func (c *FakeLDClient) SetDataSourceStatus(newStatus interfaces.DataSourceStatus
 }
 
 func (c *FakeLDClient) AwaitClose(t *testing.T, timeout time.Duration) {
-	select {
-	case <-c.CloseCh:
-		return
-	case <-time.After(timeout):
-		require.Fail(t, "timed out waiting for SDK client to be closed")
+	if !helpers.AssertChannelClosed(t, c.CloseCh, timeout, "timed out waiting for SDK client to be closed") {
+		t.FailNow()
 	}
 }
 

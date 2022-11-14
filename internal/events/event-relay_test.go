@@ -19,8 +19,9 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	m "github.com/launchdarkly/go-test-helpers/v2/matchers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,7 +171,7 @@ func TestVerbatimEventHandlers(t *testing.T) {
 
 					p.dispatcher.flush()
 
-					r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+					r := helpers.RequireValue(t, p.requestsCh, time.Second)
 					assert.Equal(t, "POST", r.Request.Method)
 					assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 					assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
@@ -202,8 +203,8 @@ func TestVerbatimEventHandlers(t *testing.T) {
 					p.dispatcher.flush()
 
 					received := []httphelpers.HTTPRequestInfo{
-						st.ExpectTestRequest(t, p.requestsCh, time.Second),
-						st.ExpectTestRequest(t, p.requestsCh, time.Second),
+						helpers.RequireValue(t, p.requestsCh, time.Second),
+						helpers.RequireValue(t, p.requestsCh, time.Second),
 					}
 					sort.Slice(received, func(i, j int) bool { return string(received[i].Body) < string(received[j].Body) })
 					for _, r := range received {
@@ -238,7 +239,7 @@ func TestSummarizingEventHandlers(t *testing.T) {
 
 				p.dispatcher.flush()
 
-				r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+				r := helpers.RequireValue(t, p.requestsCh, time.Second)
 				assert.Equal(t, "POST", r.Request.Method)
 				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
@@ -262,7 +263,7 @@ func TestDiagnosticEventForwarding(t *testing.T) {
 				handler(w, req)
 				assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
-				r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+				r := helpers.RequireValue(t, p.requestsCh, time.Second)
 				assert.Equal(t, "POST", r.Request.Method)
 				assert.Equal(t, e.diagnosticPath, r.Request.URL.Path)
 				assert.Equal(t, "fake-auth", r.Request.Header.Get("Authorization"))
@@ -293,7 +294,7 @@ func TestEventDispatcherReplaceCredential(t *testing.T) {
 			assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
 			p.dispatcher.flush()
-			_ = st.ExpectTestRequest(t, p.requestsCh, time.Second)
+			_ = helpers.RequireValue(t, p.requestsCh, time.Second)
 		}
 
 		// Now change both the SDK key and the mobile key (the environment ID can't change)
@@ -314,7 +315,7 @@ func TestEventDispatcherReplaceCredential(t *testing.T) {
 			assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
 			p.dispatcher.flush()
-			r := st.ExpectTestRequest(t, p.requestsCh, time.Second)
+			r := helpers.RequireValue(t, p.requestsCh, time.Second)
 			assert.Equal(t, e.newCredential.GetAuthorizationHeaderValue(), r.Request.Header.Get("Authorization"))
 		}
 	})
@@ -333,7 +334,9 @@ func TestEventHandlersRejectMalformedJSON(t *testing.T) {
 				assert.Equal(t, http.StatusAccepted, w.Result().StatusCode)
 
 				p.dispatcher.flush()
-				st.ExpectNoTestRequests(t, p.requestsCh, time.Millisecond*20)
+				if !helpers.AssertNoMoreValues(t, p.requestsCh, time.Millisecond*20) {
+					t.FailNow()
+				}
 			}
 		}
 	})

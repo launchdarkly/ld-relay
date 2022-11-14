@@ -15,8 +15,8 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,11 +114,7 @@ func TestStartHTTPServerPortAlreadyUsed(t *testing.T) {
 	st.WithListenerForAnyPort(t, func(l net.Listener, port int) {
 		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, ldlog.NewDisabledLoggers())
 		require.NotNil(t, errCh)
-		select {
-		case err := <-errCh:
-			assert.NotNil(t, err)
-		case <-time.After(time.Second):
-			assert.Fail(t, "timed out waiting for error")
-		}
+		err := helpers.RequireValue(t, errCh, time.Second, "timed out waiting for error")
+		assert.NotNil(t, err)
 	})
 }

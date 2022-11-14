@@ -347,7 +347,6 @@ github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.12 h1:ES6o2EkrMjUDvJEK
 github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.12/go.mod h1:N14BvkuLLq7zwoJhEaP6nqUEVmcmLU2EvtfMzYHV7ZU=
 github.com/launchdarkly/go-test-helpers/v2 v2.2.0/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/launchdarkly/go-test-helpers/v2 v2.3.2 h1:WX6qSzt7v8xz6d94nVcoil9ljuLTC/6OzQt0MhWYxsQ=
-github.com/launchdarkly/go-test-helpers/v2 v2.3.2/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/launchdarkly/go-test-helpers/v3 v3.0.2 h1:rh0085g1rVJM5qIukdaQ8z1XTWZztbJ49vRZuveqiuU=
 github.com/launchdarkly/go-test-helpers/v3 v3.0.2/go.mod h1:u2ZvJlc/DDJTFrshWW50tWMZHLVYXofuSHUfTU/eIwM=
 github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2 h1:ojocsFdk2ySSFqIAmtJxOQqF2aQo3q1etd+VTb5V9pA=

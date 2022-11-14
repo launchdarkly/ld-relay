@@ -14,10 +14,10 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,7 +140,7 @@ func verifyEnvironmentSDKData(t *testing.T, te testEnv, sdkData []ldstoretypes.C
 }
 
 func withTestData(fn func(dirPath string), envs ...testEnv) {
-	sharedtest.WithTempDir(func(dirPath string) {
+	helpers.WithTempDir(func(dirPath string) {
 		h := md5.New()
 		var envIDs []config.EnvironmentID
 		for _, te := range envs {
