@@ -3,7 +3,6 @@ package sdks
 import (
 	"testing"
 
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb"
 	"github.com/launchdarkly/ld-relay/v6/config"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -76,43 +75,8 @@ func TestBigSegmentsRedis(t *testing.T) {
 	})
 }
 
-func TestBigSegmentsDynamoDB(t *testing.T) {
-	table := "my-table"
-
-	t.Run("basic properties - global table name", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-			},
-		}
-		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table))
-		log := assertBigSegmentsConfigured(t, expected, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
-	})
-
-	t.Run("basic properties - per-environment table name", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled: true,
-			},
-		}
-		ec := config.EnvConfig{TableName: table}
-		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table))
-		log := assertBigSegmentsConfigured(t, expected, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table)
-	})
-
-	t.Run("prefix", func(t *testing.T) {
-		c := config.Config{
-			DynamoDB: config.DynamoDBConfig{
-				Enabled:   true,
-				TableName: table,
-			},
-		}
-		ec := config.EnvConfig{Prefix: "abc"}
-		expected := ldcomponents.BigSegments(lddynamodb.DataStore(table).Prefix("abc"))
-		log := assertBigSegmentsConfigured(t, expected, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+table+" with prefix: abc")
-	})
-}
+// Unfortunately, there's no good way to test the DynamoDB builder property setters, because the
+// internal configuration object that it creates has some function values inside it-- which makes
+// equality tests impossible, and there's no way to inspect the fields directly. However, our
+// unit tests and integration tests that run against a local DynamoDB instance do indirectly verify
+// that we're setting most of these properties, since otherwise those tests wouldn't work.

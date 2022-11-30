@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.14] - 2022-10-26
+This is a security patch release.
+
+### Fixed:
+- Updated Go runtime version in the Docker image to 1.19.2, to address multiple vulnerability reports in Go 1.17.x and 1.18.x. ([#205](https://github.com/launchdarkly/ld-relay/issues/205))
+- Updated Consul API module version as a workaround for a false-positive report of CVE-2022-40716. ([#205](https://github.com/launchdarkly/ld-relay/issues/205))
+- Removed a transitive dependency on AWS SDK v1, which was causing vulnerability reports for CVE-2020-8911 and CVE-2020-8912; in practice, this functionality was never being used by the Relay Proxy. ([#204](https://github.com/launchdarkly/ld-relay/issues/204))
+- Enforce a minimum TLS version of 1.2 when connecting to a secure Redis instance.
+- In offline mode, added a check to prevent a maliciously crafted archive file from causing file data to be written outside of the directory where the archive is being expanded.
+- Minor code changes to avoid using the deprecated `ioutil` package.
+- CI tests now include Go 1.18 and 1.19.
+
 ## [6.7.13] - 2022-08-12
 ### Fixed:
 - Updated Alpine version in Docker image to 3.16.2 to address a vulnerability warning. ([#201](https://github.com/launchdarkly/ld-relay/issues/201))

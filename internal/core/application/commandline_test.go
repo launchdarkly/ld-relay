@@ -1,7 +1,7 @@
 package application
 
 import (
-	"io/ioutil"
+	"io"
 	"testing"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v2"
@@ -14,13 +14,13 @@ func TestReadOptions(t *testing.T) {
 	appName := "ld-relay"
 
 	t.Run("default config file path", func(t *testing.T) {
-		_, err := ReadOptions([]string{appName}, ioutil.Discard)
+		_, err := ReadOptions([]string{appName}, io.Discard)
 		require.Error(t, err)
 		assert.Equal(t, errConfigFileNotFound(DefaultConfigPath), err)
 	})
 
 	t.Run("allow missing file with default path", func(t *testing.T) {
-		opts, err := ReadOptions([]string{appName, "--allow-missing-file"}, ioutil.Discard)
+		opts, err := ReadOptions([]string{appName, "--allow-missing-file"}, io.Discard)
 		require.NoError(t, err)
 		assert.Equal(t, "", opts.ConfigFile)
 		assert.False(t, opts.UseEnvironment)
@@ -28,7 +28,7 @@ func TestReadOptions(t *testing.T) {
 
 	t.Run("custom config file", func(t *testing.T) {
 		helpers.WithTempFile(func(filename string) {
-			opts, err := ReadOptions([]string{appName, "--config", filename}, ioutil.Discard)
+			opts, err := ReadOptions([]string{appName, "--config", filename}, io.Discard)
 			require.NoError(t, err)
 			assert.Equal(t, filename, opts.ConfigFile)
 			assert.False(t, opts.UseEnvironment)
@@ -37,7 +37,7 @@ func TestReadOptions(t *testing.T) {
 	})
 
 	t.Run("environment only", func(t *testing.T) {
-		opts, err := ReadOptions([]string{appName, "--from-env"}, ioutil.Discard)
+		opts, err := ReadOptions([]string{appName, "--from-env"}, io.Discard)
 		require.NoError(t, err)
 		assert.Equal(t, "", opts.ConfigFile)
 		assert.True(t, opts.UseEnvironment)
@@ -46,7 +46,7 @@ func TestReadOptions(t *testing.T) {
 
 	t.Run("environment plus config file", func(t *testing.T) {
 		helpers.WithTempFile(func(filename string) {
-			opts, err := ReadOptions([]string{appName, "--config", filename, "--from-env"}, ioutil.Discard)
+			opts, err := ReadOptions([]string{appName, "--config", filename, "--from-env"}, io.Discard)
 			require.NoError(t, err)
 			assert.Equal(t, filename, opts.ConfigFile)
 			assert.True(t, opts.UseEnvironment)
@@ -55,7 +55,7 @@ func TestReadOptions(t *testing.T) {
 	})
 
 	t.Run("invalid options", func(t *testing.T) {
-		_, err := ReadOptions([]string{appName, "--unknown"}, ioutil.Discard)
+		_, err := ReadOptions([]string{appName, "--unknown"}, io.Discard)
 		assert.Error(t, err)
 	})
 }

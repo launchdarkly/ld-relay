@@ -20,7 +20,6 @@ linters:
     - godox
     - gofmt
     - goimports
-    - golint
     - gosec
     - gosimple
     - govet
@@ -32,7 +31,6 @@ linters:
     - nolintlint
     - prealloc
     - staticcheck
-    - structcheck
     - stylecheck
     - typecheck
     - unconvert
@@ -56,12 +54,9 @@ issues:
         - bodyclose
         - goconst
         - gochecknoglobals
-        - golint
-    - path: enterprise/ld-relay-enterprise.go  # temporary exclusion because linter is confused by two command-line entry points
+    - path: integrationtests
       linters:
-        - deadcode
-        - golint
-        - unused
+        - stylecheck
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

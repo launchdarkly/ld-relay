@@ -3,7 +3,6 @@ package sharedtest
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,7 +57,7 @@ func DoRequest(req *http.Request, handler http.Handler) (*http.Response, []byte)
 	result := w.Result()
 	var body []byte
 	if result.Body != nil {
-		body, _ = ioutil.ReadAll(result.Body)
+		body, _ = io.ReadAll(result.Body)
 		_ = result.Body.Close()
 	}
 

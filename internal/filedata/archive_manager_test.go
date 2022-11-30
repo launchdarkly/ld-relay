@@ -2,7 +2,6 @@ package filedata
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
@@ -63,7 +62,7 @@ func TestStartWithFileWithOneBadEnvironment(t *testing.T) {
 	archiveManagerTest(t, func(filePath string) {
 		writeArchive(t, filePath, false, func(dirPath string) {
 			badData := []byte("that doesn't look like anything to me")
-			require.NoError(t, ioutil.WriteFile(envMetadataFilePath(dirPath, testEnv1.rep.EnvID), badData, 0660))
+			require.NoError(t, os.WriteFile(envMetadataFilePath(dirPath, testEnv1.rep.EnvID), badData, 0660))
 			rehash(dirPath, testEnv1.rep.EnvID, testEnv2.rep.EnvID)
 		}, testEnv1, testEnv2)
 	}, func(p archiveManagerTestParams) {

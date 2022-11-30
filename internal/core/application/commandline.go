@@ -41,8 +41,9 @@ func (o Options) DescribeConfigSource() string {
 // ReadOptions reads and validates the command-line options.
 //
 // The configuration parameter behavior is as follows:
+//
 // 1. If you specify --config $FILEPATH, it loads that file. Failure to find it or parse it is a fatal error,
-//    unless you also specify --allow-missing-file.
+// unless you also specify --allow-missing-file.
 // 2. If you specify --from-env, it creates a configuration from environment variables as described in README.
 // 3. If you specify both, the file is loaded first, then it applies changes from variables if any.
 // 4. Omitting all options is equivalent to explicitly specifying --config /etc/ld-relay.conf.
