@@ -18,6 +18,6 @@ func NewSimpleClientContext(sdkKey string, sdkConfig ld.Config) subsystems.Clien
 	if sdkConfig.Logging == nil {
 		sdkConfig.Logging = ldcomponents.Logging()
 	}
-	ret.Logging = sdkConfig.Logging.Build(ret)
+	ret.Logging, _ = sdkConfig.Logging.Build(ret)
 	return ret
 }
