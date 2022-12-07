@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

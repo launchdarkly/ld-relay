@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 var (

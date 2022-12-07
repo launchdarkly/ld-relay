@@ -1,37 +1,59 @@
 package relay
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
-	"time"
 
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testsuites"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v6/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
+
+	"github.com/launchdarkly/go-test-helpers/v3/jsonhelpers"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 )
 
-// The tests for standard Relay endpoints are defined in core/coretest, since most of them
-// will also be used for Relay Proxy Enterprise.
-
-func relayTestConstructor(config c.Config, loggers ldlog.Loggers) testsuites.TestParams {
-	r, err := newRelayInternal(config, relayInternalOptions{
-		loggers:       loggers,
-		clientFactory: testclient.CreateDummyClient,
-	})
-	if err != nil {
-		panic(err)
-	}
-	err = r.core.WaitForAllClients(time.Second)
-	if err != nil {
-		panic(err)
-	}
-	return testsuites.TestParams{
-		Core:    r.core,
-		Handler: r.Handler,
-		Closer:  func() { r.Close() },
-	}
+// Shortcut for building a request when we are going to be passing it directly to an endpoint handler, rather than
+// going through the usual routing mechanism, so we must provide the Context and the URL path variables explicitly.
+func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars map[string]string, ctx relayenv.EnvContext) *http.Request {
+	req := st.BuildRequest(verb, "", body, headers)
+	req = mux.SetURLVars(req, vars)
+	req = req.WithContext(middleware.WithEnvContextInfo(req.Context(), middleware.EnvContextInfo{
+		Env: ctx,
+	}))
+	return req
 }
 
-func TestRelayEndpoints(t *testing.T) {
-	testsuites.DoAllCoreEndpointTests(t, relayTestConstructor)
+func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
+	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+
+	b, _ := io.ReadAll(resp.Body)
+
+	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
+}
+
+func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
+	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	b, _ := io.ReadAll(resp.Body)
+	assert.JSONEq(t, st.MakeEvalBody(st.ClientSideFlags, false), string(b))
 }

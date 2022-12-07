@@ -5,13 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/ld-relay/v6/config"
+	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
 )
 
 const (
@@ -32,12 +34,12 @@ func makeEnvWithModifiedMobileKey(e testAutoConfEnv) testAutoConfEnv {
 	return e
 }
 
-func verifyEventProxying(p autoConfTestParams, url string, authKey config.SDKCredential) {
-	verifyEventVerbatimRelay(p, url, authKey)
-	verifyEventSummarizingRelay(p, url, authKey)
+func verifyEventProxying(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
+	verifyEventVerbatimRelay(t, p, url, authKey)
+	verifyEventSummarizingRelay(t, p, url, authKey)
 }
 
-func verifyEventVerbatimRelay(p autoConfTestParams, url string, authKey config.SDKCredential) {
+func verifyEventVerbatimRelay(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
 	body := []byte(`[{"kind":"test"}]`)
 	headers := make(http.Header)
 	headers.Set("X-LaunchDarkly-Event-Schema", "3")
@@ -49,12 +51,12 @@ func verifyEventVerbatimRelay(p autoConfTestParams, url string, authKey config.S
 	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
-	gotReq := <-p.eventRequestsCh
+	gotReq := helpers.RequireValue(t, p.eventRequestsCh, time.Second*5)
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
 }
 
-func verifyEventSummarizingRelay(p autoConfTestParams, url string, authKey config.SDKCredential) {
-	body := []byte(`[{"kind":"feature","timestamp":1000,"key":"flagkey","version":100,"variation":1,"value":"a"}]`)
+func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
+	body := []byte(`[{"kind":"feature","timestamp":1000,"key":"flagkey","version":100,"variation":1,"value":"a","user":{"key":"u"}}]`)
 	headers := make(http.Header)
 	if authKey.GetAuthorizationHeaderValue() != "" {
 		headers.Set("Authorization", authKey.GetAuthorizationHeaderValue())
@@ -64,7 +66,7 @@ func verifyEventSummarizingRelay(p autoConfTestParams, url string, authKey confi
 	resp, _ := st.DoRequest(req, p.relay.Handler)
 	require.Equal(p.t, 202, resp.StatusCode)
 
-	gotReq := <-p.eventRequestsCh
+	gotReq := helpers.RequireValue(t, p.eventRequestsCh, time.Second*5)
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
 	eventsValue := ldvalue.Parse(gotReq.Body)
 	assert.Equal(p.t, "summary", eventsValue.GetByIndex(eventsValue.Count()-1).GetByKey("kind").StringValue())
@@ -87,7 +89,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1.AwaitClose(t, time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.core.GetEnvironment(testAutoConfEnv1.sdkKey)
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.sdkKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -112,11 +114,8 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
 		assert.Equal(t, []config.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
 
-		select {
-		case <-client1.CloseCh:
-			require.Fail(t, "should not have closed client for deprecated key yet")
-		case <-time.After(time.Millisecond * 300):
-			break
+		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+			t.FailNow()
 		}
 	})
 }
@@ -137,9 +136,9 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 
 			p.awaitCredentialsUpdated(env, modified.params())
 
-			verifyEventProxying(p, serverSideEventsURL, modified.sdkKey)
-			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
-			verifyEventProxying(p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
+			verifyEventProxying(t, p, serverSideEventsURL, modified.sdkKey)
+			verifyEventProxying(t, p, mobileEventsURL, testAutoConfEnv1.mobKey)
+			verifyEventProxying(t, p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
 		})
 	})
 
@@ -148,17 +147,17 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
-			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
-			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
+			verifyEventProxying(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
+			verifyEventProxying(t, p, mobileEventsURL, testAutoConfEnv1.mobKey)
 
 			modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
 			p.awaitCredentialsUpdated(env, modified.params())
 
-			verifyEventProxying(p, serverSideEventsURL, modified.sdkKey)
-			verifyEventProxying(p, mobileEventsURL, testAutoConfEnv1.mobKey)
-			verifyEventProxying(p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
+			verifyEventProxying(t, p, serverSideEventsURL, modified.sdkKey)
+			verifyEventProxying(t, p, mobileEventsURL, testAutoConfEnv1.mobKey)
+			verifyEventProxying(t, p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
 		})
 	})
 }
@@ -185,20 +184,17 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		newCredentials := credentialsAsSet(env.GetCredentials()...)
-		foundEnvWithOldKey, _ := p.relay.core.GetEnvironment(oldKey)
+		foundEnvWithOldKey, _ := p.relay.getEnvironment(oldKey)
 		assert.Equal(t, env, foundEnvWithOldKey)
 
 		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
 
-		select {
-		case <-client1.CloseCh:
-			break
-		case <-time.After(time.Millisecond * 300):
-			require.Fail(t, "timed out waiting for client with old key to close")
+		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Millisecond*300, "timed out waiting for client with old key to close") {
+			t.FailNow()
 		}
 
 		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
-		noEnv, _ := p.relay.core.GetEnvironment(oldKey)
+		noEnv, _ := p.relay.getEnvironment(oldKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -217,7 +213,7 @@ func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.core.GetEnvironment(testAutoConfEnv1.mobKey)
+		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.mobKey)
 		assert.Nil(t, noEnv)
 	})
 }
@@ -235,9 +231,9 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 
 			p.awaitCredentialsUpdated(env, modified.params())
 
-			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
-			verifyEventProxying(p, mobileEventsURL, modified.mobKey)
-			verifyEventProxying(p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
+			verifyEventProxying(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
+			verifyEventProxying(t, p, mobileEventsURL, modified.mobKey)
+			verifyEventProxying(t, p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
 		})
 	})
 
@@ -246,17 +242,17 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
-			verifyEventVerbatimRelay(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
-			verifyEventVerbatimRelay(p, mobileEventsURL, testAutoConfEnv1.mobKey)
+			verifyEventVerbatimRelay(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
+			verifyEventVerbatimRelay(t, p, mobileEventsURL, testAutoConfEnv1.mobKey)
 
 			modified := makeEnvWithModifiedMobileKey(testAutoConfEnv1)
 			p.stream.Enqueue(makeAutoConfPatchEvent(modified))
 
 			p.awaitCredentialsUpdated(env, modified.params())
 
-			verifyEventProxying(p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
-			verifyEventProxying(p, mobileEventsURL, modified.mobKey)
-			verifyEventProxying(p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
+			verifyEventProxying(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey)
+			verifyEventProxying(t, p, mobileEventsURL, modified.mobKey)
+			verifyEventProxying(t, p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
 		})
 	})
 }

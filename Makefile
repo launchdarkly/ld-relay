@@ -18,7 +18,7 @@ COVERAGE_PROFILE_RAW_HTML=./build/coverage_raw.html
 COVERAGE_PROFILE_FILTERED=./build/coverage.out
 COVERAGE_PROFILE_FILTERED_HTML=./build/coverage.html
 COVERAGE_ENFORCER_FLAGS=\
-  	-skipfiles 'internal/core/sharedtest/' \
+  	-skipfiles 'internal/sharedtest/' \
 	-skipcode "// COVERAGE" -packagestats -filestats -showcode
 
 OPTIONAL_TAGS_PARAM=$(if ${TAGS},-tags ${TAGS},)
@@ -29,11 +29,10 @@ build:
 
 test:
 	go test -run=not-a-real-test -tags $(ALL_TEST_TAGS) ./...  # just ensures that the tests compile
-	go test -race -v $(OPTIONAL_TAGS_PARAM) ./...
+	go test -race $(OPTIONAL_TAGS_PARAM) ./...
 
 test-coverage: $(COVERAGE_PROFILE_RAW)
-	if [ ! -x "$(GOPATH)/bin/go-coverage-enforcer)" ]; then go install github.com/launchdarkly-labs/go-coverage-enforcer@latest; fi
-	$(GOPATH)/bin/go-coverage-enforcer $(COVERAGE_ENFORCER_FLAGS) -outprofile $(COVERAGE_PROFILE_FILTERED) $(COVERAGE_PROFILE_RAW) || true
+	go run github.com/launchdarkly-labs/go-coverage-enforcer@latest $(COVERAGE_ENFORCER_FLAGS) -outprofile $(COVERAGE_PROFILE_FILTERED) $(COVERAGE_PROFILE_RAW) || true
 	@# added || true because we don't currently want go-coverage-enforcer to stop the build due to coverage gaps
 	go tool cover -html $(COVERAGE_PROFILE_FILTERED) -o $(COVERAGE_PROFILE_FILTERED_HTML)
 	go tool cover -html $(COVERAGE_PROFILE_RAW) -o $(COVERAGE_PROFILE_RAW_HTML)

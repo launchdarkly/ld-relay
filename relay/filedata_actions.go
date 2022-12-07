@@ -8,9 +8,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
 
-	ld "gopkg.in/launchdarkly/go-server-sdk.v5"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
+	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
 )
 
 const (
@@ -25,20 +26,20 @@ const (
 // first time and also if environments have changed due to a file update.
 type relayFileDataActions struct {
 	r          *Relay
-	envUpdates map[config.EnvironmentID]interfaces.DataSourceUpdates
+	envUpdates map[config.EnvironmentID]subsystems.DataSourceUpdateSink
 }
 
 type dataSourceFactoryToCaptureUpdates struct {
-	updatesCh chan<- interfaces.DataSourceUpdates
+	updatesCh chan<- subsystems.DataSourceUpdateSink
 }
 
 type stubDataSourceToCaptureUpdates struct {
-	dataSourceUpdates interfaces.DataSourceUpdates
-	updatesCh         chan<- interfaces.DataSourceUpdates
+	dataSourceUpdates subsystems.DataSourceUpdateSink
+	updatesCh         chan<- subsystems.DataSourceUpdateSink
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
-	updatesCh := make(chan interfaces.DataSourceUpdates)
+	updatesCh := make(chan subsystems.DataSourceUpdateSink)
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
 		config.DataSource = dataSourceFactoryToCaptureUpdates{updatesCh}
@@ -46,7 +47,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	_, _, err := a.r.core.AddEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	_, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
@@ -54,7 +55,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
-			a.envUpdates = make(map[config.EnvironmentID]interfaces.DataSourceUpdates)
+			a.envUpdates = make(map[config.EnvironmentID]subsystems.DataSourceUpdateSink)
 		}
 		a.envUpdates[ae.Params.EnvID] = updates
 		updates.Init(ae.SDKData)
@@ -65,7 +66,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
-	env, _ := a.r.core.GetEnvironment(ae.Params.EnvID)
+	env, _ := a.r.getEnvironment(ae.Params.EnvID)
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		return
@@ -91,18 +92,17 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 }
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
-	env, _ := a.r.core.GetEnvironment(id)
+	env, _ := a.r.getEnvironment(id)
 	if env != nil {
-		a.r.core.RemoveEnvironment(env)
+		a.r.removeEnvironment(env)
 		delete(a.envUpdates, id)
 	}
 }
 
-func (d dataSourceFactoryToCaptureUpdates) CreateDataSource(
-	ctx interfaces.ClientContext,
-	updates interfaces.DataSourceUpdates,
-) (interfaces.DataSource, error) {
-	return stubDataSourceToCaptureUpdates{updates, d.updatesCh}, nil
+func (d dataSourceFactoryToCaptureUpdates) Build(
+	ctx subsystems.ClientContext,
+) (subsystems.DataSource, error) {
+	return stubDataSourceToCaptureUpdates{ctx.GetDataSourceUpdateSink(), d.updatesCh}, nil
 }
 
 func (s stubDataSourceToCaptureUpdates) Close() error {

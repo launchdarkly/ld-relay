@@ -6,12 +6,13 @@ import (
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,21 +87,12 @@ func autoConfTest(
 }
 
 func (p autoConfTestParams) awaitClient() *testclient.FakeLDClient {
-	select {
-	case c := <-p.clientsCreatedCh:
-		return c
-	case <-time.After(time.Second):
-		require.Fail(p.t, "timed out waiting for client creation")
-		return nil
-	}
+	return helpers.RequireValue(p.t, p.clientsCreatedCh, time.Second, "timed out waiting for client creation")
 }
 
 func (p autoConfTestParams) shouldNotCreateClient(timeout time.Duration) {
-	select {
-	case <-p.clientsCreatedCh:
-		require.Fail(p.t, "unexpectedly created client")
-	case <-time.After(timeout):
-		break
+	if !helpers.AssertNoMoreValues(p.t, p.clientsCreatedCh, timeout, "unexpectedly created client") {
+		p.t.FailNow()
 	}
 }
 
@@ -233,11 +225,8 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		paramsWithOldKey.SDKKey = oldKey
 		p.assertEnvLookup(env, paramsWithOldKey)
 
-		select {
-		case <-client2.CloseCh:
-			require.Fail(t, "should not have closed client for deprecated key yet")
-		case <-time.After(time.Millisecond * 300):
-			break
+		if !helpers.AssertChannelNotClosed(t, client2.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+			t.FailNow()
 		}
 	})
 }

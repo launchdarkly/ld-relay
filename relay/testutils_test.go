@@ -9,9 +9,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v6/config"
 	c "github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ type relayTestHelper struct {
 func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
 	var e relayenv.EnvContext
 	require.Eventually(h.t, func() bool {
-		e, _ = h.relay.core.GetEnvironment(envID)
+		e, _ = h.relay.getEnvironment(envID)
 		return e != nil
 	}, time.Second, time.Millisecond*5)
 	return e
@@ -33,17 +33,17 @@ func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvCon
 
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
 	require.Eventually(h.t, func() bool {
-		e, _ := h.relay.core.GetEnvironment(envID)
+		e, _ := h.relay.getEnvironment(envID)
 		return e == nil
 	}, timeout, time.Millisecond*5)
 }
 
 func (h relayTestHelper) assertEnvLookup(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
-	foundEnv, _ := h.relay.core.GetEnvironment(expected.EnvID)
+	foundEnv, _ := h.relay.getEnvironment(expected.EnvID)
 	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.core.GetEnvironment(expected.MobileKey)
+	foundEnv, _ = h.relay.getEnvironment(expected.MobileKey)
 	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.core.GetEnvironment(expected.SDKKey)
+	foundEnv, _ = h.relay.getEnvironment(expected.SDKKey)
 	assert.Equal(h.t, env, foundEnv)
 
 	h.assertSDKEndpointsAvailability(true, expected.SDKKey, expected.MobileKey, expected.EnvID)
@@ -71,8 +71,7 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 	if sdkKey != "" {
 		h.assertEndpointStatus(status200Or401, "GET", "/all", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/flags", sdkKey, nil)
-		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/eval/user", sdkKey, simpleUserJSON)
-		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/user", sdkKey, simpleUserJSON)
+		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/context", sdkKey, simpleUserJSON)
 	}
 	if mobileKey != "" {
 		h.assertEndpointStatus(status200Or401, "GET", "/mping", mobileKey, nil)

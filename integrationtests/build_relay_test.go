@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/gcfg.v1"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 func errLoadingConfigFile(path string, err error) error {

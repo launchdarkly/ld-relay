@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/httpconfig"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
 
-	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/require"
 )
@@ -176,22 +177,11 @@ func streamManagerTestWithStreamHandler(
 
 func (p streamManagerTestParams) startStream() {
 	readyCh := p.streamManager.Start()
-	select {
-	case <-readyCh:
-		break
-	case <-time.After(time.Second):
-		require.Fail(p.t, "timed out waiting for stream ready")
-	}
+	helpers.RequireValue(p.t, readyCh, time.Second, "timed out waiting for stream ready")
 }
 
 func (p streamManagerTestParams) requireMessage() testMessage {
-	select {
-	case m := <-p.messageHandler.received:
-		return m
-	case <-time.After(500 * time.Millisecond):
-		require.Fail(p.t, "timed out waiting for message")
-		return testMessage{}
-	}
+	return helpers.RequireValue(p.t, p.messageHandler.received, 500*time.Millisecond, "timed out waiting for message")
 }
 
 func (p streamManagerTestParams) requireReceivedAllMessage() {
@@ -200,11 +190,8 @@ func (p streamManagerTestParams) requireReceivedAllMessage() {
 }
 
 func (p streamManagerTestParams) requireNoMoreMessages() {
-	select {
-	case m := <-p.messageHandler.received:
-		require.Failf(p.t, "received unexpected message", "%s", m)
-	case <-time.After(50 * time.Millisecond):
-		break
+	if !helpers.AssertNoMoreValues(p.t, p.messageHandler.received, 50*time.Millisecond, "received unexpected message") {
+		p.t.FailNow()
 	}
 }
 

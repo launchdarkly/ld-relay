@@ -1,3 +1,4 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
@@ -13,7 +14,8 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
+
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +28,7 @@ type offlineModeTestData struct {
 
 func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 	withOfflineModeTestData(t, manager, func(testData offlineModeTestData) {
-		sharedtest.WithTempDir(func(dirPath string) {
+		helpers.WithTempDir(func(dirPath string) {
 			fileName := "archive.tar.gz"
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
 

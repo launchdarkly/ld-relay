@@ -6,8 +6,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

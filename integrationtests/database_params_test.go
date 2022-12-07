@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/api"
 
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ type databaseTestParams struct {
 	hostnamePrefix   string
 	setupFn          func(*integrationTestManager, *docker.Container) error
 	envVarsFn        func(*docker.Container) map[string]string
-	expectedStatusFn func(*docker.Container) core.DataStoreStatusRep
+	expectedStatusFn func(*docker.Container) api.DataStoreStatusRep
 }
 
 func (p databaseTestParams) withContainer(t *testing.T, manager *integrationTestManager, action func(*docker.Container)) {
@@ -51,7 +51,7 @@ func (p databaseTestParams) withStartedRelay(
 	dbContainer *docker.Container,
 	environments []environmentInfo,
 	addVars map[string]string,
-	action func(core.StatusRep),
+	action func(api.StatusRep),
 ) {
 	vars := p.envVarsFn(dbContainer)
 	for k, v := range addVars {
@@ -64,7 +64,7 @@ func (p databaseTestParams) withStartedRelay(
 	manager.startRelay(t, vars)
 	defer manager.stopRelay(t)
 
-	expectedDataStoreStatuses := make(map[string]core.DataStoreStatusRep)
+	expectedDataStoreStatuses := make(map[string]api.DataStoreStatusRep)
 	for _, env := range environments {
 		expected := p.expectedStatusFn(dbContainer)
 		expected.State = "VALID"
@@ -73,13 +73,13 @@ func (p databaseTestParams) withStartedRelay(
 		expectedDataStoreStatuses[env.name] = expected
 	}
 
-	lastStatus, success := manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+	lastStatus, success := manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		for key, envRep := range status.Environments {
 			envRep.DataStoreStatus.StateSince = 0
 			status.Environments[key] = envRep
 		}
 		if len(status.Environments) == len(environments) {
-			allStatuses := make(map[string]core.DataStoreStatusRep)
+			allStatuses := make(map[string]api.DataStoreStatusRep)
 			for key, rep := range status.Environments {
 				allStatuses[key] = rep.DataStoreStatus
 			}
@@ -105,8 +105,8 @@ var redisDatabaseTestParams = databaseTestParams{
 			"REDIS_HOST": dbContainer.GetName(),
 		}
 	},
-	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {
-		return core.DataStoreStatusRep{
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
 			Database: "redis",
 			DBServer: fmt.Sprintf("redis://%s:6379", dbContainer.GetName()),
 		}
@@ -124,8 +124,8 @@ var redisWithPasswordDatabaseTestParams = databaseTestParams{
 			"REDIS_PASSWORD": "secret",
 		}
 	},
-	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {
-		return core.DataStoreStatusRep{
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
 			Database: "redis",
 			DBServer: fmt.Sprintf("redis://%s:6379", dbContainer.GetName()),
 		}
@@ -141,8 +141,8 @@ var consulDatabaseTestParams = databaseTestParams{
 			"CONSUL_HOST": makeConsulAddress(dbContainer),
 		}
 	},
-	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {
-		return core.DataStoreStatusRep{
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
 			Database: "consul",
 			DBServer: makeConsulAddress(dbContainer),
 		}
@@ -167,8 +167,8 @@ var dynamoDBDatabaseTestParams = databaseTestParams{
 			"AWS_SECRET_ACCESS_KEY": awsSecret,
 		}
 	},
-	expectedStatusFn: func(dbContainer *docker.Container) core.DataStoreStatusRep {
-		return core.DataStoreStatusRep{
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
 			Database: "dynamodb",
 			DBServer: dynamoDBEndpointURL(dbContainer),
 			DBTable:  dynamoDBTableName,

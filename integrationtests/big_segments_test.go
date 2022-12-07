@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/api"
 
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,7 +157,7 @@ func verifyEvaluationWithBigSegment(
 	// If the evaluation succeeded, then Big Segments polling must have successfully started by now,
 	// so we'll also verify that Relay is now reporting that status correctly.
 	if status, ok := manager.awaitRelayStatus(t,
-		func(status core.StatusRep) bool {
+		func(status api.StatusRep) bool {
 			for _, envRep := range status.Environments {
 				if envRep.BigSegmentStatus == nil ||
 					!envRep.BigSegmentStatus.Available || envRep.BigSegmentStatus.PotentiallyStale {
@@ -209,7 +209,7 @@ func doBigSegmentsTestWithPreExistingSegment(
 		err = manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey, projectInfo, environments, segmentKey)
 		require.NoError(t, err)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(status core.StatusRep) {
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(status api.StatusRep) {
 			// Since a Big Segment already existed when we started the SDK client, Relay should be aware
 			// that Big Segments are active and should be including Big Segment status info in the status.
 			// It might or might not be reporting the status as valid yet, depending on whether a poll
@@ -241,7 +241,7 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 		segmentKey := "big-segment-key"
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(core.StatusRep) {
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(api.StatusRep) {
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey,
@@ -278,7 +278,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 		segmentKey2 := "big-segment-key2"
 		segmentTestData := makeBigSegmentTestDataForEnvs(environments)
 
-		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(core.StatusRep) {
+		dbParams.withStartedRelay(t, manager, dbContainer, environments, enableBigSegmentsTraceLoggingVar, func(api.StatusRep) {
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey1,

@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/launchdarkly/ld-relay/v6/config"
 
-	helpers "github.com/launchdarkly/go-test-helpers/v2"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -120,21 +119,12 @@ func sortMessages(messages []testMessage) []testMessage {
 }
 
 func (p archiveManagerTestParams) requireMessage() testMessage {
-	select {
-	case m := <-p.messageHandler.received:
-		return m
-	case <-time.After(2 * time.Second):
-		require.Fail(p.t, "timed out waiting for message")
-		return testMessage{}
-	}
+	return helpers.RequireValue(p.t, p.messageHandler.received, 2*time.Second, "timed out waiting for message")
 }
 
 func (p archiveManagerTestParams) requireNoMoreMessages() {
-	select {
-	case m := <-p.messageHandler.received:
-		require.Failf(p.t, "received unexpected message", "%s", m)
-	case <-time.After(50 * time.Millisecond):
-		break
+	if !helpers.AssertNoMoreValues(p.t, p.messageHandler.received, 50*time.Millisecond, "received unexpected message") {
+		p.t.FailNow()
 	}
 }
 

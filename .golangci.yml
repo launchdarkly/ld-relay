@@ -46,17 +46,17 @@ linter-settings:
 
 issues:
   exclude-rules:
-    - path: core/internal/metrics/measures.go  # see explanation in that file
+    - path: integrationtests
+      linters:
+        - stylecheck
+    - path: internal/metrics/measures.go  # see explanation in that file
       linters:
         - gochecknoglobals
-    - path: core/sharedtest/
+    - path: internal/sharedtest/
       linters:
         - bodyclose
         - goconst
         - gochecknoglobals
-    - path: integrationtests
-      linters:
-        - stylecheck
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

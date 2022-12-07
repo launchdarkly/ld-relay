@@ -20,12 +20,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v6/config"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v6/integrationtests/oshelpers"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/api"
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldlog"
-	"gopkg.in/launchdarkly/go-sdk-common.v2/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"
@@ -260,10 +260,10 @@ func (m *integrationTestManager) makeHTTPRequestToRelay(request *http.Request) (
 	return resp, err
 }
 
-func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.StatusRep) bool) (core.StatusRep, bool) {
+func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(api.StatusRep) bool) (api.StatusRep, bool) {
 	require.NotNil(t, m.dockerContainer, "Relay was not started")
 	var lastOutput, lastError string
-	var lastStatus core.StatusRep
+	var lastStatus api.StatusRep
 	success := assert.Eventually(t, func() bool {
 		request, _ := http.NewRequest("GET", fmt.Sprintf("%s/status", m.relayBaseURL), nil)
 		resp, err := m.makeHTTPRequestToRelay(request)
@@ -282,7 +282,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 			}
 			lastOutput = output
 		}
-		var status core.StatusRep
+		var status api.StatusRep
 		require.NoError(t, json.Unmarshal([]byte(output), &status))
 		lastStatus = status
 		return fn(status)
@@ -292,7 +292,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(core.Sta
 
 func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs,
 	expectNameAndKey bool, envMapKeyFn func(proj projectInfo, env environmentInfo) string) {
-	_, success := m.awaitRelayStatus(t, func(status core.StatusRep) bool {
+	_, success := m.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		if len(status.Environments) != projsAndEnvs.countEnvs() {
 			return false
 		}
@@ -335,7 +335,7 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 
 func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
 	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
-	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/eval/users/"+userBase64, nil)
+	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/evalx/users/"+userBase64, nil)
 	require.NoError(t, err)
 	req.Header.Add("Authorization", string(env.sdkKey))
 	resp, err := m.makeHTTPRequestToRelay(req)
@@ -344,9 +344,13 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 		defer resp.Body.Close()
 		data, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		valuesObject := ldvalue.Parse(data)
-		if !valuesObject.Equal(ldvalue.Null()) {
-			return valuesObject
+		flagData := ldvalue.Parse(data)
+		if !flagData.Equal(ldvalue.Null()) {
+			valuesObject := ldvalue.ObjectBuild()
+			for _, key := range flagData.Keys(nil) {
+				valuesObject.Set(key, flagData.GetByKey(key).GetByKey("value"))
+			}
+			return valuesObject.Build()
 		}
 		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
 			env.key, env.sdkKey, string(data))
@@ -379,7 +383,7 @@ func (m *integrationTestManager) withExtraContainer(
 	action(container)
 }
 
-func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus core.EnvironmentStatusRep, expectNameAndKey bool) {
+func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus api.EnvironmentStatusRep, expectNameAndKey bool) {
 	assert.Equal(t, string(environment.id), envStatus.EnvID)
 	if expectNameAndKey {
 		assert.Equal(t, environment.name, envStatus.EnvName)

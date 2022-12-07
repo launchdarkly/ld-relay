@@ -1,3 +1,4 @@
+//go:build integrationtests
 // +build integrationtests
 
 package integrationtests
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core"
+	"github.com/launchdarkly/ld-relay/v6/internal/api"
 
 	"github.com/stretchr/testify/require"
 )
@@ -74,7 +75,7 @@ func testPolicyUpdate(t *testing.T, manager *integrationTestManager) {
 		err := manager.apiHelper.updateAutoConfigPolicy(testData.autoConfigID, newPolicyResources)
 		require.NoError(t, err)
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if len(status.Environments) == 1 {
 				if envStatus, ok := status.Environments[string(remainingEnv.id)]; ok {
 					verifyEnvProperties(t, testData.project, remainingEnv, envStatus, true)
@@ -93,7 +94,7 @@ func testAddEnvironment(t *testing.T, manager *integrationTestManager) {
 		newEnv, err := manager.apiHelper.addEnvironment(testData.project)
 		require.NoError(t, err)
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if len(status.Environments) == len(testData.environments)+1 {
 				if envStatus, ok := status.Environments[string(newEnv.id)]; ok {
 					verifyEnvProperties(t, testData.project, newEnv, envStatus, true)
@@ -113,7 +114,7 @@ func testDeleteEnvironment(t *testing.T, manager *integrationTestManager) {
 		err := manager.apiHelper.deleteEnvironment(testData.project, envToDelete)
 		require.NoError(t, err)
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if len(status.Environments) == len(testData.environments)-1 {
 				_, found := status.Environments[string(envToDelete.id)]
 				return !found
@@ -134,7 +135,7 @@ func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManage
 		updatedEnv := envToUpdate
 		updatedEnv.sdkKey = newKey
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
 				return last5(envStatus.SDKKey) == last5(string(newKey)) && envStatus.ExpiringSDKKey == ""
@@ -159,7 +160,7 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 		updatedEnv := envToUpdate
 		updatedEnv.sdkKey = newKey
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
 				return last5(envStatus.SDKKey) == last5(string(newKey)) &&
@@ -203,7 +204,7 @@ func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integ
 		return string(env.id)
 	})
 
-	manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+	manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 			verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
 			return last5(envStatus.SDKKey) == last5(string(newKey)) &&
@@ -231,7 +232,7 @@ func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
 		updatedEnv := envToUpdate
 		updatedEnv.mobileKey = newKey
 
-		manager.awaitRelayStatus(t, func(status core.StatusRep) bool {
+		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
 				return last5(envStatus.MobileKey) == last5(string(newKey))

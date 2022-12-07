@@ -2,14 +2,14 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/core/sharedtest"
 	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v6/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
 
-	"gopkg.in/launchdarkly/go-server-sdk-evaluation.v1/ldbuilders"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/interfaces/ldstoretypes"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
 )
 
 var testFileDataFlag1 = ldbuilders.NewFlagBuilder("flag1").Version(1).Build()
