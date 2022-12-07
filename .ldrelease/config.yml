@@ -44,6 +44,7 @@ jobs:
       name: go
 
 branches:
+  - name: v7
   - name: v6
   - name: v5
 
