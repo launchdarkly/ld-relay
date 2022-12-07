@@ -34,11 +34,11 @@ require (
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-events/v2 v2.0.0
-	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.0-alpha.6
-	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.0-alpha.3
+	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
+	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.1
 	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.1
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0-alpha.6
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.0-alpha.pub.13
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.0
+	github.com/launchdarkly/go-server-sdk/v6 v6.0.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.0
