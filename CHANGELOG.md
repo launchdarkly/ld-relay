@@ -2,6 +2,26 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.0.0] - 2022-12-07
+The latest version of the Relay Proxy supports LaunchDarkly's new custom contexts feature. Contexts are an evolution of a previously-existing concept, "users." Contexts let you create targeting rules for feature flags based on a variety of different information, including attributes pertaining to users, organizations, devices, and more. You can even combine contexts to create "multi-contexts." 
+
+This feature is only available to members of LaunchDarkly's Early Access Program (EAP). If you're in the EAP, and the SDK you are using also has an EAP release, you can use contexts by updating your SDK to the latest version and, updating your Relay Proxy. Outdated SDK versions do not support contexts, and will cause unpredictable flag evaluation behavior.
+
+If you are not in the EAP, only use single contexts of kind "user", or continue to use the user type if available. If you try to create contexts, the context will be sent to LaunchDarkly, but any data not related to the user object will be ignored.
+
+For detailed information about this version, please refer to the list below.
+
+### Added:
+- Added support for new context-based features in flag evaluations.
+- Added evaluation endpoints that are used by new versions of client-side SDKs.
+
+### Changed:
+- When building the Relay Proxy from source code or using its packages from application code, the minimum Go version is now 1.18.
+- The pre-built binaries and Docker image are now built with Go 1.19.
+
+### Removed:
+- Removed support for obsolete evaluation endpoints that were used by very old client-side SDKs.
+
 ## [6.7.14] - 2022-10-26
 This is a security patch release.
 
