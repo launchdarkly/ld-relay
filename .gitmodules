@@ -1,0 +1,3 @@
+[submodule "ld-relay"]
+	path = ld-relay
+	url = https://github.com/launchdarkly/ld-relay.git

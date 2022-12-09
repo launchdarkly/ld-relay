@@ -1,5 +1,3 @@
-# This is a standalone Dockerfile that does not depend on goreleaser building the binary
-# It is NOT the version that is pushed to dockerhub
 FROM golang:1.19.3-alpine3.16 as builder
 
 RUN apk --no-cache add \
@@ -12,7 +10,7 @@ RUN mkdir -p $SRC_DIR
 
 WORKDIR $SRC_DIR
 
-COPY . .
+COPY ld-relay/ .
 
 ENV CGO_ENABLED=0
 ENV GOOS=linux

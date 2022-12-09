@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    labels:
+      - "github-actions"
+      - "dependencies"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    labels:
+      - "dockerfile"
+      - "dependencies"
+
+  - package-ecosystem: gitsubmodule
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "06:00"
+      timezone: "Europe/Warsaw"
+    labels:
+      - "gitsubmodule"
+      - "dependencies"
