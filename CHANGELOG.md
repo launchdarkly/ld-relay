@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.15] - 2022-12-29
+### Changed:
+- Updated Alpine to 3.16.3 in the published Docker image.
+
+### Fixed:
+- Updated Go to 1.19.4 in the published Docker image and executables, to address CVE-2022-41717. ([#210](https://github.com/launchdarkly/ld-relay/issues/210))
+
 ## [6.7.14] - 2022-10-26
 This is a security patch release.
 
