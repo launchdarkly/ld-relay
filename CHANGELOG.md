@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.0.1] - 2022-12-29
+### Changed:
+- Updated Alpine to 3.16.3 in the published Docker image.
+
+### Fixed:
+- Updated Go to 1.19.4 in the published Docker image and executables, to address CVE-2022-41717. ([#210](https://github.com/launchdarkly/ld-relay/issues/210))
+
 ## [7.0.0] - 2022-12-07
 The latest version of the Relay Proxy supports LaunchDarkly's new custom contexts feature. Contexts are an evolution of a previously-existing concept, "users." Contexts let you create targeting rules for feature flags based on a variety of different information, including attributes pertaining to users, organizations, devices, and more. You can even combine contexts to create "multi-contexts." 
 
