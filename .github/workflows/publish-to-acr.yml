@@ -37,11 +37,17 @@ jobs:
       - name: Determine pre-release version tag
         id: getPreReleaseTag
         shell: pwsh
+        env:
+          PULL_REQUEST_REF: ${{ github.event.pull_request.head.ref }}
+          PULL_REQUEST_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if ($env:GITHUB_REF_NAME -eq "main") {
             $tag = ""
             Write-Output "main branch - no pre-release tag"
           } else {
+            Write-Output "PULL_REQUEST_REF: $($env:PULL_REQUEST_REF)"
+            Write-Output "PULL_REQUEST_SHA: $($env:PULL_REQUEST_SHA)"
+
             $tag = "-$($env:GITHUB_REF_NAME.Replace('/', '-'))-$($env:GITHUB_SHA.Substring(0,7))"
             Write-Output "GITHUB_REF_NAME '$($env:GITHUB_REF_NAME)' results in the pre-release tag of '$tag'"
           }
