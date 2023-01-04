@@ -6,7 +6,11 @@ name: CI
 on:
   # Triggers the workflow on push or pull request events but only for the main branch
   push:
-    branches: [ v6 ]
+    branches: [ main ]
+
+  pull_request:
+    branches:
+     - main
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -34,7 +38,14 @@ jobs:
         id: getPreReleaseTag
         shell: pwsh
         run: |
-          $tag = $env:GITHUB_REF_NAME -eq "v6" ? "" : "-$($env:GITHUB_REF_NAME.Replace('/', '-'))-$($env:GITHUB_SHA.Substring(0,7))"
+          if ($env:GITHUB_REF_NAME -eq "main") {
+            $tag = ""
+            Write-Output "main branch - no pre-release tag"
+          } else {
+            $tag = "-$($env:GITHUB_REF_NAME.Replace('/', '-'))-$($env:GITHUB_SHA.Substring(0,7))"
+            Write-Output "GITHUB_REF_NAME '$($env:GITHUB_REF_NAME)' results in the pre-release tag of '$tag'"
+          }
+
           Write-Output "preReleaseTag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: ACR Build
