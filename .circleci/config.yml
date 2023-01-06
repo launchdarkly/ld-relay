@@ -46,11 +46,8 @@ workflows:
       - go-test:
           name: Go 1.17
           docker-image: cimg/go:1.17
-      - go-test:
-          name: Go 1.16
-          docker-image: cimg/go:1.16
       - benchmarks:
-          docker-image: cimg/go:1.16
+          docker-image: cimg/go:1.19
       - integration-test
       - docker-images-test
 
@@ -98,10 +95,6 @@ workflows:
       - package-build-test:
           name: package build - Go 1.17
           docker-image: cimg/go:1.17
-          use-go-install: true
-      - package-build-test:
-          name: package build - Go 1.16
-          docker-image: cimg/go:1.16
           use-go-install: true
 
   daily-security-scan:
