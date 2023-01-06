@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.16] - 2023-01-06
+*The 6.7.15 release was incomplete and has been skipped.*
+
+### Changed:
+- It is no longer possible to build the Relay Proxy from source code in Go 1.16, or to import it as a module in a Go 1.16 project. This is because the security patch described below is not possible for Go 1.16. Although LaunchDarkly tries to maintain compatibility with old platform versions within the same major version of a LaunchDarkly product, maintaining support for Relay Proxy 6.x requires that we patch security vulnerabilities for the most common use cases; building Relay from source code with an EOL Go version is an uncommon use case.
+- Updated Alpine to 3.16.3 in the published Docker image.
+
+### Fixed:
+- Updated Go networking code to address CVE-2022-41717. ([#210](https://github.com/launchdarkly/ld-relay/issues/210))
+
 ## [6.7.15] - 2022-12-29
 ### Changed:
 - Updated Alpine to 3.16.3 in the published Docker image.
