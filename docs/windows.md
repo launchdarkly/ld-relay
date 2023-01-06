@@ -10,6 +10,8 @@ go build
 
 This creates the executable `ld-relay.exe`.
 
+The Go version must be at least 1.17.
+
 Then, to register it as a service, use:
 
 ```shell
