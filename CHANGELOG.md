@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.7.17] - 2023-01-17
+### Fixed:
+- Removed logging of "Big Segment store status query" error messages in a situation where the Relay Proxy has not been able to synchronize Big Segment data with LaunchDarkly. These messages were redundant since there is already a different and clearer error being logged for the synchronization failure.
+
 ## [6.7.16] - 2023-01-06
 *The 6.7.15 release was incomplete and has been skipped.*
 
