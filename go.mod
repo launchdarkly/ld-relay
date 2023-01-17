@@ -13,7 +13,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.2.3
 	github.com/fsnotify/fsnotify v1.5.1
 	github.com/go-redis/redis/v8 v8.8.0
-	github.com/gomodule/redigo v1.8.2
+	github.com/gomodule/redigo v1.8.9
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7
 	github.com/hashicorp/consul/api v1.15.3
@@ -22,8 +22,8 @@ require (
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.2
-	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.0
-	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.1
+	github.com/launchdarkly/go-server-sdk-dynamodb/v2 v2.0.1
+	github.com/launchdarkly/go-server-sdk-redis-redigo v1.2.2
 	github.com/launchdarkly/go-test-helpers/v2 v2.3.1
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.0
@@ -32,10 +32,10 @@ require (
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.4.0
+	gopkg.in/launchdarkly/go-sdk-common.v2 v2.5.1
 	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1
 	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
 
 require (
