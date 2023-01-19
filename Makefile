@@ -69,10 +69,10 @@ RELEASE_CMD=curl -sL https://git.io/goreleaser | GOPATH=$(mktemp -d) VERSION=$(G
 # because during a release, we may need to run this command under another account and we
 # don't want to mess up file permissions in the regular GOPATH.
 publish:
-	$(RELEASE_CMD)
+	GORELEASER_VERSION=$(GORELEASER_VERSION) ./scripts/run-goreleaser.sh
 
 products-for-release:
-	$(RELEASE_CMD) --skip-publish --skip-validate
+	GORELEASER_VERSION=$(GORELEASER_VERSION) ./scripts/run-goreleaser.sh --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
