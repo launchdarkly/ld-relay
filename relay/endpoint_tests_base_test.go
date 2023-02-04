@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 )

@@ -1,8 +1,8 @@
 package autoconfig
 
 import (
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
 )
 
 // These SSE message types are exported so that tests in other packages can more easily create

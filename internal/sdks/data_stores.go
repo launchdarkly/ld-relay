@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/util"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"

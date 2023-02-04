@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/lduser"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"

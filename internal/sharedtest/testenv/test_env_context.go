@@ -5,10 +5,10 @@ package testenv
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"

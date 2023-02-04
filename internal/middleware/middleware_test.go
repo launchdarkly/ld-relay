@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/browser"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v7/internal/browser"
+	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 

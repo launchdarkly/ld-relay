@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
 )
 
 // These methods should be used by all test code that makes HTTP requests to Relay endpoints.

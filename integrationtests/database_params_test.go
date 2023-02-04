@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v6/internal/api"
+	"github.com/launchdarkly/ld-relay/v7/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v7/internal/api"
 
 	"github.com/stretchr/testify/require"
 )

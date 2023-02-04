@@ -228,7 +228,7 @@ jobs:
 
     steps:
       - run: go version
-      - run: go install github.com/launchdarkly/ld-relay/v6@latest
+      - run: go install github.com/launchdarkly/ld-relay/v7@latest
       - run:
           name: verify that executable was built
           command: ls -l $GOPATH/bin/ld-relay
