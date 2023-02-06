@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.0.3] - 2023-02-06
+### Fixed:
+- Fixed Go module path to match the major version number, which was preventing installation using Go tooling. (Thanks, @macro1).
+
 ## [7.0.2] - 2023-01-19
 ### Fixed:
 - Removed logging of "Big Segment store status query" error messages in a situation where the Relay Proxy has not been able to synchronize Big Segment data with LaunchDarkly. These messages were redundant since there is already a different and clearer error being logged for the synchronization failure.
