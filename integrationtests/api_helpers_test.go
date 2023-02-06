@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v7/config"
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

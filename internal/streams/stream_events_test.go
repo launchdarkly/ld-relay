@@ -3,7 +3,7 @@ package streams
 import (
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"

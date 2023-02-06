@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/logging"
+	"github.com/launchdarkly/ld-relay/v7/internal/logging"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"

@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/bigsegments"
-	"github.com/launchdarkly/ld-relay/v6/internal/events"
-	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/streams"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v7/internal/events"
+	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v7/internal/streams"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v2"
