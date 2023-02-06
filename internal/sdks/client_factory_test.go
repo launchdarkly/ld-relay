@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/launchdarkly/go-server-sdk/v6/interfaces"

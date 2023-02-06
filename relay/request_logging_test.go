@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay/v6/config"
-	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v7/config"
+	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )

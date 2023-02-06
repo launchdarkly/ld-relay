@@ -1,4 +1,4 @@
-module github.com/launchdarkly/ld-relay/v6
+module github.com/launchdarkly/ld-relay/v7
 
 go 1.18
 

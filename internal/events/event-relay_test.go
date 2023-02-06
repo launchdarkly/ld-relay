@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
+	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/store"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

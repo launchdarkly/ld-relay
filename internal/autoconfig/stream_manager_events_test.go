@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v7/config"
 )
 
 func TestPutEvent(t *testing.T) {

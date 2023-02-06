@@ -3,8 +3,8 @@ package envfactory
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
 )
 
 // EnvironmentParams contains environment-specific information obtained from LaunchDarkly which

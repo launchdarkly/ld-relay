@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay/v6/config"
+	c "github.com/launchdarkly/ld-relay/v7/config"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

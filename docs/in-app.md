@@ -11,8 +11,8 @@ Here is an example of how you might run the Relay Proxy endpoints inside your we
 ```go
 import (
     "github.com/gorilla/mux"
-    "github.com/launchdarkly/ld-relay/v6/config"
-    "github.com/launchdarkly/ld-relay/v6/relay"
+    "github.com/launchdarkly/ld-relay/v7/config"
+    "github.com/launchdarkly/ld-relay/v7/relay"
     "github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
@@ -37,7 +37,7 @@ The above example uses a configuration file. You can also pass in a `config.Conf
 
 ```go
 import (
-    "github.com/launchdarkly/ld-relay/v6/config"
+    "github.com/launchdarkly/ld-relay/v7/config"
     configtypes "github.com/launchdarkly/go-configtypes"
 )
 
@@ -57,7 +57,7 @@ Alternatively, you can parse the configuration from a string that is in the same
 
 ```go
 import (
-    "github.com/launchdarkly/ld-relay/v6/config"
+    "github.com/launchdarkly/ld-relay/v7/config"
     "gopkg.in/gcfg.v1"
 )
 

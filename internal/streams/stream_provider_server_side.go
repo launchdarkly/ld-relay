@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
+	"github.com/launchdarkly/ld-relay/v7/config"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"

@@ -107,7 +107,7 @@ The status properties are defined as follows:
     - `potentiallyStale` is a boolean that indicates if Big Segments are potentially not fully synchronized. This might be because initial synchronization has not completed, or due to a networking error.
     - `lastSynchronizedOn` indicates the last time in Unix milliseconds that Relay can be sure Big Segments were synchronized. Active but incomplete synchronization does not update this timestamp.
 - The top-level `status` property for the entire Relay Proxy is `"healthy"` if all of the environments are `"connected"`, or `"degraded"` if any of the environments is `"disconnected"`.
-    - In [automatic configuration mode](../configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
+    - In [automatic configuration mode](configuration.md#file-section-autoconfig), this value can also be `"degraded"` if the Relay Proxy is still starting up and has not yet received environment configurations from LaunchDarkly.
     - When Big Segments are enabled, this value will also be `"degraded"` if the Big Segments status has an `available` property of `false` (indicating a database error), or if `potentiallyStale` is `true` (meaning Big Segments are potentially not fully synchronized) _and_ the configuration setting `bigSegmentsStaleAsDegraded` is enabled.
 - `version` is the version of the Relay Proxy.
 - `clientVersion` is the version of the Go SDK that the Relay Proxy is using.
@@ -120,12 +120,12 @@ If you're building an SDK for a language which isn't officially supported by Lau
 
 These are equivalent to the polling endpoints for client-side/mobile SDKs, except that they use the SDK key as a credential rather than the mobile key or client-side environment ID.
 
-Endpoint                              | Method   | Description
---------------------------------------|:--------:|------------------------------------
-`/sdk/evalx/contexts/{contextBase64}` | `GET`    | Evaluates all flag values for the given evaluation context
-`/sdk/evalx/context`                  | `REPORT` | Same as above, but request body is the evaluation context JSON object (not in base64)
-`/sdk/evalx/users/{contextBase64}`    | `GET`    | Alternate name for `/sdk/evalx/contexts/{contextBase64}`
-`/sdk/evalx/user`                     | `REPORT` | Alternate name for `/sdk/evalx/context`
+| Endpoint                              |  Method  | Description                                                                           |
+|---------------------------------------|:--------:|---------------------------------------------------------------------------------------|
+| `/sdk/evalx/contexts/{contextBase64}` |  `GET`   | Evaluates all flag values for the given evaluation context                            |
+| `/sdk/evalx/context`                  | `REPORT` | Same as above, but request body is the evaluation context JSON object (not in base64) |
+| `/sdk/evalx/users/{contextBase64}`    |  `GET`   | Alternate name for `/sdk/evalx/contexts/{contextBase64}`                              |
+| `/sdk/evalx/user`                     | `REPORT` | Alternate name for `/sdk/evalx/context`                                               |
 
 Example `curl` requests (default local URI and port):
 
@@ -142,40 +142,40 @@ curl -X REPORT localhost:8030/sdk/evalx/context -H "Authorization: YOUR_SDK_KEY"
 
 All of these require an `Authorization` header whose value is the SDK key.
 
-Endpoint                     | Method | Proxied Subdomain | Description
------------------------------|:------:|:---------:|------------------------------------
-`/all`                       | `GET`  | `stream.` | SSE stream for all data
-`/bulk`                      | `POST` | `events.` | Receives analytics events from SDKs
-`/diagnostic`                | `POST` | `events.` | Receives diagnostic data from SDKs
-`/flags`                     | `GET`  | `stream.` | SSE stream for flag data (older SDKs)
-`/sdk/flags`                 | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/flags/{flagKey}`       | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
-`/sdk/segments/{segmentKey}` | `GET`  | `sdk.`    | Polling endpoint for [PHP SDK](./php.md)
+| Endpoint                     | Method | Proxied Subdomain | Description                              |
+|------------------------------|:------:|:-----------------:|------------------------------------------|
+| `/all`                       | `GET`  |     `stream.`     | SSE stream for all data                  |
+| `/bulk`                      | `POST` |     `events.`     | Receives analytics events from SDKs      |
+| `/diagnostic`                | `POST` |     `events.`     | Receives diagnostic data from SDKs       |
+| `/flags`                     | `GET`  |     `stream.`     | SSE stream for flag data (older SDKs)    |
+| `/sdk/flags`                 | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/flags/{flagKey}`       | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
+| `/sdk/segments/{segmentKey}` | `GET`  |      `sdk.`       | Polling endpoint for [PHP SDK](./php.md) |
 
 For server-side SDKs other than PHP, the Relay Proxy does not support polling mode, only streaming.
 
-The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
+The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
 
 ### Endpoints that mobile SDKs use
 
 All of these require an `Authorization` header whose value is the mobile key. 
 
-Endpoint                               | Method   | Proxied Subdomain | Description
----------------------------------------|:--------:|:---------------:|------------------------------------
-`/meval/{contextBase64}`               | `GET`    | `clientstream.` | SSE stream of "ping" and other events
-`/meval`                               | `REPORT` | `clientstream.` | Same as above, but request body is the evaluation context JSON object (not in base64)
-`/mobile`                              | `POST`   | `events.`       | For receiving events from mobile SDKs
-`/mobile/events`                       | `POST`   | `events.`       | Same as above
-`/mobile/events/bulk`                  | `POST`   | `events.`       | Same as above
-`/mobile/events/diagnostic`            | `POST`   | `events.`       | Same as above
-`/mping`                               | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
-`/msdk/evalx/contexts/{contextBase64}` | `GET`    | `clientsdk.`    | Polling endpoint, returns flag evaluation results for an evaluation context
-`/msdk/evalx/context`                  | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
-`/msdk/evalx/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/msdk/evalx/contexts/{contextBase64}` used by older SDKs
-`/msdk/evalx/user`                     | `REPORT` | `clientsdk.`    | Alternate name for `/msdk/evalx/context` used by older SDKs
+| Endpoint                               |  Method  | Proxied Subdomain | Description                                                                           |
+|----------------------------------------|:--------:|:-----------------:|---------------------------------------------------------------------------------------|
+| `/meval/{contextBase64}`               |  `GET`   |  `clientstream.`  | SSE stream of "ping" and other events                                                 |
+| `/meval`                               | `REPORT` |  `clientstream.`  | Same as above, but request body is the evaluation context JSON object (not in base64) |
+| `/mobile`                              |  `POST`  |     `events.`     | For receiving events from mobile SDKs                                                 |
+| `/mobile/events`                       |  `POST`  |     `events.`     | Same as above                                                                         |
+| `/mobile/events/bulk`                  |  `POST`  |     `events.`     | Same as above                                                                         |
+| `/mobile/events/diagnostic`            |  `POST`  |     `events.`     | Same as above                                                                         |
+| `/mping`                               |  `GET`   |  `clientstream.`  | SSE stream for older SDKs that issues "ping" events when flags have changed           |
+| `/msdk/evalx/contexts/{contextBase64}` |  `GET`   |   `clientsdk.`    | Polling endpoint, returns flag evaluation results for an evaluation context           |
+| `/msdk/evalx/context`                  | `REPORT` |   `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)  |
+| `/msdk/evalx/users/{contextBase64}`    |  `GET`   |   `clientsdk.`    | Alternate name for `/msdk/evalx/contexts/{contextBase64}` used by older SDKs          |
+| `/msdk/evalx/user`                     | `REPORT` |   `clientsdk.`    | Alternate name for `/msdk/evalx/context` used by older SDKs                           |
 
-The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](../configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
+The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` header does not match an SDK key that is known to the Relay Proxy, just as the actual LaunchDarkly service endpoints would do for an invalid SDK key. They will return a 503 error if the Relay Proxy has not yet successfully obtained feature flag data from LaunchDarkly for the specified environment (either because it is still starting up, or because of a service outage or network interruption). In [automatic configuration mode](configuration.md#file-section-autoconfig), they will return a 503 error if the Relay Proxy has not yet received its configuration from LaunchDarkly.
 
 
 ### Endpoints that client-side JavaScript SDKs use
@@ -186,18 +186,18 @@ The `GET`/`REPORT` endpoints will return a 401 error if the `Authorization` head
 
 These endpoints also support the `OPTION` method to enable CORS requests from browsers.
 
-Endpoint                                      | Method   | Proxied Subdomain | Description
-----------------------------------------------|:--------:|:---------------:|------------------------------------
-`/a/{envId}.gif?d=*events*`                   | `GET`    | `events.`       | Alternative analytics event mechanism used if browser does not allow CORS
-`/eval/{envId}/{contextBase64}`               | `GET`    | `clientstream.` | SSE stream of "ping" and other events for JS and other client-side SDK listeners
-`/eval/{envId}`                               | `REPORT` | `clientstream.` | Same as above but request body is the evaluation context JSON object (not in base64)
-`/events/bulk/{envId}`                        | `POST`   | `events.`       | Receives analytics events from SDKs
-`/events/diagnostic/{envId}`                  | `POST`   | `events.`       | Receives diagnostic data from SDKs
-`/ping/{envId}`                               | `GET`    | `clientstream.` | SSE stream for older SDKs that issues "ping" events when flags have changed
-`/sdk/evalx/{envId}/contexts/{contextBase64}` | `GET`    | `clientsdk.`    | Polling endpoint, returns flag evaluation results and additional metadata
-`/sdk/evalx/{envId}/contexts`                 | `REPORT` | `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64)
-`/sdk/evalx/{envId}/users/{contextBase64}`    | `GET`    | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs
-`/sdk/evalx/{envId}/users`                    | `REPORT` | `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs
-`/sdk/goals/{envId}`                          | `GET`    | `clientsdk.`    | Provides goals data used by JS SDK
+| Endpoint                                      |  Method  | Proxied Subdomain | Description                                                                          |
+|-----------------------------------------------|:--------:|:-----------------:|--------------------------------------------------------------------------------------|
+| `/a/{envId}.gif?d=*events*`                   |  `GET`   |     `events.`     | Alternative analytics event mechanism used if browser does not allow CORS            |
+| `/eval/{envId}/{contextBase64}`               |  `GET`   |  `clientstream.`  | SSE stream of "ping" and other events for JS and other client-side SDK listeners     |
+| `/eval/{envId}`                               | `REPORT` |  `clientstream.`  | Same as above but request body is the evaluation context JSON object (not in base64) |
+| `/events/bulk/{envId}`                        |  `POST`  |     `events.`     | Receives analytics events from SDKs                                                  |
+| `/events/diagnostic/{envId}`                  |  `POST`  |     `events.`     | Receives diagnostic data from SDKs                                                   |
+| `/ping/{envId}`                               |  `GET`   |  `clientstream.`  | SSE stream for older SDKs that issues "ping" events when flags have changed          |
+| `/sdk/evalx/{envId}/contexts/{contextBase64}` |  `GET`   |   `clientsdk.`    | Polling endpoint, returns flag evaluation results and additional metadata            |
+| `/sdk/evalx/{envId}/contexts`                 | `REPORT` |   `clientsdk.`    | Same as above but request body is the evaluation context JSON object (not in base64) |
+| `/sdk/evalx/{envId}/users/{contextBase64}`    |  `GET`   |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts/{contextBase64}` used by older SDKs  |
+| `/sdk/evalx/{envId}/users`                    | `REPORT` |   `clientsdk.`    | Alternate name for `/sdk/evalx/{envId}/contexts` used by older SDKs                  |
+| `/sdk/goals/{envId}`                          |  `GET`   |   `clientsdk.`    | Provides goals data used by JS SDK                                                   |
 
 The `GET`/`REPORT` endpoints return a 404 error if the environment ID is not recognized by Relay. This is different from the server-side and mobile endpoints, which return 401 for an unrecognized credential; it is consistent with the behavior of the corresponding LaunchDarkly service endpoints for client-side JavaScript SDKs.

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v6/internal/browser"
-	"github.com/launchdarkly/ld-relay/v6/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v7/internal/browser"
+	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v6"

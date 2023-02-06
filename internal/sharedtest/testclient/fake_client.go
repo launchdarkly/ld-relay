@@ -9,10 +9,10 @@ import (
 	"time"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
-	"github.com/launchdarkly/ld-relay/v6/config"
-	"github.com/launchdarkly/ld-relay/v6/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v6/internal/store"
+	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v7/internal/store"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v6"

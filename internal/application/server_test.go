@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	st "github.com/launchdarkly/ld-relay/v6/internal/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
