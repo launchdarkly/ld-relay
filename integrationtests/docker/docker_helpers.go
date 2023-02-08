@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v7/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 

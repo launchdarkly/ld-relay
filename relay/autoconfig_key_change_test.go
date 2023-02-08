@@ -7,8 +7,8 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 

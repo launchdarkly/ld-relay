@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/browser"
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/browser"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"

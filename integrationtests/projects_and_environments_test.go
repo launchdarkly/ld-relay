@@ -4,7 +4,7 @@
 package integrationtests
 
 import (
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
 type projectInfo struct {

@@ -11,12 +11,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/logging"
-	"github.com/launchdarkly/ld-relay/v7/internal/middleware"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v7/internal/streams"
-	"github.com/launchdarkly/ld-relay/v7/internal/util"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
+	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"

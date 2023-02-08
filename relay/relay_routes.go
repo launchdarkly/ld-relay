@@ -3,12 +3,12 @@ package relay
 import (
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/logging"
-	"github.com/launchdarkly/ld-relay/v7/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v7/internal/middleware"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"

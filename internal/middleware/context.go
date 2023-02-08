@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 )
 
 type contextKeyType string

@@ -1,8 +1,8 @@
 package autoconfig
 
 import (
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
 // MessageHandler defines the methods that StreamManager will call when it receives messages

@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v7/integrationtests/oshelpers"
-	"github.com/launchdarkly/ld-relay/v7/internal/api"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v8/internal/api"
 
 	ldapi "github.com/launchdarkly/api-client-go"
 	ct "github.com/launchdarkly/go-configtypes"

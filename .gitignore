@@ -37,6 +37,7 @@ build
 /bin/
 /dist/
 .vscode
+.idea/
 _testservice/testservice
 _testservice/*.pid
 temp_ssh

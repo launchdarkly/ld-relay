@@ -3,7 +3,7 @@ package envfactory
 import (
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	ct "github.com/launchdarkly/go-configtypes"
 )

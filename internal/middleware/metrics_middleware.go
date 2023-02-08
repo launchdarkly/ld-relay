@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 
 	"github.com/gorilla/mux"
 )

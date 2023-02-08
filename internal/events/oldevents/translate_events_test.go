@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
