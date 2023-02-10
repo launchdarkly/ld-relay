@@ -191,6 +191,7 @@ type RedisConfig struct {
 	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
 	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
 	TLS      bool              `conf:"REDIS_TLS"`
+	Username string            `conf:"REDIS_USERNAME"`
 	Password string            `conf:"REDIS_PASSWORD"`
 }
 

@@ -158,6 +158,9 @@ func makeRedisDataStoreBuilder[T any](
 	if allConfig.Redis.Password != "" {
 		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
 	}
+	if allConfig.Redis.Username != "" {
+		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+	}
 
 	b := constructor().
 		URL(redisURL).

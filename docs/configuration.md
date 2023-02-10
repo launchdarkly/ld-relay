@@ -175,9 +175,15 @@ To learn more, read [Persistent storage](./persistent-storage.md).
 | `url`            | `REDIS_URL`      |  String  |             | URL of the Redis database (overrides `host` & `port`).                                                                                                                                         |
 | `tls`            | `REDIS_TLS`      | Boolean  | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.               |
 | `password`       | `REDIS_PASSWORD` |  String  |             | Optional password if Redis require authentication.                                                                                                                                             |
+| `username`       | `REDIS_USERNAME` |  String  |             | Optional username if Redis requires authentication.                                                                                                                                            |
 | `localTtl`       | `CACHE_TTL`      | Duration | `30s`       | Length of time that database items can be cached in memory.                                                                                                                                    |
 
-Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` enables TLS, and `redis://:password@host` instead of `redis://host` sets a password. You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
+Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` 
+enables TLS, and `redis://:password@host` or `redis://user:password@host` instead of `redis://host` sets an (optional) 
+username and password.
+
+You may want to use the separate options instead if, for instance, you want your configuration file to contain the basic 
+Redis configuration, but for security reasons you would rather set the password in an environment variable (`REDIS_PASSWORD`).
 
 
 ### File section: `[DynamoDB]`

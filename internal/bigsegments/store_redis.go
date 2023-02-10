@@ -69,6 +69,9 @@ func newRedisBigSegmentStore(
 	if redisConfig.Password != "" {
 		opts.Password = redisConfig.Password
 	}
+	if redisConfig.Username != "" {
+		opts.Username = redisConfig.Username
+	}
 	if redisConfig.TLS && opts.TLSConfig == nil {
 		opts.TLSConfig = &tls.Config{
 			ServerName: redisConfig.URL.Get().Hostname(),
