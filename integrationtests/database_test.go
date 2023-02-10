@@ -24,6 +24,10 @@ func testDatabaseIntegrations(t *testing.T, manager *integrationTestManager) {
 		doDatabaseTest(t, manager, redisWithPasswordDatabaseTestParams)
 	})
 
+	t.Run("Redis with ACL (username + password)", func(t *testing.T) {
+		doDatabaseTest(t, manager, redisWithACLDatabaseTestParams)
+	})
+
 	t.Run("Consul", func(t *testing.T) {
 		doDatabaseTest(t, manager, consulDatabaseTestParams)
 	})

@@ -132,6 +132,30 @@ var redisWithPasswordDatabaseTestParams = databaseTestParams{
 	},
 }
 
+var redisWithACLDatabaseTestParams = databaseTestParams{
+	dbImageName:    "redis",
+	dbDockerParams: []string{"--requirepass", "secret"},
+	setupFn: func(manager *integrationTestManager, container *docker.Container) error {
+		redisCmd := "ACL SETUSER alice on +@all >secret"
+		return container.CommandInContainer("/bin/sh", "-c", "redis-cli", redisCmd).Run()
+	},
+	hostnamePrefix: "redis",
+	envVarsFn: func(dbContainer *docker.Container) map[string]string {
+		return map[string]string{
+			"USE_REDIS":      "true",
+			"REDIS_HOST":     dbContainer.GetName(),
+			"REDIS_PASSWORD": "secret",
+			"REDIS_USER":     "alice",
+		}
+	},
+	expectedStatusFn: func(dbContainer *docker.Container) api.DataStoreStatusRep {
+		return api.DataStoreStatusRep{
+			Database: "redis",
+			DBServer: fmt.Sprintf("redis://%s:6379", dbContainer.GetName()),
+		}
+	},
+}
+
 var consulDatabaseTestParams = databaseTestParams{
 	dbImageName:    "consul",
 	hostnamePrefix: "consul",

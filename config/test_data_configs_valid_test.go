@@ -379,6 +379,7 @@ func makeValidConfigRedisAll() testDataValidConfig {
 			LocalTTL: ct.NewOptDuration(3 * time.Second),
 			TLS:      true,
 			Password: "pass",
+			Username: "user",
 		}
 	}
 	c.envVars = map[string]string{
@@ -387,6 +388,7 @@ func makeValidConfigRedisAll() testDataValidConfig {
 		"REDIS_PORT":     "6400",
 		"REDIS_TLS":      "1",
 		"REDIS_PASSWORD": "pass",
+		"REDIS_USERNAME": "user",
 		"CACHE_TTL":      "3s",
 	}
 	c.fileContent = `
@@ -395,6 +397,7 @@ Host = "redishost"
 Port = 6400
 TLS = 1
 Password = "pass"
+Username = "user"
 LocalTTL = 3s
 `
 	return c
