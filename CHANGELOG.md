@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.1.0] - 2023-02-10
+### Added:
+- Added ability to specify Redis username via config file or environment variable.
+
 ## [7.0.3] - 2023-02-06
 ### Fixed:
 - Fixed Go module path to match the major version number, which was preventing installation using Go tooling. (Thanks, @macro1).
