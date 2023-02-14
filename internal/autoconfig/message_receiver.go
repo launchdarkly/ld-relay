@@ -22,8 +22,6 @@ type MessageReceiver[T Item] struct {
 // An Item is anything that can report its own ID and a human-readable description of itself.
 // Its allows the MessageReceiver to maintain a list of "seen" items.
 type Item interface {
-	// ID returns a unique identifier for the item.
-	ID() string
 	// Describe is the human-readable identifier for the item, used in log messages.
 	Describe() string
 }
@@ -86,12 +84,12 @@ func NewMessageReceiver[T Item](sink ItemReceiver[T], loggers ldlog.Loggers) *Me
 }
 
 // Upsert receives an item and version, conditionally forwarding it to the underlying ItemReceiver.
-func (v *MessageReceiver[T]) Upsert(item T, version int) {
-	current, seen := v.seen[item.ID()]
+func (v *MessageReceiver[T]) Upsert(id string, item T, version int) {
+	current, seen := v.seen[id]
 
 	// Never-before-seen items should be inserted.
 	if !seen {
-		v.seen[item.ID()] = newVersioned(item, version)
+		v.seen[id] = newVersioned(item, version)
 		v.loggers.Infof(logMsgAddEnv, item.Describe())
 		v.sink.Insert(item)
 		return

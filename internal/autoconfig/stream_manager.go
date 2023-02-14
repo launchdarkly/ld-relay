@@ -244,7 +244,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					s.loggers.Warnf(logMsgEnvHasWrongID, patchMessage.Data.EnvID, envID)
 					break
 				}
-				s.receiver.Upsert(patchMessage.Data, patchMessage.Data.Version)
+				s.receiver.Upsert(string(envID), patchMessage.Data, patchMessage.Data.Version)
 
 			case DeleteEvent:
 				var deleteMessage DeleteMessageData
@@ -301,7 +301,7 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]envfactory
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
-		s.receiver.Upsert(rep, rep.Version)
+		s.receiver.Upsert(string(id), rep, rep.Version)
 	}
 	s.receiver.Purge(func(id string) bool {
 		_, newlyAdded := allEnvReps[config.EnvironmentID(id)]
