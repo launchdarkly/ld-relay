@@ -55,6 +55,8 @@ type StreamManager struct {
 	loggers           ldlog.Loggers
 	halt              chan struct{}
 	closeOnce         sync.Once
+
+	receiver *MessageReceiver[envfactory.EnvironmentRep]
 }
 
 type expiredKey struct {
@@ -72,7 +74,7 @@ func NewStreamManager(
 	loggers ldlog.Loggers,
 ) *StreamManager {
 	loggers.SetPrefix("[AutoConfiguration]")
-	return &StreamManager{
+	s := &StreamManager{
 		key:               key,
 		uri:               strings.TrimSuffix(streamURI, "/") + autoConfigStreamPath,
 		handler:           handler,
@@ -84,6 +86,26 @@ func NewStreamManager(
 		loggers:           loggers,
 		halt:              make(chan struct{}),
 	}
+
+	// Converts EnvironmentRep data (the JSON model) to EnvironmentParams (internal model used by the rest of the code).
+	// Additionally, invokes StreamManager's IgnoreExpiringSDKKey method whenever a message is received.
+	// See EnvironmentMsgAdapter's docs for more context.
+	envMsgAdapter := NewEnvironmentMsgAdapter(handler, s, loggers)
+
+	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
+	// (via envMsgAdapter) to act only on state changes. This process is important for mitigating unnecessary or
+	// incorrect disruptions to connected SDKs. For example, modifying an environment config that *could* be done without
+	// recreating an environment *should* be done without recreating that environment.
+	s.receiver = NewMessageReceiver[envfactory.EnvironmentRep](envMsgAdapter, loggers)
+
+	// The data flow is:
+	//
+	// SSE message ->
+	//   s.receiver (enforce ordering constraints) ->
+	//     envMsgAdapter (convert to internal data representation, possibly start key expiry timers) ->
+	//       handler (actually create/update/delete environments)
+
+	return s
 }
 
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
@@ -222,7 +244,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					s.loggers.Warnf(logMsgEnvHasWrongID, patchMessage.Data.EnvID, envID)
 					break
 				}
-				s.addOrUpdate(patchMessage.Data)
+				s.receiver.Upsert(patchMessage.Data, patchMessage.Data.Version)
 
 			case DeleteEvent:
 				var deleteMessage DeleteMessageData
@@ -234,8 +256,8 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					s.loggers.Infof(logMsgWrongPath, DeleteEvent, deleteMessage.Path)
 					break
 				}
-				envID := config.EnvironmentID(strings.TrimPrefix(deleteMessage.Path, environmentPathPrefix))
-				s.handleDelete(envID, deleteMessage.Version)
+				envID := strings.TrimPrefix(deleteMessage.Path, environmentPathPrefix)
+				s.receiver.Delete(envID, deleteMessage.Version)
 
 			case ReconnectEvent:
 				s.loggers.Info(logMsgDeliberateReconnect)
@@ -279,106 +301,54 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]envfactory
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
-		if s.lastKnownEnvs[id] == rep {
-			// Unchanged - don't try to update because we would get a warning for the version not being higher
-			continue
-		}
-		s.addOrUpdate(rep)
+		s.receiver.Upsert(rep, rep.Version)
 	}
-	for id, currentEnv := range s.lastKnownEnvs {
-		if _, isInNewData := allEnvReps[id]; !isInNewData && !isTombstone(currentEnv) {
-			s.handleDelete(id, -1)
-		}
-	}
+	s.receiver.Purge(func(id string) bool {
+		_, newlyAdded := allEnvReps[config.EnvironmentID(id)]
+		return !newlyAdded
+	})
 	s.handler.ReceivedAllEnvironments()
 }
 
-func (s *StreamManager) addOrUpdate(rep envfactory.EnvironmentRep) {
-	params := rep.ToParams()
+// IgnoreExpiringSDKKey implements the EnvironmentMsgAdapter's KeyChecker interface. Its main purpose is to
+// create a goroutine that triggers SDK key expiration, if the EnvironmentRep specifies that. Additionally, it returns
+// true if an ExpiringSDKKey should be ignored (since the expiry is stale).
+func (s *StreamManager) IgnoreExpiringSDKKey(env envfactory.EnvironmentRep) bool {
+	expiringKey := env.SDKKey.Expiring.Value
+	expiryTime := env.SDKKey.Expiring.Timestamp
 
-	// Check whether this is a new environment or an update
-	currentEnv, exists := s.lastKnownEnvs[rep.EnvID]
-	if exists {
-		// Check version to make sure this isn't an out-of-order message
-		if rep.Version <= currentEnv.Version {
-			s.loggers.Infof(logMsgUpdateBadVersion, rep.EnvID, makeEnvName(currentEnv))
-			return
-		}
-		if currentEnv.EnvID == "" {
-			// This was a tombstone, so we are effectively adding a new environment.
-			exists = false
-		}
+	if expiringKey == "" || expiryTime == 0 {
+		return false
 	}
 
-	expiringKey := rep.SDKKey.Expiring.Value
-	expiryTime := rep.SDKKey.Expiring.Timestamp
-	if expiringKey != "" && expiryTime != 0 {
-		if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; !alreadyHaveTimer {
-			timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
-			if timeFromNow <= 0 {
-				// LD might sometimes tell us about an "expiring" key that has really already expired. If so,
-				// just ignore it.
-				params.ExpiringSDKKey = ""
-			} else {
-				dateTime := time.Unix(int64(expiryTime)/1000, 0)
-				s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), rep.EnvID,
-					params.Identifiers.GetDisplayName(), dateTime)
-				timer := time.NewTimer(timeFromNow)
-				s.expiryTimers[expiringKey] = timer
-				go func() {
-					if _, ok := <-timer.C; ok {
-						s.expiredKeys <- expiredKey{rep.EnvID, expiringKey}
-					}
-				}()
-			}
-		}
+	if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; alreadyHaveTimer {
+		return false
 	}
 
-	if exists {
-		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgUpdateEnv, rep.EnvID, params.Identifiers.GetDisplayName())
-		s.handler.UpdateEnvironment(params)
-	} else {
-		s.lastKnownEnvs[rep.EnvID] = rep
-		s.loggers.Infof(logMsgAddEnv, rep.EnvID, params.Identifiers.GetDisplayName())
-		s.handler.AddEnvironment(params)
+	timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
+	if timeFromNow <= 0 {
+		// LD might sometimes tell us about an "expiring" key that has really already expired. If so,
+		// just ignore it.
+		return true
 	}
-}
 
-func (s *StreamManager) handleDelete(envID config.EnvironmentID, version int) {
-	currentEnv, exists := s.lastKnownEnvs[envID]
-	// Check version to make sure this isn't an out-of-order message
-	if version > 0 {
-		if exists && version == currentEnv.Version && isTombstone(currentEnv) {
-			// This is a tombstone, it's already been deleted, no need for a warning
-			return
+	dateTime := time.Unix(int64(expiryTime)/1000, 0)
+	s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), env.Describe(), dateTime)
+
+	timer := time.NewTimer(timeFromNow)
+	s.expiryTimers[expiringKey] = timer
+
+	go func() {
+		if _, ok := <-timer.C; ok {
+			s.expiredKeys <- expiredKey{env.EnvID, expiringKey}
 		}
-		if exists && version <= currentEnv.Version {
-			// The existing environment (or tombstone) has too high a version number; don't delete
-			s.loggers.Infof(logMsgDeleteBadVersion, envID, makeEnvName(currentEnv))
-			return
-		}
-		// Store a tombstone with the version, to prevent later out-of-order updates; we do this even
-		// if we never heard of this environment, in case there are out-of-order messages and the
-		// event to add the environment comes later
-		s.lastKnownEnvs[envID] = makeTombstone(version)
-	}
-	if exists {
-		s.loggers.Infof(logMsgDeleteEnv, envID, makeEnvName(currentEnv))
-		s.handler.DeleteEnvironment(envID)
-	}
+	}()
+
+	return false
 }
 
 func makeEnvName(rep envfactory.EnvironmentRep) string {
 	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
-}
-
-func makeTombstone(version int) envfactory.EnvironmentRep {
-	return envfactory.EnvironmentRep{Version: version}
-}
-
-func isTombstone(rep envfactory.EnvironmentRep) bool {
-	return rep.EnvID == ""
 }
 
 func last4Chars(s string) string {

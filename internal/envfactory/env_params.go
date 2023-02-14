@@ -26,7 +26,7 @@ type EnvironmentParams struct {
 	// MobileKey is the environment's mobile key.
 	MobileKey config.MobileKey
 
-	// DeprecatedSDKKey is an additional SDK key that should also be allowed (but not surfaced as
+	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
 	// the canonical one), or "" if none. The expiry time is not represented here; it is managed
 	// by lower-level components.
 	ExpiringSDKKey config.SDKKey

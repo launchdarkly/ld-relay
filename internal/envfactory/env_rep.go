@@ -1,6 +1,7 @@
 package envfactory
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
@@ -55,4 +56,12 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
 		SecureMode:     r.SecureMode,
 	}
+}
+
+func (r EnvironmentRep) Describe() string {
+	return fmt.Sprintf("environment %s (%s %s)", r.EnvID, r.ProjName, r.EnvName)
+}
+
+func (r EnvironmentRep) ID() string {
+	return string(r.EnvID)
 }

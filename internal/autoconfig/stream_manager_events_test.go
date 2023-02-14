@@ -334,7 +334,10 @@ func TestDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, false, ldlog.Info, "Ignoring out-of-order delete")
+			// TODO(cwaldren): This used to have shouldMatch: false, because the expectation was that
+			// there wouldn't be a log message if an out-of-order delete arrived for an *already deleted*
+			// environment. I think it's debatable whether that is a good thing - perhaps it happens a lot or something?
+			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Ignoring out-of-order delete")
 		})
 	})
 
