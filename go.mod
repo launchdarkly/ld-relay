@@ -45,7 +45,7 @@ require (
 	github.com/prometheus/client_golang v1.11.1 // indirect; override to address CVE-2022-21698
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0
-	golang.org/x/net v0.4.0 // indirect; override to address CVE-2022-41717
+	golang.org/x/net v0.7.0 // indirect; override to address CVE-2022-41717
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.9.0
@@ -109,8 +109,8 @@ require (
 	go.opentelemetry.io/otel/trace v0.19.0 // indirect
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c // indirect
-	golang.org/x/sys v0.3.0 // indirect; fixes CVE-2022-29526
-	golang.org/x/text v0.5.0 // indirect; fixes CVE-2022-32149
+	golang.org/x/sys v0.5.0 // indirect; fixes CVE-2022-29526
+	golang.org/x/text v0.7.0 // indirect; fixes CVE-2022-32149
 	google.golang.org/api v0.43.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20210402141018-6c239bbf2bb1 // indirect
