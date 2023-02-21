@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.2.0] - 2023-02-21
+### Changed:
+- Updated goreleaser to `v1.15.2`: release artifact names now follow goreleaser's standard `ConventionalFileName` template. Additionally, the deb and rpm packages now install `ld-relay` to `/usr/bin` instead of `/usr/local/bin`.
+
+### Fixed:
+- Updated `golang.org/x/net` to `v0.7.0` to address CVE-2022-41723.
+- Fixed typo in `docs/metrics.md`.
+
 ## [7.1.0] - 2023-02-10
 ### Added:
 - Added ability to specify Redis username via config file or environment variable.
