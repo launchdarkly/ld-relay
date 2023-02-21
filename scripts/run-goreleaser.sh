@@ -6,7 +6,7 @@
 # This also pushes the image to DockerHub unless we have specifically told it not to with
 # the --skip-publish option.
 
-GORELEASER_VERSION=${GORELEASER_VERSION:-v0.141.0}
+GORELEASER_VERSION=${GORELEASER_VERSION:-v1.15.2}
 
 # Get the lines added to the most recent changelog update (minus the first 2 lines)
 RELEASE_NOTES=`(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $2 $5" || true' git log --ext-diff -1 --pretty= -p CHANGELOG.md)`

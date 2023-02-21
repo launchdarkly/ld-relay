@@ -20,8 +20,8 @@ builds:
 
 nfpms:
   -
-    file_name_template: "{{ .ProjectName }}_{{ .Version }}.{{ .ShortCommit }}_{{ .Arch }}"
-
+    file_name_template: >-
+      {{ .ConventionalFileName }}
     homepage: https://launchdarkly.com/
     maintainer: LaunchDarkly <team@launchdarkly.com>
     description: LaunchDarkly Stream Relay Proxy
@@ -32,23 +32,27 @@ nfpms:
     - deb
     - rpm
 
-    replacements:
-      386: i386
+    contents:
+      - src: linux/etc/ld-relay.conf
+        dst: /etc/ld-relay.conf
+        type: config
 
-    config_files:
-      "linux/etc/ld-relay.conf": "/etc/ld-relay.conf"
+      - src: linux/etc/init/ld-relay.conf
+        dst: /etc/init/ld-relay.conf
+        packager: deb
+
+      - src: linux/etc/system/ld-relay.service
+        dst: /usr/lib/systemd/system/ld-relay.service
+        packager: rpm
+
 
     overrides:
       deb:
         dependencies:
         - upstart
-        files:
-          "linux/etc/init/ld-relay.conf": "/etc/init/ld-relay.conf"
       rpm:
         dependencies:
         - systemd
-        files:
-          "linux/etc/system/ld-relay.service": "/usr/lib/systemd/system/ld-relay.service"
 
 release:
   disable: true # this disables releasing *to GitHub*; it will still push to Docker
