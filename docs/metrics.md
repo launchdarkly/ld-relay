@@ -4,7 +4,7 @@
 
 You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
 
-The Relay Proxy suppors the following metrics:
+The Relay Proxy supports the following metrics:
 
 - `connections`: The number of currently existing stream connections from SDKs to the Relay Proxy.
 - `newconnections`: The cumulative number of stream connections that have been made to the Relay Proxy since it started up.
