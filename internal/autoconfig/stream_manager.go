@@ -56,7 +56,8 @@ type StreamManager struct {
 	halt              chan struct{}
 	closeOnce         sync.Once
 
-	receiver *MessageReceiver[envfactory.EnvironmentRep]
+	receiver      *MessageReceiver[envfactory.EnvironmentRep]
+	envMsgAdapter *EnvironmentMsgAdapter
 }
 
 type expiredKey struct {
@@ -90,13 +91,13 @@ func NewStreamManager(
 	// Converts EnvironmentRep data (the JSON model) to EnvironmentParams (internal model used by the rest of the code).
 	// Additionally, invokes StreamManager's IgnoreExpiringSDKKey method whenever a message is received.
 	// See EnvironmentMsgAdapter's docs for more context.
-	envMsgAdapter := NewEnvironmentMsgAdapter(handler, s, loggers)
+	s.envMsgAdapter = NewEnvironmentMsgAdapter(handler, s, loggers)
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
 	// (via envMsgAdapter) to act only on state changes. This process is important for mitigating unnecessary or
 	// incorrect disruptions to connected SDKs. For example, modifying an environment config that *could* be done without
 	// recreating an environment *should* be done without recreating that environment.
-	s.receiver = NewMessageReceiver[envfactory.EnvironmentRep](envMsgAdapter, loggers)
+	s.receiver = NewMessageReceiver[envfactory.EnvironmentRep](loggers)
 
 	// The data flow is:
 	//
@@ -244,8 +245,8 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					s.loggers.Warnf(logMsgEnvHasWrongID, patchMessage.Data.EnvID, envID)
 					break
 				}
-				s.receiver.Upsert(string(envID), patchMessage.Data, patchMessage.Data.Version)
-
+				action := s.receiver.Upsert(string(envID), patchMessage.Data, patchMessage.Data.Version)
+				s.stateChange(string(envID), patchMessage.Data, action)
 			case DeleteEvent:
 				var deleteMessage DeleteMessageData
 				if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
@@ -257,8 +258,8 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					break
 				}
 				envID := strings.TrimPrefix(deleteMessage.Path, environmentPathPrefix)
-				s.receiver.Delete(envID, deleteMessage.Version)
-
+				action := s.receiver.Delete(envID, deleteMessage.Version)
+				s.stateChange(envID, envfactory.EnvironmentRep{}, action)
 			case ReconnectEvent:
 				s.loggers.Info(logMsgDeliberateReconnect)
 				shouldRestart = true
@@ -296,18 +297,39 @@ func (s *StreamManager) handlePut(allEnvReps map[config.EnvironmentID]envfactory
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
 	// in the set.
 	s.loggers.Infof(logMsgPutEvent, len(allEnvReps))
+
 	for id, rep := range allEnvReps {
 		if id != rep.EnvID {
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
 			continue
 		}
-		s.receiver.Upsert(string(id), rep, rep.Version)
+		action := s.receiver.Upsert(string(id), rep, rep.Version)
+		s.stateChange(string(id), rep, action)
 	}
-	s.receiver.Purge(func(id string) bool {
-		_, newlyAdded := allEnvReps[config.EnvironmentID(id)]
-		return !newlyAdded
-	})
+
+	added := func(id string) bool {
+		_, ok := allEnvReps[config.EnvironmentID(id)]
+		return ok
+	}
+
+	for _, deleted := range s.receiver.Retain(added) {
+		s.stateChange(deleted, envfactory.EnvironmentRep{}, ActionDelete)
+	}
+
 	s.handler.ReceivedAllEnvironments()
+}
+
+func (s *StreamManager) stateChange(id string, rep envfactory.EnvironmentRep, action Action) {
+	switch action {
+	case ActionNoop:
+		return
+	case ActionInsert:
+		s.envMsgAdapter.Insert(rep)
+	case ActionDelete:
+		s.envMsgAdapter.Delete(id)
+	case ActionUpdate:
+		s.envMsgAdapter.Update(rep)
+	}
 }
 
 // IgnoreExpiringSDKKey implements the EnvironmentMsgAdapter's KeyChecker interface. Its main purpose is to

@@ -15,7 +15,6 @@ import "github.com/launchdarkly/go-sdk-common/v3/ldlog"
 // is that XYZ should not exist in the system.
 type MessageReceiver[T Item] struct {
 	seen    map[string]*versioned[T]
-	sink    ItemReceiver[T]
 	loggers ldlog.Loggers
 }
 
@@ -26,21 +25,22 @@ type Item interface {
 	Describe() string
 }
 
-// ItemReceiver is any component capable of receiving new items, changes to existing items,
-// or requests to delete an item.
-//
-// Calls to the methods will follow these constraints:
+// An Action represents actions generated in response to invoking MessageReceiver's methods, which a caller should
+// handle.
+// Returned Actions will obey the following order constraints:
 //  1. An item will never be Updated or Deleted without first being Inserted.
 //  2. An item may be Updated 0 or more times.
 //  3. An item will be Deleted exactly once.
-type ItemReceiver[T any] interface {
-	// Insert inserts a new item.
-	Insert(item T)
-	// Update changes an existing item.
-	Update(item T)
-	// Delete removes an existing item.
-	Delete(id string)
-}
+//
+// At any point, a Noop may be emitted, in which case the caller may take no action.
+type Action string
+
+const (
+	ActionInsert = Action("insert")
+	ActionUpdate = Action("updated")
+	ActionDelete = Action("delete")
+	ActionNoop   = Action("noop")
+)
 
 type versioned[T Item] struct {
 	// The item itself.
@@ -75,45 +75,43 @@ func (v *versioned[T]) update(item T, version int) bool {
 	return resurrected
 }
 
-func NewMessageReceiver[T Item](sink ItemReceiver[T], loggers ldlog.Loggers) *MessageReceiver[T] {
+func NewMessageReceiver[T Item](loggers ldlog.Loggers) *MessageReceiver[T] {
 	return &MessageReceiver[T]{
 		seen:    make(map[string]*versioned[T]),
-		sink:    sink,
 		loggers: loggers,
 	}
 }
 
 // Upsert receives an item and version, conditionally forwarding it to the underlying ItemReceiver.
-func (v *MessageReceiver[T]) Upsert(id string, item T, version int) {
+func (v *MessageReceiver[T]) Upsert(id string, item T, version int) Action {
 	current, seen := v.seen[id]
 
 	// Never-before-seen items should be inserted.
 	if !seen {
 		v.seen[id] = newVersioned(item, version)
 		v.loggers.Infof(logMsgAddEnv, item.Describe())
-		v.sink.Insert(item)
-		return
+		return ActionInsert
 	}
 
 	// Out-of-order messages have no effect, but could indicate something odd.
 	if version <= current.version {
 		v.loggers.Infof(logMsgUpdateBadVersion, item.Describe())
-		return
+		return ActionNoop
 	}
 
 	// If the item was previously a tombstone, then this is really an insert - rather than an update - since we've
 	// had an intervening delete.
 	if resurrected := current.update(item, version); resurrected {
 		v.loggers.Infof(logMsgAddEnv, item.Describe())
-		v.sink.Insert(item)
+		return ActionInsert
 	} else {
 		v.loggers.Infof(logMsgUpdateEnv, item.Describe())
-		v.sink.Update(item)
+		return ActionUpdate
 	}
 }
 
 // Delete receives an item ID and version, conditionally forwarding the request to the underlying ItemReceiver.
-func (v *MessageReceiver[T]) Delete(id string, version int) {
+func (v *MessageReceiver[T]) Delete(id string, version int) Action {
 	current, seen := v.seen[id]
 
 	// Never-before-seen items generate a tombstone.
@@ -121,7 +119,7 @@ func (v *MessageReceiver[T]) Delete(id string, version int) {
 	// insertion, because the upsert came later. We can't prove that without storing a tombstone.
 	if !seen {
 		v.seen[id] = newTombstone[T](version)
-		return
+		return ActionNoop
 	}
 
 	// Out-of-order messages have no effect, but could indicate something odd.
@@ -129,7 +127,7 @@ func (v *MessageReceiver[T]) Delete(id string, version int) {
 		// Not using current.item.Describe() because if this was constructed using newTombstone,
 		// then item will be zero-valued.
 		v.loggers.Infof(logMsgDeleteBadVersion, id)
-		return
+		return ActionNoop
 	}
 
 	// Since version > current.version, accept the message.
@@ -139,38 +137,43 @@ func (v *MessageReceiver[T]) Delete(id string, version int) {
 	if !current.entombed {
 		v.loggers.Infof(logMsgDeleteEnv, current.item.Describe())
 		current.entomb(version)
-		v.sink.Delete(id)
-		return
+		return ActionDelete
 	}
 
 	current.version = version
+	return ActionNoop
 }
 
 // Forget causes MessageReceiver to behave as if the ID was never seen before. It may invoke the ItemReceiver's
 // delete command if the item exists.
-func (v *MessageReceiver[T]) Forget(id string) {
+func (v *MessageReceiver[T]) Forget(id string) Action {
+	action := ActionNoop
 	if current, seen := v.seen[id]; seen {
 		if !current.entombed {
 			v.loggers.Infof(logMsgDeleteEnv, current.item.Describe())
-			v.sink.Delete(id)
+			action = ActionDelete
 		}
 		delete(v.seen, id)
 	}
+	return action
 }
 
-// Purge calls Forget on all ids for which the predicate returns true.
-func (v *MessageReceiver[T]) Purge(purge func(id string) bool) {
+// Purge calls Forget on all ids for which the predicate returns true. Returns the IDs of all items
+// that should be deleted.
+func (v *MessageReceiver[T]) Purge(predicate func(id string) bool) []string {
+	var deleted []string
 	for seen := range v.seen {
-		if purge(seen) {
-			v.Forget(seen)
+		if predicate(seen) && v.Forget(seen) == ActionDelete {
+			deleted = append(deleted, seen)
 		}
 	}
+	return deleted
 }
 
 // Retain keeps all ids for which the predicate returns true, and calls Forget
-// on the rest.
-func (v *MessageReceiver[T]) Retain(retain func(id string) bool) {
-	v.Purge(func(id string) bool {
-		return !retain(id)
+// on the rest. Returns the IDs of all items that should be deleted.
+func (v *MessageReceiver[T]) Retain(predicate func(id string) bool) []string {
+	return v.Purge(func(id string) bool {
+		return !predicate(id)
 	})
 }

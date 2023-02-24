@@ -15,9 +15,6 @@ type EnvironmentMsgAdapter struct {
 	keyChecker KeyChecker
 }
 
-// Sanity check that EnvironmentMsgAdapter implements the ItemReceiver interface.
-var _ ItemReceiver[envfactory.EnvironmentRep] = (*EnvironmentMsgAdapter)(nil)
-
 // KeyChecker defines a component that can detect if the representation for an expiring
 // SDK key is invalid - that is, if it should be ignored, instead of being forwarded deeper into
 // the system. This is necessary because sometimes LaunchDarkly sends ExpiringKeyReps with expiration dates
