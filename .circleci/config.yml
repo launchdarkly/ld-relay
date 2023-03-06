@@ -9,7 +9,12 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant
   go-release-version:
     type: string
-    default: "1.19.4"
+    default: "1.20.1"
+
+  # In addition to the most recent version of Go, we also support the previous version.
+  go-previous-version:
+    type: string
+    default: "1.19.6"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
@@ -31,23 +36,15 @@ workflows:
   workflow:
     jobs:
       - go-test:
-          name: Go latest
-          # This build has a deliberately unpinned version so that if a new Go major version
-          # is released before we have updated the build, we can detect any problems early
-          docker-image: circleci/golang:latest
-      - go-test:
-          name: Go 1.19
-          docker-image: cimg/go:1.19
+          name: Go <<pipeline.parameters.go-release-version>>
+          docker-image: cimg/go:<<pipeline.parameters.go-release-version>>
           run-lint: true
           test-coverage: true
       - go-test:
-          name: Go 1.18
-          docker-image: cimg/go:1.18
-      - go-test:
-          name: Go 1.17
-          docker-image: cimg/go:1.17
+          name: Go <<pipeline.parameters.go-previous-version>>
+          docker-image: cimg/go:<<pipeline.parameters.go-previous-version>>
       - benchmarks:
-          docker-image: cimg/go:1.19
+          docker-image: cimg/go:<<pipeline.parameters.go-release-version>>
       - integration-test
       - docker-images-test
 
@@ -89,13 +86,11 @@ workflows:
             only: v6
     jobs:
       - package-build-test:
-          name: package build - Go latest
-          docker-image: circleci/golang:latest
-          use-go-install: true
+          name: package build - Go <<pipeline.parameters.go-release-version>>
+          docker-image: cimg/go:<<pipeline.parameters.go-release-version>>
       - package-build-test:
-          name: package build - Go 1.17
-          docker-image: cimg/go:1.17
-          use-go-install: true
+          name: package build - Go <<pipeline.parameters.go-previous-version>>
+          docker-image: cimg/go:<<pipeline.parameters.go-previous-version>>
 
   daily-security-scan:
     triggers:
@@ -233,22 +228,12 @@ jobs:
     parameters:
       docker-image:
         type: string
-      use-go-install:
-        type: boolean
-    
     docker:
       - image: <<parameters.docker-image>>
 
     steps:
       - run: go version
-      - when:
-          condition: <<parameters.use-go-install>>
-          steps:
-            - run: go install github.com/launchdarkly/ld-relay/v6@latest
-      - unless:
-          condition: <<parameters.use-go-install>>
-          steps:
-            - run: GO111MODULE=on go get github.com/launchdarkly/ld-relay/v6@latest
+      - run: go install github.com/launchdarkly/ld-relay/v6@latest
       - run:
           name: verify that executable was built
           command: ls -l $GOPATH/bin/ld-relay
