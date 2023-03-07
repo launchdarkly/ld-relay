@@ -7,7 +7,6 @@ run:
 linters:
   enable:
     - bodyclose
-    - deadcode
     - depguard
     - dupl
     - errcheck
@@ -36,7 +35,6 @@ linters:
     - unconvert
     - unparam
     - unused
-    - varcheck
     - whitespace
   fast: false
 
