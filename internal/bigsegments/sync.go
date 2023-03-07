@@ -323,7 +323,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, err
 	if err != nil {
 		return false, segmentChangesSummary{}, err
 	}
-	defer response.Body.Close() //nolint:errcheck
+	defer response.Body.Close() //nolint:errcheck,gosec
 
 	if response.StatusCode != 200 {
 		return false, segmentChangesSummary{}, &httpStatusError{response.StatusCode}

@@ -21,7 +21,7 @@ function fail_for_file() {
   exit 1
 }
 
-LDRELEASE_GO_VERSION=$(sed <${ldrelease_config_file} -n 's#.*image: *cimg/go:\([1-9.]*\).*#\1#p')
+LDRELEASE_GO_VERSION=$(sed <${ldrelease_config_file} -n 's#.*image: *cimg/go:\([0-9.]*\).*#\1#p')
 if [ -z "${LDRELEASE_GO_VERSION}" ]; then
   fail_for_file Go ${ldrelease_config_file}
 fi
