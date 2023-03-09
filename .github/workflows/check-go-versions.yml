@@ -1,7 +1,7 @@
 name: Check Supported Go Versions
 on:
   schedule:
-  - cron: "0 0 * * *"
+  - cron: "0 17 * * *"
   workflow_dispatch:
     inputs:
       force_create_issue:
