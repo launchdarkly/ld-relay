@@ -5,7 +5,8 @@ labels: ''
 ---
 It's time to update Relay's supported Go versions, due to a recent upstream Go release.
 
-The Go release cadence is ~every 6 months; the two most recent major versions are supported.
+The Go major release cadence is ~every 6 months; the two most recent major versions are supported. 
+Note that between major releases, the Go team often ships multiple minor versions. 
 
 |             | Current repo configuration         | Desired repo configuration             |
 |-------------|------------------------------------|----------------------------------------|

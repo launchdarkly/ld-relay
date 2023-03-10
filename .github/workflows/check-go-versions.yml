@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       force_create_issue:
-        type: bool
+        type: boolean
         description: 'Create issue even if versions are up-to-date'
         required: false
         default: false
