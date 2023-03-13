@@ -18,7 +18,7 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7
 	github.com/hashicorp/consul/api v1.15.3
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/api-client-go v5.0.3+incompatible
+	github.com/launchdarkly/api-client-go/v12 v12.0.0
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-server-sdk-consul v1.0.2

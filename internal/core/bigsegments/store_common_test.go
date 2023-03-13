@@ -1,3 +1,4 @@
+//go:build big_segment_external_store_tests
 // +build big_segment_external_store_tests
 
 package bigsegments
