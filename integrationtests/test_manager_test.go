@@ -108,8 +108,8 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	apiConfig := ldapi.NewConfiguration()
 	apiConfig.Servers = []ldapi.ServerConfiguration{
 		{
-			URL:         defaultAPIBaseURL,
-			Description: "Staging",
+			URL:         apiBaseURL,
+			Description: "StagingOrProd",
 		},
 	}
 	apiConfig.HTTPClient = httpClient
