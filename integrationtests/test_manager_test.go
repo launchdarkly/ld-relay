@@ -33,12 +33,14 @@ import (
 )
 
 const (
-	defaultAPIBaseURL         = "https://ld-stg.launchdarkly.com"
-	defaultStreamBaseURL      = "https://stream-stg.launchdarkly.com"
-	defaultSDKBaseURL         = "https://sdk-stg.launchdarkly.com"
-	defaultClientSDKBaseURL   = "https://clientsdk-stg.launchdarkly.com"
-	defaultStatusPollTimeout  = time.Second * 5
-	defaultStatusPollInterval = time.Millisecond * 100
+	defaultAPIBaseURL       = "https://ld-stg.launchdarkly.com"
+	defaultStreamBaseURL    = "https://stream-stg.launchdarkly.com"
+	defaultSDKBaseURL       = "https://sdk-stg.launchdarkly.com"
+	defaultClientSDKBaseURL = "https://clientsdk-stg.launchdarkly.com"
+	// 10 seconds because the previous value of 5 resulted in flaky autoconfig tests.
+	defaultStatusPollTimeout = time.Second * 10
+	// 1 second because the previous value of 100ms seemed unnecessarily aggressive.
+	defaultStatusPollInterval = 1 * time.Second
 	relayContainerSharedDir   = "/tmp/relay-shared"
 )
 
