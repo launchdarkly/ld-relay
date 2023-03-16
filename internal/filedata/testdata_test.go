@@ -40,7 +40,7 @@ var testEnv1 = testEnv{
 	},
 	dataID: "1000",
 	sdkData: map[string]map[string]interface{}{
-		"flags": map[string]interface{}{
+		"flags": {
 			"env1Flag1": ldbuilders.NewFlagBuilder("env1Flag1").Version(1).On(true).Build(),
 			"env1Flag2": ldbuilders.NewFlagBuilder("env1Flag2").Version(1).On(false).Build(),
 		},
@@ -59,10 +59,10 @@ var testEnv2 = testEnv{
 	},
 	dataID: "2000",
 	sdkData: map[string]map[string]interface{}{
-		"flags": map[string]interface{}{
+		"flags": {
 			"env2Flag1": ldbuilders.NewFlagBuilder("env2Flag1").Version(1).On(true).Build(),
 		},
-		"segments": map[string]interface{}{
+		"segments": {
 			"env2Segment1": ldbuilders.NewSegmentBuilder("env2Segment1").Version(1).Build(),
 		},
 	},

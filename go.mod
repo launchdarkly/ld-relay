@@ -6,7 +6,6 @@ require (
 	cloud.google.com/go v0.81.0 // indirect
 	contrib.go.opencensus.io/exporter/prometheus v0.4.0
 	github.com/DataDog/opencensus-go-exporter-datadog v0.0.0-20210527074920-9baf37265e83
-	github.com/antihax/optional v1.0.0
 	github.com/armon/go-metrics v0.3.10 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.16.14
 	github.com/aws/aws-sdk-go-v2/config v1.17.5
@@ -28,7 +27,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/kardianos/minwinsvc v0.0.0-20151122163309-cad6b2b879b0
-	github.com/launchdarkly/api-client-go v5.0.3+incompatible
+	github.com/launchdarkly/api-client-go/v12 v12.0.0
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0

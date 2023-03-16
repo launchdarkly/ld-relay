@@ -1,5 +1,4 @@
 //go:build integrationtests
-// +build integrationtests
 
 package integrationtests
 
@@ -22,7 +21,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/integrationtests/oshelpers"
 	"github.com/launchdarkly/ld-relay/v7/internal/api"
 
-	ldapi "github.com/launchdarkly/api-client-go"
+	ldapi "github.com/launchdarkly/api-client-go/v12"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
@@ -33,12 +32,14 @@ import (
 )
 
 const (
-	defaultAPIBaseURL         = "https://ld-stg.launchdarkly.com"
-	defaultStreamBaseURL      = "https://stream-stg.launchdarkly.com"
-	defaultSDKBaseURL         = "https://sdk-stg.launchdarkly.com"
-	defaultClientSDKBaseURL   = "https://clientsdk-stg.launchdarkly.com"
-	defaultStatusPollTimeout  = time.Second * 5
-	defaultStatusPollInterval = time.Millisecond * 100
+	defaultAPIBaseURL       = "https://ld-stg.launchdarkly.com"
+	defaultStreamBaseURL    = "https://stream-stg.launchdarkly.com"
+	defaultSDKBaseURL       = "https://sdk-stg.launchdarkly.com"
+	defaultClientSDKBaseURL = "https://clientsdk-stg.launchdarkly.com"
+	// 10 seconds because the previous value of 5 resulted in flaky autoconfig tests.
+	defaultStatusPollTimeout = time.Second * 10
+	// 1 second because the previous value of 100ms seemed unnecessarily aggressive.
+	defaultStatusPollInterval = 1 * time.Second
 	relayContainerSharedDir   = "/tmp/relay-shared"
 )
 
@@ -91,7 +92,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
-	apiBaseURL := params.LDAPIBaseURL.GetOrElse(defaultAPIBaseURL) + "/api/v2"
+	apiBaseURL := params.LDAPIBaseURL.GetOrElse(defaultAPIBaseURL)
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
 	sdkURL := params.LDSDKBaseURL.GetOrElse(defaultSDKBaseURL)
 	clientSDKURL := params.LDClientSDKURL.GetOrElse(defaultClientSDKBaseURL)
@@ -104,13 +105,25 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	httpClient.Transport = requestLogger
 
 	apiConfig := ldapi.NewConfiguration()
-	apiConfig.BasePath = apiBaseURL
+	apiConfig.Servers = []ldapi.ServerConfiguration{
+		{
+			URL:         apiBaseURL,
+			Description: "StagingOrProd",
+		},
+	}
 	apiConfig.HTTPClient = httpClient
 	apiConfig.UserAgent = "ld-relay-integration-tests"
 	apiConfig.AddDefaultHeader("LD-API-Version", "beta")
+
+	// This is here because some API calls - which don't have bodies - do not include this header.
+	// The calls fail with "415 Unsupported Media Type" because the backend appears to unconditionally require the header.
+	apiConfig.AddDefaultHeader("Content-Type", "application/json")
+
 	apiClient := ldapi.NewAPIClient(apiConfig)
-	apiContext := context.WithValue(context.Background(), ldapi.ContextAPIKey, ldapi.APIKey{
-		Key: params.APIToken,
+	apiContext := context.WithValue(context.Background(), ldapi.ContextAPIKeys, map[string]ldapi.APIKey{
+		"ApiKey": {
+			Key: params.APIToken,
+		},
 	})
 
 	network, err := docker.NewNetwork()
