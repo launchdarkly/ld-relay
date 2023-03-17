@@ -99,7 +99,7 @@ func TestEnvironmentHasMalformedMetadata(t *testing.T) {
 func TestEnvironmentHasMalformedSDKDataItem(t *testing.T) {
 	te := testEnv1
 	te.sdkData = map[string]map[string]interface{}{
-		"flags": map[string]interface{}{
+		"flags": {
 			"env1Flag1": testEnv1.sdkData["flags"]["env1Flag1"],
 			"badFlag": map[string]interface{}{
 				"key": 3,
@@ -122,7 +122,7 @@ func TestEnvironmentSDKDataItemOfUnknownKindIsIgnored(t *testing.T) {
 	te := testEnv1
 	te.sdkData = map[string]map[string]interface{}{
 		"flags": testEnv1.sdkData["flags"],
-		"cats": map[string]interface{}{
+		"cats": {
 			"Lucy": map[string]interface{}{},
 		},
 	}

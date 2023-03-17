@@ -4,8 +4,6 @@ GOLANGCI_LINT_VERSION=v1.51.2
 LINTER=./bin/golangci-lint
 LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)
 
-GORELEASER_VERSION=v0.141.0
-
 SHELL=/bin/bash
 
 LINTER=./bin/golangci-lint
@@ -63,17 +61,11 @@ RELEASE_NOTES=<(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $$
 echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
-RELEASE_CMD=curl -sL https://git.io/goreleaser | GOPATH=$(mktemp -d) VERSION=$(GORELEASER_VERSION) bash -s -- --rm-dist --release-notes $(RELEASE_NOTES)
-
-# Note that we're setting GOPATH to a temporary location when running goreleaser, because
-# we want it to start from a clean state even if we've previously run a build - and also
-# because during a release, we may need to run this command under another account and we
-# don't want to mess up file permissions in the regular GOPATH.
 publish:
-	./scripts/run-goreleaser.sh $(GORELEASER_VERSION)
+	./scripts/run-goreleaser.sh
 
 products-for-release:
-	./scripts/run-goreleaser.sh $(GORELEASER_VERSION) --skip-publish --skip-validate
+	./scripts/run-goreleaser.sh --skip-publish --skip-validate
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 

@@ -1,8 +1,8 @@
 FROM centos
 
-COPY dist/ld-relay*amd64.rpm .
+COPY dist/ld-relay*x86_64.rpm .
 
-RUN rpm -Uvh ld-relay*amd64.rpm
+RUN rpm -Uvh ld-relay*x86_64.rpm
 
 RUN systemctl enable ld-relay.service
 

@@ -3,7 +3,7 @@ Description=LaunchDarkly Relay Proxy
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/ld-relay
+ExecStart=/usr/bin/ld-relay
 
 [Install]
 WantedBy=multi-user.target

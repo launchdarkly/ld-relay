@@ -1,3 +1,4 @@
+//go:build redis_unit_tests
 // +build redis_unit_tests
 
 package core
