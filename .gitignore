@@ -36,6 +36,7 @@ _out
 build
 /bin/
 /dist/
+.idea
 .vscode
 _testservice/testservice
 _testservice/*.pid
