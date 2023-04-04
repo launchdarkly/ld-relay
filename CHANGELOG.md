@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.2.2] - 2023-04-04
+### Changed:
+- CI tests now execute for Go 1.20.2 and Go 1.19.7.
+- Upgraded 3rd party dependencies.
+
+### Fixed:
+- Fixed a broken link in configuration.md.
+
 ## [7.2.1] - 2023-03-07
 ### Changed:
 - Updated Alpine image to use Go 1.20.1.
