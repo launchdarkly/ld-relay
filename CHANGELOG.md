@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.8.1] - 2023-04-04
+### Changed:
+- Upgraded 3rd party dependencies.
+
 ## [6.8.0] - 2023-03-17
 ### Changed:
 - Updated goreleaser to `v1.16.1`: release artifact names now follow goreleaser's standard `ConventionalFileName` template. Additionally, the deb and rpm packages now install `ld-relay` to `/usr/bin` instead of `/usr/local/bin`.
