@@ -16,7 +16,6 @@ require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gomodule/redigo v1.8.9
-	github.com/google/btree v1.1.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
@@ -64,6 +63,8 @@ require (
 	github.com/aws/smithy-go v1.13.5 // indirect
 	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
 )
+
+require github.com/goreleaser/goreleaser v1.15.2
 
 require (
 	cloud.google.com/go/compute v1.19.0 // indirect
@@ -144,7 +145,7 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.1 // indirect
 	github.com/docker/cli v20.10.20+incompatible // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
-	github.com/docker/docker v20.10.21+incompatible // indirect
+	github.com/docker/docker v20.10.24+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -181,7 +182,6 @@ require (
 	github.com/googleapis/gax-go/v2 v2.8.0 // indirect
 	github.com/goreleaser/chglog v0.4.0 // indirect
 	github.com/goreleaser/fileglob v1.3.0 // indirect
-	github.com/goreleaser/goreleaser v1.15.2 // indirect
 	github.com/goreleaser/nfpm/v2 v2.25.1 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
@@ -215,7 +215,6 @@ require (
 	github.com/mattn/go-mastodon v0.0.6 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/miekg/dns v1.1.50 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
@@ -227,8 +226,6 @@ require (
 	github.com/muesli/roff v0.1.0 // indirect
 	github.com/muesli/termenv v0.14.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
-	github.com/onsi/ginkgo v1.16.5 // indirect
-	github.com/onsi/gomega v1.20.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc2 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
@@ -270,9 +267,6 @@ require (
 	github.com/xanzy/ssh-agent v0.3.1 // indirect
 	gitlab.com/digitalxero/go-conventional-commit v1.0.7 // indirect
 	go.mongodb.org/mongo-driver v1.10.2 // indirect
-	go.opentelemetry.io/otel v1.14.0 // indirect
-	go.opentelemetry.io/otel/metric v0.37.0 // indirect
-	go.opentelemetry.io/otel/trace v1.14.0 // indirect
 	gocloud.dev v0.28.0 // indirect
 	golang.org/x/crypto v0.7.0 // indirect
 	golang.org/x/mod v0.9.0 // indirect
