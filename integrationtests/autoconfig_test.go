@@ -1,5 +1,4 @@
 //go:build integrationtests
-// +build integrationtests
 
 package integrationtests
 
@@ -161,6 +160,11 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 		updatedEnv.sdkKey = newKey
 
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
+			// verifyFlagValues can't succeed if Relay isn't actually ready to serve traffic,
+			// so bail out and try again here.
+			if status.Status != "healthy" {
+				return false
+			}
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
 				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
 				return last5(envStatus.SDKKey) == last5(string(newKey)) &&

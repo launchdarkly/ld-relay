@@ -1,5 +1,4 @@
 //go:build integrationtests
-// +build integrationtests
 
 package integrationtests
 
@@ -11,12 +10,11 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v7/config"
 
-	ldapi "github.com/launchdarkly/api-client-go"
+	ldapi "github.com/launchdarkly/api-client-go/v12"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
-	"github.com/antihax/optional"
 	"github.com/pborman/uuid"
 )
 
@@ -33,7 +31,7 @@ func (a *apiHelper) logResult(desc string, err error) error {
 		return nil
 	}
 	addInfo := ""
-	if gse, ok := err.(ldapi.GenericSwaggerError); ok {
+	if gse, ok := err.(ldapi.GenericOpenAPIError); ok {
 		body := string(gse.Body())
 		addInfo = " - " + string(body)
 	}
@@ -66,7 +64,7 @@ func (a *apiHelper) deleteProjects(projsAndEnvs projsAndEnvs) error {
 func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
 	projKey := randomApiKey("relayi9n-")
 	projName := projKey
-	projectBody := ldapi.ProjectBody{
+	projectBody := ldapi.ProjectPost{
 		Name: projName,
 		Key:  projKey,
 	}
@@ -79,7 +77,12 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 			Color: "000000",
 		})
 	}
-	project, _, err := a.apiClient.ProjectsApi.PostProject(a.apiContext, projectBody)
+
+	project, _, err := a.apiClient.ProjectsApi.
+		PostProject(a.apiContext).
+		ProjectPost(projectBody).
+		Execute()
+
 	if err != nil {
 		return projectInfo{}, nil, a.logResult("Create project", err)
 	}
@@ -102,7 +105,7 @@ func randomApiKey(prefix string) string {
 }
 
 func (a *apiHelper) deleteProject(project projectInfo) error {
-	_, err := a.apiClient.ProjectsApi.DeleteProject(a.apiContext, project.key)
+	_, err := a.apiClient.ProjectsApi.DeleteProject(a.apiContext, project.key).Execute()
 	return a.logResult(fmt.Sprintf("Delete project %q", project.key), err)
 }
 
@@ -114,7 +117,11 @@ func (a *apiHelper) addEnvironment(project projectInfo) (environmentInfo, error)
 		Name:  envName,
 		Color: "000000",
 	}
-	env, _, err := a.apiClient.EnvironmentsApi.PostEnvironment(a.apiContext, project.key, envBody)
+	env, _, err := a.apiClient.EnvironmentsApi.
+		PostEnvironment(a.apiContext, project.key).
+		EnvironmentPost(envBody).
+		Execute()
+
 	if err != nil {
 		return environmentInfo{}, a.logResult("Create environment", err)
 	}
@@ -129,17 +136,17 @@ func (a *apiHelper) addEnvironment(project projectInfo) (environmentInfo, error)
 }
 
 func (a *apiHelper) deleteEnvironment(project projectInfo, env environmentInfo) error {
-	_, err := a.apiClient.EnvironmentsApi.DeleteEnvironment(a.apiContext, project.key, env.key)
+	_, err := a.apiClient.EnvironmentsApi.DeleteEnvironment(a.apiContext, project.key, env.key).Execute()
 	return a.logResult(fmt.Sprintf("Delete environment %q", env.key), err)
 }
 
 func (a *apiHelper) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
 	config.SDKKey, error) {
-	var apiOptions *ldapi.EnvironmentsApiResetEnvironmentSDKKeyOpts
+	req := a.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(a.apiContext, project.key, env.key)
 	if !expirationTime.IsZero() {
-		apiOptions = &ldapi.EnvironmentsApiResetEnvironmentSDKKeyOpts{Expiry: optional.NewInt64(int64(ldtime.UnixMillisFromTime(expirationTime)))}
+		req = req.Expiry(int64(ldtime.UnixMillisFromTime(expirationTime)))
 	}
-	envResult, _, err := a.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(a.apiContext, project.key, env.key, apiOptions)
+	envResult, _, err := req.Execute()
 	var newKey config.SDKKey
 	if err == nil {
 		newKey = config.SDKKey(envResult.ApiKey)
@@ -148,7 +155,10 @@ func (a *apiHelper) rotateSDKKey(project projectInfo, env environmentInfo, expir
 }
 
 func (a *apiHelper) rotateMobileKey(project projectInfo, env environmentInfo) (config.MobileKey, error) {
-	envResult, _, err := a.apiClient.EnvironmentsApi.ResetEnvironmentMobileKey(a.apiContext, project.key, env.key, nil)
+	envResult, _, err := a.apiClient.EnvironmentsApi.
+		ResetEnvironmentMobileKey(a.apiContext, project.key, env.key).
+		Execute()
+
 	var newKey config.MobileKey
 	if err == nil {
 		newKey = config.MobileKey(envResult.MobileKey)
@@ -157,9 +167,9 @@ func (a *apiHelper) rotateMobileKey(project projectInfo, env environmentInfo) (c
 }
 
 func (a *apiHelper) createAutoConfigKey(policyResources []string) (autoConfigID, config.AutoConfigKey, error) {
-	body := ldapi.RelayProxyConfigBody{
+	body := ldapi.RelayAutoConfigPost{
 		Name: uuid.New(),
-		Policy: []ldapi.Policy{
+		Policy: []ldapi.Statement{
 			{
 				Resources: policyResources,
 				Actions:   []string{"*"},
@@ -167,21 +177,33 @@ func (a *apiHelper) createAutoConfigKey(policyResources []string) (autoConfigID,
 			},
 		},
 	}
-	entity, _, err := a.apiClient.RelayProxyConfigurationsApi.PostRelayAutoConfig(a.apiContext, body)
+
+	entity, _, err := a.apiClient.RelayProxyConfigurationsApi.
+		PostRelayAutoConfig(a.apiContext).
+		RelayAutoConfigPost(body).
+		Execute()
+
 	return autoConfigID(entity.Id), config.AutoConfigKey(entity.FullKey), a.logResult("Create auto-config key", err)
 }
 
 func (a *apiHelper) updateAutoConfigPolicy(id autoConfigID, newPolicyResources []string) error {
 	var patchValue interface{} = newPolicyResources
-	patchOps := []ldapi.PatchOperation{
-		{Op: "replace", Path: "/policy/0/resources", Value: &patchValue},
+
+	patchOps := ldapi.PatchWithComment{
+		Patch: []ldapi.PatchOperation{
+			{Op: "replace", Path: "/policy/0/resources", Value: &patchValue},
+		},
 	}
-	_, _, err := a.apiClient.RelayProxyConfigurationsApi.PatchRelayProxyConfig(a.apiContext, string(id), patchOps)
+	_, _, err := a.apiClient.RelayProxyConfigurationsApi.
+		PatchRelayAutoConfig(a.apiContext, string(id)).
+		PatchWithComment(patchOps).
+		Execute()
+
 	return a.logResult("Update auto-config policy", err)
 }
 
 func (a *apiHelper) deleteAutoConfigKey(id autoConfigID) error {
-	_, err := a.apiClient.RelayProxyConfigurationsApi.DeleteRelayProxyConfig(a.apiContext, string(id))
+	_, err := a.apiClient.RelayProxyConfigurationsApi.DeleteRelayAutoConfig(a.apiContext, string(id)).Execute()
 	return a.logResult("Delete auto-config key", err)
 }
 
@@ -202,7 +224,11 @@ func (a *apiHelper) createFlag(
 		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
 	}
 
-	_, _, err := a.apiClient.FeatureFlagsApi.PostFeatureFlag(a.apiContext, proj.key, flagPost, nil)
+	_, _, err := a.apiClient.FeatureFlagsApi.
+		PostFeatureFlag(a.apiContext, proj.key).
+		FeatureFlagBody(flagPost).
+		Execute()
+
 	err = a.logResult("Create flag "+flagKey+" in "+proj.key, err)
 	if err != nil {
 		return err
@@ -210,11 +236,16 @@ func (a *apiHelper) createFlag(
 
 	for i, env := range envs {
 		envPrefix := fmt.Sprintf("/environments/%s", env.key)
-		patches := []ldapi.PatchOperation{
-			makePatch("replace", envPrefix+"/offVariation", i),
+		patch := ldapi.PatchWithComment{
+			Patch: []ldapi.PatchOperation{
+				makePatch("replace", envPrefix+"/offVariation", i),
+			},
 		}
-		_, _, err = a.apiClient.FeatureFlagsApi.PatchFeatureFlag(a.apiContext, proj.key, flagKey,
-			ldapi.PatchComment{Patch: patches})
+		_, _, err = a.apiClient.FeatureFlagsApi.
+			PatchFeatureFlag(a.apiContext, proj.key, flagKey).
+			PatchWithComment(patch).
+			Execute()
+
 		err = a.logResult("Configure flag "+flagKey+" for "+env.key, err)
 		if err != nil {
 			return err
@@ -249,7 +280,11 @@ func (a *apiHelper) createBooleanFlagThatUsesSegment(
 		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
 	}
 
-	_, _, err := a.apiClient.FeatureFlagsApi.PostFeatureFlag(a.apiContext, project.key, flagPost, nil)
+	_, _, err := a.apiClient.FeatureFlagsApi.
+		PostFeatureFlag(a.apiContext, project.key).
+		FeatureFlagBody(flagPost).
+		Execute()
+
 	err = a.logResult("Create flag "+flagKey+" in "+project.key, err)
 	if err != nil {
 		return err
@@ -260,13 +295,18 @@ func (a *apiHelper) createBooleanFlagThatUsesSegment(
 		rulesJSON := fmt.Sprintf(`[
 			{"variation": 0, "clauses": [{"attribute": "", "op": "segmentMatch", "values":["%s"]}]}
 		]`, segmentKey)
-		patches := []ldapi.PatchOperation{
-			makePatch("replace", envPrefix+"/on", true),
-			makePatch("replace", envPrefix+"/rules", json.RawMessage(rulesJSON)),
-			makePatch("replace", envPrefix+"/fallthrough/variation", 1),
+		patch := ldapi.PatchWithComment{
+			Patch: []ldapi.PatchOperation{
+				makePatch("replace", envPrefix+"/on", true),
+				makePatch("replace", envPrefix+"/rules", json.RawMessage(rulesJSON)),
+				makePatch("replace", envPrefix+"/fallthrough/variation", 1),
+			},
 		}
-		_, _, err = a.apiClient.FeatureFlagsApi.PatchFeatureFlag(a.apiContext, project.key, flagKey,
-			ldapi.PatchComment{Patch: patches})
+		_, _, err = a.apiClient.FeatureFlagsApi.
+			PatchFeatureFlag(a.apiContext, project.key, flagKey).
+			PatchWithComment(patch).
+			Execute()
+
 		err = a.logResult("Configure flag "+flagKey+" for "+env.key, err)
 		if err != nil {
 			return err
@@ -283,12 +323,16 @@ func (a *apiHelper) createBigSegment(
 	userKeysExcluded []string,
 	userKeysIncludedViaRule []string,
 ) error {
-	userSegmentBody := ldapi.UserSegmentBody{
+	userSegmentBody := ldapi.SegmentBody{
 		Key:       segmentKey,
 		Name:      segmentKey,
-		Unbounded: true,
+		Unbounded: ldapi.PtrBool(true),
 	}
-	_, _, err := a.apiClient.UserSegmentsApi.PostUserSegment(a.apiContext, project.key, env.key, userSegmentBody)
+	_, _, err := a.apiClient.SegmentsApi.
+		PostSegment(a.apiContext, project.key, env.key).
+		SegmentBody(userSegmentBody).
+		Execute()
+
 	if err = a.logResult("Create segment '"+segmentKey+"' with unbounded set to true", err); err != nil {
 		return err
 	}
@@ -297,22 +341,30 @@ func (a *apiHelper) createBigSegment(
 		rulesJSON := fmt.Sprintf(`[
 			{"clauses": [{"attribute": "key", "op": "in", "values":%v}]}
 		]`, ldvalue.CopyArbitraryValue(userKeysIncludedViaRule))
-		patches := []ldapi.PatchOperation{
-			makePatch("replace", "/rules", json.RawMessage(rulesJSON)),
+		patches := ldapi.PatchWithComment{
+			Patch: []ldapi.PatchOperation{
+				makePatch("replace", "/rules", json.RawMessage(rulesJSON)),
+			},
 		}
-		_, _, err := a.apiClient.UserSegmentsApi.PatchUserSegment(a.apiContext, project.key, env.key,
-			segmentKey, patches)
+		_, _, err := a.apiClient.SegmentsApi.
+			PatchSegment(a.apiContext, project.key, env.key, segmentKey).
+			PatchWithComment(patches).
+			Execute()
+
 		if err = a.logResult("Add rule to "+segmentKey, err); err != nil {
 			return err
 		}
 	}
 
-	updates := ldapi.BigSegmentTargetsBody{
-		Included: &ldapi.BigSegmentTargetChanges{Add: userKeysIncluded},
-		Excluded: &ldapi.BigSegmentTargetChanges{Add: userKeysExcluded},
+	updates := ldapi.SegmentUserState{
+		Included: &ldapi.SegmentUserList{Add: userKeysIncluded},
+		Excluded: &ldapi.SegmentUserList{Add: userKeysExcluded},
 	}
-	_, err = a.apiClient.UserSegmentsApi.UpdatedBigSegmentTargets(a.apiContext, project.key, env.key,
-		segmentKey, updates)
+	_, err = a.apiClient.SegmentsApi.
+		UpdateBigSegmentTargets(a.apiContext, project.key, env.key, segmentKey).
+		SegmentUserState(updates).
+		Execute()
+
 	return a.logResult("Update big segment targets for "+segmentKey, err)
 }
 
