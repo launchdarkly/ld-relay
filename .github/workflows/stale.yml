@@ -1,0 +1,10 @@
+name: 'Close stale issues and PRs'
+on:
+  workflow_dispatch:
+  schedule:
+    # Happen once per day at 1:30 AM
+    - cron: '30 1 * * *'
+
+jobs:
+  sdk-close-stale:
+    uses: launchdarkly/gh-actions/.github/workflows/sdk-stale.yml@main
