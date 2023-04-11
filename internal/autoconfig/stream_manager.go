@@ -240,7 +240,6 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			case ReconnectEvent:
 				s.loggers.Info(logMsgDeliberateReconnect)
 				shouldRestart = true
-				stream.Restart()
 
 			default:
 				s.loggers.Warnf(logMsgUnknownEvent, event.Event())
