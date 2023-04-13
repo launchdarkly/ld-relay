@@ -2,7 +2,7 @@
 
 # See .ldrelease/config.yml for an explanation of the build/release process.
 
-FROM alpine:3.16.3
+FROM alpine:3.17.3
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk add --no-cache \
