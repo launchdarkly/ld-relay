@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.2.3] - 2023-04-13
+### Changed:
+- Updated Alpine docker image to 3.17.3.
+- Bumped docker dependency from 20.10.21+incompatible to 20.10.24+incompatible.
+
+### Fixed: 
+- Removed redundant autoconfig stream restart upon receiving reconnect event.
+
 ## [7.2.2] - 2023-04-04
 ### Changed:
 - CI tests now execute for Go 1.20.2 and Go 1.19.7.
