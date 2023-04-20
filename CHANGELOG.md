@@ -2,6 +2,22 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.2.3] - 2023-04-13
+### Changed:
+- Updated Alpine docker image to 3.17.3.
+- Bumped docker dependency from 20.10.21+incompatible to 20.10.24+incompatible.
+
+### Fixed: 
+- Removed redundant autoconfig stream restart upon receiving reconnect event.
+
+## [7.2.2] - 2023-04-04
+### Changed:
+- CI tests now execute for Go 1.20.2 and Go 1.19.7.
+- Upgraded 3rd party dependencies.
+
+### Fixed:
+- Fixed a broken link in configuration.md.
+
 ## [7.2.1] - 2023-03-07
 ### Changed:
 - Updated Alpine image to use Go 1.20.1.
@@ -26,6 +42,14 @@ All notable changes to the LaunchDarkly Relay will be documented in this file. T
 ## [7.0.2] - 2023-01-19
 ### Fixed:
 - Removed logging of "Big Segment store status query" error messages in a situation where the Relay Proxy has not been able to synchronize Big Segment data with LaunchDarkly. These messages were redundant since there is already a different and clearer error being logged for the synchronization failure.
+
+## [6.7.18] - 2023-03-06
+### Changed:
+- Updated Alpine image to use Go 1.20.1.
+- CI tests now execute for Go 1.20.1 and Go 1.19.6; removed Go 1.17 and 1.18.
+
+### Fixed:
+- Bumped golang.org/x/net to 0.7.0 to address CVE-2022-41723.
 
 ## [6.7.17] - 2023-01-17
 ### Fixed:
@@ -551,4 +575,3 @@ For more details on changes related to configuration, read the [configuration do
 
 ### Fixed
 - The /sdk/goals/<envId> endpoint now supports caching and repeats any headers it received to the client.
-

@@ -35,8 +35,8 @@ _out
 
 build
 /bin/
-/dist/a
-.idea/
+/dist/
+.idea
 .vscode
 .idea/
 _testservice/testservice
