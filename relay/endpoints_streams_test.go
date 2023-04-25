@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
@@ -30,7 +34,7 @@ type streamEndpointTestParams struct {
 func (s streamEndpointTestParams) runBasicStreamTests(
 	t *testing.T,
 	baseConfig c.Config,
-	invalidCredential c.SDKCredential,
+	invalidCredential credential.SDKCredential,
 	invalidCredentialExpectedStatus int,
 ) {
 	configWithoutTimeLimit := baseConfig
@@ -52,14 +56,14 @@ func (s streamEndpointTestParams) runBasicStreamTests(
 
 	withStartedRelay(t, configWithoutTimeLimit, func(p relayTestParams) {
 		t.Run("stream is closed if environment is removed", func(t *testing.T) {
-			env, inited := p.relay.getEnvironment(s.credential)
+			env, err := p.relay.getEnvironment(sdkauth.New(s.credential))
 			require.NotNil(t, env)
-			require.True(t, inited)
+			require.Nil(t, err)
 
 			st.WithStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
 				_ = helpers.RequireValue(t, eventCh, time.Second*3, "timed out waiting for initial event")
 
-				p.relay.removeEnvironment(env)
+				p.relay.removeEnvironment(sdkauth.New(s.credential))
 
 				// The WithStreamRequest helper adds a nil value at the end of the stream
 				endOfStreamMarker := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for stream to be closed")

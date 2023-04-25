@@ -4,7 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 
 	"github.com/launchdarkly/eventsource"
@@ -20,14 +21,14 @@ import (
 // streams. If the wrong kind of credential is passed, it should behave as it would for an unrecognized
 // key. It is important that there can be more than one StreamProvider for a given credential.
 type StreamProvider interface {
-	// Handler returns an HTTP request handler for the given credential. It can return nil if it does
-	// not support this type of credential.
-	Handler(credential config.SDKCredential) http.HandlerFunc
+	// Handler returns an HTTP request handler for the given scoped SDK credential.
+	// It can return nil if it does not support this type of credential.
+	Handler(credential sdkauth.ScopedCredential) http.HandlerFunc
 
 	// Register tells the StreamProvider about an environment that it should support, and returns an
 	// implementation of EnvStreamsUpdates for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
-	Register(credential config.SDKCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
+	Register(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
 
 	// Close tells the StreamProvider to release all of its resources and close all connections.
 	Close()

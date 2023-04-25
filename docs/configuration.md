@@ -137,6 +137,7 @@ The Relay Proxy allows you to proxy any number of LaunchDarkly environments; the
 | `allowedHeader`  | `LD_ALLOWED_HEADER_MyEnvName` |  String  | If provided, adds the specify headers to the list of accepted headers for CORS requests. This variable can be provided multiple times per environment (if using the `LD_ALLOWED_HEADER_MyEnvName` variable, specify a comma-delimited list). |
 | `logLevel`       | `LD_LOG_LEVEL_MyEnvName`      |  String  | Should be `debug`, `info`, `warn`, `error`, or `none`. **See: [Logging](./logging.md)**                                                                                                                                                      |
 | `ttl`            | `LD_TTL_MyEnvName`            | Duration | HTTP caching TTL for the PHP polling endpoints. **See: [Using PHP](./php.md)**                                                                                                                                                               |
+| `projKey`        | `LD_PROJ_KEY_MyEnvName`       |  String  | Project key for this environment. Required if any filters are defined. Filtering is an Enterprise-only feature.                                                                                                                              |
 
 In the following examples, there are two environments, each of which has a server-side SDK key and a mobile key. Debug-level logging is enabled for the second one.
 
@@ -162,6 +163,16 @@ LD_ENV_Spree_Project_Test=SPREE_TEST_SDK_KEY
 LD_MOBILE_KEY_Spree_Project_Test=SPREE_TEST_MOBILE_KEY
 ```
 
+### File section: `[Filters "PROJECT-KEY"]`
+
+To learn more, read [Filters](TBD).
+
+
+| Property in file | Environment var            |  Type   | Default | Description                                                                                                                                                                                                                         |
+|------------------|----------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `keys`           | `LD_FILTER_KEYS_MyProjKey` | String  |         | Specify one or more filter keys for this project _(1)_. This variable can be provided multiple times, or specified using a comma-delimited list (if using the `LD_FILTER_KEYS_MyProjKey` variable, specify a comma-delimited list.) |
+
+_(1)_ SDKs may request filtered environments identified by any of these keys, as well as the default unfiltered environment.
 
 ### File section: `[Redis]`
 

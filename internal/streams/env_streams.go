@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
@@ -49,10 +52,11 @@ type EnvStreams struct {
 	lock            sync.RWMutex
 	closeCh         chan struct{}
 	heartbeatsDone  chan struct{} // used in testing only
+	filterKey       config.FilterKey
 }
 
 type streamInfo struct {
-	credential        config.SDKCredential
+	credential        sdkauth.ScopedCredential
 	envStreamProvider EnvStreamProvider
 }
 
@@ -68,6 +72,7 @@ func NewEnvStreams(
 	streamProviders []StreamProvider,
 	storeQueries EnvStoreQueries,
 	heartbeatInterval time.Duration,
+	filterKey config.FilterKey,
 	loggers ldlog.Loggers,
 ) *EnvStreams {
 	es := &EnvStreams{
@@ -75,6 +80,7 @@ func NewEnvStreams(
 		storeQueries:    storeQueries,
 		loggers:         loggers,
 		closeCh:         make(chan struct{}),
+		filterKey:       filterKey,
 	}
 
 	if heartbeatInterval > 0 {
@@ -99,28 +105,32 @@ func NewEnvStreams(
 	return es
 }
 
-// AddCredential adds an environment credential and creates a corresponding EnvStreamProvider.
-func (es *EnvStreams) AddCredential(credential config.SDKCredential) {
+// AddCredential adds an environment keyed off the combination of credential and payload filter,
+// and creates a corresponding EnvStreamProvider.
+func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
 		return
 	}
+	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
 	for _, sp := range es.streamProviders {
-		if esp := sp.Register(credential, es.storeQueries, es.loggers); esp != nil {
+		if esp := sp.Register(scopedCred, es.storeQueries, es.loggers); esp != nil {
 			es.lock.Lock()
-			es.activeStreams = append(es.activeStreams, streamInfo{credential, esp})
+			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
 			es.lock.Unlock()
 		}
 	}
 }
 
-// RemoveCredential shuts down the EnvStreamProvider, if any, for the specified credential.
-func (es *EnvStreams) RemoveCredential(credential config.SDKCredential) {
+// RemoveCredential shuts down the EnvStreamProvider, if any, specified by a combination of credential and payload filter key.
+func (es *EnvStreams) RemoveCredential(credential credential.SDKCredential) {
 	var retained []streamInfo
 	var removed []EnvStreamProvider
 
+	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
+
 	es.lock.Lock()
 	for _, s := range es.activeStreams {
-		if s.credential == credential {
+		if s.credential == scopedCred {
 			removed = append(removed, s.envStreamProvider)
 		} else {
 			retained = append(retained, s)

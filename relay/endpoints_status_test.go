@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
@@ -64,9 +66,10 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+
 			require.NotNil(t, envMain)
-			require.True(t, inited)
+			require.Nil(t, err)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,
@@ -100,9 +103,9 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
 			require.NotNil(t, envMain)
-			require.True(t, inited)
+			require.Nil(t, err)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,

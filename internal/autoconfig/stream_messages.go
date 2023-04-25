@@ -1,6 +1,8 @@
 package autoconfig
 
 import (
+	"encoding/json"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
@@ -22,6 +24,8 @@ const (
 	ReconnectEvent = "reconnect"
 
 	environmentPathPrefix = "/environments/"
+
+	filterPathPrefix = "/filters/"
 )
 
 // PutMessageData is the JSON data for an SSE message that provides a full set of environments.
@@ -35,11 +39,8 @@ type PutMessageData struct {
 
 // PatchMessageData is the JSON data for an SSE message that adds or updates a single environment.
 type PatchMessageData struct {
-	// Path is currently always "environments/$ENVID".
-	Path string `json:"path"`
-
-	// Data is the environment representation.
-	Data envfactory.EnvironmentRep `json:"data"`
+	Path string          `json:"path"`
+	Data json.RawMessage `json:"data"`
 }
 
 // DeleteMessageData is the JSON data for an SSE message that removes an environment.
@@ -55,4 +56,6 @@ type DeleteMessageData struct {
 type PutContent struct {
 	// Environments is a map of environment representations.
 	Environments map[config.EnvironmentID]envfactory.EnvironmentRep `json:"environments"`
+	// Filters is a map of filter representations.
+	Filters map[config.FilterID]envfactory.FilterRep `json:"filters"`
 }

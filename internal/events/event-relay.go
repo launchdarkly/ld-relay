@@ -8,7 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	c "github.com/launchdarkly/ld-relay/v8/config"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/store"
@@ -36,7 +39,7 @@ type analyticsEventEndpointDispatcher struct {
 	config                    c.EventsConfig
 	httpClient                *http.Client
 	httpConfig                httpconfig.HTTPConfig
-	authKey                   c.SDKCredential
+	authKey                   credential.SDKCredential
 	remotePath                string
 	verbatimRelay             *eventVerbatimRelay
 	summarizingRelay          *eventSummarizingRelay
@@ -89,7 +92,7 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 	})
 }
 
-func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential c.SDKCredential) {
+func (r *analyticsEventEndpointDispatcher) replaceCredential(newCredential credential.SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if reflect.TypeOf(r.authKey) == reflect.TypeOf(newCredential) {
@@ -207,12 +210,12 @@ func NewEventDispatcher(
 			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
 		},
 	}
-	if mobileKey != "" {
+	if mobileKey.Defined() {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
 			config, httpConfig, storeAdapter, loggers, "/mobile", eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
-	if envID != "" {
+	if envID.Defined() {
 		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
 			"/events/bulk/"+string(envID), eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
@@ -239,7 +242,7 @@ func (r *EventDispatcher) flush() { //nolint:unused // used only in tests
 // ReplaceCredential changes the authorization credentail that is used when forwarding events to any
 // endpoints that use that type of credential. For instance, if newCredential is a MobileKey, this
 // affects only endpoints that use a mobile key.
-func (r *EventDispatcher) ReplaceCredential(newCredential c.SDKCredential) {
+func (r *EventDispatcher) ReplaceCredential(newCredential credential.SDKCredential) {
 	for _, d := range r.analyticsEndpoints {
 		d.replaceCredential(newCredential)
 	}
@@ -264,7 +267,7 @@ func newDiagnosticEventEndpointDispatcher(
 }
 
 func newAnalyticsEventEndpointDispatcher(
-	authKey c.SDKCredential,
+	authKey credential.SDKCredential,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	storeAdapter *store.SSERelayDataStoreAdapter,
@@ -285,7 +288,7 @@ func newAnalyticsEventEndpointDispatcher(
 }
 
 func newEventVerbatimRelay(
-	authKey c.SDKCredential,
+	authKey credential.SDKCredential,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	loggers ldlog.Loggers,

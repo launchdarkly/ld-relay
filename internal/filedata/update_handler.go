@@ -22,7 +22,7 @@ type UpdateHandler interface {
 	EnvironmentFailed(id config.EnvironmentID, err error)
 
 	// DeleteEnvironment is called when a change in the file data has removed an environment.
-	DeleteEnvironment(id config.EnvironmentID)
+	DeleteEnvironment(id config.EnvironmentID, key config.FilterKey)
 }
 
 // ArchiveEnvironment describes both the environment properties and the SDK data for the environment.

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"golang.org/x/sync/singleflight"
 
@@ -32,25 +34,25 @@ type serverSideFlagsOnlyEnvStreamRepository struct {
 	flightGroup singleflight.Group
 }
 
-func (s *serverSideFlagsOnlyStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
-	if key, ok := credential.(config.SDKKey); ok {
-		return s.server.Handler(string(key))
+func (s *serverSideFlagsOnlyStreamProvider) Handler(params sdkauth.ScopedCredential) http.HandlerFunc {
+	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+		return nil
 	}
-	return nil
+	return s.server.Handler(params.String())
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Register(
-	credential config.SDKCredential,
+	params sdkauth.ScopedCredential,
 	store EnvStoreQueries,
 	loggers ldlog.Loggers,
 ) EnvStreamProvider {
-	if key, ok := credential.(config.SDKKey); ok {
-		repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
-		s.server.Register(string(key), repo)
-		envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.server, channels: []string{string(key)}}
-		return envStream
+	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+		return nil
 	}
-	return nil
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
+	s.server.Register(params.String(), repo)
+	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.server, channels: []string{params.String()}}
+	return envStream
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Close() {

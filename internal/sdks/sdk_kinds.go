@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 
@@ -20,7 +22,7 @@ var (
 // GetCredential attempts to get the appropriate kind of authentication credential for this SDK kind
 // from an HTTP request. For Server and Mobile, this uses the Authorization header; for JSClient, it
 // is in a path parameter.
-func GetCredential(k basictypes.SDKKind, req *http.Request) (config.SDKCredential, error) {
+func GetCredential(k basictypes.SDKKind, req *http.Request) (credential.SDKCredential, error) {
 	switch k {
 	case basictypes.ServerSDK:
 		value, err := fetchAuthToken(req)

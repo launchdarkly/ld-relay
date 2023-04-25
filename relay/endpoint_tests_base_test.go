@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
@@ -19,7 +21,7 @@ type endpointTestParams struct {
 	method         string
 	path           string
 	data           []byte
-	credential     config.SDKCredential
+	credential     credential.SDKCredential
 	expectedStatus int
 	bodyMatcher    m.Matcher
 }
@@ -28,7 +30,7 @@ type endpointMultiTestParams struct {
 	name       string
 	method     string
 	path       string
-	credential config.SDKCredential
+	credential credential.SDKCredential
 	requests   []endpointTestPerRequestParams
 }
 

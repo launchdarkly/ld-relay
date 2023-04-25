@@ -3,6 +3,8 @@ package envfactory
 import (
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 )
@@ -36,4 +38,23 @@ type EnvironmentParams struct {
 
 	// SecureMode is true if secure mode is required for this environment.
 	SecureMode bool
+}
+
+func (e EnvironmentParams) Credentials() credential.AutoConfig {
+	return credential.AutoConfig{
+		SDKKey:         e.SDKKey,
+		ExpiringSDKKey: e.ExpiringSDKKey,
+		MobileKey:      e.MobileKey,
+	}
+}
+
+func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {
+	e.Identifiers.FilterKey = key
+	return e
+}
+
+type FilterParams struct {
+	ProjKey string
+	ID      config.FilterID
+	Key     config.FilterKey
 }

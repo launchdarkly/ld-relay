@@ -1,8 +1,9 @@
 package autoconfig
 
 const (
-	logMsgStreamConnecting    = "Connecting to auto-configuration stream at %s"
+	logMsgStreamConnecting    = "Connecting to auto-configuration stream (%s)"
 	logMsgStreamHTTPError     = "HTTP error %d on auto-configuration stream"
+	logMsgBadURL              = "Couldn't construct auto-configuration URL: %v"
 	logMsgStreamOtherError    = "Unexpected error on auto-configuration stream: %s"
 	logMsgBadKey              = "Invalid auto-configuration key; cannot get environments"
 	logMsgDeliberateReconnect = "Will restart auto-configuration stream to get new data due to a policy change"
@@ -18,4 +19,6 @@ const (
 	logMsgUnknownEvent        = "Ignoring unrecognized stream event: %q"
 	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
 	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
+
+	logMsgUnknownEntity = "Ignoring unknown entity: %s"
 )

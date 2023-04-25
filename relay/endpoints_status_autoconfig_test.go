@@ -103,7 +103,7 @@ func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 				Value: env.Config.SDKKey,
 			},
 		}
-		if env.ExpiringSDKKey != "" {
+		if env.ExpiringSDKKey.Defined() {
 			rep.SDKKey.Expiring.Value = env.ExpiringSDKKey
 			rep.SDKKey.Expiring.Timestamp = ldtime.UnixMillisNow() + env.ExpiringSDKKeyTime
 		}

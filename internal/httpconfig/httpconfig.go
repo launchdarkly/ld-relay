@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -27,7 +29,7 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey config.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent(userAgent)
 

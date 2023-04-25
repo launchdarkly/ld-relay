@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/events/oldevents"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -30,7 +32,7 @@ import (
 // EventProcessor instance for each unique metadata set we've seen.
 type eventSummarizingRelay struct {
 	queues       map[EventPayloadMetadata]*eventSummarizingRelayQueue
-	authKey      c.SDKCredential
+	authKey      credential.SDKCredential
 	httpClient   *http.Client
 	baseHeaders  http.Header
 	storeAdapter *store.SSERelayDataStoreAdapter
@@ -58,7 +60,7 @@ type delegatingEventSender struct {
 func newEventSummarizingRelay(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	credential c.SDKCredential,
+	credential credential.SDKCredential,
 	storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers,
 	remotePath string,
@@ -138,7 +140,7 @@ func (er *eventSummarizingRelay) flush() { //nolint:unused // used only in tests
 	}
 }
 
-func (er *eventSummarizingRelay) replaceCredential(newCredential c.SDKCredential) {
+func (er *eventSummarizingRelay) replaceCredential(newCredential credential.SDKCredential) {
 	er.lock.Lock()
 	if reflect.TypeOf(newCredential) == reflect.TypeOf(er.authKey) {
 		er.authKey = newCredential
@@ -277,7 +279,7 @@ func makeEventSender(
 	eventsURI string,
 	remotePath string,
 	baseHeaders http.Header,
-	authKey c.SDKCredential,
+	authKey credential.SDKCredential,
 	metadata EventPayloadMetadata,
 	loggers ldlog.Loggers,
 ) ldevents.EventSender {

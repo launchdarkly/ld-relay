@@ -49,15 +49,29 @@ func TestMalformedJSONInEventCausesStreamRestart(t *testing.T) {
 
 func TestWellFormedJSONThatIsNotWellFormedEventDataCausesStreamRestart(t *testing.T) {
 	t.Run("put", func(t *testing.T) {
-		json := `{"path": "/", "data": {"environments": {"envid1": 999}}}`
-		event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
-		eventShouldCauseStreamRestart(t, event)
+		t.Run("without filters", func(t *testing.T) {
+			json := `{"path": "/", "data": {"environments": {"envid1": 999}}}`
+			event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
+			eventShouldCauseStreamRestart(t, event)
+		})
+		t.Run("with filters", func(t *testing.T) {
+			json := `{"path": "/", "data": {"environments": {"envid1": 999}, "filters": {"filter1":999}}}`
+			event := httphelpers.SSEEvent{Event: PutEvent, Data: json}
+			eventShouldCauseStreamRestart(t, event)
+		})
 	})
 
 	t.Run("patch", func(t *testing.T) {
-		json := `{"path": "/environments/envid1","data": 999}`
-		event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
-		eventShouldCauseStreamRestart(t, event)
+		t.Run("environments", func(t *testing.T) {
+			json := `{"path": "/environments/envid1","data": 999}`
+			event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
+			eventShouldCauseStreamRestart(t, event)
+		})
+		t.Run("filters", func(t *testing.T) {
+			json := `{"path": "/filters/filterid1","data": 999}`
+			event := httphelpers.SSEEvent{Event: PatchEvent, Data: json}
+			eventShouldCauseStreamRestart(t, event)
+		})
 	})
 
 	t.Run("delete", func(t *testing.T) {
@@ -68,7 +82,7 @@ func TestWellFormedJSONThatIsNotWellFormedEventDataCausesStreamRestart(t *testin
 }
 
 func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler, expectedWarning string) {
-	initialEvent := makePutEvent(testEnv1)
+	initialEvent := makeEnvPutEvent(testEnv1)
 	streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 	defer stream.Close()
 	handler := httphelpers.SequentialHandler(
@@ -101,7 +115,7 @@ func TestReconnectAfterNetworkError(t *testing.T) {
 func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
 	for _, status := range []int{401, 403} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
-			initialEvent := makePutEvent(testEnv1)
+			initialEvent := makeEnvPutEvent(testEnv1)
 			streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 			defer stream.Close()
 			errorProducingHandler := httphelpers.HandlerWithStatus(status)

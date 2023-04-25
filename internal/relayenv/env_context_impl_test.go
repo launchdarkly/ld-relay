@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
@@ -111,7 +113,7 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	assert.Equal(t, env.GetClient(), requireClientReady(t, clientCh))
@@ -171,7 +173,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
 	env.AddCredential(st.EnvWithAllCredentials.Config.EnvID)
@@ -199,7 +201,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
 
@@ -238,7 +240,7 @@ func TestChangeSDKKey(t *testing.T) {
 	env.AddCredential(newKey)
 	env.DeprecateCredential(envConfig.SDKKey)
 
-	assert.Equal(t, []config.SDKCredential{newKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
@@ -250,7 +252,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	env.RemoveCredential(envConfig.SDKKey)
 
-	assert.Equal(t, []config.SDKCredential{newKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
 	client1.AwaitClose(t, time.Millisecond*20)
 }

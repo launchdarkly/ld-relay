@@ -3,7 +3,8 @@ package relay
 import (
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
@@ -160,10 +161,18 @@ type relayEnvironmentGetters struct {
 	*Relay
 }
 
-func (r relayEnvironmentGetters) GetEnvironment(credential config.SDKCredential) (env relayenv.EnvContext, fullyConfigured bool) {
+func (r relayEnvironmentGetters) GetEnvironment(credential sdkauth.ScopedCredential) (env relayenv.EnvContext, err error) {
 	return r.getEnvironment(credential)
 }
 
-func (r relayEnvironmentGetters) GetAllEnvironments() []relayenv.EnvContext {
-	return r.getAllEnvironments()
+func (r relayEnvironmentGetters) IsUnrecognizedEnvironment(err error) bool {
+	return IsUnrecognizedEnvironment(err)
+}
+
+func (r relayEnvironmentGetters) IsNotReady(err error) bool {
+	return IsNotReady(err)
+}
+
+func (r relayEnvironmentGetters) IsPayloadFilterNotFound(err error) bool {
+	return IsPayloadFilterNotFound(err)
 }

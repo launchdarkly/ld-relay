@@ -60,6 +60,10 @@ const (
 	// For instance, if EnvDataStorePrefix is "LD-$CID", the value of that setting for an environment
 	// whose ID is "12345" would be "LD-12345".
 	//
+	// If the environment is scoped to a Payload Filter, then the filter key will be concatenated as follows:
+	// Given: "LD-$CID", environment ID "12345" and filter key "microservice-a"
+	// The substituted result would be: "LD-12345.microservice-a"
+	//
 	// The same convention is used in OfflineModeConfig.
 	AutoConfigEnvironmentIDPlaceholder = "$CID"
 )
@@ -106,6 +110,7 @@ type Config struct {
 	Consul      ConsulConfig
 	DynamoDB    DynamoDBConfig
 	Environment map[string]*EnvConfig
+	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 
 	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
@@ -244,6 +249,12 @@ type EnvConfig struct {
 	SecureMode    bool             `conf:"LD_SECURE_MODE_"`
 	LogLevel      OptLogLevel      `conf:"LD_LOG_LEVEL_"`
 	TTL           ct.OptDuration   `conf:"LD_TTL_"`
+	ProjKey       string           `conf:"LD_PROJ_KEY_"`
+	FilterKey     FilterKey        // injected based on [filters] section
+}
+
+type FiltersConfig struct {
+	Keys ct.OptStringList `conf:"LD_FILTER_KEYS_"`
 }
 
 // ProxyConfig represents all the supported proxy options.

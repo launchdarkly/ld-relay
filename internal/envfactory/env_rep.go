@@ -28,6 +28,28 @@ type EnvironmentRep struct {
 	Version    int                  `json:"version"`
 }
 
+type FilterRep struct {
+	ProjKey   string           `json:"projKey"`
+	FilterKey config.FilterKey `json:"key"`
+	Version   int              `json:"version"`
+}
+
+// ToParams converts the JSON properties for a filter into our internal parameter type. It requires an
+// explicit FilterID because there is no ID included within the JSON representation.
+func (f FilterRep) ToParams(id config.FilterID) FilterParams {
+	return FilterParams{
+		ProjKey: f.ProjKey,
+		Key:     f.FilterKey,
+		ID:      id,
+	}
+}
+
+// ToTestParams is similar to ToParams, but intended as a convenience for tests. It assumes that
+// a filter's ID can be computed by concatenating the project key with the filter key.
+func (f FilterRep) ToTestParams() FilterParams {
+	return f.ToParams(config.FilterID(fmt.Sprintf("%s.%s", f.ProjKey, f.FilterKey)))
+}
+
 // SDKKeyRep describes an SDK key optionally accompanied by an old expiring key.
 type SDKKeyRep struct {
 	Value    config.SDKKey `json:"value"`
@@ -64,4 +86,8 @@ func (r EnvironmentRep) Describe() string {
 
 func (r EnvironmentRep) ID() string {
 	return string(r.EnvID)
+}
+
+func (f FilterRep) Describe() string {
+	return fmt.Sprintf("filter %s (%s)", f.FilterKey, f.ProjKey)
 }

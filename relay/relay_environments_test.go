@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	ld "github.com/launchdarkly/go-server-sdk/v6"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testenv"
-
-	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
-	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,38 +48,42 @@ func TestRelayGetEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	env, inited := relay.getEnvironment(st.EnvMain.Config.SDKKey)
+	env, err := relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
 	require.NotNil(t, env)
-	assert.True(t, inited)
+	assert.Nil(t, err)
 	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = relay.getEnvironment(st.EnvMobile.Config.SDKKey)
+	env, err = relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
 	require.NotNil(t, env)
-	assert.True(t, inited)
+	assert.Nil(t, err)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = relay.getEnvironment(st.EnvClientSide.Config.SDKKey)
+	env, err = relay.getEnvironment(sdkauth.New(st.EnvClientSide.Config.SDKKey))
 	require.NotNil(t, env)
-	assert.True(t, inited)
+	assert.Nil(t, err)
 	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = relay.getEnvironment(st.EnvMobile.Config.MobileKey)
+	env, err = relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.MobileKey))
 	require.NotNil(t, env)
-	assert.True(t, inited)
+	assert.Nil(t, err)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = relay.getEnvironment(st.EnvClientSide.Config.EnvID)
+	env, err = relay.getEnvironment(sdkauth.New(st.EnvClientSide.Config.EnvID))
 	require.NotNil(t, env)
-	assert.True(t, inited)
+	assert.Nil(t, err)
 	assert.Equal(t, st.EnvClientSide.Name, env.GetIdentifiers().ConfiguredName)
 
-	env, inited = relay.getEnvironment(st.UndefinedSDKKey)
+	env, err = relay.getEnvironment(sdkauth.New(st.UndefinedSDKKey))
 	assert.Nil(t, env)
-	assert.True(t, inited)
+	assert.True(t, IsUnrecognizedEnvironment(err))
 
-	env, inited = relay.getEnvironment(st.UnsupportedSDKCredential{})
+	env, err = relay.getEnvironment(sdkauth.New(st.UnsupportedSDKCredential{}))
 	assert.Nil(t, env)
-	assert.True(t, inited)
+	assert.True(t, IsUnrecognizedEnvironment(err))
+
+	env, err = relay.getEnvironment(sdkauth.NewScoped("nonexistent-filter", st.EnvMain.Config.SDKKey))
+	assert.Nil(t, env)
+	assert.True(t, IsPayloadFilterNotFound(err))
 }
 
 func TestRelayGetAllEnvironments(t *testing.T) {
@@ -115,7 +119,7 @@ func TestRelayAddEnvironment(t *testing.T) {
 	require.NotNil(t, resultCh)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	env1, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
+	env1, _ := relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
 	assert.Equal(t, env, env1)
 
 	env2 := helpers.RequireValue(t, resultCh, time.Second, "timed out waiting for new environment to initialize")
@@ -144,13 +148,13 @@ func TestRelayRemoveEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	env, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
+	env, _ := relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
 
-	relay.removeEnvironment(env)
+	relay.removeEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
 
-	noEnv, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
+	noEnv, _ := relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
 	assert.Nil(t, noEnv)
 }
 
@@ -162,9 +166,7 @@ func TestRelayRemoveUnknownEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	env := testenv.NewTestEnvContext("unknown", true, st.NewInMemoryStore())
-
-	relay.removeEnvironment(env)
+	relay.removeEnvironment(sdkauth.New(c.EnvironmentID("unknown")))
 	// just shows that it doesn't panic or anything
 }
 
@@ -176,17 +178,17 @@ func TestRelayAddedEnvironmentCredential(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	env, _ := relay.getEnvironment(st.EnvMain.Config.SDKKey)
+	env, _ := relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
 	require.NotNil(t, env)
 	assert.Equal(t, st.EnvMain.Name, env.GetIdentifiers().ConfiguredName)
 
 	extraKey := c.SDKKey(string(st.EnvMain.Config.SDKKey) + "-extra")
-	noEnv, _ := relay.getEnvironment(extraKey)
+	noEnv, _ := relay.getEnvironment(sdkauth.New(extraKey))
 	assert.Nil(t, noEnv)
 
-	relay.addedEnvironmentCredential(env, extraKey)
+	relay.addConnectionMapping(sdkauth.New(extraKey), env)
 
-	env1, _ := relay.getEnvironment(extraKey)
+	env1, _ := relay.getEnvironment(sdkauth.New(extraKey))
 	assert.Equal(t, env, env1)
 }
 
@@ -198,16 +200,19 @@ func TestRelayRemovingEnvironmentCredential(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	relay.removingEnvironmentCredential(st.EnvMain.Config.SDKKey)
+	relay.removeConnectionMapping(sdkauth.New(st.EnvMain.Config.SDKKey))
 
-	noEnv, _ := relay.getEnvironment(st.EnvMain.Config.SDKKey)
-	assert.Nil(t, noEnv)
+	_, err = relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+	assert.Error(t, err)
 
-	env, _ := relay.getEnvironment(st.EnvMobile.Config.SDKKey)
-	require.NotNil(t, env)
-	assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
+	env, err := relay.getEnvironment(sdkauth.New(st.EnvMobile.Config.SDKKey))
+	if assert.NoError(t, err) {
+		assert.NotNil(t, env)
+		assert.Equal(t, st.EnvMobile.Name, env.GetIdentifiers().ConfiguredName)
+	}
 
-	assert.Len(t, relay.getAllEnvironments(), 2) // EnvMain is not removed from this list
+	envs := relay.getAllEnvironments()
+	assert.Equal(t, len(envs), 2) // EnvMain is not removed from this list
 }
 
 func TestRelayWaitForAllEnvironments(t *testing.T) {
@@ -278,7 +283,7 @@ func TestRelayUninitializedEnvironment(t *testing.T) {
 		err = relay.waitForAllClients(time.Millisecond * 100)
 		assert.Error(t, err)
 
-		env, _ := relay.getEnvironment(problemEnv.Config.SDKKey)
+		env, _ := relay.getEnvironment(sdkauth.New(problemEnv.Config.SDKKey))
 		assert.NotNil(t, env)
 		store := env.GetStore()
 		assert.NotNil(t, store)

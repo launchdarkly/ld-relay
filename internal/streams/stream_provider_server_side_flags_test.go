@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
@@ -17,9 +19,9 @@ import (
 )
 
 func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
-	validCredential := testSDKKey
-	invalidCredential1 := testMobileKey
-	invalidCredential2 := testEnvID
+	validCredential := sdkauth.New(testSDKKey)
+	invalidCredential1 := sdkauth.New(testMobileKey)
+	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime)

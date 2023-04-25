@@ -3,6 +3,8 @@ package relay
 import (
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -66,7 +68,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
-	env, _ := a.r.getEnvironment(ae.Params.EnvID)
+	env, _ := a.r.getEnvironment(sdkauth.NewScoped(ae.Params.Identifiers.FilterKey, ae.Params.EnvID))
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		return
@@ -91,12 +93,9 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 	// error logging goes here
 }
 
-func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID) {
-	env, _ := a.r.getEnvironment(id)
-	if env != nil {
-		a.r.removeEnvironment(env)
-		delete(a.envUpdates, id)
-	}
+func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
+	a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
+	delete(a.envUpdates, id)
 }
 
 func (d dataSourceFactoryToCaptureUpdates) Build(

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -37,7 +39,7 @@ type testEndpointInfo struct {
 	analyticsPath  string
 	diagnosticPath string
 	authKey        string
-	newCredential  config.SDKCredential
+	newCredential  credential.SDKCredential
 }
 
 var testServerEndpointInfo = testEndpointInfo{

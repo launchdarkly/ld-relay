@@ -48,11 +48,12 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 		SDKKey:        params.SDKKey,
 		MobileKey:     params.MobileKey,
 		EnvID:         params.EnvID,
-		Prefix:        maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID),
-		TableName:     maybeSubstituteEnvironmentID(f.TableName, params.EnvID),
+		Prefix:        maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID, params.Identifiers.FilterKey),
+		TableName:     maybeSubstituteEnvironmentID(f.TableName, params.EnvID, params.Identifiers.FilterKey),
 		AllowedOrigin: f.AllowedOrigin,
 		AllowedHeader: f.AllowedHeader,
 		SecureMode:    params.SecureMode,
+		FilterKey:     params.Identifiers.FilterKey,
 	}
 	if params.TTL != 0 {
 		ret.TTL = ct.NewOptDuration(params.TTL)
@@ -61,6 +62,10 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 	return ret
 }
 
-func maybeSubstituteEnvironmentID(s string, envID config.EnvironmentID) string {
-	return strings.ReplaceAll(s, config.AutoConfigEnvironmentIDPlaceholder, string(envID))
+func maybeSubstituteEnvironmentID(s string, envID config.EnvironmentID, filterKey config.FilterKey) string {
+	id := string(envID)
+	if filterKey != "" {
+		id = id + "." + string(filterKey)
+	}
+	return strings.ReplaceAll(s, config.AutoConfigEnvironmentIDPlaceholder, id)
 }

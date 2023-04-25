@@ -7,6 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
@@ -76,12 +80,12 @@ type envContextImpl struct {
 	clients          map[config.SDKKey]sdks.LDClientContext
 	storeAdapter     *store.SSERelayDataStoreAdapter
 	loggers          ldlog.Loggers
-	credentials      map[config.SDKCredential]bool // true if not deprecated
+	credentials      map[credential.SDKCredential]bool // true if not deprecated
 	identifiers      EnvIdentifiers
 	secureMode       bool
 	envStreams       *streams.EnvStreams
 	streamProviders  []streams.StreamProvider
-	handlers         map[streams.StreamProvider]map[config.SDKCredential]http.Handler
+	handlers         map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
 	jsContext        JSClientContext
 	evaluator        ldeval.Evaluator
 	eventDispatcher  *events.EventDispatcher
@@ -100,6 +104,7 @@ type envContextImpl struct {
 	ttl              time.Duration
 	initErr          error
 	creationTime     time.Time
+	filterKey        config.FilterKey
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -150,12 +155,12 @@ func NewEnvContext(
 		return nil, err
 	}
 
-	credentials := make(map[config.SDKCredential]bool, 3)
+	credentials := make(map[credential.SDKCredential]bool, 3)
 	credentials[envConfig.SDKKey] = true
-	if envConfig.MobileKey != "" {
+	if envConfig.MobileKey.Defined() {
 		credentials[envConfig.MobileKey] = true
 	}
-	if envConfig.EnvID != "" {
+	if envConfig.EnvID.Defined() {
 		credentials[envConfig.EnvID] = true
 	}
 
@@ -166,7 +171,7 @@ func NewEnvContext(
 		loggers:          envLoggers,
 		secureMode:       envConfig.SecureMode,
 		streamProviders:  params.StreamProviders,
-		handlers:         make(map[streams.StreamProvider]map[config.SDKCredential]http.Handler),
+		handlers:         make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
 		jsContext:        params.JSClientContext,
 		sdkClientFactory: params.ClientFactory,
 		sdkInitTimeout:   allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
@@ -175,6 +180,7 @@ func NewEnvContext(
 		ttl:              envConfig.TTL.GetOrElse(0),
 		dataStoreInfo:    params.DataStoreInfo,
 		creationTime:     time.Now(),
+		filterKey:        params.EnvConfig.FilterKey,
 	}
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
@@ -227,6 +233,7 @@ func NewEnvContext(
 		params.StreamProviders,
 		envContextStoreQueries{envContext},
 		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
+		envContext.filterKey,
 		envLoggers,
 	)
 	envContext.envStreams = envStreams
@@ -240,9 +247,9 @@ func NewEnvContext(
 		envStreams.AddCredential(c)
 	}
 	for _, sp := range params.StreamProviders {
-		handlers := make(map[config.SDKCredential]http.Handler)
+		handlers := make(map[credential.SDKCredential]http.Handler)
 		for c := range credentials {
-			h := sp.Handler(c)
+			h := sp.Handler(sdkauth.NewScoped(envContext.filterKey, c))
 			if h != nil {
 				handlers[c] = h
 			}
@@ -307,7 +314,14 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
+	dataSource := ldcomponents.StreamingDataSource()
+
+	if params.EnvConfig.FilterKey != "" {
+		dataSource.PayloadFilter(string(params.EnvConfig.FilterKey))
+	}
+
 	envContext.sdkConfig = ld.Config{
+		DataSource:       dataSource,
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents(),
@@ -411,6 +425,10 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	}
 }
 
+func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
+	return c.filterKey
+}
+
 func (c *envContextImpl) GetIdentifiers() EnvIdentifiers {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -425,19 +443,19 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) GetCredentials() []config.SDKCredential {
+func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
 	return c.getCredentialsInternal(true)
 }
 
-func (c *envContextImpl) GetDeprecatedCredentials() []config.SDKCredential {
+func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 	return c.getCredentialsInternal(false)
 }
 
-func (c *envContextImpl) getCredentialsInternal(preferred bool) []config.SDKCredential {
+func (c *envContextImpl) getCredentialsInternal(preferred bool) []credential.SDKCredential {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	ret := make([]config.SDKCredential, 0, len(c.credentials))
+	ret := make([]credential.SDKCredential, 0, len(c.credentials))
 	for c, nonDeprecated := range c.credentials {
 		if nonDeprecated == preferred {
 			ret = append(ret, c)
@@ -446,7 +464,7 @@ func (c *envContextImpl) getCredentialsInternal(preferred bool) []config.SDKCred
 	return ret
 }
 
-func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
+func (c *envContextImpl) AddCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, found := c.credentials[newCredential]; found {
@@ -455,7 +473,7 @@ func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
 	c.credentials[newCredential] = true
 	c.envStreams.AddCredential(newCredential)
 	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(newCredential); h != nil {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
 			handlers[newCredential] = h
 		}
 	}
@@ -479,7 +497,7 @@ func (c *envContextImpl) AddCredential(newCredential config.SDKCredential) {
 	}
 }
 
-func (c *envContextImpl) RemoveCredential(oldCredential config.SDKCredential) {
+func (c *envContextImpl) RemoveCredential(oldCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, found := c.credentials[oldCredential]; found {
@@ -498,7 +516,7 @@ func (c *envContextImpl) RemoveCredential(oldCredential config.SDKCredential) {
 	}
 }
 
-func (c *envContextImpl) DeprecateCredential(credential config.SDKCredential) {
+func (c *envContextImpl) DeprecateCredential(credential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, found := c.credentials[credential]; found {
@@ -545,7 +563,7 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
 
-func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential config.SDKCredential) http.Handler {
+func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	h := c.handlers[streamProvider][credential]
@@ -586,6 +604,13 @@ func (c *envContextImpl) SetTTL(newTTL time.Duration) {
 	defer c.mu.Unlock()
 
 	c.ttl = newTTL
+}
+
+func (c *envContextImpl) GetFilter() config.FilterKey {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.filterKey
 }
 
 func (c *envContextImpl) GetInitError() error {

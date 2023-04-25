@@ -89,8 +89,11 @@ func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 }
 
 func makeAutoConfPatchEvent(env testAutoConfEnv) httphelpers.SSEEvent {
-	jsonData, _ := json.Marshal(autoconfig.PatchMessageData{Path: "/environments/" + string(env.id),
-		Data: env.toEnvironmentRep()})
+	rep, _ := json.Marshal(env.toEnvironmentRep())
+	jsonData, _ := json.Marshal(autoconfig.PatchMessageData{
+		Path: "/environments/" + string(env.id),
+		Data: rep,
+	})
 	return httphelpers.SSEEvent{Event: autoconfig.PatchEvent, Data: string(jsonData)}
 }
 

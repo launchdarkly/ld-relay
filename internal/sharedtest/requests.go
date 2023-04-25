@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
@@ -34,7 +34,7 @@ func BuildRequest(method, url string, body []byte, headers http.Header) *http.Re
 }
 
 // BuildRequestWithAuth creates a GET request with an Authorization header.
-func BuildRequestWithAuth(method, url string, authKey config.SDKCredential, body []byte) *http.Request {
+func BuildRequestWithAuth(method, url string, authKey credential.SDKCredential, body []byte) *http.Request {
 	h := make(http.Header)
 	if authKey != nil {
 		h.Add("Authorization", authKey.GetAuthorizationHeaderValue())

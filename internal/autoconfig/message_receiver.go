@@ -95,7 +95,7 @@ func (v *MessageReceiver[T]) Upsert(id string, item T, version int) Action {
 
 	// Out-of-order messages have no effect, but could indicate something odd.
 	if version <= current.version {
-		v.loggers.Infof(logMsgUpdateBadVersion, item.Describe())
+		v.loggers.Debugf(logMsgUpdateBadVersion, item.Describe())
 		return ActionNoop
 	}
 
@@ -126,7 +126,7 @@ func (v *MessageReceiver[T]) Delete(id string, version int) Action {
 	if version <= current.version {
 		// Not using current.item.Describe() because if this was constructed using newTombstone,
 		// then item will be zero-valued.
-		v.loggers.Infof(logMsgDeleteBadVersion, id)
+		v.loggers.Debugf(logMsgDeleteBadVersion, id)
 		return ActionNoop
 	}
 

@@ -3,7 +3,8 @@ package middleware
 import (
 	"context"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 )
 
@@ -18,7 +19,7 @@ type EnvContextInfo struct {
 	Env relayenv.EnvContext
 
 	// Credential is the SDK key, mobile key, or environment ID that was used in the request.
-	Credential config.SDKCredential
+	Credential credential.SDKCredential
 }
 
 // GetEnvContextInfo returns the EnvContextInfo that is attached to the specified Context (normally

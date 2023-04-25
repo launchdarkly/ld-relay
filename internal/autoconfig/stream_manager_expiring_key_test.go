@@ -54,7 +54,7 @@ func expectNoKeyExpiryMessage(p streamManagerTestParams) {
 
 func TestExpiringKeyInPutMessage(t *testing.T) {
 	envWithExpiringKey := makeEnvWithExpiringKey(testEnv1, oldKey)
-	event := makePutEvent(envWithExpiringKey)
+	event := makeEnvPutEvent(envWithExpiringKey)
 	streamManagerTest(t, &event, func(p streamManagerTestParams) {
 		p.startStream()
 
@@ -71,7 +71,7 @@ func TestExpiringKeyInPutMessage(t *testing.T) {
 
 func TestExpiringKeyInPatchAdd(t *testing.T) {
 	envWithExpiringKey := makeEnvWithExpiringKey(testEnv1, oldKey)
-	event := makePatchEvent(envWithExpiringKey)
+	event := makePatchEnvEvent(envWithExpiringKey)
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		p.stream.Enqueue(event)
@@ -89,14 +89,14 @@ func TestExpiringKeyInPatchAdd(t *testing.T) {
 func TestExpiringKeyInPatchUpdate(t *testing.T) {
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
-		p.stream.Enqueue(makePatchEvent(testEnv1))
+		p.stream.Enqueue(makePatchEnvEvent(testEnv1))
 
 		_ = p.requireMessage()
 
 		envWithExpiringKey := makeEnvWithExpiringKey(testEnv1, oldKey)
 		envWithExpiringKey.Version++
 
-		p.stream.Enqueue(makePatchEvent(envWithExpiringKey))
+		p.stream.Enqueue(makePatchEnvEvent(envWithExpiringKey))
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
@@ -109,7 +109,7 @@ func TestExpiringKeyInPatchUpdate(t *testing.T) {
 
 func TestExpiringKeyHasAlreadyExpiredInPutMessage(t *testing.T) {
 	envWithExpiringKey := makeEnvWithAlreadyExpiredKey(testEnv1, oldKey)
-	event := makePutEvent(envWithExpiringKey)
+	event := makeEnvPutEvent(envWithExpiringKey)
 	streamManagerTest(t, &event, func(p streamManagerTestParams) {
 		p.startStream()
 
@@ -126,7 +126,7 @@ func TestExpiringKeyHasAlreadyExpiredInPutMessage(t *testing.T) {
 
 func TestExpiringKeyHasAlreadyExpiredInPatchAdd(t *testing.T) {
 	envWithExpiringKey := makeEnvWithAlreadyExpiredKey(testEnv1, oldKey)
-	event := makePatchEvent(envWithExpiringKey)
+	event := makePatchEnvEvent(envWithExpiringKey)
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
 		p.stream.Enqueue(event)
@@ -143,14 +143,14 @@ func TestExpiringKeyHasAlreadyExpiredInPatchAdd(t *testing.T) {
 func TestExpiringKeyHasAlreadyExpiredInPatchUpdate(t *testing.T) {
 	streamManagerTest(t, nil, func(p streamManagerTestParams) {
 		p.startStream()
-		p.stream.Enqueue(makePatchEvent(testEnv1))
+		p.stream.Enqueue(makePatchEnvEvent(testEnv1))
 
 		_ = p.requireMessage()
 
 		envWithExpiringKey := makeEnvWithAlreadyExpiredKey(testEnv1, oldKey)
 		envWithExpiringKey.Version++
 
-		p.stream.Enqueue(makePatchEvent(envWithExpiringKey))
+		p.stream.Enqueue(makePatchEnvEvent(envWithExpiringKey))
 
 		msg := p.requireMessage()
 		require.NotNil(t, msg.update)
