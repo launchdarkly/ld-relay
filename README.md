@@ -11,7 +11,7 @@ You can configure the Relay Proxy to proxy multiple environment streams, even ac
 
 ## When should I use the LaunchDarkly Relay Proxy?
 
-To learn more about appropriate use cases for the Relay Proxy, read [Should I use the Relay Proxy?](https://docs.launchdarkly.com/home/advanced/relay-proxy#should-i-use-the-relay-proxy).
+To learn more about appropriate use cases for the Relay Proxy, read [Determining whether to use the Relay Proxy](https://docs.launchdarkly.com/home/relay-proxy/determining).
 
 
 ## Getting started
