@@ -16,8 +16,6 @@ jobs:
       issues: write
       contents: read
     runs-on: ubuntu-latest
-    env:
-      force_create_issue: ${{ github.event.inputs.force_create_issue }}
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v1
@@ -49,7 +47,7 @@ jobs:
         # If the latest official Go version is different from Relay's release version, generate an issue
         # with useful details.
       - name: Create issue if update required
-        if: env.force_create_issue == true || (steps.relay-latest-version.outputs.result != env.officialLatestVersion)
+        if: github.event.inputs.force_create_issue || (steps.relay-latest-version.outputs.result != env.officialLatestVersion)
         uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
