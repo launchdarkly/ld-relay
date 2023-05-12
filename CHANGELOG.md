@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.2.5] - 2023-05-12
+### Changed:
+- Updated Alpine docker image to 3.18.0.
+
 ## [7.2.4] - 2023-05-05
 ### Fixed:
 - Upgrade go from 1.20.2 -> 1.20.4 to address [CVE-2023-24538](https://nvd.nist.gov/vuln/detail/CVE-2023-24538).
