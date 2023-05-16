@@ -31,7 +31,7 @@ require (
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.1
+	github.com/launchdarkly/go-sdk-events/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.2
