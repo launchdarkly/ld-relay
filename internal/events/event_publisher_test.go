@@ -220,6 +220,29 @@ func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
 	})
 }
 
+func TestHTTPEventPublisherUnrecoverableErrorDoesNotBlockFutureProcessing(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL))
+		defer publisher.Close()
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
+		publisher.Flush()
+
+		_ = helpers.RequireValue(t, requestsCh, time.Second)
+		time.Sleep(time.Millisecond * 100) // no good way to know when it's processed the 401 response
+
+		// Make sure the queue hasn't stopped processing by overfilling its capacity. This shouldn't block.
+		for i := 0; i < inputQueueSize+1; i++ {
+			publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"into the void!"`))
+		}
+		publisher.Flush()
+		helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50)
+	})
+}
+
 func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
 	newSDKKey := config.SDKKey("better-sdk-key")
 	mockLog := ldlogtest.NewMockLog()
