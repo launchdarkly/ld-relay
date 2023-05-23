@@ -54,6 +54,11 @@ func TestReadOptions(t *testing.T) {
 		})
 	})
 
+	t.Run("version option", func(t *testing.T) {
+		opts, _ := ReadOptions([]string{appName, "--version"}, io.Discard)
+		assert.True(t, opts.PrintVersion)
+	})
+
 	t.Run("invalid options", func(t *testing.T) {
 		_, err := ReadOptions([]string{appName, "--unknown"}, io.Discard)
 		assert.Error(t, err)

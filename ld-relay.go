@@ -22,6 +22,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if opts.PrintVersion {
+		loggers.Infof(
+			"LaunchDarkly relay version %s\n",
+			application.DescribeRelayVersion(version.Version),
+		)
+		os.Exit(0)
+	}
+
 	loggers.Infof(
 		"Starting LaunchDarkly relay version %s with %s\n",
 		application.DescribeRelayVersion(version.Version),
