@@ -31,7 +31,7 @@ require (
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.1
+	github.com/launchdarkly/go-sdk-events/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.2
@@ -145,7 +145,7 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.1 // indirect
 	github.com/docker/cli v23.0.1+incompatible // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
-	github.com/docker/docker v23.0.1+incompatible // indirect
+	github.com/docker/docker v23.0.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect

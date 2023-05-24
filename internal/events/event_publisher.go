@@ -93,6 +93,15 @@ type HTTPEventPublisher struct {
 	wg          sync.WaitGroup
 	inputQueue  chan interface{}
 
+	// Acts as a signal to tell the publisher any future events can just be
+	// dropped.
+	//
+	// When event sending encounters an unrecoverable failure, we don't want to
+	// continue sending events. However, the publisher needs to continue draining
+	// the publisher channel to prevent go routines from backing up.
+	disableQueue chan interface{}
+	disabled     bool
+
 	queues     map[EventPayloadMetadata]*publisherQueue
 	capacity   int
 	overflowed bool
@@ -160,15 +169,17 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 	}
 	baseHeaders.Del("Authorization") // we don't necessarily want an SDK key here - we'll decide in makeEventSender()
 	inputQueue := make(chan interface{}, inputQueueSize)
+	disableQueue := make(chan interface{}, 1)
 	p := &HTTPEventPublisher{
-		baseHeaders: baseHeaders,
-		client:      client,
-		eventsURI:   *defaultEventsBaseURI,
-		authKey:     authKey,
-		closer:      closer,
-		capacity:    defaultCapacity,
-		inputQueue:  inputQueue,
-		loggers:     loggers,
+		baseHeaders:  baseHeaders,
+		client:       client,
+		eventsURI:    *defaultEventsBaseURI,
+		authKey:      authKey,
+		closer:       closer,
+		capacity:     defaultCapacity,
+		inputQueue:   inputQueue,
+		disableQueue: disableQueue,
+		loggers:      loggers,
 	}
 
 	flushInterval := defaultFlushInterval
@@ -199,7 +210,17 @@ func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.H
 		EventLoop:
 			for {
 				select {
+				case <-disableQueue:
+					p.loggers.Warnf("Discarding in-memory and all future events due to unrecoverable failure when sending events.")
+					ticker.Stop()
+					// Ensure we free up as much memory as we can by clearing any pending events
+					p.queues = make(map[EventPayloadMetadata]*publisherQueue)
+					p.disabled = true
 				case e := <-inputQueue:
+					if p.disabled {
+						continue
+					}
+
 					switch e := e.(type) {
 					case flush:
 						p.flush()
@@ -330,7 +351,7 @@ func (p *HTTPEventPublisher) flush() {
 			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)
 			p.wg.Done()
 			if result.MustShutDown {
-				p.Close()
+				p.disableQueue <- struct{}{}
 			}
 		}()
 	}
@@ -340,5 +361,6 @@ func (p *HTTPEventPublisher) Close() { //nolint:golint // method is already docu
 	p.closeOnce.Do(func() {
 		close(p.closer)
 		p.wg.Wait()
+		close(p.disableQueue)
 	})
 }

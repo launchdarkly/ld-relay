@@ -58,6 +58,7 @@ Or, you can build the Relay Proxy endpoints into your own application. **To lear
 | `--config FILEPATH`    | configuration file location                                              |
 | `--allow-missing-file` | if specified, a `--config` option for a nonexistent file will be ignored |
 | `--from-env`           | if specified, configuration will be read from environment variables      |
+| `--version`            | if specified, print relay's version and stop execution                   |
 
 If none of these are specified, the default is `--config /etc/ld-relay.conf`.
 

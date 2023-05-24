@@ -16,6 +16,7 @@ type Options struct {
 	ConfigFile       string
 	AllowMissingFile bool
 	UseEnvironment   bool
+	PrintVersion     bool
 }
 
 func errConfigFileNotFound(filename string) error {
@@ -42,11 +43,13 @@ func (o Options) DescribeConfigSource() string {
 //
 // The configuration parameter behavior is as follows:
 //
-// 1. If you specify --config $FILEPATH, it loads that file. Failure to find it or parse it is a fatal error,
+// 1. If you specify --version, relay prints a line to standard out of its current version and stop execution,
+// instead of doing anything below.
+// 2. If you specify --config $FILEPATH, it loads that file. Failure to find it or parse it is a fatal error,
 // unless you also specify --allow-missing-file.
-// 2. If you specify --from-env, it creates a configuration from environment variables as described in README.
-// 3. If you specify both, the file is loaded first, then it applies changes from variables if any.
-// 4. Omitting all options is equivalent to explicitly specifying --config /etc/ld-relay.conf.
+// 3. If you specify --from-env, it creates a configuration from environment variables as described in README.
+// 4. If you specify both, the file is loaded first, then it applies changes from variables if any.
+// 5. Omitting all options is equivalent to explicitly specifying --config /etc/ld-relay.conf.
 func ReadOptions(osArgs []string, errorOutput io.Writer) (Options, error) {
 	var o Options
 
@@ -55,9 +58,14 @@ func ReadOptions(osArgs []string, errorOutput io.Writer) (Options, error) {
 	fs.StringVar(&o.ConfigFile, "config", "", "configuration file location")
 	fs.BoolVar(&o.AllowMissingFile, "allow-missing-file", false, "suppress error if config file is not found")
 	fs.BoolVar(&o.UseEnvironment, "from-env", false, "read configuration from environment variables")
+	fs.BoolVar(&o.PrintVersion, "version", false, "print relay's version")
 	err := fs.Parse(osArgs[1:])
 	if err != nil {
 		return o, err
+	}
+
+	if o.PrintVersion {
+		return o, nil
 	}
 
 	if o.ConfigFile == "" && !o.UseEnvironment {
