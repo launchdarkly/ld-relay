@@ -11,7 +11,7 @@ You can configure the Relay Proxy to proxy multiple environment streams, even ac
 
 ## When should I use the LaunchDarkly Relay Proxy?
 
-To learn more about appropriate use cases for the Relay Proxy, read [Should I use the Relay Proxy?](https://docs.launchdarkly.com/home/advanced/relay-proxy#should-i-use-the-relay-proxy).
+To learn more about appropriate use cases for the Relay Proxy, read [Determining whether to use the Relay Proxy](https://docs.launchdarkly.com/home/relay-proxy/determining).
 
 
 ## Getting started
@@ -58,6 +58,7 @@ Or, you can build the Relay Proxy endpoints into your own application. **To lear
 | `--config FILEPATH`    | configuration file location                                              |
 | `--allow-missing-file` | if specified, a `--config` option for a nonexistent file will be ignored |
 | `--from-env`           | if specified, configuration will be read from environment variables      |
+| `--version`            | if specified, print relay's version and stop execution                   |
 
 If none of these are specified, the default is `--config /etc/ld-relay.conf`.
 

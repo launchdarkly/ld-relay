@@ -9,12 +9,12 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant.
   go-release-version:
     type: string
-    default: "1.20.2"
+    default: "1.20.4"
 
   # In addition to the most recent version of Go, we also support the previous version.
   go-previous-version:
     type: string
-    default: "1.19.7"
+    default: "1.19.9"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started

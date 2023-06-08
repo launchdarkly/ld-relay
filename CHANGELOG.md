@@ -2,6 +2,22 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.3.0] - 2023-05-24
+### Added:
+- Add a version command line option to return Relay's current version
+
+### Fixed:
+- Event payloads receiving an HTTP 413 status code will no longer prevent subsequent event payloads from being attempted.
+- Unrecoverable failure conditions will no longer block event go routines.
+
+## [7.2.5] - 2023-05-12
+### Changed:
+- Updated Alpine docker image to 3.18.0.
+
+## [7.2.4] - 2023-05-05
+### Fixed:
+- Upgrade go from 1.20.2 -> 1.20.4 to address [CVE-2023-24538](https://nvd.nist.gov/vuln/detail/CVE-2023-24538).
+
 ## [7.2.3] - 2023-04-13
 ### Changed:
 - Updated Alpine docker image to 3.17.3.
