@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
@@ -20,11 +21,10 @@ func StartHTTPServer(
 	tlsMinVersion uint16,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
-	srv := &http.Server{ //nolint:gosec // see comment on next line
-		// The linter helpfully points out that setting ReadHeaderTimeout is advisable to avoid certain
-		// DDOS attacks. We will be doing this, but in a separate changeset.
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: handler,
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	if tlsEnabled && tlsMinVersion != 0 {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
@@ -61,11 +62,10 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	exporterMux := http.NewServeMux()
 	exporterMux.Handle("/metrics", exporter)
 
-	server := &http.Server{ //nolint:gosec // see comment on next line
-		// The linter helpfully points out that setting ReadHeaderTimeout is advisable to avoid certain
-		// DDOS attacks. We will be doing this, but in a separate changeset.
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: exporterMux,
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           exporterMux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	return &prometheusExporterImpl{
