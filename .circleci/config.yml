@@ -182,7 +182,7 @@ jobs:
         type: string
         default: LD_API_TOKEN_STG
     machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
-      image: ubuntu-2004:202107-02
+      image: ubuntu-2204:2023.04.2
       docker_layer_caching: true
     environment:
       LD_API_URL: <<parameters.ld_api_url>>
