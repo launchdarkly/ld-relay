@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.3.1] - 2023-06-21
+### Changed:
+- The relay proxy web server will now time out if a connection does not provide header information within 10 seconds.
+- Updated Alpine docker image to 3.18.2.
+
+### Fixed:
+- Upgrade goreleaser from 2.25.1 -> 2.30 to resolve [CVE-2023-32698](https://nvd.nist.gov/vuln/detail/CVE-2023-32698).
+
 ## [7.3.0] - 2023-05-24
 ### Added:
 - Add a version command line option to return Relay's current version
