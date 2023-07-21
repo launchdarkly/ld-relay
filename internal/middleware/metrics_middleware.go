@@ -46,6 +46,11 @@ func CountServerConns(handler http.Handler) http.Handler {
 	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
 }
 
+// PollingRequestCount is a middleware function that increments the total number of server-side polling requests.
+func PollingRequestCount(handler http.Handler) http.Handler {
+	return withCount(handler, metrics.PollingRequests)
+}
+
 // RequestCount is a middleware function that increments the specified metric for each request.
 func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {

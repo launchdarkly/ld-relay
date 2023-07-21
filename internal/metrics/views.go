@@ -32,6 +32,11 @@ var (
 		Aggregation: view.Sum(),
 		TagKeys:     privateTags,
 	}
+	privatePollingRequestsView *view.View = &view.View{ //nolint:gochecknoglobals
+		Measure:     privatePollingRequestsMeasure,
+		Aggregation: view.Sum(),
+		TagKeys:     privateTags,
+	}
 
 	registerPublicViewsOnce  sync.Once //nolint:gochecknoglobals
 	registerPrivateViewsOnce sync.Once //nolint:gochecknoglobals
@@ -42,5 +47,5 @@ func getPublicViews() []*view.View {
 }
 
 func getPrivateViews() []*view.View {
-	return []*view.View{privateConnView, privateNewConnView}
+	return []*view.View{privateConnView, privateNewConnView, privatePollingRequestsView}
 }

@@ -24,6 +24,12 @@ type newConnectionsMetric struct {
 	Count            int64  `json:"count"`
 }
 
+type pollingMetric struct {
+	UserAgent        string `json:"userAgent"`
+	PlatformCategory string `json:"platformCategory"`
+	Count            int64  `json:"count"`
+}
+
 const relayMetricsKind = "relayMetrics"
 
 type relayMetricsEvent struct {
@@ -33,6 +39,7 @@ type relayMetricsEvent struct {
 	EndDate        ldtime.UnixMillisecondTime `json:"endDate"`
 	Connections    []currentConnectionsMetric `json:"connections,omitempty"`
 	NewConnections []newConnectionsMetric     `json:"newConnections,omitempty"`
+	PollingCounts  []pollingMetric            `json:"pollingCounts,omitempty"`
 }
 
 type connectionsKeyType struct {
@@ -40,14 +47,24 @@ type connectionsKeyType struct {
 	platformCategory string
 }
 
+type pollingCounts struct {
+	lastReported int64
+	running      int64
+}
+
 // The openCensusEventsExporter is used for publishing connection statistics to the LaunchDarkly events service.
 // It can be disabled by setting DisableInternalUsageMetrics in the configuration.
 type openCensusEventsExporter struct {
-	relayID            string
-	publisher          events.EventPublisher
-	intervalStartTime  time.Time
+	relayID           string
+	publisher         events.EventPublisher
+	intervalStartTime time.Time
+
 	currentConnections map[connectionsKeyType]int64
 	newConnections     map[connectionsKeyType]int64
+
+	// Convenience flag to determine if the pollingCounts should report new data.
+	pollingDataIsDirty bool
+	pollingCounts      map[connectionsKeyType]pollingCounts
 	mu                 sync.Mutex
 	closer             chan<- struct{}
 }
@@ -60,8 +77,10 @@ func newOpenCensusEventsExporter(relayID string, publisher events.EventPublisher
 		publisher:          publisher,
 		closer:             closer,
 		intervalStartTime:  time.Now(),
+		pollingDataIsDirty: false,
 		currentConnections: make(map[connectionsKeyType]int64),
 		newConnections:     make(map[connectionsKeyType]int64),
+		pollingCounts:      make(map[connectionsKeyType]pollingCounts),
 	}
 
 	flushTicker := time.NewTicker(flushInterval)
@@ -119,6 +138,20 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch name {
+	case privatePollingRequestsMeasureName:
+		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
+		if value == 0 {
+			delete(e.pollingCounts, key)
+			break
+		}
+
+		counts := e.pollingCounts[key]
+		if counts.running != value {
+			counts.running = value
+			e.pollingCounts[key] = counts
+			e.pollingDataIsDirty = true
+		}
+
 	case privateConnMeasureName:
 		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
 		if value == 0 {
@@ -126,6 +159,7 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 		} else {
 			e.currentConnections[key] = value
 		}
+
 	case privateNewConnMeasureName:
 		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent}
 		if value == 0 {
@@ -136,20 +170,61 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 	}
 }
 
+// hasMetricDataToReport will return true if there is data currently being
+// tracked by that exporter that should be returned into a relayMetrics event.
+//
+// WARN: This method does not lock the underlying mutex. It is expected that
+// you will have done so before calling this method.
+func (e *openCensusEventsExporter) hasMetricDataToReport() bool {
+	if e.pollingDataIsDirty {
+		return true
+	}
+
+	if len(e.currentConnections) > 0 {
+		return true
+	}
+
+	if len(e.newConnections) > 0 {
+		return true
+	}
+
+	return false
+}
+
 func (e *openCensusEventsExporter) flush() {
 	e.mu.Lock()
 	startTime := e.intervalStartTime
 	stopTime := time.Now()
 	e.intervalStartTime = stopTime
-	if len(e.currentConnections) == 0 && len(e.newConnections) == 0 {
+
+	if !e.hasMetricDataToReport() {
 		e.mu.Unlock()
 		return
 	}
+
 	event := relayMetricsEvent{
 		Kind:      relayMetricsKind,
 		RelayID:   e.relayID,
 		StartDate: ldtime.UnixMillisFromTime(startTime),
 		EndDate:   ldtime.UnixMillisFromTime(stopTime),
+	}
+
+	if e.pollingDataIsDirty {
+		for k, v := range e.pollingCounts {
+			// Polling counts aren't reset between flushes because we need to track
+			// the offset between flushes. So it is possible some counts haven't
+			// changed, so there is no point in sending them.
+			if v.running != v.lastReported {
+				event.PollingCounts = append(event.PollingCounts, pollingMetric{
+					UserAgent:        k.userAgent,
+					PlatformCategory: k.platformCategory,
+					Count:            v.running - v.lastReported,
+				})
+				v.lastReported = v.running
+				e.pollingCounts[k] = v
+			}
+		}
+		e.pollingDataIsDirty = false
 	}
 	for k, v := range e.currentConnections {
 		event.Connections = append(event.Connections, currentConnectionsMetric{
