@@ -53,7 +53,6 @@ type pollingCounts struct {
 }
 
 // The openCensusEventsExporter is used for publishing connection statistics to the LaunchDarkly events service.
-// It can be disabled by setting DisableInternalUsageMetrics in the configuration.
 type openCensusEventsExporter struct {
 	relayID           string
 	publisher         events.EventPublisher

@@ -282,7 +282,10 @@ func NewEnvContext(
 	streamURI := allConfig.Main.StreamURI.String()   // config.ValidateConfig has ensured that this has a value
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
-	enableDiagnostics := !allConfig.Main.DisableInternalUsageMetrics && !offlineMode
+	// Unlike our SDKs, the relay proxy does not provide an option to disable
+	// diagnostic events. However, we must still honor the offline mode where 0
+	// outbound connections will be made.
+	enableDiagnostics := !offlineMode
 	var em *metrics.EnvironmentManager
 	if params.MetricsManager != nil {
 		if enableDiagnostics {

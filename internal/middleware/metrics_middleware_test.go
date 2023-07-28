@@ -45,7 +45,6 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 
 	envConfig := config.EnvConfig{}
 	allConfig := config.Config{}
-	allConfig.Main.DisableInternalUsageMetrics = true
 
 	env, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
 		Identifiers:    relayenv.EnvIdentifiers{ConfiguredName: envName},

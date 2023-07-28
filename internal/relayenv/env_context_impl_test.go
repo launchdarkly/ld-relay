@@ -333,12 +333,6 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	})
 }
 
-func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
-	var allConfig config.Config
-	allConfig.Main.DisableInternalUsageMetrics = true
-	testMetricsDisabled(t, allConfig)
-}
-
 func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
 	var allConfig config.Config
 	allConfig.OfflineMode.FileDataSource = "fake-file-path"
@@ -390,7 +384,6 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
@@ -434,7 +427,6 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.OfflineMode.FileDataSource = "fake-file-path"
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
