@@ -30,7 +30,7 @@ Read the following section to learn how the Relay Proxy handles a time out.
 
 ### Relay Proxy receives a request after the LaunchDarkly connection attempt has timed out
 
-By default, if the initialization timeout elapses and the Relay Proxy has not yet received flag data from LaunchDarkly, it will give up and shut down completely. However, if the [configuration option](./config.md#file-section-main) `ignoreConnectionErrors` is set to `true`, it will stay running and keep trying to connect to LaunchDarkly.
+By default, if the initialization timeout elapses and the Relay Proxy has not yet received flag data from LaunchDarkly, it will give up and shut down completely. However, if the [configuration option](./configuration.md#file-section-main) `ignoreConnectionErrors` is set to `true`, it will stay running and keep trying to connect to LaunchDarkly.
 
 If the Relay Proxy receives requests from SDKs by this time, the behavior depends on whether there is any source of last known flag data:
 
