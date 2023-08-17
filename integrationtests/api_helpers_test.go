@@ -100,6 +100,10 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 	return projectInfo{key: projKey, name: projName}, envInfos, nil
 }
 
+func randomApiKey(prefix string) string {
+	return (prefix + uuid.New())[0:20]
+}
+
 func (a *apiHelper) deleteProject(project projectInfo) error {
 	_, err := a.apiClient.ProjectsApi.DeleteProject(a.apiContext, project.key).Execute()
 	return a.logResult(fmt.Sprintf("Delete project %q", project.key), err)
