@@ -62,7 +62,7 @@ func (a *apiHelper) deleteProjects(projsAndEnvs projsAndEnvs) error {
 }
 
 func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
-	projKey := randomApiKey("relayi9n-")
+	projKey := "relayi9n-" + strings.ReplaceAll(time.Now().Format("2006_01_02_15_04_05"), "_", "")
 	projName := projKey
 	projectBody := ldapi.ProjectPost{
 		Name: projName,
@@ -98,10 +98,6 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 	}
 	a.loggers.Infof("Created project %q\n", projKey)
 	return projectInfo{key: projKey, name: projName}, envInfos, nil
-}
-
-func randomApiKey(prefix string) string {
-	return (prefix + uuid.New())[0:20]
 }
 
 func (a *apiHelper) deleteProject(project projectInfo) error {
