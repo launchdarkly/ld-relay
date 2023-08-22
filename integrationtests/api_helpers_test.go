@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v7/config"
@@ -62,7 +63,7 @@ func (a *apiHelper) deleteProjects(projsAndEnvs projsAndEnvs) error {
 }
 
 func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environmentInfo, error) {
-	projKey := randomApiKey("relayi9n-")
+	projKey := "relayi9n-" + strings.ReplaceAll(time.Now().Format("2006_01_02_15_04_05.0000"), "_", "")
 	projName := projKey
 	projectBody := ldapi.ProjectPost{
 		Name: projName,
