@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.18.23
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.22
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.2
-	github.com/cyphar/filepath-securejoin v0.2.3
+	github.com/cyphar/filepath-securejoin v0.2.4
 	github.com/fatih/color v1.15.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-redis/redis/v8 v8.11.5
