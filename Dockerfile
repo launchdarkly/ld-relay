@@ -5,6 +5,7 @@ FROM golang:1.20.7-alpine3.18 as builder
 
 RUN apk --no-cache add \
     libc-dev \
+    curl \
  && rm -rf /var/cache/apk/*
 
 ARG SRC_DIR=/go/ld-relay
