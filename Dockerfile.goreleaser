@@ -7,6 +7,7 @@ FROM alpine:3.18.3
 
 RUN apk add --no-cache \
     ca-certificates \
+    curl \
  && apk add --upgrade libcrypto1.1 libssl1.1 \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
