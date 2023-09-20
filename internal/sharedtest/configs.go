@@ -5,7 +5,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 type singleInstanceConfigurer[T any] struct {

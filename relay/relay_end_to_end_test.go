@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-server-sdk/v6/testhelpers/ldservices"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v7/config"
 	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
 	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
@@ -17,7 +17,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 

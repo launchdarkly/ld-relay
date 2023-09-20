@@ -7,7 +7,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // EnvStreamUpdates is an interface representing the kinds of updates we can publish to streams. Other

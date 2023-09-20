@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/ld-relay/v7/config"
 	"github.com/launchdarkly/ld-relay/v7/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v7/internal/events"
@@ -15,7 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/internal/streams"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v2"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.

@@ -11,8 +11,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
@@ -87,7 +87,7 @@ func TestAddCredential(t *testing.T) {
 	sp1 := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 	sp2 := &mockStreamProvider{credentialOfDesiredType: config.MobileKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -119,7 +119,7 @@ func TestAddCredential(t *testing.T) {
 func TestRemoveCredential(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -142,7 +142,7 @@ func TestRemoveCredential(t *testing.T) {
 func TestCloseEnvStreamsClosesAll(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
@@ -168,7 +168,7 @@ func TestCloseEnvStreamsClosesAll(t *testing.T) {
 func TestSendAllDataUpdateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -193,7 +193,7 @@ func TestSendAllDataUpdateGoesToAllStreams(t *testing.T) {
 func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -218,7 +218,7 @@ func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
 func TestInvalidateClientSideStateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -244,7 +244,7 @@ func TestHeartbeatsGoToAllStreams(t *testing.T) {
 
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -274,7 +274,7 @@ func TestHeartbeatsAreStopped(t *testing.T) {
 
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil)
+	store := makeMockStore(nil, nil, nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, ldlog.NewDisabledLoggers())
 
 	es.AddCredential(config.SDKKey("sdk-key1"))

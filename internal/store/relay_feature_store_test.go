@@ -6,9 +6,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,8 +64,15 @@ func TestStoreInit(t *testing.T) {
 
 	flags, _ := baseStore.GetAll(ldstoreimpl.Features())
 	assert.Equal(t, allData[0].Items, flags)
+
 	segments, _ := baseStore.GetAll(ldstoreimpl.Segments())
 	assert.Equal(t, allData[1].Items, segments)
+
+	overrides, _ := baseStore.GetAll(ldstoreimpl.ConfigOverrides())
+	assert.Equal(t, allData[2].Items, overrides)
+
+	metrics, _ := baseStore.GetAll(ldstoreimpl.Metrics())
+	assert.Equal(t, allData[3].Items, metrics)
 
 	assert.Equal(t,
 		allData,
@@ -77,18 +84,28 @@ func TestStoreGet(t *testing.T) {
 	baseStore, wrappedStore, _ := makeTestComponents()
 	_, _ = sharedtest.UpsertFlag(baseStore, testFlag1)
 	_, _ = sharedtest.UpsertSegment(baseStore, testSegment1)
+	_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverride)
+	_, _ = sharedtest.UpsertMetric(baseStore, testMetric1)
 
 	flag, _ := wrappedStore.Get(ldstoreimpl.Features(), testFlag1.Key)
 	assert.Equal(t, sharedtest.FlagDesc(testFlag1), flag)
 
 	segment, _ := wrappedStore.Get(ldstoreimpl.Segments(), testSegment1.Key)
 	assert.Equal(t, sharedtest.SegmentDesc(testSegment1), segment)
+
+	override, _ := wrappedStore.Get(ldstoreimpl.ConfigOverrides(), testIndexSamplingRatioOverride.Key)
+	assert.Equal(t, sharedtest.ConfigOverrideDesc(testIndexSamplingRatioOverride), override)
+
+	metric, _ := wrappedStore.Get(ldstoreimpl.Metrics(), testMetric1.Key)
+	assert.Equal(t, sharedtest.MetricDesc(testMetric1), metric)
 }
 
 func TestStoreGetAll(t *testing.T) {
 	baseStore, wrappedStore, _ := makeTestComponents()
 	_, _ = sharedtest.UpsertFlag(baseStore, testFlag1)
 	_, _ = sharedtest.UpsertSegment(baseStore, testSegment1)
+	_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverride)
+	_, _ = sharedtest.UpsertMetric(baseStore, testMetric1)
 
 	flags, _ := wrappedStore.GetAll(ldstoreimpl.Features())
 	expectedFlags, _ := baseStore.GetAll(ldstoreimpl.Features())
@@ -97,6 +114,14 @@ func TestStoreGetAll(t *testing.T) {
 	segments, _ := wrappedStore.GetAll(ldstoreimpl.Segments())
 	expectedSegments, _ := baseStore.GetAll(ldstoreimpl.Segments())
 	assert.Equal(t, expectedSegments, segments)
+
+	overrides, _ := wrappedStore.GetAll(ldstoreimpl.ConfigOverrides())
+	expectedOverrides, _ := baseStore.GetAll(ldstoreimpl.ConfigOverrides())
+	assert.Equal(t, expectedOverrides, overrides)
+
+	metrics, _ := wrappedStore.GetAll(ldstoreimpl.Metrics())
+	expectedMetrics, _ := baseStore.GetAll(ldstoreimpl.Metrics())
+	assert.Equal(t, expectedMetrics, metrics)
 }
 
 func TestStoreUpsertNewItem(t *testing.T) {
@@ -129,6 +154,39 @@ func TestStoreUpsertNewItem(t *testing.T) {
 				Kind: ldstoreimpl.Segments(),
 				Key:  testSegment1.Key,
 				Item: sharedtest.SegmentDesc(testSegment1),
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
+
+	t.Run("config override", func(t *testing.T) {
+		baseStore, wrappedStore, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertConfigOverride(wrappedStore, testIndexSamplingRatioOverride)
+
+		override, _ := baseStore.Get(ldstoreimpl.ConfigOverrides(), testIndexSamplingRatioOverride.Key)
+		assert.Equal(t, sharedtest.ConfigOverrideDesc(testIndexSamplingRatioOverride), override)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.ConfigOverrides(),
+				Key:  testIndexSamplingRatioOverride.Key,
+				Item: sharedtest.ConfigOverrideDesc(testIndexSamplingRatioOverride),
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
+	t.Run("metric", func(t *testing.T) {
+		baseStore, wrappedStore, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertMetric(wrappedStore, testMetric1)
+
+		segment, _ := baseStore.Get(ldstoreimpl.Metrics(), testMetric1.Key)
+		assert.Equal(t, sharedtest.MetricDesc(testMetric1), segment)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.Metrics(),
+				Key:  testMetric1.Key,
+				Item: sharedtest.MetricDesc(testMetric1),
 			},
 			updates.expectItemUpdate(t),
 		)
@@ -167,6 +225,38 @@ func TestStoreUpsertExistingItemWithNewVersion(t *testing.T) {
 			updates.expectItemUpdate(t),
 		)
 	})
+
+	t.Run("config override", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverride)
+		testIndexSamplingRatioOverridev2 := ldbuilders.NewConfigOverrideBuilder(testIndexSamplingRatioOverride.Key).Version(testIndexSamplingRatioOverride.Version + 1).Build()
+		_, _ = sharedtest.UpsertConfigOverride(store, testIndexSamplingRatioOverridev2)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.ConfigOverrides(),
+				Key:  testIndexSamplingRatioOverride.Key,
+				Item: sharedtest.ConfigOverrideDesc(testIndexSamplingRatioOverridev2),
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
+
+	t.Run("metric", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertMetric(baseStore, testMetric1)
+		testMetric1v2 := ldbuilders.NewMetricBuilder(testMetric1.Key).Version(testMetric1.Version + 1).Build()
+		_, _ = sharedtest.UpsertMetric(store, testMetric1v2)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.Metrics(),
+				Key:  testMetric1.Key,
+				Item: sharedtest.MetricDesc(testMetric1v2),
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
 }
 
 func TestStoreUpsertExistingItemWithOldVersion(t *testing.T) {
@@ -184,6 +274,24 @@ func TestStoreUpsertExistingItemWithOldVersion(t *testing.T) {
 		testSegment1v2 := ldbuilders.NewSegmentBuilder(testSegment1.Key).Version(testSegment1.Version + 1).Build()
 		_, _ = sharedtest.UpsertSegment(baseStore, testSegment1v2)
 		_, _ = sharedtest.UpsertSegment(store, testSegment1)
+
+		updates.expectItemUpdate(t)
+	})
+
+	t.Run("config override", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		testIndexSamplingRatioOverridev2 := ldbuilders.NewConfigOverrideBuilder(testIndexSamplingRatioOverride.Key).Version(testSegment1.Version + 1).Build()
+		_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverridev2)
+		_, _ = sharedtest.UpsertConfigOverride(store, testIndexSamplingRatioOverride)
+
+		updates.expectItemUpdate(t)
+	})
+
+	t.Run("metric", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		testMetric1v2 := ldbuilders.NewMetricBuilder(testMetric1.Key).Version(testMetric1.Version + 1).Build()
+		_, _ = sharedtest.UpsertMetric(baseStore, testMetric1v2)
+		_, _ = sharedtest.UpsertMetric(store, testMetric1)
 
 		updates.expectItemUpdate(t)
 	})
@@ -221,6 +329,38 @@ func TestStoreDeleteItemWithNewVersion(t *testing.T) {
 			updates.expectItemUpdate(t),
 		)
 	})
+
+	t.Run("config override", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverride)
+		deletedItem := sharedtest.DeletedItem(testIndexSamplingRatioOverride.Version + 1)
+		_, _ = store.Upsert(ldstoreimpl.ConfigOverrides(), testIndexSamplingRatioOverride.Key, deletedItem)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.ConfigOverrides(),
+				Key:  testIndexSamplingRatioOverride.Key,
+				Item: deletedItem,
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
+
+	t.Run("metric", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		_, _ = sharedtest.UpsertMetric(baseStore, testMetric1)
+		deletedItem := sharedtest.DeletedItem(testMetric1.Version + 1)
+		_, _ = store.Upsert(ldstoreimpl.Metrics(), testMetric1.Key, deletedItem)
+
+		assert.Equal(t,
+			sharedtest.ReceivedItemUpdate{
+				Kind: ldstoreimpl.Metrics(),
+				Key:  testMetric1.Key,
+				Item: deletedItem,
+			},
+			updates.expectItemUpdate(t),
+		)
+	})
 }
 
 func TestStoreDeleteItemWithOlderVersion(t *testing.T) {
@@ -240,6 +380,26 @@ func TestStoreDeleteItemWithOlderVersion(t *testing.T) {
 		_, _ = sharedtest.UpsertSegment(baseStore, testSegment1v2)
 		deletedItem := sharedtest.DeletedItem(testSegment1.Version)
 		_, _ = store.Upsert(ldstoreimpl.Segments(), testSegment1.Key, deletedItem)
+
+		updates.expectItemUpdate(t)
+	})
+
+	t.Run("config override", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		testIndexSamplingRatioOverridev2 := ldbuilders.NewConfigOverrideBuilder(testIndexSamplingRatioOverride.Key).Version(testIndexSamplingRatioOverride.Version + 1).Build()
+		_, _ = sharedtest.UpsertConfigOverride(baseStore, testIndexSamplingRatioOverridev2)
+		deletedItem := sharedtest.DeletedItem(testIndexSamplingRatioOverride.Version)
+		_, _ = store.Upsert(ldstoreimpl.ConfigOverrides(), testIndexSamplingRatioOverride.Key, deletedItem)
+
+		updates.expectItemUpdate(t)
+	})
+
+	t.Run("metric", func(t *testing.T) {
+		baseStore, store, updates := makeTestComponents()
+		testMetric1v2 := ldbuilders.NewMetricBuilder(testMetric1.Key).Version(testMetric1.Version + 1).Build()
+		_, _ = sharedtest.UpsertMetric(baseStore, testMetric1v2)
+		deletedItem := sharedtest.DeletedItem(testMetric1.Version)
+		_, _ = store.Upsert(ldstoreimpl.Metrics(), testMetric1.Key, deletedItem)
 
 		updates.expectItemUpdate(t)
 	})
