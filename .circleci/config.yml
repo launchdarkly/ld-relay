@@ -9,12 +9,12 @@ parameters:
   # override it in any parameterized builds, but just as a convenient shareable constant
   go-release-version:
     type: string
-    default: "1.20.2"
+    default: "1.20.7"
 
   # In addition to the most recent version of Go, we also support the previous version.
   go-previous-version:
     type: string
-    default: "1.19.7"
+    default: "1.19.12"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
@@ -183,7 +183,7 @@ jobs:
         type: string
         default: LD_API_TOKEN_STG
     machine: # can't use regular Docker mode because we need to run our own Docker containers and share files with them
-      image: ubuntu-2004:202107-02
+      image: ubuntu-2204:2023.04.2
       docker_layer_caching: true
     environment:
       LD_API_URL: <<parameters.ld_api_url>>

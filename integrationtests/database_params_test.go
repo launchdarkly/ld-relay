@@ -18,8 +18,8 @@ import (
 const (
 	dynamoDBTableName = "test-table"
 	awsRegion         = "us-east-1"
-	awsKey            = "fake-user"
-	awsSecret         = "fake-secret"
+	awsKey            = "FAKEUSER"
+	awsSecret         = "FAKESECRET"
 )
 
 type databaseTestParams struct {
@@ -133,7 +133,7 @@ var redisWithPasswordDatabaseTestParams = databaseTestParams{
 }
 
 var consulDatabaseTestParams = databaseTestParams{
-	dbImageName:    "consul",
+	dbImageName:    "hashicorp/consul",
 	hostnamePrefix: "consul",
 	envVarsFn: func(dbContainer *docker.Container) map[string]string {
 		return map[string]string{
