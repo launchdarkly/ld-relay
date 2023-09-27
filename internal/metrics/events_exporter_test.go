@@ -31,7 +31,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 
 	withTestView := func(publisher events.EventPublisher, f func(ctx context.Context, exporter *openCensusEventsExporter, relayID string)) {
 		relayId := uuid.New()
-		exporter := newOpenCensusEventsExporter(relayId, publisher, time.Millisecond)
+		exporter := newOpenCensusEventsExporter(relayId, "envName", publisher, time.Millisecond)
 		defer exporter.close()
 		view.RegisterExporter(exporter)
 		defer func() {
@@ -42,18 +42,19 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		ctx, err := tag.New(
 			context.Background(),
 			tag.Insert(relayIDTagKey, relayId),
+			tag.Insert(envNameTagKey, "envName"),
 			tag.Insert(platformCategoryTagKey, platformValue),
 			tag.Insert(userAgentTagKey, userAgentValue))
 		require.NoError(t, err)
 		privateConnMetricView := &view.View{
 			Measure:     privateConnMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
 		privateNewConnMetricView := &view.View{
 			Measure:     privateNewConnMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
 		require.NoError(t, view.Register(privateConnMetricView))
 		defer view.Unregister(privateConnMetricView)
@@ -132,6 +133,41 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			ctxWithNoRelayID, _ := tag.New(ctx, tag.Delete(relayIDTagKey))
 			stats.Record(ctxWithNoRelayID, privateConnMeasure.M(1))
+			stats.Record(ctx, privateConnMeasure.M(1))
+
+			startTime := time.Now()
+			for time.Since(startTime) < time.Millisecond*200 {
+				metricsEvent := publisher.expectMetricsEvent(t, time.Millisecond*200)
+				require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+				assert.Equal(t, relayID, metricsEvent.RelayID)
+			}
+		})
+	})
+
+	t.Run("it ignores metrics for other environments", func(t *testing.T) {
+		publisher := newTestEventsPublisher()
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
+			differentEnvName := uuid.New()
+			ctxForDifferentEnvironment, _ := tag.New(ctx, tag.Upsert(envNameTagKey, differentEnvName))
+			stats.Record(ctxForDifferentEnvironment, privateConnMeasure.M(1))
+			stats.Record(ctx, privateConnMeasure.M(1))
+
+			// Any metrics events that we receive should only be for relayID, not differentEnvName
+			deadline := time.Now().Add(time.Millisecond * 300)
+			for time.Now().Before(deadline) {
+				if metricsEvent, ok := publisher.maybeReceiveMetricsEvent(t, deadline.Sub(time.Now())); ok {
+					require.Equal(t, relayMetricsKind, metricsEvent.Kind)
+					assert.Equal(t, relayID, metricsEvent.RelayID)
+				}
+			}
+		})
+	})
+
+	t.Run("it ignores metrics that have no environment name", func(t *testing.T) {
+		publisher := newTestEventsPublisher()
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
+			ctxWithNoEnvName, _ := tag.New(ctx, tag.Delete(envNameTagKey))
+			stats.Record(ctxWithNoEnvName, privateConnMeasure.M(1))
 			stats.Record(ctx, privateConnMeasure.M(1))
 
 			startTime := time.Now()
