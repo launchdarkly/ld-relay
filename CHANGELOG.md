@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.3.3] - 2023-09-27
+### Changed:
+- Updated internal relay metric to include data scoped to individual environment.
+- Bumped cyphar/filepath-securejoin to v0.2.4
+
 ## [7.3.2] - 2023-08-08
 ### Changed:
 - Updated Alpine docker image to 3.18.3.
