@@ -44,6 +44,7 @@ type connectionsKeyType struct {
 // It can be disabled by setting DisableInternalUsageMetrics in the configuration.
 type openCensusEventsExporter struct {
 	relayID            string
+	envName            string
 	publisher          events.EventPublisher
 	intervalStartTime  time.Time
 	currentConnections map[connectionsKeyType]int64
@@ -52,11 +53,12 @@ type openCensusEventsExporter struct {
 	closer             chan<- struct{}
 }
 
-func newOpenCensusEventsExporter(relayID string, publisher events.EventPublisher, flushInterval time.Duration) *openCensusEventsExporter {
+func newOpenCensusEventsExporter(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration) *openCensusEventsExporter {
 	closer := make(chan struct{})
 
 	e := &openCensusEventsExporter{
 		relayID:            relayID,
+		envName:            envName,
 		publisher:          publisher,
 		closer:             closer,
 		intervalStartTime:  time.Now(),
@@ -89,11 +91,18 @@ func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 			var platformCategory string
 			var userAgent string
 			relayIDFound := false
+			envNameFound := false
 			for _, t := range r.Tags {
 				switch t.Key {
 				case relayIDTagKey:
 					if t.Value == e.relayID {
 						relayIDFound = true
+					} else {
+						continue NextRow
+					}
+				case envNameTagKey:
+					if t.Value == e.envName {
+						envNameFound = true
 					} else {
 						continue NextRow
 					}
@@ -103,7 +112,7 @@ func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 					platformCategory = t.Value
 				}
 			}
-			if !relayIDFound {
+			if !relayIDFound || !envNameFound {
 				continue NextRow
 			}
 			var v int64

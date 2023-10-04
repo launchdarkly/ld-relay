@@ -120,7 +120,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 
 	var eventsExporter *openCensusEventsExporter
 	if publisher != nil {
-		eventsExporter = newOpenCensusEventsExporter(m.metricsRelayID, publisher, m.flushInterval)
+		eventsExporter = newOpenCensusEventsExporter(m.metricsRelayID, envName, publisher, m.flushInterval)
 		view.RegisterExporter(eventsExporter)
 	}
 

@@ -42,3 +42,4 @@ build
 _testservice/testservice
 _testservice/*.pid
 temp_ssh
+.DS_Store

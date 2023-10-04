@@ -4,7 +4,7 @@
 
 Optionally, you can configure our SDKs to communicate directly to a [persistent store](./persistent-storage.md). If you do this, there is no need to put a load balancer in front of the Relay Proxy.
 
-We call this configuration **daemon mode**. This is the preferred way to use LaunchDarkly with [PHP](./php.md) (as there's no way to maintain persistent stream connections in PHP).
+We call this configuration **daemon mode**. This is the preferred way to use LaunchDarkly with [PHP](./php.md), because there's no way to maintain persistent stream connections in PHP.
 
 ![Relay Proxy in daemon mode](relay-daemon.png)
 
@@ -40,7 +40,7 @@ LD_ENV_Spree_Project_Test=SPREE_TEST_SDK_KEY
 LD_PREFIX_Spree_Project_Test=ld:spree:test
 ```
 
-(The per-environment "prefix" setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate table name for each environment.)
+The per-environment "prefix" setting can be used the same way with Consul or DynamoDB. Alternately, with DynamoDB you can use a separate table name for each environment.
 
 The `localTtl`/`CACHE_TTL` parameter controls the length of time that the Relay Proxy will cache data in memory so that feature flag requests do not always hit the database; see [Persistent Storage](./persistent-storage.md).
 
