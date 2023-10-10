@@ -11,8 +11,8 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // This is the standard implementation of the /all stream for server-side SDKs.
@@ -120,10 +120,22 @@ func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, err
 			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
 			return nil, err
 		}
+		overrides, err := r.store.GetAll(ldstoreimpl.ConfigOverrides())
+		if err != nil {
+			r.loggers.Errorf("Error getting all overrides: %s\n", err.Error())
+			return nil, err
+		}
+		metrics, err := r.store.GetAll(ldstoreimpl.Metrics())
+		if err != nil {
+			r.loggers.Errorf("Error getting all metrics: %s\n", err.Error())
+			return nil, err
+		}
 
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
 			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
+			{Kind: ldstoreimpl.ConfigOverrides(), Items: removeDeleted(overrides)},
+			{Kind: ldstoreimpl.Metrics(), Items: removeDeleted(metrics)},
 		}
 
 		event := MakeServerSidePutEvent(allData)

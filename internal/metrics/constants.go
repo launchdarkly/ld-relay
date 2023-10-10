@@ -19,6 +19,8 @@ const (
 	newConnMeasureName        = "newconnections"
 	privateNewConnMeasureName = "internal_newconnections"
 
+	privatePollingRequestsMeasureName = "internal_polling_requests"
+
 	requestMeasureName = "requests"
 
 	defaultFlushInterval = time.Minute

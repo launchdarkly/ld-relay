@@ -81,9 +81,9 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
 
 	// PHP SDK endpoints
-	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(http.HandlerFunc(pollAllFlagsHandler))).Methods("GET")
-	serverSideSdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollFlagHandler))).Methods("GET")
-	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(http.HandlerFunc(pollSegmentHandler))).Methods("GET")
+	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
+	serverSideSdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
+	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := middleware.Chain(

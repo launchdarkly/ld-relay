@@ -3,8 +3,8 @@ package events
 import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 )
 
 // Things to know about this test data:

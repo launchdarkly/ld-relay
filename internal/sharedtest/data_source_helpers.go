@@ -1,6 +1,6 @@
 package sharedtest
 
-import "github.com/launchdarkly/go-server-sdk/v6/subsystems"
+import "github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 type dataSourceThatNeverStarts struct{}
 type dataSourceThatStartsWithoutInitializing struct{}

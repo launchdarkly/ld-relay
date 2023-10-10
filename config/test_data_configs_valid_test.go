@@ -95,24 +95,23 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 	c := testDataValidConfig{name: "all base properties"}
 	c.makeConfig = func(c *Config) {
 		c.Main = MainConfig{
-			Port:                        mustOptIntGreaterThanZero(8333),
-			BaseURI:                     newOptURLAbsoluteMustBeValid("http://base"),
-			ClientSideBaseURI:           newOptURLAbsoluteMustBeValid("http://clientbase"),
-			StreamURI:                   newOptURLAbsoluteMustBeValid("http://stream"),
-			ExitOnError:                 true,
-			ExitAlways:                  true,
-			IgnoreConnectionErrors:      true,
-			HeartbeatInterval:           ct.NewOptDuration(90 * time.Second),
-			MaxClientConnectionTime:     ct.NewOptDuration(30 * time.Minute),
-			DisconnectedStatusTime:      ct.NewOptDuration(3 * time.Minute),
-			DisableInternalUsageMetrics: true,
-			TLSEnabled:                  true,
-			TLSCert:                     "cert",
-			TLSKey:                      "key",
-			TLSMinVersion:               NewOptTLSVersion(tls.VersionTLS12),
-			LogLevel:                    NewOptLogLevel(ldlog.Warn),
-			BigSegmentsStaleAsDegraded:  true,
-			BigSegmentsStaleThreshold:   ct.NewOptDuration(10 * time.Minute),
+			Port:                       mustOptIntGreaterThanZero(8333),
+			BaseURI:                    newOptURLAbsoluteMustBeValid("http://base"),
+			ClientSideBaseURI:          newOptURLAbsoluteMustBeValid("http://clientbase"),
+			StreamURI:                  newOptURLAbsoluteMustBeValid("http://stream"),
+			ExitOnError:                true,
+			ExitAlways:                 true,
+			IgnoreConnectionErrors:     true,
+			HeartbeatInterval:          ct.NewOptDuration(90 * time.Second),
+			MaxClientConnectionTime:    ct.NewOptDuration(30 * time.Minute),
+			DisconnectedStatusTime:     ct.NewOptDuration(3 * time.Minute),
+			TLSEnabled:                 true,
+			TLSCert:                    "cert",
+			TLSKey:                     "key",
+			TLSMinVersion:              NewOptTLSVersion(tls.VersionTLS12),
+			LogLevel:                   NewOptLogLevel(ldlog.Warn),
+			BigSegmentsStaleAsDegraded: true,
+			BigSegmentsStaleThreshold:  ct.NewOptDuration(10 * time.Minute),
 		}
 		c.Events = EventsConfig{
 			SendEvents:    true,
@@ -154,7 +153,6 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"HEARTBEAT_INTERVAL":             "90s",
 		"MAX_CLIENT_CONNECTION_TIME":     "30m",
 		"DISCONNECTED_STATUS_TIME":       "3m",
-		"DISABLE_INTERNAL_USAGE_METRICS": "1",
 		"TLS_ENABLED":                    "1",
 		"TLS_CERT":                       "cert",
 		"TLS_KEY":                        "key",
@@ -195,7 +193,6 @@ IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
 DisconnectedStatusTime = 3m
-DisableInternalUsageMetrics = 1
 TLSEnabled = 1
 TLSCert = "cert"
 TLSKey = "key"

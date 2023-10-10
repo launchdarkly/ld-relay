@@ -113,7 +113,7 @@ jobs:
       test-coverage:
         type: boolean
         default: false
-    
+
     docker:
       - image: <<parameters.docker-image>>
         environment: &environment
@@ -141,7 +141,7 @@ jobs:
           steps:
             - run:
                 name: Run tests
-                command: make test | tee $CIRCLE_ARTIFACTS/report.txt  
+                command: make test | tee $CIRCLE_ARTIFACTS/report.txt
             - run:
                 name: Process test results
                 command: go-junit-report < $CIRCLE_ARTIFACTS/report.txt > $CIRCLE_TEST_REPORTS/junit.xml
@@ -239,7 +239,7 @@ jobs:
     parameters:
       docker-image:
         type: string
-    
+
     docker:
       - image: <<parameters.docker-image>>
 

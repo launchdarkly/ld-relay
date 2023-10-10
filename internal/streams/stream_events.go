@@ -5,17 +5,19 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // This file defines the format for all SSE events published by Relay. Its functions are normally only
 // used by the streams package, but they are exported for testing.
 
 var dataKindAPIName = map[ldstoretypes.DataKind]string{ //nolint:gochecknoglobals
-	ldstoreimpl.Features(): "flags",
-	ldstoreimpl.Segments(): "segments",
+	ldstoreimpl.Features():        "flags",
+	ldstoreimpl.Segments():        "segments",
+	ldstoreimpl.ConfigOverrides(): "configurationOverrides",
+	ldstoreimpl.Metrics():         "metrics",
 }
 
 // We use StringMemoizer for these events because the same event may get broadcast to many connected
@@ -126,6 +128,8 @@ func encodeServerSidePutEventData(allData []ldstoretypes.Collection) func() stri
 		allData = []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: nil},
 			{Kind: ldstoreimpl.Segments(), Items: nil},
+			{Kind: ldstoreimpl.ConfigOverrides(), Items: nil},
+			{Kind: ldstoreimpl.Metrics(), Items: nil},
 		}
 	}
 	return func() string {
@@ -140,6 +144,10 @@ func encodeServerSidePutEventData(allData []ldstoretypes.Collection) func() stri
 				name = "flags"
 			case coll.Kind == ldstoreimpl.Segments():
 				name = "segments"
+			case coll.Kind == ldstoreimpl.ConfigOverrides():
+				name = "configurationOverrides"
+			case coll.Kind == ldstoreimpl.Metrics():
+				name = "metrics"
 			default:
 				continue
 			}
@@ -197,6 +205,10 @@ func serializeItem(kind ldstoretypes.DataKind, item ldstoretypes.ItemDescriptor,
 		ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.(*ldmodel.FeatureFlag), w)
 	case kind == ldstoreimpl.Segments():
 		ldmodel.MarshalSegmentToJSONWriter(*item.Item.(*ldmodel.Segment), w)
+	case kind == ldstoreimpl.ConfigOverrides():
+		ldmodel.MarshalConfigOverrideToJSONWriter(*item.Item.(*ldmodel.ConfigOverride), w)
+	case kind == ldstoreimpl.Metrics():
+		ldmodel.MarshalMetricToJSONWriter(*item.Item.(*ldmodel.Metric), w)
 	default:
 		w.Null()
 	}

@@ -19,7 +19,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"

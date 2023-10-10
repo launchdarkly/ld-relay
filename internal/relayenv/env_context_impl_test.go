@@ -30,11 +30,11 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -335,12 +335,6 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	})
 }
 
-func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
-	var allConfig config.Config
-	allConfig.Main.DisableInternalUsageMetrics = true
-	testMetricsDisabled(t, allConfig)
-}
-
 func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
 	var allConfig config.Config
 	allConfig.OfflineMode.FileDataSource = "fake-file-path"
@@ -392,7 +386,6 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
@@ -436,7 +429,6 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.OfflineMode.FileDataSource = "fake-file-path"
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)

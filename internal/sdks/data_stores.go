@@ -9,11 +9,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v3"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"

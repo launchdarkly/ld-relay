@@ -5,9 +5,9 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 )
 
 var (

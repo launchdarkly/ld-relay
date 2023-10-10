@@ -1,6 +1,6 @@
 package sharedtest
 
-import "github.com/launchdarkly/go-server-sdk/v6/subsystems"
+import "github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 // NoOpSDKBigSegmentStore is a stub implementation of the SDK's BigSegmentStore (not the type
 // of the same name that Relay uses internally).
