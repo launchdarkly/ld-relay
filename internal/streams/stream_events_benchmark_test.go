@@ -37,14 +37,6 @@ func makeLargePutDataSet() []ldstoretypes.Collection {
 			Kind:  ldstoreimpl.Segments(),
 			Items: []ldstoretypes.KeyedItemDescriptor{},
 		},
-		{
-			Kind:  ldstoreimpl.ConfigOverrides(),
-			Items: []ldstoretypes.KeyedItemDescriptor{},
-		},
-		{
-			Kind:  ldstoreimpl.Metrics(),
-			Items: []ldstoretypes.KeyedItemDescriptor{},
-		},
 	}
 
 	for i := 0; i < numFlags; i++ {

@@ -12,7 +12,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/ld-relay/v7/config"
 	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
 
@@ -69,58 +68,7 @@ var testEnv2 = testEnv{
 	},
 }
 
-var testEnv3 = testEnv{
-	rep: envfactory.EnvironmentRep{
-		EnvID:      config.EnvironmentID("3333333333"),
-		ProjName:   "Project1",
-		ProjKey:    "project1",
-		EnvName:    "Env1",
-		EnvKey:     "env1",
-		SecureMode: true,
-		Version:    1,
-	},
-	dataID: "3000",
-	sdkData: map[string]map[string]interface{}{
-		"flags": {
-			"env3Flag1": ldbuilders.NewFlagBuilder("env3Flag1").Version(1).On(true).Build(),
-		},
-		"segments": {
-			"env3Segment1": ldbuilders.NewSegmentBuilder("env3Segment1").Version(1).Build(),
-		},
-		"configurationOverrides": {
-			"indexSamplingRatio": ldbuilders.NewConfigOverrideBuilder("indexSamplingRatio").Value(ldvalue.Int(2)).Version(1).Build(),
-		},
-	},
-}
-
-var testEnv4 = testEnv{
-	rep: envfactory.EnvironmentRep{
-		EnvID:      config.EnvironmentID("4444444444"),
-		ProjName:   "Project1",
-		ProjKey:    "project1",
-		EnvName:    "Env1",
-		EnvKey:     "env1",
-		SecureMode: true,
-		Version:    1,
-	},
-	dataID: "4000",
-	sdkData: map[string]map[string]interface{}{
-		"flags": {
-			"env4Flag1": ldbuilders.NewFlagBuilder("env4Flag1").Version(1).On(true).Build(),
-		},
-		"segments": {
-			"env4Segment1": ldbuilders.NewSegmentBuilder("env4Segment1").Version(1).Build(),
-		},
-		"configurationOverrides": {
-			"indexSamplingRatio": ldbuilders.NewConfigOverrideBuilder("indexSamplingRatio").Value(ldvalue.Int(2)).Version(1).Build(),
-		},
-		"metrics": {
-			"my-metric": ldbuilders.NewMetricBuilder("my-metric").SamplingRatio(1).Version(1).Build(),
-		},
-	},
-}
-
-var allTestEnvs = []testEnv{testEnv1, testEnv2, testEnv3, testEnv4}
+var allTestEnvs = []testEnv{testEnv1, testEnv2}
 
 func (te testEnv) id() config.EnvironmentID {
 	return te.rep.EnvID

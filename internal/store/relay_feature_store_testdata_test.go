@@ -7,7 +7,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v7/config"
 	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -23,12 +22,10 @@ const (
 )
 
 var (
-	fakeError                      = errors.New("sorry")
-	testFlag1                      = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
-	testFlag2                      = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
-	testSegment1                   = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
-	testIndexSamplingRatioOverride = ldbuilders.NewConfigOverrideBuilder("indexSamplingRatio").Value(ldvalue.Int(1)).Version(1).Build()
-	testMetric1                    = ldbuilders.NewMetricBuilder("metric1").SamplingRatio(1).Version(1).Build()
+	fakeError    = errors.New("sorry")
+	testFlag1    = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
+	testFlag2    = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
+	testSegment1 = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
 
 	allData = []ldstoretypes.Collection{
 		{
@@ -41,18 +38,6 @@ var (
 			Kind: ldstoreimpl.Segments(),
 			Items: []ldstoretypes.KeyedItemDescriptor{
 				{Key: testSegment1.Key, Item: sharedtest.SegmentDesc(testSegment1)},
-			},
-		},
-		{
-			Kind: ldstoreimpl.ConfigOverrides(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: testIndexSamplingRatioOverride.Key, Item: sharedtest.ConfigOverrideDesc(testIndexSamplingRatioOverride)},
-			},
-		},
-		{
-			Kind: ldstoreimpl.Metrics(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: testMetric1.Key, Item: sharedtest.MetricDesc(testMetric1)},
 			},
 		},
 	}

@@ -118,22 +118,10 @@ func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, err
 			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
 			return nil, err
 		}
-		overrides, err := r.store.GetAll(ldstoreimpl.ConfigOverrides())
-		if err != nil {
-			r.loggers.Errorf("Error getting all overrides: %s\n", err.Error())
-			return nil, err
-		}
-		metrics, err := r.store.GetAll(ldstoreimpl.Metrics())
-		if err != nil {
-			r.loggers.Errorf("Error getting all metrics: %s\n", err.Error())
-			return nil, err
-		}
 
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
 			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: removeDeleted(overrides)},
-			{Kind: ldstoreimpl.Metrics(), Items: removeDeleted(metrics)},
 		}
 
 		event := MakeServerSidePutEvent(allData)
