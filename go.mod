@@ -29,10 +29,11 @@ require (
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
+	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.0.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.1
@@ -42,7 +43,6 @@ require (
 	golang.org/x/net v0.11.0 // indirect; override to address CVE-2022-41723
 	golang.org/x/sync v0.2.0
 	gopkg.in/gcfg.v1 v1.2.3
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
 
 require (
@@ -62,9 +62,9 @@ require (
 
 require (
 	github.com/goreleaser/goreleaser v1.15.2
+	github.com/launchdarkly/api-client-go/v13 v13.0.0
 	github.com/launchdarkly/go-sdk-events/v2 v2.0.1
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.0.0
 )
 
 require (
@@ -293,8 +293,6 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1 // indirect
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.5.1 // indirect
-	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1 // indirect
-	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
@@ -303,17 +301,3 @@ require (
 	sigs.k8s.io/kind v0.14.0 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
-
-replace github.com/launchdarkly/go-sdk-common/v3 => github.com/launchdarkly/go-sdk-common-private/v3 v3.0.0-alpha.6.0.20230829225529-e3a87e3952ac
-
-replace github.com/launchdarkly/go-sdk-events/v3 => github.com/launchdarkly/go-sdk-events-private/v3 v3.0.0-20230829233031-ed3dc538caac
-
-replace github.com/launchdarkly/go-server-sdk-evaluation/v3 => github.com/launchdarkly/go-server-sdk-evaluation-private/v3 v3.0.0-20230829233102-4fc0fa5a3369
-
-replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk-private/v7 v7.0.0-20230831132604-82e3f79e81f8
-
-replace github.com/launchdarkly/go-server-sdk-consul/v3 => github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0-20230907171731-f1fa750922f0
-
-replace github.com/launchdarkly/go-server-sdk-dynamodb/v4 => github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0-20230907171741-cec69b898292
-
-replace github.com/launchdarkly/go-server-sdk-redis-redigo/v3 => github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0-20230907171723-853e5bbe4301

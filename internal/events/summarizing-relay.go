@@ -16,7 +16,6 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 )
 
 // eventSummarizingRelay is a component that takes events received from a PHP SDK, in event schema 2--
