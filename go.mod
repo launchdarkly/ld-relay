@@ -30,8 +30,10 @@ require (
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.0.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
@@ -62,10 +64,7 @@ require (
 
 require (
 	github.com/goreleaser/goreleaser v1.15.2
-	github.com/launchdarkly/api-client-go/v13 v13.0.0
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.1
-	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
+	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
 )
 
 require (
@@ -209,7 +208,6 @@ require (
 	github.com/launchdarkly/ccache v1.1.0 // indirect
 	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1 // indirect
 	github.com/launchdarkly/go-ntlmssp v1.0.1 // indirect
-	github.com/launchdarkly/go-sdk-events/v3 v3.0.0 // indirect
 	github.com/launchdarkly/go-semver v1.0.2 // indirect
 	github.com/letsencrypt/boulder v0.0.0-20221109233200-85aa52084eaf // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

@@ -12,7 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"

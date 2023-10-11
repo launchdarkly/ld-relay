@@ -154,7 +154,7 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 		}
 
 		counts := e.pollingCounts[key]
-		if counts.running != value {
+		if counts.running <= value {
 			counts.running = value
 			e.pollingCounts[key] = counts
 			e.pollingDataIsDirty = true

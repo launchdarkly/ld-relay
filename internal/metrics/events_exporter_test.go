@@ -59,7 +59,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		privatePollingRequestsMeasureView := &view.View{
 			Measure:     privatePollingRequestsMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
 		require.NoError(t, view.Register(privateConnMetricView))
 		defer view.Unregister(privateConnMetricView)
@@ -110,7 +110,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
 				return len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
-			}, time.Second*5, time.Millisecond*100, "did not receive expected metrics")
+			}, time.Second*5, time.Millisecond, "did not receive expected metrics")
 
 			stats.Record(ctx, privatePollingRequestsMeasure.M(7))
 			expectedPollingMetric = pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 7}
@@ -118,7 +118,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
 				return len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
-			}, time.Second*5, time.Millisecond*100, "did not receive expected metrics")
+			}, time.Second*5, time.Millisecond, "did not receive expected metrics")
 		})
 	})
 
