@@ -52,7 +52,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("Register", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
 			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
@@ -65,12 +65,10 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("initial event", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: store.flags},
 			{Kind: ldstoreimpl.Segments(), Items: store.segments},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: store.configOverrides},
-			{Kind: ldstoreimpl.Metrics(), Items: store.metrics},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -86,22 +84,14 @@ func TestStreamProviderServerSide(t *testing.T) {
 		testFlag1Deleted.Deleted = true
 		testSegment1Deleted := testSegment1
 		testSegment1Deleted.Deleted = true
-		testIndexSamplingOverrideDeleted := testIndexSamplingOverride
-		testIndexSamplingOverrideDeleted.Deleted = true
-		testMetric1Deleted := testMetric1
-		testMetric1Deleted.Deleted = true
 		store := makeMockStore(
 			[]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2},
 			[]ldmodel.Segment{testSegment1Deleted},
-			[]ldmodel.ConfigOverride{testIndexSamplingOverrideDeleted},
-			[]ldmodel.Metric{testMetric1Deleted},
 		)
-		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{}, []ldmodel.ConfigOverride{}, []ldmodel.Metric{})
+		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{})
 		allDataWithoutDeleted := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: storeWithoutDeleted.flags},
 			{Kind: ldstoreimpl.Segments(), Items: storeWithoutDeleted.segments},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: storeWithoutDeleted.configOverrides},
-			{Kind: ldstoreimpl.Metrics(), Items: storeWithoutDeleted.metrics},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -113,7 +103,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("initial event - store not initialized", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{}, []ldmodel.Metric{})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
@@ -161,44 +151,8 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 	})
 
-	t.Run("initial event - store error for config overrides", func(t *testing.T) {
-		store := newMockStoreQueries()
-		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-			if kind == ldstoreimpl.ConfigOverrides() {
-				return nil, fakeError
-			}
-			return nil, nil
-		})
-
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
-		})
-	})
-
-	t.Run("initial event - store error for metrics", func(t *testing.T) {
-		store := newMockStoreQueries()
-		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-			if kind == ldstoreimpl.Metrics() {
-				return nil, fakeError
-			}
-			return nil, nil
-		})
-
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
-		})
-	})
-
 	t.Run("SendAllDataUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -220,7 +174,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 	})
 
 	t.Run("SendSingleItemUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -243,20 +197,6 @@ func TestStreamProviderServerSide(t *testing.T) {
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.ConfigOverrides(), testIndexSamplingOverride.Key, sharedtest.ConfigOverrideDesc(testIndexSamplingOverride))
-				},
-				MakeServerSidePatchEvent(ldstoreimpl.ConfigOverrides(), testIndexSamplingOverride.Key, sharedtest.ConfigOverrideDesc(testIndexSamplingOverride)),
-			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Metrics(), testMetric1.Key, sharedtest.MetricDesc(testMetric1))
-				},
-				MakeServerSidePatchEvent(ldstoreimpl.Metrics(), testMetric1.Key, sharedtest.MetricDesc(testMetric1)),
-			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
 					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.DeletedItem(1))
 				},
 				MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, 1),
@@ -268,25 +208,11 @@ func TestStreamProviderServerSide(t *testing.T) {
 				},
 				MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, 1),
 			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.ConfigOverrides(), testIndexSamplingOverride.Key, sharedtest.DeletedItem(1))
-				},
-				MakeServerSideDeleteEvent(ldstoreimpl.ConfigOverrides(), testIndexSamplingOverride.Key, 1),
-			)
-
-			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Metrics(), testMetric1.Key, sharedtest.DeletedItem(1))
-				},
-				MakeServerSideDeleteEvent(ldstoreimpl.Metrics(), testMetric1.Key, 1),
-			)
 		})
 	})
 
 	t.Run("Heartbeat", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())

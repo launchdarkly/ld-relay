@@ -47,7 +47,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("Register", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
 			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
@@ -60,12 +60,10 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("initial event", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: store.flags},
 			{Kind: ldstoreimpl.Segments(), Items: store.segments},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: store.configOverrides},
-			{Kind: ldstoreimpl.Metrics(), Items: store.metrics},
 		}
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
@@ -80,13 +78,11 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	t.Run("initial event - omits deleted items", func(t *testing.T) {
 		testFlag1Deleted := testFlag1
 		testFlag1Deleted.Deleted = true
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
-		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2}, []ldmodel.Segment{testSegment1})
+		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{testSegment1})
 		allDataWithoutDeleted := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: storeWithoutDeleted.flags},
 			{Kind: ldstoreimpl.Segments(), Items: storeWithoutDeleted.segments},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: storeWithoutDeleted.configOverrides},
-			{Kind: ldstoreimpl.Metrics(), Items: storeWithoutDeleted.metrics},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -98,7 +94,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("initial event - store not initialized", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
@@ -126,7 +122,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("SendAllDataUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -148,7 +144,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("SendSingleItemUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -186,7 +182,7 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 	})
 
 	t.Run("Heartbeat", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())

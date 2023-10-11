@@ -14,10 +14,8 @@ import (
 // used by the streams package, but they are exported for testing.
 
 var dataKindAPIName = map[ldstoretypes.DataKind]string{ //nolint:gochecknoglobals
-	ldstoreimpl.Features():        "flags",
-	ldstoreimpl.Segments():        "segments",
-	ldstoreimpl.ConfigOverrides(): "configurationOverrides",
-	ldstoreimpl.Metrics():         "metrics",
+	ldstoreimpl.Features(): "flags",
+	ldstoreimpl.Segments(): "segments",
 }
 
 // We use StringMemoizer for these events because the same event may get broadcast to many connected
@@ -128,8 +126,6 @@ func encodeServerSidePutEventData(allData []ldstoretypes.Collection) func() stri
 		allData = []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: nil},
 			{Kind: ldstoreimpl.Segments(), Items: nil},
-			{Kind: ldstoreimpl.ConfigOverrides(), Items: nil},
-			{Kind: ldstoreimpl.Metrics(), Items: nil},
 		}
 	}
 	return func() string {
@@ -144,10 +140,6 @@ func encodeServerSidePutEventData(allData []ldstoretypes.Collection) func() stri
 				name = "flags"
 			case coll.Kind == ldstoreimpl.Segments():
 				name = "segments"
-			case coll.Kind == ldstoreimpl.ConfigOverrides():
-				name = "configurationOverrides"
-			case coll.Kind == ldstoreimpl.Metrics():
-				name = "metrics"
 			default:
 				continue
 			}
@@ -205,10 +197,6 @@ func serializeItem(kind ldstoretypes.DataKind, item ldstoretypes.ItemDescriptor,
 		ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.(*ldmodel.FeatureFlag), w)
 	case kind == ldstoreimpl.Segments():
 		ldmodel.MarshalSegmentToJSONWriter(*item.Item.(*ldmodel.Segment), w)
-	case kind == ldstoreimpl.ConfigOverrides():
-		ldmodel.MarshalConfigOverrideToJSONWriter(*item.Item.(*ldmodel.ConfigOverride), w)
-	case kind == ldstoreimpl.Metrics():
-		ldmodel.MarshalMetricToJSONWriter(*item.Item.(*ldmodel.Metric), w)
 	default:
 		w.Null()
 	}

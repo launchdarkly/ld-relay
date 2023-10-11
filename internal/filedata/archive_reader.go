@@ -153,10 +153,6 @@ func (ar *archiveReader) GetEnvironmentSDKData(envID config.EnvironmentID) ([]ld
 			kind = ldstoreimpl.Features()
 		case "segments":
 			kind = ldstoreimpl.Segments()
-		case "configurationOverrides":
-			kind = ldstoreimpl.ConfigOverrides()
-		case "metrics":
-			kind = ldstoreimpl.Metrics()
 		default:
 			continue
 		}

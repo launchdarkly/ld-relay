@@ -51,7 +51,7 @@ func TestStreamProviderMobilePing(t *testing.T) {
 	})
 
 	t.Run("Register", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
 			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
@@ -94,7 +94,7 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 	})
 
 	t.Run("Register", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
 			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
@@ -121,7 +121,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	}
 
 	t.Run("initial event", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -133,7 +133,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	})
 
 	t.Run("initial event - store not initialized", func(t *testing.T) {
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1}, []ldmodel.ConfigOverride{testIndexSamplingOverride}, []ldmodel.Metric{testMetric1})
+		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
@@ -146,7 +146,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	})
 
 	t.Run("SendAllDataUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -168,7 +168,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	})
 
 	t.Run("SendSingleItemUpdate", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
@@ -192,7 +192,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 	})
 
 	t.Run("Heartbeat", func(t *testing.T) {
-		store := makeMockStore(nil, nil, nil, nil)
+		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
 			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())

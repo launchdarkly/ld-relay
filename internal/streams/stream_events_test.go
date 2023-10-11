@@ -26,18 +26,6 @@ func TestMakeServerSidePutEvents(t *testing.T) {
 				{Key: testSegment1.Key, Item: sharedtest.SegmentDesc(testSegment1)},
 			},
 		},
-		{
-			Kind: ldstoreimpl.ConfigOverrides(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: testIndexSamplingOverride.Key, Item: sharedtest.ConfigOverrideDesc(testIndexSamplingOverride)},
-			},
-		},
-		{
-			Kind: ldstoreimpl.Metrics(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: testMetric1.Key, Item: sharedtest.MetricDesc(testMetric1)},
-			},
-		},
 	}
 
 	t.Run("all stream", func(t *testing.T) {
@@ -51,12 +39,6 @@ func TestMakeServerSidePutEvents(t *testing.T) {
 		},
 		"segments": {
 			"segment1": ` + string(testSegment1JSON) + `
-		},
-		"configurationOverrides": {
-			"indexSamplingRatio": ` + string(testIndexSamplingOverrideJSON) + `
-		},
-		"metrics": {
-			"metric1": ` + string(testMetric1JSON) + `
 		}
 	}
 }`
@@ -108,30 +90,6 @@ func TestServerSidePatchEvents(t *testing.T) {
 		assert.Equal(t, "", event.Id())
 	})
 
-	t.Run("all stream - config override", func(t *testing.T) {
-		expectedJSON := `
-{
-	"path": "/configurationOverrides/indexSamplingRatio",
-	"data": ` + string(testIndexSamplingOverrideJSON) + `
-}`
-		event := MakeServerSidePatchEvent(ldstoreimpl.ConfigOverrides(), testIndexSamplingOverride.Key, sharedtest.ConfigOverrideDesc(testIndexSamplingOverride))
-		assert.Equal(t, "patch", event.Event())
-		assert.JSONEq(t, expectedJSON, event.Data())
-		assert.Equal(t, "", event.Id())
-	})
-
-	t.Run("all stream - metric", func(t *testing.T) {
-		expectedJSON := `
-{
-	"path": "/metrics/metric1",
-	"data": ` + string(testMetric1JSON) + `
-}`
-		event := MakeServerSidePatchEvent(ldstoreimpl.Metrics(), testMetric1.Key, sharedtest.MetricDesc(testMetric1))
-		assert.Equal(t, "patch", event.Event())
-		assert.JSONEq(t, expectedJSON, event.Data())
-		assert.Equal(t, "", event.Id())
-	})
-
 	t.Run("flags stream", func(t *testing.T) {
 		expectedJSON := `
 {
@@ -166,30 +124,6 @@ func TestServerSideDeleteEvents(t *testing.T) {
 	"version": 1
 }`
 		event := MakeServerSideDeleteEvent(ldstoreimpl.Segments(), "segment1", 1)
-		assert.Equal(t, "delete", event.Event())
-		assert.JSONEq(t, expectedJSON, event.Data())
-		assert.Equal(t, "", event.Id())
-	})
-
-	t.Run("all stream - config override", func(t *testing.T) {
-		expectedJSON := `
-{
-	"path": "/configurationOverrides/indexSamplingRatio",
-	"version": 1
-}`
-		event := MakeServerSideDeleteEvent(ldstoreimpl.ConfigOverrides(), "indexSamplingRatio", 1)
-		assert.Equal(t, "delete", event.Event())
-		assert.JSONEq(t, expectedJSON, event.Data())
-		assert.Equal(t, "", event.Id())
-	})
-
-	t.Run("all stream - metric", func(t *testing.T) {
-		expectedJSON := `
-{
-	"path": "/metrics/metric1",
-	"version": 1
-}`
-		event := MakeServerSideDeleteEvent(ldstoreimpl.Metrics(), "metric1", 1)
 		assert.Equal(t, "delete", event.Event())
 		assert.JSONEq(t, expectedJSON, event.Data())
 		assert.Equal(t, "", event.Id())

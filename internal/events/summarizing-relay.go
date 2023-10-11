@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/events/oldevents"

@@ -92,10 +92,6 @@ var MobileFlags = []TestFlag{Flag1ServerSide, Flag2ServerSide, Flag4ClientSide, 
 
 var Segment1 = ldbuilders.NewSegmentBuilder("segment-key").Build()
 
-var IndexSamplingRatioOverride = ldbuilders.NewConfigOverrideBuilder("indexSamplingRatio").Value(ldvalue.Int(1)).Build()
-
-var Metric1 = ldbuilders.NewMetricBuilder("metric-key").SamplingRatio(1).Build()
-
 var AllData = []ldstoretypes.Collection{
 	{
 		Kind: ldstoreimpl.Features(),
@@ -114,18 +110,6 @@ var AllData = []ldstoretypes.Collection{
 		Kind: ldstoreimpl.Segments(),
 		Items: []ldstoretypes.KeyedItemDescriptor{
 			{Key: Segment1.Key, Item: SegmentDesc(Segment1)},
-		},
-	},
-	{
-		Kind: ldstoreimpl.ConfigOverrides(),
-		Items: []ldstoretypes.KeyedItemDescriptor{
-			{Key: IndexSamplingRatioOverride.Key, Item: ConfigOverrideDesc(IndexSamplingRatioOverride)},
-		},
-	},
-	{
-		Kind: ldstoreimpl.Metrics(),
-		Items: []ldstoretypes.KeyedItemDescriptor{
-			{Key: Metric1.Key, Item: MetricDesc(Metric1)},
 		},
 	},
 }

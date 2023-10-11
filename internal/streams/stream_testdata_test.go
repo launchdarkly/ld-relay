@@ -21,18 +21,14 @@ const (
 )
 
 var (
-	fakeError                        = errors.New("sorry")
-	testFlag1                        = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
-	testFlag2                        = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
-	testSegment1                     = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
-	testIndexSamplingOverride        = ldbuilders.NewConfigOverrideBuilder("indexSamplingRatio").Version(1).Build()
-	testMetric1                      = ldbuilders.NewMetricBuilder("metric1").Version(1).Build()
-	testFlag1JSON, _                 = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag1)
-	testFlag2JSON, _                 = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag2)
-	testSegment1JSON, _              = ldmodel.NewJSONDataModelSerialization().MarshalSegment(testSegment1)
-	testIndexSamplingOverrideJSON, _ = ldmodel.NewJSONDataModelSerialization().MarshalConfigOverride(testIndexSamplingOverride)
-	testMetric1JSON, _               = ldmodel.NewJSONDataModelSerialization().MarshalMetric(testMetric1)
-	allData                          = []ldstoretypes.Collection{
+	fakeError           = errors.New("sorry")
+	testFlag1           = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
+	testFlag2           = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
+	testSegment1        = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
+	testFlag1JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag1)
+	testFlag2JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag2)
+	testSegment1JSON, _ = ldmodel.NewJSONDataModelSerialization().MarshalSegment(testSegment1)
+	allData             = []ldstoretypes.Collection{
 		{
 			Kind: ldstoreimpl.Features(),
 			Items: []ldstoretypes.KeyedItemDescriptor{
@@ -97,11 +93,9 @@ func (q *mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Ke
 }
 
 type simpleMockStore struct {
-	initialized     bool
-	flags           []ldstoretypes.KeyedItemDescriptor
-	segments        []ldstoretypes.KeyedItemDescriptor
-	configOverrides []ldstoretypes.KeyedItemDescriptor
-	metrics         []ldstoretypes.KeyedItemDescriptor
+	initialized bool
+	flags       []ldstoretypes.KeyedItemDescriptor
+	segments    []ldstoretypes.KeyedItemDescriptor
 }
 
 func (s simpleMockStore) IsInitialized() bool {
@@ -114,10 +108,6 @@ func (s simpleMockStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Keye
 		return s.flags, nil
 	case ldstoreimpl.Segments():
 		return s.segments, nil
-	case ldstoreimpl.ConfigOverrides():
-		return s.configOverrides, nil
-	case ldstoreimpl.Metrics():
-		return s.metrics, nil
 	default:
 		return nil, nil
 	}
@@ -126,8 +116,6 @@ func (s simpleMockStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Keye
 func makeMockStore(
 	flags []ldmodel.FeatureFlag,
 	segments []ldmodel.Segment,
-	overrides []ldmodel.ConfigOverride,
-	metrics []ldmodel.Metric,
 ) simpleMockStore {
 	ret := simpleMockStore{initialized: true}
 	for _, f := range flags {
@@ -146,24 +134,6 @@ func makeMockStore(
 		}
 		ret.segments = append(ret.segments, ldstoretypes.KeyedItemDescriptor{
 			Key: s.Key, Item: ldstoretypes.ItemDescriptor{Version: s.Version, Item: item},
-		})
-	}
-	for _, o := range overrides {
-		var item interface{} = &o
-		if o.Deleted {
-			item = nil
-		}
-		ret.configOverrides = append(ret.configOverrides, ldstoretypes.KeyedItemDescriptor{
-			Key: o.Key, Item: ldstoretypes.ItemDescriptor{Version: o.Version, Item: item},
-		})
-	}
-	for _, m := range metrics {
-		var item interface{} = &m
-		if m.Deleted {
-			item = nil
-		}
-		ret.metrics = append(ret.metrics, ldstoretypes.KeyedItemDescriptor{
-			Key: m.Key, Item: ldstoretypes.ItemDescriptor{Version: m.Version, Item: item},
 		})
 	}
 	return ret

@@ -65,6 +65,7 @@ require (
 	github.com/launchdarkly/api-client-go/v13 v13.0.0
 	github.com/launchdarkly/go-sdk-events/v2 v2.0.1
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
+	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
 
 require (
@@ -293,6 +294,8 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1 // indirect
 	gopkg.in/launchdarkly/go-sdk-common.v2 v2.5.1 // indirect
+	gopkg.in/launchdarkly/go-sdk-events.v1 v1.1.1 // indirect
+	gopkg.in/launchdarkly/go-server-sdk-evaluation.v1 v1.5.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

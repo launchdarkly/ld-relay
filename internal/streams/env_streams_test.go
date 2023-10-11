@@ -91,7 +91,7 @@ func TestAddCredential(t *testing.T) {
 	sp1 := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 	sp2 := &mockStreamProvider{credentialOfDesiredType: config.MobileKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -123,7 +123,7 @@ func TestAddCredential(t *testing.T) {
 func TestRemoveCredential(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -146,7 +146,7 @@ func TestRemoveCredential(t *testing.T) {
 func TestCloseEnvStreamsClosesAll(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 
 	sdkKey1, sdkKey2, sdkKey3 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2"), config.SDKKey("sdk-key3")
@@ -172,7 +172,7 @@ func TestCloseEnvStreamsClosesAll(t *testing.T) {
 func TestSendAllDataUpdateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -197,7 +197,7 @@ func TestSendAllDataUpdateGoesToAllStreams(t *testing.T) {
 func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -222,7 +222,7 @@ func TestSendSingleItemUpdateGoesToAllStreams(t *testing.T) {
 func TestInvalidateClientSideStateGoesToAllStreams(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -248,7 +248,7 @@ func TestHeartbeatsGoToAllStreams(t *testing.T) {
 
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
@@ -278,7 +278,7 @@ func TestHeartbeatsAreStopped(t *testing.T) {
 
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 
-	store := makeMockStore(nil, nil, nil, nil)
+	store := makeMockStore(nil, nil)
 	es := NewEnvStreams([]StreamProvider{sp}, store, heartbeatInterval, config.DefaultFilter, ldlog.NewDisabledLoggers())
 
 	es.AddCredential(config.SDKKey("sdk-key1"))
