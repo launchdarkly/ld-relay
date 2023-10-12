@@ -1,9 +1,9 @@
 package sdks
 
 import (
-	ld "github.com/launchdarkly/go-server-sdk/v6"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 // NewSimpleClientContext creates a simple implementation of the SDK's ClientContext interface for

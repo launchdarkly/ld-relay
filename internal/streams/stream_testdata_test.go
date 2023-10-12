@@ -8,10 +8,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 const (
@@ -113,7 +113,10 @@ func (s simpleMockStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Keye
 	}
 }
 
-func makeMockStore(flags []ldmodel.FeatureFlag, segments []ldmodel.Segment) simpleMockStore {
+func makeMockStore(
+	flags []ldmodel.FeatureFlag,
+	segments []ldmodel.Segment,
+) simpleMockStore {
 	ret := simpleMockStore{initialized: true}
 	for _, f := range flags {
 		var item interface{} = &f

@@ -29,13 +29,13 @@ require (
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.2
-	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.1
-	github.com/launchdarkly/go-server-sdk/v6 v6.1.0-alpha.pub.3
+	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.0.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.1
@@ -45,7 +45,6 @@ require (
 	golang.org/x/net v0.11.0 // indirect; override to address CVE-2022-41723
 	golang.org/x/sync v0.2.0
 	gopkg.in/gcfg.v1 v1.2.3
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
 
 require (

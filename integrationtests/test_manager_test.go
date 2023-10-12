@@ -187,7 +187,6 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 		Network(m.dockerNetwork).
 		PublishPort(config.DefaultPort, config.DefaultPort).
 		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
-		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true").
 		EnvVar("LOG_LEVEL", "debug")
 	// Set the Relay config variables for base URIs only if we're *not* using the production defaults.
 	// This verifies that Relay's own default behavior is correct.

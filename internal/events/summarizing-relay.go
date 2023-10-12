@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
@@ -15,8 +16,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
 // eventSummarizingRelay is a component that takes events received from a PHP SDK, in event schema 2--
@@ -70,8 +70,8 @@ func newEventSummarizingRelay(
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
 		Loggers:               loggers,
-		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
-		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
+		UserKeysCapacity:      ldcomponents.DefaultContextKeysCapacity,
+		UserKeysFlushInterval: ldcomponents.DefaultContextKeysFlushInterval,
 	}
 	baseHeaders := make(http.Header)
 	for k, v := range httpConfig.SDKHTTPConfig.DefaultHeaders {

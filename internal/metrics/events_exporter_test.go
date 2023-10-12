@@ -56,10 +56,17 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
 		}
+		privatePollingRequestsMeasureView := &view.View{
+			Measure:     privatePollingRequestsMeasure,
+			Aggregation: view.Sum(),
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
+		}
 		require.NoError(t, view.Register(privateConnMetricView))
 		defer view.Unregister(privateConnMetricView)
 		require.NoError(t, view.Register(privateNewConnMetricView))
 		defer view.Unregister(privateNewConnMetricView)
+		require.NoError(t, view.Register(privatePollingRequestsMeasureView))
+		defer view.Unregister(privatePollingRequestsMeasureView)
 		f(ctx, exporter, relayId)
 	}
 
@@ -72,8 +79,11 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			stats.Record(ctx, privateConnMeasure.M(1))
 			stats.Record(ctx, privateNewConnMeasure.M(2))
+			stats.Record(ctx, privatePollingRequestsMeasure.M(3))
+
 			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
 			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 2}
+			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
 			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
@@ -82,8 +92,69 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 				assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
 				assert.Equal(t, relayID, metricsEvent.RelayID)
 				return len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
-					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn
+					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn &&
+					len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
 			}, time.Second*5, time.Millisecond*100, "did not receive expected metrics")
+		})
+	})
+
+	t.Run("polling requests should not be cumulative", func(*testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		defer mockLog.DumpIfTestFailed(t)
+
+		publisher := newTestEventsPublisher()
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
+			stats.Record(ctx, privatePollingRequestsMeasure.M(3))
+			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
+			require.Eventually(t, func() bool {
+				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+				return len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
+			}, time.Second*5, time.Millisecond, "did not receive expected metrics")
+
+			stats.Record(ctx, privatePollingRequestsMeasure.M(7))
+			expectedPollingMetric = pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 7}
+			require.Eventually(t, func() bool {
+				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+				return len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
+			}, time.Second*5, time.Millisecond, "did not receive expected metrics")
+		})
+	})
+
+	t.Run("open connections keep metrics going", func(*testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		defer mockLog.DumpIfTestFailed(t)
+
+		publisher := newTestEventsPublisher()
+		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
+			stats.Record(ctx, privateConnMeasure.M(1))
+			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
+
+			for i := 0; i < 3; i++ {
+				require.Eventually(t, func() bool {
+					metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+					mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+
+					return len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn
+				}, time.Second*5, time.Millisecond, "did not receive metrics")
+			}
+
+			// This should represent a disconnect of the one streaming connection
+			stats.Record(ctx, privateConnMeasure.M(-1))
+
+			// Drain any previously emitted events
+			for {
+				_, hasEvent := publisher.maybeReceiveMetricsEvent(t, time.Second)
+				if !hasEvent {
+					break
+				}
+			}
+
+			// Now we can verify that waiting some amount of time will not
+			// result in a new event being emitted
+			time.Sleep(time.Millisecond * 50)
+			publisher.expectNoMetricsEvent(t, time.Millisecond*50)
 		})
 	})
 

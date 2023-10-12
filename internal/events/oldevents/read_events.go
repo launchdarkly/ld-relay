@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
 var (

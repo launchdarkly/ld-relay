@@ -1,11 +1,11 @@
 package sharedtest
 
 import (
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 type ReceivedItemUpdate struct {

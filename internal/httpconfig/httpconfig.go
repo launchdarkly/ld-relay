@@ -10,10 +10,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/ldhttp"
-	"github.com/launchdarkly/go-server-sdk/v6/ldntlm"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/ldhttp"
+	"github.com/launchdarkly/go-server-sdk/v7/ldntlm"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 var (

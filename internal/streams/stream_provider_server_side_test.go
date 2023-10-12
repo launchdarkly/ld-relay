@@ -13,10 +13,10 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
@@ -84,7 +84,10 @@ func TestStreamProviderServerSide(t *testing.T) {
 		testFlag1Deleted.Deleted = true
 		testSegment1Deleted := testSegment1
 		testSegment1Deleted.Deleted = true
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2}, []ldmodel.Segment{testSegment1Deleted})
+		store := makeMockStore(
+			[]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2},
+			[]ldmodel.Segment{testSegment1Deleted},
+		)
 		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{})
 		allDataWithoutDeleted := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: storeWithoutDeleted.flags},

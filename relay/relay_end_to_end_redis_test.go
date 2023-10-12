@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/testhelpers/ldservices"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 

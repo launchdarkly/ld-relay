@@ -4,11 +4,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
-	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v3"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
+	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
 )
 
 // ConfigureBigSegments provides the appropriate Go SDK big segments configuration based on the Relay

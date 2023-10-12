@@ -2,7 +2,7 @@ package api
 
 import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 )
 
 // StatusRep is the JSON representation returned by the status endpoint.

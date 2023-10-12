@@ -11,7 +11,7 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
