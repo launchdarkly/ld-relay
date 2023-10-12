@@ -2,6 +2,17 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.0.0] - 2023-10-12
+### Added:
+- Added support for Payload Filters, which is an EAP feature. Please contact LaunchDarkly support for more information.
+- Added support for upcoming technology migration functionality.
+
+### Changed:
+- Expanded `relayMetric` to track polling requests.
+
+### Removed:
+- `DisableInternalUsageMetrics` configuration has been removed.
+
 ## [7.3.3] - 2023-09-27
 ### Changed:
 - Updated internal relay metric to include data scoped to individual environment.
