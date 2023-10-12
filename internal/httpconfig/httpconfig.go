@@ -5,13 +5,15 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/ldhttp"
-	"github.com/launchdarkly/go-server-sdk/v6/ldntlm"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/ldhttp"
+	"github.com/launchdarkly/go-server-sdk/v7/ldntlm"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 var (
@@ -27,7 +29,7 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey config.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent(userAgent)
 

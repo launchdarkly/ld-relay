@@ -3,8 +3,10 @@ package envfactory
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 )
 
 // EnvironmentParams contains environment-specific information obtained from LaunchDarkly which
@@ -26,7 +28,7 @@ type EnvironmentParams struct {
 	// MobileKey is the environment's mobile key.
 	MobileKey config.MobileKey
 
-	// DeprecatedSDKKey is an additional SDK key that should also be allowed (but not surfaced as
+	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
 	// the canonical one), or "" if none. The expiry time is not represented here; it is managed
 	// by lower-level components.
 	ExpiringSDKKey config.SDKKey
@@ -36,4 +38,23 @@ type EnvironmentParams struct {
 
 	// SecureMode is true if secure mode is required for this environment.
 	SecureMode bool
+}
+
+func (e EnvironmentParams) Credentials() credential.AutoConfig {
+	return credential.AutoConfig{
+		SDKKey:         e.SDKKey,
+		ExpiringSDKKey: e.ExpiringSDKKey,
+		MobileKey:      e.MobileKey,
+	}
+}
+
+func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {
+	e.Identifiers.FilterKey = key
+	return e
+}
+
+type FilterParams struct {
+	ProjKey string
+	ID      config.FilterID
+	Key     config.FilterKey
 }

@@ -5,16 +5,18 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,9 +66,10 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+
 			require.NotNil(t, envMain)
-			require.True(t, inited)
+			require.Nil(t, err)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,
@@ -100,9 +103,9 @@ func TestEndpointsStatus(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			interruptedSinceTime := time.Now()
 
-			envMain, inited := p.relay.getEnvironment(st.EnvMain.Config.SDKKey)
+			envMain, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
 			require.NotNil(t, envMain)
-			require.True(t, inited)
+			require.Nil(t, err)
 			clientMain := envMain.GetClient().(*testclient.FakeLDClient)
 			clientMain.SetDataSourceStatus(interfaces.DataSourceStatus{
 				State:      interfaces.DataSourceStateInterrupted,

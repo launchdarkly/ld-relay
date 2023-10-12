@@ -1,8 +1,10 @@
 package relay
 
 import (
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
 const (
@@ -31,20 +33,19 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 	}
 
-	if params.ExpiringSDKKey != "" {
-		if foundEnvWithOldKey, _ := a.r.getEnvironment(params.ExpiringSDKKey); foundEnvWithOldKey == nil {
+	if params.ExpiringSDKKey.Defined() {
+		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey)); err != nil {
 			env.AddCredential(params.ExpiringSDKKey)
 			env.DeprecateCredential(params.ExpiringSDKKey)
-			a.r.addedEnvironmentCredential(env, params.ExpiringSDKKey) // this updates the index we use for authenticating requests
+			a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey), env)
 		}
 	}
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
-	env, _ := a.r.getEnvironment(params.EnvID)
-	if env == nil {
+	env, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.EnvID))
+	if err != nil {
 		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
-		a.AddEnvironment(params)
 		return
 	}
 
@@ -52,43 +53,32 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	var oldSDKKey config.SDKKey
-	var oldMobileKey config.MobileKey
-	for _, c := range env.GetCredentials() {
-		switch c := c.(type) {
-		case config.SDKKey:
-			oldSDKKey = c
-		case config.MobileKey:
-			oldMobileKey = c
-		}
-	}
+	newCredentials := params.Credentials()
 
-	if params.SDKKey != oldSDKKey {
-		env.AddCredential(params.SDKKey)
-		a.r.addedEnvironmentCredential(env, params.SDKKey) // this updates the index we use for authenticating requests
-		if params.ExpiringSDKKey == oldSDKKey {
-			env.DeprecateCredential(oldSDKKey)
-		} else {
-			a.r.removingEnvironmentCredential(oldSDKKey)
-			env.RemoveCredential(oldSDKKey)
+	for _, prevCred := range env.GetCredentials() {
+		newCred, status := prevCred.Compare(newCredentials)
+		if status == credential.Unchanged {
+			continue
 		}
-	}
 
-	if params.MobileKey != oldMobileKey {
-		env.AddCredential(params.MobileKey)
-		a.r.addedEnvironmentCredential(env, params.MobileKey)
-		a.r.removingEnvironmentCredential(oldMobileKey)
-		env.RemoveCredential(oldMobileKey)
+		env.AddCredential(newCred)
+		a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, newCred), env)
+
+		switch status {
+		case credential.Deprecated:
+			env.DeprecateCredential(prevCred)
+		case credential.Expired:
+			a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, prevCred))
+			env.RemoveCredential(prevCred)
+		}
 	}
 }
 
-func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID) {
-	env, _ := a.r.getEnvironment(id)
-	if env == nil {
+func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
+	removed := a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
+	if !removed {
 		a.r.loggers.Warnf(logMsgAutoConfDeleteUnknownEnv, id)
-		return
 	}
-	a.r.removeEnvironment(env)
 }
 
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
@@ -96,12 +86,12 @@ func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
 	a.r.setFullyConfigured(true)
 }
 
-func (a *relayAutoConfigActions) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
-	env, _ := a.r.getEnvironment(id)
-	if env == nil {
+func (a *relayAutoConfigActions) KeyExpired(id config.EnvironmentID, filter config.FilterKey, oldKey config.SDKKey) {
+	env, err := a.r.getEnvironment(sdkauth.NewScoped(filter, id))
+	if err != nil {
 		a.r.loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
 		return
 	}
-	a.r.removingEnvironmentCredential(oldKey)
+	a.r.removeConnectionMapping(sdkauth.NewScoped(filter, oldKey))
 	env.RemoveCredential(oldKey)
 }

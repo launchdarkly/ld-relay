@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/browser"
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/browser"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -40,7 +40,7 @@ func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) 
 }
 
 // Runs some code against a new Relay instance that is set up with the specified configuration, along with a
-// test server to receie any events that are proxied by Relay.
+// test server to receive any events that are proxied by Relay.
 func relayEventsTest(t *testing.T, config c.Config, action func(relayEventsTestParams)) {
 	eventsCh := make(chan publishedEvent, 10)
 
@@ -51,7 +51,6 @@ func relayEventsTest(t *testing.T, config c.Config, action func(relayEventsTestP
 	}))
 	defer eventsServer.Close()
 
-	config.Main.DisableInternalUsageMetrics = true // so the metrics event exporter doesn't produce unexpected events
 	config.Events.SendEvents = true
 	config.Events.EventsURI, _ = ct.NewOptURLAbsoluteFromString(eventsServer.URL)
 	config.Events.FlushInterval = ct.NewOptDuration(time.Second)

@@ -3,12 +3,12 @@ package store
 import (
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +64,7 @@ func TestStoreInit(t *testing.T) {
 
 	flags, _ := baseStore.GetAll(ldstoreimpl.Features())
 	assert.Equal(t, allData[0].Items, flags)
+
 	segments, _ := baseStore.GetAll(ldstoreimpl.Segments())
 	assert.Equal(t, allData[1].Items, segments)
 

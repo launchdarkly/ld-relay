@@ -5,10 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
@@ -34,12 +37,12 @@ func makeEnvWithModifiedMobileKey(e testAutoConfEnv) testAutoConfEnv {
 	return e
 }
 
-func verifyEventProxying(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
+func verifyEventProxying(t *testing.T, p autoConfTestParams, url string, authKey credential.SDKCredential) {
 	verifyEventVerbatimRelay(t, p, url, authKey)
 	verifyEventSummarizingRelay(t, p, url, authKey)
 }
 
-func verifyEventVerbatimRelay(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
+func verifyEventVerbatimRelay(t *testing.T, p autoConfTestParams, url string, authKey credential.SDKCredential) {
 	body := []byte(`[{"kind":"test"}]`)
 	headers := make(http.Header)
 	headers.Set("X-LaunchDarkly-Event-Schema", "3")
@@ -55,7 +58,7 @@ func verifyEventVerbatimRelay(t *testing.T, p autoConfTestParams, url string, au
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
 }
 
-func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string, authKey config.SDKCredential) {
+func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string, authKey credential.SDKCredential) {
 	body := []byte(`[{"kind":"feature","timestamp":1000,"key":"flagkey","version":100,"variation":1,"value":"a","user":{"key":"u"}}]`)
 	headers := make(http.Header)
 	if authKey.GetAuthorizationHeaderValue() != "" {
@@ -89,7 +92,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1.AwaitClose(t, time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.sdkKey)
+		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.sdkKey))
 		assert.Nil(t, noEnv)
 	})
 }
@@ -112,7 +115,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
-		assert.Equal(t, []config.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
+		assert.Equal(t, []credential.SDKCredential{testAutoConfEnv1.sdkKey}, env.GetDeprecatedCredentials())
 
 		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
 			t.FailNow()
@@ -184,7 +187,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		newCredentials := credentialsAsSet(env.GetCredentials()...)
-		foundEnvWithOldKey, _ := p.relay.getEnvironment(oldKey)
+		foundEnvWithOldKey, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Equal(t, env, foundEnvWithOldKey)
 
 		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
@@ -194,7 +197,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		}
 
 		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
-		noEnv, _ := p.relay.getEnvironment(oldKey)
+		noEnv, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Nil(t, noEnv)
 	})
 }
@@ -213,7 +216,7 @@ func TestAutoConfigUpdateEnvironmentMobileKey(t *testing.T) {
 		p.shouldNotCreateClient(time.Millisecond * 50)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.getEnvironment(testAutoConfEnv1.mobKey)
+		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.mobKey))
 		assert.Nil(t, noEnv)
 	})
 }

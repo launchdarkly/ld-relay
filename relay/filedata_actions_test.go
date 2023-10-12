@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/filedata"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -174,7 +174,7 @@ func TestOfflineModeDeleteEnvironment(t *testing.T) {
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 
-		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID)
+		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID, testFileDataEnv1.Params.Identifiers.FilterKey)
 
 		p.shouldNotHaveEnvironment(testFileDataEnv1.Params.EnvID, time.Second)
 	})

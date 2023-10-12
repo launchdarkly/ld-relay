@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -30,12 +30,16 @@ type archiveManagerTestParams struct {
 	mockLog             *ldlogtest.MockLog
 }
 
+type deleteMessage struct {
+	config.EnvironmentID
+	config.FilterKey
+}
 type testMessage struct {
 	id     config.EnvironmentID
 	add    *ArchiveEnvironment
 	update *ArchiveEnvironment
 	failed *envFailedMessage
-	delete *config.EnvironmentID
+	delete *deleteMessage
 }
 
 type envFailedMessage struct {
@@ -107,8 +111,8 @@ func (h *testMessageHandler) EnvironmentFailed(id config.EnvironmentID, err erro
 	h.received <- testMessage{id: id, failed: &envFailedMessage{id, err}}
 }
 
-func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
-	h.received <- testMessage{id: id, delete: &id}
+func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
+	h.received <- testMessage{id: id, delete: &deleteMessage{id, filter}}
 }
 
 func sortMessages(messages []testMessage) []testMessage {

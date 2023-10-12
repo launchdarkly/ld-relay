@@ -6,14 +6,16 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/browser"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/browser"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 
 	"github.com/gorilla/mux"
 )
@@ -22,10 +24,11 @@ const (
 	userAgentHeader   = "user-agent"
 	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
 
-	httpStatusMessageInvalidEnvCredential = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
-	httpStatusMessageNotFullyConfigured   = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
-	httpStatusMessageMissingEnvURLParam   = "URL did not contain an environment ID"
-	httpStatusMessageSDKClientNotInited   = "client was not initialized"
+	httpStatusMessageInvalidEnvCredential  = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
+	httpStatusMessageNotFullyConfigured    = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
+	httpStatusMessagePayloadFilterNotFound = "Relay Proxy recognizes the provided credential, but the payload filter was not found"
+	httpStatusMessageMissingEnvURLParam    = "URL did not contain an environment ID"
+	httpStatusMessageSDKClientNotInited    = "client was not initialized"
 )
 
 var (
@@ -37,8 +40,15 @@ var (
 // RelayEnvironments defines the methods for looking up environments. This is represented as an interface
 // so that test code can mock that capability.
 type RelayEnvironments interface {
-	GetEnvironment(config.SDKCredential) (env relayenv.EnvContext, fullyConfigured bool)
-	GetAllEnvironments() []relayenv.EnvContext
+	// GetEnvironment returns the potentially filtered environment corresponding to scopedCred, or an error if no matching
+	// environment could be found.
+	GetEnvironment(scopedCred sdkauth.ScopedCredential) (env relayenv.EnvContext, err error)
+	// IsNotReady should return true if the error returned by GetEnvironment represents the fact that Relay is not yet
+	// fully configured.
+	IsNotReady(error) bool
+	// IsPayloadFilterNotFound should return true if the error returned by GetEnvironment represents the fact that
+	// the credential was correct, but the payload filter was not found.
+	IsPayloadFilterNotFound(error) bool
 }
 
 // getUserAgent returns the X-LaunchDarkly-User-Agent if available, falling back to the normal "User-Agent" header
@@ -72,15 +82,24 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				return
 			}
 
-			clientCtx, isConfigured := envs.GetEnvironment(credential)
+			queryValues := req.URL.Query()
+			filterKey := config.FilterKey(queryValues.Get("filter"))
 
-			if !isConfigured {
+			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
+
+			if envs.IsNotReady(err) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
 				return
 			}
 
-			if clientCtx == nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+			if envs.IsPayloadFilterNotFound(err) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
+				return
+			}
+
+			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
 				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == basictypes.JSClientSDK {

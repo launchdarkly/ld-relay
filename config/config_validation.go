@@ -21,6 +21,8 @@ var (
 	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errAutoConfWithFilters     = errors.New("cannot configure filters if auto-configuration is enabled")
+	errMissingProjKey          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -36,6 +38,18 @@ func errEnvWithoutDBDisambiguation(envName string, canUseTableName bool) error {
 		return fmt.Errorf("environment %q does not have a prefix or table name specified for database storage", envName)
 	}
 	return fmt.Errorf("environment %q does not have a prefix specified for database storage", envName)
+}
+
+func errFilterUnknownProject(projKey string) error {
+	return fmt.Errorf("filters are configured for project '%s', but no environment references that project", projKey)
+}
+
+func errFilterEmptyKeys(projKey string) error {
+	return fmt.Errorf("filter key list for project '%s' cannot be empty", projKey)
+}
+
+func errFilterInvalidKey(projKey string, i int) error {
+	return fmt.Errorf("filter key [%d] for project '%s' is malformed (note: lists are comma-delimited)", i, projKey)
 }
 
 func warnEnvWithoutDBDisambiguation(envName string, canUseTableName bool) string {
@@ -61,6 +75,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateConfigTLS(&result, c)
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, loggers)
+	validateConfigFilters(&result, c)
 
 	return result.GetError()
 }
@@ -126,6 +141,49 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	}
 }
 
+func validateConfigFilters(result *ct.ValidationResult, c *Config) {
+	if len(c.Filters) == 0 {
+		return
+	}
+	// If Auto Config is enabled, then filters will have no effect and should cause an error.
+	if c.AutoConfig.Key != "" {
+		result.AddError(nil, errAutoConfWithFilters)
+		return
+	}
+	for _, proj := range c.Environment {
+		if proj.ProjKey == "" {
+			result.AddError(nil, errMissingProjKey)
+			return
+		}
+	}
+	for projKey, conf := range c.Filters {
+		// For every project key defined by a [filter] section,
+		// that project key must be referenced by at least one environment.
+		foundProj := false
+		for _, e := range c.Environment {
+			if e.ProjKey == projKey {
+				foundProj = true
+				break
+			}
+		}
+		if !foundProj {
+			result.AddError(nil, errFilterUnknownProject(projKey))
+			continue
+		}
+
+		// The list of filter keys cannot be empty
+		if len(conf.Keys.Values()) == 0 {
+			result.AddError(nil, errFilterEmptyKeys(projKey))
+		} else {
+			// Filter keys cannot be empty strings
+			for i, k := range conf.Keys.Values() {
+				if k == "" {
+					result.AddError(nil, errFilterInvalidKey(projKey, i))
+				}
+			}
+		}
+	}
+}
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
 	normalizeRedisConfig(result, c)
 
@@ -172,7 +230,7 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 			}
 		}
 
-	case c.AutoConfig.Key != "":
+	case c.AutoConfig.Key.Defined():
 		// Same as previous case, except that in auto-config mode we must assume that there are multiple environments.
 		if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
 			!(c.DynamoDB.Enabled && strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {

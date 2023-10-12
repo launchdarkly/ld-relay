@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -24,6 +25,8 @@ const (
 	testConfigKey config.AutoConfigKey = "test-key"
 	testEnvName                        = "projname envname"
 	malformedJSON                      = `{"oh no`
+
+	rpacProtocolVersion = 2
 )
 
 var (
@@ -49,6 +52,16 @@ var (
 		SDKKey:   envfactory.SDKKeyRep{Value: config.SDKKey("sdkkey2")},
 		Version:  20,
 	}
+	testFilter1 = envfactory.FilterRep{
+		ProjKey:   "projkey1",
+		FilterKey: "filterkey1",
+		Version:   10,
+	}
+	testFilter2 = envfactory.FilterRep{
+		ProjKey:   "projkey2",
+		FilterKey: "filterkey1",
+		Version:   20,
+	}
 	emptyPutMessage = httphelpers.SSEEvent{Event: PutEvent, Data: `{"path": "/", "data": {"environments": {}}}`}
 )
 
@@ -57,7 +70,7 @@ func toJSON(x interface{}) string {
 	return string(bytes)
 }
 
-func makePutEvent(envs ...envfactory.EnvironmentRep) httphelpers.SSEEvent {
+func makeEnvPutEvent(envs ...envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	m := make(map[string]envfactory.EnvironmentRep)
 	for _, e := range envs {
 		m[string(e.EnvID)] = e
@@ -71,7 +84,43 @@ func makePutEvent(envs ...envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func makePatchEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
+func filterID(rep envfactory.FilterRep) config.FilterID {
+	return config.FilterID(fmt.Sprintf("%s.%s", rep.ProjKey, rep.FilterKey))
+}
+
+func makeEnvFilterPutEvent(envs []envfactory.EnvironmentRep, filters []envfactory.FilterRep) httphelpers.SSEEvent {
+	envMap := make(map[config.EnvironmentID]envfactory.EnvironmentRep)
+	filterMap := make(map[config.FilterID]envfactory.FilterRep)
+	for _, e := range envs {
+		envMap[e.EnvID] = e
+	}
+	for _, f := range filters {
+		filterMap[filterID(f)] = f
+	}
+	return httphelpers.SSEEvent{
+		Event: PutEvent,
+		Data: toJSON(map[string]interface{}{
+			"path": "/",
+			"data": map[string]interface{}{"environments": envMap, "filters": filterMap},
+		}),
+	}
+}
+
+func makeFilterPutEvent(filters ...envfactory.FilterRep) httphelpers.SSEEvent {
+	filterMap := make(map[config.FilterID]envfactory.FilterRep)
+	for _, f := range filters {
+		filterMap[filterID(f)] = f
+	}
+	return httphelpers.SSEEvent{
+		Event: PutEvent,
+		Data: toJSON(map[string]interface{}{
+			"path": "/",
+			"data": map[string]interface{}{"filters": filterMap},
+		}),
+	}
+}
+
+func makePatchEnvEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
 		Event: PatchEvent,
 		Data: toJSON(map[string]interface{}{
@@ -81,11 +130,31 @@ func makePatchEvent(env envfactory.EnvironmentRep) httphelpers.SSEEvent {
 	}
 }
 
-func makeDeleteEvent(envID config.EnvironmentID, version int) httphelpers.SSEEvent {
+func makePatchFilterEvent(f envfactory.FilterRep) httphelpers.SSEEvent {
+	return httphelpers.SSEEvent{
+		Event: PatchEvent,
+		Data: toJSON(map[string]interface{}{
+			"path": "/filters/" + fmt.Sprintf("%s.%s", f.ProjKey, f.FilterKey),
+			"data": f,
+		}),
+	}
+}
+
+func makeDeleteEnvEvent(envID config.EnvironmentID, version int) httphelpers.SSEEvent {
 	return httphelpers.SSEEvent{
 		Event: DeleteEvent,
 		Data: toJSON(map[string]interface{}{
 			"path":    "/environments/" + string(envID),
+			"version": version,
+		}),
+	}
+}
+
+func makeDeleteFilterEvent(filterID config.FilterID, version int) httphelpers.SSEEvent {
+	return httphelpers.SSEEvent{
+		Event: DeleteEvent,
+		Data: toJSON(map[string]interface{}{
+			"path":    "/filters/" + string(filterID),
 			"version": version,
 		}),
 	}
@@ -101,11 +170,13 @@ type streamManagerTestParams struct {
 }
 
 type testMessage struct {
-	add         *envfactory.EnvironmentParams
-	update      *envfactory.EnvironmentParams
-	delete      *config.EnvironmentID
-	receivedAll bool
-	expired     *expiredKey
+	add          *envfactory.EnvironmentParams
+	addFilter    *envfactory.FilterParams
+	update       *envfactory.EnvironmentParams
+	delete       *config.EnvironmentID
+	deleteFilter *config.FilterID
+	receivedAll  bool
+	expired      *expiredKey
 }
 
 func (m testMessage) String() string {
@@ -137,6 +208,15 @@ func streamManagerTest(t *testing.T, initialEvent *httphelpers.SSEEvent, action 
 	streamManagerTestWithStreamHandler(t, streamHandler, stream, action)
 }
 
+func mustParseURL(t *testing.T, u string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
+}
+
 func streamManagerTestWithStreamHandler(
 	t *testing.T,
 	streamHandler http.Handler,
@@ -163,10 +243,11 @@ func streamManagerTestWithStreamHandler(
 		}
 		p.streamManager = NewStreamManager(
 			testConfigKey,
-			server.URL,
+			mustParseURL(t, server.URL),
 			testMessageHandler,
 			httpConfig,
 			time.Millisecond,
+			rpacProtocolVersion,
 			mockLog.Loggers,
 		)
 		defer p.streamManager.Close()
@@ -221,6 +302,14 @@ func (h *testMessageHandler) ReceivedAllEnvironments() {
 	h.received <- testMessage{receivedAll: true}
 }
 
-func (h *testMessageHandler) KeyExpired(envID config.EnvironmentID, key config.SDKKey) {
-	h.received <- testMessage{expired: &expiredKey{envID, key}}
+func (h *testMessageHandler) KeyExpired(envID config.EnvironmentID, projKey string, key config.SDKKey) {
+	h.received <- testMessage{expired: &expiredKey{envID, projKey, key}}
+}
+
+func (h *testMessageHandler) AddFilter(params envfactory.FilterParams) {
+	h.received <- testMessage{addFilter: &params}
+}
+
+func (h *testMessageHandler) DeleteFilter(id config.FilterID) {
+	h.received <- testMessage{deleteFilter: &id}
 }

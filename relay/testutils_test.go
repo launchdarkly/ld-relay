@@ -7,11 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,27 +28,36 @@ type relayTestHelper struct {
 
 func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
 	var e relayenv.EnvContext
+	var err error
 	require.Eventually(h.t, func() bool {
-		e, _ = h.relay.getEnvironment(envID)
-		return e != nil
+		e, err = h.relay.getEnvironment(sdkauth.New(envID))
+		return err == nil
 	}, time.Second, time.Millisecond*5)
 	return e
 }
 
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
 	require.Eventually(h.t, func() bool {
-		e, _ := h.relay.getEnvironment(envID)
-		return e == nil
+		_, err := h.relay.getEnvironment(sdkauth.New(envID))
+		return err != nil
 	}, timeout, time.Millisecond*5)
 }
 
 func (h relayTestHelper) assertEnvLookup(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
-	foundEnv, _ := h.relay.getEnvironment(expected.EnvID)
-	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.getEnvironment(expected.MobileKey)
-	assert.Equal(h.t, env, foundEnv)
-	foundEnv, _ = h.relay.getEnvironment(expected.SDKKey)
-	assert.Equal(h.t, env, foundEnv)
+	foundEnv, err := h.relay.getEnvironment(sdkauth.New(expected.EnvID))
+	if assert.NoError(h.t, err) {
+		assert.Equal(h.t, env, foundEnv)
+	}
+
+	foundEnv, err = h.relay.getEnvironment(sdkauth.New(expected.MobileKey))
+	if assert.NoError(h.t, err) {
+		assert.Equal(h.t, env, foundEnv)
+	}
+
+	foundEnv, err = h.relay.getEnvironment(sdkauth.New(expected.SDKKey))
+	if assert.NoError(h.t, err) {
+		assert.Equal(h.t, env, foundEnv)
+	}
 
 	h.assertSDKEndpointsAvailability(true, expected.SDKKey, expected.MobileKey, expected.EnvID)
 }
@@ -68,17 +81,17 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 		status200Or401 = 401
 		status200Or404 = 404
 	}
-	if sdkKey != "" {
+	if sdkKey.Defined() {
 		h.assertEndpointStatus(status200Or401, "GET", "/all", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/flags", sdkKey, nil)
 		h.assertEndpointStatus(status200Or401, "REPORT", "/sdk/evalx/context", sdkKey, simpleUserJSON)
 	}
-	if mobileKey != "" {
+	if mobileKey.Defined() {
 		h.assertEndpointStatus(status200Or401, "GET", "/mping", mobileKey, nil)
 		h.assertEndpointStatus(status200Or401, "GET", "/meval/"+simpleUserBase64, mobileKey, nil)
 		h.assertEndpointStatus(status200Or401, "REPORT", "/meval", mobileKey, simpleUserJSON)
 	}
-	if envID != "" {
+	if envID.Defined() {
 		h.assertEndpointStatus(status200Or404, "GET", "/ping/"+string(envID), nil, nil)
 		h.assertEndpointStatus(status200Or404, "GET", "/eval/"+string(envID)+"/"+simpleUserBase64, nil, nil)
 		h.assertEndpointStatus(status200Or404, "REPORT", "/eval/"+string(envID), nil, simpleUserJSON)
@@ -88,7 +101,7 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 func (h relayTestHelper) assertEndpointStatus(
 	expectedStatus int,
 	method, path string,
-	authKey config.SDKCredential,
+	authKey credential.SDKCredential,
 	body []byte,
 ) {
 	ctx, cancelFn := context.WithCancel(context.Background())
@@ -127,8 +140,8 @@ func assertEnvProps(t *testing.T, expected envfactory.EnvironmentParams, env rel
 		env.GetIdentifiers().GetDisplayName())
 }
 
-func credentialsAsSet(cs ...c.SDKCredential) map[c.SDKCredential]struct{} {
-	ret := make(map[c.SDKCredential]struct{}, len(cs))
+func credentialsAsSet(cs ...credential.SDKCredential) map[credential.SDKCredential]struct{} {
+	ret := make(map[credential.SDKCredential]struct{}, len(cs))
 	for _, c := range cs {
 		ret[c] = struct{}{}
 	}

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/logging"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 )
 
 const (
@@ -60,6 +60,10 @@ const (
 	// For instance, if EnvDataStorePrefix is "LD-$CID", the value of that setting for an environment
 	// whose ID is "12345" would be "LD-12345".
 	//
+	// If the environment is scoped to a Payload Filter, then the filter key will be concatenated as follows:
+	// Given: "LD-$CID", environment ID "12345" and filter key "microservice-a"
+	// The substituted result would be: "LD-12345.microservice-a"
+	//
 	// The same convention is used in OfflineModeConfig.
 	AutoConfigEnvironmentIDPlaceholder = "$CID"
 )
@@ -106,6 +110,7 @@ type Config struct {
 	Consul      ConsulConfig
 	DynamoDB    DynamoDBConfig
 	Environment map[string]*EnvConfig
+	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 
 	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
@@ -122,25 +127,24 @@ type Config struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type MainConfig struct {
-	ExitOnError                 bool                     `conf:"EXIT_ON_ERROR"`
-	ExitAlways                  bool                     `conf:"EXIT_ALWAYS"`
-	IgnoreConnectionErrors      bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
-	StreamURI                   ct.OptURLAbsolute        `conf:"STREAM_URI"`
-	BaseURI                     ct.OptURLAbsolute        `conf:"BASE_URI"`
-	ClientSideBaseURI           ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
-	Port                        ct.OptIntGreaterThanZero `conf:"PORT"`
-	InitTimeout                 ct.OptDuration           `conf:"INIT_TIMEOUT"`
-	HeartbeatInterval           ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
-	MaxClientConnectionTime     ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
-	DisconnectedStatusTime      ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
-	DisableInternalUsageMetrics bool                     `conf:"DISABLE_INTERNAL_USAGE_METRICS"`
-	TLSEnabled                  bool                     `conf:"TLS_ENABLED"`
-	TLSCert                     string                   `conf:"TLS_CERT"`
-	TLSKey                      string                   `conf:"TLS_KEY"`
-	TLSMinVersion               OptTLSVersion            `conf:"TLS_MIN_VERSION"`
-	LogLevel                    OptLogLevel              `conf:"LOG_LEVEL"`
-	BigSegmentsStaleAsDegraded  bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
-	BigSegmentsStaleThreshold   ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
+	ExitOnError                bool                     `conf:"EXIT_ON_ERROR"`
+	ExitAlways                 bool                     `conf:"EXIT_ALWAYS"`
+	IgnoreConnectionErrors     bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
+	StreamURI                  ct.OptURLAbsolute        `conf:"STREAM_URI"`
+	BaseURI                    ct.OptURLAbsolute        `conf:"BASE_URI"`
+	ClientSideBaseURI          ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
+	Port                       ct.OptIntGreaterThanZero `conf:"PORT"`
+	InitTimeout                ct.OptDuration           `conf:"INIT_TIMEOUT"`
+	HeartbeatInterval          ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
+	MaxClientConnectionTime    ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	DisconnectedStatusTime     ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
+	TLSEnabled                 bool                     `conf:"TLS_ENABLED"`
+	TLSCert                    string                   `conf:"TLS_CERT"`
+	TLSKey                     string                   `conf:"TLS_KEY"`
+	TLSMinVersion              OptTLSVersion            `conf:"TLS_MIN_VERSION"`
+	LogLevel                   OptLogLevel              `conf:"LOG_LEVEL"`
+	BigSegmentsStaleAsDegraded bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
+	BigSegmentsStaleThreshold  ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
@@ -244,6 +248,12 @@ type EnvConfig struct {
 	SecureMode    bool             `conf:"LD_SECURE_MODE_"`
 	LogLevel      OptLogLevel      `conf:"LD_LOG_LEVEL_"`
 	TTL           ct.OptDuration   `conf:"LD_TTL_"`
+	ProjKey       string           `conf:"LD_PROJ_KEY_"`
+	FilterKey     FilterKey        // injected based on [filters] section
+}
+
+type FiltersConfig struct {
+	Keys ct.OptStringList `conf:"LD_FILTER_KEYS_"`
 }
 
 // ProxyConfig represents all the supported proxy options.

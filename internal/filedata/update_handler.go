@@ -1,10 +1,10 @@
 package filedata
 
 import (
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // UpdateHandler defines the methods that ArchiveManager will call after processing new or updated file data.
@@ -22,7 +22,7 @@ type UpdateHandler interface {
 	EnvironmentFailed(id config.EnvironmentID, err error)
 
 	// DeleteEnvironment is called when a change in the file data has removed an environment.
-	DeleteEnvironment(id config.EnvironmentID)
+	DeleteEnvironment(id config.EnvironmentID, key config.FilterKey)
 }
 
 // ArchiveEnvironment describes both the environment properties and the SDK data for the environment.

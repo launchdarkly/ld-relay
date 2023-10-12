@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -255,7 +255,7 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 		// Delete any environments that are no longer in the file
 		am.loggers.Infof(logMsgDeleteEnv, envID, envData.params.Identifiers.GetDisplayName())
 		delete(am.lastKnownEnvs, envID)
-		am.handler.DeleteEnvironment(envID)
+		am.handler.DeleteEnvironment(envID, envData.params.Identifiers.FilterKey)
 	}
 }
 

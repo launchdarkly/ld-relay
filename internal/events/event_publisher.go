@@ -10,11 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
 const (
@@ -51,7 +52,7 @@ type EventPublisher interface {
 
 	// ReplaceCredential changes the authorization credential used when sending events, if the previous
 	// credential was of the same type.
-	ReplaceCredential(config.SDKCredential)
+	ReplaceCredential(credential.SDKCredential)
 
 	// Close releases all resources used by this object.
 	Close()
@@ -86,7 +87,7 @@ type HTTPEventPublisher struct {
 	eventsURI   url.URL
 	loggers     ldlog.Loggers
 	client      *http.Client
-	authKey     config.SDKCredential
+	authKey     credential.SDKCredential
 	baseHeaders http.Header
 	closer      chan<- struct{}
 	closeOnce   sync.Once
@@ -159,7 +160,7 @@ func (o OptionCapacity) apply(p *HTTPEventPublisher) error {
 }
 
 // NewHTTPEventPublisher creates a new HTTPEventPublisher.
-func NewHTTPEventPublisher(authKey config.SDKCredential, httpConfig httpconfig.HTTPConfig, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
+func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconfig.HTTPConfig, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
 	closer := make(chan struct{})
 
 	client := httpConfig.Client()
@@ -262,7 +263,7 @@ func (p *HTTPEventPublisher) append(batch eventBatch) {
 	queue.events = append(queue.events, batch.events[:taken]...)
 }
 
-func (p *HTTPEventPublisher) ReplaceCredential(newCredential config.SDKCredential) { //nolint:golint // method is already documented in interface
+func (p *HTTPEventPublisher) ReplaceCredential(newCredential credential.SDKCredential) { //nolint:golint // method is already documented in interface
 	p.lock.Lock()
 	if reflect.TypeOf(newCredential) == reflect.TypeOf(p.authKey) {
 		p.authKey = newCredential

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
 )
 
 const (

@@ -6,15 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
@@ -22,9 +24,9 @@ import (
 )
 
 func TestStreamProviderServerSide(t *testing.T) {
-	validCredential := testSDKKey
-	invalidCredential1 := testMobileKey
-	invalidCredential2 := testEnvID
+	validCredential := sdkauth.New(testSDKKey)
+	invalidCredential1 := sdkauth.New(testMobileKey)
+	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
 		sp := NewStreamProvider(basictypes.ServerSideStream, maxConnTime)
@@ -82,7 +84,10 @@ func TestStreamProviderServerSide(t *testing.T) {
 		testFlag1Deleted.Deleted = true
 		testSegment1Deleted := testSegment1
 		testSegment1Deleted.Deleted = true
-		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2}, []ldmodel.Segment{testSegment1Deleted})
+		store := makeMockStore(
+			[]ldmodel.FeatureFlag{testFlag1Deleted, testFlag2},
+			[]ldmodel.Segment{testSegment1Deleted},
+		)
 		storeWithoutDeleted := makeMockStore([]ldmodel.FeatureFlag{testFlag2}, []ldmodel.Segment{})
 		allDataWithoutDeleted := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: storeWithoutDeleted.flags},

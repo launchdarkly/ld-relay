@@ -7,13 +7,13 @@ import (
 	"net/http/httptest"
 	"strconv"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/browser"
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
-	"github.com/launchdarkly/ld-relay/v7/internal/middleware"
-	"github.com/launchdarkly/ld-relay/v7/internal/util"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/browser"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
 func getEventsImage(w http.ResponseWriter, req *http.Request) {

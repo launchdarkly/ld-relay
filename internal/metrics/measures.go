@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/logging"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -24,8 +24,9 @@ var (
 	requestMeasure = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
 
 	// For internal event exporter
-	privateConnMeasure    = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
-	privateNewConnMeasure = stats.Int64(privateNewConnMeasureName, "total number of connections", stats.UnitDimensionless)
+	privateConnMeasure            = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
+	privateNewConnMeasure         = stats.Int64(privateNewConnMeasureName, "total number of connections", stats.UnitDimensionless)
+	privatePollingRequestsMeasure = stats.Int64(privatePollingRequestsMeasureName, "total number of polling requests made", stats.UnitDimensionless)
 
 	// BrowserConns is a Measure representing the current number of active stream connections from browsers.
 	BrowserConns = Measure{measures: []*stats.Int64Measure{connMeasure, privateConnMeasure}, tags: makeBrowserTags()}
@@ -53,6 +54,9 @@ var (
 
 	// ServerRequests is a Measure representing the number of HTTP requests from server-side SDKs.
 	ServerRequests = Measure{measures: []*stats.Int64Measure{requestMeasure}, tags: makeServerTags()}
+
+	// PollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
+	PollingRequests = Measure{measures: []*stats.Int64Measure{privatePollingRequestsMeasure}, tags: makeServerTags()}
 )
 
 // Measure represents one of the types of metrics that can be passed to WithCount, WithGauge, or WithRouteCount.

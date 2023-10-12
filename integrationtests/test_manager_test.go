@@ -10,18 +10,19 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v7/integrationtests/oshelpers"
-	"github.com/launchdarkly/ld-relay/v7/internal/api"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v8/internal/api"
 
-	ldapi "github.com/launchdarkly/api-client-go/v12"
+	ldapi "github.com/launchdarkly/api-client-go/v13"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
@@ -186,7 +187,6 @@ func (m *integrationTestManager) startRelay(t *testing.T, envVars map[string]str
 		Network(m.dockerNetwork).
 		PublishPort(config.DefaultPort, config.DefaultPort).
 		SharedVolume(m.relaySharedDir, relayContainerSharedDir).
-		EnvVar("DISABLE_INTERNAL_USAGE_METRICS", "true").
 		EnvVar("LOG_LEVEL", "debug")
 	// Set the Relay config variables for base URIs only if we're *not* using the production defaults.
 	// This verifies that Relay's own default behavior is correct.
@@ -339,16 +339,74 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 		if expectedValue.Equal(valuesObject.GetByKey(flagKeyForProj(proj))) {
 			m.loggers.Infof("Got expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
 		} else {
-			m.loggers.Errorf("Did not get expected flag values for enviroment %s with SDK key %s", env.key, env.sdkKey)
+			m.loggers.Errorf("Did not get expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
 			m.loggers.Errorf("Response was: %s", valuesObject)
 			t.Fail()
 		}
 	})
 }
 
+func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnvs projsAndEnvs) {
+	userJSON := `{"key":"any-user-key"}`
+
+	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
+		switch env.filterKey {
+		case config.DefaultFilter:
+			// Since this is an unfiltered environment, both even and odd flags should return values.
+
+			valuesObject := m.getFlagValues(t, proj, env, userJSON)
+			expectedValue := flagValueForEnv(env)
+			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) &&
+				expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) {
+				m.loggers.Infof("Got expected flag values for environment %s (no filter) with SDK key %s", env.key, env.sdkKey)
+			} else {
+				m.loggers.Errorf("Did not get expected flag values for environment %s (no filter) with SDK key %s", env.key, env.sdkKey)
+				m.loggers.Errorf("Response was: %s", valuesObject)
+				t.Fail()
+			}
+		case "even-flags":
+			// Since this is filtered by "even-flags", only the even flag key should return a value;
+			// odd should be null.
+			valuesObject := m.getFlagValues(t, proj, env, userJSON)
+			expectedValue := flagValueForEnv(env)
+			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) && valuesObject.GetByKey(oddFlagKeyForProj(proj)).IsNull() {
+				m.loggers.Infof("Got expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+			} else {
+				m.loggers.Errorf("Did not get expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+				m.loggers.Errorf("Response was: %s", valuesObject)
+				t.Fail()
+			}
+		case "odd-flags":
+			// Likewise since this is filtered by "odd-flags", only the odd flag key should return a value;
+			// even should be null.
+			valuesObject := m.getFlagValues(t, proj, env, userJSON)
+			expectedValue := flagValueForEnv(env)
+			if expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) && valuesObject.GetByKey(evenFlagKeyForProj(proj)).IsNull() {
+				m.loggers.Infof("Got expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+			} else {
+				m.loggers.Errorf("Did not get expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+				m.loggers.Errorf("Response was: %s", valuesObject)
+				t.Fail()
+			}
+		}
+	})
+}
+
 func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
 	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
-	req, err := http.NewRequest("GET", m.relayBaseURL+"/sdk/evalx/users/"+userBase64, nil)
+
+	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	if env.filterKey != config.DefaultFilter {
+		u.RawQuery = url.Values{
+			"filter": []string{string(env.filterKey)},
+		}.Encode()
+	}
+
+	req, err := http.NewRequest("GET", u.String(), nil)
 	require.NoError(t, err)
 	req.Header.Add("Authorization", string(env.sdkKey))
 	resp, err := m.makeHTTPRequestToRelay(req)
@@ -408,6 +466,14 @@ func verifyEnvProperties(t *testing.T, project projectInfo, environment environm
 
 func flagKeyForProj(proj projectInfo) string {
 	return "flag-for-" + proj.key
+}
+
+func evenFlagKeyForProj(proj projectInfo) string {
+	return "flag0-for-" + proj.key
+}
+
+func oddFlagKeyForProj(proj projectInfo) string {
+	return "flag1-for-" + proj.key
 }
 
 func flagValueForEnv(env environmentInfo) ldvalue.Value {

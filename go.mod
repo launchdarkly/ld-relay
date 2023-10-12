@@ -1,4 +1,4 @@
-module github.com/launchdarkly/ld-relay/v7
+module github.com/launchdarkly/ld-relay/v8
 
 go 1.18
 
@@ -26,27 +26,25 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/golang-lru v0.6.0 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
-	github.com/launchdarkly/api-client-go/v12 v12.0.0
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
-	github.com/launchdarkly/go-sdk-events/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.2
-	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.2
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.1
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.3
+	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.0.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.1
 	github.com/prometheus/client_golang v1.15.1 // indirect; override to address CVE-2022-21698
 	github.com/stretchr/testify v1.8.4
 	go.opencensus.io v0.24.0
-	golang.org/x/net v0.11.0 // indirect; override to address CVE-2022-41723
+	golang.org/x/net v0.17.0 // indirect; override to address CVE-2022-41723
 	golang.org/x/sync v0.2.0
 	gopkg.in/gcfg.v1 v1.2.3
-	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
 
 require (
@@ -61,10 +59,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.14.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.18.11 // indirect
 	github.com/aws/smithy-go v1.13.5 // indirect
-	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
+	golang.org/x/exp v0.0.0-20230321023759-10a507213a29
 )
 
-require github.com/goreleaser/goreleaser v1.15.2
+require (
+	github.com/goreleaser/goreleaser v1.15.2
+	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+)
 
 require (
 	cloud.google.com/go/compute v1.19.0 // indirect
@@ -272,12 +273,12 @@ require (
 	gitlab.com/digitalxero/go-conventional-commit v1.0.7 // indirect
 	go.mongodb.org/mongo-driver v1.11.3 // indirect
 	gocloud.dev v0.29.0 // indirect
-	golang.org/x/crypto v0.10.0 // indirect
+	golang.org/x/crypto v0.14.0 // indirect
 	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/oauth2 v0.7.0 // indirect
-	golang.org/x/sys v0.9.0 // indirect
-	golang.org/x/term v0.9.0 // indirect
-	golang.org/x/text v0.10.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/term v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.9.3 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect

@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"

@@ -4,13 +4,15 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // This is the standard implementation of the /all stream for server-side SDKs.
@@ -32,25 +34,25 @@ type serverSideEnvStreamRepository struct {
 	flightGroup singleflight.Group
 }
 
-func (s *serverSideStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
-	if key, ok := credential.(config.SDKKey); ok {
-		return s.server.Handler(string(key))
+func (s *serverSideStreamProvider) Handler(credential sdkauth.ScopedCredential) http.HandlerFunc {
+	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+		return nil
 	}
-	return nil
+	return s.server.Handler(credential.String())
 }
 
 func (s *serverSideStreamProvider) Register(
-	credential config.SDKCredential,
+	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
 	loggers ldlog.Loggers,
 ) EnvStreamProvider {
-	if key, ok := credential.(config.SDKKey); ok {
-		repo := &serverSideEnvStreamRepository{store: store, loggers: loggers}
-		s.server.Register(string(key), repo)
-		envStream := &serverSideEnvStreamProvider{server: s.server, channels: []string{string(key)}}
-		return envStream
+	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
+		return nil
 	}
-	return nil
+	repo := &serverSideEnvStreamRepository{store: store, loggers: loggers}
+	s.server.Register(credential.String(), repo)
+	envStream := &serverSideEnvStreamProvider{server: s.server, channels: []string{credential.String()}}
+	return envStream
 }
 
 func (s *serverSideStreamProvider) Close() {

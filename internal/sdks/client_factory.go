@@ -4,11 +4,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 )
 
 // LDClientContext defines a minimal interface for a LaunchDarkly client.

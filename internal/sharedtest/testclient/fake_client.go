@@ -9,15 +9,15 @@ import (
 	"time"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/store"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
-	"github.com/launchdarkly/go-server-sdk/v6/interfaces"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
+	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {

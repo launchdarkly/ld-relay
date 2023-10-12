@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
@@ -46,7 +47,7 @@ func verifyServerProperties(t *testing.T, server *eventsource.Server, maxConnTim
 	assert.Equal(t, maxConnTime, server.MaxConnTime)
 }
 
-func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential config.SDKCredential, key string, server *eventsource.Server) {
+func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential, key string, server *eventsource.Server) {
 	handler := sp.Handler(credential)
 	require.NotNil(t, handler)
 
@@ -77,7 +78,7 @@ func expectNoEvent(t *testing.T, eventCh <-chan eventsource.Event) {
 	helpers.AssertNoMoreValues(t, eventCh, time.Millisecond*50, "received unexpected event")
 }
 
-func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential config.SDKCredential, expected eventsource.Event) {
+func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential, expected eventsource.Event) {
 	handler := sp.Handler(credential)
 	require.NotNil(t, handler)
 
@@ -94,7 +95,7 @@ func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential confi
 func verifyHandlerUpdateEvent(
 	t *testing.T,
 	sp StreamProvider,
-	credential config.SDKCredential,
+	credential sdkauth.ScopedCredential,
 	expectedInitialEvent eventsource.Event,
 	action func(),
 	expectedUpdateEvent eventsource.Event,
@@ -120,7 +121,7 @@ func verifyHandlerHeartbeat(
 	t *testing.T,
 	sp StreamProvider,
 	esp EnvStreamProvider,
-	credential config.SDKCredential,
+	credential sdkauth.ScopedCredential,
 ) {
 	handler := sp.Handler(credential)
 	require.NotNil(t, handler)

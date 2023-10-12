@@ -46,7 +46,7 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 	// The following properties have the same environment variable names in AutoConfigConfig and in
 	// OfflineModeConfig, because only one of those can be used at a time. We'll blank them out for
 	// whichever section is not being used.
-	if c.AutoConfig.Key != "" {
+	if c.AutoConfig.Key.Defined() {
 		c.OfflineMode.EnvAllowedOrigin = ct.OptStringList{}
 		c.OfflineMode.EnvAllowedHeader = ct.OptStringList{}
 		c.OfflineMode.EnvDatastorePrefix = ""
@@ -74,6 +74,19 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 			c.Environment = make(map[string]*EnvConfig)
 		}
 		c.Environment[envName] = &ec
+	}
+
+	for projKey := range reader.FindPrefixedValues("LD_FILTER_KEYS_") {
+		var fc FiltersConfig
+		if c.Filters[projKey] != nil {
+			fc = *c.Filters[projKey]
+		}
+		subReader := reader.WithVarNameSuffix(projKey)
+		subReader.ReadStruct(&fc, false)
+		if c.Filters == nil {
+			c.Filters = make(map[string]*FiltersConfig)
+		}
+		c.Filters[projKey] = &fc
 	}
 
 	useRedis := false

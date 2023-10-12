@@ -11,28 +11,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/bigsegments"
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v7/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -111,7 +113,7 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	assert.Equal(t, env.GetClient(), requireClientReady(t, clientCh))
@@ -171,7 +173,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
 	env.AddCredential(st.EnvWithAllCredentials.Config.EnvID)
@@ -199,7 +201,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
 	defer env.Close()
 
-	assert.Equal(t, []config.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
 
@@ -238,7 +240,7 @@ func TestChangeSDKKey(t *testing.T) {
 	env.AddCredential(newKey)
 	env.DeprecateCredential(envConfig.SDKKey)
 
-	assert.Equal(t, []config.SDKCredential{newKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
@@ -250,7 +252,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	env.RemoveCredential(envConfig.SDKKey)
 
-	assert.Equal(t, []config.SDKCredential{newKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
 	client1.AwaitClose(t, time.Millisecond*20)
 }
@@ -333,12 +335,6 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	})
 }
 
-func TestMetricsAreNotExportedForEnvironmentIfDisabled(t *testing.T) {
-	var allConfig config.Config
-	allConfig.Main.DisableInternalUsageMetrics = true
-	testMetricsDisabled(t, allConfig)
-}
-
 func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
 	var allConfig config.Config
 	allConfig.OfflineMode.FileDataSource = "fake-file-path"
@@ -390,7 +386,6 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
@@ -434,7 +429,6 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
-		allConfig.Main.DisableInternalUsageMetrics = true
 		allConfig.OfflineMode.FileDataSource = "fake-file-path"
 		allConfig.Events.SendEvents = true
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)

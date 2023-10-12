@@ -5,11 +5,11 @@ import (
 
 	_ "github.com/kardianos/minwinsvc"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/application"
-	"github.com/launchdarkly/ld-relay/v7/internal/logging"
-	"github.com/launchdarkly/ld-relay/v7/relay"
-	"github.com/launchdarkly/ld-relay/v7/relay/version"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/application"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
+	"github.com/launchdarkly/ld-relay/v8/relay"
+	"github.com/launchdarkly/ld-relay/v8/relay/version"
 )
 
 func main() {

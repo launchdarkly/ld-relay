@@ -3,9 +3,9 @@ package relay
 import (
 	"encoding/json"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
@@ -89,8 +89,11 @@ func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 }
 
 func makeAutoConfPatchEvent(env testAutoConfEnv) httphelpers.SSEEvent {
-	jsonData, _ := json.Marshal(autoconfig.PatchMessageData{Path: "/environments/" + string(env.id),
-		Data: env.toEnvironmentRep()})
+	rep, _ := json.Marshal(env.toEnvironmentRep())
+	jsonData, _ := json.Marshal(autoconfig.PatchMessageData{
+		Path: "/environments/" + string(env.id),
+		Data: rep,
+	})
 	return httphelpers.SSEEvent{Event: autoconfig.PatchEvent, Data: string(jsonData)}
 }
 

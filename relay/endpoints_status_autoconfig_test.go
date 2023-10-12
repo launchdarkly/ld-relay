@@ -7,19 +7,19 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/sharedtest/testclient"
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/stretchr/testify/assert"
@@ -103,7 +103,7 @@ func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 				Value: env.Config.SDKKey,
 			},
 		}
-		if env.ExpiringSDKKey != "" {
+		if env.ExpiringSDKKey.Defined() {
 			rep.SDKKey.Expiring.Value = env.ExpiringSDKKey
 			rep.SDKKey.Expiring.Timestamp = ldtime.UnixMillisNow() + env.ExpiringSDKKeyTime
 		}

@@ -10,26 +10,37 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/projmanager"
+
 	"github.com/gregjones/httpcache"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/filedata"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v7/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v7/internal/streams"
-	"github.com/launchdarkly/ld-relay/v7/internal/util"
-	"github.com/launchdarkly/ld-relay/v7/relay/version"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v8/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v8/relay/version"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ld "github.com/launchdarkly/go-server-sdk/v6"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 )
 
 var (
 	errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
 )
+
+// The Relay Proxy Auto-Config Protocol has two major versions.
+// For Relay < v8, that was '1'.
+// For Relay >= v8, that is '2'.
+// The second version is capable of sending payload filter data, in PUT/PATCH/DELETE messages. Relay < v8
+// is not aware of filters and would throw errors/cease to function if it received such messages.
+const rpacProtocolVersion = 2
 
 // Relay represents the overall Relay Proxy application.
 //
@@ -40,8 +51,7 @@ var (
 // implementation detail which is subject to change.
 type Relay struct {
 	http.Handler
-	allEnvironments               []relayenv.EnvContext
-	envsByCredential              map[config.SDKCredential]relayenv.EnvContext
+	envsByCredential              *EnvironmentLookup
 	metricsManager                *metrics.Manager
 	clientFactory                 sdks.ClientFactoryFunc
 	serverSideStreamProvider      streams.StreamProvider
@@ -108,7 +118,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		return nil, err
 	}
 
-	hasAutoConfigKey := c.AutoConfig.Key != ""
+	hasAutoConfigKey := c.AutoConfig.Key.Defined()
 	hasFileDataSource := c.OfflineMode.FileDataSource != ""
 
 	if !hasAutoConfigKey && !hasFileDataSource && len(c.Environment) == 0 {
@@ -141,7 +151,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	userAgent := "LDRelay/" + version.Version
 
 	r := &Relay{
-		envsByCredential:              make(map[config.SDKCredential]relayenv.EnvContext),
+		envsByCredential:              NewEnvironmentLookup(),
 		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime),
 		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime),
 		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime),
@@ -160,7 +170,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
-	for envName, envConfig := range c.Environment {
+	for envName, envConfig := range makeFilteredEnvironments(&c) {
 		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
 		if err != nil {
 			return nil, err
@@ -188,10 +198,11 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		}
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
-			c.Main.StreamURI.String(),
-			&relayAutoConfigActions{r},
+			c.Main.StreamURI.Get(),
+			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, loggers),
 			httpConfig,
 			0,
+			rpacProtocolVersion,
 			loggers,
 		)
 		autoConfigResult := r.autoConfigStream.Start()
@@ -240,6 +251,45 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	return r, nil
 }
 
+func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
+	if c.Filters == nil {
+		return c.Environment
+	}
+	out := make(map[string]*config.EnvConfig)
+	type namedEnv struct {
+		name   string
+		config *config.EnvConfig
+	}
+	byProj := make(map[string][]*namedEnv)
+
+	for k, v := range c.Environment {
+		byProj[v.ProjKey] = append(byProj[v.ProjKey], &namedEnv{name: k, config: v})
+	}
+
+	for projKey, envs := range byProj {
+		// First, add the default environments for a project
+		for _, e := range envs {
+			out[e.name] = e.config
+		}
+		associatedFilters, ok := c.Filters[projKey]
+		if ok {
+			for _, filterKey := range associatedFilters.Keys.Values() {
+				key := strings.Trim(filterKey, " ")
+				for _, e := range envs {
+					copied := *e.config
+					copied.FilterKey = config.FilterKey(key)
+					if copied.Prefix != "" {
+						copied.Prefix = copied.Prefix + "/" + key
+					}
+					out[e.name+"/"+key] = &copied
+				}
+			}
+		}
+	}
+
+	return out
+}
+
 func defaultArchiveManagerFactory(filePath string, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
 	filedata.ArchiveManagerInterface, error) {
 	am, err := filedata.NewArchiveManager(filePath, handler, 0, loggers)
@@ -259,11 +309,6 @@ func (r *Relay) Close() error {
 	}
 
 	r.closed = true
-
-	envs := r.allEnvironments
-	r.allEnvironments = nil
-	r.envsByCredential = nil
-
 	r.lock.Unlock()
 
 	r.metricsManager.Close()
@@ -275,7 +320,7 @@ func (r *Relay) Close() error {
 		_ = r.archiveManager.Close()
 	}
 
-	for _, env := range envs {
+	for _, env := range r.envsByCredential.Environments() {
 		if err := env.Close(); err != nil {
 			r.loggers.Warnf("unexpected error when closing environment: %s", err)
 		}
@@ -297,28 +342,51 @@ func (r *Relay) allStreamProviders() []streams.StreamProvider {
 	}
 }
 
+var errRelayNotReady = errors.New("relay is not yet fully configured")
+var errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
+var errPayloadFilterNotFound = errors.New("credential corresponds to an environment but filter is unrecognized")
+
+func IsNotReady(err error) bool {
+	return err == errRelayNotReady
+}
+
+func IsUnrecognizedEnvironment(err error) bool {
+	return err == errUnrecognizedEnvironment
+}
+
+func IsPayloadFilterNotFound(err error) bool {
+	return err == errPayloadFilterNotFound
+}
+
 // getEnvironment returns the environment object corresponding to the given credential, or nil
 // if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
 // return value is normally true, but is false if Relay does not yet have a valid configuration
 // (which affects our error handling).
-func (r *Relay) getEnvironment(credential config.SDKCredential) (relayenv.EnvContext, bool) {
+func (r *Relay) getEnvironment(req sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
 	if r.fullyConfigured {
-		return r.envsByCredential[credential], true
+		env, found := r.envsByCredential.Lookup(req)
+		if found {
+			return env, nil
+		}
+		// This secondary lookup is necessary to present a 404 to downstream SDKs if the credential was correct
+		// but the filter wrong, to mirror LaunchDarkly behavior.
+		if _, foundUnfiltered := r.envsByCredential.Lookup(req.Unscope()); foundUnfiltered {
+			return nil, errPayloadFilterNotFound
+		}
+		return nil, errUnrecognizedEnvironment
 	}
-	return nil, false
+
+	return nil, errRelayNotReady
 }
 
 // getAllEnvironments returns all currently configured environments.
 func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-
-	ret := make([]relayenv.EnvContext, len(r.allEnvironments))
-	copy(ret, r.allEnvironments)
-	return ret
+	return r.envsByCredential.Environments()
 }
 
 // addEnvironment attempts to add a new environment. It returns an error only if the configuration
@@ -344,7 +412,7 @@ func (r *Relay) addEnvironment(
 
 	var jsClientContext relayenv.JSClientContext
 
-	if envConfig.EnvID != "" {
+	if envConfig.EnvID.Defined() {
 		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
 		jsClientContext.Headers = envConfig.AllowedHeader.Values()
 
@@ -375,7 +443,6 @@ func (r *Relay) addEnvironment(
 		}
 		return r.clientFactory(sdkKey, config, timeout)
 	}
-
 	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
 		Identifiers:      identifiers,
 		EnvConfig:        envConfig,
@@ -394,14 +461,7 @@ func (r *Relay) addEnvironment(
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
 	}
 
-	r.allEnvironments = append(r.allEnvironments, clientContext)
-	r.envsByCredential[envConfig.SDKKey] = clientContext
-	if envConfig.MobileKey != "" {
-		r.envsByCredential[envConfig.MobileKey] = clientContext
-	}
-	if envConfig.EnvID != "" {
-		r.envsByCredential[envConfig.EnvID] = clientContext
-	}
+	r.envsByCredential.InsertEnvironment(clientContext)
 
 	return clientContext, resultCh, nil
 }
@@ -409,28 +469,11 @@ func (r *Relay) addEnvironment(
 // removeEnvironment shuts down and removes an existing environment. All network connections, metrics
 // resources, and (if applicable) database connections, are immediately closed for this environment.
 // Subsequent requests using credentials for this environment will be rejected.
-func (r *Relay) removeEnvironment(env relayenv.EnvContext) {
-	r.lock.Lock()
-
-	found := false
-	for i, e := range r.allEnvironments {
-		if e == env {
-			r.allEnvironments = append(r.allEnvironments[:i], r.allEnvironments[i+1:]...)
-			found = true
-			break
-		}
-	}
-
-	if found {
-		for _, c := range env.GetCredentials() {
-			delete(r.envsByCredential, c)
-		}
-	}
-
-	r.lock.Unlock()
+func (r *Relay) removeEnvironment(params sdkauth.ScopedCredential) bool {
+	env, found := r.envsByCredential.DeleteEnvironment(params)
 
 	if !found {
-		return
+		return false
 	}
 
 	// At this point any more incoming requests that try to use this environment's credentials will
@@ -439,6 +482,8 @@ func (r *Relay) removeEnvironment(env relayenv.EnvContext) {
 	if err := env.Close(); err != nil {
 		r.loggers.Warnf("unexpected error when closing environment: %s", err)
 	}
+
+	return true
 }
 
 // setFullyConfigured updates the state of whether Relay has a valid set of environments.
@@ -448,31 +493,27 @@ func (r *Relay) setFullyConfigured(fullyConfigured bool) {
 	r.lock.Unlock()
 }
 
-// addedEnvironmentCredential updates the RelayCore's environment mapping to reflect that a new
+// addConnectionMapping updates the RelayCore's environment mapping to reflect that a new
 // credential is now enabled for this EnvContext. This should be done only *after* calling
 // EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
 // credential immediately after this, it will work.
-func (r *Relay) addedEnvironmentCredential(env relayenv.EnvContext, newCredential config.SDKCredential) {
-	r.lock.Lock()
-	r.envsByCredential[newCredential] = env
-	r.lock.Unlock()
+func (r *Relay) addConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
+	r.envsByCredential.MapRequestParams(params, env)
 }
 
-// removingEnvironmentCredential updates the RelayCore's environment mapping to reflect that this
+// removeConnectionMapping updates the RelayCore's environment mapping to reflect that this
 // credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
 // because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
 // reconnect using the same credential we want it to be rejected.
-func (r *Relay) removingEnvironmentCredential(oldCredential config.SDKCredential) {
-	r.lock.Lock()
-	delete(r.envsByCredential, oldCredential)
-	r.lock.Unlock()
+func (r *Relay) removeConnectionMapping(params sdkauth.ScopedCredential) {
+	r.envsByCredential.UnmapRequestParams(params)
 }
 
 // waitForAllClients blocks until all environments that were in the initial configuration have
 // reported back as either successfully connected or failed, or until the specified timeout (if the
 // timeout is non-zero).
 func (r *Relay) waitForAllClients(timeout time.Duration) error {
-	numEnvironments := len(r.allEnvironments)
+	numEnvironments := len(r.envsByCredential.Environments())
 	numFinished := 0
 
 	var timeoutCh <-chan time.Time

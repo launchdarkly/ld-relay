@@ -4,15 +4,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v2"
-	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
+	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 	consul "github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/assert"

@@ -15,11 +15,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 )
@@ -129,7 +129,7 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 }
 
 // GetEnvironmentSDKData attempts to read the "$ENVID-data.json" file for the specified environment,
-// which contains the flag/segment data. It returns the parsed data in the format used by the SDK.
+// which contains the flag/segment. It returns the parsed data in the format used by the SDK.
 //
 // This is a separate step from GetEnvironmentMetadata because when an archive file is updated, the
 // data might not have changed for all environments. We check the metadata first, and if the DataID

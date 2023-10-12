@@ -4,11 +4,15 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // This is the standard implementation of a stream for client-side/mobile SDKs that sends only "ping" events,
@@ -30,38 +34,38 @@ type clientSidePingEnvStreamRepository struct {
 	store EnvStoreQueries
 }
 
-func (s *clientSidePingStreamProvider) validateCredential(credential config.SDKCredential) string {
+func (s *clientSidePingStreamProvider) validateCredential(credential credential.SDKCredential) bool {
 	if s.isJSClient {
-		if key, ok := credential.(config.EnvironmentID); ok {
-			return string(key)
+		if _, ok := credential.(config.EnvironmentID); ok {
+			return true
 		}
 	} else {
-		if key, ok := credential.(config.MobileKey); ok {
-			return string(key)
+		if _, ok := credential.(config.MobileKey); ok {
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
-func (s *clientSidePingStreamProvider) Handler(credential config.SDKCredential) http.HandlerFunc {
-	if key := s.validateCredential(credential); key != "" {
-		return s.server.Handler(key)
+func (s *clientSidePingStreamProvider) Handler(credential sdkauth.ScopedCredential) http.HandlerFunc {
+	if !s.validateCredential(credential.SDKCredential) {
+		return nil
 	}
-	return nil
+	return s.server.Handler(credential.String())
 }
 
 func (s *clientSidePingStreamProvider) Register(
-	credential config.SDKCredential,
+	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
 	loggers ldlog.Loggers,
 ) EnvStreamProvider {
-	if key := s.validateCredential(credential); key != "" {
-		repo := &clientSidePingEnvStreamRepository{store: store}
-		s.server.Register(key, repo)
-		envStream := &clientSidePingEnvStreamProvider{server: s.server, channels: []string{key}}
-		return envStream
+	if !s.validateCredential(credential.SDKCredential) {
+		return nil
 	}
-	return nil
+	repo := &clientSidePingEnvStreamRepository{store: store}
+	s.server.Register(credential.String(), repo)
+	envStream := &clientSidePingEnvStreamProvider{server: s.server, channels: []string{credential.String()}}
+	return envStream
 }
 
 func (s *clientSidePingStreamProvider) Close() {

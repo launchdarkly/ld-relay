@@ -8,17 +8,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v7/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v7/internal/store"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
@@ -37,7 +39,7 @@ type testEndpointInfo struct {
 	analyticsPath  string
 	diagnosticPath string
 	authKey        string
-	newCredential  config.SDKCredential
+	newCredential  credential.SDKCredential
 }
 
 var testServerEndpointInfo = testEndpointInfo{

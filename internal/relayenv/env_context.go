@@ -7,15 +7,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/go-server-sdk/v6/subsystems"
-	"github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/bigsegments"
-	"github.com/launchdarkly/ld-relay/v7/internal/events"
-	"github.com/launchdarkly/ld-relay/v7/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v7/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v2"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
@@ -30,31 +32,35 @@ type EnvContext interface {
 	// GetIdentifiers returns information about the environment and project names and keys.
 	GetIdentifiers() EnvIdentifiers
 
+	// GetPayloadFilter returns the environment's filter key, which may be an empty string indicating
+	// default/unfiltered.
+	GetPayloadFilter() config.FilterKey
+
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
-	GetCredentials() []config.SDKCredential
+	GetCredentials() []credential.SDKCredential
 
 	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
-	GetDeprecatedCredentials() []config.SDKCredential
+	GetDeprecatedCredentials() []credential.SDKCredential
 
 	// AddCredential adds a new credential for the environment.
 	//
 	// If the credential is an SDK key, then a new SDK client is started with that SDK key, and event forwarding
 	// to server-side endpoints is switched to use the new key.
-	AddCredential(config.SDKCredential)
+	AddCredential(credential.SDKCredential)
 
 	// RemoveCredential removes a credential from the environment. Any active stream connections using that
 	// credential are immediately dropped.
 	//
 	// If the credential is an SDK key, then the SDK client that we started with that SDK key is disposed of.
-	RemoveCredential(config.SDKCredential)
+	RemoveCredential(credential.SDKCredential)
 
 	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
 	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
 	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
-	DeprecateCredential(config.SDKCredential)
+	DeprecateCredential(credential.SDKCredential)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
@@ -79,7 +85,7 @@ type EnvContext interface {
 
 	// GetHandler returns the HTTP handler for the specified kind of stream requests and credential for this
 	// environment. If there is none, it returns a handler for a 404 status (not nil).
-	GetStreamHandler(streams.StreamProvider, config.SDKCredential) http.Handler
+	GetStreamHandler(streams.StreamProvider, credential.SDKCredential) http.Handler
 
 	// GetEventDispatcher returns the object that proxies events for this environment.
 	GetEventDispatcher() *events.EventDispatcher
@@ -135,6 +141,9 @@ type EnvIdentifiers struct {
 	// ProjName is the project name (normally a title-cased string like "My Application").
 	ProjName string
 
+	// FilterKey is the environment's payload filter. Empty string indicates no filter.
+	FilterKey config.FilterKey
+
 	// ConfiguredName is a human-readable unique name for this environment, if the user specified one. When
 	// using a local configuration, this is always set; in auto-configuration mode, it is always empty (but
 	// EnvIdentifiers.GetDisplayName() will compute one).
@@ -145,6 +154,9 @@ type EnvIdentifiers struct {
 // configuration, it computes one in the format "ProjName EnvName".
 func (ei EnvIdentifiers) GetDisplayName() string {
 	if ei.ConfiguredName == "" {
+		if ei.FilterKey != "" {
+			return fmt.Sprintf("%s %s (%s)", ei.ProjName, ei.EnvName, ei.FilterKey)
+		}
 		return fmt.Sprintf("%s %s", ei.ProjName, ei.EnvName)
 	}
 	return ei.ConfiguredName

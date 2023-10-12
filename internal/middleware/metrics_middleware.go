@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/launchdarkly/ld-relay/v7/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 
 	"github.com/gorilla/mux"
 )
@@ -44,6 +44,11 @@ func CountBrowserConns(handler http.Handler) http.Handler {
 // and also increments the number of active server-side connections until the handler ends.
 func CountServerConns(handler http.Handler) http.Handler {
 	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
+}
+
+// PollingRequestCount is a middleware function that increments the total number of server-side polling requests.
+func PollingRequestCount(handler http.Handler) http.Handler {
+	return withCount(handler, metrics.PollingRequests)
 }
 
 // RequestCount is a middleware function that increments the specified metric for each request.

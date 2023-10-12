@@ -3,7 +3,9 @@ package sharedtest
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v7/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	"github.com/launchdarkly/ld-relay/v8/config"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
@@ -20,9 +22,21 @@ type TestEnv struct {
 	ExpiringSDKKeyTime ldtime.UnixMillisecondTime
 }
 
-type UnsupportedSDKCredential struct{} // implements config.SDKCredential
+type UnsupportedSDKCredential struct{} // implements credential.SDKCredential
+
+func (k UnsupportedSDKCredential) Compare(_ credential.AutoConfig) (credential.SDKCredential, credential.Status) {
+	return nil, credential.Unchanged
+}
 
 func (k UnsupportedSDKCredential) GetAuthorizationHeaderValue() string { return "" }
+
+func (k UnsupportedSDKCredential) Defined() bool {
+	return true
+}
+
+func (k UnsupportedSDKCredential) String() string {
+	return "unsupported"
+}
 
 const (
 	// The "undefined" values are well-formed, but do not match any environment in our test data.

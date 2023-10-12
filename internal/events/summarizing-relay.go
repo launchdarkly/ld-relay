@@ -7,14 +7,16 @@ import (
 	"sync"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v7/config"
-	"github.com/launchdarkly/ld-relay/v7/internal/events/oldevents"
-	"github.com/launchdarkly/ld-relay/v7/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v7/internal/store"
+	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
+	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/events/oldevents"
+	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldevents "github.com/launchdarkly/go-sdk-events/v2"
-	"gopkg.in/launchdarkly/go-server-sdk.v5/ldcomponents"
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
 // eventSummarizingRelay is a component that takes events received from a PHP SDK, in event schema 2--
@@ -30,7 +32,7 @@ import (
 // EventProcessor instance for each unique metadata set we've seen.
 type eventSummarizingRelay struct {
 	queues       map[EventPayloadMetadata]*eventSummarizingRelayQueue
-	authKey      c.SDKCredential
+	authKey      credential.SDKCredential
 	httpClient   *http.Client
 	baseHeaders  http.Header
 	storeAdapter *store.SSERelayDataStoreAdapter
@@ -58,7 +60,7 @@ type delegatingEventSender struct {
 func newEventSummarizingRelay(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	credential c.SDKCredential,
+	credential credential.SDKCredential,
 	storeAdapter *store.SSERelayDataStoreAdapter,
 	loggers ldlog.Loggers,
 	remotePath string,
@@ -68,8 +70,8 @@ func newEventSummarizingRelay(
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
 		Loggers:               loggers,
-		UserKeysCapacity:      ldcomponents.DefaultUserKeysCapacity,
-		UserKeysFlushInterval: ldcomponents.DefaultUserKeysFlushInterval,
+		UserKeysCapacity:      ldcomponents.DefaultContextKeysCapacity,
+		UserKeysFlushInterval: ldcomponents.DefaultContextKeysFlushInterval,
 	}
 	baseHeaders := make(http.Header)
 	for k, v := range httpConfig.SDKHTTPConfig.DefaultHeaders {
@@ -138,7 +140,7 @@ func (er *eventSummarizingRelay) flush() { //nolint:unused // used only in tests
 	}
 }
 
-func (er *eventSummarizingRelay) replaceCredential(newCredential c.SDKCredential) {
+func (er *eventSummarizingRelay) replaceCredential(newCredential credential.SDKCredential) {
 	er.lock.Lock()
 	if reflect.TypeOf(newCredential) == reflect.TypeOf(er.authKey) {
 		er.authKey = newCredential
@@ -277,7 +279,7 @@ func makeEventSender(
 	eventsURI string,
 	remotePath string,
 	baseHeaders http.Header,
-	authKey c.SDKCredential,
+	authKey credential.SDKCredential,
 	metadata EventPayloadMetadata,
 	loggers ldlog.Loggers,
 ) ldevents.EventSender {
