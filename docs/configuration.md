@@ -74,9 +74,6 @@ _(3)_ The optional `maxClientConnectionTime` setting may be useful in load-balan
 
 _(4)_ For details about `disconnectedStatusTime`, read [Service endpoints - Status (health check)](./endpoints.md#status-health-check).
 
-_(5)_ The `disableInternalUsageMetrics` option applies to metrics that LaunchDarkly normally gathers to determine what types and versions of SDKs are being used with the Relay Proxy, as well as some diagnostic information that is normally gathered by the Go SDK describing the OS platform and version that you are running the Relay Proxy on and whether you are using a database. This does not affect the ability to export metrics to Datadog, Stackdriver, or Prometheus.
-
-
 ### File section: `[AutoConfig]`
 
 This section is only applicable if [automatic configuration](https://docs.launchdarkly.com/home/advanced/relay-proxy-enterprise/automatic-configuration) is enabled for your account.
