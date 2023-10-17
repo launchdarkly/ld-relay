@@ -14,7 +14,7 @@ parameters:
   # In addition to the most recent version of Go, we also support the previous version.
   go-previous-version:
     type: string
-    default: "1.19.12"
+    default: "1.20.10"
 
   # We use a remote Docker host in some CI jobs that need to run Docker containers.
   # As of 2022-04-15, the default Docker daemon version was 17.09.0-ce, which started
