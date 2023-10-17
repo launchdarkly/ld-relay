@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.1.0] - 2023-10-17
+### Changed:
+- Build with Go 1.21 and 1.20 in CI
+- Bump minimum required Go version to 1.19
+
+### Removed:
+- Removed obsolete documentation related to `disableInternalUsageMetrics` config option.
+
 ## [8.0.0] - 2023-10-12
 ### Added:
 - Added support for Payload Filters, which is an EAP feature. Please contact LaunchDarkly support for more information.
