@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v7
 
-go 1.18
+go 1.19
 
 require (
 	cloud.google.com/go v0.110.0 // indirect
