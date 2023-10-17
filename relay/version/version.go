@@ -2,4 +2,4 @@
 package version
 
 // Version is the package version
-const Version = "6.8.3"
+const Version = "6.9.0"

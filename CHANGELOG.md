@@ -2,6 +2,12 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.9.0] - 2023-10-17
+### Changed:
+- Build with Go 1.21 and 1.20 in CI
+- Bump minimum required Go version to 1.19
+- Bump golang.org/x/net from 0.11.0 to 0.17.0
+
 ## [6.8.3] - 2023-09-26
 ### Changed:
 - Updated internal relay metric to include data scoped to individual environment.
