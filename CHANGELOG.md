@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.4.0] - 2023-10-17
+### Changed:
+- Build with Go 1.21 and 1.20 in CI
+- Bump minimum required Go version to 1.19
+- Bump golang.org/x/net from 0.11.0 to 0.17.0 
+
+
+### Deprecated:
+- `disableInternalUsageMetrics` is deprecated in Relay Proxy v7 and removed in v8.
+
 ## [7.3.3] - 2023-09-27
 ### Changed:
 - Updated internal relay metric to include data scoped to individual environment.
