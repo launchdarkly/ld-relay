@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v6
 
-go 1.17
+go 1.19
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
@@ -214,7 +214,7 @@ require (
 	gocloud.dev v0.29.0 // indirect
 	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0 // indirect
 	golang.org/x/mod v0.9.0 // indirect
-	golang.org/x/term v0.6.0 // indirect
+	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
@@ -276,17 +276,17 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/philhofer/fwd v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.14.0 // indirect; override to address CVE-2022-21698
+	github.com/prometheus/client_golang v1.14.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/prometheus/statsd_exporter v0.23.1 // indirect
 	github.com/tinylib/msgp v1.1.8 // indirect
-	golang.org/x/crypto v0.7.0 // indirect
-	golang.org/x/net v0.8.0 // indirect; override to address CVE-2022-41723
+	golang.org/x/crypto v0.14.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.6.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.8.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	google.golang.org/api v0.114.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230306155012-7f2fa6fef1f4 // indirect

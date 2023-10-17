@@ -1,6 +1,6 @@
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM golang:1.20.7-alpine3.18 as builder
+FROM golang:1.21.3-alpine3.18 as builder
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk --no-cache add \
