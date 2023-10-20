@@ -111,12 +111,15 @@ func (store *dynamoDBBigSegmentStore) makeTransactionItem(updateExpression, attr
 
 func makeCursorUpdateCondition(previousVersion string) (string, map[string]string, map[string]types.AttributeValue) {
 	names := map[string]string{"#0": dynamoDBCursorAttr}
-	if previousVersion == "" {
-		return "attribute_not_exists(#0)", names, nil
-	}
-	return "#0 = :0", names, map[string]types.AttributeValue{
+	parameters := map[string]types.AttributeValue{
 		":0": attrValueOfString(previousVersion),
 	}
+	// Each version may receive multiple patches. The initial set of patches may contain multiple entries where the
+	// "version" and "previousVersion" are empty strings.
+	if previousVersion == "" {
+		return "attribute_not_exists(#0) or #0 = :0", names, parameters
+	}
+	return "#0 = :0", names, parameters
 }
 
 func (store *dynamoDBBigSegmentStore) applyPatch(patch bigSegmentPatch) (bool, error) {
