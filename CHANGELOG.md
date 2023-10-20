@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [6.9.1] - 2023-10-20
+### Fixed:
+- The big segments synchronization process will now handle empty versions correctly when using DynamoDB.
+
 ## [6.9.0] - 2023-10-17
 ### Changed:
 - Build with Go 1.21 and 1.20 in CI
