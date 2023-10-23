@@ -74,7 +74,7 @@ func makeAllSummarizeEventsParams() []summarizeEventsParams {
 			inputEventsJSON: `
 			[
 				{ "kind": "feature", "creationDate": 1000, "key": "flagkey", "user": {"key": "userkey"},
-				  "value": "b", "default": "c", "version": 11, "variation": 1, "trackEvents": false }
+				"value": "b", "default": "c", "version": 11, "variation": 1, "trackEvents": false, "samplingRatio": 1, "excludeFromSummaries": false }
 			]`,
 			expectedEventsJSON: `
 			[
@@ -88,6 +88,45 @@ func makeAllSummarizeEventsParams() []summarizeEventsParams {
 						}
 					}
 				}
+			]`,
+		},
+		{
+			name: "feature event has non-standard defaults for ratio and exclusion fields",
+			inputEventsJSON: `
+			[
+				{ "kind": "feature", "creationDate": 1000, "key": "flagkey", "user": {"key": "userkey"},
+				"value": "b", "default": "c", "version": 11, "variation": 1, "trackEvents": false, "samplingRatio": 2, "excludeFromSummaries": true }
+			]`,
+			expectedEventsJSON: `
+			[
+				{ "kind": "index", "creationDate": 1000, "context": {"key": "userkey"} }
+			]`,
+		},
+		{
+			name: "feature event includes the provided sampling ratio",
+			inputEventsJSON: `
+			[
+				{ "kind": "feature", "creationDate": 1000, "key": "flagkey", "user": {"key": "userkey"},
+				"value": "b", "default": "c", "version": 11, "variation": 1, "trackEvents": true, "samplingRatio": 0 }
+			]`,
+			expectedEventsJSON: `
+			[
+				{"kind":"index","creationDate":1000,"context":{"key": "userkey"}},
+				{"kind":"feature","creationDate":1000,"key":"flagkey","version":11,"contextKeys":{"user":"userkey"},"variation":1,"value":"b","default":"c","samplingRatio":0},
+				{"kind":"summary","startDate":1000,"endDate":1000,"features":{"flagkey":{"default":"c","counters":[{"variation":1,"version":11,"value":"b","count":1}],"contextKinds":["user"]}}}
+			]`,
+		},
+		{
+			name: "feature event can be emitted without the summary event",
+			inputEventsJSON: `
+			[
+				{ "kind": "feature", "creationDate": 1000, "key": "flagkey", "user": {"key": "userkey"},
+				"value": "b", "default": "c", "version": 11, "variation": 1, "trackEvents": true, "samplingRatio": 1, "excludeFromSummaries": true }
+			]`,
+			expectedEventsJSON: `
+			[
+				{"kind":"index","creationDate":1000,"context":{"key": "userkey"}},
+				{"kind":"feature","creationDate":1000,"key":"flagkey","version":11,"contextKeys":{"user":"userkey"},"variation":1,"value":"b","default":"c"}
 			]`,
 		},
 		{

@@ -58,6 +58,8 @@ type FeatureEvent struct {
 	Default              ldvalue.Value              `json:"default"`
 	TrackEvents          ldvalue.OptionalBool       `json:"trackEvents"`
 	DebugEventsUntilDate ldtime.UnixMillisecondTime `json:"debugEventsUntilDate"`
+	SamplingRatio        ldvalue.OptionalInt        `json:"samplingRatio"`
+	ExcludeFromSummaries ldvalue.OptionalBool       `json:"excludeFromSummaries"`
 	Reason               ldreason.EvaluationReason  `json:"reason"`
 }
 
