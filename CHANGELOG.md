@@ -2,6 +2,10 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.2.0] - 2023-10-24
+### Added:
+- Support sampling and exclusions in PHP events
+
 ## [8.1.1] - 2023-10-20
 ### Fixed:
 - The big segments synchronization process will now handle empty versions correctly when using DynamoDB.
