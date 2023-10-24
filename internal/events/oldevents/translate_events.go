@@ -28,11 +28,14 @@ func TranslateFeatureEvent(
 			CreationDate: e.CreationDate,
 			Context:      e.actualContext,
 		},
-		Key:     e.Key,
-		Version: e.Version,
-		Value:   e.Value,
-		Default: e.Default,
-		Reason:  e.Reason,
+		Key:                  e.Key,
+		Version:              e.Version,
+		Value:                e.Value,
+		Default:              e.Default,
+		Reason:               e.Reason,
+		SamplingRatio:        e.SamplingRatio, /* Pass along the recorded sampling ratio */
+		ForceSampling:        true,            /* Indicate to the event processor that this event must be selected to avoid double-sampling */
+		ExcludeFromSummaries: e.ExcludeFromSummaries.BoolValue(),
 	}
 
 	if e.Version.IsDefined() {

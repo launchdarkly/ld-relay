@@ -59,12 +59,13 @@ func TestTranslateFeatureEvent(t *testing.T) {
 			input:         `{` + baseJSON + `, "version": 11}`,
 			flag:          basicFlag,
 			expected: ldevents.EvaluationData{
-				BaseEvent: baseProps,
-				Key:       "flagkey",
-				Version:   expectedVersion,
-				Variation: expectedVariation,
-				Value:     expectedValue,
-				Default:   expectedDefault,
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Version:       expectedVersion,
+				Variation:     expectedVariation,
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
 			},
 		},
 		{
@@ -79,6 +80,7 @@ func TestTranslateFeatureEvent(t *testing.T) {
 				Value:            expectedValue,
 				Default:          expectedDefault,
 				RequireFullEvent: true,
+				ForceSampling:    true,
 			},
 		},
 		{
@@ -93,6 +95,7 @@ func TestTranslateFeatureEvent(t *testing.T) {
 				Value:                expectedValue,
 				Default:              expectedDefault,
 				DebugEventsUntilDate: debugTime,
+				ForceSampling:        true,
 			},
 		},
 		{
@@ -100,10 +103,11 @@ func TestTranslateFeatureEvent(t *testing.T) {
 			input:         `{` + baseJSON + `}`,
 			// no flag data, because the lack of "version" means it's an unknown flag
 			expected: ldevents.EvaluationData{
-				BaseEvent: baseProps,
-				Key:       "flagkey",
-				Value:     expectedValue,
-				Default:   expectedDefault,
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
 			},
 		},
 		{
@@ -111,12 +115,27 @@ func TestTranslateFeatureEvent(t *testing.T) {
 			input:         `{` + baseJSON + `, "version": 11, "variation": 1}`,
 			flag:          basicFlag,
 			expected: ldevents.EvaluationData{
-				BaseEvent: baseProps,
-				Key:       "flagkey",
-				Version:   expectedVersion,
-				Variation: expectedVariation,
-				Value:     expectedValue,
-				Default:   expectedDefault,
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Version:       expectedVersion,
+				Variation:     expectedVariation,
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
+			},
+		},
+		{
+			schemaVersion: 2,
+			input:         `{` + baseJSON + `, "version": 11, "variation": 1}`,
+			flag:          basicFlag,
+			expected: ldevents.EvaluationData{
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Version:       expectedVersion,
+				Variation:     expectedVariation,
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
 			},
 		},
 		{
@@ -124,12 +143,13 @@ func TestTranslateFeatureEvent(t *testing.T) {
 			input:         `{` + baseJSON + `, "version": 11, "variation": 1, "trackEvents": false}`,
 			// don't need flag data in this case because we see trackEvents
 			expected: ldevents.EvaluationData{
-				BaseEvent: baseProps,
-				Key:       "flagkey",
-				Version:   expectedVersion,
-				Variation: expectedVariation,
-				Value:     expectedValue,
-				Default:   expectedDefault,
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Version:       expectedVersion,
+				Variation:     expectedVariation,
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
 			},
 		},
 		{
@@ -144,6 +164,7 @@ func TestTranslateFeatureEvent(t *testing.T) {
 				Value:            expectedValue,
 				Default:          expectedDefault,
 				RequireFullEvent: true,
+				ForceSampling:    true,
 			},
 		},
 		{
@@ -158,6 +179,7 @@ func TestTranslateFeatureEvent(t *testing.T) {
 				Value:                expectedValue,
 				Default:              expectedDefault,
 				DebugEventsUntilDate: debugTime,
+				ForceSampling:        true,
 			},
 		},
 		{
@@ -165,10 +187,37 @@ func TestTranslateFeatureEvent(t *testing.T) {
 			input:         `{` + baseJSON + `}`,
 			// no flag data, because the lack of "version" means it's an unknown flag
 			expected: ldevents.EvaluationData{
-				BaseEvent: baseProps,
-				Key:       "flagkey",
-				Value:     expectedValue,
-				Default:   expectedDefault,
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
+			},
+		},
+		{
+			schemaVersion: 2,
+			input:         `{` + baseJSON + `, "excludeFromSummaries": true}`,
+			// no flag data, because the lack of "version" means it's an unknown flag
+			expected: ldevents.EvaluationData{
+				BaseEvent:            baseProps,
+				Key:                  "flagkey",
+				Value:                expectedValue,
+				Default:              expectedDefault,
+				ForceSampling:        true,
+				ExcludeFromSummaries: true,
+			},
+		},
+		{
+			schemaVersion: 2,
+			input:         `{` + baseJSON + `, "samplingRatio": 3}`,
+			// no flag data, because the lack of "version" means it's an unknown flag
+			expected: ldevents.EvaluationData{
+				BaseEvent:     baseProps,
+				Key:           "flagkey",
+				Value:         expectedValue,
+				Default:       expectedDefault,
+				ForceSampling: true,
+				SamplingRatio: ldvalue.NewOptionalInt(3),
 			},
 		},
 	} {
