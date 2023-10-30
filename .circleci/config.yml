@@ -54,7 +54,7 @@ workflows:
         cron: "0 * * * *"
         filters:
           branches:
-            only: v7
+            only: v8
     jobs:
       - integration-test
     when:
@@ -65,7 +65,7 @@ workflows:
         cron: "0 * * * *"
         filters:
           branches:
-            only: v7
+            only: v8
     jobs:
       - integration-test:
           ld_api_url: https://app.launchdarkly.com
@@ -82,7 +82,7 @@ workflows:
         cron: "0 8 * * *"
         filters:
           branches:
-            only: v7
+            only: v8
     jobs:
       - package-build-test:
           name: package build - Go <<pipeline.parameters.go-release-version>>
@@ -97,7 +97,7 @@ workflows:
         cron: "0 12 * * *"
         filters:
           branches:
-            only: v7
+            only: v8
     jobs:
       - security-scan-of-current-build
       - security-scan-of-published-image
