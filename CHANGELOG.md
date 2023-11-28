@@ -29,6 +29,10 @@ All notable changes to the LaunchDarkly Relay will be documented in this file. T
 ### Removed:
 - `DisableInternalUsageMetrics` configuration has been removed.
 
+## [7.4.1] - 2023-10-20
+### Fixed:
+- The big segments synchronization process will now handle empty versions correctly when using DynamoDB.
+
 ## [7.4.0] - 2023-10-17
 ### Changed:
 - Build with Go 1.21 and 1.20 in CI
