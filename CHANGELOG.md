@@ -2,6 +2,11 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.4.2] - 2023-11-29
+### Changed:
+- Bump google.golang.org/grpc from 1.55.0 to 1.56.3
+- Bump Alpine from 3.18.3 to 3.18.4
+
 ## [7.4.1] - 2023-10-20
 ### Fixed:
 - The big segments synchronization process will now handle empty versions correctly when using DynamoDB.
