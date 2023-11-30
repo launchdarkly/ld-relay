@@ -4,7 +4,7 @@
 
 You can configure Relay Proxy nodes to persist feature flag settings in Redis, DynamoDB, or Consul. This provides durability in use cases like a temporary network partition that prevents the Relay Proxy from communicating with LaunchDarkly's servers. If you use Big Segments, you can only use Redis or DynamoDB as a feature store.
 
-To learn more, read [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/feature-store), and the Relay Proxy documentation on [Configuration](./configuration.md).
+To learn more, read [Using a persistent feature store](https://docs.launchdarkly.com/sdk/concepts/data-stores), and the Relay Proxy documentation on [Configuration](./configuration.md).
 
 The Relay Proxy does not support clustered Redis or Redis Sentinel.
 
@@ -34,9 +34,9 @@ DYNAMODB_TABLE=my-feature-flags
 CACHE_TTL=30s
 ```
 
-The Relay Proxy can only use one of these at a time. If you enabled both Redis and DynamoDB it would result in an error.
+The Relay Proxy can only use one of these at a time. If you enable both Redis and DynamoDB it will result in an error.
 
-LaunchDarkly SDK clients have their own options for configuring persistent storage. If you use [daemon mode](../README.md#daemon-mode), the clients need to be using the same storage configuration as the Relay Proxy. If you are not using daemon mode, the two configurations are completely independent. For example, you could have a relay using Redis, but a client using DynamoDB or not using persistent storage at all.
+LaunchDarkly SDK clients have their own options for configuring persistent storage. If you use [daemon mode](../README.md#daemon-mode), the clients need to be using the same storage configuration as the Relay Proxy. If you are not using daemon mode, the two configurations are completely independent. For example, you could have a Relay Proxy using Redis, but a client using DynamoDB or not using persistent storage at all.
 
 If the database becomes unavailable, the Relay Proxy's behavior, based on its use of the Go SDK, depends on the `CACHE_TTL` setting:
 
