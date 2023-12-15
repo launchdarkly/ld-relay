@@ -50,12 +50,16 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 		c.OfflineMode.EnvAllowedOrigin = ct.OptStringList{}
 		c.OfflineMode.EnvAllowedHeader = ct.OptStringList{}
 		c.OfflineMode.EnvDatastorePrefix = ""
+		c.OfflineMode.EnvDatastorePrefixTemplate = ""
 		c.OfflineMode.EnvDatastoreTableName = ""
+		c.OfflineMode.EnvDatastoreTableNameTemplate = ""
 	} else if c.OfflineMode.FileDataSource != "" {
 		c.AutoConfig.EnvAllowedOrigin = ct.OptStringList{}
 		c.AutoConfig.EnvAllowedHeader = ct.OptStringList{}
 		c.AutoConfig.EnvDatastorePrefix = ""
+		c.AutoConfig.EnvDatastorePrefixTemplate = ""
 		c.AutoConfig.EnvDatastoreTableName = ""
+		c.AutoConfig.EnvDatastoreTableNameTemplate = ""
 	}
 
 	reader.ReadStruct(&c.Events, false)

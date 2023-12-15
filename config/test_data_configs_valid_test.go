@@ -65,6 +65,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
+		makeValidConfigAutoConfigWithDatabaseTemplatePrefixes(),
 		makeValidConfigFileData(),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
@@ -324,6 +325,42 @@ func makeValidConfigAutoConfigWithDatabase() testDataValidConfig {
 Key = autokey
 EnvDatastorePrefix = prefix-$CID
 EnvDatastoreTableName = table-$CID
+EnvAllowedOrigin = http://first
+EnvAllowedOrigin = http://second
+EnvAllowedHeader = First
+EnvAllowedHeader = Second
+
+[DynamoDB]
+Enabled = true
+`
+	return c
+}
+
+func makeValidConfigAutoConfigWithDatabaseTemplatePrefixes() testDataValidConfig {
+	c := testDataValidConfig{name: "auto-config properties with database using template prefixes"}
+	c.makeConfig = func(c *Config) {
+		c.AutoConfig = AutoConfigConfig{
+			Key:                           AutoConfigKey("autokey"),
+			EnvDatastorePrefixTemplate:    "prefix-{{.EnvID}}",
+			EnvDatastoreTableNameTemplate: "table-{{.EnvID}}",
+			EnvAllowedOrigin:              ct.NewOptStringList([]string{"http://first", "http://second"}),
+			EnvAllowedHeader:              ct.NewOptStringList([]string{"First", "Second"}),
+		}
+		c.DynamoDB.Enabled = true
+	}
+	c.envVars = map[string]string{
+		"AUTO_CONFIG_KEY":                   "autokey",
+		"ENV_DATASTORE_PREFIX_TEMPLATE":     "prefix-{{.EnvID}}",
+		"ENV_DATASTORE_TABLE_NAME_TEMPLATE": "table-{{.EnvID}}",
+		"ENV_ALLOWED_ORIGIN":                "http://first,http://second",
+		"ENV_ALLOWED_HEADER":                "First,Second",
+		"USE_DYNAMODB":                      "1",
+	}
+	c.fileContent = `
+[AutoConfig]
+Key = autokey
+EnvDatastorePrefixTemplate = "prefix-{{.EnvID}}"
+EnvDatastoreTableNameTemplate = "table-{{.EnvID}}"
 EnvAllowedOrigin = http://first
 EnvAllowedOrigin = http://second
 EnvAllowedHeader = First

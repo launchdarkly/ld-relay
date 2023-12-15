@@ -48,8 +48,18 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		config.Events = ldcomponents.NoEvents()
 		return config
 	}
-	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	_, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	envConfigFactory, err := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode)
+	if err != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
+		return
+	}
+	envConfig, err := envConfigFactory.MakeEnvironmentConfig(ae.Params)
+	if err != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
+		return
+	}
+
+	_, _, err = a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return

@@ -149,20 +149,24 @@ type MainConfig struct {
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
 type AutoConfigConfig struct {
-	Key                   AutoConfigKey    `conf:"AUTO_CONFIG_KEY"`
-	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
-	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
-	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
-	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	Key                           AutoConfigKey    `conf:"AUTO_CONFIG_KEY"`
+	EnvDatastorePrefix            string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastorePrefixTemplate    string           `conf:"ENV_DATASTORE_PREFIX_TEMPLATE"`
+	EnvDatastoreTableName         string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvDatastoreTableNameTemplate string           `conf:"ENV_DATASTORE_TABLE_NAME_TEMPLATE"`
+	EnvAllowedOrigin              ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader              ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
 type OfflineModeConfig struct {
-	FileDataSource        string           `conf:"FILE_DATA_SOURCE"`
-	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
-	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
-	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
-	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	FileDataSource                string           `conf:"FILE_DATA_SOURCE"`
+	EnvDatastorePrefix            string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastorePrefixTemplate    string           `conf:"ENV_DATASTORE_PREFIX_TEMPLATE"`
+	EnvDatastoreTableName         string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvDatastoreTableNameTemplate string           `conf:"ENV_DATASTORE_TABLE_NAME_TEMPLATE"`
+	EnvAllowedOrigin              ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader              ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.

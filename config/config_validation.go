@@ -18,11 +18,13 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisBadHostname        = errors.New("invalid Redis hostname")
-	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
-	errAutoConfWithFilters     = errors.New("cannot configure filters if auto-configuration is enabled")
-	errMissingProjKey          = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errAutoConfWithPrefixAndPrefixTemplate       = errors.New(`cannot configure both prefix and prefix template for auto-configuration`)
+	errAutoConfWithTableNameAndTableNameTemplate = errors.New(`cannot configure both table name and table name template for auto-configuration`)
+	errRedisURLWithHostAndPort                   = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisBadHostname                          = errors.New("invalid Redis hostname")
+	errConsulTokenAndTokenFile                   = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errAutoConfWithFilters                       = errors.New("cannot configure filters if auto-configuration is enabled")
+	errMissingProjKey                            = errors.New("when filters are configured, all environments must specify a 'projKey'")
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -114,6 +116,7 @@ func validateConfigTLS(result *ct.ValidationResult, c *Config) {
 func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	if c.AutoConfig.Key == "" {
 		if c.AutoConfig.EnvDatastorePrefix != "" || c.AutoConfig.EnvDatastoreTableName != "" ||
+			c.AutoConfig.EnvDatastorePrefixTemplate != "" || c.AutoConfig.EnvDatastoreTableNameTemplate != "" ||
 			len(c.AutoConfig.EnvAllowedOrigin.Values()) != 0 || len(c.AutoConfig.EnvAllowedHeader.Values()) != 0 {
 			result.AddError(nil, errAutoConfPropertiesWithNoKey)
 		}
@@ -122,6 +125,7 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	}
 	if c.OfflineMode.FileDataSource == "" {
 		if c.OfflineMode.EnvDatastorePrefix != "" || c.OfflineMode.EnvDatastoreTableName != "" ||
+			c.OfflineMode.EnvDatastorePrefixTemplate != "" || c.OfflineMode.EnvDatastoreTableNameTemplate != "" ||
 			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 || len(c.OfflineMode.EnvAllowedHeader.Values()) != 0 {
 			result.AddError(nil, errOfflineModePropertiesWithNoFile)
 		}
@@ -232,9 +236,17 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 
 	case c.AutoConfig.Key.Defined():
 		// Same as previous case, except that in auto-config mode we must assume that there are multiple environments.
-		if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
-			!(c.DynamoDB.Enabled && strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
+		if !(strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) || c.AutoConfig.EnvDatastorePrefixTemplate != "") &&
+			!(c.DynamoDB.Enabled && (strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) || c.AutoConfig.EnvDatastoreTableNameTemplate != "") {
 			result.AddError(nil, errAutoConfWithoutDBDisambig)
+		}
+
+		if c.AutoConfig.EnvDatastorePrefix != "" && c.AutoConfig.EnvDatastorePrefixTemplate != "" {
+			result.AddError(nil, errAutoConfWithPrefixAndPrefixTemplate)
+		}
+
+		if c.AutoConfig.EnvDatastoreTableName != "" && c.AutoConfig.EnvDatastoreTableNameTemplate != "" {
+			result.AddError(nil, errAutoConfWithTableNameAndTableNameTemplate)
 		}
 	}
 }

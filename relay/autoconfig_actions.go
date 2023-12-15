@@ -27,7 +27,14 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
-	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
+	envConfigFactory, err := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig)
+	if err != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+	}
+	envConfig, err := envConfigFactory.MakeEnvironmentConfig(params)
+	if err != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+	}
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
