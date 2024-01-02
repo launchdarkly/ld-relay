@@ -13,7 +13,7 @@ import (
 // and the port number, and then closes the listener.
 func WithListenerForAnyPort(t *testing.T, fn func(net.Listener, int)) {
 	l, port := startListenerForAnyAvailablePort(t)
-	defer l.Close() //nolint:errcheck,gosec
+	defer l.Close() //nolint:errcheck
 	fn(l, port)
 }
 
