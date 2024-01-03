@@ -170,6 +170,13 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 	})
 }
 
+func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
+	tmpFilePath := fmt.Sprintf("%s.%d", filePath, time.Now().UnixNano())
+	writeArchive(t, tmpFilePath, compressed, modifyFn, envs...)
+	// do this as an atomic operation
+	os.Rename(tmpFilePath, filePath)
+}
+
 func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
 	_ = os.Remove(filePath)
 
