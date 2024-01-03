@@ -8,6 +8,11 @@ All notable changes to the LaunchDarkly Relay will be documented in this file. T
 - Bump Alpine from 3.18.3 to 3.18.4
 - Bump github.com/docker/docker from v23.0.3 to v24.0.7
 
+## [7.4.2] - 2023-11-29
+### Changed:
+- Bump google.golang.org/grpc from 1.55.0 to 1.56.3
+- Bump Alpine from 3.18.3 to 3.18.4
+
 ## [8.2.0] - 2023-10-24
 ### Added:
 - Support sampling and exclusions in PHP events
