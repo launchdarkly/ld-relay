@@ -121,6 +121,11 @@ func TestFileAtomicUpdatedWithValidDataAddedEnvironment(t *testing.T) {
 
 		p.expectEnvironmentsAdded(testEnv2)
 		p.expectReloaded()
+
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1)
+
+		p.expectEnvironmentsDeleted(testEnv2)
+		p.expectReloaded()
 	})
 }
 
