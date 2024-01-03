@@ -124,16 +124,9 @@ func TestFileAtomicUpdatedWithValidDataAddedEnvironment(t *testing.T) {
 
 		writeAtomicArchive(t, p.filePath, false, nil, testEnv1)
 
-		p.expectEnvironmentsDeleted(testEnv2)
+		p.expectEnvironmentsDeleted(testEnv2.id())
 		p.expectReloaded()
 	})
-}
-
-func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
-	tmpFilePath := fmt.Sprintf("%s.%d", filePath, time.Now().UnixNano())
-	writeArchive(t, tmpFilePath, compressed, modifyFn, envs...)
-	// do this as an atomic operation
-	os.Rename(tmpFilePath, filePath)
 }
 
 func TestFileUpdatedWithValidDataUpdatedEnvironmentMetadataOnly(t *testing.T) {
