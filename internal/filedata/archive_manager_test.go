@@ -109,6 +109,28 @@ func TestFileUpdatedWithValidDataAddedEnvironment(t *testing.T) {
 	})
 }
 
+func TestFileAtomicUpdatedWithValidDataAddedEnvironment(t *testing.T) {
+	archiveManagerTest(t, func(filePath string) {
+		writeAtomicArchive(t, filePath, false, nil, testEnv1)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+
+		p.expectEnvironmentsAdded(testEnv1)
+
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1, testEnv2)
+
+		p.expectEnvironmentsAdded(testEnv2)
+		p.expectReloaded()
+	})
+}
+
+func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
+	tmpFilePath := fmt.Sprintf("%s.%d", filePath, time.Now().UnixNano())
+	writeArchive(t, tmpFilePath, compressed, modifyFn, envs)
+	// do this as an atomic operation
+	os.Rename(tmpFilePath, filePath)
+}
+
 func TestFileUpdatedWithValidDataUpdatedEnvironmentMetadataOnly(t *testing.T) {
 	archiveManagerTest(t, func(filePath string) {
 		writeArchive(t, filePath, false, nil, testEnv1, testEnv2)
