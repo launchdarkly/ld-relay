@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.4.3] - 2024-01-03
+### Changed:
+- Build with Go 1.21.5 and 1.20.12 in CI
+- Bumped Alpine from 3.18 to 3.19
+- Bumped go-git from 5.7.0 to 5.11.0 
+- Bumped x/crypto from 0.14.0 to 0.17
+
 ## [7.4.2] - 2023-11-29
 ### Changed:
 - Bump google.golang.org/grpc from 1.55.0 to 1.56.3
