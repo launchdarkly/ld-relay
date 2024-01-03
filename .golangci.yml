@@ -1,13 +1,12 @@
 project_name: ld-relay
 
 run:
-  deadline: 120s
+  timeout: 120s
   tests: false
 
 linters:
   enable:
     - bodyclose
-    - depguard
     - dupl
     - errcheck
     - goconst

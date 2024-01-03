@@ -1,6 +1,6 @@
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
-FROM golang:1.21.3-alpine3.18 as builder
+FROM golang:1.21.5-alpine3.19 as builder
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk --no-cache add \
@@ -21,7 +21,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr .
 
-FROM alpine:3.18.4
+FROM alpine:3.19.0
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
@@ -30,7 +30,7 @@ RUN addgroup -g 1000 -S ldr-user && \
 
 RUN apk add --no-cache \
     ca-certificates \
- && apk add --upgrade libcrypto1.1 libssl1.1 git \
+ && apk add --upgrade libcrypto3 libssl3 \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
