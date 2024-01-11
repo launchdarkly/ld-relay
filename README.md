@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy
 
-[![Actions Status](https://github.com/ld-relay-private/actions/workflows/ci.yml/badge.svg)](https://github.com/launchdarkly/ld-relay-private/actions/workflows/ci.yml)
+[![Actions Status](https://github.com/launchdarkly/ld-relay-private/actions/workflows/ci.yml/badge.svg)](https://github.com/launchdarkly/ld-relay-private/actions/workflows/ci.yml)
 
 ## About the LaunchDarkly Relay Proxy
 
