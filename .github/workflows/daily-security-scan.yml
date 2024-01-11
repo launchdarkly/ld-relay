@@ -5,19 +5,20 @@ on:
       docker-image:
         description: "The Docker image to scan."
         required: false
+        default: 'launchdarkly/ld-relay:latest'
 
   schedule:
     - cron: "0 8 * * *"
 
 jobs:
   scan-relay:
-    name: ${{ format('Trivy Scan of Docker Image ({0})', inputs.docker-image || 'launchdarkly/relay:latest') }}
+    name: ${{ format('Trivy Scan of Docker Image ({0})', inputs.docker-image) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ inputs.docker-image || 'launchdarkly/relay:latest' }}
+          image-ref: ${{ inputs.docker-image }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
