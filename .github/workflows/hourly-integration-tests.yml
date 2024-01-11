@@ -18,7 +18,7 @@ jobs:
 
   integration-test-staging:
     needs: go-versions
-    uses: ./.github/workflows/integration-tests.yml
+    uses: ./.github/workflows/integration-test.yml
     with:
       environment: 'staging'
       go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
