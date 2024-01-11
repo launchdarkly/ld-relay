@@ -25,7 +25,7 @@ jobs:
       contents: read
 
     runs-on: ubuntu-latest
-    name: ${{ format('Integration Tests (Go {0})', inputs.go-version) }}
+    name: ${{ format('Integration Tests - {0} (Go {1})', inputs.environment, inputs.go-version) }}
     steps:
       - uses: actions/checkout@v4
         with:

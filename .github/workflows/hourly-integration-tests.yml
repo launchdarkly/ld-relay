@@ -26,7 +26,7 @@ jobs:
 
   integration-test-production:
       needs: go-versions
-      uses: ./.github/workflows/integration-tests.yml
+      uses: ./.github/workflows/integration-test.yml
       with:
         environment: 'production'
         go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
