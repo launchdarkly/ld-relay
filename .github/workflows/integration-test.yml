@@ -1,0 +1,92 @@
+name: Integration Test
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        type: string
+        description: 'Go version to use for building Relay.'
+        required: true
+      environment:
+        type: string
+        description: "The environment to test against ('staging' or 'production')"
+        required: false
+        default: 'staging'
+      branch:
+        type: string
+        description: "Branch to test."
+        required: false
+
+
+jobs:
+  integration-test:
+    # Needed for AWS SSM step.
+    permissions:
+      id-token: write
+      contents: read
+
+    runs-on: ubuntu-latest
+    name: ${{ format('Integration Tests (Go {0})', inputs.go-version) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Validate environment
+        if: ${{ !(inputs.environment == 'staging' || inputs.environment == 'production') }}
+        shell: bash
+        run: |
+          echo "invalid environment"
+          exit 1
+
+      - name: Set base URLs
+        id: urls
+        shell: bash
+        run: |
+          if [[ ${{ inputs.environment }} == 'staging' ]]; then
+            echo "api=https://ld-stg.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "stream=https://stream-stg.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "sdk=https://sdk-stg.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "clientsdk=https://clientsdk-stg.launchdarkly.com" >> $GITHUB_OUTPUT
+          else
+            echo "api=https://app.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "stream=https://stream.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "sdk=https://sdk.launchdarkly.com" >> $GITHUB_OUTPUT
+            echo "clientsdk=https://clientsdk.launchdarkly.com" >> $GITHUB_OUTPUT
+          fi
+      - name: Setup Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Install go-junit-report
+        shell: bash
+        run: go install github.com/jstemmer/go-junit-report@v0.9.1
+
+      - name: Fetch REST token
+        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.0
+        with:
+          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
+          ssm_parameter_pairs: ${{ format('/development/relay-proxy/launchdarkly-rest-api/{0}_token = LD_API_TOKEN', inputs.environment) }}
+
+      - name: Run integration tests
+        id: integration-test
+        shell: bash
+        env:
+          LD_API_URL: ${{ steps.urls.outputs.api }}
+          LD_STREAM_URL: ${{ steps.urls.outputs.stream }}
+          LD_SDK_URL: ${{ steps.urls.outputs.sdk }}
+          LD_CLIENT_SDK_URL: ${{ steps.urls.outputs.clientsdk }}
+        run: make integration-test | tee raw_report.txt
+
+      - name: Process test results
+        if: steps.integration-test.outcome == 'success'
+        id: process-integration-test
+        shell: bash
+        run: go-junit-report < raw_report.txt > junit_report_integrationtests_${{ inputs.go-version }}.xml
+
+      - name: Upload test results
+        if: steps.process-integration-test.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Integration-test-results-${{ inputs.go-version }}
+          path: junit_report_integrationtests_${{ inputs.go-version }}.xml

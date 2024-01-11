@@ -1,6 +1,6 @@
 # LaunchDarkly Relay Proxy
 
-[![Circle CI](https://circleci.com/gh/launchdarkly/ld-relay.svg?style=shield)](https://circleci.com/gh/launchdarkly/ld-relay)
+[![Actions Status](https://github.com/ld-relay-private/actions/workflows/ci.yml/badge.svg)](https://github.com/launchdarkly/ld-relay-private/actions/workflows/ci.yml)
 
 ## About the LaunchDarkly Relay Proxy
 

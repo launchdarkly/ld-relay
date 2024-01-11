@@ -1,0 +1,35 @@
+name: Install Relay
+description: "Installs Relay's Go module using normal Go tooling."
+inputs:
+  go-version:
+    description: 'Go version to use for installation.'
+    required: true
+  relay-major:
+    description: "Relay major version to install, e.g. 'v8'."
+    required: false
+    default: 'v8'
+  relay-version:
+    description: "Relay semver to install e.g. 'latest'."
+    required: false
+    default: 'latest'
+
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go ${{ inputs.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Install Relay ${{ inputs.relay-version-suffix }}
+      shell: bash
+      run: go install github.com/launchdarkly/ld-relay/${{ inputs.relay-major }}@${{ inputs.relay-version }}
+
+    - name: Verify Binary Installation
+      shell: bash
+      run: ls -l $(go env GOPATH)/bin/ld-relay
+
+    - name: Print Version
+      shell: bash
+      run: $(go env GOPATH)/bin/ld-relay --version

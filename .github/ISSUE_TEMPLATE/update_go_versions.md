@@ -17,7 +17,5 @@ Note that between major releases, the Go team often ships multiple minor version
 
 Run locally:
 ```bash
-./scripts/update-go-release-version.sh {{ env.OFFICIAL_LATEST_VERSION }}
+./scripts/update-go-release-version.sh {{ env.OFFICIAL_LATEST_VERSION }} {{ env.OFFICIAL_PENULTIMATE_VERSION }}
 ```
-
-Then modify `.circle/config.yml`'s `go-previous-version` variable to `{{ env.OFFICIAL_PENULTIMATE_VERSION}}`.

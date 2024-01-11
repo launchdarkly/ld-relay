@@ -1,0 +1,33 @@
+name: 'Integration Tests'
+on:
+  workflow_dispatch:
+    inputs:
+      go-version:
+        description: "Go version to use for building Relay."
+        required: false
+      branch:
+        description: "Branch to test."
+        required: false
+
+  schedule:
+    - cron: "0 * * * *"
+
+jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
+  integration-test-staging:
+    needs: go-versions
+    uses: ./.github/workflows/integration-tests.yml
+    with:
+      environment: 'staging'
+      go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
+      branch: ${{ inputs.branch }}
+
+  integration-test-production:
+      needs: go-versions
+      uses: ./.github/workflows/integration-tests.yml
+      with:
+        environment: 'production'
+        go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
+        branch: ${{ inputs.branch }}
