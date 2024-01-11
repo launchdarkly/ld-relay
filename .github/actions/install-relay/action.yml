@@ -7,12 +7,9 @@ inputs:
   relay-major:
     description: "Relay major version to install, e.g. 'v8'."
     required: false
-    default: 'v8'
   relay-version:
     description: "Relay semver to install e.g. 'latest'."
     required: false
-    default: 'latest'
-
 
 runs:
   using: composite
@@ -22,9 +19,19 @@ runs:
       with:
         go-version: ${{ inputs.go-version }}
 
-    - name: Install Relay ${{ inputs.relay-version-suffix }}
+    - name: Determine Relay Version
+      id: rv
       shell: bash
-      run: go install github.com/launchdarkly/ld-relay/${{ inputs.relay-major }}@${{ inputs.relay-version }}
+      env:
+        MAJOR: ${{ inputs.relay-major }}
+        SEMVER: ${{ inputs.relay-version }}
+      run: |
+        echo "major=${MAJOR:-v8}" >> $GITHUB_OUTPUT
+        echo "semver=${SEMVER:-latest}" >> $GITHUB_OUTPUT
+
+    - name: Install Relay ${{ steps.rv.outputs.major }}/${{ steps.rv.outputs.semver }}
+      shell: bash
+      run: go install github.com/launchdarkly/ld-relay/${{ steps.rv.outputs.major }}@${{ steps.rv.outputs.semver }}
 
     - name: Verify Binary Installation
       shell: bash

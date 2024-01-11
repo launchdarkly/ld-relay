@@ -5,9 +5,11 @@ on:
       go-version:
         description: "Go version to use for building Relay."
         required: false
+        type: string
       branch:
         description: "Branch to test."
         required: false
+        type: string
 
   schedule:
     - cron: "0 * * * *"
@@ -16,18 +18,14 @@ jobs:
   go-versions:
     uses: ./.github/workflows/go-versions.yml
 
-  integration-test-staging:
+  integration-test:
     needs: go-versions
+    strategy:
+      matrix:
+        environment: ['staging', 'production']
+
     uses: ./.github/workflows/integration-test.yml
     with:
-      environment: 'staging'
-      go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
+      environment: ${{ matrix.environment }}
+      go-version: ${{ inputs.go-version != '' && inputs.go-version || needs.go-versions.outputs.latest }}
       branch: ${{ inputs.branch }}
-
-  integration-test-production:
-      needs: go-versions
-      uses: ./.github/workflows/integration-test.yml
-      with:
-        environment: 'production'
-        go-version: ${{ inputs.go-version || needs.go-version.outputs.latest }}
-        branch: ${{ inputs.branch }}

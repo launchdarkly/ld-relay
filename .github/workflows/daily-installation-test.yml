@@ -4,12 +4,15 @@ on:
     inputs:
       relay-version:
         description: "Relay version to install, e.g. 'latest'"
+        type: string
         required: false
       relay-major:
         description: "Relay major version to install, e.g. 'v8'."
+        type: string
         required: false
       branch:
         description: "Branch to test."
+        type: string
         required: false
 
   schedule:
