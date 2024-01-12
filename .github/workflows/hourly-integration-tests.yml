@@ -21,6 +21,8 @@ jobs:
   integration-test:
     needs: go-versions
     strategy:
+      # Let each job fail independently.
+      fail-fast: false
       matrix:
         environment: ['staging', 'production']
 
