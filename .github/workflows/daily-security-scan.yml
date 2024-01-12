@@ -1,24 +1,31 @@
 name: Security Scan
+
 on:
   workflow_dispatch:
     inputs:
       docker-image:
-        description: "The Docker image to scan."
+        description: 'The image. Defaults to launchdarkly/ld-relay:latest.'
+        type: string
         required: false
-        default: 'launchdarkly/ld-relay:latest'
 
   schedule:
     - cron: "0 8 * * *"
 
 jobs:
   scan-relay:
-    name: ${{ format('Trivy Scan of Docker Image ({0})', inputs.docker-image) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Determine image
+        id: image
+        env:
+          IMAGE: ${{ inputs.docker-image }}
+        run: |
+          echo "value=${IMAGE:-launchdarkly/ld-relay:latest}" >> $GITHUB_OUTPUT
+
       - uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ inputs.docker-image }}
+          image-ref: ${{ steps.image.outputs.value }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
