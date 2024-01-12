@@ -40,7 +40,7 @@ jobs:
         # If the latest official Go version is different from Relay's release version, generate an issue
         # with useful details.
       - name: Create issue if update required
-        if: fromJSON(inputs.force_create_issue) || (needs.go-versions.outputs.latest != env.officialLatestVersion)
+        if: inputs.force_create_issue || (needs.go-versions.outputs.latest != env.officialLatestVersion)
         uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
