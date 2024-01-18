@@ -30,6 +30,8 @@ import (
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -42,18 +44,24 @@ const (
 	// 1 second because the previous value of 100ms seemed unnecessarily aggressive.
 	defaultStatusPollInterval = 1 * time.Second
 	relayContainerSharedDir   = "/tmp/relay-shared"
+
+	defaultRateLimitInterval = 10 // seconds
+	defaultRateLimitBurst    = 5  // requests per interval
+
 )
 
 type autoConfigID string
 
 type integrationTestParams struct {
-	LDAPIBaseURL    ct.OptString `conf:"LD_API_URL"`
-	LDStreamBaseURL ct.OptString `conf:"LD_STREAM_URL"`
-	LDSDKBaseURL    ct.OptString `conf:"LD_SDK_URL"`
-	LDClientSDKURL  ct.OptString `conf:"LD_CLIENT_SDK_URL"`
-	APIToken        string       `conf:"LD_API_TOKEN,required"`
-	RelayTagOrSHA   string       `conf:"RELAY_TAG_OR_SHA"`
-	HTTPLogging     bool         `conf:"HTTP_LOGGING"`
+	LDAPIBaseURL        ct.OptString `conf:"LD_API_URL"`
+	LDStreamBaseURL     ct.OptString `conf:"LD_STREAM_URL"`
+	LDSDKBaseURL        ct.OptString `conf:"LD_SDK_URL"`
+	LDClientSDKURL      ct.OptString `conf:"LD_CLIENT_SDK_URL"`
+	LDRateLimitBurst    ct.OptInt    `conf:"LD_API_RATE_LIMIT_BURST"`
+	LDRateLimitInterval ct.OptInt    `conf:"LD_API_RATE_LIMIT_INTERVAL"`
+	APIToken            string       `conf:"LD_API_TOKEN,required"`
+	RelayTagOrSHA       string       `conf:"RELAY_TAG_OR_SHA"`
+	HTTPLogging         bool         `conf:"HTTP_LOGGING"`
 }
 
 // integrationTestManager is the base logic for all of the integration tests. It's responsible for starting Relay
@@ -81,6 +89,18 @@ type integrationTestManager struct {
 	relayLogLock       sync.Mutex
 }
 
+type rateLimiter struct {
+	transport http.RoundTripper
+	limiter   *rate.Limiter
+}
+
+func (r *rateLimiter) RoundTrip(request *http.Request) (*http.Response, error) {
+	if err := r.limiter.Wait(request.Context()); err != nil {
+		return nil, err
+	}
+	return r.transport.RoundTrip(request)
+}
+
 func newIntegrationTestManager() (*integrationTestManager, error) {
 	var params integrationTestParams
 
@@ -97,13 +117,17 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	streamURL := params.LDStreamBaseURL.GetOrElse(defaultStreamBaseURL)
 	sdkURL := params.LDSDKBaseURL.GetOrElse(defaultSDKBaseURL)
 	clientSDKURL := params.LDClientSDKURL.GetOrElse(defaultClientSDKBaseURL)
+	rateLimitBurst := params.LDRateLimitBurst.GetOrElse(defaultRateLimitBurst)
+	rateLimitInterval := params.LDRateLimitInterval.GetOrElse(defaultRateLimitInterval)
 
 	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, loggers: loggers}
 	requestLogger.loggers.SetPrefix("[HTTP]")
 
+	rateLimiter := &rateLimiter{transport: requestLogger, limiter: rate.NewLimiter(rate.Limit(time.Duration(rateLimitInterval)*time.Second), rateLimitBurst)}
+
 	hc := *http.DefaultClient
 	httpClient := &hc
-	httpClient.Transport = requestLogger
+	httpClient.Transport = rateLimiter
 
 	apiConfig := ldapi.NewConfiguration()
 	apiConfig.Servers = []ldapi.ServerConfiguration{

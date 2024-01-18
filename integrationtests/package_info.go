@@ -13,6 +13,12 @@
 // - LD_API_TOKEN: required, must be an API access token with admin permission; this should be set in
 // CircleCI as part of the project configuration
 //
+// - LD_API_RATE_LIMIT_INTERVAL: optional rate limiting interval for making API requests using the Go API client.
+// Defaults to 10 seconds to match LaunchDarkly docs. This is a global rate limit.
+//
+// - LD_API_RATE_LIMIT_BURST: optional rate limit burst (how many in the interval). Defaults to 5 as a conservative
+// guesstimate.
+//
 // - RELAY_TAG_OR_SHA: optional branch/tag name or commit hash in the ld-relay-private repo, to test
 // that specific version rather than the working copy that the tests are running in
 //

@@ -5,6 +5,7 @@ package integrationtests
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,7 +33,8 @@ func (a *apiHelper) logResult(desc string, err error) error {
 		return nil
 	}
 	addInfo := ""
-	if gse, ok := err.(ldapi.GenericOpenAPIError); ok {
+	var gse ldapi.GenericOpenAPIError
+	if errors.As(err, &gse) {
 		body := string(gse.Body())
 		addInfo = " - " + string(body)
 	}
