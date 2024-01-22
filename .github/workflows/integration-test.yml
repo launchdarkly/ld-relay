@@ -88,5 +88,5 @@ jobs:
         if: steps.process-integration-test.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Integration-test-results-${{ inputs.go-version }}
+          name: Integration-test-results-${{ inputs.environment }}-${{ inputs.go-version }}
           path: junit_report_integrationtests_${{ inputs.go-version }}.xml
