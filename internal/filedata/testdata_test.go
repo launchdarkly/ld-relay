@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v7/config"
 	"github.com/launchdarkly/ld-relay/v7/internal/envfactory"
@@ -168,6 +169,13 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 
 		fn(dirPath)
 	})
+}
+
+func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
+	tmpFilePath := fmt.Sprintf("%s.%d", filePath, time.Now().UnixNano())
+	writeArchive(t, tmpFilePath, compressed, modifyFn, envs...)
+	// do this as an atomic operation
+	os.Rename(tmpFilePath, filePath)
 }
 
 func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
