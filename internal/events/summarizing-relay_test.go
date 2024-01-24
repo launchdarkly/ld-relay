@@ -48,7 +48,10 @@ func TestSummarizeEvents(t *testing.T) {
 					_, _ = st.UpsertFlag(p.dataStore, ep.storedFlag)
 				}
 
-				req := st.BuildRequest("POST", "/", []byte(ep.inputEventsJSON), headersWithEventSchema(ep.schemaVersion))
+				headers := headersWithEventSchema(ep.schemaVersion)
+				headers.Set(EventUnsummarizedHeader, "true")
+
+				req := st.BuildRequest("POST", "/", []byte(ep.inputEventsJSON), headers)
 				p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
 				p.dispatcher.flush()
 
