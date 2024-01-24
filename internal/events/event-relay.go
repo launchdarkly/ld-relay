@@ -83,12 +83,17 @@ func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *
 		metadata := GetEventPayloadMetadata(req)
 
 		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), metadata.SchemaVersion, r.remotePath)
-		if metadata.SchemaVersion >= SummaryEventsSchemaVersion {
-			// New-style events that have already gone through summarization - deliver them as-is
-			r.getVerbatimRelay().enqueue(metadata, evts)
-		} else {
+		if metadata.SchemaVersion < SummaryEventsSchemaVersion {
 			r.getSummarizingRelay().enqueue(metadata, evts)
+			return
 		}
+
+		if _, ok := req.Header[http.CanonicalHeaderKey(EventUnsummarizedHeader)]; ok {
+			r.getSummarizingRelay().enqueue(metadata, evts)
+			return
+		}
+
+		r.getVerbatimRelay().enqueue(metadata, evts)
 	})
 }
 
