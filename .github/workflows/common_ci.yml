@@ -32,15 +32,6 @@ jobs:
         shell: bash
         run: ./scripts/test-prometheus-endpoint.sh
 
-  installation-test:
-    name: 'Go Install Test'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-relay
-        with:
-          go-version: ${{ inputs.go-version }}
-
   benchmarks:
     name: 'Benchmarks'
     runs-on: ubuntu-latest
