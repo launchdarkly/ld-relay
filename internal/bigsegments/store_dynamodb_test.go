@@ -232,6 +232,6 @@ func attrValueToString(value types.AttributeValue) string {
 
 func setTestDynamoDBOptions(o *dynamodb.Options) {
 	o.Region = "us-west-2"
-	o.EndpointResolver = dynamodb.EndpointResolverFromURL(localEndpoint)
+	o.BaseEndpoint = aws.String(localEndpoint)
 	o.Credentials = credentials.NewStaticCredentialsProvider("dummy", "not", "used")
 }
