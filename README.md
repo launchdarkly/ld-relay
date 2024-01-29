@@ -1,6 +1,9 @@
 # LaunchDarkly Relay Proxy
 
-[![Circle CI](https://circleci.com/gh/launchdarkly/ld-relay.svg?style=shield)](https://circleci.com/gh/launchdarkly/ld-relay)
+[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml)
+[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml)
+[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan.yml)
+[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml)
 
 ## About the LaunchDarkly Relay Proxy
 

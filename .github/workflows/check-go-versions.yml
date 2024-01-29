@@ -10,7 +10,11 @@ on:
         required: false
         default: false
 jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
   check-go-eol:
+    needs: go-versions
     if: github.repository == 'launchdarkly/ld-relay-private'
     permissions:
       issues: write
@@ -18,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
         # Perform a GET request to endoflife.date for the Go language. The response
         # contains all Go releases; we're interested in the 0'th and 1'th (latest and penultimate.)
       - name: Fetch officially supported Go versions
@@ -32,28 +36,17 @@ jobs:
         run: |
           echo "officialLatestVersion=${{ fromJSON(env.fetch-api-data)[0].latest }}" >> $GITHUB_ENV
           echo "officialPenultimateVersion=${{ fromJSON(env.fetch-api-data)[1].latest }}" >> $GITHUB_ENV
-        # Read .circleci/config.yml to grab the version of Go used for release/testing, and the penultimate version
-        # which is also tested in CI.
-      - name: Parse latest supported Go version in Relay
-        id: relay-latest-version
-        uses: mikefarah/yq@v4.31.2
-        with:
-          cmd: yq '.parameters.go-release-version.default' .circleci/config.yml
-      - name: Parse penultimate supported Go version in Relay
-        id: relay-penultimate-version
-        uses: mikefarah/yq@v4.31.2
-        with:
-          cmd: yq '.parameters.go-previous-version.default' .circleci/config.yml
+
         # If the latest official Go version is different from Relay's release version, generate an issue
         # with useful details.
       - name: Create issue if update required
-        if: github.event.inputs.force_create_issue || (steps.relay-latest-version.outputs.result != env.officialLatestVersion)
+        if: inputs.force_create_issue || (needs.go-versions.outputs.latest != env.officialLatestVersion)
         uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELAY_LATEST_VERSION: ${{ steps.relay-latest-version.outputs.result }}
+          RELAY_LATEST_VERSION: ${{ needs.go-versions.outputs.latest }}
           OFFICIAL_LATEST_VERSION: ${{ env.officialLatestVersion }}
-          RELAY_PENULTIMATE_VERSION: ${{ steps.relay-penultimate-version.outputs.result }}
+          RELAY_PENULTIMATE_VERSION: ${{ needs.go-versions.outputs.penultimate }}
           OFFICIAL_PENULTIMATE_VERSION: ${{ env.officialPenultimateVersion }}
         with:
           filename: .github/ISSUE_TEMPLATE/update_go_versions.md

@@ -3,6 +3,7 @@ package filedata
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -80,7 +81,7 @@ func NewArchiveManager(
 		// COVERAGE: can't cause this condition in unit tests - unexpected failure of fsnotify package
 		return nil, errCreateArchiveManagerFailed(filePath, err)
 	}
-	if err := watcher.Add(filePath); err != nil {
+	if err := watcher.Add(filepath.Dir(filePath)); err != nil {
 		return nil, errCreateArchiveManagerFailed(filePath, err) // COVERAGE: see above
 	}
 	am.watcher = watcher

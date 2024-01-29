@@ -68,7 +68,7 @@ func newDynamoDBBigSegmentStore(
 	endpoint, table, prefix := sdks.GetDynamoDBBasicProperties(dbConfig, envConfig)
 	if endpoint != nil {
 		optFns = append(optFns, func(o *dynamodb.Options) {
-			o.EndpointResolver = dynamodb.EndpointResolverFromURL(*endpoint)
+			o.BaseEndpoint = endpoint
 		})
 	}
 

@@ -1,0 +1,59 @@
+name: Unit Tests
+description: "Runs Relay's unit tests + linters and optionally gathers coverage."
+inputs:
+  go-version:
+    description: 'Go version to use for build & test.'
+    required: true
+  lint:
+    description: 'Whether to run linters.'
+    required: false
+    default: 'false'
+  coverage:
+    description: 'Whether to run coverage.'
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go ${{ inputs.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Lint
+      if: inputs.lint == 'true'
+      shell: bash
+      run: make lint
+
+    - name: Test
+      if: inputs.coverage == 'false'
+      shell: bash
+      id: test
+      run: make test | tee raw_report.txt
+
+    - name: Process test results
+      if: steps.test.outcome == 'success'
+      id: process-test
+      shell: bash
+      run: go-junit-reporter < raw_report.txt > junit_report.xml
+
+    - name: Test with coverage
+      if: inputs.coverage == 'true'
+      shell: bash
+      id: test-coverage
+      run: make test-coverage
+
+    - name: Upload test results
+      if: steps.process-test.outcome == 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Test-result-go${{ inputs.go-version }}
+        path: junit_report.xml
+
+    - name: Upload coverage results
+      if: steps.test-coverage.outcome == 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Coverage-result-go${{ inputs.go-version }}
+        path: build/coverage*

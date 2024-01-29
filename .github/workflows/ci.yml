@@ -1,0 +1,56 @@
+name: CI
+on:
+  push:
+    branches: [ 'v8' ]
+    paths-ignore:
+      - '**.md' # Don't run CI on markdown changes.
+  pull_request:
+    branches: [ 'v8', 'feat/**' ]
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
+  # Runs the common tasks (unit tests, lint, benchmarks, installation test)
+  # against each Go version in the matrix.
+  go-matrix:
+    name: ${{ format('Go {0}', matrix.go-version) }}
+    needs: go-versions
+    strategy:
+      # Let jobs fail independently, in case it's a single version that's broken.
+      fail-fast: false
+      matrix:
+        go-version: ${{ fromJSON(needs.go-versions.outputs.matrix) }}
+    uses: ./.github/workflows/common_ci.yml
+    with:
+      go-version: ${{ matrix.go-version }}
+
+  # Integration tests run only on the latest Go version since they are more
+  # time intensive, and we'd likely be rate-limited by LaunchDarkly SaaS if we
+  # ran them in parallel for multiple Go versions.
+  integration-test:
+    needs: go-versions
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      environment: 'staging'
+      go-version: ${{ needs.go-versions.outputs.latest }}
+
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: "Trivy Scan of Docker Image"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: 'true'
+      - name: Build Docker Images
+        run: make products-for-release
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: launchdarkly/ld-relay:latest
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true

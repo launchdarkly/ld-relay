@@ -1,0 +1,42 @@
+name: Install Relay
+description: "Installs Relay's Go module using normal Go tooling."
+inputs:
+  go-version:
+    description: 'Go version to use for installation.'
+    required: true
+  relay-major:
+    description: "Relay major version to install, e.g. 'v8'."
+    required: false
+  relay-version:
+    description: "Relay semver to install e.g. 'latest'."
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go ${{ inputs.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Determine Relay Version
+      id: rv
+      shell: bash
+      env:
+        MAJOR: ${{ inputs.relay-major }}
+        SEMVER: ${{ inputs.relay-version }}
+      run: |
+        echo "major=${MAJOR:-v8}" >> $GITHUB_OUTPUT
+        echo "semver=${SEMVER:-latest}" >> $GITHUB_OUTPUT
+
+    - name: Install Relay ${{ steps.rv.outputs.major }}/${{ steps.rv.outputs.semver }}
+      shell: bash
+      run: go install github.com/launchdarkly/ld-relay/${{ steps.rv.outputs.major }}@${{ steps.rv.outputs.semver }}
+
+    - name: Verify Binary Installation
+      shell: bash
+      run: ls -l $(go env GOPATH)/bin/ld-relay
+
+    - name: Print Version
+      shell: bash
+      run: $(go env GOPATH)/bin/ld-relay --version

@@ -36,7 +36,7 @@ test-coverage: $(COVERAGE_PROFILE_RAW)
 	go tool cover -html $(COVERAGE_PROFILE_RAW) -o $(COVERAGE_PROFILE_RAW_HTML)
 
 integration-test:
-	go test -v -tags integrationtests ./integrationtests
+	go test -timeout=30m -v -tags integrationtests ./integrationtests
 
 benchmarks: build
 	go test -benchmem '-run=^$$' '-bench=.*' ./...

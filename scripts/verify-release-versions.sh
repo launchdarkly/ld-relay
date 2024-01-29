@@ -12,7 +12,7 @@ set -e
 cd $(dirname $0)/..
 
 ldrelease_config_file=.ldrelease/config.yml
-circleci_config_file=.circleci/config.yml
+github_config_file=.github/variables/go-versions.env
 dockerfile_for_tests=Dockerfile
 dockerfile_for_releases=Dockerfile.goreleaser
 
@@ -27,12 +27,11 @@ if [ -z "${LDRELEASE_GO_VERSION}" ]; then
 fi
 echo "${ldrelease_config_file} (for building releases) is using Go ${LDRELEASE_GO_VERSION}"
 
-CIRCLECI_GO_VERSION=$(sed <${circleci_config_file} -n '/go-release-version:/,/default/{/default:/{p;q;};}' | \
-    sed 's/.*default:.*"\(.*\)".*/\1/')
-if [ -z "${CIRCLECI_GO_VERSION}" ]; then
-  fail_for_file Go ${circleci_config_file}
+GITHUB_GO_VERSION=$(sed <${github_config_file} -n 's/^latest=\(.*\)$/\1/p')
+if [ -z "${GITHUB_GO_VERSION}" ]; then
+  fail_for_file Go ${github_config_file}
 fi
-echo "${circleci_config_file} (for CI tests) is using Go ${CIRCLECI_GO_VERSION}"
+echo "${github_config_file} (for CI tests) is using Go ${GITHUB_GO_VERSION}"
 
 DOCKERFILE_TESTS_GO_VERSION=$(sed <${dockerfile_for_tests} -n 's/FROM *golang:\([^-]*\)-.*/\1/p')
 if [ -z "${DOCKERFILE_TESTS_GO_VERSION}" ]; then
@@ -40,7 +39,7 @@ if [ -z "${DOCKERFILE_TESTS_GO_VERSION}" ]; then
 fi
 echo "${dockerfile_for_tests} (for images in CI tests) is using Go ${DOCKERFILE_TESTS_GO_VERSION}"
 
-if [[ "${CIRCLECI_GO_VERSION}" != "${LDRELEASE_GO_VERSION}" || \
+if [[ "${GITHUB_GO_VERSION}" != "${LDRELEASE_GO_VERSION}" || \
      "${DOCKERFILE_TESTS_GO_VERSION}" != "${LDRELEASE_GO_VERSION}" ]]; then
   echo; echo "Go versions are out of sync!"
   exit 1

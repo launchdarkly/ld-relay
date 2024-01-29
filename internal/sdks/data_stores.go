@@ -211,7 +211,7 @@ func makeDynamoDBDataStoreBuilder[T any](
 	var options []func(*dynamodb.Options)
 	if endpoint != nil {
 		options = append(options, func(o *dynamodb.Options) {
-			o.EndpointResolver = dynamodb.EndpointResolverFromURL(*endpoint)
+			o.BaseEndpoint = endpoint
 		})
 	}
 	builder.ClientConfig(config, options...)
