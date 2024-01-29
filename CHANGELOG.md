@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.2.3] - 2024-01-29
+### Changed:
+- Continuous integration was migrated from CircleCI to Github Actions.
+- Bumped supported Go versions from 1.21.5 to 1.21.6, and 1.20.12 to 1.20.13
+- Bumped base AWS SDK from 1.18 to 1.24, AWS config module from 1.18 to 1.26, AWS credentials module from 1.13 to 1.16 and AWS dynamodb module from 1.19 to 1.27
+
+### Fixed:
+- Offline Mode file watcher should now correctly handle atomic updates to the archive. Thanks, @gmckerrell.
+
 ## [8.2.2] - 2024-01-03
 ### Changed:
 - Build with Go 1.21.5 and 1.20.12 in CI
