@@ -1,0 +1,33 @@
+name: 'Integration Tests'
+on:
+  workflow_dispatch:
+    inputs:
+      go-version:
+        description: "Go version to use for building Relay."
+        required: false
+        type: string
+      branch:
+        description: "Branch to test."
+        required: false
+        type: string
+
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
+  integration-test:
+    needs: go-versions
+    strategy:
+      # Let each job fail independently.
+      fail-fast: false
+      matrix:
+        environment: ['staging', 'production']
+
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      environment: ${{ matrix.environment }}
+      go-version: ${{ inputs.go-version != '' && inputs.go-version || needs.go-versions.outputs.latest }}
+      branch: ${{ inputs.branch }}

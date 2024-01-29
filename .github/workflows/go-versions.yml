@@ -1,0 +1,49 @@
+# The following chunk of yml boils down to pulling two Go version numbers out of a file and
+# making them available to the other workflows in a convenient fashion.
+#
+# It's a reusable workflow instead of an action so that its output can be used in a matrix strategy
+# of another job.
+#
+# The idea is to define the most recent, and penultimate, Go versions that should be used to test Relay.
+# Ideally we'd define these in a single place - otherwise we'd need to update many different places in
+# each workflow. This single place is .github/variables/go-versions.env.
+#
+# This reusable workflow grabs them out of the file, then sets them as outputs. As a convenience, it
+# also wraps each version in an array, so it can be directly used in a matrix strategy. Single-item matrices
+# are nice because you can tell instantly in the Github UI which version is being tested without needing
+# to inspect logs.
+#
+# To use a matrix output, e.g. latest version, do:
+#  strategy:
+#    matrix: ${{ fromJSON(this-job.outputs.latest-matrix) }}
+#
+name: Go Versions
+on:
+  workflow_call:
+    outputs:
+      latest:
+        description: 'The most recent Go version to test'
+        value: ${{ jobs.go-versions.outputs.latest }}
+      penultimate:
+        description: 'The second most recent Go version to test'
+        value: ${{ jobs.go-versions.outputs.penultimate }}
+      matrix:
+        description: 'All Go versions to test as a matrix'
+        value: ${{ jobs.go-versions.outputs.all }}
+
+jobs:
+  go-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ steps.set-env.outputs.latest }}
+      penultimate: ${{ steps.set-env.outputs.penultimate }}
+      all: ${{ steps.set-matrix.outputs.all }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set Go Versions
+        id: set-env
+        run:  cat ./.github/variables/go-versions.env > $GITHUB_OUTPUT
+      - name: Set Go Version Matrices
+        id: set-matrix
+        run: |
+          echo "all=[\"${{ steps.set-env.outputs.latest }}\",\"${{ steps.set-env.outputs.penultimate }}\"]" >> $GITHUB_OUTPUT

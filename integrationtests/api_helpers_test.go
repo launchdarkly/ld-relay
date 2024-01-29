@@ -169,7 +169,7 @@ func (a *apiHelper) rotateMobileKey(project projectInfo, env environmentInfo) (c
 
 func (a *apiHelper) createAutoConfigKey(policyResources []string) (autoConfigID, config.AutoConfigKey, error) {
 	body := ldapi.RelayAutoConfigPost{
-		Name: uuid.New(),
+		Name: fmt.Sprintf("relayi9n-%s", uuid.New()),
 		Policy: []ldapi.Statement{
 			{
 				Resources: policyResources,

@@ -109,6 +109,26 @@ func TestFileUpdatedWithValidDataAddedEnvironment(t *testing.T) {
 	})
 }
 
+func TestFileAtomicUpdatedWithValidDataAddedEnvironment(t *testing.T) {
+	archiveManagerTest(t, func(filePath string) {
+		writeAtomicArchive(t, filePath, false, nil, testEnv1)
+	}, func(p archiveManagerTestParams) {
+		require.NoError(t, p.archiveManagerError)
+
+		p.expectEnvironmentsAdded(testEnv1)
+
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1, testEnv2)
+
+		p.expectEnvironmentsAdded(testEnv2)
+		p.expectReloaded()
+
+		writeAtomicArchive(t, p.filePath, false, nil, testEnv1)
+
+		p.expectEnvironmentsDeleted(testEnv2.id())
+		p.expectReloaded()
+	})
+}
+
 func TestFileUpdatedWithValidDataUpdatedEnvironmentMetadataOnly(t *testing.T) {
 	archiveManagerTest(t, func(filePath string) {
 		writeArchive(t, filePath, false, nil, testEnv1, testEnv2)

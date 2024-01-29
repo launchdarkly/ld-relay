@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v7
 
-go 1.19
+go 1.20
 
 require (
 	cloud.google.com/go v0.110.0 // indirect
@@ -43,7 +43,7 @@ require (
 	github.com/prometheus/client_golang v1.15.1 // indirect; override to address CVE-2022-21698
 	github.com/stretchr/testify v1.8.4
 	go.opencensus.io v0.24.0
-	golang.org/x/net v0.19.0
+	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sync v0.5.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
@@ -103,7 +103,6 @@ require (
 	github.com/Masterminds/sprig v2.22.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v0.0.0-20230923063757-afb1ddc0824c // indirect
-	github.com/acomagu/bufpipe v1.0.4 // indirect
 	github.com/alessio/shellescape v1.4.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/atc0005/go-teams-notify/v2 v2.7.0 // indirect
@@ -247,7 +246,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20210812194225-61421b77c44b // indirect
 	github.com/sergi/go-diff v1.3.1 // indirect
-	github.com/sigstore/cosign v1.13.1 // indirect
+	github.com/sigstore/cosign v1.13.2 // indirect
 	github.com/sigstore/rekor v1.2.0 // indirect
 	github.com/sigstore/sigstore v1.6.4 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
