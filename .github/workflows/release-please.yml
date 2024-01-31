@@ -1,0 +1,50 @@
+name: Run Release Please
+
+on:
+  push:
+    branches:
+      - v8
+
+jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      released_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: google-github-actions/release-please-action@v4
+        id: release
+        with:
+          token: ${{secrets.GITHUB_TOKEN}}
+
+  release-relay:
+    permissions:
+      id-token: write # Needed to obtain Docker tokens
+      contents: read
+    needs: [ release-please, go-versions ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
+        name: 'Get Docker token'
+        with:
+          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
+          ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
+
+      - uses: ./.github/actions/unit-tests
+        with:
+          go-version: ${{ needs.go-versions.outputs.latest }}
+
+      - uses: ./.github/actions/publish
+        with:
+          go-version: ${{ needs.go-versions.outputs.latest }}
+          dry-run: 'false'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ needs.release-please.outputs.tag_name }}

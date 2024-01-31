@@ -36,7 +36,7 @@ runs:
       if: steps.test.outcome == 'success'
       id: process-test
       shell: bash
-      run: go-junit-reporter < raw_report.txt > junit_report.xml
+      run: go run github.com/jstemmer/go-junit-report@v0.9.1 < raw_report.txt > junit_report.xml
 
     - name: Test with coverage
       if: inputs.coverage == 'true'
