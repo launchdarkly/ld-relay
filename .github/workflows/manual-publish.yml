@@ -19,18 +19,19 @@ jobs:
   build-publish:
     needs: go-versions
     runs-on: ubuntu-latest
-    # Needed to get tokens during publishing.
     permissions:
-      id-token: write
-      contents: read
+      id-token: write # Needed to get Docker tokens during publishing.
+      contents: write # Needed to upload release artifacts
     steps:
       - uses: actions/checkout@v4
         with:
-          depth: 0
-      - name: Build and Test
-        uses: ./.github/actions/unit-tests
+          fetch-depth: 0
+      - name: Setup Go ${{ needs.go-versions.outputs.latest }}
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
+      - name: Build and Test
+        uses: ./.github/actions/unit-tests
       - name: 'Get Docker token'
         uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
         with:

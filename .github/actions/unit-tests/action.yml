@@ -16,11 +16,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Go ${{ inputs.go-version }}
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ inputs.go-version }}
-
     - name: Lint
       if: inputs.lint == 'true'
       shell: bash

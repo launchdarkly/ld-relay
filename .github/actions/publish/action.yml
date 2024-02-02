@@ -8,9 +8,6 @@ inputs:
     description: 'Is this a dry run. If so no package will be published.'
     required: false
     default: 'true'
-  go-version:
-    description: 'Go version to use for build & test.'
-    required: true
   tag:
     description: 'Tag to upload artifacts to.'
     required: true
@@ -18,11 +15,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Go  ${{ inputs.go-version }}
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ inputs.go-version }}
-
+    - name: Git clean
+      shell: bash
+      run: git clean -f
     - name: Run Goreleaser
       uses: goreleaser/goreleaser-action@v5
       with:
@@ -34,6 +29,6 @@ runs:
     - name: Upload Release Artifacts
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.token }}
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         gh release upload ${{ inputs.tag }} ./dist/*.deb ./dist/*.rpm ./dist/*.tar.gz ./dist/*.txt --clobber
