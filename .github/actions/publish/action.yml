@@ -1,0 +1,34 @@
+name: Publish Artifacts
+description: 'Publish artifacts to Github Release'
+inputs:
+  token:
+    description: 'Token to use for publishing.'
+    required: true
+  dry-run:
+    description: 'Is this a dry run. If so no package will be published.'
+    required: false
+    default: 'true'
+  tag:
+    description: 'Tag to upload artifacts to.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Git clean
+      shell: bash
+      run: git clean -f
+    - name: Run Goreleaser
+      uses: goreleaser/goreleaser-action@v5
+      with:
+        version: latest
+        args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+
+    - name: Upload Release Artifacts
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        gh release upload ${{ inputs.tag }} ./dist/*.deb ./dist/*.rpm ./dist/*.tar.gz ./dist/*.txt --clobber
