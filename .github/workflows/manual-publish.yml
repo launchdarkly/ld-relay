@@ -40,7 +40,6 @@ jobs:
       - name: Publish Package
         uses: ./.github/actions/publish
         with:
-          go-version: ${{ needs.go-versions.outputs.latest }}
           token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
           tag: ${{ inputs.tag }}
