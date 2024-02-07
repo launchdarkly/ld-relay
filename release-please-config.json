@@ -4,7 +4,7 @@
       "release-type": "go",
       "bump-minor-pre-major": true,
       "versioning": "default",
-      "bootstrap-sha": "0de083cacb8e231fcf0616d9e5a884a11a26b40e",
+      "bootstrap-sha": "98f1ea232bbbfdb7a11be31302b57e3c10e5ccd1",
       "include-component-in-tag" : false,
       "extra-files": [
         "relay/version/version.go"
