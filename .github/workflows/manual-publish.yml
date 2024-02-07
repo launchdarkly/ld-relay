@@ -1,0 +1,45 @@
+name: Publish Images and Artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Skip publishing to DockerHub'
+        type: boolean
+        required: false
+        default: true
+      tag:
+        description: 'Tag to upload binary artifacts to.'
+        type: string
+        required: true
+
+jobs:
+  go-versions:
+    uses: ./.github/workflows/go-versions.yml
+
+  build-publish:
+    needs: go-versions
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Needed to get Docker tokens during publishing.
+      contents: write # Needed to upload release artifacts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go ${{ needs.go-versions.outputs.latest }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ needs.go-versions.outputs.latest }}
+      - name: Build and Test
+        uses: ./.github/actions/unit-tests
+      - name: 'Get Docker token'
+        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
+        with:
+          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
+          ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
+      - name: Publish Package
+        uses: ./.github/actions/publish
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: ${{ inputs.dry_run }}
+          tag: ${{ inputs.tag }}
