@@ -22,9 +22,12 @@ jobs:
           - 8000:8000
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/unit-tests
+      - name: Setup Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ inputs.go-version }}
+      - uses: ./.github/actions/unit-tests
+        with:
           lint: 'true'
           coverage: 'true'
 
