@@ -15,7 +15,6 @@ jobs:
 
   check-go-eol:
     needs: go-versions
-    if: github.repository == 'launchdarkly/ld-relay-private'
     permissions:
       issues: write
       contents: read
