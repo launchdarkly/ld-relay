@@ -15,6 +15,12 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
     - name: Git clean
       shell: bash
       run: git clean -f
