@@ -67,7 +67,6 @@ dockers:
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Version }}-i386"
     - "launchdarkly/ld-relay:v{{ .Major }}-i386"
-    - "launchdarkly/ld-relay:latest-i386"
     use: buildx
     goos: linux
     goarch: '386'
@@ -77,11 +76,23 @@ dockers:
     - "--pull"
     - "--platform=linux/386"
 
+  # i386 - latest tag
+  - image_templates:
+      - "launchdarkly/ld-relay:latest-i386"
+    use: buildx
+    goos: linux
+    goarch: '386'
+    dockerfile: Dockerfile.goreleaser
+    skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
+
+    build_flag_templates:
+      - "--pull"
+      - "--platform=linux/386"
+
   # AMD64
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Version }}-amd64"
     - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
-    - "launchdarkly/ld-relay:latest-amd64"
     use: buildx
     goos: linux
     goarch: amd64
@@ -91,11 +102,22 @@ dockers:
     - "--pull"
     - "--platform=linux/amd64"
 
+  # AMD64 - latest tag
+  - image_templates:
+      - "launchdarkly/ld-relay:latest-amd64"
+    use: buildx
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.goreleaser
+    skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/amd64"
+
   # ARMv7
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Version }}-armv7"
     - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
-    - "launchdarkly/ld-relay:latest-armv7"
     use: buildx
     goos: linux
     goarch: arm
@@ -106,11 +128,23 @@ dockers:
     - "--pull"
     - "--platform=linux/arm/v7"
 
+  # ARMv7 - latest tag
+  - image_templates:
+      - "launchdarkly/ld-relay:latest-armv7"
+    use: buildx
+    goos: linux
+    goarch: arm
+    goarm: 7
+    dockerfile: Dockerfile.goreleaser
+    skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/arm/v7"
+
   # ARM64v8
   - image_templates:
     - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
     - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
-    - "launchdarkly/ld-relay:latest-arm64v8"
     use: buildx
     goos: linux
     goarch: arm64
@@ -119,6 +153,19 @@ dockers:
     build_flag_templates:
     - "--pull"
     - "--platform=linux/arm64/v8"
+
+  # ARM64v8 - latest tag
+  - image_templates:
+      - "launchdarkly/ld-relay:latest-arm64v8"
+    use: buildx
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+    skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/arm64/v8"
+
 docker_manifests:
   - name_template: "launchdarkly/ld-relay:{{ .Version}}"
     skip_push: false
@@ -131,15 +178,15 @@ docker_manifests:
   - name_template: "launchdarkly/ld-relay:v{{ .Major }}"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
-      - "launchdarkly/ld-relay:v{{ .Major }}-i386"
+    - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
+    - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
+    - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
+    - "launchdarkly/ld-relay:v{{ .Major }}-i386"
 
   - name_template: "launchdarkly/ld-relay:latest"
-    skip_push: false
+    skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
     image_templates:
-      - "launchdarkly/ld-relay:latest-amd64"
-      - "launchdarkly/ld-relay:latest-armv7"
-      - "launchdarkly/ld-relay:latest-arm64v8"
-      - "launchdarkly/ld-relay:latest-i386"
+    - "launchdarkly/ld-relay:latest-amd64"
+    - "launchdarkly/ld-relay:latest-armv7"
+    - "launchdarkly/ld-relay:latest-arm64v8"
+    - "launchdarkly/ld-relay:latest-i386"

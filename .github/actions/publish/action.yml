@@ -28,6 +28,11 @@ runs:
       shell: bash
       run: |
         echo $DOCKER_TOKEN | docker login --username $DOCKER_USERNAME --password-stdin
+    - name: Check if default branch
+      uses: launchdarkly/gh-actions/actions/default-branch@b954c1539a76dff335127ec5210d47ddfaa8e5a6
+      id: default-branch
+      with:
+        token: ${{ inputs.token }}
     - name: Run Goreleaser
       uses: goreleaser/goreleaser-action@v5
       with:
@@ -35,6 +40,7 @@ runs:
         args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        DEFAULT_BRANCH: ${{ steps.default-branch.outputs.value }}
 
     - name: Upload Release Artifacts
       shell: bash
