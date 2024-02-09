@@ -12,7 +12,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      released_created: ${{ steps.release.outputs.release_created }}
+      release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: google-github-actions/release-please-action@v4
