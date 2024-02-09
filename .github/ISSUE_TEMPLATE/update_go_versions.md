@@ -1,6 +1,6 @@
 ---
 title: It's time to update supported Go versions
-assignees: ''
+assignees: 'launchdarkly/team-sdk'
 labels: ''
 ---
 It's time to update Relay's supported Go versions, due to a recent upstream Go release.
