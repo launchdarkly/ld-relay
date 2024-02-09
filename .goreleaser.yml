@@ -78,16 +78,15 @@ dockers:
 
   # i386 - latest tag
   - image_templates:
-      - "launchdarkly/ld-relay:latest-i386"
+    - "launchdarkly/ld-relay:latest-i386"
     use: buildx
     goos: linux
     goarch: '386'
     dockerfile: Dockerfile.goreleaser
     skip_push: {{ if .Env.DEFAULT_BRANCH eq .Major }}false{{ else }}true{{ end }}
-
     build_flag_templates:
-      - "--pull"
-      - "--platform=linux/386"
+    - "--pull"
+    - "--platform=linux/386"
 
   # AMD64
   - image_templates:
@@ -104,7 +103,7 @@ dockers:
 
   # AMD64 - latest tag
   - image_templates:
-      - "launchdarkly/ld-relay:latest-amd64"
+    - "launchdarkly/ld-relay:latest-amd64"
     use: buildx
     goos: linux
     goarch: amd64
@@ -130,7 +129,7 @@ dockers:
 
   # ARMv7 - latest tag
   - image_templates:
-      - "launchdarkly/ld-relay:latest-armv7"
+    - "launchdarkly/ld-relay:latest-armv7"
     use: buildx
     goos: linux
     goarch: arm
@@ -156,7 +155,7 @@ dockers:
 
   # ARM64v8 - latest tag
   - image_templates:
-      - "launchdarkly/ld-relay:latest-arm64v8"
+    - "launchdarkly/ld-relay:latest-arm64v8"
     use: buildx
     goos: linux
     goarch: arm64
