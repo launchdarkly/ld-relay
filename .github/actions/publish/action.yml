@@ -29,7 +29,7 @@ runs:
       run: |
         echo $DOCKER_TOKEN | docker login --username $DOCKER_USERNAME --password-stdin
     - name: Check if default branch
-      uses: launchdarkly/gh-actions/actions/default-branch@b954c1539a76dff335127ec5210d47ddfaa8e5a6
+      uses: launchdarkly/gh-actions/actions/default-branch@e263727a30ba88045416f413b9ffa67c0478ae6f
       id: default-branch
       with:
         token: ${{ inputs.token }}
