@@ -20,6 +20,7 @@ jobs:
         with:
           release-type: simple
           token: ${{secrets.GITHUB_TOKEN}}
+          target-branch: v7
 
   release-relay:
     permissions:
