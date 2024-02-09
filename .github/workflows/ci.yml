@@ -39,6 +39,7 @@ jobs:
 
 
   security-scan:
+    needs: go-versions
     runs-on: ubuntu-latest
     name: "Trivy Scan of Docker Image"
     steps:
@@ -46,6 +47,16 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: 'true'
+      - name: Setup Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ needs.go-versions.outputs.latest }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
       - name: Build Docker Images
         run: make products-for-release
       - uses: aquasecurity/trivy-action@master

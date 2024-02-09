@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # This is a standalone Dockerfile that does not depend on goreleaser building the binary
 # It is NOT the version that is pushed to dockerhub
 FROM golang:1.21.6-alpine3.19 as builder
