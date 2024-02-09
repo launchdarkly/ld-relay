@@ -12,11 +12,15 @@ builds:
     - darwin
     - linux
   goarch: # Goreleaser's default for this is 386 + amd64, but let's be explicit
-    - 386
+    - '386'
     - amd64
+    - arm
+    - arm64
+  goarm:
+    - "7"
   ignore: # Go 1.15+ doesn't support 32-bit Darwin
     - goos: darwin
-      goarch: 386
+      goarch: '386'
 
 nfpms:
   -
@@ -59,15 +63,83 @@ release:
   # (we want Releaser to be responsible for doing all the GitHub release manipulations)
 
 dockers:
+  # i386
   - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}"
-    - "launchdarkly/ld-relay:v{{ .Major }}"
-    - "launchdarkly/ld-relay:latest"
+    - "launchdarkly/ld-relay:{{ .Version }}-i386"
+    - "launchdarkly/ld-relay:v{{ .Major }}-i386"
+    - "launchdarkly/ld-relay:latest-i386"
+    use: buildx
+    goos: linux
+    goarch: '386'
+    dockerfile: Dockerfile.goreleaser
+    skip_push: false
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/386"
+
+  # AMD64
+  - image_templates:
+    - "launchdarkly/ld-relay:{{ .Version }}-amd64"
+    - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
+    - "launchdarkly/ld-relay:latest-amd64"
+    use: buildx
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile.goreleaser
     skip_push: false
-    # If your Dockerfile copies files other than the binary itself,
-    # you should list them here as well.
-    # extra_files:
-    # - filename
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/amd64"
+
+  # ARMv7
+  - image_templates:
+    - "launchdarkly/ld-relay:{{ .Version }}-armv7"
+    - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
+    - "launchdarkly/ld-relay:latest-armv7"
+    use: buildx
+    goos: linux
+    goarch: arm
+    goarm: 7
+    dockerfile: Dockerfile.goreleaser
+    skip_push: false
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/arm/v7"
+
+  # ARM64v8
+  - image_templates:
+    - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
+    - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
+    - "launchdarkly/ld-relay:latest-arm64v8"
+    use: buildx
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+    skip_push: false
+    build_flag_templates:
+    - "--pull"
+    - "--platform=linux/arm64/v8"
+docker_manifests:
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}"
+    skip_push: false
+    image_templates:
+     - "launchdarkly/ld-relay:{{ .Version }}-amd64"
+     - "launchdarkly/ld-relay:{{ .Version }}-armv7"
+     - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
+     - "launchdarkly/ld-relay:{{ .Version }}-i386"
+
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-i386"
+
+  - name_template: "launchdarkly/ld-relay:latest"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:latest-amd64"
+      - "launchdarkly/ld-relay:latest-armv7"
+      - "launchdarkly/ld-relay:latest-arm64v8"
+      - "launchdarkly/ld-relay:latest-i386"
