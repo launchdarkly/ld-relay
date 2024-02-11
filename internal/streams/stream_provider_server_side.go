@@ -3,7 +3,6 @@ package streams
 import (
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -134,12 +133,12 @@ func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, err
 		event := MakeServerSidePutEvent(allData)
 		// So we sleep for a bit to allow a bunch of concurrent calls to
 		// all make use of this same flightGroup.
-		delayS := os.Getenv("LD_STREAMING_DELAY_SECONDS")
-		if delay, err := strconv.Atoi(delayS); err == nil {
-			if delay > 0 && delay <= 60 {
-				time.Sleep(time.Duration(delay)*time.Second - time.Since(start))
+		delayS, has := os.LookupEnv("STREAMING_MIN_DELAY")
+		if has {
+			if delay, err := time.ParseDuration(delayS); err == nil {
+				time.Sleep(delay - time.Since(start))
 			} else {
-				r.loggers.Warnf("Ignoring invalid value for LD_STREAMING_DELAY_SECONDS: %s", delayS)
+				r.loggers.Warnf("Ignoring invalid STREAMING_MIN_DELAY: %s\n", delayS)
 			}
 		}
 
