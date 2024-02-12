@@ -3,12 +3,7 @@ on:
   schedule:
   - cron: "0 17 * * *"
   workflow_dispatch:
-    inputs:
-      force_create_issue:
-        type: boolean
-        description: 'Create issue even if versions are up-to-date'
-        required: false
-        default: false
+
 jobs:
   go-versions:
     uses: ./.github/workflows/go-versions.yml
