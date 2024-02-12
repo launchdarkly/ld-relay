@@ -53,5 +53,34 @@ jobs:
 
       - name: Run update script
         if: needs.go-versions.outputs.latest != env.officialLatestVersion
-        run: |
-          ./scripts/update-go-release-version.sh ${{ env.officialLatestVersion }} ${{ env.officialPenultimateVersion }}
+        id: update
+        run: ./scripts/update-go-release-version.sh ${{ env.officialLatestVersion }} ${{ env.officialPenultimateVersion }} \
+
+      - name: Create pull request
+        if: steps.update.outcome == 'success'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          team-reviewers: launchdarkly/team-sdk
+          branch: "launchdarklyreleasebot/update-to-go-${{ env.officialLatestVersion }}"
+          author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
+          committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
+          title: "fix(deps): bump supported Go versions to ${{ env.officialLatestVersion }} and ${{ env.officialPenultimateVersion }}"
+          commit-message: "Bumps from Go ${{ needs.go-versions.outputs.latest }} -> ${{ env.officialLatestVersion }} and ${{ needs.go-versions.outputs.penultimate }} -> ${{ env.officialPenultimateVersion }}."
+          body: |
+            It's time to update Relay's supported Go versions, due to a recent upstream Go release.
+
+            The Go major release cadence is ~every 6 months; the two most recent major versions are supported. 
+            Note that between major releases, the Go team often ships multiple minor versions. 
+            
+            
+            |             | Current repo configuration         | Desired repo configuration                                                                                          |
+            |-------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+            | Latest      | ${{ needs.go-versions.outputs.latest }}      | [${{ env.officialPenultimateVersion }}](https://go.dev/doc/devel/release#go${{ env.officialPenultimateVersion }})           |
+            | Penultimate | ${{ needs.go-versions.outputs.penultimate }}| [${{ env.officialPenultimateVersion }}](https://go.dev/doc/devel/release#go${{ env.officialPenultimateVersion }}) |
+
+
+            Run locally:
+            ```bash
+            ./scripts/update-go-release-version.sh ${{ env.officialPenultimateVersion }} ${{ env.officialPenultimateVersion }}
+            ```

@@ -7,17 +7,10 @@ set -e
 
 LATEST_VERSION=$1
 PENULTIMATE_VERSION=$2
-GIT_USERNAME=$3
-GIT_EMAIL=$4
 
 if [ -z "${LATEST_VERSION}" ] || [ -z "${PENULTIMATE_VERSION}" ]; then
   echo "Usage: $0 <latest Go version> <penultimate Go version>"
   exit 1
-fi
-
-autocommit=''
-if [ -n "$git_username" ] || [ -n "$git_email" ]; then
-    autocommit=1
 fi
 
 cd $(dirname $0)/..
@@ -54,21 +47,3 @@ done
 echo
 
 $(dirname $0)/verify-release-versions.sh
-
-if [ "$(git status --porcelain | wc -l)" -gt 0 ]; then
-  if [ -n "$git_username" ]; then
-    git config user.name "$git_username"
-  fi
-  if [ -n "$git_email" ]; then
-    git config user.email "$git_email"
-  fi
-  git add .github/variables/go-versions.env
-  git add Dockerfile
-  if [ $autocommit ]; then
-    git commit -m "fix(deps): bump supported Go versions to ${LATEST_VERSION} and ${PENULTIMATE_VERSION}"
-    git push
-  else
-    echo "Changes staged, but not committed. Please commit manually."
-  fi
-  exit 0
-fi
