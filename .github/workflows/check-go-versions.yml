@@ -16,8 +16,8 @@ jobs:
   check-go-eol:
     needs: go-versions
     permissions:
-      issues: write
-      contents: read
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
