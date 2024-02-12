@@ -36,21 +36,6 @@ jobs:
           echo "officialLatestVersion=${{ fromJSON(env.fetch-api-data)[0].latest }}" >> $GITHUB_ENV
           echo "officialPenultimateVersion=${{ fromJSON(env.fetch-api-data)[1].latest }}" >> $GITHUB_ENV
 
-        # If the latest official Go version is different from Relay's release version, generate an issue
-        # with useful details.
-#      - name: Create issue if update required
-#        if: inputs.force_create_issue || (needs.go-versions.outputs.latest != env.officialLatestVersion)
-#        uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          RELAY_LATEST_VERSION: ${{ needs.go-versions.outputs.latest }}
-#          OFFICIAL_LATEST_VERSION: ${{ env.officialLatestVersion }}
-#          RELAY_PENULTIMATE_VERSION: ${{ needs.go-versions.outputs.penultimate }}
-#          OFFICIAL_PENULTIMATE_VERSION: ${{ env.officialPenultimateVersion }}
-#        with:
-#          filename: .github/ISSUE_TEMPLATE/update_go_versions.md
-#          update_existing: true
-
       - name: Run update script
         if: needs.go-versions.outputs.latest != env.officialLatestVersion
         id: update
