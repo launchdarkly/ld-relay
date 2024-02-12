@@ -61,7 +61,6 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          team-reviewers: launchdarkly/team-sdk
           branch: "launchdarklyreleasebot/update-to-go-${{ env.officialLatestVersion }}"
           author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
           committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
@@ -76,7 +75,7 @@ jobs:
             
             |             | Current repo configuration         | Desired repo configuration                                                                                          |
             |-------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------|
-            | Latest      | ${{ needs.go-versions.outputs.latest }}      | [${{ env.officialPenultimateVersion }}](https://go.dev/doc/devel/release#go${{ env.officialPenultimateVersion }})           |
+            | Latest      | ${{ needs.go-versions.outputs.latest }}      | [${{ env.officialLatestVersion }}](https://go.dev/doc/devel/release#go${{ env.officialLatestVersion }})           |
             | Penultimate | ${{ needs.go-versions.outputs.penultimate }}| [${{ env.officialPenultimateVersion }}](https://go.dev/doc/devel/release#go${{ env.officialPenultimateVersion }}) |
 
 
