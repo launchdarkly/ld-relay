@@ -15,7 +15,6 @@ fi
 
 cd $(dirname $0)/..
 
-ldrelease_config_file=.ldrelease/config.yml
 github_config_file=.github/variables/go-versions.env
 dockerfile_for_tests=Dockerfile
 
@@ -24,16 +23,12 @@ function ensure_file_was_changed() {
   if (( $(diff ${filename} ${filename}.tmp | grep '^>' | wc -l) < 1 )); then
     echo "failed to update Go version in ${filename}; sed expression did not match any lines or matched more than one line"
     diff ${filename} ${filename}.tmp || true
-    for f in ${ldrelease_config_file} ${github_config_file} ${dockerfile_for_tests}; do
+    for f in ${github_config_file} ${dockerfile_for_tests}; do
       rm -r ${f}.tmp
     done
     exit 1
   fi
 }
-
-sed <${ldrelease_config_file} >${ldrelease_config_file}.tmp \
-  -e "/image:/s#cimg/go:[^ ]*#cimg/go:${LATEST_VERSION}#"
-ensure_file_was_changed ${ldrelease_config_file}
 
 sed <${github_config_file} >${github_config_file}.tmp \
   -e "s#latest=[^ ]*#latest=${LATEST_VERSION}#g" \
@@ -44,7 +39,7 @@ sed <${dockerfile_for_tests} >${dockerfile_for_tests}.tmp \
   -e "s#FROM *golang:[^-]*#FROM golang:${LATEST_VERSION}#"
 ensure_file_was_changed ${dockerfile_for_tests}
 
-for f in ${ldrelease_config_file} ${github_config_file} ${dockerfile_for_tests}; do
+for f in ${github_config_file} ${dockerfile_for_tests}; do
   mv ${f}.tmp ${f}
   echo "updated ${f}"
 done
