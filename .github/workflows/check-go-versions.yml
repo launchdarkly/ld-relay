@@ -46,6 +46,9 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: |
+            Dockerfile
+            .github/variables/go-versions.env
           branch: "launchdarklyreleasebot/update-to-go-${{ env.officialLatestVersion }}"
           author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
           committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
