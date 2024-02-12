@@ -16,8 +16,8 @@ jobs:
   check-go-eol:
     needs: go-versions
     permissions:
-      issues: write
-      contents: read
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -36,17 +36,38 @@ jobs:
           echo "officialLatestVersion=${{ fromJSON(env.fetch-api-data)[0].latest }}" >> $GITHUB_ENV
           echo "officialPenultimateVersion=${{ fromJSON(env.fetch-api-data)[1].latest }}" >> $GITHUB_ENV
 
-        # If the latest official Go version is different from Relay's release version, generate an issue
-        # with useful details.
-      - name: Create issue if update required
-        if: inputs.force_create_issue || (needs.go-versions.outputs.latest != env.officialLatestVersion)
-        uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELAY_LATEST_VERSION: ${{ needs.go-versions.outputs.latest }}
-          OFFICIAL_LATEST_VERSION: ${{ env.officialLatestVersion }}
-          RELAY_PENULTIMATE_VERSION: ${{ needs.go-versions.outputs.penultimate }}
-          OFFICIAL_PENULTIMATE_VERSION: ${{ env.officialPenultimateVersion }}
+      - name: Run update script
+        if: needs.go-versions.outputs.latest != env.officialLatestVersion
+        id: update
+        run: ./scripts/update-go-release-version.sh ${{ env.officialLatestVersion }} ${{ env.officialPenultimateVersion }} \
+
+      - name: Create pull request
+        if: steps.update.outcome == 'success'
+        uses: peter-evans/create-pull-request@v6
         with:
-          filename: .github/ISSUE_TEMPLATE/update_go_versions.md
-          update_existing: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: |
+            Dockerfile
+            .github/variables/go-versions.env
+          branch: "launchdarklyreleasebot/update-to-go-${{ env.officialLatestVersion }}"
+          author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
+          committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
+          title: "fix(deps): bump supported Go versions to ${{ env.officialLatestVersion }} and ${{ env.officialPenultimateVersion }}"
+          commit-message: "Bumps from Go ${{ needs.go-versions.outputs.latest }} -> ${{ env.officialLatestVersion }} and ${{ needs.go-versions.outputs.penultimate }} -> ${{ env.officialPenultimateVersion }}."
+          body: |
+            It's time to update Relay's supported Go versions, due to a recent upstream Go release.
+
+            The Go major release cadence is ~every 6 months; the two most recent major versions are supported. 
+            Note that between major releases, the Go team often ships multiple minor versions. 
+            
+            
+            |             | Current repo configuration         | Desired repo configuration                                                                                          |
+            |-------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+            | Latest      | ${{ needs.go-versions.outputs.latest }}      | [${{ env.officialLatestVersion }}](https://go.dev/doc/devel/release#go${{ env.officialLatestVersion }})           |
+            | Penultimate | ${{ needs.go-versions.outputs.penultimate }}| [${{ env.officialPenultimateVersion }}](https://go.dev/doc/devel/release#go${{ env.officialPenultimateVersion }}) |
+
+
+            Run locally:
+            ```bash
+            ./scripts/update-go-release-version.sh ${{ env.officialPenultimateVersion }} ${{ env.officialPenultimateVersion }}
+            ```
