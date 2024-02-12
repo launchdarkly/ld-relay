@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.7.0](https://github.com/launchdarkly/ld-relay/compare/v7.6.0...v7.7.0) (2024-02-12)
+
+
+### Features
+
+* **v7:** build Docker images for ARMv7 and ARM64v8 architectures ([#300](https://github.com/launchdarkly/ld-relay/issues/300)) ([9ea48b5](https://github.com/launchdarkly/ld-relay/commit/9ea48b513646c80771a5adfbb1f2e2f356d18a6a))
+
 ## [7.4.4] - 2024-01-29
 ### Changed:
 - Continuous integration was migrated from CircleCI to Github Actions.
