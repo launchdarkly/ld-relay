@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	defaultPollInterval = 1 * time.Second
-	maxRetryDuration    = time.Second * 2
+	defaultMonitoringInterval = 1 * time.Second
+	maxRetryDuration          = time.Second * 2
 )
 
 // ArchiveManager manages the file data source.
@@ -23,13 +23,13 @@ const (
 // Relay provides an implementation of the UpdateHandler interface which will be called for all changes that
 // it needs to know about.
 type ArchiveManager struct {
-	filePath      string
-	pollInterval  time.Duration
-	handler       UpdateHandler
-	lastKnownEnvs map[config.EnvironmentID]environmentMetadata
-	loggers       ldlog.Loggers
-	closeCh       chan struct{}
-	closeOnce     sync.Once
+	filePath           string
+	monitoringInterval time.Duration
+	handler            UpdateHandler
+	lastKnownEnvs      map[config.EnvironmentID]environmentMetadata
+	loggers            ldlog.Loggers
+	closeCh            chan struct{}
+	closeOnce          sync.Once
 }
 
 // ArchiveManagerInterface is an interface containing the public methods of ArchiveManager. This is used
@@ -45,7 +45,7 @@ type ArchiveManagerInterface interface {
 func NewArchiveManager(
 	filePath string,
 	handler UpdateHandler,
-	pollInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
+	monitoringInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
 	loggers ldlog.Loggers,
 ) (*ArchiveManager, error) {
 	fileInfo, err := os.Stat(filePath)
@@ -54,15 +54,15 @@ func NewArchiveManager(
 	}
 
 	am := &ArchiveManager{
-		filePath:      filePath,
-		handler:       handler,
-		pollInterval:  pollInterval,
-		lastKnownEnvs: make(map[config.EnvironmentID]environmentMetadata),
-		loggers:       loggers,
-		closeCh:       make(chan struct{}),
+		filePath:           filePath,
+		handler:            handler,
+		monitoringInterval: monitoringInterval,
+		lastKnownEnvs:      make(map[config.EnvironmentID]environmentMetadata),
+		loggers:            loggers,
+		closeCh:            make(chan struct{}),
 	}
-	if am.pollInterval == 0 {
-		am.pollInterval = defaultPollInterval
+	if am.monitoringInterval == 0 {
+		am.monitoringInterval = defaultMonitoringInterval
 	}
 	am.loggers.SetPrefix("[FileDataSource]")
 
@@ -87,12 +87,12 @@ func (am *ArchiveManager) Close() error {
 }
 
 func (am *ArchiveManager) monitorForChangesByPolling(original os.FileInfo) {
-	ticker := time.NewTicker(am.pollInterval)
+	ticker := time.NewTicker(am.monitoringInterval)
 	defer ticker.Stop()
 
 	prevInfo := original
 
-	am.loggers.Infof("Monitoring %s (size=%d, mtime=%s)", am.filePath, original.Size(), original.ModTime())
+	am.loggers.Infof("Monitoring %s for changes (every %s) (size=%d, mtime=%s)", am.filePath, am.monitoringInterval, original.Size(), original.ModTime())
 
 	for {
 		select {

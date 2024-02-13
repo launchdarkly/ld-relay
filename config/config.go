@@ -158,11 +158,12 @@ type AutoConfigConfig struct {
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
 type OfflineModeConfig struct {
-	FileDataSource        string           `conf:"FILE_DATA_SOURCE"`
-	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
-	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
-	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
-	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	FileDataSource                   string           `conf:"FILE_DATA_SOURCE"`
+	FileDataSourceMonitoringInterval ct.OptDuration   `conf:"FILE_DATA_SOURCE_MONITORING_INTERVAL"`
+	EnvDatastorePrefix               string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastoreTableName            string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvAllowedOrigin                 ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader                 ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.

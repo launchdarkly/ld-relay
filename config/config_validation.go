@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -18,11 +19,12 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errRedisURLWithHostAndPort = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisBadHostname        = errors.New("invalid Redis hostname")
-	errConsulTokenAndTokenFile = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
-	errAutoConfWithFilters     = errors.New("cannot configure filters if auto-configuration is enabled")
-	errMissingProjKey          = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errRedisURLWithHostAndPort           = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisBadHostname                  = errors.New("invalid Redis hostname")
+	errConsulTokenAndTokenFile           = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errAutoConfWithFilters               = errors.New("cannot configure filters if auto-configuration is enabled")
+	errMissingProjKey                    = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errInvalidFileDataSourcePollInterval = errors.New("file data source poll interval must be at least 100ms")
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -76,6 +78,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, loggers)
 	validateConfigFilters(&result, c)
+	validateOfflineMode(&result, c)
 
 	return result.GetError()
 }
@@ -122,7 +125,7 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 	}
 	if c.OfflineMode.FileDataSource == "" {
 		if c.OfflineMode.EnvDatastorePrefix != "" || c.OfflineMode.EnvDatastoreTableName != "" ||
-			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 || len(c.OfflineMode.EnvAllowedHeader.Values()) != 0 {
+			len(c.OfflineMode.EnvAllowedOrigin.Values()) != 0 || len(c.OfflineMode.EnvAllowedHeader.Values()) != 0 || c.OfflineMode.FileDataSourceMonitoringInterval.IsDefined() {
 			result.AddError(nil, errOfflineModePropertiesWithNoFile)
 		}
 	} else {
@@ -184,6 +187,16 @@ func validateConfigFilters(result *ct.ValidationResult, c *Config) {
 		}
 	}
 }
+
+func validateOfflineMode(result *ct.ValidationResult, c *Config) {
+	if c.OfflineMode.FileDataSourceMonitoringInterval.IsDefined() {
+		interval := c.OfflineMode.FileDataSourceMonitoringInterval.GetOrElse(0)
+		if interval < 100*time.Millisecond {
+			result.AddError(nil, errInvalidFileDataSourcePollInterval)
+		}
+	}
+}
+
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
 	normalizeRedisConfig(result, c)
 

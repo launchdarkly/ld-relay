@@ -90,7 +90,7 @@ func TestDefaultRetryInterval(t *testing.T) {
 		require.NoError(t, err)
 		defer archiveManager.Close()
 
-		assert.Equal(t, defaultPollInterval, archiveManager.pollInterval)
+		assert.Equal(t, defaultMonitoringInterval, archiveManager.monitoringInterval)
 	})
 }
 

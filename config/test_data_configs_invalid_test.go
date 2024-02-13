@@ -26,6 +26,10 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigOfflineModeAllowedHeaderWithNoFile(),
 		makeInvalidConfigOfflineModePrefixWithNoFile(),
 		makeInvalidConfigOfflineModeTableNameWithNoFile(),
+		makeInvalidConfigOfflineModeWithMonitoringInterval("0s"),
+		makeInvalidConfigOfflineModeWithMonitoringInterval("not a duration"),
+		makeInvalidConfigOfflineModeWithMonitoringInterval("-1s"),
+		makeInvalidConfigOfflineModeWithMonitoringInterval("99ms"),
 		makeInvalidConfigRedisInvalidHostname(),
 		makeInvalidConfigRedisInvalidDockerPort(),
 		makeInvalidConfigRedisConflictingParams(),
@@ -236,6 +240,18 @@ func makeInvalidConfigOfflineModeTableNameWithNoFile() testDataInvalidConfig {
 	c.fileContent = `
 [OfflineMode]
 EnvDatastoreTableName = table
+`
+	return c
+}
+
+func makeInvalidConfigOfflineModeWithMonitoringInterval(interval string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "offline mode table name with no file"}
+	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileContent = `
+[OfflineMode]
+fileDataSource = foo.tar.gz
+fileDataSourceMonitoringInterval = ` + interval + `
+
 `
 	return c
 }
