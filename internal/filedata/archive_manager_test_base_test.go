@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	testRetryInterval = time.Millisecond * 100
+	testPollInterval = time.Millisecond * 100
 )
 
 type archiveManagerTestParams struct {
@@ -61,7 +61,7 @@ func archiveManagerTest(t *testing.T, setupFile func(filePath string), action fu
 		archiveManager, err := NewArchiveManager(
 			filePath,
 			messageHandler,
-			testRetryInterval,
+			testPollInterval,
 			mockLog.Loggers,
 		)
 		if archiveManager != nil {

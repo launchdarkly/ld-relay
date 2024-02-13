@@ -90,7 +90,7 @@ func TestDefaultRetryInterval(t *testing.T) {
 		require.NoError(t, err)
 		defer archiveManager.Close()
 
-		assert.Equal(t, defaultRetryInterval, archiveManager.retryInterval)
+		assert.Equal(t, defaultPollInterval, archiveManager.pollInterval)
 	})
 }
 
@@ -186,7 +186,7 @@ func TestFileUpdatedWithInvalidDataAndDoesNotBecomeValid(t *testing.T) {
 
 		writeMalformedArchive(p.filePath)
 
-		requireLogMessage(t, p.mockLog, ldlog.Error, "giving up until next change")
+		requireLogMessage(t, p.mockLog, ldlog.Warn, "Data file reload failed")
 
 		p.requireNoMoreMessages()
 	})
@@ -226,7 +226,7 @@ func TestFileDeletedAndThenRecreatedWithValidData(t *testing.T) {
 
 		require.NoError(t, os.Remove(p.filePath))
 
-		requireLogMessage(t, p.mockLog, ldlog.Warn, "file not found")
+		requireLogMessage(t, p.mockLog, ldlog.Error, "not found")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
@@ -246,7 +246,7 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 
 		require.NoError(t, os.Remove(p.filePath))
 
-		requireLogMessage(t, p.mockLog, ldlog.Warn, "file not found")
+		requireLogMessage(t, p.mockLog, ldlog.Error, "not found")
 
 		writeMalformedArchive(p.filePath)
 

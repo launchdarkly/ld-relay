@@ -3,19 +3,16 @@ package filedata
 import (
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 const (
-	defaultRetryInterval = time.Millisecond * 500
-	maxRetryDuration     = time.Second * 2
+	defaultPollInterval = 1 * time.Second
+	maxRetryDuration    = time.Second * 2
 )
 
 // ArchiveManager manages the file data source.
@@ -27,10 +24,9 @@ const (
 // it needs to know about.
 type ArchiveManager struct {
 	filePath      string
+	pollInterval  time.Duration
 	handler       UpdateHandler
-	retryInterval time.Duration
 	lastKnownEnvs map[config.EnvironmentID]environmentMetadata
-	watcher       *fsnotify.Watcher
 	loggers       ldlog.Loggers
 	closeCh       chan struct{}
 	closeOnce     sync.Once
@@ -49,7 +45,7 @@ type ArchiveManagerInterface interface {
 func NewArchiveManager(
 	filePath string,
 	handler UpdateHandler,
-	retryInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
+	pollInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
 	loggers ldlog.Loggers,
 ) (*ArchiveManager, error) {
 	fileInfo, err := os.Stat(filePath)
@@ -60,13 +56,13 @@ func NewArchiveManager(
 	am := &ArchiveManager{
 		filePath:      filePath,
 		handler:       handler,
-		retryInterval: retryInterval,
+		pollInterval:  pollInterval,
 		lastKnownEnvs: make(map[config.EnvironmentID]environmentMetadata),
 		loggers:       loggers,
 		closeCh:       make(chan struct{}),
 	}
-	if am.retryInterval == 0 {
-		am.retryInterval = defaultRetryInterval
+	if am.pollInterval == 0 {
+		am.pollInterval = defaultPollInterval
 	}
 	am.loggers.SetPrefix("[FileDataSource]")
 
@@ -76,18 +72,8 @@ func NewArchiveManager(
 	}
 	defer ar.Close()
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		// COVERAGE: can't cause this condition in unit tests - unexpected failure of fsnotify package
-		return nil, errCreateArchiveManagerFailed(filePath, err)
-	}
-	if err := watcher.Add(filepath.Dir(filePath)); err != nil {
-		return nil, errCreateArchiveManagerFailed(filePath, err) // COVERAGE: see above
-	}
-	am.watcher = watcher
-
 	am.updatedArchive(ar)
-	go am.monitorForChanges(fileInfo)
+	go am.monitorForChangesByPolling(fileInfo)
 
 	return am, nil
 }
@@ -100,110 +86,152 @@ func (am *ArchiveManager) Close() error {
 	return nil
 }
 
-func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
-	lastFileInfo := originalFileInfo
-	retryCh := make(chan struct{})
-	pendingRetry := false
-	var firstRetryTime time.Time
-	var lastError error
+func (am *ArchiveManager) monitorForChangesByPolling(original os.FileInfo) {
+	ticker := time.NewTicker(am.pollInterval)
+	defer ticker.Stop()
 
-	scheduleRetry := func() {
-		am.loggers.Infof(logMsgReloadWillRetry, am.retryInterval)
-		pendingRetry = true
-		if firstRetryTime.IsZero() {
-			firstRetryTime = time.Now()
-		}
-		time.AfterFunc(am.retryInterval, func() {
-			// Use non-blocking write because we never need to queue more than one retry signal
-			select {
-			case retryCh <- struct{}{}:
-				break
-			default:
-				break // COVERAGE: can't cause this condition in unit tests
-			}
-		})
-	}
+	prevInfo := original
 
-	maybeReload := func() {
-		curFileInfo, err := os.Stat(am.filePath)
-		if err == nil {
-			if fileMayHaveChanged(curFileInfo, lastFileInfo) {
-				// If the file's mod time or size has changed, we will always try to reload.
-				firstRetryTime = time.Time{}
-				lastError = nil
-				am.loggers.Debugf("File info changed: old (size=%d, mtime=%s), new(size=%d, mtime=%s)",
-					lastFileInfo.Size(), lastFileInfo.ModTime(), curFileInfo.Size(), curFileInfo.ModTime())
-				lastFileInfo = curFileInfo
-				ar, err := newArchiveReader(am.filePath)
-				if err != nil {
-					// A failure here might be a real failure, or it might be that the file is being copied
-					// over non-atomically so that we're seeing an invalid partial state. So we'll always
-					// retry at least once in this case.
-					am.loggers.Warnf(logMsgReloadError, err.Error())
-					lastError = err
-					scheduleRetry()
-					return
-				}
-				am.loggers.Warnf(logMsgReloadedData, am.filePath)
-				am.updatedArchive(ar)
-				ar.Close()
-				return
-			}
-			am.loggers.Debugf("File has not changed (size=%d, mtime=%s)", curFileInfo.Size(), curFileInfo.ModTime())
-			if lastError == nil {
-				// This was a spurious file watch notification - the file hasn't changed and we're not retrying
-				// after an error, so there's nothing to do
-				return
-			}
-			am.loggers.Warn(logMsgReloadUnchangedRetry)
-		} else if lastError == nil {
-			am.loggers.Warn(logMsgReloadFileNotFound)
-			lastError = err
-		}
-		// If we got here, then either the file was not found, or we triggered a delayed retry after
-		// an earlier error and the file has not changed since the last failed attempt.
-		//
-		// So there's no point in trying to reload it now, but it's still possible that there's a slow
-		// copy operation in progress, so we'll schedule another retry-- up to a limit. We won't rely on
-		// the file watching mechanism for this, because its granularity might be too large to detect
-		// consecutive changes that happen close together.
-		if firstRetryTime.IsZero() || time.Since(firstRetryTime) < maxRetryDuration {
-			scheduleRetry()
-		} else {
-			am.loggers.Errorf(logMsgReloadUnchangedNoMoreRetries, lastError)
-		}
-	}
+	am.loggers.Infof("Monitoring %s (size=%d, mtime=%s)", am.filePath, original.Size(), original.ModTime())
 
 	for {
 		select {
 		case <-am.closeCh:
-			_ = am.watcher.Close()
 			return
-
-		case event := <-am.watcher.Events:
-			am.loggers.Debugf("Got file watcher event: %+v", event)
-			// If we are already going to retry after a brief interval, then we can ignore any file watch
-			// events that are triggered before the retry. Some implementations of fsnotify can produce a
-			// burst of redundant events, and there's no point in trying to reload the file many times
-			// within our retry interval.
-			if pendingRetry {
-				am.loggers.Debug("Ignoring file watcher event because there is already a scheduled retry")
-			} else {
-				maybeReload()
+		case <-ticker.C:
+			nextInfo, err := os.Stat(am.filePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					am.loggers.Errorf("File %s not found", am.filePath)
+				} else {
+					am.loggers.Errorf("Error: %s", err)
+				}
+				continue
 			}
-
-		case <-retryCh:
-			// If needRetry is false, this is an obsolete signal - we've already successfully reloaded
-			if pendingRetry {
-				am.loggers.Debug("Got retry signal")
-				pendingRetry = false
-				maybeReload()
+			if fileMayHaveChanged(prevInfo, nextInfo) {
+				am.loggers.Infof("File %s has changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				reader, err := newArchiveReader(am.filePath)
+				if err != nil {
+					// A failure here might be a real failure, or it might be that the file is being copied
+					// over non-atomically so that we're seeing an invalid partial state.
+					am.loggers.Warnf(logMsgReloadError, err.Error())
+					continue
+				}
+				am.loggers.Warnf("Reloaded data from %s", am.filePath)
+				am.updatedArchive(reader)
+				reader.Close()
 			} else {
-				am.loggers.Debug("Ignoring obsolete retry signal") // COVERAGE: can't cause this condition in unit tests
+				am.loggers.Infof("File %s has not changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
 			}
 		}
 	}
 }
+
+//
+//func (am *ArchiveManager) monitorForChanges(originalFileInfo os.FileInfo) {
+//	lastFileInfo := originalFileInfo
+//	retryCh := make(chan struct{})
+//	pendingRetry := false
+//	var firstRetryTime time.Time
+//	var lastError error
+//
+//	scheduleRetry := func() {
+//		am.loggers.Infof(logMsgReloadWillRetry, am.retryInterval)
+//		pendingRetry = true
+//		if firstRetryTime.IsZero() {
+//			firstRetryTime = time.Now()
+//		}
+//		time.AfterFunc(am.retryInterval, func() {
+//			// Use non-blocking write because we never need to queue more than one retry signal
+//			select {
+//			case retryCh <- struct{}{}:
+//				break
+//			default:
+//				break // COVERAGE: can't cause this condition in unit tests
+//			}
+//		})
+//	}
+//
+//	maybeReload := func() {
+//		curFileInfo, err := os.Stat(am.filePath)
+//		if err == nil {
+//			if fileMayHaveChanged(curFileInfo, lastFileInfo) {
+//				// If the file's mod time or size has changed, we will always try to reload.
+//				firstRetryTime = time.Time{}
+//				lastError = nil
+//				am.loggers.Debugf("File info changed: old (size=%d, mtime=%s), new(size=%d, mtime=%s)",
+//					lastFileInfo.Size(), lastFileInfo.ModTime(), curFileInfo.Size(), curFileInfo.ModTime())
+//				lastFileInfo = curFileInfo
+//				ar, err := newArchiveReader(am.filePath)
+//				if err != nil {
+//					// A failure here might be a real failure, or it might be that the file is being copied
+//					// over non-atomically so that we're seeing an invalid partial state. So we'll always
+//					// retry at least once in this case.
+//					am.loggers.Warnf(logMsgReloadError, err.Error())
+//					lastError = err
+//					scheduleRetry()
+//					return
+//				}
+//				am.loggers.Warnf(logMsgReloadedData, am.filePath)
+//				am.updatedArchive(ar)
+//				ar.Close()
+//				return
+//			}
+//			am.loggers.Debugf("File %s has not changed (size=%d, mtime=%s)", curFileInfo.Name(), curFileInfo.Size(), curFileInfo.ModTime())
+//			if lastError == nil {
+//				// This was a spurious file watch notification - the file hasn't changed and we're not retrying
+//				// after an error, so there's nothing to do
+//				return
+//			}
+//			am.loggers.Warn(logMsgReloadUnchangedRetry)
+//		} else if lastError == nil {
+//			am.loggers.Warn(logMsgReloadFileNotFound)
+//			lastError = err
+//		}
+//		// If we got here, then either the file was not found, or we triggered a delayed retry after
+//		// an earlier error and the file has not changed since the last failed attempt.
+//		//
+//		// So there's no point in trying to reload it now, but it's still possible that there's a slow
+//		// copy operation in progress, so we'll schedule another retry-- up to a limit. We won't rely on
+//		// the file watching mechanism for this, because its granularity might be too large to detect
+//		// consecutive changes that happen close together.
+//		if firstRetryTime.IsZero() || time.Since(firstRetryTime) < maxRetryDuration {
+//			scheduleRetry()
+//		} else {
+//			am.loggers.Errorf(logMsgReloadUnchangedNoMoreRetries, lastError)
+//		}
+//	}
+//
+//	for {
+//		select {
+//		case <-am.closeCh:
+//			_ = am.watcher.Close()
+//			return
+//
+//		case event := <-am.watcher.Events:
+//			am.loggers.Debugf("Got file watcher event: %+v", event)
+//			// If we are already going to retry after a brief interval, then we can ignore any file watch
+//			// events that are triggered before the retry. Some implementations of fsnotify can produce a
+//			// burst of redundant events, and there's no point in trying to reload the file many times
+//			// within our retry interval.
+//			if pendingRetry {
+//				am.loggers.Debug("Ignoring file watcher event because there is already a scheduled retry")
+//			} else {
+//				maybeReload()
+//			}
+//
+//		case <-retryCh:
+//			// If needRetry is false, this is an obsolete signal - we've already successfully reloaded
+//			if pendingRetry {
+//				am.loggers.Debug("Got retry signal")
+//				pendingRetry = false
+//				maybeReload()
+//			} else {
+//				am.loggers.Debug("Ignoring obsolete retry signal") // COVERAGE: can't cause this condition in unit tests
+//			}
+//		}
+//	}
+//}
 
 func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 	unusedEnvs := make(map[config.EnvironmentID]environmentMetadata)
