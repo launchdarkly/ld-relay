@@ -11,8 +11,10 @@ import (
 )
 
 const (
+	// This value was chosen as a default after switching from file-watcher event-based monitoring to simple polling.
+	// This idea is that polling should react fairly quickly to changes, just as the event-based system did to preserve
+	// any use-cases that relied on it. In practice, much longer intervals could likely be chosen.
 	defaultMonitoringInterval = 1 * time.Second
-	maxRetryDuration          = time.Second * 2
 )
 
 // ArchiveManager manages the file data source.
@@ -73,7 +75,7 @@ func NewArchiveManager(
 	defer ar.Close()
 
 	am.updatedArchive(ar)
-	go am.monitorForChangesByPolling(fileInfo)
+	go am.monitorForChanges(fileInfo)
 
 	return am, nil
 }
@@ -86,7 +88,7 @@ func (am *ArchiveManager) Close() error {
 	return nil
 }
 
-func (am *ArchiveManager) monitorForChangesByPolling(original os.FileInfo) {
+func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 	ticker := time.NewTicker(am.monitoringInterval)
 	defer ticker.Stop()
 

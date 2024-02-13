@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -19,12 +18,12 @@ var (
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errRedisURLWithHostAndPort           = errors.New("please specify Redis URL or host/port, but not both")
-	errRedisBadHostname                  = errors.New("invalid Redis hostname")
-	errConsulTokenAndTokenFile           = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
-	errAutoConfWithFilters               = errors.New("cannot configure filters if auto-configuration is enabled")
-	errMissingProjKey                    = errors.New("when filters are configured, all environments must specify a 'projKey'")
-	errInvalidFileDataSourcePollInterval = errors.New("file data source poll interval must be at least 100ms")
+	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
+	errRedisBadHostname                        = errors.New("invalid Redis hostname")
+	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
+	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
+	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -191,8 +190,8 @@ func validateConfigFilters(result *ct.ValidationResult, c *Config) {
 func validateOfflineMode(result *ct.ValidationResult, c *Config) {
 	if c.OfflineMode.FileDataSourceMonitoringInterval.IsDefined() {
 		interval := c.OfflineMode.FileDataSourceMonitoringInterval.GetOrElse(0)
-		if interval < 100*time.Millisecond {
-			result.AddError(nil, errInvalidFileDataSourcePollInterval)
+		if interval < minimumFileDataSourceMonitoringInterval {
+			result.AddError(nil, errInvalidFileDataSourceMonitoringInterval)
 		}
 	}
 }

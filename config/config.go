@@ -83,6 +83,13 @@ var (
 	defaultRedisURL, _          = ct.NewOptURLAbsoluteFromString("redis://localhost:6379")       //nolint:gochecknoglobals
 )
 
+const (
+	// This minimum value was chosen not as a recommendation, but more to protect the host system from thousands of syscalls +
+	// the CPU time it takes to read the archive over and over again. It is somewhat arbitrary.
+	// It likely doesn't make sense to use an interval this frequent in production use-cases.
+	minimumFileDataSourceMonitoringInterval = 100 * time.Millisecond
+)
+
 // DefaultLoggers is the default logging configuration used by Relay.
 //
 // Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
