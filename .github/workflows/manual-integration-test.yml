@@ -1,4 +1,4 @@
-name: 'Daily Integration Tests'
+name: 'Manual Integration Tests'
 on:
   workflow_dispatch:
     inputs:
@@ -6,9 +6,12 @@ on:
         description: "Go version to use for building Relay (leave empty for latest defined in repo.)"
         required: false
         type: string
-
-  schedule:
-    - cron: "0 8 * * *"
+      environment:
+        description: "The environment to test against."
+        type: choice
+        options:
+          - 'staging'
+          - 'production'
 
 jobs:
   go-versions:
@@ -16,15 +19,8 @@ jobs:
 
   integration-test:
     needs: go-versions
-    strategy:
-      # Let each job fail independently.
-      fail-fast: false
-      matrix:
-        environment: ['staging', 'production']
-        branch: ['v7', 'v8']
-
     uses: ./.github/workflows/integration-test.yml
     with:
-      environment: ${{ matrix.environment }}
+      environment: ${{ inputs.environment }}
       go-version: ${{ inputs.go-version != '' && inputs.go-version || needs.go-versions.outputs.latest }}
-      branch: ${{ matrix.branch }}
+      branch: ${{ github.ref }}
