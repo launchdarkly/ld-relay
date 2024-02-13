@@ -1,20 +1,5 @@
 name: 'Install Relay Go Module'
 on:
-  workflow_dispatch:
-    inputs:
-      relay-version:
-        description: "Relay version to install, e.g. 'latest'"
-        type: string
-        required: false
-      relay-major:
-        description: "Relay major version to install, e.g. 'v8'."
-        type: string
-        required: false
-      branch:
-        description: "Branch to test."
-        type: string
-        required: false
-
   schedule:
     - cron: "0 8 * * *"
 
@@ -29,12 +14,12 @@ jobs:
     strategy:
         matrix:
             go-version: ${{ fromJson(needs.go-versions.outputs.matrix) }}
+            relay-major: ['v7', 'v8']
+        fail-fast: false
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch }}
       - uses: ./.github/actions/install-relay
         with:
           go-version: ${{ matrix.go-version }}
-          relay-version: ${{ inputs.relay-version }}
-          relay-major: ${{ inputs.relay-major }}
+          relay-version: 'latest'
+          relay-major: ${{ matrix.relay-major }}
