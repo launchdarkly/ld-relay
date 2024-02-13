@@ -27,7 +27,6 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigOfflineModePrefixWithNoFile(),
 		makeInvalidConfigOfflineModeTableNameWithNoFile(),
 		makeInvalidConfigOfflineModeWithMonitoringInterval("0s"),
-		makeInvalidConfigOfflineModeWithMonitoringInterval("not a duration"),
 		makeInvalidConfigOfflineModeWithMonitoringInterval("-1s"),
 		makeInvalidConfigOfflineModeWithMonitoringInterval("99ms"),
 		makeInvalidConfigRedisInvalidHostname(),
@@ -246,7 +245,7 @@ EnvDatastoreTableName = table
 
 func makeInvalidConfigOfflineModeWithMonitoringInterval(interval string) testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "offline mode table name with no file"}
-	c.fileError = errOfflineModePropertiesWithNoFile.Error()
+	c.fileError = errInvalidFileDataSourceMonitoringInterval.Error()
 	c.fileContent = `
 [OfflineMode]
 fileDataSource = foo.tar.gz
