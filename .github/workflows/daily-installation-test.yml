@@ -8,7 +8,7 @@ jobs:
     uses: ./.github/workflows/go-versions.yml
 
   install-relay:
-    name: ${{ format('Go Install Test (Go {0})', matrix.go-version) }}
+    name: ${{ format('Installation Test (Go {0}, Relay {1})', matrix.go-version, matrix.relay-major) }}
     needs: go-versions
     runs-on: ubuntu-latest
     strategy:
