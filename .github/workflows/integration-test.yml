@@ -82,11 +82,11 @@ jobs:
         if: steps.integration-test.outcome == 'success'
         id: process-integration-test
         shell: bash
-        run: go-junit-report < raw_report.txt > junit_report_integrationtests_${{ inputs.go-version }}.xml
+        run: go-junit-report < raw_report.txt > junit_report_integrationtests.xml
 
       - name: Upload test results
         if: steps.process-integration-test.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Integration-test-results-${{ inputs.environment }}-${{ inputs.go-version }}
-          path: junit_report_integrationtests_${{ inputs.go-version }}.xml
+          name: Integration-test-results-relay-${{ inputs.branch }}-${{ inputs.environment }}-${{ inputs.go-version }}
+          path: junit_report_integrationtests.xml
