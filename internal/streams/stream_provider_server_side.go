@@ -33,7 +33,8 @@ type serverSideEnvStreamRepository struct {
 	store   EnvStoreQueries
 	loggers ldlog.Loggers
 
-	flightGroup singleflight.Group
+	flightGroup    singleflight.Group
+	previousFlight time.Time
 }
 
 func (s *serverSideStreamProvider) Handler(credential sdkauth.ScopedCredential) http.HandlerFunc {
@@ -111,7 +112,20 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
 func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, error) {
 	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
-		start := time.Now()
+		// We do not want to call this flight group too often, as it can use a lot of RAM.
+		// This will ensure that we don't call it more than once every BATCH_FETCH_PERIOD.
+		delayS, has := os.LookupEnv("BATCH_FETCH_PERIOD")
+		if has {
+			if delay, err := time.ParseDuration(delayS); err == nil {
+				if time.Since(r.previousFlight) < delay {
+					time.Sleep(delay - time.Since(r.previousFlight))
+				}
+			} else {
+				r.loggers.Warnf("Ignoring invalid BATCH_FETCH_PERIOD: %s\n", delayS)
+			}
+			r.previousFlight = time.Now()
+		}
+
 		flags, err := r.store.GetAll(ldstoreimpl.Features())
 
 		if err != nil {
@@ -131,17 +145,6 @@ func (r *serverSideEnvStreamRepository) getReplayEvent() (eventsource.Event, err
 
 		// This call uses a lot of system resources (RAM in particular).
 		event := MakeServerSidePutEvent(allData)
-		// So we sleep for a bit to allow a bunch of concurrent calls to
-		// all make use of this same flightGroup.
-		delayS, has := os.LookupEnv("STREAMING_MIN_DELAY")
-		if has {
-			if delay, err := time.ParseDuration(delayS); err == nil {
-				time.Sleep(delay - time.Since(start))
-			} else {
-				r.loggers.Warnf("Ignoring invalid STREAMING_MIN_DELAY: %s\n", delayS)
-			}
-		}
-
 		return event, nil
 	})
 
