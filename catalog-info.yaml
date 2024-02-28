@@ -1,0 +1,30 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: relay-proxy
+  description: The LaunchDarkly Relay Proxy is a small Go application that runs on
+    your own infrastructure. It connects to the LaunchDarkly streaming API and
+    proxies that connection to clients within your organization's network.
+  tags: []
+  links:
+    - url: https://github.com/launchdarkly/ld-relay
+      title: Github
+      icon: github
+    - url: https://docs.launchdarkly.com/home/relay-proxy
+      title: Runbook
+      icon: library
+    - url: https://launchdarkly.slack.com/archives/C01JULMEH4Y
+      title: "#ask-relay-proxy"
+      icon: chat
+    - url: https://launchdarkly.slack.com/archives/C04SFEKAEQ0
+      title: "#team-app-platform-product"
+      icon: chat
+  annotations:
+    github.com/project-slug: ld-relay
+    backstage.io/source-location: url:https://github.com/launchdarkly/ld-relay
+spec:
+  type: service
+  lifecycle: production
+  owner: Group:app-platform-product
+  dependsOn: []
