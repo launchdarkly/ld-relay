@@ -64,7 +64,7 @@ jobs:
           add-paths: |
             Dockerfile
             .github/variables/go-versions.env
-          branch: "launchdarklyreleasebot/update-to-go-${{ env.officialLatestVersion }}"
+          branch: "launchdarklyreleasebot/update-to-go${{ env.officialLatestVersion }}-${{ matrix.branch }}"
           author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
           committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
           title: "fix(deps): bump supported Go versions to ${{ env.officialLatestVersion }} and ${{ env.officialPenultimateVersion }}"
