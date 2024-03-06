@@ -67,4 +67,4 @@ jobs:
             ./scripts/update-go-release-version.sh ${{ env.officialPenultimateVersion }} ${{ env.officialPenultimateVersion }}
             ```
             
-            - [ ] I have triggered CI on this PR (`git commit -m "run ci" --allow-empty && git push`)
+            - [ ] I have triggered CI on this PR (either close & reopen this PR in Github UI, or `git commit -m "run ci" --allow-empty && git push`)
