@@ -67,6 +67,7 @@ jobs:
           branch: "launchdarklyreleasebot/update-to-go${{ env.officialLatestVersion }}-${{ matrix.branch }}"
           author: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
           committer: "LaunchDarklyReleaseBot <LaunchDarklyReleaseBot@launchdarkly.com>"
+          labels: ${{ matrix.branch }}
           title: "fix(deps): bump supported Go versions to ${{ env.officialLatestVersion }} and ${{ env.officialPenultimateVersion }}"
           commit-message: "Bumps from Go ${{ steps.go-versions.outputs.latest }} -> ${{ env.officialLatestVersion }} and ${{ steps.go-versions.outputs.penultimate }} -> ${{ env.officialPenultimateVersion }}."
           body: |
