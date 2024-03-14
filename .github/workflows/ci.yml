@@ -59,9 +59,16 @@ jobs:
           platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
       - name: Build Docker Images
         run: make products-for-release
+      - name: Get current Relay version
+        id: image-tag
+        run:
+          echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
       - uses: aquasecurity/trivy-action@master
         with:
-          image-ref: launchdarkly/ld-relay:latest
+          # Using an explicit tag rather than ld-relay:latest to ensure we're scanning the local image that we just built.
+          # It's not clear why, but it seems goreleaser doesn't create the :latest tag when skipping the publish step
+          # as we do for CI, so the scan will end up checking the public image instead of the one we just built.
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-amd64
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
