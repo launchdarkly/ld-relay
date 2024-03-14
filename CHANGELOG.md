@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.5.2](https://github.com/launchdarkly/ld-relay/compare/v7.5.1...v7.5.2) (2024-03-14)
+
+
+### Bug Fixes
+
+* **deps:** Bump google.golang.org/protobuf from 1.31.0 to 1.33.0 ([#346](https://github.com/launchdarkly/ld-relay/issues/346)) ([45d82ef](https://github.com/launchdarkly/ld-relay/commit/45d82ef9008e6114f8aca8b6653e38cc4ee632d1))
+
 ## [7.5.1](https://github.com/launchdarkly/ld-relay/compare/v7.5.0...v7.5.1) (2024-03-07)
 
 
