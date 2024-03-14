@@ -2,6 +2,20 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.4.0](https://github.com/launchdarkly/ld-relay/compare/v8.3.2...v8.4.0) (2024-03-14)
+
+
+### Features
+
+* Support PHP update to event schema v4 ([#522](https://github.com/launchdarkly/ld-relay/issues/522)) ([6d23303](https://github.com/launchdarkly/ld-relay/commit/6d233031b2b9f2e2ca878b3c922f8f85923b5b31))
+
+
+### Bug Fixes
+
+* Bump go-sdk-events to 3.2.0 ([87e3cc3](https://github.com/launchdarkly/ld-relay/commit/87e3cc37562c28a10a5278c0a603fb5d3a665ee1))
+* Bump go-server-sdk/v7 to 7.1.0 ([2cf8613](https://github.com/launchdarkly/ld-relay/commit/2cf8613e224963e5517351b3cc99b33e62a85341))
+* **deps:** Bump google.golang.org/protobuf from 1.31.0 to 1.33.0 ([#342](https://github.com/launchdarkly/ld-relay/issues/342)) ([81175da](https://github.com/launchdarkly/ld-relay/commit/81175da78c1d3ea28fc1821de5612d5fee7af3e3))
+
 ## [8.3.2](https://github.com/launchdarkly/ld-relay/compare/v8.3.1...v8.3.2) (2024-03-07)
 
 
