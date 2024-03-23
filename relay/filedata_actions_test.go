@@ -73,7 +73,7 @@ func offlineModeTest(
 	relay, err := newRelayInternal(config, relayInternalOptions{
 		loggers:       mockLog.Loggers,
 		clientFactory: testclient.RealLDClientFactoryWithChannel(true, clientsCreatedCh),
-		archiveManagerFactory: func(filename string, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
+		archiveManagerFactory: func(filename string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
 			filedata.ArchiveManagerInterface, error) {
 			p.updateHandler = handler
 			return stubArchiveManager{}, nil

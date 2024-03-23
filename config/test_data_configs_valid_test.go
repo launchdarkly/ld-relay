@@ -65,7 +65,10 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
-		makeValidConfigFileData(),
+		makeValidConfigOfflineModeMinimal(),
+		makeValidConfigOfflineModeWithMonitoringInterval("100ms"),
+		makeValidConfigOfflineModeWithMonitoringInterval("1s"),
+		makeValidConfigOfflineModeWithMonitoringInterval("5m"),
 		makeValidConfigRedisMinimal(),
 		makeValidConfigRedisAll(),
 		makeValidConfigRedisURL(),
@@ -335,7 +338,7 @@ Enabled = true
 	return c
 }
 
-func makeValidConfigFileData() testDataValidConfig {
+func makeValidConfigOfflineModeMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "file data properties"}
 	c.makeConfig = func(c *Config) {
 		c.OfflineMode.FileDataSource = "my-file-path"
@@ -346,6 +349,32 @@ func makeValidConfigFileData() testDataValidConfig {
 	c.fileContent = `
 [OfflineMode]
 FileDataSource = my-file-path
+`
+	return c
+}
+
+func MustOptDurationFromString(duration string) ct.OptDuration {
+	opt, err := ct.NewOptDurationFromString(duration)
+	if err != nil {
+		panic(err)
+	}
+	return opt
+}
+
+func makeValidConfigOfflineModeWithMonitoringInterval(interval string) testDataValidConfig {
+	c := testDataValidConfig{name: "file data properties"}
+	c.makeConfig = func(c *Config) {
+		c.OfflineMode.FileDataSource = "my-file-path"
+		c.OfflineMode.FileDataSourceMonitoringInterval = MustOptDurationFromString(interval)
+	}
+	c.envVars = map[string]string{
+		"FILE_DATA_SOURCE":                     "my-file-path",
+		"FILE_DATA_SOURCE_MONITORING_INTERVAL": interval,
+	}
+	c.fileContent = `
+[OfflineMode]
+FileDataSource = my-file-path
+FileDataSourceMonitoringInterval = ` + interval + `
 `
 	return c
 }

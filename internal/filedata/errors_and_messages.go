@@ -26,11 +26,6 @@ func errBadItemJSON(key, namespace string) error {
 func errCannotOpenArchiveFile(filePath string, err error) error {
 	return fmt.Errorf("unable to read file data source %s: %w", filePath, err)
 }
-
-func errCreateArchiveManagerFailed(filePath string, err error) error { // COVERAGE: can't cause this condition in unit tests
-	return fmt.Errorf("unable to initialize archive manager for %q: %w", filePath, err)
-}
-
 func errChecksumDoesNotMatch(expected, actual string) error {
 	return fmt.Errorf("checksum of environments did not match: expected %q, got %q", expected, actual)
 }
