@@ -14,6 +14,7 @@ import (
 // StartHTTPServer starts the server, with or without TLS. It returns immediately, starting the server
 // on a separate goroutine; if the server fails to start up, it sends an error to the error channel.
 func StartHTTPServer(
+	host string,
 	port int,
 	handler http.Handler,
 	tlsEnabled bool,
@@ -22,7 +23,7 @@ func StartHTTPServer(
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
+		Addr:              fmt.Sprintf("%s:%d", host, port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
