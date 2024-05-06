@@ -127,15 +127,15 @@ note over Relay Proxy: TTL fresh, serve from memory
 Relay Proxy-->>SDK2: Streaming response
 ```
 
-## Example: Persistent Store with LaunchDarkly Outage
+## Example: Persistent Store during LaunchDarkly Outage - Cold Relay
 
 In this example, LaunchDarkly SaaS is down. Additionally, the Relay in this diagram is starting up **during** the 
 outage.
 
 This does not apply to Relays that are already running during a LaunchDarkly outage, as they will already be 
-initialized.
+initialized - see the next diagram for that scenario.
 
-The diagram demonstrates the relationship between the [`initTimeout`](./configuration.md#file-section-main) 
+This diagram demonstrates the relationship between the [`initTimeout`](./configuration.md#file-section-main) 
 configuration and persistent store usage. Specifically, the Relay will be unable to serve SDK connections until
 the `initTimeout` has elapsed, at which point it will serve from the persistent store.
 
@@ -157,4 +157,40 @@ SDK1->>Relay Proxy: Streaming request /all
 note over Relay Proxy: TTL fresh, serve from memory
 Relay Proxy-->>SDK1: Streaming response
 
+```
+
+
+## Example: Persistent Store during LaunchDarkly Outage - Warm Relay
+
+In this example, an instance of Relay was already initialized when LaunchDarkly went down. This diagram shows how
+the Relay is able to continue serving new connections.
+
+While there is an outage, the Relay attempts to reconnect to LaunchDarkly on a backoff schedule. Once connected,
+it will receive fresh flags and then write them back to the persistent store.
+
+```mermaid
+sequenceDiagram
+participant SDK1
+participant SDK2
+participant Relay Proxy
+participant Persistent Store
+participant LD as LaunchDarkly
+
+Relay Proxy->>LD: Streaming request /all
+LD-->>Relay Proxy: Streaming response
+Relay Proxy->>Persistent Store: Store all flags
+SDK1->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK1: Streaming response
+note over LD: LaunchDarkly goes down
+note over Relay Proxy: Backoff and retry
+Relay Proxy->>LD: Streaming request /all - FAILED
+SDK2->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK2: Streaming response
+note over Relay Proxy: Backoff and retry
+note over LD: LaunchDarkly comes back up
+Relay Proxy->>LD: Streaming request /all
+LD-->>Relay Proxy: Streaming response
+Relay Proxy->>Persistent Store: Store all flags
 ```
