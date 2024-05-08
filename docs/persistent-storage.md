@@ -56,3 +56,141 @@ If the Relay Proxy receives such a large data item, it will log an error message
 ```
 
 Any SDKs that are using daemon mode to read directly from the database will not be able to see this flag or segment. If SDKs are connected in proxy mode, they may be able to receive the item from the Relay Proxy, but depending on caching behavior it may become unavailable later. Therefore, if you see this message, consider redesigning your flag or segment configurations, or else do not use the Relay Proxy for the environment that contains this data item.
+
+## Example: Persistent Store with 30 second TTL
+
+This example shows Relay configured with a persistent store with a 30 second TTL. This means Relay will serve connections
+from memory if it has been less than 30 seconds since the last read from the persistent store.
+
+In the example, **SDK1** is served immediately from memory. **SDK2** is served after a slight delay required to read 
+from the persistent store first, because 30 seconds has elapsed between the first connection and the second. 
+
+```mermaid
+sequenceDiagram
+participant SDK1
+participant SDK2
+participant Relay Proxy
+participant Persistent Store
+participant LD as LaunchDarkly
+
+Relay Proxy->>LD: Streaming request /all
+LD-->>Relay Proxy: Streaming response
+Relay Proxy->>Persistent Store: Store all flags with TTL 30 seconds
+SDK1->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK1: Streaming response
+note over Relay Proxy: 30 seconds pass
+SDK2->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL expired, read from store
+Relay Proxy->>Persistent Store: Get all flags, reset TTL
+Relay Proxy-->>SDK2: Streaming response
+```
+
+## Example: Persistent Store outage with 30 second TTL
+
+In this example, the persistent store goes down for a period of time. 
+
+Before the outage, **SDK1** is served immediately from memory. During the outage, **SDK2** attempts to connect 
+and is denied since the TTL has elapsed since the first connection. If it had connected within the TTL, then it would
+have been served from memory even if the persistent store was down.
+
+After backing off and retrying, the persistent store is still down so **SDK2** is denied again.
+
+The persistent store connection is then re-established and Relay writes all in-memory flag data to the store. 
+**SDK2** is then able to connect and be served from memory.
+```mermaid
+
+sequenceDiagram
+participant SDK1
+participant SDK2
+participant Relay Proxy
+participant Persistent Store
+
+SDK1->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK1: Streaming response
+note over Relay Proxy: 30 seconds pass
+SDK2->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL expired, read from store
+note over Persistent Store: Database goes down
+Relay Proxy-xPersistent Store: Get all flags - FAILED
+Relay Proxy-->>SDK2: Service Unavailable
+note over SDK2: Backoff and retry
+SDK2->>Relay Proxy: Streaming request /all
+Relay Proxy-xPersistent Store: Get all flags - FAILED
+Relay Proxy-->>SDK2: Service Unavailable
+note over Persistent Store: Database comes back up
+Relay Proxy->>Persistent Store: Store all flags
+note over SDK2: Backoff and retry
+SDK2->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK2: Streaming response
+```
+
+## Example: Persistent Store during LaunchDarkly Outage - Cold Relay
+
+In this example, LaunchDarkly SaaS is down. Additionally, the Relay in this diagram is starting up **during** the 
+outage.
+
+This does not apply to Relays that are already running during a LaunchDarkly outage, as they will already be 
+initialized - see the next diagram for that scenario.
+
+This diagram demonstrates the relationship between the [`initTimeout`](./configuration.md#file-section-main) 
+configuration and persistent store usage. Specifically, the Relay will be unable to serve SDK connections until
+the `initTimeout` has elapsed, at which point it will serve from the persistent store.
+
+```mermaid
+sequenceDiagram
+participant SDK1
+participant Relay Proxy
+participant Persistent Store
+participant LD as LaunchDarkly
+
+Relay Proxy-xLD: Streaming request /all - FAILED
+note over LD: LaunchDarkly is down
+note over Relay Proxy: Backoff and retry
+Relay Proxy-xLD: Streaming request /all - FAILED
+SDK1-xRelay Proxy: Streaming request /all - FAILED
+note over Relay Proxy: 10 second initTimeout elapses, stop retry
+Relay Proxy->>Persistent Store: Get all flags
+SDK1->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK1: Streaming response
+
+```
+
+
+## Example: Persistent Store during LaunchDarkly Outage - Warm Relay
+
+In this example, an instance of Relay was already initialized when LaunchDarkly went down. This diagram shows how
+the Relay is able to continue serving new connections.
+
+While there is an outage, the Relay attempts to reconnect to LaunchDarkly on a backoff schedule. Once connected,
+it will receive fresh flags and then write them back to the persistent store.
+
+```mermaid
+sequenceDiagram
+participant SDK1
+participant SDK2
+participant Relay Proxy
+participant Persistent Store
+participant LD as LaunchDarkly
+
+Relay Proxy->>LD: Streaming request /all
+LD-->>Relay Proxy: Streaming response
+Relay Proxy->>Persistent Store: Store all flags
+SDK1->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK1: Streaming response
+note over LD: LaunchDarkly goes down
+note over Relay Proxy: Backoff and retry
+Relay Proxy->>LD: Streaming request /all - FAILED
+SDK2->>Relay Proxy: Streaming request /all
+note over Relay Proxy: TTL fresh, serve from memory
+Relay Proxy-->>SDK2: Streaming response
+note over Relay Proxy: Backoff and retry
+note over LD: LaunchDarkly comes back up
+Relay Proxy->>LD: Streaming request /all
+LD-->>Relay Proxy: Streaming response
+Relay Proxy->>Persistent Store: Store all flags
+```
