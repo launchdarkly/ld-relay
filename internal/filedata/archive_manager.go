@@ -123,7 +123,7 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 				am.updatedArchive(reader)
 				reader.Close()
 			} else {
-				am.loggers.Infof("File %s has not changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				am.loggers.Debugf("File %s has not changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
 			}
 		}
 	}
