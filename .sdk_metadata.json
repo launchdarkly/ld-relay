@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "sdks": {
+    "relay-proxy": {
+      "name": "Relay Proxy",
+      "type": "relay",
+      "languages": [
+        "Go"
+      ]
+    }
+  }
+}
