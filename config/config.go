@@ -79,6 +79,13 @@ var (
 	defaultRedisURL, _          = ct.NewOptURLAbsoluteFromString("redis://localhost:6379")       //nolint:gochecknoglobals
 )
 
+const (
+	// This minimum value was chosen not as a recommendation, but more to protect the host system from thousands of syscalls +
+	// the CPU time it takes to read the archive over and over again. It is somewhat arbitrary.
+	// It likely doesn't make sense to use an interval this frequent in production use-cases.
+	minimumFileDataSourceMonitoringInterval = 100 * time.Millisecond
+)
+
 // DefaultLoggers is the default logging configuration used by Relay.
 //
 // Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
@@ -154,11 +161,12 @@ type AutoConfigConfig struct {
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
 type OfflineModeConfig struct {
-	FileDataSource        string           `conf:"FILE_DATA_SOURCE"`
-	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
-	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
-	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
-	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	FileDataSource                   string           `conf:"FILE_DATA_SOURCE"`
+	FileDataSourceMonitoringInterval ct.OptDuration   `conf:"FILE_DATA_SOURCE_MONITORING_INTERVAL"`
+	EnvDatastorePrefix               string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastoreTableName            string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvAllowedOrigin                 ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader                 ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
 }
 
 // EventsConfig contains configuration parameters for proxying events.
