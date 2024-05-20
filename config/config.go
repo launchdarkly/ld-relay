@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	"github.com/alecthomas/units"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 )
@@ -184,11 +185,12 @@ type OfflineModeConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type EventsConfig struct {
-	EventsURI     ct.OptURLAbsolute        `conf:"EVENTS_HOST"`
-	SendEvents    bool                     `conf:"USE_EVENTS"`
-	FlushInterval ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
-	Capacity      ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
-	InlineUsers   bool                     `conf:"EVENTS_INLINE_USERS"`
+	EventsURI                ct.OptURLAbsolute        `conf:"EVENTS_HOST"`
+	SendEvents               bool                     `conf:"USE_EVENTS"`
+	FlushInterval            ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
+	Capacity                 ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
+	InlineUsers              bool                     `conf:"EVENTS_INLINE_USERS"`
+	MaxReceivablePayloadSize units.Base2Bytes         `conf:"EVENTS_MAX_RECEIVABLE_PAYLOAD_SIZE"`
 }
 
 // RedisConfig configures the optional Redis integration.

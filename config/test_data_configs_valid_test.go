@@ -118,11 +118,12 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			ExpiredCredentialCleanupInterval: ct.NewOptDuration(1 * time.Minute),
 		}
 		c.Events = EventsConfig{
-			SendEvents:    true,
-			EventsURI:     newOptURLAbsoluteMustBeValid("http://events"),
-			FlushInterval: ct.NewOptDuration(120 * time.Second),
-			Capacity:      mustOptIntGreaterThanZero(500),
-			InlineUsers:   true,
+			SendEvents:               true,
+			EventsURI:                newOptURLAbsoluteMustBeValid("http://events"),
+			FlushInterval:            ct.NewOptDuration(120 * time.Second),
+			Capacity:                 mustOptIntGreaterThanZero(500),
+			InlineUsers:              true,
+			MaxReceivablePayloadSize: 0,
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": {

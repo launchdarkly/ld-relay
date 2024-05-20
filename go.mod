@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.0
 	github.com/cyphar/filepath-securejoin v0.2.4
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gomodule/redigo v1.8.9
 	github.com/google/uuid v1.5.0 // indirect
@@ -59,7 +59,10 @@ require (
 	golang.org/x/exp v0.0.0-20231206192017-f3f8817b8deb
 )
 
-require github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+require (
+	github.com/alecthomas/units v0.0.0-20211218093645-b94a6e3cc137
+	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+)
 
 require (
 	cloud.google.com/go/compute v1.23.3 // indirect
