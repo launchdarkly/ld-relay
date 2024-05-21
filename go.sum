@@ -322,6 +322,8 @@ github.com/launchdarkly/go-configtypes v1.1.0 h1:Qsp/q607eXPJqUcQdSdAs0+vDG+luqV
 github.com/launchdarkly/go-configtypes v1.1.0/go.mod h1:AL0LzOSTYBAEeZJ8JpBWlz7BbHhxTQvOTcn7ZBgx7IA=
 github.com/launchdarkly/go-jsonstream/v3 v3.0.0 h1:qJF/WI09EUJ7kSpmP5d1Rhc81NQdYUhP17McKfUq17E=
 github.com/launchdarkly/go-jsonstream/v3 v3.0.0/go.mod h1:/1Gyml6fnD309JOvunOSfyysWbZ/ZzcA120gF/cQtC4=
+github.com/launchdarkly/go-jsonstream/v3 v3.1.0 h1:U/7/LplZO72XefBQ+FzHf6o4FwLHVqBE+4V58Ornu/E=
+github.com/launchdarkly/go-jsonstream/v3 v3.1.0/go.mod h1:2Pt4BR5AwWgsuVTCcIpB6Os04JFIKWfoA+7faKkZB5E=
 github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1 h1:Iz5cg9mB/0vt5llZE+J0iGQ5+O/U8CWuRUUR7Ou8eNM=
 github.com/launchdarkly/go-ntlm-proxy-auth v1.0.1/go.mod h1:hKWfH/hga5oslM2mRkDZi+14u2h1dFsmgbvSM9qF8pk=
 github.com/launchdarkly/go-ntlmssp v1.0.1 h1:snB77118TQvf9tfHrkSyrIop/UX5e5VD2D2mv7Kh3wE=

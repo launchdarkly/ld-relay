@@ -26,7 +26,7 @@ require (
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.7.1
 	github.com/launchdarkly/go-configtypes v1.1.0
-	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
+	github.com/launchdarkly/go-jsonstream/v3 v3.1.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
 	github.com/launchdarkly/go-sdk-events/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
