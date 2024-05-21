@@ -23,7 +23,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr .
 
-FROM alpine:3.19.0
+FROM alpine:3.19.1
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
