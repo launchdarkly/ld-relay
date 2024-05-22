@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.5.1](https://github.com/launchdarkly/ld-relay/compare/v8.5.0...v8.5.1) (2024-05-21)
+
+
+### Bug Fixes
+
+* **deps:** bump alpine to 3.19.1 ([#366](https://github.com/launchdarkly/ld-relay/issues/366)) ([4def9c4](https://github.com/launchdarkly/ld-relay/commit/4def9c4b41593d88dbb2e1fec00b89ed5a75b950))
+
 ## [8.5.0](https://github.com/launchdarkly/ld-relay/compare/v8.4.2...v8.5.0) (2024-05-14)
 
 
