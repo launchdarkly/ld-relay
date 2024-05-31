@@ -60,7 +60,7 @@ jobs:
       base64-subjects: "${{ needs.build-publish.outputs.hashes }}"
       upload-assets: true
       upload-tag-name: ${{ inputs.tag }}
-      provenance-name: ${{ format('ldcli_{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
+      provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
 
   release-relay-image-provenance:
     needs: ['build-publish']
