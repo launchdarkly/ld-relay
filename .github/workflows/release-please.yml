@@ -24,7 +24,10 @@ jobs:
     permissions:
       id-token: write # Needed to obtain Docker tokens
       contents: write # Needed to upload release artifacts
-
+    outputs:
+      hashes: ${{ steps.publish.outputs.hashes }}
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
     needs: [ release-please, go-versions ]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
@@ -47,7 +50,35 @@ jobs:
       - uses: ./.github/actions/unit-tests
 
       - uses: ./.github/actions/publish
+        id: publish
         with:
           dry-run: 'false'
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.release-please.outputs.tag_name }}
+
+  release-relay-binary-provenance:
+    needs: ['release-please', 'release-relay']
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    with:
+      base64-subjects: "${{ needs.release-relay.outputs.hashes }}"
+      upload-assets: true
+      upload-tag-name: ${{ needs.release-please.outputs.tag_name }}
+      provenance-name: ${{ format('ldcli_{0}_multiple_provenance.intoto.jsonl', needs.release-please.outputs.tag_name) }}
+
+  release-relay-image-provenance:
+    needs: ['release-please', 'release-relay']
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+    with:
+      image: ${{ needs.release-relay.outputs.image }}
+      digest: ${{ needs.release-relay.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
