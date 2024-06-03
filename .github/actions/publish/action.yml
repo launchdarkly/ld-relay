@@ -48,6 +48,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
     - name: Generate binary hashes
       id: binary 
+      shell: bash
       env: 
         ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
       run: |
@@ -57,6 +58,7 @@ runs:
         echo "hashes=$(cat $checksum_file | base64 -w0)" >> "$GITHUB_OUTPUT"
     - name: Image digest 
       id: image 
+      shell: bash
       env:
         ARTIFACTS: "${{ steps.goreleaser.outputs.artifacts }}"
       run: |
