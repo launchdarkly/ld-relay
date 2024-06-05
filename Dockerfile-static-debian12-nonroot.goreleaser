@@ -1,0 +1,12 @@
+# This is the Dockerfile used for release (published to dockerhub by goreleaser)
+
+# See .ldrelease/config.yml for an explanation of the build/release process.
+
+FROM gcr.io/distroless/static-debian12:debug-nonroot
+# See "Runtime platform versions" in CONTRIBUTING.md
+
+COPY ld-relay /usr/bin/ldr
+
+EXPOSE 8030
+ENV PORT=8030
+ENTRYPOINT ["/usr/bin/ldr", "--config", "/ldr/ld-relay.conf", "--allow-missing-file", "--from-env"]
