@@ -49,11 +49,23 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	_, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
 	}
+
+	// Note: the following lines (until end marker) are
+	// copied from autoconfig_actions.go.
+	if ae.Params.ExpiringSDKKey != "" {
+		if foundEnvWithOldKey, _ := a.r.getEnvironment(ae.Params.ExpiringSDKKey); foundEnvWithOldKey == nil {
+			env.AddCredential(ae.Params.ExpiringSDKKey)
+			env.DeprecateCredential(ae.Params.ExpiringSDKKey)
+			a.r.addedEnvironmentCredential(env, ae.Params.ExpiringSDKKey)
+		}
+	}
+	// End.
+
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
@@ -82,6 +94,38 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetIdentifiers(ae.Params.Identifiers)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
+
+	// Note: the following lines (until end marker) are
+	// copied from autoconfig_actions.go.
+	var oldSDKKey config.SDKKey
+	var oldMobileKey config.MobileKey
+	for _, c := range env.GetCredentials() {
+		switch c := c.(type) {
+		case config.SDKKey:
+			oldSDKKey = c
+		case config.MobileKey:
+			oldMobileKey = c
+		}
+	}
+
+	if ae.Params.SDKKey != oldSDKKey {
+		env.AddCredential(ae.Params.SDKKey)
+		a.r.addedEnvironmentCredential(env, ae.Params.SDKKey)
+		if ae.Params.ExpiringSDKKey == oldSDKKey {
+			env.DeprecateCredential(oldSDKKey)
+		} else {
+			a.r.removingEnvironmentCredential(oldSDKKey)
+			env.RemoveCredential(oldSDKKey)
+		}
+	}
+
+	if ae.Params.MobileKey != oldMobileKey {
+		env.AddCredential(ae.Params.MobileKey)
+		a.r.addedEnvironmentCredential(env, ae.Params.MobileKey)
+		a.r.removingEnvironmentCredential(oldMobileKey)
+		env.RemoveCredential(oldMobileKey)
+	}
+	// End.
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {

@@ -205,3 +205,31 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 		})
 	})
 }
+
+func TestOfflineModeDeprecateSDKKeyIsAccepted(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		p.updateHandler.AddEnvironment(testFileDataExpiringSDKKey)
+
+		client1 := p.awaitClient()
+		assert.Equal(t, testFileDataExpiringSDKKey.Params.SDKKey, client1.Key)
+
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		var sdkKey config.SDKKey
+		for _, c := range env.GetCredentials() {
+			if c, ok := c.(config.SDKKey); ok {
+				sdkKey = c
+				break
+			}
+		}
+		var expiringSDKKey config.SDKKey
+		for _, c := range env.GetDeprecatedCredentials() {
+			if c, ok := c.(config.SDKKey); ok {
+				expiringSDKKey = c
+				break
+			}
+		}
+		assert.Equal(t, testFileDataExpiringSDKKey.Params.SDKKey, sdkKey)
+		assert.Equal(t, testFileDataExpiringSDKKey.Params.ExpiringSDKKey, expiringSDKKey)
+	})
+}
