@@ -123,7 +123,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			FlushInterval:            ct.NewOptDuration(120 * time.Second),
 			Capacity:                 mustOptIntGreaterThanZero(500),
 			InlineUsers:              true,
-			MaxReceivablePayloadSize: 0,
+			MaxInboundPayloadSize: 0,
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": {
