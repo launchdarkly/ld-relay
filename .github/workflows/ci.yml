@@ -72,3 +72,15 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-amd64
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-debug-static-debian12-amd64
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
