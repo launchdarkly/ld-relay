@@ -7,6 +7,8 @@ assignees: ''
 
 ---
 
-*Alpine Update Available*
-
 There is a new Alpine version available. Please update the Alpine version in the Docker image for Relay.
+
+```bash
+./scripts/update-alpine-version.sh [version without leading 'v']
+```
