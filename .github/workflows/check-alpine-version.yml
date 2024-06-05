@@ -1,0 +1,42 @@
+name: Check Supported Alpine Version
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  create-prs:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: ["v7", "v8"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+
+      - name: Get current Alpine version
+        id: alpine-version
+        run: |
+          version=$(sed -n 's/^FROM \(.*\)/\1/p' Dockerfile.goreleaser)
+          echo "value=$version" >> $GITHUB_OUTPUT
+      - name: Inspect current and latest Alpine checksum
+        id: alpine-checksum
+        run: |
+          docker pull ${{ steps.alpine-version.outputs.value }}
+          current=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ steps.alpine-version.outputs.value }})
+          echo "current=$current" >> $GITHUB_OUTPUT
+          docker pull alpine:latest
+          latest=$(docker inspect --format='{{index .RepoDigests 0}}' alpine:latest)
+          echo "latest=$latest" >> $GITHUB_OUTPUT
+      - name: Create pull request
+        if: steps.alpine-checksum.outputs.current != steps.alpine-checksum.outputs.latest
+        uses: JasonEtco/create-an-issue@v2
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          filename: .github/ISSUE_TEMPLATE/alpine.md
