@@ -1,7 +1,7 @@
 ---
 name: Alpine Update in Docker Image
 about: Tell us to update the Alpine version in Relay's Docker image. 
-title: 'Alpine update available'
+title: Alpine update available
 labels: ''
 assignees: ''
 

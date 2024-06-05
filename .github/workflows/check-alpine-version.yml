@@ -9,7 +9,7 @@ jobs:
   create-prs:
     permissions:
       contents: write
-      pull-requests: write
+      issues: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
