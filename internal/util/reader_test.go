@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +14,7 @@ func TestUncompressed(t *testing.T) {
 	// make sure the bytes read are correct for non-gzipped streams
 	nonZipBytes := []byte("this is a test")
 
-	reader, _ := NewReader(io.NopCloser(bytes.NewReader(nonZipBytes)), false, 1000)
+	reader, _ := NewReader(io.NopCloser(bytes.NewReader(nonZipBytes)), false, 1_000)
 	payloadReader, _ := reader.(*PayloadReader)
 	readBytes, _ := io.ReadAll(reader)
 
@@ -23,11 +24,7 @@ func TestUncompressed(t *testing.T) {
 }
 
 func TestPayloadBytesTracking(t *testing.T) {
-	// build a string
-	var ret string
-	for i := 0; i < 500; i++ {
-		ret += "00"
-	}
+	ret := strings.Repeat("0", 1_000)
 
 	// make sure the bytes read are correct for gzipped streams
 	nonZipBytes := []byte(ret)
@@ -38,7 +35,7 @@ func TestPayloadBytesTracking(t *testing.T) {
 	w.Close()
 	zipBytes := b.Bytes()
 
-	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, 10000)
+	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, 10_000)
 	payloadReader, _ := reader.(*PayloadReader)
 	readBytes, _ := io.ReadAll(reader)
 
@@ -49,10 +46,7 @@ func TestPayloadBytesTracking(t *testing.T) {
 
 func TestZipBombing(t *testing.T) {
 	// build a string
-	var ret string
-	for i := 0; i < 500; i++ {
-		ret += "00"
-	}
+	ret := strings.Repeat("0", 1_000)
 
 	nonZipBytes := []byte(ret)
 
