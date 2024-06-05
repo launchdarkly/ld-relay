@@ -3,7 +3,6 @@ on:
   schedule:
     - cron: "0 17 * * *"
   workflow_dispatch:
-  push:
 
 jobs:
   create-prs:
@@ -18,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ matrix.branch }}
 
       - name: Get current Alpine version
         id: alpine-current
