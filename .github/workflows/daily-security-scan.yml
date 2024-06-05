@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@fd25fed6972e341ff0007ddb61f77e88103953c2
+      - uses: aquasecurity/trivy-action@master
         with:
           image-ref: launchdarkly/ld-relay:${{ matrix.tag }}
           format: 'table'
