@@ -1,6 +1,4 @@
-# This is the Dockerfile used for release (published to dockerhub by goreleaser)
-
-# See .ldrelease/config.yml for an explanation of the build/release process.
+# This is a Dockerfile used for release (published to dockerhub by goreleaser)
 
 FROM gcr.io/distroless/static-debian12:nonroot
 # See "Runtime platform versions" in CONTRIBUTING.md
