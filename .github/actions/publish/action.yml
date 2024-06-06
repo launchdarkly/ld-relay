@@ -14,7 +14,7 @@ inputs:
 outputs:
   hashes: 
     description: sha256sum hashes of built artifacts 
-    value: ${{ steps.binary.outputs.name }}
+    value: ${{ steps.binary.outputs.hashes }}
   image: 
     description: built docker image names
     value: ${{ steps.image.outputs.name }}
