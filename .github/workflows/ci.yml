@@ -78,7 +78,7 @@ jobs:
         id: scan-distroless
         continue-on-error: true
         with:
-          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-nonroot-static-debian12-amd64
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-nonroot-amd64
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
@@ -86,7 +86,7 @@ jobs:
         continue-on-error: true
         id: scan-debug-distroless
         with:
-          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-debug-nonroot-static-debian12-amd64
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-debug-nonroot-amd64
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
