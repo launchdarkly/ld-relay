@@ -125,13 +125,13 @@ dockers:
 
   # AMD64
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
     use: buildx
     goos: linux
     goarch: amd64
-    dockerfile: Dockerfile-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -139,14 +139,14 @@ dockers:
 
   # ARMv7
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
     use: buildx
     goos: linux
     goarch: arm
     goarm: 7
-    dockerfile: Dockerfile-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -154,13 +154,13 @@ dockers:
 
   # ARM64v8
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-arm64v8"
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-arm64v8"
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-arm64v8"
     use: buildx
     goos: linux
     goarch: arm64
-    dockerfile: Dockerfile-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -171,13 +171,13 @@ dockers:
 
   # AMD64
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
     use: buildx
     goos: linux
     goarch: amd64
-    dockerfile: Dockerfile-debug-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -185,14 +185,14 @@ dockers:
 
   # ARMv7
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
     use: buildx
     goos: linux
     goarch: arm
     goarm: 7
-    dockerfile: Dockerfile-debug-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -200,13 +200,13 @@ dockers:
 
   # ARM64v8
   - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-arm64v8"
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-arm64v8"
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
     use: buildx
     goos: linux
     goarch: arm64
-    dockerfile: Dockerfile-debug-nonroot-static-debian12.goreleaser
+    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
     skip_push: false
     build_flag_templates:
       - "--pull"
@@ -239,45 +239,45 @@ docker_manifests:
       - "launchdarkly/ld-relay:latest-i386"
 
   # For the static debian12 image
-  - name_template: "launchdarkly/ld-relay:latest-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:latest-static-debian12-nonroot"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:latest-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-arm64v8"
 
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}-static-debian12-nonroot"
     skip_push: false
     image_templates:
-       - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-amd64"
-       - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-armv7"
-       - "launchdarkly/ld-relay:{{ .Version }}-nonroot-static-debian12-arm64v8"
+       - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"
+       - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-armv7"
+       - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
 
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
 
   # For the debug static debian12 image
-  - name_template: "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:latest-debug-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
 
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}-debug-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}-static-debian12-debug-nonroot"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:{{ .Version }}-debug-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
 
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12"
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot"
     skip_push: false
     image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-debug-nonroot-static-debian12-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
