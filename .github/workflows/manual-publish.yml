@@ -58,12 +58,13 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
     with:
       base64-subjects: "${{ needs.build-publish.outputs.hashes }}"
-      upload-assets: true
+      upload-assets: ${{ !inputs.dry_run }}
       upload-tag-name: ${{ inputs.tag }}
       provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
 
   release-relay-image-provenance:
     needs: ['build-publish']
+    if: ${{ !inputs.dry_run }}
     permissions:
       actions: read
       id-token: write
