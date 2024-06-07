@@ -4,6 +4,8 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
+
+	ct "github.com/launchdarkly/go-configtypes"
 )
 
 // PayloadReader is an implementation of io.Reader that reads bytes off the request body
@@ -23,10 +25,10 @@ type PayloadReader struct {
 }
 
 // NewReader creates a new reader
-func NewReader(r io.ReadCloser, isGzipped bool, maxBytes int64) (io.ReadCloser, error) {
+func NewReader(r io.ReadCloser, isGzipped bool, maxInputPayloadSize ct.OptBase2Bytes) (io.ReadCloser, error) {
 	// If this isn't compressed, and we don't want to limit the size, just
 	// return the original reader
-	if !isGzipped && maxBytes == 0 {
+	if !isGzipped && !maxInputPayloadSize.IsDefined() {
 		return r, nil
 	}
 
@@ -44,12 +46,14 @@ func NewReader(r io.ReadCloser, isGzipped bool, maxBytes int64) (io.ReadCloser, 
 		}
 
 		// If we don't want to limit the size, just return the gzip reader
-		if maxBytes == 0 {
+		if !maxInputPayloadSize.IsDefined() {
 			return gzipReader, nil
 		}
 
 		s = gzipReader
 	}
+
+	maxBytes := int64(maxInputPayloadSize.GetOrElse(0))
 	stream := io.LimitReader(s, maxBytes).(*io.LimitedReader)
 
 	payloadReader := &PayloadReader{

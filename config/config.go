@@ -3,7 +3,6 @@ package config
 import (
 	"time"
 
-	"github.com/alecthomas/units"
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 )
@@ -190,7 +189,7 @@ type EventsConfig struct {
 	FlushInterval         ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
 	Capacity              ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
 	InlineUsers           bool                     `conf:"EVENTS_INLINE_USERS"`
-	MaxInboundPayloadSize units.Base2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
+	MaxInboundPayloadSize ct.OptBase2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
 }
 
 // RedisConfig configures the optional Redis integration.

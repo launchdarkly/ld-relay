@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alecthomas/units"
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +16,7 @@ func TestUncompressed(t *testing.T) {
 	// make sure the bytes read are correct for non-gzipped streams
 	nonZipBytes := []byte("this is a test")
 
-	reader, _ := NewReader(io.NopCloser(bytes.NewReader(nonZipBytes)), false, 1_000)
+	reader, _ := NewReader(io.NopCloser(bytes.NewReader(nonZipBytes)), false, ct.NewOptBase2Bytes(units.KiB))
 	payloadReader, _ := reader.(*PayloadReader)
 	readBytes, _ := io.ReadAll(reader)
 
@@ -35,7 +37,7 @@ func TestPayloadBytesTracking(t *testing.T) {
 	w.Close()
 	zipBytes := b.Bytes()
 
-	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, 10_000)
+	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, ct.NewOptBase2Bytes(10*units.KiB))
 	payloadReader, _ := reader.(*PayloadReader)
 	readBytes, _ := io.ReadAll(reader)
 
@@ -57,7 +59,7 @@ func TestZipBombing(t *testing.T) {
 	zipBytes := b.Bytes()
 
 	maxBytes := int64(100)
-	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, maxBytes)
+	reader, _ := NewReader(io.NopCloser(bytes.NewReader(zipBytes)), true, ct.NewOptBase2Bytes(units.Base2Bytes(maxBytes)))
 	payloadReader, _ := reader.(*PayloadReader)
 	bytesRead, err := io.ReadAll(reader)
 

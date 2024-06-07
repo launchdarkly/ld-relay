@@ -65,6 +65,9 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigExplicitOldDefaultBaseURI(),
 		makeValidConfigAutoConfig(),
 		makeValidConfigAutoConfigWithDatabase(),
+		makeValidConfigMaxInboundPayloadSize("50KiB"),
+		makeValidConfigMaxInboundPayloadSize("7MiB"),
+		makeValidConfigMaxInboundPayloadSize("10GiB"),
 		makeValidConfigOfflineModeMinimal(),
 		makeValidConfigOfflineModeWithMonitoringInterval("100ms"),
 		makeValidConfigOfflineModeWithMonitoringInterval("1s"),
@@ -118,12 +121,12 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			ExpiredCredentialCleanupInterval: ct.NewOptDuration(1 * time.Minute),
 		}
 		c.Events = EventsConfig{
-			SendEvents:               true,
-			EventsURI:                newOptURLAbsoluteMustBeValid("http://events"),
-			FlushInterval:            ct.NewOptDuration(120 * time.Second),
-			Capacity:                 mustOptIntGreaterThanZero(500),
-			InlineUsers:              true,
-			MaxInboundPayloadSize: 0,
+			SendEvents:            true,
+			EventsURI:             newOptURLAbsoluteMustBeValid("http://events"),
+			FlushInterval:         ct.NewOptDuration(120 * time.Second),
+			Capacity:              mustOptIntGreaterThanZero(500),
+			InlineUsers:           true,
+			MaxInboundPayloadSize: ct.OptBase2Bytes{},
 		}
 		c.Environment = map[string]*EnvConfig{
 			"earth": {
@@ -354,6 +357,25 @@ func makeValidConfigOfflineModeMinimal() testDataValidConfig {
 [OfflineMode]
 FileDataSource = my-file-path
 `
+	return c
+}
+
+func makeValidConfigMaxInboundPayloadSize(size string) testDataValidConfig {
+	bytes, err := ct.NewOptBase2BytesFromString(size)
+	if err != nil {
+		panic(err)
+	}
+	c := testDataValidConfig{name: "file data properties"}
+	c.makeConfig = func(c *Config) {
+		c.Events.MaxInboundPayloadSize = bytes
+	}
+	c.envVars = map[string]string{
+		"EVENTS_MAX_INBOUND_PAYLOAD_SIZE": size,
+	}
+	c.fileContent = `
+[Events]
+MaxInboundPayloadSize = ` + size
+
 	return c
 }
 
