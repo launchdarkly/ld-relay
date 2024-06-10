@@ -11,12 +11,12 @@ We provide two distributions. The first is a based on Alpine Linux, while the se
 ## Local Development
 
 When developing locally, you can build the `ld-relay` Alpine container with the following command:
-```
+```shell
 $ docker build -t ld-relay .
 ```
 
-Please note that this Alpine [Dockerfile](../Dockerfile) is **not** the same one that is published to [DockerHub]
-(https://hub.docker.com/r/launchdarkly/ld-relay).
+Please note that this Alpine [Dockerfile](../Dockerfile) is **not** the same one that is published to 
+[DockerHub](https://hub.docker.com/r/launchdarkly/ld-relay).
 
 It is a convenience for local development, whereas the Alpine image published to DockerHub is built during our release 
 process and is based on [Dockerfile.goreleaser](../Dockerfile.goreleaser).
@@ -65,6 +65,11 @@ second is for debugging and contains a shell.
 | `-static-debian12-nonroot`        | `static-debian12:nonroot`                                                       | Normal usage             |
 | `-static-debian12-debug-nonroot-` | `static-debian12:debug-nonroot`                                                 | Contains a busybox shell |
 
+To enter the busybox shell for debugging purposes on a running container (only available in the `-debug-nonroot` 
+variant):
+```shell
+docker exec -it [container name] /busybox/sh
+```
 
 
 ### Supported Architectures
