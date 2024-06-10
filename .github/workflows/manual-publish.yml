@@ -22,6 +22,10 @@ jobs:
     permissions:
       id-token: write # Needed to get Docker tokens during publishing.
       contents: write # Needed to upload release artifacts
+    outputs:
+      hashes: ${{ steps.publish.outputs.hashes }}
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,8 +42,37 @@ jobs:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
       - name: Publish Package
+        id: publish
         uses: ./.github/actions/publish
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
           tag: ${{ inputs.tag }}
+
+  release-relay-binary-provenance:
+    needs: ['build-publish']
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    with:
+      base64-subjects: "${{ needs.build-publish.outputs.hashes }}"
+      upload-assets: ${{ !inputs.dry_run }}
+      upload-tag-name: ${{ inputs.tag }}
+      provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
+
+  release-relay-image-provenance:
+    needs: ['build-publish']
+    if: ${{ !inputs.dry_run }}
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+    with:
+      image: ${{ needs.build-publish.outputs.image }}
+      digest: ${{ needs.build-publish.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}

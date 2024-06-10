@@ -11,6 +11,16 @@ inputs:
   tag:
     description: 'Tag to upload artifacts to.'
     required: true
+outputs:
+  hashes: 
+    description: sha256sum hashes of built artifacts 
+    value: ${{ steps.binary.outputs.hashes }}
+  image: 
+    description: built docker image names
+    value: ${{ steps.image.outputs.name }}
+  digest: 
+    description: built docker image digests 
+    value: ${{ steps.image.outputs.digest }}
 
 runs:
   using: composite
@@ -29,12 +39,35 @@ runs:
       run: |
         echo $DOCKER_TOKEN | docker login --username $DOCKER_USERNAME --password-stdin
     - name: Run Goreleaser
+      id: goreleaser
       uses: goreleaser/goreleaser-action@v5
       with:
         version: latest
         args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+    - name: Generate binary hashes
+      id: binary 
+      shell: bash
+      env: 
+        ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
+      run: |
+        set -euo pipefail
+
+        checksum_file=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Checksum") | .path')
+        echo "hashes=$(cat $checksum_file | base64 -w0)" >> "$GITHUB_OUTPUT"
+    - name: Image digest 
+      id: image 
+      shell: bash
+      env:
+        ARTIFACTS: "${{ steps.goreleaser.outputs.artifacts }}"
+      run: |
+        set -euo pipefail
+        image_and_digest=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Docker Manifest") | .path')
+        image=$(echo "${image_and_digest}" | cut -d'@' -f1 | cut -d':' -f1)
+        digest=$(echo "${image_and_digest}" | cut -d'@' -f2)
+        echo "name=$image" >> "$GITHUB_OUTPUT"
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
     - name: Upload Release Artifacts
       shell: bash
