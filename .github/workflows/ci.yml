@@ -64,6 +64,8 @@ jobs:
         run:
           echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
       - uses: aquasecurity/trivy-action@master
+        id: scan-alpine
+        continue-on-error: true
         with:
           # Using an explicit tag rather than ld-relay:latest to ensure we're scanning the local image that we just built.
           # It's not clear why, but it seems goreleaser doesn't create the :latest tag when skipping the publish step
@@ -72,3 +74,22 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
+      - uses: aquasecurity/trivy-action@master
+        id: scan-distroless
+        continue-on-error: true
+        with:
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-nonroot-amd64
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+      - uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        id: scan-debug-distroless
+        with:
+          image-ref: launchdarkly/ld-relay:${{ steps.image-tag.outputs.value }}-static-debian12-debug-nonroot-amd64
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+      - name: Fail if any of scan-alpine, scan-distroless, or scan-distroless-debug failed
+        if: ${{ steps.scan-alpine.outcome != 'success' || steps.scan-distroless.outcome != 'success' || steps.scan-debug-distroless.outcome != 'success' }}
+        run: exit 1
