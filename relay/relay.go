@@ -71,7 +71,7 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClien
 type relayInternalOptions struct {
 	loggers               ldlog.Loggers
 	clientFactory         sdks.ClientFactoryFunc
-	archiveManagerFactory func(string, filedata.UpdateHandler, ldlog.Loggers) (filedata.ArchiveManagerInterface, error)
+	archiveManagerFactory func(path string, monitoringInterval time.Duration, environmentUpdates filedata.UpdateHandler, loggers ldlog.Loggers) (filedata.ArchiveManagerInterface, error)
 }
 
 // NewRelay creates a new Relay given a configuration and a method to create a client.
@@ -215,6 +215,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		}
 		archiveManager, err := factory(
 			c.OfflineMode.FileDataSource,
+			c.OfflineMode.FileDataSourceMonitoringInterval.GetOrElse(0),
 			&relayFileDataActions{r: r},
 			loggers,
 		)
@@ -240,9 +241,9 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	return r, nil
 }
 
-func defaultArchiveManagerFactory(filePath string, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
+func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
 	filedata.ArchiveManagerInterface, error) {
-	am, err := filedata.NewArchiveManager(filePath, handler, 0, loggers)
+	am, err := filedata.NewArchiveManager(filePath, handler, monitoringInterval, loggers)
 	return am, err
 }
 
