@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.6.0](https://github.com/launchdarkly/ld-relay/compare/v8.5.2...v8.6.0) (2024-06-10)
+
+
+### Features
+
+* publish distroless debian12 image ([fe0155f](https://github.com/launchdarkly/ld-relay/commit/fe0155f418ca488a98150e6c56a066b1775624d3))
+
 ## [8.5.2](https://github.com/launchdarkly/ld-relay/compare/v8.5.1...v8.5.2) (2024-06-05)
 
 
