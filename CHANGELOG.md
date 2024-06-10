@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [7.6.0](https://github.com/launchdarkly/ld-relay/compare/v7.5.6...v7.6.0) (2024-06-10)
+
+
+### Features
+
+* replace offline-mode filewatcher with polling [backport from v8] ([#390](https://github.com/launchdarkly/ld-relay/issues/390)) ([6a44f83](https://github.com/launchdarkly/ld-relay/commit/6a44f83ebff7a91f8f6d65a587e058a5ed4551f1))
+
 ## [7.5.6](https://github.com/launchdarkly/ld-relay/compare/v7.5.5...v7.5.6) (2024-06-05)
 
 
