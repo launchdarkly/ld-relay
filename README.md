@@ -3,7 +3,7 @@
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml)
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml)
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-alpine.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-alpine.yml)
-[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-distroless.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-alpine-distroless.yml)
+[![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-distroless.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan-distroless.yml)
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/launchdarkly/ld-relay)](https://hub.docker.com/r/launchdarkly/ld-relay)
 
