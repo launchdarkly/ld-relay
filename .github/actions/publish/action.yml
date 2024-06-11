@@ -52,6 +52,7 @@ runs:
       env: 
         ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
       run: |
+        # Generate binary hashes
         set -euo pipefail
 
         checksum_file=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Checksum") | .path')
@@ -62,6 +63,7 @@ runs:
       env:
         ARTIFACTS: "${{ steps.goreleaser.outputs.artifacts }}"
       run: |
+        # Generate image digest
         set -euo pipefail
         image_and_digest=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Docker Manifest") | .path')
         image=$(echo "${image_and_digest}" | cut -d'@' -f1 | cut -d':' -f1)
