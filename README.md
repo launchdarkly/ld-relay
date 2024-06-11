@@ -4,6 +4,8 @@
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-integration-tests.yml)
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-security-scan.yml)
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml/badge.svg)](https://github.com/launchdarkly/ld-relay/actions/workflows/daily-installation-test.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/launchdarkly/ld-relay)](https://hub.docker.com/r/launchdarkly/ld-relay)
+
 
 ## About the LaunchDarkly Relay Proxy
 
