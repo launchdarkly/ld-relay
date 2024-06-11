@@ -1,4 +1,4 @@
-name: Security Scan
+name: Security Scan (Distroless)
 
 on:
   schedule:
@@ -8,7 +8,7 @@ jobs:
   scan-relay:
     strategy:
       matrix:
-        tag: ['latest', 'v7', 'v8']
+        tag: ['latest-static-debian12-nonroot', 'v8-static-debian12-debug-nonroot']
       fail-fast: false
     runs-on: ubuntu-latest
     steps:
