@@ -4,9 +4,20 @@
 
 Using Docker is not required, but if you prefer using a Docker container we provide a Docker entrypoint to make this as easy as possible.
 
-We provide two distributions. The first is a based on Alpine Linux, while the second is based on Google's 
-["distroless"](https://github.com/GoogleContainerTools/distroless) debian12 images. 
+We provide images based on Alpine Linux and Google's 
+["distroless"](https://github.com/GoogleContainerTools/distroless) Debian12 images. 
 
+| Image              | Version                                                                                                             | Size                                                                                                                            | amd64 | armv7 | arm64v8 | i386 |
+|--------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|-------|-------|---------|------|
+| Distroless         | ![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-nonroot)       | ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-nonroot)       | ✅     | ✅     | ✅       | ❌    |                                                                                                   |
+| Distroless (debug) | ![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot) | ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot) | ✅     | ✅     | ✅       | ❌    |
+| Alpine             | ![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest)                               | ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest)                               | ✅     | ✅     | ✅       | ✅    |
+
+We recommend using the Distroless images, as automated security scanners regularly flag issues in Alpine even though 
+the Relay Proxy itself is unaffected. 
+
+Because Relay Proxy is a statically linked Go binary, it can take advantage of the reduced dependencies in the 
+Distroless base images.
 
 ## Local Development
 
@@ -50,10 +61,9 @@ $ docker run --name ld-relay --link redis:redis -e USE_REDIS=1 -e LD_ENV_test="s
 
 ## Production Deployment
 
-In production, you may choose between our Distroless or Alpine Linux images. We recommend using the Distroless
-images, as they present less of an attack surface, are smaller, and should require less continual patching.
+In production, you may choose between the Distroless or Alpine Linux images. 
 
-Please note that the default Distroless image does not contain a debug shell. 
+Please note that the default Distroless image does not contain a shell. 
 
 ### Distroless Variants
 
@@ -70,13 +80,3 @@ variant):
 ```shell
 docker exec -it [container name] /busybox/sh
 ```
-
-
-### Supported Architectures
-
-Alpine and Distroless are multi-arch images.
-
-| Image      | i386 | amd64 | armv7 | arm64v8 |
-|------------|------|-------|-------|---------|
-| Distroless | ❌    | ✅     | ✅     | ✅       |
-| Alpine     | ✅    | ✅     | ✅     | ✅       |
