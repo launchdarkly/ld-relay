@@ -38,6 +38,8 @@ func (k UnsupportedSDKCredential) String() string {
 	return "unsupported"
 }
 
+func (k UnsupportedSDKCredential) Masked() string { return "unsupported" }
+
 const (
 	// The "undefined" values are well-formed, but do not match any environment in our test data.
 	UndefinedSDKKey    = config.SDKKey("sdk-99999999-9999-4999-8999-999999999999")

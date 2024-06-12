@@ -44,6 +44,13 @@ type FilterKey string
 // DefaultFilter represents the lack of a filter, meaning a full LaunchDarkly environment.
 const DefaultFilter = FilterKey("")
 
+func last4Chars(s string) string {
+	if len(s) < 4 { // COVERAGE: doesn't happen in unit tests, also can't happen with real environments
+		return s
+	}
+	return s[len(s)-4:]
+}
+
 // GetAuthorizationHeaderValue for SDKKey returns the same string, since SDK keys are passed in
 // the Authorization header.
 func (k SDKKey) GetAuthorizationHeaderValue() string {
@@ -57,7 +64,7 @@ func (k SDKKey) Defined() bool {
 func (k SDKKey) String() string {
 	return string(k)
 }
-
+func (k SDKKey) Masked() string { return last4Chars(k.String()) }
 func (k SDKKey) Compare(cr credential.AutoConfig) (credential.SDKCredential, credential.Status) {
 	if cr.SDKKey == k {
 		return nil, credential.Unchanged
@@ -87,6 +94,8 @@ func (k MobileKey) String() string {
 	return string(k)
 }
 
+func (k MobileKey) Masked() string { return last4Chars(k.String()) }
+
 func (k MobileKey) Compare(cr credential.AutoConfig) (credential.SDKCredential, credential.Status) {
 	if cr.MobileKey == k {
 		return nil, credential.Unchanged
@@ -108,6 +117,9 @@ func (k EnvironmentID) String() string {
 	return string(k)
 }
 
+// Masked is an alias for String(), because EnvironmentIDs are considered non-sensitive public information.
+func (k EnvironmentID) Masked() string { return k.String() }
+
 func (k EnvironmentID) Compare(_ credential.AutoConfig) (credential.SDKCredential, credential.Status) {
 	// EnvironmentIDs should not change.
 	return nil, credential.Unchanged
@@ -128,6 +140,8 @@ func (k AutoConfigKey) Compare(_ credential.AutoConfig) (credential.SDKCredentia
 func (k AutoConfigKey) String() string {
 	return string(k)
 }
+
+func (k AutoConfigKey) Masked() string { return last4Chars(string(k)) }
 
 // UnmarshalText allows the SDKKey type to be set from environment variables.
 func (k *SDKKey) UnmarshalText(data []byte) error {

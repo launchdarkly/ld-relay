@@ -14,6 +14,9 @@ type SDKCredential interface {
 	// Compare accepts a collection of AutoConfig credentials and inspects it, determining if this credential has
 	// changed in any way. If so, it should return the new credential and a status.
 	Compare(creds AutoConfig) (SDKCredential, Status)
+
+	// Masked returns a masked form of the credential suitable for log messages.
+	Masked() string
 }
 
 // Status represents that difference between an existing credential and one found in a new AutoConfig configuration
