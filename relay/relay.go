@@ -2,6 +2,8 @@ package relay
 
 import (
 	"errors"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -508,6 +510,35 @@ func (r *Relay) addConnectionMapping(params sdkauth.ScopedCredential, env relaye
 // reconnect using the same credential we want it to be rejected.
 func (r *Relay) removeConnectionMapping(params sdkauth.ScopedCredential) {
 	r.envsByCredential.UnmapRequestParams(params)
+}
+
+func (r *Relay) setCredentials(existingEnv relayenv.EnvContext, updatedEnv envfactory.EnvironmentParams) {
+	// These are an SDK key, a mobile key, and potentially an expiring SDK key. The expiring SDK key is really an indication
+	// that if *such a key already exists*, it should be regarded as deprecated (don't accept new connections.)
+	updatedCredentials := updatedEnv.Credentials()
+
+	// These are the existing valid credentials that an SDK can use to connect to this Relay environment.
+	currentValidCredentials := existingEnv.GetCredentials()
+
+	for _, existingCredential := range currentValidCredentials {
+		supersedingCredential, status := existingCredential.Compare(updatedCredentials)
+		if status == credential.Unchanged {
+			// There's no action to take if a credential remains the same.
+			continue
+		}
+
+		// Otherwise, the new valid credential needs to be loaded into the environment.
+		existingEnv.AddCredential(supersedingCredential)
+		r.addConnectionMapping(sdkauth.NewScoped(updatedEnv.Identifiers.FilterKey, supersedingCredential), existingEnv)
+
+		switch status {
+		case credential.Deprecated:
+			existingEnv.DeprecateCredential(existingCredential)
+		case credential.Expired:
+			r.removeConnectionMapping(sdkauth.NewScoped(updatedEnv.Identifiers.FilterKey, existingCredential))
+			existingEnv.RemoveCredential(existingCredential)
+		}
+	}
 }
 
 // waitForAllClients blocks until all environments that were in the initial configuration have

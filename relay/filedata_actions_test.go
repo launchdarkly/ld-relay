@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"golang.org/x/exp/slices"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -206,7 +208,7 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 	})
 }
 
-func TestOfflineModeDeprecateSDKKeyIsAccepted(t *testing.T) {
+func TestOfflineModeDeprecateSDKKeyIsIgnoredIfNotAlreadyPresent(t *testing.T) {
 	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
 		p.updateHandler.AddEnvironment(testFileDataExpiringSDKKey)
 
@@ -215,21 +217,66 @@ func TestOfflineModeDeprecateSDKKeyIsAccepted(t *testing.T) {
 
 		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 
-		var sdkKey config.SDKKey
-		for _, c := range env.GetCredentials() {
-			if c, ok := c.(config.SDKKey); ok {
-				sdkKey = c
-				break
-			}
-		}
-		var expiringSDKKey config.SDKKey
-		for _, c := range env.GetDeprecatedCredentials() {
-			if c, ok := c.(config.SDKKey); ok {
-				expiringSDKKey = c
-				break
-			}
-		}
-		assert.Equal(t, testFileDataExpiringSDKKey.Params.SDKKey, sdkKey)
-		assert.Equal(t, testFileDataExpiringSDKKey.Params.ExpiringSDKKey, expiringSDKKey)
+		// Since the environment never had the deprecated SDK key as a primary SDK key, seeing it in the updated
+		// file data should be a no-op - there's nothing to deprecate.
+		assert.False(t, slices.ContainsFunc(env.GetDeprecatedCredentials(), func(cred credential.SDKCredential) bool {
+			return cred == testFileDataExpiringSDKKey.Params.SDKKey
+		}))
+	})
+}
+
+func TestOfflineModePrimaryKeyIsDeprecated(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		// This environment has a valid SDK key, but nothing is deprecated yet.
+		p.updateHandler.AddEnvironment(testFileDataEnv1)
+
+		client1 := p.awaitClient()
+		assert.Equal(t, testFileDataEnv1.Params.SDKKey, client1.Key)
+
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		// As a sanity check, make sure the deprecated key in the incoming update is equal to the current primary key.
+		assert.Equal(t, testFileDataEnv1.Params.SDKKey, testFileDataExpiringSDKKey.Params.ExpiringSDKKey)
+
+		p.updateHandler.UpdateEnvironment(testFileDataExpiringSDKKey)
+
+		// Now, the existing SDK key (client1.Key, "sdkkey1") should be marked as deprecated, with a new
+		// primary key ("sdkkey2").
+
+		assert.True(t, slices.ContainsFunc(env.GetDeprecatedCredentials(), func(cred credential.SDKCredential) bool {
+			return cred == testFileDataEnv1.Params.SDKKey
+		}))
+
+		assert.True(t, slices.ContainsFunc(env.GetCredentials(), func(cred credential.SDKCredential) bool {
+			return cred == testFileDataExpiringSDKKey.Params.SDKKey
+		}))
+	})
+}
+
+func TestOfflineModeDeprecatedKeyIsRemovedEventually(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		// This environment has a valid SDK key, but nothing is deprecated yet.
+		p.updateHandler.AddEnvironment(testFileDataEnv1)
+
+		client1 := p.awaitClient()
+		assert.Equal(t, testFileDataEnv1.Params.SDKKey, client1.Key)
+
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		// As a sanity check, make sure the deprecated key in the incoming update is equal to the current primary key.
+		assert.Equal(t, testFileDataEnv1.Params.SDKKey, testFileDataExpiringSDKKey.Params.ExpiringSDKKey)
+
+		p.updateHandler.UpdateEnvironment(testFileDataExpiringSDKKey)
+
+		assert.True(t, slices.ContainsFunc(env.GetDeprecatedCredentials(), func(cred credential.SDKCredential) bool {
+			return cred == testFileDataEnv1.Params.SDKKey
+		}))
+
+		time.Sleep(100 * time.Millisecond)
+
+		assert.False(t, slices.ContainsFunc(env.GetDeprecatedCredentials(), func(cred credential.SDKCredential) bool {
+			return cred == testFileDataEnv1.Params.SDKKey
+		}))
+
 	})
 }

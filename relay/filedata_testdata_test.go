@@ -80,3 +80,24 @@ var testFileDataExpiringSDKKey = filedata.ArchiveEnvironment{
 		},
 	},
 }
+
+var testFileDataExpiredSDKKey = filedata.ArchiveEnvironment{
+	Params: envfactory.EnvironmentParams{
+		EnvID:  config.EnvironmentID("env1"),
+		SDKKey: config.SDKKey("sdkkey2"),
+		Identifiers: relayenv.EnvIdentifiers{
+			ProjName: "Project",
+			ProjKey:  "project",
+			EnvName:  "Env1",
+			EnvKey:   "env1",
+		},
+	},
+	SDKData: []ldstoretypes.Collection{
+		{
+			Kind: ldstoreimpl.Features(),
+			Items: []ldstoretypes.KeyedItemDescriptor{
+				{Key: testFileDataFlag1.Key, Item: sharedtest.FlagDesc(testFileDataFlag1)},
+			},
+		},
+	},
+}

@@ -2,7 +2,6 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
@@ -53,25 +52,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	newCredentials := params.Credentials()
-
-	for _, prevCred := range env.GetCredentials() {
-		newCred, status := prevCred.Compare(newCredentials)
-		if status == credential.Unchanged {
-			continue
-		}
-
-		env.AddCredential(newCred)
-		a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, newCred), env)
-
-		switch status {
-		case credential.Deprecated:
-			env.DeprecateCredential(prevCred)
-		case credential.Expired:
-			a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, prevCred))
-			env.RemoveCredential(prevCred)
-		}
-	}
+	a.r.setCredentials(env, params)
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
