@@ -60,7 +60,7 @@ type EnvContext interface {
 	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
 	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
 	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
-	DeprecateCredential(credential.SDKCredential)
+	DeprecateCredential(cred credential.SDKCredential, when time.Time)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which

@@ -34,10 +34,10 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey)); err != nil {
-			env.AddCredential(params.ExpiringSDKKey)
-			env.DeprecateCredential(params.ExpiringSDKKey)
-			a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey), env)
+		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key)); err != nil {
+			env.AddCredential(params.ExpiringSDKKey.Key)
+			env.DeprecateCredential(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
+			a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key), env)
 		}
 	}
 }

@@ -62,6 +62,10 @@ type ExpiringKeyRep struct {
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }
 
+func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
+	return time.UnixMilli(int64(millisecondTime))
+}
+
 // ToParams converts the JSON properties for an environment into our internal parameter type.
 func (r EnvironmentRep) ToParams() EnvironmentParams {
 	return EnvironmentParams{
@@ -72,11 +76,14 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			ProjKey:  r.ProjKey,
 			ProjName: r.ProjName,
 		},
-		SDKKey:         r.SDKKey.Value,
-		MobileKey:      r.MobKey,
-		ExpiringSDKKey: r.SDKKey.Expiring.Value,
-		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
-		SecureMode:     r.SecureMode,
+		SDKKey:    r.SDKKey.Value,
+		MobileKey: r.MobKey,
+		ExpiringSDKKey: ExpiringSDKKey{
+			Key:        r.SDKKey.Expiring.Value,
+			Expiration: ToTime(r.SDKKey.Expiring.Timestamp),
+		},
+		TTL:        time.Duration(r.DefaultTTL) * time.Minute,
+		SecureMode: r.SecureMode,
 	}
 }
 

@@ -29,9 +29,8 @@ type EnvironmentParams struct {
 	MobileKey config.MobileKey
 
 	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
-	// the canonical one), or "" if none. The expiry time is not represented here; it is managed
-	// by lower-level components.
-	ExpiringSDKKey config.SDKKey
+	// the canonical one).
+	ExpiringSDKKey ExpiringSDKKey
 
 	// TTL is the cache TTL for PHP clients.
 	TTL time.Duration
@@ -40,10 +39,19 @@ type EnvironmentParams struct {
 	SecureMode bool
 }
 
+type ExpiringSDKKey struct {
+	Key        config.SDKKey
+	Expiration time.Time
+}
+
+func (e ExpiringSDKKey) Defined() bool {
+	return e.Key.Defined()
+}
+
 func (e EnvironmentParams) Credentials() credential.AutoConfig {
 	return credential.AutoConfig{
 		SDKKey:         e.SDKKey,
-		ExpiringSDKKey: e.ExpiringSDKKey,
+		ExpiringSDKKey: e.ExpiringSDKKey.Key,
 		MobileKey:      e.MobileKey,
 	}
 }

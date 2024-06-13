@@ -105,6 +105,7 @@ type envContextImpl struct {
 	initErr          error
 	creationTime     time.Time
 	filterKey        config.FilterKey
+	keyRotator       *credential.Rotator
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -181,6 +182,7 @@ func NewEnvContext(
 		dataStoreInfo:    params.DataStoreInfo,
 		creationTime:     time.Now(),
 		filterKey:        params.EnvConfig.FilterKey,
+		keyRotator:       credential.NewRotator(params.Loggers, time.Now),
 	}
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
@@ -519,11 +521,12 @@ func (c *envContextImpl) RemoveCredential(oldCredential credential.SDKCredential
 	}
 }
 
-func (c *envContextImpl) DeprecateCredential(credential credential.SDKCredential) {
+func (c *envContextImpl) DeprecateCredential(credential credential.SDKCredential, when time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, found := c.credentials[credential]; found {
 		c.credentials[credential] = false
+		c.keyRotator.Deprecate(credential, when, c.RemoveCredential)
 	}
 }
 

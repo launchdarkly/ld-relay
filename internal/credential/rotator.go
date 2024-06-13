@@ -50,7 +50,7 @@ func (r *Rotator) Stop() {
 	}
 }
 
-func (r *Rotator) Deprecate(cred SDKCredential, expiry time.Time) bool {
+func (r *Rotator) Deprecate(cred SDKCredential, expiry time.Time, onExpiry func(credential SDKCredential)) bool {
 	if existing, ok := r.timers[cred]; ok {
 		r.loggers.Warnf("Credential %s was marked for deprecation with an expiry time of %v, but it previously expired at %v", cred.Masked(), expiry, existing.expiry)
 		return false
@@ -60,7 +60,7 @@ func (r *Rotator) Deprecate(cred SDKCredential, expiry time.Time) bool {
 	state.timer = time.AfterFunc(expiry.Sub(r.now()), func() {
 		r.loggers.Info("Credential %s has expired", cred.Masked())
 		state.expired = true
-		r.expirations <- cred
+		onExpiry(cred)
 	})
 	r.timers[cred] = state
 	return true
