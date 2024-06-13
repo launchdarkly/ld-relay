@@ -60,8 +60,10 @@ func main() {
 	}
 
 	port := c.Main.Port.GetOrElse(config.DefaultPort)
+	host := c.Main.Host
 
 	_, errs := application.StartHTTPServer(
+		host,
 		port,
 		r,
 		c.Main.TLSEnabled,

@@ -140,6 +140,7 @@ type MainConfig struct {
 	StreamURI                  ct.OptURLAbsolute        `conf:"STREAM_URI"`
 	BaseURI                    ct.OptURLAbsolute        `conf:"BASE_URI"`
 	ClientSideBaseURI          ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
+	Host                       string                   `conf:"HOST"`
 	Port                       ct.OptIntGreaterThanZero `conf:"PORT"`
 	InitTimeout                ct.OptDuration           `conf:"INIT_TIMEOUT"`
 	HeartbeatInterval          ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
