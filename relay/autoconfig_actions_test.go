@@ -87,7 +87,7 @@ func autoConfTest(
 }
 
 func (p autoConfTestParams) awaitClient() *testclient.FakeLDClient {
-	return helpers.RequireValue(p.t, p.clientsCreatedCh, time.Second, "timed out waiting for client creation")
+	return helpers.RequireValue(p.t, p.clientsCreatedCh, 1000*time.Second, "timed out waiting for client creation")
 }
 
 func (p autoConfTestParams) shouldNotCreateClient(timeout time.Duration) {

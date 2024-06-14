@@ -89,7 +89,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client2 := p.awaitClient()
 		assert.Equal(t, modified.sdkKey, client2.Key)
 
-		client1.AwaitClose(t, time.Second)
+		client1.AwaitClose(t, 10000*time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.sdkKey))

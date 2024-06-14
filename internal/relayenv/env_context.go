@@ -20,6 +20,11 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
+type DeprecationHooks struct {
+	BeforeRemoval func(cred credential.SDKCredential)
+	AfterRemoval  func(cred credential.SDKCredential)
+}
+
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
 //
 // The EnvContext is normally associated with an LDClient instance from the Go SDK, and allows direct access
@@ -51,6 +56,8 @@ type EnvContext interface {
 	// to server-side endpoints is switched to use the new key.
 	AddCredential(credential.SDKCredential)
 
+	RotateCredential(new credential.SDKCredential, old credential.SDKCredential, expiry time.Time)
+
 	// RemoveCredential removes a credential from the environment. Any active stream connections using that
 	// credential are immediately dropped.
 	//
@@ -60,7 +67,7 @@ type EnvContext interface {
 	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
 	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
 	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
-	DeprecateCredential(cred credential.SDKCredential, when time.Time)
+	DeprecateCredential(cred credential.SDKCredential, when time.Time, hooks *DeprecationHooks)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which

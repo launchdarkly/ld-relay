@@ -26,11 +26,6 @@ type MessageHandler interface {
 	// message, or a "put" that no longer contains that environment.
 	DeleteEnvironment(id config.EnvironmentID)
 
-	// KeyExpired is called when a key that was previously provided in EnvironmentParams.ExpiringSDKKey
-	// has now expired. Relay should disconnect any clients currently using that key and reject any
-	// future requests that use it.
-	KeyExpired(id config.EnvironmentID, projKey string, oldKey config.SDKKey)
-
 	// AddFilter is called whenever a new filter should be added, either in a "put" or "patch" message.
 	AddFilter(params envfactory.FilterParams)
 

@@ -56,16 +56,21 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
+	return makeBasicEnvWithMockTime(t, envConfig, clientFactory, loggers, readyCh, nil)
+}
+
+func makeBasicEnvWithMockTime(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
+	loggers ldlog.Loggers, readyCh chan EnvContext, now func() time.Time) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:   EnvIdentifiers{ConfiguredName: envName},
 		EnvConfig:     envConfig,
 		ClientFactory: clientFactory,
 		Loggers:       loggers,
+		TimeSource:    now,
 	}, readyCh)
 	require.NoError(t, err)
 	return env
 }
-
 func TestConstructorBasicProperties(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	envConfig.TTL = configtypes.NewOptDuration(time.Hour)
@@ -223,6 +228,10 @@ func TestChangeSDKKey(t *testing.T) {
 	readyCh := make(chan EnvContext, 1)
 	newKey := config.SDKKey("new-key")
 
+	const deprecationDelay = 100 * time.Millisecond
+	const clientInitializationDelay = 10 * time.Millisecond
+	const clientCloseDelay = deprecationDelay / 2
+
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
@@ -237,24 +246,30 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, env.GetClient(), client1)
 	assert.Nil(t, env.GetInitError())
 
+	removed := make(chan credential.SDKCredential, 1)
 	env.AddCredential(newKey)
-	env.DeprecateCredential(envConfig.SDKKey)
+	env.DeprecateCredential(envConfig.SDKKey, time.Now().Add(deprecationDelay), &DeprecationHooks{AfterRemoval: func(cred credential.SDKCredential) {
+		removed <- cred
+	}})
 
 	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
+
+	time.Sleep(clientInitializationDelay)
 	assert.Equal(t, env.GetClient(), client2)
 
-	if !helpers.AssertNoMoreValues(t, client1.CloseCh, time.Millisecond*20, "client for deprecated key should not have been closed") {
+	if !helpers.AssertNoMoreValues(t, client1.CloseCh, clientCloseDelay, "client for deprecated key should not have been closed") {
 		t.FailNow()
 	}
 
-	env.RemoveCredential(envConfig.SDKKey)
+	deprecatedCred := helpers.RequireValue(t, removed, deprecationDelay, "timed out waiting for deprecation")
+	assert.Equal(t, envConfig.SDKKey, deprecatedCred)
 
 	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
 
-	client1.AwaitClose(t, time.Millisecond*20)
+	client1.AwaitClose(t, clientCloseDelay)
 }
 
 func TestSDKClientCreationFails(t *testing.T) {

@@ -307,12 +307,6 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			if shouldRestart {
 				stream.Restart()
 			}
-
-		case expiredKey := <-s.expiredKeys:
-			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), expiredKey.envID,
-				makeEnvName(s.lastKnownEnvs[expiredKey.envID]))
-			s.handler.KeyExpired(expiredKey.envID, expiredKey.projKey, expiredKey.key)
-
 		case <-s.halt:
 			stream.Close()
 			for _, t := range s.expiryTimers {
@@ -329,17 +323,17 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 		return
 	case ActionInsert:
 		params := rep.ToParams()
-		if s.IgnoreExpiringSDKKey(rep) {
-			params.ExpiringSDKKey = ""
-		}
+		//if s.IgnoreExpiringSDKKey(rep) {
+		//	params.ExpiringSDKKey = ""
+		//}
 		s.handler.AddEnvironment(params)
 	case ActionDelete:
 		s.handler.DeleteEnvironment(id)
 	case ActionUpdate:
 		params := rep.ToParams()
-		if s.IgnoreExpiringSDKKey(rep) {
-			params.ExpiringSDKKey = ""
-		}
+		//if s.IgnoreExpiringSDKKey(rep) {
+		//	params.ExpiringSDKKey = ""
+		//}
 		s.handler.UpdateEnvironment(params)
 	}
 }

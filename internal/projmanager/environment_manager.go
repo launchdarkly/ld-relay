@@ -12,7 +12,6 @@ type EnvironmentActions interface {
 	AddEnvironment(params envfactory.EnvironmentParams)
 	UpdateEnvironment(params envfactory.EnvironmentParams)
 	DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey)
-	KeyExpired(id config.EnvironmentID, filter config.FilterKey, oldKey config.SDKKey)
 }
 
 type filterMapping struct {
@@ -130,13 +129,6 @@ func (e *EnvironmentManager) DeleteFilter(filter config.FilterID) bool {
 
 	delete(e.filtered, filter)
 	return true
-}
-
-func (e *EnvironmentManager) KeyExpired(id config.EnvironmentID, oldKey config.SDKKey) {
-	e.handler.KeyExpired(id, config.DefaultFilter, oldKey)
-	for _, filter := range e.filtered {
-		e.handler.KeyExpired(id, filter.key, oldKey)
-	}
 }
 
 func (e *EnvironmentManager) Filters() []config.FilterKey {

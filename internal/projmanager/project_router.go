@@ -41,15 +41,6 @@ func NewProjectRouter(handler AutoConfigActions, loggers ldlog.Loggers) *Project
 	return &ProjectRouter{managers: make(map[string]*EnvironmentManager), actions: handler, loggers: loggers}
 }
 
-// KeyExpired indicates that an SDK key, scoped to a particular project, has expired. The command
-// is forwarded on to the manager, if any, for the given projKey.
-func (e *ProjectRouter) KeyExpired(id config.EnvironmentID, projKey string, oldKey config.SDKKey) {
-	manager, ok := e.managers[projKey]
-	if ok {
-		manager.KeyExpired(id, oldKey)
-	}
-}
-
 // AddEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its project key, or instantiates
 // a new ProjectManager if one doesn't already exist.
 func (e *ProjectRouter) AddEnvironment(params envfactory.EnvironmentParams) {

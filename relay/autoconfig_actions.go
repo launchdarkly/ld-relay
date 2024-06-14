@@ -4,6 +4,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -35,9 +36,15 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 
 	if params.ExpiringSDKKey.Defined() {
 		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key)); err != nil {
+			auth := sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key)
 			env.AddCredential(params.ExpiringSDKKey.Key)
-			env.DeprecateCredential(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
-			a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key), env)
+			env.DeprecateCredential(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration, &relayenv.DeprecationHooks{
+				BeforeRemoval: func(_ credential.SDKCredential) {
+					a.r.removeConnectionMapping(auth)
+				},
+			})
+
+			a.r.addConnectionMapping(auth, env)
 		}
 	}
 }
@@ -53,24 +60,20 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	newCredentials := params.Credentials()
-
-	for _, prevCred := range env.GetCredentials() {
-		newCred, status := prevCred.Compare(newCredentials)
-		if status == credential.Unchanged {
-			continue
-		}
-
-		env.AddCredential(newCred)
-		a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, newCred), env)
-
-		switch status {
-		case credential.Deprecated:
-			env.DeprecateCredential(prevCred)
-		case credential.Expired:
-			a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, prevCred))
-			env.RemoveCredential(prevCred)
-		}
+	// Ok the problem is this.
+	// If we get a new key and there's no deprecation. It's just rotating instantly. We need to remove the old
+	// key instantly. Can we treat
+	if params.MobileKey.Defined() {
+		env.AddCredential(params.MobileKey)
+	}
+	if params.SDKKey.Defined() {
+		env.AddCredential(params.SDKKey)
+	}
+	if params.ExpiringSDKKey.Defined() {
+		env.DeprecateCredential(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration, &relayenv.DeprecationHooks{
+			BeforeRemoval: func(cred credential.SDKCredential) {
+				a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, cred))
+			}})
 	}
 }
 
@@ -84,14 +87,4 @@ func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filt
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
 	a.r.loggers.Info(logMsgAutoConfReceivedAllEnvironments)
 	a.r.setFullyConfigured(true)
-}
-
-func (a *relayAutoConfigActions) KeyExpired(id config.EnvironmentID, filter config.FilterKey, oldKey config.SDKKey) {
-	env, err := a.r.getEnvironment(sdkauth.NewScoped(filter, id))
-	if err != nil {
-		a.r.loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
-		return
-	}
-	a.r.removeConnectionMapping(sdkauth.NewScoped(filter, oldKey))
-	env.RemoveCredential(oldKey)
 }

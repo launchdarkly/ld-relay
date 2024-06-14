@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 
@@ -73,14 +74,22 @@ type EnvContextImplParams struct {
 	UserAgent                     string
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
+	TimeSource                    func() time.Time
 }
+
+type credStatus string
+
+const (
+	preferred  = credStatus("preferred")
+	deprecated = credStatus("deprecated")
+)
 
 type envContextImpl struct {
 	mu               sync.RWMutex
 	clients          map[config.SDKKey]sdks.LDClientContext
 	storeAdapter     *store.SSERelayDataStoreAdapter
 	loggers          ldlog.Loggers
-	credentials      map[credential.SDKCredential]bool // true if not deprecated
+	credentials      map[credential.SDKCredential]credStatus
 	identifiers      EnvIdentifiers
 	secureMode       bool
 	envStreams       *streams.EnvStreams
@@ -132,8 +141,8 @@ type envContextStreamUpdates struct {
 func NewEnvContext(
 	params EnvContextImplParams,
 	readyCh chan<- EnvContext,
-	// readyCh is a separate parameter because it's not a property of the environment itself, but
-	// just part of the semantics of the constructor
+// readyCh is a separate parameter because it's not a property of the environment itself, but
+// just part of the semantics of the constructor
 ) (EnvContext, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
@@ -156,13 +165,13 @@ func NewEnvContext(
 		return nil, err
 	}
 
-	credentials := make(map[credential.SDKCredential]bool, 3)
-	credentials[envConfig.SDKKey] = true
+	credentials := make(map[credential.SDKCredential]credStatus, 3)
+	credentials[envConfig.SDKKey] = preferred
 	if envConfig.MobileKey.Defined() {
-		credentials[envConfig.MobileKey] = true
+		credentials[envConfig.MobileKey] = preferred
 	}
 	if envConfig.EnvID.Defined() {
-		credentials[envConfig.EnvID] = true
+		credentials[envConfig.EnvID] = preferred
 	}
 
 	envContext := &envContextImpl{
@@ -182,7 +191,7 @@ func NewEnvContext(
 		dataStoreInfo:    params.DataStoreInfo,
 		creationTime:     time.Now(),
 		filterKey:        params.EnvConfig.FilterKey,
-		keyRotator:       credential.NewRotator(params.Loggers, time.Now),
+		keyRotator:       credential.NewRotator(params.Loggers, params.TimeSource),
 	}
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
@@ -449,20 +458,20 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 }
 
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
-	return c.getCredentialsInternal(true)
+	return c.getCredentialsInternal(preferred)
 }
 
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
-	return c.getCredentialsInternal(false)
+	return c.getCredentialsInternal(deprecated)
 }
 
-func (c *envContextImpl) getCredentialsInternal(preferred bool) []credential.SDKCredential {
+func (c *envContextImpl) getCredentialsInternal(status credStatus) []credential.SDKCredential {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	ret := make([]credential.SDKCredential, 0, len(c.credentials))
-	for c, nonDeprecated := range c.credentials {
-		if nonDeprecated == preferred {
+	for c, s := range c.credentials {
+		if s == status {
 			ret = append(ret, c)
 		}
 	}
@@ -475,7 +484,7 @@ func (c *envContextImpl) AddCredential(newCredential credential.SDKCredential) {
 	if _, found := c.credentials[newCredential]; found {
 		return
 	}
-	c.credentials[newCredential] = true
+	c.credentials[newCredential] = preferred
 	c.envStreams.AddCredential(newCredential)
 	for streamProvider, handlers := range c.handlers {
 		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
@@ -521,12 +530,33 @@ func (c *envContextImpl) RemoveCredential(oldCredential credential.SDKCredential
 	}
 }
 
-func (c *envContextImpl) DeprecateCredential(credential credential.SDKCredential, when time.Time) {
+func (c *envContextImpl) RotateCredential(new credential.SDKCredential) {
+	for cred, _ := range c.credentials {
+		if reflect.TypeOf(cred) == reflect.TypeOf(new) {
+
+		}
+	}
+	return c.RotateCredential(new, old, time.Now())
+}
+func (c *envContextImpl) RotateCredential(new credential.SDKCredential, old credential.SDKCredential, expiry time.Time, hooks *DeprecationHooks) {
+	c.AddCredential(new)
+	c.DeprecateCredential(old, expiry, hooks)
+}
+
+func (c *envContextImpl) DeprecateCredential(cred credential.SDKCredential, when time.Time, hooks *DeprecationHooks) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, found := c.credentials[credential]; found {
-		c.credentials[credential] = false
-		c.keyRotator.Deprecate(credential, when, c.RemoveCredential)
+	if _, found := c.credentials[cred]; found {
+		c.credentials[cred] = deprecated
+		c.keyRotator.DeprecateFunc(cred, when, func(cred credential.SDKCredential) {
+			if hooks != nil && hooks.BeforeRemoval != nil {
+				hooks.BeforeRemoval(cred)
+			}
+			c.RemoveCredential(cred)
+			if hooks != nil && hooks.AfterRemoval != nil {
+				hooks.AfterRemoval(cred)
+			}
+		})
 	}
 }
 
@@ -535,8 +565,8 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	defer c.mu.RUnlock()
 	// There might be multiple clients if there's an expiring SDK key. Find the SDK key that has a true
 	// value in our map (meaning it's not deprecated) and return that client.
-	for cred, valid := range c.credentials {
-		if sdkKey, ok := cred.(config.SDKKey); ok && valid {
+	for cred, status := range c.credentials {
+		if sdkKey, ok := cred.(config.SDKKey); ok && status == preferred {
 			return c.clients[sdkKey]
 		}
 	}
