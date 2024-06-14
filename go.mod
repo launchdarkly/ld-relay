@@ -1,6 +1,8 @@
 module github.com/launchdarkly/ld-relay/v7
 
-go 1.20
+go 1.21
+
+toolchain go1.22.1
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
@@ -12,10 +14,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.2
 	github.com/cyphar/filepath-securejoin v0.2.4
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/fsnotify/fsnotify v1.6.0
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gomodule/redigo v1.8.9
-	github.com/google/uuid v1.3.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
 	github.com/hashicorp/consul/api v1.20.0
@@ -25,24 +27,24 @@ require (
 	github.com/hashicorp/golang-lru v0.6.0 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/api-client-go/v12 v12.0.0
-	github.com/launchdarkly/eventsource v1.7.1
+	github.com/launchdarkly/eventsource v1.7.2-0.20240614205622-c2998ba93cb1
 	github.com/launchdarkly/go-configtypes v1.1.0
-	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.0.1
+	github.com/launchdarkly/go-jsonstream/v3 v3.1.0
+	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
 	github.com/launchdarkly/go-sdk-events/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-consul/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-dynamodb/v3 v3.0.2
 	github.com/launchdarkly/go-server-sdk-evaluation/v2 v2.0.2
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v2 v2.0.1
-	github.com/launchdarkly/go-server-sdk/v6 v6.0.3
+	github.com/launchdarkly/go-server-sdk/v6 v6.2.1-0.20240614210639-5a57f90f1444
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.1
 	github.com/prometheus/client_golang v1.15.1 // indirect; override to address CVE-2022-21698
 	github.com/stretchr/testify v1.8.4
 	go.opencensus.io v0.24.0
-	golang.org/x/net v0.25.0 // indirect
-	golang.org/x/sync v0.5.0
+	golang.org/x/net v0.26.0 // indirect
+	golang.org/x/sync v0.7.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/launchdarkly/go-server-sdk.v5 v5.10.1
 )
@@ -59,7 +61,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.14.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.18.11 // indirect
 	github.com/aws/smithy-go v1.13.5 // indirect
-	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
+	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
 )
 
 require (
@@ -111,12 +113,12 @@ require (
 	github.com/prometheus/statsd_exporter v0.23.1 // indirect
 	github.com/rogpeppe/go-internal v1.11.0 // indirect
 	github.com/tinylib/msgp v1.1.8 // indirect
-	golang.org/x/crypto v0.23.0 // indirect
-	golang.org/x/mod v0.14.0 // indirect
+	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/oauth2 v0.7.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
-	golang.org/x/tools v0.16.1 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/tools v0.22.0 // indirect
 	google.golang.org/api v0.121.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect

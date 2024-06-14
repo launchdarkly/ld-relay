@@ -307,7 +307,14 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
+	dataSource := ldcomponents.StreamingDataSource()
+
+	if params.AllConfig.Main.CacheBust {
+		dataSource.CacheBust(params.AllConfig.Main.CacheBust)
+	}
+
 	envContext.sdkConfig = ld.Config{
+		DataSource:       dataSource,
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents(),

@@ -148,6 +148,7 @@ type MainConfig struct {
 	LogLevel                    OptLogLevel              `conf:"LOG_LEVEL"`
 	BigSegmentsStaleAsDegraded  bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
 	BigSegmentsStaleThreshold   ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
+	CacheBust                   bool                     `conf:"CACHE_BUST"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
