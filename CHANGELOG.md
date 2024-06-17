@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.7.0](https://github.com/launchdarkly/ld-relay/compare/v8.6.0...v8.7.0) (2024-06-17)
+
+
+### Features
+
+* publish -alpine suffixed Docker images ([#396](https://github.com/launchdarkly/ld-relay/issues/396)) ([2d7cecd](https://github.com/launchdarkly/ld-relay/commit/2d7cecd9242c65207a798404c4a57c6ec3b23961))
+
 ## [8.6.0](https://github.com/launchdarkly/ld-relay/compare/v8.5.2...v8.6.0) (2024-06-10)
 
 
