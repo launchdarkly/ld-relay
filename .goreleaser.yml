@@ -213,7 +213,9 @@ dockers:
       - "--platform=linux/arm64/v8"
 
 docker_manifests:
-  # For the Alpine image
+  # For backwards compatibility, we publish the :latest, :vX, and :x.y.z tags for Alpine without any suffix
+  # indicating that the image is Alpine based (unlike the debian12 images). This is because it's what was done historically,
+  # and we cannot change it yet without breaking existing users.
   - name_template: "launchdarkly/ld-relay:{{ .Version}}"
     skip_push: false
     image_templates:
@@ -231,6 +233,32 @@ docker_manifests:
       - "launchdarkly/ld-relay:v{{ .Major }}-i386"
 
   - name_template: "launchdarkly/ld-relay:latest"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:latest-amd64"
+      - "launchdarkly/ld-relay:latest-armv7"
+      - "launchdarkly/ld-relay:latest-arm64v8"
+      - "launchdarkly/ld-relay:latest-i386"
+
+  # We'll also create aliases for the Alpine-based image with the suffix "-alpine" to make it easier to distinguish
+  # from the debian12 image. This will also allow us to eventually deprecate the non-suffixed tags in a future major version.
+  - name_template: "launchdarkly/ld-relay:{{ .Version}}-alpine"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:{{ .Version }}-amd64"
+      - "launchdarkly/ld-relay:{{ .Version }}-armv7"
+      - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
+      - "launchdarkly/ld-relay:{{ .Version }}-i386"
+
+  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-alpine"
+    skip_push: false
+    image_templates:
+      - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
+      - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
+      - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
+      - "launchdarkly/ld-relay:v{{ .Major }}-i386"
+
+  - name_template: "launchdarkly/ld-relay:latest-alpine"
     skip_push: false
     image_templates:
       - "launchdarkly/ld-relay:latest-amd64"

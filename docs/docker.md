@@ -7,11 +7,11 @@ Using Docker is not required, but if you prefer using a Docker container we prov
 We provide images based on Alpine Linux and Google's 
 ["distroless"](https://github.com/GoogleContainerTools/distroless) Debian12 images. 
 
-| Image              | Version                                                                                                                           | Size                                                                                                                                         | amd64 | armv7 | arm64v8 | i386 |
-|--------------------|-----------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|-------|-------|---------|------|
-| Distroless         | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-nonroot)    ][dockerhub]    | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-nonroot)][dockerhub]       | ✅     | ✅     | ✅       | ❌    |                                                                                                   |
-| Distroless (debug) | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot) ][dockerhub] | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot)][dockerhub] | ✅     | ✅     | ✅       | ❌    |
-| Alpine             | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest)                    ][dockerhub]            | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest)][dockerhub]                               | ✅     | ✅     | ✅       | ✅    |
+| Image              | Version                                                                                                                                            | Size                                                                                                                                                          | amd64 | armv7 | arm64v8 | i386 |
+|--------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|-------|-------|---------|------|
+| Distroless         | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-nonroot)    ][dockerhub-distroless]          | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-nonroot)][dockerhub-distroless]             | ✅     | ✅     | ✅       | ❌    |                                                                                                   |
+| Distroless (debug) | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot) ][dockerhub-distroless-debug] | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-static-debian12-debug-nonroot)][dockerhub-distroless-debug] | ✅     | ✅     | ✅       | ❌    |
+| Alpine             | [![Docker Image Version](https://img.shields.io/docker/v/launchdarkly/ld-relay/latest-alpine)                    ][dockerhub-alpine]               | [![Docker Image Size (tag)](https://img.shields.io/docker/image-size/launchdarkly/ld-relay/latest-alpine)][dockerhub-alpine]                                  | ✅     | ✅     | ✅       | ✅    |
 
 We recommend using the Distroless images, as automated security scanners regularly flag issues in Alpine even though 
 the Relay Proxy itself is unaffected. 
@@ -81,4 +81,7 @@ variant):
 docker exec -it [container name] /busybox/sh
 ```
 
-[dockerhub]: https://hub.docker.com/r/launchdarkly/ld-relay
+[dockerhub-distroless]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian12-nonroot
+[dockerhub-distroless-debug]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=static-debian12-debug-nonroot
+[dockerhub-alpine]: https://hub.docker.com/r/launchdarkly/ld-relay/tags?page=&page_size=&ordering=&name=alpine
+
