@@ -3,6 +3,7 @@ package relayenv
 import (
 	"context"
 	"fmt"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"io"
 	"net/http"
 	"time"
@@ -50,19 +51,9 @@ type EnvContext interface {
 	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
 	GetDeprecatedCredentials() []credential.SDKCredential
 
-	// AddCredential adds a new credential for the environment.
-	//
-	// If the credential is an SDK key, then a new SDK client is started with that SDK key, and event forwarding
-	// to server-side endpoints is switched to use the new key.
-	AddCredential(credential.SDKCredential)
-
-	RotateCredential(new credential.SDKCredential, old credential.SDKCredential, expiry time.Time)
-
-	// RemoveCredential removes a credential from the environment. Any active stream connections using that
-	// credential are immediately dropped.
-	//
-	// If the credential is an SDK key, then the SDK client that we started with that SDK key is disposed of.
-	RemoveCredential(credential.SDKCredential)
+	RotateMobileKey(key config.MobileKey)
+	RotateSDKKey(key config.SDKKey)
+	RotateAndDeprecateSDKKey(newKey config.SDKKey, oldKey envfactory.ExpiringSDKKey)
 
 	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
 	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is

@@ -60,21 +60,17 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	// Ok the problem is this.
-	// If we get a new key and there's no deprecation. It's just rotating instantly. We need to remove the old
-	// key instantly. Can we treat
 	if params.MobileKey.Defined() {
-		env.AddCredential(params.MobileKey)
+		env.RotateMobileKey(params.MobileKey)
 	}
 	if params.SDKKey.Defined() {
-		env.AddCredential(params.SDKKey)
+		if !params.ExpiringSDKKey.Defined() {
+			env.RotateSDKKey(params.SDKKey)
+		} else {
+			env.RotateAndDeprecateSDKKey(params.SDKKey, params.ExpiringSDKKey)
+		}
 	}
-	if params.ExpiringSDKKey.Defined() {
-		env.DeprecateCredential(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration, &relayenv.DeprecationHooks{
-			BeforeRemoval: func(cred credential.SDKCredential) {
-				a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, cred))
-			}})
-	}
+
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
