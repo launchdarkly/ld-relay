@@ -3,7 +3,6 @@ package relayenv
 import (
 	"context"
 	"fmt"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"net/http"
 	"sync"
 	"time"
@@ -56,6 +55,11 @@ func errInitMetrics(err error) error {
 	return fmt.Errorf("failed to initialize metrics for environment: %w", err)
 }
 
+type ConnectionMapper interface {
+	AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext)
+	RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential)
+}
+
 // EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
 // own type because there are a lot of them, and many are irrelevant in tests.
 type EnvContextImplParams struct {
@@ -75,14 +79,8 @@ type EnvContextImplParams struct {
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
 	TimeSource                    func() time.Time
+	ConnectionMapper              ConnectionMapper
 }
-
-type credStatus string
-
-const (
-	preferred  = credStatus("preferred")
-	deprecated = credStatus("deprecated")
-)
 
 type envContextImpl struct {
 	mu                        sync.RWMutex
@@ -116,6 +114,7 @@ type envContextImpl struct {
 	keyRotator                *credential.Rotator
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
+	connectionMapper          ConnectionMapper
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -143,6 +142,7 @@ func NewEnvContext(
 	params EnvContextImplParams,
 	readyCh chan<- EnvContext,
 	// readyCh is a separate parameter because it's not a property of the environment itself, but
+	// just part of the semantics of the constructor
 	// just part of the semantics of the constructor
 ) (EnvContext, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
@@ -185,6 +185,7 @@ func NewEnvContext(
 		keyRotator:                credential.NewRotator(params.Loggers, envConfig.EnvID, params.TimeSource),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
+		connectionMapper:          params.ConnectionMapper,
 	}
 
 	envContext.keyRotator.RotateSDKKey(envConfig.SDKKey, nil)
@@ -254,12 +255,13 @@ func NewEnvContext(
 		context: envContext,
 	}
 
-	for c := range credentials {
+	allCreds := envContext.keyRotator.AllCredentials()
+	for _, c := range allCreds {
 		envStreams.AddCredential(c)
 	}
 	for _, sp := range params.StreamProviders {
 		handlers := make(map[credential.SDKCredential]http.Handler)
-		for c := range credentials {
+		for _, c := range allCreds {
 			h := sp.Handler(sdkauth.NewScoped(envContext.filterKey, c))
 			if h != nil {
 				handlers[c] = h
@@ -400,6 +402,7 @@ func (c *envContextImpl) monitorCredentialChanges() {
 		case <-c.stopMonitoringCredentials:
 			return
 		case oldCredential := <-c.keyRotator.Expirations():
+			c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
 			c.envStreams.RemoveCredential(oldCredential)
 			for _, handlers := range c.handlers {
 				delete(handlers, oldCredential)
@@ -437,6 +440,7 @@ func (c *envContextImpl) monitorCredentialChanges() {
 				}
 			}
 
+			c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
 		}
 	}
 }
@@ -517,44 +521,14 @@ func (c *envContextImpl) RotateMobileKey(key config.MobileKey) {
 	c.keyRotator.RotateMobileKey(key)
 }
 
-func (c *envContextImpl) RotateSDKKey(key config.SDKKey) {
-	c.keyRotator.RotateSDKKey(key, nil)
-}
-
-func (c *envContextImpl) RotateAndDeprecateSDKKey(newKey config.SDKKey, oldKey envfactory.ExpiringSDKKey) {
-	c.keyRotator.RotateSDKKey(newKey, credential.NewDeprecationNotice(oldKey.Key, oldKey.Expiration))
-}
-
-func (c *envContextImpl) RemoveCredential(oldCredential credential.SDKCredential) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, found := c.credentials[oldCredential]; found {
-		delete(c.credentials, oldCredential)
-		c.envStreams.RemoveCredential(oldCredential)
-		for _, handlers := range c.handlers {
-			delete(handlers, oldCredential)
-		}
-		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-			// The SDK client instance is tied to the SDK key, so get rid of it
-			if client := c.clients[sdkKey]; client != nil {
-				delete(c.clients, sdkKey)
-				_ = client.Close()
-			}
-		}
-	}
+func (c *envContextImpl) RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice) {
+	c.keyRotator.RotateSDKKey(newKey, notice)
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// There might be multiple clients if there's an expiring SDK key. Find the SDK key that has a true
-	// value in our map (meaning it's not deprecated) and return that client.
-	for cred, status := range c.credentials {
-		if sdkKey, ok := cred.(config.SDKKey); ok && status == preferred {
-			return c.clients[sdkKey]
-		}
-	}
-	return nil
+	return c.clients[c.keyRotator.SDKKey()]
 }
 
 func (c *envContextImpl) GetStore() subsystems.DataStore {

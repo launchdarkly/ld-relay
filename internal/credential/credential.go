@@ -11,10 +11,6 @@ type SDKCredential interface {
 	Defined() bool
 	// String returns the string form of the credential.
 	String() string
-	// Compare accepts a collection of AutoConfig credentials and inspects it, determining if this credential has
-	// changed in any way. If so, it should return the new credential and a status.
-	Compare(creds AutoConfig) (SDKCredential, Status)
-
 	// Masked returns a masked form of the credential suitable for log messages.
 	Masked() string
 }

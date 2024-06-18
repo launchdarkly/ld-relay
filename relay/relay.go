@@ -457,6 +457,7 @@ func (r *Relay) addEnvironment(
 		UserAgent:        r.userAgent,
 		LogNameMode:      r.envLogNameMode,
 		Loggers:          r.loggers,
+		ConnectionMapper: r,
 	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
@@ -498,7 +499,7 @@ func (r *Relay) setFullyConfigured(fullyConfigured bool) {
 // credential is now enabled for this EnvContext. This should be done only *after* calling
 // EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
 // credential immediately after this, it will work.
-func (r *Relay) addConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
+func (r *Relay) AddConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
 	r.envsByCredential.MapRequestParams(params, env)
 }
 
@@ -506,7 +507,7 @@ func (r *Relay) addConnectionMapping(params sdkauth.ScopedCredential, env relaye
 // credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
 // because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
 // reconnect using the same credential we want it to be rejected.
-func (r *Relay) removeConnectionMapping(params sdkauth.ScopedCredential) {
+func (r *Relay) RemoveConnectionMapping(params sdkauth.ScopedCredential) {
 	r.envsByCredential.UnmapRequestParams(params)
 }
 

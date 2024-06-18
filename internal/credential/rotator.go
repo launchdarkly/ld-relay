@@ -8,7 +8,7 @@ import (
 )
 
 type DeprecationNotice struct {
-	key config.SDKKey
+	key    config.SDKKey
 	expiry time.Time
 }
 
@@ -18,7 +18,7 @@ func NewDeprecationNotice(key config.SDKKey, expiry time.Time) *DeprecationNotic
 
 type deprecatedKey struct {
 	expiry time.Time
-	timer *time.Timer
+	timer  *time.Timer
 }
 
 type Rotator struct {
@@ -37,7 +37,7 @@ type Rotator struct {
 	deprecatedSdkKeys map[config.SDKKey]*deprecatedKey
 
 	expirations chan SDKCredential
-	additions chan SDKCredential
+	additions   chan SDKCredential
 	now         func() time.Time
 
 	mu sync.RWMutex
@@ -45,12 +45,12 @@ type Rotator struct {
 
 func NewRotator(loggers ldlog.Loggers, envID config.EnvironmentID, now func() time.Time) *Rotator {
 	r := &Rotator{
-		loggers:     loggers,
+		loggers:           loggers,
 		deprecatedSdkKeys: make(map[config.SDKKey]*deprecatedKey),
-		envID: envID,
-		expirations: make(chan SDKCredential),
-		additions: make(chan SDKCredential),
-		now:         now,
+		envID:             envID,
+		expirations:       make(chan SDKCredential),
+		additions:         make(chan SDKCredential),
+		now:               now,
 	}
 	if r.now == nil {
 		r.now = time.Now
@@ -62,8 +62,7 @@ func (r *Rotator) Expirations() <-chan SDKCredential {
 	return r.expirations
 }
 
-
-func (r *Rotator) Additions() <- chan SDKCredential {
+func (r *Rotator) Additions() <-chan SDKCredential {
 	return r.additions
 }
 
@@ -79,10 +78,13 @@ func (r *Rotator) SDKKey() config.SDKKey {
 	return r.primarySdkKey
 }
 
-
 func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.primaryCredentials()
+}
+
+func (r *Rotator) primaryCredentials() []SDKCredential {
 	return []SDKCredential{
 		r.primarySdkKey,
 		r.primaryMobileKey,
@@ -90,14 +92,24 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	}
 }
 
-func (r *Rotator) DeprecatedCredentials() []SDKCredential {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (r *Rotator) deprecatedCredentials() []SDKCredential {
 	var deprecated []SDKCredential
 	for key := range r.deprecatedSdkKeys {
 		deprecated = append(deprecated, key)
 	}
 	return deprecated
+}
+
+func (r *Rotator) DeprecatedCredentials() []SDKCredential {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.deprecatedCredentials()
+}
+
+func (r *Rotator) AllCredentials() []SDKCredential {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append(r.primaryCredentials(), r.deprecatedCredentials()...)
 }
 
 func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
@@ -106,7 +118,7 @@ func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked()
+	r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked())
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
 	r.expirations <- previous
@@ -146,7 +158,7 @@ func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNot
 			expiry: deprecation.expiry,
 			timer: time.AfterFunc(deprecation.expiry.Sub(r.now()), func() {
 				r.expireSDKKey(deprecation.key)
-		})}
+			})}
 		return
 	}
 	r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but this key is not recognized by Relay. It may have already expired; ignoring.", deprecation.key.Masked(), deprecation.expiry)

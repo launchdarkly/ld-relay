@@ -3,7 +3,6 @@ package relayenv
 import (
 	"context"
 	"fmt"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"io"
 	"net/http"
 	"time"
@@ -52,13 +51,7 @@ type EnvContext interface {
 	GetDeprecatedCredentials() []credential.SDKCredential
 
 	RotateMobileKey(key config.MobileKey)
-	RotateSDKKey(key config.SDKKey)
-	RotateAndDeprecateSDKKey(newKey config.SDKKey, oldKey envfactory.ExpiringSDKKey)
-
-	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
-	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
-	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
-	DeprecateCredential(cred credential.SDKCredential, when time.Time, hooks *DeprecationHooks)
+	RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
@@ -81,7 +74,7 @@ type EnvContext interface {
 	// have its own prefix string and, optionally, its own log level.
 	GetLoggers() ldlog.Loggers
 
-	// GetHandler returns the HTTP handler for the specified kind of stream requests and credential for this
+	// GetStreamHandler returns the HTTP handler for the specified kind of stream requests and credential for this
 	// environment. If there is none, it returns a handler for a 404 status (not nil).
 	GetStreamHandler(streams.StreamProvider, credential.SDKCredential) http.Handler
 

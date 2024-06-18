@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
@@ -65,20 +63,6 @@ func (k SDKKey) String() string {
 	return string(k)
 }
 func (k SDKKey) Masked() string { return last4Chars(k.String()) }
-func (k SDKKey) Compare(cr credential.AutoConfig) (credential.SDKCredential, credential.Status) {
-	if cr.SDKKey == k {
-		return nil, credential.Unchanged
-	}
-	if cr.ExpiringSDKKey == k {
-		// If the AutoConfig update contains an ExpiringSDKKey that is equal to *this* key, then it means
-		// this key is now considered deprecated.
-		return cr.SDKKey, credential.Deprecated
-	} else {
-		// Otherwise if the AutoConfig update contains *some other* key, then it means this one must be considered
-		// expired.
-		return cr.SDKKey, credential.Expired
-	}
-}
 
 // GetAuthorizationHeaderValue for MobileKey returns the same string, since mobile keys are passed in the
 // Authorization header.
@@ -95,13 +79,6 @@ func (k MobileKey) String() string {
 }
 
 func (k MobileKey) Masked() string { return last4Chars(k.String()) }
-
-func (k MobileKey) Compare(cr credential.AutoConfig) (credential.SDKCredential, credential.Status) {
-	if cr.MobileKey == k {
-		return nil, credential.Unchanged
-	}
-	return cr.MobileKey, credential.Expired
-}
 
 // GetAuthorizationHeaderValue for EnvironmentID returns an empty string, since environment IDs are not
 // passed in a header but as part of the request URL.
@@ -120,21 +97,11 @@ func (k EnvironmentID) String() string {
 // Masked is an alias for String(), because EnvironmentIDs are considered non-sensitive public information.
 func (k EnvironmentID) Masked() string { return k.String() }
 
-func (k EnvironmentID) Compare(_ credential.AutoConfig) (credential.SDKCredential, credential.Status) {
-	// EnvironmentIDs should not change.
-	return nil, credential.Unchanged
-}
-
 // GetAuthorizationHeaderValue for AutoConfigKey returns the same string, since these keys are passed in
 // the Authorization header. Note that unlike the other kinds of authorization keys, this one is never
 // present in an incoming request; it is only used in requests from Relay to LaunchDarkly.
 func (k AutoConfigKey) GetAuthorizationHeaderValue() string {
 	return string(k)
-}
-
-func (k AutoConfigKey) Compare(_ credential.AutoConfig) (credential.SDKCredential, credential.Status) {
-	// AutoConfigKeys should not change.
-	return nil, credential.Unchanged
 }
 
 func (k AutoConfigKey) String() string {

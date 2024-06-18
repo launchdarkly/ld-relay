@@ -3,8 +3,6 @@ package envfactory
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 )
@@ -46,14 +44,6 @@ type ExpiringSDKKey struct {
 
 func (e ExpiringSDKKey) Defined() bool {
 	return e.Key.Defined()
-}
-
-func (e EnvironmentParams) Credentials() credential.AutoConfig {
-	return credential.AutoConfig{
-		SDKKey:         e.SDKKey,
-		ExpiringSDKKey: e.ExpiringSDKKey.Key,
-		MobileKey:      e.MobileKey,
-	}
 }
 
 func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {
