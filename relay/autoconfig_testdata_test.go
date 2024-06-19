@@ -7,7 +7,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
 
@@ -18,16 +17,18 @@ var testAutoConfDefaultConfig = c.Config{
 }
 
 type testAutoConfEnv struct {
-	id                c.EnvironmentID
-	envKey            string
-	envName           string
-	mobKey            c.MobileKey
-	projKey           string
-	projName          string
-	sdkKey            c.SDKKey
-	sdkKeyExpiryValue c.SDKKey
-	sdkKeyExpiryTime  ldtime.UnixMillisecondTime
-	version           int
+	id       c.EnvironmentID
+	envKey   string
+	envName  string
+	mobKey   c.MobileKey
+	projKey  string
+	projName string
+	sdkKey   envfactory.SDKKeyRep
+	version  int
+}
+
+func (e testAutoConfEnv) SDKKey() c.SDKKey {
+	return e.sdkKey.Value
 }
 
 var (
@@ -38,7 +39,7 @@ var (
 		mobKey:   c.MobileKey("mobkey1"),
 		projKey:  "projkey1",
 		projName: "projname1",
-		sdkKey:   c.SDKKey("sdkkey1"),
+		sdkKey:   envfactory.SDKKeyRep{Value: c.SDKKey("sdkkey1")},
 		version:  10,
 	}
 
@@ -49,7 +50,7 @@ var (
 		mobKey:   c.MobileKey("mobkey2"),
 		projKey:  "projkey2",
 		projName: "projname2",
-		sdkKey:   c.SDKKey("sdkkey2"),
+		sdkKey:   envfactory.SDKKeyRep{Value: c.SDKKey("sdkkey2")},
 		version:  11,
 	}
 )
@@ -62,14 +63,8 @@ func (e testAutoConfEnv) toEnvironmentRep() envfactory.EnvironmentRep {
 		MobKey:   e.mobKey,
 		ProjKey:  e.projKey,
 		ProjName: e.projName,
-		SDKKey: envfactory.SDKKeyRep{
-			Value: e.sdkKey,
-		},
-		Version: e.version,
-	}
-	if e.sdkKeyExpiryValue != "" {
-		rep.SDKKey.Expiring.Value = e.sdkKeyExpiryValue
-		rep.SDKKey.Expiring.Timestamp = e.sdkKeyExpiryTime
+		SDKKey:   e.sdkKey,
+		Version:  e.version,
 	}
 	return rep
 }

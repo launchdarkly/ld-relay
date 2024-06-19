@@ -323,17 +323,11 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 		return
 	case ActionInsert:
 		params := rep.ToParams()
-		//if s.IgnoreExpiringSDKKey(rep) {
-		//	params.ExpiringSDKKey = ""
-		//}
 		s.handler.AddEnvironment(params)
 	case ActionDelete:
 		s.handler.DeleteEnvironment(id)
 	case ActionUpdate:
 		params := rep.ToParams()
-		//if s.IgnoreExpiringSDKKey(rep) {
-		//	params.ExpiringSDKKey = ""
-		//}
 		s.handler.UpdateEnvironment(params)
 	}
 }

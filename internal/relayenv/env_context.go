@@ -51,6 +51,7 @@ type EnvContext interface {
 	GetDeprecatedCredentials() []credential.SDKCredential
 
 	RotateMobileKey(key config.MobileKey)
+	RotateEnvironmentID(id config.EnvironmentID)
 	RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet

@@ -3,6 +3,7 @@ package credential
 import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"slices"
 	"sync"
 	"time"
 )
@@ -27,10 +28,12 @@ type Rotator struct {
 	// There is only one mobile key active at a given time; it does not support a deprecation period.
 	primaryMobileKey config.MobileKey
 
+	// There is only one environment ID active at a given time, and it won't actually be rotated. The mechanism is
+	// here to allow setting it in a deferred manner.
+	primaryEnvironmentID config.EnvironmentID
+
 	// There can be multiple SDK keys active at a given time, but only one is primary.
 	primarySdkKey config.SDKKey
-
-	envID config.EnvironmentID
 
 	// Deprecated keys are stored in a map with a started timer for each key representing the deprecation period.
 	// Upon expiration, they are removed.
@@ -43,19 +46,43 @@ type Rotator struct {
 	mu sync.RWMutex
 }
 
-func NewRotator(loggers ldlog.Loggers, envID config.EnvironmentID, now func() time.Time) *Rotator {
+type InitialCredentials struct {
+	SDKKey        config.SDKKey
+	MobileKey     config.MobileKey
+	EnvironmentID config.EnvironmentID
+}
+
+func NewRotator(loggers ldlog.Loggers, now func() time.Time) *Rotator {
 	r := &Rotator{
 		loggers:           loggers,
 		deprecatedSdkKeys: make(map[config.SDKKey]*deprecatedKey),
-		envID:             envID,
-		expirations:       make(chan SDKCredential),
-		additions:         make(chan SDKCredential),
+		expirations:       make(chan SDKCredential, 1),
+		additions:         make(chan SDKCredential, 1),
 		now:               now,
 	}
 	if r.now == nil {
 		r.now = time.Now
 	}
 	return r
+}
+
+func (r *Rotator) Initialize(credentials []SDKCredential) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, cred := range credentials {
+		if !cred.Defined() {
+			continue
+		}
+		switch cred := cred.(type) {
+		case config.SDKKey:
+			r.primarySdkKey = cred
+		case config.MobileKey:
+			r.primaryMobileKey = cred
+		case config.EnvironmentID:
+			r.primaryEnvironmentID = cred
+		}
+	}
 }
 
 func (r *Rotator) Expirations() <-chan SDKCredential {
@@ -78,6 +105,13 @@ func (r *Rotator) SDKKey() config.SDKKey {
 	return r.primarySdkKey
 }
 
+func (r *Rotator) EnvironmentID() config.EnvironmentID {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.primaryEnvironmentID
+
+}
+
 func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -85,11 +119,13 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 }
 
 func (r *Rotator) primaryCredentials() []SDKCredential {
-	return []SDKCredential{
+	return slices.DeleteFunc([]SDKCredential{
 		r.primarySdkKey,
 		r.primaryMobileKey,
-		r.envID,
-	}
+		r.primaryEnvironmentID,
+	}, func(cred SDKCredential) bool {
+		return !cred.Defined()
+	})
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
@@ -112,56 +148,79 @@ func (r *Rotator) AllCredentials() []SDKCredential {
 	return append(r.primaryCredentials(), r.deprecatedCredentials()...)
 }
 
+func (r *Rotator) RotateEnvironmentID(envID config.EnvironmentID) {
+	if envID == r.EnvironmentID() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous := r.primaryEnvironmentID
+	r.primaryEnvironmentID = envID
+	r.additions <- envID
+	if previous.Defined() {
+		r.loggers.Infof("Environment ID %s was rotated, new environment ID is %s", r.primaryEnvironmentID, envID)
+		r.expirations <- previous
+	} else {
+		r.loggers.Infof("New environment ID is %s", envID)
+	}
+}
+
 func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
 	if mobileKey == r.MobileKey() {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked())
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
-	r.expirations <- previous
+	r.additions <- mobileKey
+	if previous.Defined() {
+		r.expirations <- previous
+		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked())
+	} else {
+		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+	}
 }
 
+func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
+	if newKey == r.SDKKey() {
+		// There's no swap to be done, we already are using this as primary.
+		return newKey
+	}
+	previous := r.primarySdkKey
+	r.primarySdkKey = newKey
+	r.additions <- newKey
+	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
+
+	return previous
+}
 func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNotice) {
-	// An SDK key can arrive with an optional deprecation notice for a previous key.
-	// If there's no deprecation notice, this is an immediate rotation: the new key is the primary key, the old
-	// one is removed.
-	// If there is a deprecation notice, we need to move the old key to the deprecated state and start a timer.
-	// Some gotchas because of the design of the data model:
-	// (1) It's possible to receive a notice that names an SDK key that is not the current primary key.
-	//    It could be a key that was already deprecated, a key that was expired, or some key we've never seen.
-	//    Since we need to make a decision on how to handle it, it shall be:
-	//      - If already deprecated (meaning it has a timer), ignore it and log a warning.
-	//      - If unseen/expired (can't distinguish since we don't retain it), ignore it and log a warning.
-	if sdkKey == r.SDKKey() {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if deprecation == nil {
-		r.loggers.Infof("SDK key %s was rotated, new primary SDK key is %s", r.primarySdkKey.Masked(), sdkKey.Masked())
-		previous := r.primarySdkKey
-		r.primarySdkKey = sdkKey
+	previous := r.swapPrimaryKey(sdkKey)
+	// Immediately revoke the previous SDK key if there's no explicit deprecation notice, otherwise it would
+	// hang around forever.
+	if previous.Defined() && deprecation == nil {
 		r.expirations <- previous
+		r.loggers.Infof("SDK key %s has been immediately revoked", previous.Masked())
 		return
 	}
-	if old, ok := r.deprecatedSdkKeys[deprecation.key]; ok {
-		r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", deprecation.key.Masked(), deprecation.expiry, old.expiry)
-		return
-	}
-	if deprecation.key == r.primarySdkKey {
-		r.loggers.Infof("SDK key %s was rotated with an expiry at %v, new primary SDK key is %s", r.primarySdkKey.Masked(), deprecation.expiry, sdkKey.Masked())
-		r.primarySdkKey = sdkKey
+	if deprecation != nil {
+		if prev, ok := r.deprecatedSdkKeys[deprecation.key]; ok {
+			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", deprecation.key.Masked(), deprecation.expiry, prev.expiry)
+			return
+		}
+
+		r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", deprecation.key.Masked(), deprecation.expiry)
 		r.deprecatedSdkKeys[deprecation.key] = &deprecatedKey{
 			expiry: deprecation.expiry,
 			timer: time.AfterFunc(deprecation.expiry.Sub(r.now()), func() {
 				r.expireSDKKey(deprecation.key)
 			})}
-		return
+
+		if deprecation.key != previous {
+			r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", deprecation.key.Masked())
+			r.additions <- deprecation.key
+		}
 	}
-	r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but this key is not recognized by Relay. It may have already expired; ignoring.", deprecation.key.Masked(), deprecation.expiry)
 }
 
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {

@@ -143,7 +143,6 @@ func NewEnvContext(
 	readyCh chan<- EnvContext,
 	// readyCh is a separate parameter because it's not a property of the environment itself, but
 	// just part of the semantics of the constructor
-	// just part of the semantics of the constructor
 ) (EnvContext, error) {
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
@@ -182,18 +181,17 @@ func NewEnvContext(
 		dataStoreInfo:             params.DataStoreInfo,
 		creationTime:              time.Now(),
 		filterKey:                 params.EnvConfig.FilterKey,
-		keyRotator:                credential.NewRotator(params.Loggers, envConfig.EnvID, params.TimeSource),
+		keyRotator:                credential.NewRotator(params.Loggers, params.TimeSource),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
 	}
 
-	envContext.keyRotator.RotateSDKKey(envConfig.SDKKey, nil)
-	if envConfig.MobileKey.Defined() {
-		envContext.keyRotator.RotateMobileKey(envConfig.MobileKey)
-	}
-
-	go envContext.monitorCredentialChanges()
+	envContext.keyRotator.Initialize([]credential.SDKCredential{
+		envConfig.SDKKey,
+		envConfig.MobileKey,
+		envConfig.EnvID,
+	})
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {
@@ -387,6 +385,8 @@ func NewEnvContext(
 		}
 	}
 
+	go envContext.monitorCredentialChanges(envContext.doneMonitoringCredentials)
+
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
@@ -395,52 +395,65 @@ func NewEnvContext(
 	return envContext, nil
 }
 
-func (c *envContextImpl) monitorCredentialChanges() {
-	defer close(c.doneMonitoringCredentials)
+func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.envStreams.AddCredential(newCredential)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+			handlers[newCredential] = h
+		}
+	}
+
+	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
+	// components that use an SDK key to use the new one. A new mobile key does not require starting a
+	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
+	switch key := newCredential.(type) {
+	case config.SDKKey:
+		go c.startSDKClient(key, nil, false)
+		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+			c.metricsEventPub.ReplaceCredential(key)
+		}
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
+	case config.MobileKey:
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
+	}
+
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
+}
+
+func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
+	c.envStreams.RemoveCredential(oldCredential)
+	for _, handlers := range c.handlers {
+		delete(handlers, oldCredential)
+	}
+	if sdkKey, ok := oldCredential.(config.SDKKey); ok {
+		// The SDK client instance is tied to the SDK key, so get rid of it
+		if client := c.clients[sdkKey]; client != nil {
+			delete(c.clients, sdkKey)
+			_ = client.Close()
+		}
+	}
+}
+
+func (c *envContextImpl) monitorCredentialChanges(done chan struct{}) {
+	defer close(done)
 	for {
 		select {
 		case <-c.stopMonitoringCredentials:
 			return
 		case oldCredential := <-c.keyRotator.Expirations():
-			c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
-			c.envStreams.RemoveCredential(oldCredential)
-			for _, handlers := range c.handlers {
-				delete(handlers, oldCredential)
-			}
-			if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-				// The SDK client instance is tied to the SDK key, so get rid of it
-				if client := c.clients[sdkKey]; client != nil {
-					delete(c.clients, sdkKey)
-					_ = client.Close()
-				}
-			}
+			c.removeCredential(oldCredential)
 		case newCredential := <-c.keyRotator.Additions():
-			c.envStreams.AddCredential(newCredential)
-			for streamProvider, handlers := range c.handlers {
-				if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
-					handlers[newCredential] = h
-				}
-			}
 
-			// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
-			// components that use an SDK key to use the new one. A new mobile key does not require starting a
-			// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
-			switch key := newCredential.(type) {
-			case config.SDKKey:
-				go c.startSDKClient(key, nil, false)
-				if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-					c.metricsEventPub.ReplaceCredential(key)
-				}
-				if c.eventDispatcher != nil {
-					c.eventDispatcher.ReplaceCredential(key)
-				}
-			case config.MobileKey:
-				if c.eventDispatcher != nil {
-					c.eventDispatcher.ReplaceCredential(key)
-				}
-			}
-
-			c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
+			c.addCredential(newCredential)
 		}
 	}
 }
@@ -519,6 +532,10 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 
 func (c *envContextImpl) RotateMobileKey(key config.MobileKey) {
 	c.keyRotator.RotateMobileKey(key)
+}
+
+func (c *envContextImpl) RotateEnvironmentID(id config.EnvironmentID) {
+	c.keyRotator.RotateEnvironmentID(id)
 }
 
 func (c *envContextImpl) RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice) {

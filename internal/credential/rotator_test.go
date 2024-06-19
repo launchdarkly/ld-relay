@@ -2,28 +2,19 @@ package credential
 
 import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 )
 
-type testCred string
-
-func (k testCred) Compare(_ AutoConfig) (SDKCredential, Status) {
-	return nil, Unchanged
+func requireChanValue(t *testing.T, ch <-chan SDKCredential, expected SDKCredential) {
+	t.Helper()
+	value := helpers.RequireValue(t, ch, 1*time.Second)
+	require.Equal(t, expected, value)
 }
-
-func (k testCred) GetAuthorizationHeaderValue() string { return "" }
-
-func (k testCred) Defined() bool {
-	return true
-}
-
-func (k testCred) String() string {
-	return string(k)
-}
-
-func (k testCred) Masked() string { return "masked<" + string(k) + ">" }
 
 func TestNewRotator(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
@@ -31,18 +22,55 @@ func TestNewRotator(t *testing.T) {
 	assert.NotNil(t, rotator)
 }
 
-func TestDeprecation(t *testing.T) {
+func TestKeyDeprecation(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers, time.Now)
 
-	now := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	future := now.Add(24 * time.Hour)
+	const (
+		key1 = config.SDKKey("key1")
+		key2 = config.SDKKey("key2")
+		key3 = config.SDKKey("key3")
+	)
 
-	rotator := NewRotator(mockLog.Loggers, func() time.Time { return now })
-	defer rotator.Stop()
+	// The first rotation shouldn't trigger any expirations because there was no previous key.
+	rotator.RotateSDKKey(key1, nil)
+	requireChanValue(t, rotator.Additions(), key1)
+	assert.Equal(t, key1, rotator.SDKKey())
 
-	cred := testCred("foobar-1234")
+	// The second rotation should trigger a deprecation of key1.
+	rotator.RotateSDKKey(key2, nil)
+	requireChanValue(t, rotator.Additions(), key2)
+	requireChanValue(t, rotator.Expirations(), key1)
+	assert.Equal(t, key2, rotator.SDKKey())
 
-	assert.True(t, rotator.Deprecate(cred, future))
-	assert.True(t, rotator.Deprecated(cred))
-	assert.False(t, rotator.Expired(cred))
+	// The third rotation should trigger a deprecation of key2.
+	rotator.RotateSDKKey(key3, nil)
+	requireChanValue(t, rotator.Additions(), key3)
+	requireChanValue(t, rotator.Expirations(), key2)
+	assert.Equal(t, key3, rotator.SDKKey())
+}
+
+func TestMobileKeyDeprecation(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers, time.Now)
+
+	const (
+		key1 = config.MobileKey("key1")
+		key2 = config.MobileKey("key2")
+		key3 = config.MobileKey("key3")
+	)
+
+	rotator.RotateMobileKey(key1)
+	requireChanValue(t, rotator.Additions(), key1)
+	assert.Equal(t, key1, rotator.MobileKey())
+
+	rotator.RotateMobileKey(key2)
+	requireChanValue(t, rotator.Additions(), key2)
+	requireChanValue(t, rotator.Expirations(), key1)
+	assert.Equal(t, key2, rotator.MobileKey())
+
+	rotator.RotateMobileKey(key3)
+	requireChanValue(t, rotator.Additions(), key3)
+	requireChanValue(t, rotator.Expirations(), key2)
+	assert.Equal(t, key3, rotator.MobileKey())
 }

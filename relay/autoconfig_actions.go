@@ -34,9 +34,14 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey.Key)); err != nil {
-			env.RotateSDKKey(params.SDKKey, credential.NewDeprecationNotice(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
-		}
+		// Ooooooh
+		// It's because the primary SDK key was laready initialized when the addEnvironment was called, so rotate is doing
+		// nothin'
+		// Options:
+		// 1) Make addEnvironment take one. Maybe it makes sense for the envRep to allow for an expiring key.. though
+		// it'd require a RElay restart.
+		// 2) Make it okay to do?
+		env.RotateSDKKey(params.SDKKey, credential.NewDeprecationNotice(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
 	}
 }
 

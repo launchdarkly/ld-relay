@@ -361,8 +361,7 @@ func IsPayloadFilterNotFound(err error) bool {
 
 // getEnvironment returns the environment object corresponding to the given credential, or nil
 // if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
-// return value is normally true, but is false if Relay does not yet have a valid configuration
-// (which affects our error handling).
+// return value is normally nil, but is present if Relay does not yet have a valid configuration.
 func (r *Relay) getEnvironment(req sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()

@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func TestAutoConfigInit(t *testing.T) {
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		client1 := p.awaitClient()
 		client2 := p.awaitClient()
-		if client1.Key == testAutoConfEnv2.sdkKey {
+		if client1.Key == testAutoConfEnv2.SDKKey() {
 			client1, client2 = client2, client1
 		}
 		assert.Equal(t, testAutoConfEnv1.sdkKey, client1.Key)
@@ -121,9 +122,13 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 	newKey := c.SDKKey("newsdkkey")
 	oldKey := c.SDKKey("oldsdkkey")
 	envWithKeys := testAutoConfEnv1
-	envWithKeys.sdkKey = newKey
-	envWithKeys.sdkKeyExpiryValue = oldKey
-	envWithKeys.sdkKeyExpiryTime = ldtime.UnixMillisNow() + 100000
+	envWithKeys.sdkKey = envfactory.SDKKeyRep{
+		Value: newKey,
+		Expiring: envfactory.ExpiringKeyRep{
+			Value:     oldKey,
+			Timestamp: ldtime.UnixMillisNow() + 100000,
+		},
+	}
 	initialEvent := makeAutoConfPutEvent(envWithKeys)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		client1 := p.awaitClient()
@@ -148,7 +153,7 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		client1 := p.awaitClient()
-		assert.Equal(t, testAutoConfEnv1.sdkKey, client1.Key)
+		assert.Equal(t, testAutoConfEnv1.SDKKey(), client1.Key)
 
 		env1 := p.awaitEnvironment(testAutoConfEnv1.id)
 		assertEnvProps(t, testAutoConfEnv1.params(), env1)
@@ -157,7 +162,7 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 		p.stream.Enqueue(makeAutoConfPutEvent(testAutoConfEnv2))
 
 		client2 := p.awaitClient()
-		assert.Equal(t, testAutoConfEnv2.sdkKey, client2.Key)
+		assert.Equal(t, testAutoConfEnv2.SDKKey(), client2.Key)
 
 		env2 := p.awaitEnvironment(testAutoConfEnv2.id)
 		assertEnvProps(t, testAutoConfEnv2.params(), env2)
@@ -168,7 +173,7 @@ func TestAutoConfigInitAfterPreviousInitCanAddAndRemoveEnvs(t *testing.T) {
 		p.shouldNotHaveEnvironment(testAutoConfEnv1.id, time.Millisecond*100)
 		p.assertSDKEndpointsAvailability(
 			false,
-			testAutoConfEnv1.sdkKey,
+			testAutoConfEnv1.SDKKey(),
 			testAutoConfEnv1.mobKey,
 			testAutoConfEnv1.id,
 		)
@@ -199,10 +204,13 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	newKey := c.SDKKey("newsdkkey")
 	oldKey := c.SDKKey("oldsdkkey")
 	envWithKeys := testAutoConfEnv1
-	envWithKeys.sdkKey = newKey
-	envWithKeys.sdkKeyExpiryValue = oldKey
-	envWithKeys.sdkKeyExpiryTime = ldtime.UnixMillisNow() + 100000
-
+	envWithKeys.sdkKey = envfactory.SDKKeyRep{
+		Value: newKey,
+		Expiring: envfactory.ExpiringKeyRep{
+			Value:     oldKey,
+			Timestamp: ldtime.UnixMillisNow() + 100000,
+		},
+	}
 	initialEvent := makeAutoConfPutEvent()
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
@@ -218,7 +226,7 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
 
-		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.sdkKey)
+		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.SDKKey())
 		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
 
 		paramsWithOldKey := envWithKeys.params()
@@ -260,7 +268,7 @@ func TestAutoConfigDeleteEnvironment(t *testing.T) {
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		client1 := p.awaitClient()
 		client2 := p.awaitClient()
-		if client1.Key == testAutoConfEnv2.sdkKey {
+		if client1.Key == testAutoConfEnv2.SDKKey() {
 			client1, client2 = client2, client1
 		}
 
@@ -277,7 +285,7 @@ func TestAutoConfigDeleteEnvironment(t *testing.T) {
 		p.shouldNotHaveEnvironment(testAutoConfEnv1.id, time.Millisecond*100)
 		p.assertSDKEndpointsAvailability(
 			false,
-			testAutoConfEnv1.sdkKey,
+			testAutoConfEnv1.SDKKey(),
 			testAutoConfEnv1.mobKey,
 			testAutoConfEnv1.id,
 		)

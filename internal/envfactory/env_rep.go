@@ -52,8 +52,8 @@ func (f FilterRep) ToTestParams() FilterParams {
 
 // SDKKeyRep describes an SDK key optionally accompanied by an old expiring key.
 type SDKKeyRep struct {
-	Value    config.SDKKey `json:"value"`
-	Expiring ExpiringKeyRep
+	Value    config.SDKKey  `json:"value"`
+	Expiring ExpiringKeyRep `json:"expiring"`
 }
 
 // ExpiringKeyRep describes an old key that will expire at the specified date/time.
@@ -68,7 +68,7 @@ func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
 
 // ToParams converts the JSON properties for an environment into our internal parameter type.
 func (r EnvironmentRep) ToParams() EnvironmentParams {
-	return EnvironmentParams{
+	params := EnvironmentParams{
 		EnvID: r.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{
 			EnvKey:   r.EnvKey,
@@ -76,15 +76,19 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			ProjKey:  r.ProjKey,
 			ProjName: r.ProjName,
 		},
-		SDKKey:    r.SDKKey.Value,
-		MobileKey: r.MobKey,
-		ExpiringSDKKey: ExpiringSDKKey{
-			Key:        r.SDKKey.Expiring.Value,
-			Expiration: ToTime(r.SDKKey.Expiring.Timestamp),
-		},
+		SDKKey:     r.SDKKey.Value,
+		MobileKey:  r.MobKey,
 		TTL:        time.Duration(r.DefaultTTL) * time.Minute,
 		SecureMode: r.SecureMode,
 	}
+
+	if r.SDKKey.Expiring.Value.Defined() {
+		params.ExpiringSDKKey = ExpiringSDKKey{
+			Key:        r.SDKKey.Expiring.Value,
+			Expiration: ToTime(r.SDKKey.Expiring.Timestamp),
+		}
+	}
+	return params
 }
 
 func (r EnvironmentRep) Describe() string {

@@ -3,6 +3,7 @@ package relayenv
 import (
 	"context"
 	"errors"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -59,18 +60,30 @@ func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.C
 	return makeBasicEnvWithMockTime(t, envConfig, clientFactory, loggers, readyCh, nil)
 }
 
+type mockConnectionMapper struct {
+}
+
+func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext) {
+
+}
+func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
+
+}
+
 func makeBasicEnvWithMockTime(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext, now func() time.Time) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
-		Identifiers:   EnvIdentifiers{ConfiguredName: envName},
-		EnvConfig:     envConfig,
-		ClientFactory: clientFactory,
-		Loggers:       loggers,
-		TimeSource:    now,
+		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:        envConfig,
+		ClientFactory:    clientFactory,
+		Loggers:          loggers,
+		TimeSource:       now,
+		ConnectionMapper: mockConnectionMapper{},
 	}, readyCh)
 	require.NoError(t, err)
 	return env
 }
+
 func TestConstructorBasicProperties(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	envConfig.TTL = configtypes.NewOptDuration(time.Hour)
@@ -180,8 +193,8 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
-	env.AddCredential(st.EnvWithAllCredentials.Config.EnvID)
+	env.RotateMobileKey(st.EnvWithAllCredentials.Config.MobileKey)
+	env.RotateEnvironmentID(st.EnvWithAllCredentials.Config.EnvID)
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -189,11 +202,12 @@ func TestAddRemoveCredential(t *testing.T) {
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
 
-	env.RemoveCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.RotateMobileKey("foo")
 
 	creds = env.GetCredentials()
-	assert.Len(t, creds, 2)
+	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
 }
 
@@ -208,14 +222,14 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.RotateMobileKey(st.EnvWithAllCredentials.Config.MobileKey)
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.RotateMobileKey(st.EnvWithAllCredentials.Config.MobileKey)
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
@@ -226,11 +240,8 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 func TestChangeSDKKey(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
-	newKey := config.SDKKey("new-key")
-
-	const deprecationDelay = 100 * time.Millisecond
-	const clientInitializationDelay = 10 * time.Millisecond
-	const clientCloseDelay = deprecationDelay / 2
+	key2 := config.SDKKey("key2")
+	key3 := config.SDKKey("key3")
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
@@ -246,30 +257,27 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, env.GetClient(), client1)
 	assert.Nil(t, env.GetInitError())
 
-	removed := make(chan credential.SDKCredential, 1)
-	env.AddCredential(newKey)
-	env.DeprecateCredential(envConfig.SDKKey, time.Now().Add(deprecationDelay), &DeprecationHooks{AfterRemoval: func(cred credential.SDKCredential) {
-		removed <- cred
-	}})
+	env.RotateSDKKey(key2, credential.NewDeprecationNotice(envConfig.SDKKey, time.Now().Add(1*time.Hour)))
 
-	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
-
-	time.Sleep(clientInitializationDelay)
 	assert.Equal(t, env.GetClient(), client2)
 
-	if !helpers.AssertNoMoreValues(t, client1.CloseCh, clientCloseDelay, "client for deprecated key should not have been closed") {
+	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
 		t.FailNow()
 	}
 
-	deprecatedCred := helpers.RequireValue(t, removed, deprecationDelay, "timed out waiting for deprecation")
-	assert.Equal(t, envConfig.SDKKey, deprecatedCred)
+	env.RotateSDKKey(key3, nil)
+	assert.Equal(t, []credential.SDKCredential{key3}, env.GetCredentials())
+	assert.ElementsMatch(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
-	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
+	if !helpers.AssertChannelClosed(t, client2.CloseCh, 1*time.Second, "client for key2 should have been closed") {
+		t.FailNow()
+	}
 
-	client1.AwaitClose(t, clientCloseDelay)
 }
 
 func TestSDKClientCreationFails(t *testing.T) {
