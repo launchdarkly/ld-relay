@@ -27,6 +27,7 @@ type relayTestHelper struct {
 }
 
 func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
+	h.t.Helper()
 	var e relayenv.EnvContext
 	var err error
 	require.Eventually(h.t, func() bool {
@@ -37,6 +38,7 @@ func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvCon
 }
 
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {
+	h.t.Helper()
 	require.Eventually(h.t, func() bool {
 		_, err := h.relay.getEnvironment(sdkauth.New(envID))
 		return err != nil
@@ -44,6 +46,8 @@ func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout
 }
 
 func (h relayTestHelper) assertEnvLookup(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
+	h.t.Helper()
+
 	foundEnv, err := h.relay.getEnvironment(sdkauth.New(expected.EnvID))
 	if assert.NoError(h.t, err) {
 		assert.Equal(h.t, env, foundEnv)

@@ -183,9 +183,9 @@ func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
 }
 
 func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
-	if newKey == r.SDKKey() {
+	if newKey == r.primarySdkKey {
 		// There's no swap to be done, we already are using this as primary.
-		return newKey
+		return ""
 	}
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
@@ -195,6 +195,9 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	return previous
 }
 func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNotice) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	previous := r.swapPrimaryKey(sdkKey)
 	// Immediately revoke the previous SDK key if there's no explicit deprecation notice, otherwise it would
 	// hang around forever.
