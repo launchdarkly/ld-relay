@@ -39,9 +39,8 @@ type Rotator struct {
 	// Upon expiration, they are removed.
 	deprecatedSdkKeys map[config.SDKKey]*deprecatedKey
 
-	expirations chan SDKCredential
-	additions   chan SDKCredential
-	now         func() time.Time
+	expirations []SDKCredential
+	additions   []SDKCredential
 
 	mu sync.RWMutex
 }
@@ -52,16 +51,10 @@ type InitialCredentials struct {
 	EnvironmentID config.EnvironmentID
 }
 
-func NewRotator(loggers ldlog.Loggers, now func() time.Time) *Rotator {
+func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
 		loggers:           loggers,
 		deprecatedSdkKeys: make(map[config.SDKKey]*deprecatedKey),
-		expirations:       make(chan SDKCredential, 1),
-		additions:         make(chan SDKCredential, 1),
-		now:               now,
-	}
-	if r.now == nil {
-		r.now = time.Now
 	}
 	return r
 }
@@ -83,14 +76,6 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 			r.primaryEnvironmentID = cred
 		}
 	}
-}
-
-func (r *Rotator) Expirations() <-chan SDKCredential {
-	return r.expirations
-}
-
-func (r *Rotator) Additions() <-chan SDKCredential {
-	return r.additions
 }
 
 func (r *Rotator) MobileKey() config.MobileKey {
@@ -156,10 +141,10 @@ func (r *Rotator) RotateEnvironmentID(envID config.EnvironmentID) {
 	defer r.mu.Unlock()
 	previous := r.primaryEnvironmentID
 	r.primaryEnvironmentID = envID
-	r.additions <- envID
+	r.additions = append(r.additions, envID)
 	if previous.Defined() {
 		r.loggers.Infof("Environment ID %s was rotated, new environment ID is %s", r.primaryEnvironmentID, envID)
-		r.expirations <- previous
+		r.expirations = append(r.expirations, previous)
 	} else {
 		r.loggers.Infof("New environment ID is %s", envID)
 	}
@@ -173,9 +158,9 @@ func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
 	defer r.mu.Unlock()
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
-	r.additions <- mobileKey
+	r.additions = append(r.additions, mobileKey)
 	if previous.Defined() {
-		r.expirations <- previous
+		r.expirations = append(r.expirations, previous)
 		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked())
 	} else {
 		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
@@ -189,7 +174,7 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	}
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
-	r.additions <- newKey
+	r.additions = append(r.additions, newKey)
 	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
 
 	return previous
@@ -202,7 +187,7 @@ func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNot
 	// Immediately revoke the previous SDK key if there's no explicit deprecation notice, otherwise it would
 	// hang around forever.
 	if previous.Defined() && deprecation == nil {
-		r.expirations <- previous
+		r.expirations = append(r.expirations, previous)
 		r.loggers.Infof("SDK key %s has been immediately revoked", previous.Masked())
 		return
 	}
@@ -215,21 +200,33 @@ func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNot
 		r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", deprecation.key.Masked(), deprecation.expiry)
 		r.deprecatedSdkKeys[deprecation.key] = &deprecatedKey{
 			expiry: deprecation.expiry,
-			timer: time.AfterFunc(deprecation.expiry.Sub(r.now()), func() {
-				r.expireSDKKey(deprecation.key)
-			})}
+		}
 
 		if deprecation.key != previous {
 			r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", deprecation.key.Masked())
-			r.additions <- deprecation.key
+			r.additions = append(r.additions, deprecation.key)
 		}
 	}
 }
 
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.loggers.Infof("Deprecated SDK key %s has expired and is no longer valid for authentication", sdkKey.Masked())
+	delete(r.deprecatedSdkKeys, sdkKey)
+	r.expirations = append(r.expirations, sdkKey)
+}
+
+func (r *Rotator) Tick(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.deprecatedSdkKeys, sdkKey)
-	r.expirations <- sdkKey
+
+	for key, dep := range r.deprecatedSdkKeys {
+		if now.After(dep.expiry) {
+			r.expireSDKKey(key)
+		}
+	}
+
+	additions, expirations = r.additions, r.expirations
+	r.additions = nil
+	r.expirations = nil
+	return
 }
