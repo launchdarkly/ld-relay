@@ -68,23 +68,23 @@ type ConnectionMapper interface {
 // EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
 // own type because there are a lot of them, and many are irrelevant in tests.
 type EnvContextImplParams struct {
-	Identifiers                   EnvIdentifiers
-	EnvConfig                     config.EnvConfig
-	AllConfig                     config.Config
-	ClientFactory                 sdks.ClientFactoryFunc
-	DataStoreFactory              subsystems.ComponentConfigurer[subsystems.DataStore]
-	DataStoreInfo                 sdks.DataStoreEnvironmentInfo
-	StreamProviders               []streams.StreamProvider
-	JSClientContext               JSClientContext
-	MetricsManager                *metrics.Manager
-	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
-	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
-	SDKBigSegmentsConfigFactory   subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
-	UserAgent                     string
-	LogNameMode                   LogNameMode
-	Loggers                       ldlog.Loggers
-	ConnectionMapper              ConnectionMapper
-	CredentialCleanupInterval     time.Duration
+	Identifiers                      EnvIdentifiers
+	EnvConfig                        config.EnvConfig
+	AllConfig                        config.Config
+	ClientFactory                    sdks.ClientFactoryFunc
+	DataStoreFactory                 subsystems.ComponentConfigurer[subsystems.DataStore]
+	DataStoreInfo                    sdks.DataStoreEnvironmentInfo
+	StreamProviders                  []streams.StreamProvider
+	JSClientContext                  JSClientContext
+	MetricsManager                   *metrics.Manager
+	BigSegmentStoreFactory           bigsegments.BigSegmentStoreFactory
+	BigSegmentSynchronizerFactory    bigsegments.BigSegmentSynchronizerFactory
+	SDKBigSegmentsConfigFactory      subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
+	UserAgent                        string
+	LogNameMode                      LogNameMode
+	Loggers                          ldlog.Loggers
+	ConnectionMapper                 ConnectionMapper
+	ExpiredCredentialCleanupInterval time.Duration
 }
 
 type envContextImpl struct {
@@ -393,7 +393,7 @@ func NewEnvContext(
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
-	cleanupInterval := params.CredentialCleanupInterval
+	cleanupInterval := params.ExpiredCredentialCleanupInterval
 	if cleanupInterval == 0 { // 0 means it wasn't specified; the config system disallows 0 as a valid value.
 		cleanupInterval = defaultCredentialCleanupInterval
 	}

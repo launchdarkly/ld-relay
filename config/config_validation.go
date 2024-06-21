@@ -24,7 +24,7 @@ var (
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
-	errInvalidCredentialCleanupInterval        = fmt.Errorf("credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
+	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -199,8 +199,8 @@ func validateOfflineMode(result *ct.ValidationResult, c *Config) {
 }
 
 func validateCredentialCleanupInterval(result *ct.ValidationResult, c *Config) {
-	if c.Main.CredentialCleanupInterval.IsDefined() {
-		interval := c.Main.CredentialCleanupInterval.GetOrElse(0)
+	if c.Main.ExpiredCredentialCleanupInterval.IsDefined() {
+		interval := c.Main.ExpiredCredentialCleanupInterval.GetOrElse(0)
 		if interval < minimumCredentialCleanupInterval {
 			result.AddError(nil, errInvalidCredentialCleanupInterval)
 		}

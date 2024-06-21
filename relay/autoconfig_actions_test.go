@@ -73,7 +73,7 @@ func autoConfTest(
 
 			// In tests involving adding/removing credentials, allow Relay to clean up credentials quickly so as not
 			// to take more time than necessary to verify the test conditions.
-			config.Main.CredentialCleanupInterval = configtypes.NewOptDuration(time.Millisecond * 100)
+			config.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(time.Millisecond * 100)
 
 			relay, err := newRelayInternal(config, relayInternalOptions{
 				loggers:       mockLog.Loggers,

@@ -263,7 +263,7 @@ func makeInvalidConfigCredentialCleanupInterval(interval string) testDataInvalid
 	c.fileError = errInvalidCredentialCleanupInterval.Error()
 	c.fileContent = `
 [Main]
-credentialCleanupInterval = ` + interval + `
+expiredCredentialCleanupInterval = ` + interval + `
 `
 	return c
 }
