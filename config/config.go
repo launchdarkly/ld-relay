@@ -88,6 +88,10 @@ const (
 	// the CPU time it takes to read the archive over and over again. It is somewhat arbitrary.
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumFileDataSourceMonitoringInterval = 100 * time.Millisecond
+	// This minimum was chosen to protect the host system from unnecessary work, while also allowing expired
+	// credentials to be revoked nearly instantaneously. It is not necessarily a recommendation.
+	// It likely doesn't make sense to use an interval this frequent in production use-cases.
+	minimumCredentialCleanupInterval = 100 * time.Millisecond
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -152,6 +156,7 @@ type MainConfig struct {
 	LogLevel                   OptLogLevel              `conf:"LOG_LEVEL"`
 	BigSegmentsStaleAsDegraded bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
 	BigSegmentsStaleThreshold  ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
+	CredentialCleanupInterval  ct.OptDuration           `conf:"CREDENTIAL_CLEANUP_INTERVAL"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.

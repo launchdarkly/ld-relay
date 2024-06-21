@@ -444,19 +444,20 @@ func (r *Relay) addEnvironment(
 		return r.clientFactory(sdkKey, config, timeout)
 	}
 	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
-		Identifiers:      identifiers,
-		EnvConfig:        envConfig,
-		AllConfig:        r.config,
-		ClientFactory:    wrappedClientFactory,
-		DataStoreFactory: dataStoreFactory,
-		DataStoreInfo:    dataStoreInfo,
-		StreamProviders:  r.allStreamProviders(),
-		JSClientContext:  jsClientContext,
-		MetricsManager:   r.metricsManager,
-		UserAgent:        r.userAgent,
-		LogNameMode:      r.envLogNameMode,
-		Loggers:          r.loggers,
-		ConnectionMapper: r,
+		Identifiers:               identifiers,
+		EnvConfig:                 envConfig,
+		AllConfig:                 r.config,
+		ClientFactory:             wrappedClientFactory,
+		DataStoreFactory:          dataStoreFactory,
+		DataStoreInfo:             dataStoreInfo,
+		StreamProviders:           r.allStreamProviders(),
+		JSClientContext:           jsClientContext,
+		MetricsManager:            r.metricsManager,
+		UserAgent:                 r.userAgent,
+		LogNameMode:               r.envLogNameMode,
+		Loggers:                   r.loggers,
+		ConnectionMapper:          r,
+		CredentialCleanupInterval: r.config.Main.CredentialCleanupInterval.GetOrElse(0),
 	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)

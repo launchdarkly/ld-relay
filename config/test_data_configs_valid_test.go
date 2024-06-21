@@ -115,6 +115,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			LogLevel:                   NewOptLogLevel(ldlog.Warn),
 			BigSegmentsStaleAsDegraded: true,
 			BigSegmentsStaleThreshold:  ct.NewOptDuration(10 * time.Minute),
+			CredentialCleanupInterval:  ct.NewOptDuration(1 * time.Minute),
 		}
 		c.Events = EventsConfig{
 			SendEvents:    true,
@@ -183,6 +184,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_ALLOWED_ORIGIN_krypton":      "https://oa,https://rann",
 		"LD_ALLOWED_HEADER_krypton":      "Timestamp-Valid,Random-Id-Valid",
 		"LD_TTL_krypton":                 "5m",
+		"CREDENTIAL_CLEANUP_INTERVAL":    "1m",
 	}
 	c.fileContent = `
 [Main]
@@ -203,6 +205,7 @@ TLSMinVersion = "1.2"
 LogLevel = "warn"
 BigSegmentsStaleAsDegraded = 1
 BigSegmentsStaleThreshold = 10m
+CredentialCleanupInterval = 1m
 
 [Events]
 SendEvents = 1

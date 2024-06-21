@@ -71,6 +71,10 @@ func autoConfTest(
 			config.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(eventsServer.URL)
 			config.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
 
+			// In tests involving adding/removing credentials, allow Relay to clean up credentials quickly so as not
+			// to take more time than necessary to verify the test conditions.
+			config.Main.CredentialCleanupInterval = configtypes.NewOptDuration(time.Millisecond * 100)
+
 			relay, err := newRelayInternal(config, relayInternalOptions{
 				loggers:       mockLog.Loggers,
 				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),

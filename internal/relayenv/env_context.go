@@ -20,9 +20,35 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
-type DeprecationHooks struct {
-	BeforeRemoval func(cred credential.SDKCredential)
-	AfterRemoval  func(cred credential.SDKCredential)
+// CredentialUpdate specifies the primary credential of a given credential kind for an environment.
+// For example, an environment may have a primary SDK key and a primary mobile key at the same time; each would
+// be specified in individual CredentialUpdate objects.
+type CredentialUpdate struct {
+	primary     credential.SDKCredential
+	gracePeriod *credential.GracePeriod
+	now         time.Time
+}
+
+// NewCredentialUpdate creates a CredentialUpdate from a given primary credential.
+// The default behavior of the environment is to immediately revoke the previous credential of this kind.
+func NewCredentialUpdate(primary credential.SDKCredential) *CredentialUpdate {
+	return &CredentialUpdate{primary: primary, now: time.Now()}
+}
+
+// WithGracePeriod modifies the default behavior from immediate revocation to a delayed revocation of the previous
+// credential. During the grace period, the previous credential continues to function.
+func (c *CredentialUpdate) WithGracePeriod(deprecated config.SDKKey, expiry time.Time) *CredentialUpdate {
+	c.gracePeriod = credential.NewGracePeriod(deprecated, expiry)
+	return c
+}
+
+// WithTime overrides the update's current time for testing purposes.
+// Because the environment's credential rotation algorithm compares the current time to the specific expiry of
+// each credential, this can be used to trigger behavior in a more predictable way than relying on the actual time
+// in the test.
+func (c *CredentialUpdate) WithTime(t time.Time) *CredentialUpdate {
+	c.now = t
+	return c
 }
 
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
@@ -44,15 +70,15 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
+	// UpdateCredential updates the environment with a new credential, optionally deprecating a previous one
+	// with a grace period.
+	UpdateCredential(update *CredentialUpdate)
+
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 
 	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
 	GetDeprecatedCredentials() []credential.SDKCredential
-
-	RotateMobileKey(key config.MobileKey)
-	RotateEnvironmentID(id config.EnvironmentID)
-	RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which

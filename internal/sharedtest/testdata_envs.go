@@ -3,8 +3,6 @@ package sharedtest
 import (
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-
 	"github.com/launchdarkly/ld-relay/v8/config"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -23,10 +21,6 @@ type TestEnv struct {
 }
 
 type UnsupportedSDKCredential struct{} // implements credential.SDKCredential
-
-func (k UnsupportedSDKCredential) Compare(_ credential.AutoConfig) (credential.SDKCredential, credential.Status) {
-	return nil, credential.Unchanged
-}
 
 func (k UnsupportedSDKCredential) GetAuthorizationHeaderValue() string { return "" }
 

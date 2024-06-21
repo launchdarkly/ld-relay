@@ -161,7 +161,7 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 
 			p.awaitCredentialsUpdated(env, modified.params())
 
-			verifyEventProxying(t, p, serverSideEventsURL, modified.SDKKey())
+			verifyEventProxying(t, p, serverSideEventsURL, modified.sdkKey.Value)
 			verifyEventProxying(t, p, mobileEventsURL, testAutoConfEnv1.mobKey)
 			verifyEventProxying(t, p, jsEventsURL+string(testAutoConfEnv1.id), testAutoConfEnv1.id)
 		})
@@ -195,9 +195,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		foundEnvWithOldKey, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Equal(t, env, foundEnvWithOldKey)
 
-		<-time.After(time.Duration(briefExpiryMillis+100) * time.Millisecond)
-
-		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Millisecond*300, "timed out waiting for client with old key to close") {
+		if !helpers.AssertChannelClosed(t, client1.CloseCh, time.Duration(briefExpiryMillis+100)*time.Millisecond, "timed out waiting for client with old key to close") {
 			t.FailNow()
 		}
 

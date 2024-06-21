@@ -45,6 +45,11 @@ const (
 	// ID. This is the default behavior for Relay Proxy Enterprise when running in auto-configuration mode,
 	// where we always know the environment ID but the SDK key is subject to change.
 	LogNameIsEnvID LogNameMode = true
+
+	// By default, credentials that have an expiry date in the future (compared to when the message containing the
+	// expiry was received) will be cleaned up on an interval with this granularity. This means the environment won't accept
+	// connections for this credential, and it will shut down the SDK client associated with that credential.
+	defaultCredentialCleanupInterval = 1 * time.Minute
 )
 
 func errInitPublisher(err error) error {
@@ -78,8 +83,8 @@ type EnvContextImplParams struct {
 	UserAgent                     string
 	LogNameMode                   LogNameMode
 	Loggers                       ldlog.Loggers
-	TimeSource                    func() time.Time
 	ConnectionMapper              ConnectionMapper
+	CredentialCleanupInterval     time.Duration
 }
 
 type envContextImpl struct {
@@ -181,7 +186,7 @@ func NewEnvContext(
 		dataStoreInfo:             params.DataStoreInfo,
 		creationTime:              time.Now(),
 		filterKey:                 params.EnvConfig.FilterKey,
-		keyRotator:                credential.NewRotator(params.Loggers, params.TimeSource),
+		keyRotator:                credential.NewRotator(params.Loggers),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
@@ -385,14 +390,32 @@ func NewEnvContext(
 		}
 	}
 
-	go envContext.monitorCredentialChanges(envContext.doneMonitoringCredentials)
-
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
+
+	cleanupInterval := params.CredentialCleanupInterval
+	if cleanupInterval == 0 { // 0 means it wasn't specified; the config system disallows 0 as a valid value.
+		cleanupInterval = defaultCredentialCleanupInterval
+	}
+	go envContext.cleanupExpiredCredentials(cleanupInterval)
 
 	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return envContext, nil
+}
+
+func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.triggerCredentialChanges(time.Now())
+		case <-c.stopMonitoringCredentials:
+			close(c.doneMonitoringCredentials)
+			return
+		}
+	}
 }
 
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
@@ -439,21 +462,6 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 		if client := c.clients[sdkKey]; client != nil {
 			delete(c.clients, sdkKey)
 			_ = client.Close()
-		}
-	}
-}
-
-func (c *envContextImpl) monitorCredentialChanges(done chan struct{}) {
-	defer close(done)
-	for {
-		select {
-		case <-c.stopMonitoringCredentials:
-			return
-		case oldCredential := <-c.keyRotator.Expirations():
-			c.removeCredential(oldCredential)
-		case newCredential := <-c.keyRotator.Additions():
-
-			c.addCredential(newCredential)
 		}
 	}
 }
@@ -522,24 +530,31 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
+func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
+	if update.gracePeriod == nil {
+		c.keyRotator.Rotate(update.primary)
+	} else {
+		c.keyRotator.RotateWithGrace(update.primary, update.gracePeriod)
+	}
+	c.triggerCredentialChanges(update.now)
+}
+
+func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
+	additions, expirations := c.keyRotator.Query(now)
+	for _, cred := range additions {
+		c.addCredential(cred)
+	}
+	for _, cred := range expirations {
+		c.removeCredential(cred)
+	}
+}
+
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
 	return c.keyRotator.PrimaryCredentials()
 }
 
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 	return c.keyRotator.DeprecatedCredentials()
-}
-
-func (c *envContextImpl) RotateMobileKey(key config.MobileKey) {
-	c.keyRotator.RotateMobileKey(key)
-}
-
-func (c *envContextImpl) RotateEnvironmentID(id config.EnvironmentID) {
-	c.keyRotator.RotateEnvironmentID(id)
-}
-
-func (c *envContextImpl) RotateSDKKey(newKey config.SDKKey, notice *credential.DeprecationNotice) {
-	c.keyRotator.RotateSDKKey(newKey, notice)
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
@@ -659,10 +674,6 @@ func (c *envContextImpl) FlushMetricsEvents() {
 		c.metricsEventPub.Flush()
 	}
 }
-func (c *envContextImpl) stopCredentialMonitor() {
-	close(c.stopMonitoringCredentials)
-	<-c.doneMonitoringCredentials
-}
 
 func (c *envContextImpl) Close() error {
 	c.mu.Lock()
@@ -671,9 +682,11 @@ func (c *envContextImpl) Close() error {
 	}
 	c.clients = make(map[config.SDKKey]sdks.LDClientContext)
 	c.mu.Unlock()
-	_ = c.envStreams.Close()
 
-	c.stopCredentialMonitor()
+	close(c.stopMonitoringCredentials)
+	<-c.doneMonitoringCredentials
+
+	_ = c.envStreams.Close()
 
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)

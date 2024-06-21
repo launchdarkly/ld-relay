@@ -8,20 +8,6 @@ import (
 	"time"
 )
 
-type DeprecationNotice struct {
-	key    config.SDKKey
-	expiry time.Time
-}
-
-func NewDeprecationNotice(key config.SDKKey, expiry time.Time) *DeprecationNotice {
-	return &DeprecationNotice{key: key, expiry: expiry}
-}
-
-type deprecatedKey struct {
-	expiry time.Time
-	timer  *time.Timer
-}
-
 type Rotator struct {
 	loggers ldlog.Loggers
 
@@ -37,7 +23,7 @@ type Rotator struct {
 
 	// Deprecated keys are stored in a map with a started timer for each key representing the deprecation period.
 	// Upon expiration, they are removed.
-	deprecatedSdkKeys map[config.SDKKey]*deprecatedKey
+	deprecatedSdkKeys map[config.SDKKey]time.Time
 
 	expirations []SDKCredential
 	additions   []SDKCredential
@@ -54,7 +40,7 @@ type InitialCredentials struct {
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
 		loggers:           loggers,
-		deprecatedSdkKeys: make(map[config.SDKKey]*deprecatedKey),
+		deprecatedSdkKeys: make(map[config.SDKKey]time.Time),
 	}
 	return r
 }
@@ -133,7 +119,37 @@ func (r *Rotator) AllCredentials() []SDKCredential {
 	return append(r.primaryCredentials(), r.deprecatedCredentials()...)
 }
 
-func (r *Rotator) RotateEnvironmentID(envID config.EnvironmentID) {
+func (r *Rotator) Rotate(cred SDKCredential) {
+	r.RotateWithGrace(cred, nil)
+}
+
+type GracePeriod struct {
+	key    config.SDKKey
+	expiry time.Time
+}
+
+func NewGracePeriod(key config.SDKKey, expiry time.Time) *GracePeriod {
+	return &GracePeriod{key, expiry}
+}
+
+func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
+	switch primary := primary.(type) {
+	case config.SDKKey:
+		r.updateSDKKey(primary, grace)
+	case config.MobileKey:
+		if grace != nil {
+			panic("programmer error: mobile keys do not support deprecation")
+		}
+		r.updateMobileKey(primary)
+	case config.EnvironmentID:
+		if grace != nil {
+			panic("programmer error: environment IDs do not support deprecation")
+		}
+		r.updateEnvironmentID(primary)
+	}
+}
+
+func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 	if envID == r.EnvironmentID() {
 		return
 	}
@@ -150,7 +166,7 @@ func (r *Rotator) RotateEnvironmentID(envID config.EnvironmentID) {
 	}
 }
 
-func (r *Rotator) RotateMobileKey(mobileKey config.MobileKey) {
+func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
 	if mobileKey == r.MobileKey() {
 		return
 	}
@@ -179,32 +195,30 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 
 	return previous
 }
-func (r *Rotator) RotateSDKKey(sdkKey config.SDKKey, deprecation *DeprecationNotice) {
+func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	previous := r.swapPrimaryKey(sdkKey)
 	// Immediately revoke the previous SDK key if there's no explicit deprecation notice, otherwise it would
 	// hang around forever.
-	if previous.Defined() && deprecation == nil {
+	if previous.Defined() && grace == nil {
 		r.expirations = append(r.expirations, previous)
 		r.loggers.Infof("SDK key %s has been immediately revoked", previous.Masked())
 		return
 	}
-	if deprecation != nil {
-		if prev, ok := r.deprecatedSdkKeys[deprecation.key]; ok {
-			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", deprecation.key.Masked(), deprecation.expiry, prev.expiry)
+	if grace != nil {
+		if previousExpiry, ok := r.deprecatedSdkKeys[grace.key]; ok {
+			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
 			return
 		}
 
-		r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", deprecation.key.Masked(), deprecation.expiry)
-		r.deprecatedSdkKeys[deprecation.key] = &deprecatedKey{
-			expiry: deprecation.expiry,
-		}
+		r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+		r.deprecatedSdkKeys[grace.key] = grace.expiry
 
-		if deprecation.key != previous {
-			r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", deprecation.key.Masked())
-			r.additions = append(r.additions, deprecation.key)
+		if grace.key != previous {
+			r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", grace.key.Masked())
+			r.additions = append(r.additions, grace.key)
 		}
 	}
 }
@@ -215,12 +229,12 @@ func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.expirations = append(r.expirations, sdkKey)
 }
 
-func (r *Rotator) Tick(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
+func (r *Rotator) Query(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for key, dep := range r.deprecatedSdkKeys {
-		if now.After(dep.expiry) {
+	for key, expiry := range r.deprecatedSdkKeys {
+		if now.After(expiry) {
 			r.expireSDKKey(key)
 		}
 	}

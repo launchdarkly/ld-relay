@@ -2,8 +2,8 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -34,7 +34,8 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		env.RotateSDKKey(params.SDKKey, credential.NewDeprecationNotice(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
 	}
 }
 
@@ -50,14 +51,14 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetSecureMode(params.SecureMode)
 
 	if params.MobileKey.Defined() {
-		env.RotateMobileKey(params.MobileKey)
+		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
 	}
 	if params.SDKKey.Defined() {
-		var deprecation *credential.DeprecationNotice
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
 		if params.ExpiringSDKKey.Defined() {
-			deprecation = credential.NewDeprecationNotice(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
+			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
 		}
-		env.RotateSDKKey(params.SDKKey, deprecation)
+		env.UpdateCredential(update)
 	}
 }
 
