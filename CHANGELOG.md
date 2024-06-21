@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.7.1](https://github.com/launchdarkly/ld-relay/compare/v8.7.0...v8.7.1) (2024-06-21)
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from alpine:3.20.0 to alpine:3.20.1 ([#402](https://github.com/launchdarkly/ld-relay/issues/402)) ([f70a5df](https://github.com/launchdarkly/ld-relay/commit/f70a5df9185244893b36a68c18c15cbc89cf4272))
+
 ## [8.7.0](https://github.com/launchdarkly/ld-relay/compare/v8.6.0...v8.7.0) (2024-06-17)
 
 
