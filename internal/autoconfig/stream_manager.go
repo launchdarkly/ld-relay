@@ -3,7 +3,6 @@ package autoconfig
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"path"
@@ -14,7 +13,6 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -380,54 +378,6 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-}
-
-// IgnoreExpiringSDKKey implements the EnvironmentMsgAdapter's KeyChecker interface. Its main purpose is to
-// create a goroutine that triggers SDK key expiration, if the EnvironmentRep specifies that. Additionally, it returns
-// true if an ExpiringSDKKey should be ignored (since the expiry is stale).
-func (s *StreamManager) IgnoreExpiringSDKKey(env envfactory.EnvironmentRep) bool {
-	expiringKey := env.SDKKey.Expiring.Value
-	expiryTime := env.SDKKey.Expiring.Timestamp
-
-	if expiringKey == "" || expiryTime == 0 {
-		return false
-	}
-
-	if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; alreadyHaveTimer {
-		return false
-	}
-
-	timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
-	if timeFromNow <= 0 {
-		// LD might sometimes tell us about an "expiring" key that has really already expired. If so,
-		// just ignore it.
-		return true
-	}
-
-	dateTime := time.Unix(int64(expiryTime)/1000, 0)
-	s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), env.Describe(), dateTime)
-
-	timer := time.NewTimer(timeFromNow)
-	s.expiryTimers[expiringKey] = timer
-
-	go func() {
-		if _, ok := <-timer.C; ok {
-			s.expiredKeys <- expiredKey{env.EnvID, env.ProjKey, expiringKey}
-		}
-	}()
-
-	return false
-}
-
-func makeEnvName(rep envfactory.EnvironmentRep) string {
-	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
-}
-
-func last4Chars(s string) string {
-	if len(s) < 4 { // COVERAGE: doesn't happen in unit tests, also can't happen with real environments
-		return s
-	}
-	return s[len(s)-4:]
 }
 
 func obfuscateEventData(data string) string {

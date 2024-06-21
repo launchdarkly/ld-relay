@@ -100,7 +100,7 @@ func (r *Rotator) primaryCredentials() []SDKCredential {
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
-	var deprecated []SDKCredential
+	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys))
 	for key := range r.deprecatedSdkKeys {
 		deprecated = append(deprecated, key)
 	}

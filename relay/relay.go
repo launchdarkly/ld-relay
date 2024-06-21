@@ -495,7 +495,7 @@ func (r *Relay) setFullyConfigured(fullyConfigured bool) {
 	r.lock.Unlock()
 }
 
-// addConnectionMapping updates the RelayCore's environment mapping to reflect that a new
+// AddConnectionMapping updates the RelayCore's environment mapping to reflect that a new
 // credential is now enabled for this EnvContext. This should be done only *after* calling
 // EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
 // credential immediately after this, it will work.
@@ -503,7 +503,7 @@ func (r *Relay) AddConnectionMapping(params sdkauth.ScopedCredential, env relaye
 	r.envsByCredential.MapRequestParams(params, env)
 }
 
-// removeConnectionMapping updates the RelayCore's environment mapping to reflect that this
+// RemoveConnectionMapping updates the RelayCore's environment mapping to reflect that this
 // credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
 // because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
 // reconnect using the same credential we want it to be rejected.
