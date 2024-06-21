@@ -1,10 +1,11 @@
 package relay
 
 import (
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 

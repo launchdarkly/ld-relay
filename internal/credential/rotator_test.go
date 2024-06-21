@@ -2,11 +2,12 @@ package credential
 
 import (
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 func TestNewRotator(t *testing.T) {

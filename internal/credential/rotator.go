@@ -1,11 +1,12 @@
 package credential
 
 import (
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/ld-relay/v8/config"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
 type Rotator struct {
@@ -80,7 +81,6 @@ func (r *Rotator) EnvironmentID() config.EnvironmentID {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.primaryEnvironmentID
-
 }
 
 func (r *Rotator) PrimaryCredentials() []SDKCredential {

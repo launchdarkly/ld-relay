@@ -3,7 +3,6 @@ package relayenv
 import (
 	"context"
 	"errors"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
