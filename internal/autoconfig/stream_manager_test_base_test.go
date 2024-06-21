@@ -176,7 +176,6 @@ type testMessage struct {
 	delete       *config.EnvironmentID
 	deleteFilter *config.FilterID
 	receivedAll  bool
-	expired      *expiredKey
 }
 
 func (m testMessage) String() string {
@@ -191,9 +190,6 @@ func (m testMessage) String() string {
 	}
 	if m.receivedAll {
 		return "receivedAllEnvironments"
-	}
-	if m.expired != nil {
-		return fmt.Sprintf("expired(%+v)", *m.expired)
 	}
 	return "???"
 }
@@ -300,10 +296,6 @@ func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {
 
 func (h *testMessageHandler) ReceivedAllEnvironments() {
 	h.received <- testMessage{receivedAll: true}
-}
-
-func (h *testMessageHandler) KeyExpired(envID config.EnvironmentID, projKey string, key config.SDKKey) {
-	h.received <- testMessage{expired: &expiredKey{envID, projKey, key}}
 }
 
 func (h *testMessageHandler) AddFilter(params envfactory.FilterParams) {

@@ -48,8 +48,6 @@ type StreamManager struct {
 	uri               *url.URL
 	handler           MessageHandler
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
-	expiredKeys       chan expiredKey
-	expiryTimers      map[config.SDKKey]*time.Timer
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
 	loggers           ldlog.Loggers
@@ -58,12 +56,6 @@ type StreamManager struct {
 
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
 	filterReceiver *MessageReceiver[envfactory.FilterRep]
-}
-
-type expiredKey struct {
-	envID   config.EnvironmentID
-	projKey string
-	key     config.SDKKey
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
@@ -87,8 +79,6 @@ func NewStreamManager(
 		uri:               streamURI,
 		handler:           handler,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
-		expiredKeys:       make(chan expiredKey),
-		expiryTimers:      make(map[config.SDKKey]*time.Timer),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
@@ -307,9 +297,6 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			}
 		case <-s.halt:
 			stream.Close()
-			for _, t := range s.expiryTimers {
-				t.Stop()
-			}
 			return
 		}
 	}

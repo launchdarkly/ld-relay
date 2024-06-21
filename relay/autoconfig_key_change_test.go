@@ -93,7 +93,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithNoExpiry(t *testing.T) {
 		client1.AwaitClose(t, 10000*time.Second)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.sdkKey.Value))
+		noEnv, _ := p.relay.getEnvironment(sdkauth.New(testAutoConfEnv1.SDKKey()))
 		assert.Nil(t, noEnv)
 	})
 }
@@ -108,7 +108,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 
 		modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
 		modified.sdkKey.Expiring = envfactory.ExpiringKeyRep{
-			Value:     testAutoConfEnv1.sdkKey.Value,
+			Value:     testAutoConfEnv1.SDKKey(),
 			Timestamp: ldtime.UnixMillisNow() + 100000,
 		}
 		p.stream.Enqueue(makeAutoConfPatchEvent(modified))
