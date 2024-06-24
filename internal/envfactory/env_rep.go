@@ -76,18 +76,16 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			ProjKey:  r.ProjKey,
 			ProjName: r.ProjName,
 		},
-		SDKKey:     r.SDKKey.Value,
+		SDKKey: r.SDKKey.Value,
+		ExpiringSDKKey: ExpiringSDKKey{
+			Key:        r.SDKKey.Expiring.Value,
+			Expiration: ToTime(r.SDKKey.Expiring.Timestamp),
+		},
 		MobileKey:  r.MobKey,
 		TTL:        time.Duration(r.DefaultTTL) * time.Minute,
 		SecureMode: r.SecureMode,
 	}
 
-	if r.SDKKey.Expiring.Value.Defined() {
-		params.ExpiringSDKKey = ExpiringSDKKey{
-			Key:        r.SDKKey.Expiring.Value,
-			Expiration: ToTime(r.SDKKey.Expiring.Timestamp),
-		}
-	}
 	return params
 }
 
