@@ -120,14 +120,14 @@ func TestSDKKeyDeprecation(t *testing.T) {
 		key2 = config.SDKKey("key2")
 	)
 
-	start := time.Now()
+	start := time.Unix(10000, 0)
 
-	deprecationTime := start.Add(1 * time.Minute)
 	halfTime := start.Add(30 * time.Second)
+	deprecationTime := start.Add(1 * time.Minute)
 
 	rotator.Initialize([]SDKCredential{key1})
 
-	rotator.RotateWithGrace(key2, NewGracePeriod(key1, deprecationTime))
+	rotator.RotateWithGrace(key2, NewGracePeriod(key1, deprecationTime, halfTime))
 	additions, expirations := rotator.Query(halfTime)
 	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
 	assert.Empty(t, expirations)
@@ -152,7 +152,8 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 	rotator.Initialize([]SDKCredential{config.SDKKey("key0")})
 
 	const numKeys = 250
-	expiryTime := time.Now().Add(1 * time.Minute)
+	now := time.Unix(10000, 0)
+	expiryTime := now.Add(1 * time.Hour)
 
 	var keysDeprecated []SDKCredential
 	var keysAdded []SDKCredential
@@ -164,7 +165,7 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 		keysDeprecated = append(keysDeprecated, previousKey)
 		keysAdded = append(keysAdded, nextKey)
 
-		rotator.RotateWithGrace(nextKey, NewGracePeriod(previousKey, expiryTime))
+		rotator.RotateWithGrace(nextKey, NewGracePeriod(previousKey, expiryTime, now))
 	}
 
 	// The last key added should be the current primary key.
@@ -179,4 +180,20 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 	additions, expirations = rotator.Query(expiryTime.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.ElementsMatch(t, keysDeprecated, expirations)
+}
+
+func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	primaryKey := config.SDKKey("primary")
+	obsoleteKey := config.SDKKey("obsolete")
+	obsoleteExpiry := time.Unix(1000000, 0)
+	now := obsoleteExpiry.Add(1 * time.Hour)
+
+	rotator.RotateWithGrace(primaryKey, NewGracePeriod(obsoleteKey, obsoleteExpiry, now))
+
+	additions, expirations := rotator.Query(now)
+	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
+	assert.Empty(t, expirations)
 }

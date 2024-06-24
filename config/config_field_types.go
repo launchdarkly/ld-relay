@@ -62,7 +62,7 @@ func (k SDKKey) Defined() bool {
 func (k SDKKey) String() string {
 	return string(k)
 }
-func (k SDKKey) Masked() string { return last4Chars(k.String()) }
+func (k SDKKey) Masked() string { return "..." + last4Chars(k.String()) }
 
 // GetAuthorizationHeaderValue for MobileKey returns the same string, since mobile keys are passed in the
 // Authorization header.
@@ -78,7 +78,7 @@ func (k MobileKey) String() string {
 	return string(k)
 }
 
-func (k MobileKey) Masked() string { return last4Chars(k.String()) }
+func (k MobileKey) Masked() string { return "..." + last4Chars(k.String()) }
 
 // GetAuthorizationHeaderValue for EnvironmentID returns an empty string, since environment IDs are not
 // passed in a header but as part of the request URL.

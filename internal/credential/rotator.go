@@ -126,10 +126,11 @@ func (r *Rotator) Rotate(cred SDKCredential) {
 type GracePeriod struct {
 	key    config.SDKKey
 	expiry time.Time
+	now    time.Time
 }
 
-func NewGracePeriod(key config.SDKKey, expiry time.Time) *GracePeriod {
-	return &GracePeriod{key, expiry}
+func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePeriod {
+	return &GracePeriod{key, expiry, now}
 }
 
 func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
@@ -177,7 +178,7 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
 	r.additions = append(r.additions, mobileKey)
 	if previous.Defined() {
 		r.expirations = append(r.expirations, previous)
-		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", r.primaryMobileKey.Masked(), mobileKey.Masked())
+		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
 	} else {
 		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
 	}
@@ -209,7 +210,14 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	}
 	if grace != nil {
 		if previousExpiry, ok := r.deprecatedSdkKeys[grace.key]; ok {
-			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
+			if previousExpiry != grace.expiry {
+				r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
+			}
+			return
+		}
+
+		if grace.now.After(grace.expiry) {
+			r.loggers.Infof("Deprecated SDK key %s already expired; ignoring", grace.key.Masked())
 			return
 		}
 

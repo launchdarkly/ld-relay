@@ -262,8 +262,8 @@ func TestChangeSDKKey(t *testing.T) {
 	// Upon rotating to key2, the original key should still be valid for a hour.
 	env.UpdateCredential(
 		NewCredentialUpdate(key2).
-			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)).
-			WithTime(start))
+			WithTime(start).
+			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
 
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())

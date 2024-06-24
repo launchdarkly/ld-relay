@@ -505,7 +505,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 			return
 		}
 	} else {
-		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", name)
+		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q (SDK key %s)", name, sdkKey.Masked())
 	}
 	if readyCh != nil {
 		readyCh <- c
@@ -531,10 +531,10 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 }
 
 func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
-	if update.gracePeriod == nil {
+	if !update.deprecated.Defined() {
 		c.keyRotator.Rotate(update.primary)
 	} else {
-		c.keyRotator.RotateWithGrace(update.primary, update.gracePeriod)
+		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
 	}
 	c.triggerCredentialChanges(update.now)
 }

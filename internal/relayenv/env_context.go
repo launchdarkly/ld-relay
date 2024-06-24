@@ -24,9 +24,14 @@ import (
 // For example, an environment may have a primary SDK key and a primary mobile key at the same time; each would
 // be specified in individual CredentialUpdate objects.
 type CredentialUpdate struct {
-	primary     credential.SDKCredential
-	gracePeriod *credential.GracePeriod
-	now         time.Time
+	// The new primary credential
+	primary credential.SDKCredential
+	// An optional deprecated credential (only SDK keys are supported currently)
+	deprecated config.SDKKey
+	// When the deprecated credential expires
+	expiry time.Time
+	// The current time
+	now time.Time
 }
 
 // NewCredentialUpdate creates a CredentialUpdate from a given primary credential.
@@ -38,7 +43,8 @@ func NewCredentialUpdate(primary credential.SDKCredential) *CredentialUpdate {
 // WithGracePeriod modifies the default behavior from immediate revocation to a delayed revocation of the previous
 // credential. During the grace period, the previous credential continues to function.
 func (c *CredentialUpdate) WithGracePeriod(deprecated config.SDKKey, expiry time.Time) *CredentialUpdate {
-	c.gracePeriod = credential.NewGracePeriod(deprecated, expiry)
+	c.deprecated = deprecated
+	c.expiry = expiry
 	return c
 }
 
