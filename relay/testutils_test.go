@@ -26,15 +26,19 @@ type relayTestHelper struct {
 	relay *Relay
 }
 
-func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
+func (h relayTestHelper) awaitEnvironmentFor(envID c.EnvironmentID, duration time.Duration) relayenv.EnvContext {
 	h.t.Helper()
 	var e relayenv.EnvContext
 	var err error
 	require.Eventually(h.t, func() bool {
 		e, err = h.relay.getEnvironment(sdkauth.New(envID))
 		return err == nil
-	}, time.Second, time.Millisecond*5)
+	}, duration, time.Millisecond*5)
 	return e
+}
+
+func (h relayTestHelper) awaitEnvironment(envID c.EnvironmentID) relayenv.EnvContext {
+	return h.awaitEnvironmentFor(envID, time.Second)
 }
 
 func (h relayTestHelper) shouldNotHaveEnvironment(envID c.EnvironmentID, timeout time.Duration) {

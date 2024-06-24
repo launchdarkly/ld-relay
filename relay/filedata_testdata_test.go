@@ -6,6 +6,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"time"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -57,4 +58,34 @@ var testFileDataEnv2 = filedata.ArchiveEnvironment{
 			},
 		},
 	},
+}
+
+func RotateSDKKey(primary config.SDKKey) filedata.ArchiveEnvironment {
+	return RotateSDKKeyWithGracePeriod(primary, "", time.Time{})
+}
+
+func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, expiry time.Time) filedata.ArchiveEnvironment {
+	return filedata.ArchiveEnvironment{
+		Params: envfactory.EnvironmentParams{
+			EnvID:  "env1",
+			SDKKey: primary,
+			ExpiringSDKKey: envfactory.ExpiringSDKKey{
+				Key:        expiring,
+				Expiration: expiry,
+			},
+			Identifiers: relayenv.EnvIdentifiers{
+				ProjName: "Project",
+				ProjKey:  "project",
+				EnvName:  "Env1",
+				EnvKey:   "env1",
+			},
+		},
+		SDKData: []ldstoretypes.Collection{
+			{
+				Kind: ldstoreimpl.Features(),
+				Items: []ldstoretypes.KeyedItemDescriptor{
+					{Key: testFileDataFlag1.Key, Item: sharedtest.FlagDesc(testFileDataFlag1)},
+				},
+			},
+		}}
 }

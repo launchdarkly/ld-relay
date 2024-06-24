@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -49,10 +50,14 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	_, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
+	}
+	if ae.Params.ExpiringSDKKey.Defined() {
+		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
+		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
 	}
 	select {
 	case updates := <-updatesCh:
@@ -82,6 +87,17 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetIdentifiers(ae.Params.Identifiers)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
+
+	if ae.Params.MobileKey.Defined() {
+		env.UpdateCredential(relayenv.NewCredentialUpdate(ae.Params.MobileKey))
+	}
+	if ae.Params.SDKKey.Defined() {
+		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
+		if ae.Params.ExpiringSDKKey.Defined() {
+			update = update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration)
+		}
+		env.UpdateCredential(update)
+	}
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {
