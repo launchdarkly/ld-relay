@@ -1,11 +1,14 @@
 package relay
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
@@ -90,7 +93,11 @@ func offlineModeTest(
 }
 
 func (p offlineModeTestParams) awaitClient() testclient.CapturedLDClient {
-	return helpers.RequireValue(p.t, p.clientsCreatedCh, time.Second, "timed out waiting for client creation")
+	return p.awaitClientFor(time.Second)
+}
+
+func (p offlineModeTestParams) awaitClientFor(duration time.Duration) testclient.CapturedLDClient {
+	return helpers.RequireValue(p.t, p.clientsCreatedCh, duration, "timed out waiting for client creation")
 }
 
 func (p offlineModeTestParams) shouldNotCreateClient(timeout time.Duration) {
@@ -203,5 +210,98 @@ func TestOfflineModeEventsAreAcceptedAndDiscardedIfSendEventsIsTrue(t *testing.T
 			require.Equal(t, 202, rr.Result().StatusCode)                   // event post was accepted
 			helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*100) // nothing was forwarded to LD
 		})
+	})
+}
+
+func TestOfflineModeDeprecatedSDKKeyIsRespectedIfExpiryInFuture(t *testing.T) {
+	// The goal here is to validate that if we load an offline mode archive containing a deprecated key,
+	// it will be added as a credential (even though it was never previously seen as a primary key.) This situation
+	// would happen when Relay is starting up at time T if the key was deprecated at a time before T.
+
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+
+		envData := RotateSDKKeyWithGracePeriod("primary-key", "deprecated-key", time.Now().Add(1*time.Hour))
+
+		p.updateHandler.AddEnvironment(envData)
+
+		client1 := p.awaitClient()
+		assert.Equal(t, envData.Params.SDKKey, client1.Key)
+
+		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		assert.ElementsMatch(t, []credential.SDKCredential{envData.Params.SDKKey, envData.Params.EnvID}, env.GetCredentials())
+		assert.ElementsMatch(t, []credential.SDKCredential{envData.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
+	})
+}
+
+func TestOfflineModePrimarySDKKeyIsDeprecated(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		update1 := RotateSDKKey("key1")
+
+		p.updateHandler.AddEnvironment(update1)
+
+		expectedClient1 := p.awaitClient()
+		assert.Equal(t, update1.Params.SDKKey, expectedClient1.Key)
+
+		env := p.awaitEnvironment(update1.Params.EnvID)
+
+		assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+		assert.Empty(t, env.GetDeprecatedCredentials())
+
+		update2 := RotateSDKKeyWithGracePeriod("key2", "key1", time.Now().Add(1*time.Hour))
+		p.updateHandler.UpdateEnvironment(update2)
+
+		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
+
+		update3 := RotateSDKKey("key3")
+		p.updateHandler.UpdateEnvironment(update3)
+
+		assert.ElementsMatch(t, []credential.SDKCredential{update3.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+
+		// Note: key2 isn't in the deprecated list, because update3 was an immediate rotation (with no grace period for the
+		// previous key.) At the same time, key1 is still deprecated until the hour is up.
+		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
+	})
+}
+
+func TestOfflineModeSDKKeyCanExpire(t *testing.T) {
+	// This test aims to deprecate an SDK key, sleep until the expiry, and then verify that the
+	// key is no longer accepted.
+	//
+	// This test is extremely timing dependent, because we're unable to easily inject a mocked time
+	// into the lower level components under test.
+
+	// Instead, we configure the credential cleanup interval to be as short as possible (100ms)
+	// and then sleep at least that amount of time after specifying a key expiry. The intention is to
+	// simulate a real scenario, but fast enough for a test.
+
+	const minimumCleanupInterval = 100 * time.Millisecond
+
+	cfg := config.Config{}
+	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(minimumCleanupInterval)
+
+	offlineModeTest(t, cfg, func(p offlineModeTestParams) {
+
+		for i := 0; i < 3; i++ {
+			primary := config.SDKKey(fmt.Sprintf("key%v", i+1))
+			expiring := config.SDKKey(fmt.Sprintf("key%v", i))
+
+			// It's important that the expiry be in the future (so that the key isn't ignored by the key rotator
+			// component), but it should also be in the near future so the test doesn't need to sleep long.
+			keyExpiry := time.Now().Add(10 * time.Millisecond)
+			update1 := RotateSDKKeyWithGracePeriod(primary, expiring, keyExpiry)
+			p.updateHandler.AddEnvironment(update1)
+
+			// Waiting for the environment can take up to 1 second, but it could be much faster. In any case
+			// we'll still need to sleep at least the cleanup interval to ensure the key is expired.
+			env := p.awaitEnvironmentFor(update1.Params.EnvID, time.Second)
+			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
+
+			time.Sleep(minimumCleanupInterval)
+			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+			assert.Empty(t, env.GetDeprecatedCredentials())
+		}
 	})
 }

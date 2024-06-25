@@ -15,10 +15,11 @@ type EnvConfigFactory struct {
 	// DataStorePrefix is the configured data store prefix, which may contain a per-environment placeholder.
 	DataStorePrefix string
 	// DataStorePrefix is the configured data store table name, which may contain a per-environment placeholder.
-	TableName string
-	//
+	TableName     string
 	AllowedOrigin ct.OptStringList
 	AllowedHeader ct.OptStringList
+	// Whether this factory is used for offline mode or not.
+	Offline bool
 }
 
 // NewEnvConfigFactoryForAutoConfig creates an EnvConfigFactory based on the auto-configuration mode settings.
@@ -28,6 +29,7 @@ func NewEnvConfigFactoryForAutoConfig(c config.AutoConfigConfig) EnvConfigFactor
 		TableName:       c.EnvDatastoreTableName,
 		AllowedOrigin:   c.EnvAllowedOrigin,
 		AllowedHeader:   c.EnvAllowedHeader,
+		Offline:         false,
 	}
 }
 
@@ -38,6 +40,7 @@ func NewEnvConfigFactoryForOfflineMode(c config.OfflineModeConfig) EnvConfigFact
 		TableName:       c.EnvDatastoreTableName,
 		AllowedOrigin:   c.EnvAllowedOrigin,
 		AllowedHeader:   c.EnvAllowedHeader,
+		Offline:         true,
 	}
 }
 
@@ -54,6 +57,7 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 		AllowedHeader: f.AllowedHeader,
 		SecureMode:    params.SecureMode,
 		FilterKey:     params.Identifiers.FilterKey,
+		Offline:       f.Offline,
 	}
 	if params.TTL != 0 {
 		ret.TTL = ct.NewOptDuration(params.TTL)

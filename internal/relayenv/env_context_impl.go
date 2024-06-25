@@ -120,6 +120,7 @@ type envContextImpl struct {
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
+	offline                   bool
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -190,6 +191,7 @@ func NewEnvContext(
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
+		offline:                   envConfig.Offline,
 	}
 
 	envContext.keyRotator.Initialize([]credential.SDKCredential{
@@ -428,12 +430,20 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 		}
 	}
 
-	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
-	// components that use an SDK key to use the new one. A new mobile key does not require starting a
-	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
+	// A new SDK key means:
+	//  1. we should start a new SDK client*
+	//  2. we should tell all event forwarding components that use an SDK key to use the new one.
+	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
+	// components that use a mobile key.
+	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
+	// is used for both offline and online mode, yet starting up an SDK client is only relevant in online mode. This is
+	// because in offline mode, we already have the data (from a file) - there's no need to open a new streaming connection.
+	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		go c.startSDKClient(key, nil, false)
+		if !c.offline {
+			go c.startSDKClient(key, nil, false)
+		}
 		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
 			c.metricsEventPub.ReplaceCredential(key)
 		}
@@ -457,11 +467,15 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	for _, handlers := range c.handlers {
 		delete(handlers, oldCredential)
 	}
-	if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-		// The SDK client instance is tied to the SDK key, so get rid of it
-		if client := c.clients[sdkKey]; client != nil {
-			delete(c.clients, sdkKey)
-			_ = client.Close()
+	// See the comment in addCredential for more context. In offline mode, there's no need to close the SDK client
+	// because our data comes from a file, not a streaming connection.
+	if !c.offline {
+		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
+			// The SDK client instance is tied to the SDK key, so get rid of it
+			if client := c.clients[sdkKey]; client != nil {
+				delete(c.clients, sdkKey)
+				_ = client.Close()
+			}
 		}
 	}
 }
@@ -560,6 +574,16 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	// In offline mode, there's only one SDK client. This is awkward because we represent the active clients
+	// as a map, but in this case there's only one client in the map. A refactoring might pull this logic (along with
+	// differences in add/removeCredential into an interface that is injected based on the environment being
+	// offline or online.
+	if c.offline {
+		for _, client := range c.clients {
+			return client
+		}
+		return nil
+	}
 	return c.clients[c.keyRotator.SDKKey()]
 }
 

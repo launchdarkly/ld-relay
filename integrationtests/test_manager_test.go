@@ -303,8 +303,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(api.Stat
 	return lastStatus, success
 }
 
-func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs,
-	expectNameAndKey bool, envMapKeyFn func(proj projectInfo, env environmentInfo) string) {
+func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs projsAndEnvs, expectations *envPropertyExpectations, envMapKeyFn func(proj projectInfo, env environmentInfo) string) {
 	_, success := m.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		if len(status.Environments) != projsAndEnvs.countEnvs() {
 			return false
@@ -313,7 +312,7 @@ func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs pr
 		projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
 			mapKey := envMapKeyFn(proj, env)
 			if envStatus, found := status.Environments[mapKey]; found {
-				verifyEnvProperties(t, proj, env, envStatus, expectNameAndKey)
+				verifyEnvProperties(t, proj, env, envStatus, expectations)
 				if envStatus.Status != "connected" {
 					ok = false
 				}
@@ -326,6 +325,25 @@ func (m *integrationTestManager) awaitEnvironments(t *testing.T, projsAndEnvs pr
 	if !success {
 		t.FailNow()
 	}
+}
+
+func (m *integrationTestManager) rotateSDKKeys(t *testing.T, existing projsAndEnvs, expiry time.Time) projsAndEnvs {
+	updated := make(projsAndEnvs)
+	for proj, envs := range existing {
+		updated[proj] = make([]environmentInfo, 0)
+		for _, env := range envs {
+			newKey, err := m.apiHelper.rotateSDKKey(proj, env, expiry)
+			require.NoError(t, err, "failed to rotate SDK key for environment %s", env.id)
+			if expiry.IsZero() {
+				env.expiringSdkKey = ""
+			} else {
+				env.expiringSdkKey = env.sdkKey
+			}
+			env.sdkKey = newKey
+			updated[proj] = append(updated[proj], env)
+		}
+	}
+	return updated
 }
 
 // verifyFlagValues hits Relay's polling evaluation endpoint and verifies that it returns the expected
@@ -454,13 +472,38 @@ func (m *integrationTestManager) withExtraContainer(
 	action(container)
 }
 
-func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus api.EnvironmentStatusRep, expectNameAndKey bool) {
+// Expectations of the test when checking the status response from Relay.
+type envPropertyExpectations struct {
+	// The environment/project have names + keys
+	nameAndKey bool
+	// The environments have sdkKey and expiringSdkKey that match the expected values. Matching is determined
+	// by masking the keys and comparing those masked values, since the status response obscures most of the key except
+	// for the last few characters.
+	sdkKeys bool
+}
+
+func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus api.EnvironmentStatusRep, expectations *envPropertyExpectations) {
 	assert.Equal(t, string(environment.id), envStatus.EnvID)
-	if expectNameAndKey {
+	if expectations == nil {
+		return
+	}
+	if expectations.nameAndKey {
 		assert.Equal(t, environment.name, envStatus.EnvName)
 		assert.Equal(t, environment.key, envStatus.EnvKey)
 		assert.Equal(t, project.name, envStatus.ProjName)
 		assert.Equal(t, project.key, envStatus.ProjKey)
+	}
+	if expectations.sdkKeys {
+		if !environment.expiringSdkKey.Defined() {
+			assert.Empty(t, envStatus.ExpiringSDKKey, "expected no expiring SDK key to be defined")
+		} else {
+			assert.Equal(t, environment.expiringSdkKey.Masked(), config.SDKKey(envStatus.ExpiringSDKKey).Masked(), "expected expiring SDK key to match")
+		}
+		if !environment.sdkKey.Defined() {
+			assert.Empty(t, envStatus.SDKKey, "expected no SDK key to be defined")
+		} else {
+			assert.Equal(t, environment.sdkKey.Masked(), config.SDKKey(envStatus.SDKKey).Masked(), "expected SDK key to match")
+		}
 	}
 }
 

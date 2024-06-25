@@ -42,7 +42,7 @@ func testStandardModeWithDefaultFilters(t *testing.T, manager *integrationTestMa
 		manager.startRelay(t, envVars)
 		defer manager.stopRelay(t)
 
-		manager.awaitEnvironments(t, testData.projsAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+		manager.awaitEnvironments(t, testData.projsAndEnvs, nil, func(proj projectInfo, env environmentInfo) string {
 			if env.filterKey == "" {
 				return env.key
 			}
@@ -105,7 +105,7 @@ func testStandardModeWithSpecificFilters(t *testing.T, manager *integrationTestM
 		manager.startRelay(t, envVars)
 		defer manager.stopRelay(t)
 
-		manager.awaitEnvironments(t, testData.projsAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+		manager.awaitEnvironments(t, testData.projsAndEnvs, nil, func(proj projectInfo, env environmentInfo) string {
 			if env.filterKey == "" {
 				return env.key
 			}

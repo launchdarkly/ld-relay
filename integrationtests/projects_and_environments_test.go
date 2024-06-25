@@ -15,19 +15,29 @@ type projectInfo struct {
 }
 
 type environmentInfo struct {
-	id        config.EnvironmentID
-	key       string
-	name      string
-	sdkKey    config.SDKKey
-	mobileKey config.MobileKey
-	prefix    string
-	projKey   string
+	id             config.EnvironmentID
+	key            string
+	name           string
+	sdkKey         config.SDKKey
+	expiringSdkKey config.SDKKey
+	mobileKey      config.MobileKey
+	prefix         string
+	projKey        string
 
 	// this is a synthetic field, set only when this environment is a filtered environment.
 	filterKey config.FilterKey
 }
 
 type projsAndEnvs map[projectInfo][]environmentInfo
+
+func (pe projsAndEnvs) withoutExpiringKeys() projsAndEnvs {
+	for _, envs := range pe {
+		for i := range envs {
+			envs[i].expiringSdkKey = ""
+		}
+	}
+	return pe
+}
 
 func (pe projsAndEnvs) enumerateEnvs(fn func(projectInfo, environmentInfo)) {
 	for proj, envs := range pe {

@@ -111,6 +111,40 @@ func TestManyImmediateKeyExpirations(t *testing.T) {
 	}
 }
 
+func TestImmediateSDKKeyDeprecationEvenIfGracePeriodIsPresent(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	key0 := config.SDKKey("key0")
+	key1 := config.SDKKey("key1")
+	key2 := config.SDKKey("key2")
+
+	rotator.Initialize([]SDKCredential{key0})
+
+	start := time.Unix(1000, 0)
+	halftime := start.Add(30 * time.Minute)
+	expiry := start.Add(1 * time.Hour)
+
+	rotator.RotateWithGrace(key1, NewGracePeriod(key0, expiry, start))
+
+	additions, expirations := rotator.StepTime(halftime)
+	assert.ElementsMatch(t, []SDKCredential{key1}, additions)
+	assert.Empty(t, expirations)
+
+	// The deprecated key0 given here can be thought of as "stale" or otherwise already-seen by the rotator.
+	// In this case, it should be effectively ignored but the new key2 should still trigger rotation of the previous
+	// primary key.
+	rotator.RotateWithGrace(key2, NewGracePeriod(key0, expiry, halftime))
+
+	additions, expirations = rotator.StepTime(halftime)
+	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
+	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
+
+	additions, expirations = rotator.StepTime(expiry.Add(1 * time.Millisecond))
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{key0}, expirations)
+}
+
 func TestSDKKeyDeprecation(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	rotator := NewRotator(mockLog.Loggers)
