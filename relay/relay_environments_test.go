@@ -186,7 +186,7 @@ func TestRelayAddedEnvironmentCredential(t *testing.T) {
 	noEnv, _ := relay.getEnvironment(sdkauth.New(extraKey))
 	assert.Nil(t, noEnv)
 
-	relay.addConnectionMapping(sdkauth.New(extraKey), env)
+	relay.AddConnectionMapping(sdkauth.New(extraKey), env)
 
 	env1, _ := relay.getEnvironment(sdkauth.New(extraKey))
 	assert.Equal(t, env, env1)
@@ -200,7 +200,7 @@ func TestRelayRemovingEnvironmentCredential(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	relay.removeConnectionMapping(sdkauth.New(st.EnvMain.Config.SDKKey))
+	relay.RemoveConnectionMapping(sdkauth.New(st.EnvMain.Config.SDKKey))
 
 	_, err = relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
 	assert.Error(t, err)

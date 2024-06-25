@@ -24,6 +24,7 @@ var (
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
+	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -78,6 +79,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateConfigDatabases(&result, c, loggers)
 	validateConfigFilters(&result, c)
 	validateOfflineMode(&result, c)
+	validateCredentialCleanupInterval(&result, c)
 
 	return result.GetError()
 }
@@ -196,6 +198,14 @@ func validateOfflineMode(result *ct.ValidationResult, c *Config) {
 	}
 }
 
+func validateCredentialCleanupInterval(result *ct.ValidationResult, c *Config) {
+	if c.Main.ExpiredCredentialCleanupInterval.IsDefined() {
+		interval := c.Main.ExpiredCredentialCleanupInterval.GetOrElse(0)
+		if interval < minimumCredentialCleanupInterval {
+			result.AddError(nil, errInvalidCredentialCleanupInterval)
+		}
+	}
+}
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
 	normalizeRedisConfig(result, c)
 

@@ -45,6 +45,11 @@ const (
 	// ID. This is the default behavior for Relay Proxy Enterprise when running in auto-configuration mode,
 	// where we always know the environment ID but the SDK key is subject to change.
 	LogNameIsEnvID LogNameMode = true
+
+	// By default, credentials that have an expiry date in the future (compared to when the message containing the
+	// expiry was received) will be cleaned up on an interval with this granularity. This means the environment won't accept
+	// connections for this credential, and it will shut down the SDK client associated with that credential.
+	defaultCredentialCleanupInterval = 1 * time.Minute
 )
 
 func errInitPublisher(err error) error {
@@ -55,56 +60,66 @@ func errInitMetrics(err error) error {
 	return fmt.Errorf("failed to initialize metrics for environment: %w", err)
 }
 
+type ConnectionMapper interface {
+	AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext)
+	RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential)
+}
+
 // EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
 // own type because there are a lot of them, and many are irrelevant in tests.
 type EnvContextImplParams struct {
-	Identifiers                   EnvIdentifiers
-	EnvConfig                     config.EnvConfig
-	AllConfig                     config.Config
-	ClientFactory                 sdks.ClientFactoryFunc
-	DataStoreFactory              subsystems.ComponentConfigurer[subsystems.DataStore]
-	DataStoreInfo                 sdks.DataStoreEnvironmentInfo
-	StreamProviders               []streams.StreamProvider
-	JSClientContext               JSClientContext
-	MetricsManager                *metrics.Manager
-	BigSegmentStoreFactory        bigsegments.BigSegmentStoreFactory
-	BigSegmentSynchronizerFactory bigsegments.BigSegmentSynchronizerFactory
-	SDKBigSegmentsConfigFactory   subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
-	UserAgent                     string
-	LogNameMode                   LogNameMode
-	Loggers                       ldlog.Loggers
+	Identifiers                      EnvIdentifiers
+	EnvConfig                        config.EnvConfig
+	AllConfig                        config.Config
+	ClientFactory                    sdks.ClientFactoryFunc
+	DataStoreFactory                 subsystems.ComponentConfigurer[subsystems.DataStore]
+	DataStoreInfo                    sdks.DataStoreEnvironmentInfo
+	StreamProviders                  []streams.StreamProvider
+	JSClientContext                  JSClientContext
+	MetricsManager                   *metrics.Manager
+	BigSegmentStoreFactory           bigsegments.BigSegmentStoreFactory
+	BigSegmentSynchronizerFactory    bigsegments.BigSegmentSynchronizerFactory
+	SDKBigSegmentsConfigFactory      subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
+	UserAgent                        string
+	LogNameMode                      LogNameMode
+	Loggers                          ldlog.Loggers
+	ConnectionMapper                 ConnectionMapper
+	ExpiredCredentialCleanupInterval time.Duration
 }
 
 type envContextImpl struct {
-	mu               sync.RWMutex
-	clients          map[config.SDKKey]sdks.LDClientContext
-	storeAdapter     *store.SSERelayDataStoreAdapter
-	loggers          ldlog.Loggers
-	credentials      map[credential.SDKCredential]bool // true if not deprecated
-	identifiers      EnvIdentifiers
-	secureMode       bool
-	envStreams       *streams.EnvStreams
-	streamProviders  []streams.StreamProvider
-	handlers         map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
-	jsContext        JSClientContext
-	evaluator        ldeval.Evaluator
-	eventDispatcher  *events.EventDispatcher
-	bigSegmentSync   bigsegments.BigSegmentSynchronizer
-	bigSegmentStore  bigsegments.BigSegmentStore
-	bigSegmentsExist bool
-	sdkBigSegments   *ldstoreimpl.BigSegmentStoreWrapper
-	sdkConfig        ld.Config
-	sdkClientFactory sdks.ClientFactoryFunc
-	sdkInitTimeout   time.Duration
-	metricsManager   *metrics.Manager
-	metricsEnv       *metrics.EnvironmentManager
-	metricsEventPub  events.EventPublisher
-	dataStoreInfo    sdks.DataStoreEnvironmentInfo
-	globalLoggers    ldlog.Loggers
-	ttl              time.Duration
-	initErr          error
-	creationTime     time.Time
-	filterKey        config.FilterKey
+	mu                        sync.RWMutex
+	clients                   map[config.SDKKey]sdks.LDClientContext
+	storeAdapter              *store.SSERelayDataStoreAdapter
+	loggers                   ldlog.Loggers
+	identifiers               EnvIdentifiers
+	secureMode                bool
+	envStreams                *streams.EnvStreams
+	streamProviders           []streams.StreamProvider
+	handlers                  map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
+	jsContext                 JSClientContext
+	evaluator                 ldeval.Evaluator
+	eventDispatcher           *events.EventDispatcher
+	bigSegmentSync            bigsegments.BigSegmentSynchronizer
+	bigSegmentStore           bigsegments.BigSegmentStore
+	bigSegmentsExist          bool
+	sdkBigSegments            *ldstoreimpl.BigSegmentStoreWrapper
+	sdkConfig                 ld.Config
+	sdkClientFactory          sdks.ClientFactoryFunc
+	sdkInitTimeout            time.Duration
+	metricsManager            *metrics.Manager
+	metricsEnv                *metrics.EnvironmentManager
+	metricsEventPub           events.EventPublisher
+	dataStoreInfo             sdks.DataStoreEnvironmentInfo
+	globalLoggers             ldlog.Loggers
+	ttl                       time.Duration
+	initErr                   error
+	creationTime              time.Time
+	filterKey                 config.FilterKey
+	keyRotator                *credential.Rotator
+	stopMonitoringCredentials chan struct{}
+	doneMonitoringCredentials chan struct{}
+	connectionMapper          ConnectionMapper
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -155,33 +170,33 @@ func NewEnvContext(
 		return nil, err
 	}
 
-	credentials := make(map[credential.SDKCredential]bool, 3)
-	credentials[envConfig.SDKKey] = true
-	if envConfig.MobileKey.Defined() {
-		credentials[envConfig.MobileKey] = true
-	}
-	if envConfig.EnvID.Defined() {
-		credentials[envConfig.EnvID] = true
+	envContext := &envContextImpl{
+		identifiers:               params.Identifiers,
+		clients:                   make(map[config.SDKKey]sdks.LDClientContext),
+		loggers:                   envLoggers,
+		secureMode:                envConfig.SecureMode,
+		streamProviders:           params.StreamProviders,
+		handlers:                  make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
+		jsContext:                 params.JSClientContext,
+		sdkClientFactory:          params.ClientFactory,
+		sdkInitTimeout:            allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
+		metricsManager:            params.MetricsManager,
+		globalLoggers:             params.Loggers,
+		ttl:                       envConfig.TTL.GetOrElse(0),
+		dataStoreInfo:             params.DataStoreInfo,
+		creationTime:              time.Now(),
+		filterKey:                 params.EnvConfig.FilterKey,
+		keyRotator:                credential.NewRotator(params.Loggers),
+		stopMonitoringCredentials: make(chan struct{}),
+		doneMonitoringCredentials: make(chan struct{}),
+		connectionMapper:          params.ConnectionMapper,
 	}
 
-	envContext := &envContextImpl{
-		identifiers:      params.Identifiers,
-		clients:          make(map[config.SDKKey]sdks.LDClientContext),
-		credentials:      credentials,
-		loggers:          envLoggers,
-		secureMode:       envConfig.SecureMode,
-		streamProviders:  params.StreamProviders,
-		handlers:         make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
-		jsContext:        params.JSClientContext,
-		sdkClientFactory: params.ClientFactory,
-		sdkInitTimeout:   allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
-		metricsManager:   params.MetricsManager,
-		globalLoggers:    params.Loggers,
-		ttl:              envConfig.TTL.GetOrElse(0),
-		dataStoreInfo:    params.DataStoreInfo,
-		creationTime:     time.Now(),
-		filterKey:        params.EnvConfig.FilterKey,
-	}
+	envContext.keyRotator.Initialize([]credential.SDKCredential{
+		envConfig.SDKKey,
+		envConfig.MobileKey,
+		envConfig.EnvID,
+	})
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {
@@ -243,12 +258,13 @@ func NewEnvContext(
 		context: envContext,
 	}
 
-	for c := range credentials {
+	allCreds := envContext.keyRotator.AllCredentials()
+	for _, c := range allCreds {
 		envStreams.AddCredential(c)
 	}
 	for _, sp := range params.StreamProviders {
 		handlers := make(map[credential.SDKCredential]http.Handler)
-		for c := range credentials {
+		for _, c := range allCreds {
 			h := sp.Handler(sdkauth.NewScoped(envContext.filterKey, c))
 			if h != nil {
 				handlers[c] = h
@@ -377,9 +393,77 @@ func NewEnvContext(
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
+	cleanupInterval := params.ExpiredCredentialCleanupInterval
+	if cleanupInterval == 0 { // 0 means it wasn't specified; the config system disallows 0 as a valid value.
+		cleanupInterval = defaultCredentialCleanupInterval
+	}
+	go envContext.cleanupExpiredCredentials(cleanupInterval)
+
 	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return envContext, nil
+}
+
+func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.triggerCredentialChanges(time.Now())
+		case <-c.stopMonitoringCredentials:
+			close(c.doneMonitoringCredentials)
+			return
+		}
+	}
+}
+
+func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.envStreams.AddCredential(newCredential)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+			handlers[newCredential] = h
+		}
+	}
+
+	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
+	// components that use an SDK key to use the new one. A new mobile key does not require starting a
+	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
+	switch key := newCredential.(type) {
+	case config.SDKKey:
+		go c.startSDKClient(key, nil, false)
+		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+			c.metricsEventPub.ReplaceCredential(key)
+		}
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
+	case config.MobileKey:
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(key)
+		}
+	}
+
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
+}
+
+func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
+	c.envStreams.RemoveCredential(oldCredential)
+	for _, handlers := range c.handlers {
+		delete(handlers, oldCredential)
+	}
+	if sdkKey, ok := oldCredential.(config.SDKKey); ok {
+		// The SDK client instance is tied to the SDK key, so get rid of it
+		if client := c.clients[sdkKey]; client != nil {
+			delete(c.clients, sdkKey)
+			_ = client.Close()
+		}
+	}
 }
 
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
@@ -421,7 +505,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 			return
 		}
 	} else {
-		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q", name)
+		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q (SDK key %s)", name, sdkKey.Masked())
 	}
 	if readyCh != nil {
 		readyCh <- c
@@ -446,98 +530,37 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
+func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
+	if !update.deprecated.Defined() {
+		c.keyRotator.Rotate(update.primary)
+	} else {
+		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
+	}
+	c.triggerCredentialChanges(update.now)
+}
+
+func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
+	additions, expirations := c.keyRotator.StepTime(now)
+	for _, cred := range additions {
+		c.addCredential(cred)
+	}
+	for _, cred := range expirations {
+		c.removeCredential(cred)
+	}
+}
+
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
-	return c.getCredentialsInternal(true)
+	return c.keyRotator.PrimaryCredentials()
 }
 
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
-	return c.getCredentialsInternal(false)
-}
-
-func (c *envContextImpl) getCredentialsInternal(preferred bool) []credential.SDKCredential {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	ret := make([]credential.SDKCredential, 0, len(c.credentials))
-	for c, nonDeprecated := range c.credentials {
-		if nonDeprecated == preferred {
-			ret = append(ret, c)
-		}
-	}
-	return ret
-}
-
-func (c *envContextImpl) AddCredential(newCredential credential.SDKCredential) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, found := c.credentials[newCredential]; found {
-		return
-	}
-	c.credentials[newCredential] = true
-	c.envStreams.AddCredential(newCredential)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
-			handlers[newCredential] = h
-		}
-	}
-
-	// A new SDK key means 1. we should start a new SDK client, 2. we should tell all event forwarding
-	// components that use an SDK key to use the new one. A new mobile key does not require starting a
-	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
-	switch key := newCredential.(type) {
-	case config.SDKKey:
-		go c.startSDKClient(key, nil, false)
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
-		}
-	case config.MobileKey:
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
-		}
-	}
-}
-
-func (c *envContextImpl) RemoveCredential(oldCredential credential.SDKCredential) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, found := c.credentials[oldCredential]; found {
-		delete(c.credentials, oldCredential)
-		c.envStreams.RemoveCredential(oldCredential)
-		for _, handlers := range c.handlers {
-			delete(handlers, oldCredential)
-		}
-		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-			// The SDK client instance is tied to the SDK key, so get rid of it
-			if client := c.clients[sdkKey]; client != nil {
-				delete(c.clients, sdkKey)
-				_ = client.Close()
-			}
-		}
-	}
-}
-
-func (c *envContextImpl) DeprecateCredential(credential credential.SDKCredential) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, found := c.credentials[credential]; found {
-		c.credentials[credential] = false
-	}
+	return c.keyRotator.DeprecatedCredentials()
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// There might be multiple clients if there's an expiring SDK key. Find the SDK key that has a true
-	// value in our map (meaning it's not deprecated) and return that client.
-	for cred, valid := range c.credentials {
-		if sdkKey, ok := cred.(config.SDKKey); ok && valid {
-			return c.clients[sdkKey]
-		}
-	}
-	return nil
+	return c.clients[c.keyRotator.SDKKey()]
 }
 
 func (c *envContextImpl) GetStore() subsystems.DataStore {
@@ -659,7 +682,12 @@ func (c *envContextImpl) Close() error {
 	}
 	c.clients = make(map[config.SDKKey]sdks.LDClientContext)
 	c.mu.Unlock()
+
+	close(c.stopMonitoringCredentials)
+	<-c.doneMonitoringCredentials
+
 	_ = c.envStreams.Close()
+
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)
 	}

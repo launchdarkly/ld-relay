@@ -3,7 +3,6 @@ package autoconfig
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"path"
@@ -14,7 +13,6 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -50,8 +48,6 @@ type StreamManager struct {
 	uri               *url.URL
 	handler           MessageHandler
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
-	expiredKeys       chan expiredKey
-	expiryTimers      map[config.SDKKey]*time.Timer
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
 	loggers           ldlog.Loggers
@@ -60,12 +56,6 @@ type StreamManager struct {
 
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
 	filterReceiver *MessageReceiver[envfactory.FilterRep]
-}
-
-type expiredKey struct {
-	envID   config.EnvironmentID
-	projKey string
-	key     config.SDKKey
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
@@ -89,8 +79,6 @@ func NewStreamManager(
 		uri:               streamURI,
 		handler:           handler,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
-		expiredKeys:       make(chan expiredKey),
-		expiryTimers:      make(map[config.SDKKey]*time.Timer),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
@@ -307,17 +295,8 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			if shouldRestart {
 				stream.Restart()
 			}
-
-		case expiredKey := <-s.expiredKeys:
-			s.loggers.Warnf(logMsgKeyExpired, last4Chars(string(expiredKey.key)), expiredKey.envID,
-				makeEnvName(s.lastKnownEnvs[expiredKey.envID]))
-			s.handler.KeyExpired(expiredKey.envID, expiredKey.projKey, expiredKey.key)
-
 		case <-s.halt:
 			stream.Close()
-			for _, t := range s.expiryTimers {
-				t.Stop()
-			}
 			return
 		}
 	}
@@ -329,17 +308,11 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 		return
 	case ActionInsert:
 		params := rep.ToParams()
-		if s.IgnoreExpiringSDKKey(rep) {
-			params.ExpiringSDKKey = ""
-		}
 		s.handler.AddEnvironment(params)
 	case ActionDelete:
 		s.handler.DeleteEnvironment(id)
 	case ActionUpdate:
 		params := rep.ToParams()
-		if s.IgnoreExpiringSDKKey(rep) {
-			params.ExpiringSDKKey = ""
-		}
 		s.handler.UpdateEnvironment(params)
 	}
 }
@@ -392,54 +365,6 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-}
-
-// IgnoreExpiringSDKKey implements the EnvironmentMsgAdapter's KeyChecker interface. Its main purpose is to
-// create a goroutine that triggers SDK key expiration, if the EnvironmentRep specifies that. Additionally, it returns
-// true if an ExpiringSDKKey should be ignored (since the expiry is stale).
-func (s *StreamManager) IgnoreExpiringSDKKey(env envfactory.EnvironmentRep) bool {
-	expiringKey := env.SDKKey.Expiring.Value
-	expiryTime := env.SDKKey.Expiring.Timestamp
-
-	if expiringKey == "" || expiryTime == 0 {
-		return false
-	}
-
-	if _, alreadyHaveTimer := s.expiryTimers[expiringKey]; alreadyHaveTimer {
-		return false
-	}
-
-	timeFromNow := time.Duration(expiryTime-ldtime.UnixMillisNow()) * time.Millisecond
-	if timeFromNow <= 0 {
-		// LD might sometimes tell us about an "expiring" key that has really already expired. If so,
-		// just ignore it.
-		return true
-	}
-
-	dateTime := time.Unix(int64(expiryTime)/1000, 0)
-	s.loggers.Warnf(logMsgKeyWillExpire, last4Chars(string(expiringKey)), env.Describe(), dateTime)
-
-	timer := time.NewTimer(timeFromNow)
-	s.expiryTimers[expiringKey] = timer
-
-	go func() {
-		if _, ok := <-timer.C; ok {
-			s.expiredKeys <- expiredKey{env.EnvID, env.ProjKey, expiringKey}
-		}
-	}()
-
-	return false
-}
-
-func makeEnvName(rep envfactory.EnvironmentRep) string {
-	return fmt.Sprintf("%s %s", rep.ProjName, rep.EnvName)
-}
-
-func last4Chars(s string) string {
-	if len(s) < 4 { // COVERAGE: doesn't happen in unit tests, also can't happen with real environments
-		return s
-	}
-	return s[len(s)-4:]
 }
 
 func obfuscateEventData(data string) string {

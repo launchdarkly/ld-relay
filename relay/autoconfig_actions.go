@@ -2,8 +2,8 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -34,11 +34,8 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		if _, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey)); err != nil {
-			env.AddCredential(params.ExpiringSDKKey)
-			env.DeprecateCredential(params.ExpiringSDKKey)
-			a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, params.ExpiringSDKKey), env)
-		}
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
 	}
 }
 
@@ -53,24 +50,15 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	newCredentials := params.Credentials()
-
-	for _, prevCred := range env.GetCredentials() {
-		newCred, status := prevCred.Compare(newCredentials)
-		if status == credential.Unchanged {
-			continue
+	if params.MobileKey.Defined() {
+		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
+	}
+	if params.SDKKey.Defined() {
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		if params.ExpiringSDKKey.Defined() {
+			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
 		}
-
-		env.AddCredential(newCred)
-		a.r.addConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, newCred), env)
-
-		switch status {
-		case credential.Deprecated:
-			env.DeprecateCredential(prevCred)
-		case credential.Expired:
-			a.r.removeConnectionMapping(sdkauth.NewScoped(params.Identifiers.FilterKey, prevCred))
-			env.RemoveCredential(prevCred)
-		}
+		env.UpdateCredential(update)
 	}
 }
 
@@ -84,14 +72,4 @@ func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filt
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
 	a.r.loggers.Info(logMsgAutoConfReceivedAllEnvironments)
 	a.r.setFullyConfigured(true)
-}
-
-func (a *relayAutoConfigActions) KeyExpired(id config.EnvironmentID, filter config.FilterKey, oldKey config.SDKKey) {
-	env, err := a.r.getEnvironment(sdkauth.NewScoped(filter, id))
-	if err != nil {
-		a.r.loggers.Warnf(logMsgKeyExpiryUnknownEnv, id)
-		return
-	}
-	a.r.removeConnectionMapping(sdkauth.NewScoped(filter, oldKey))
-	env.RemoveCredential(oldKey)
 }

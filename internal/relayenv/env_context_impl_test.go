@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/eventsource"
@@ -57,13 +59,24 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
-		Identifiers:   EnvIdentifiers{ConfiguredName: envName},
-		EnvConfig:     envConfig,
-		ClientFactory: clientFactory,
-		Loggers:       loggers,
+		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:        envConfig,
+		ClientFactory:    clientFactory,
+		Loggers:          loggers,
+		ConnectionMapper: mockConnectionMapper{},
 	}, readyCh)
 	require.NoError(t, err)
 	return env
+}
+
+type mockConnectionMapper struct {
+}
+
+func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext) {
+
+}
+func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
+
 }
 
 func TestConstructorBasicProperties(t *testing.T) {
@@ -175,8 +188,8 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
-	env.AddCredential(st.EnvWithAllCredentials.Config.EnvID)
+	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.EnvID))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -184,11 +197,12 @@ func TestAddRemoveCredential(t *testing.T) {
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
 
-	env.RemoveCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.UpdateCredential(NewCredentialUpdate(config.MobileKey("evict-the-previous-key")))
 
 	creds = env.GetCredentials()
-	assert.Len(t, creds, 2)
+	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
 }
 
@@ -203,14 +217,14 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
 
-	env.AddCredential(st.EnvWithAllCredentials.Config.MobileKey)
+	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
@@ -221,7 +235,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 func TestChangeSDKKey(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	readyCh := make(chan EnvContext, 1)
-	newKey := config.SDKKey("new-key")
+	key2 := config.SDKKey("key2")
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
@@ -237,24 +251,48 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, env.GetClient(), client1)
 	assert.Nil(t, env.GetInitError())
 
-	env.AddCredential(newKey)
-	env.DeprecateCredential(envConfig.SDKKey)
+	// The environment should have been initialized with a single SDK key (found in the envConfig.)
+	// At this point, there's no deprecated credentials.
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
+	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
+	// For the purposes of key rotation, we'll make time deterministic.
+	start := time.Unix(1000, 0)
+
+	// Upon rotating to key2, the original key should still be valid for a hour.
+	env.UpdateCredential(
+		NewCredentialUpdate(key2).
+			WithTime(start).
+			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
+
+	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
 	assert.Equal(t, env.GetClient(), client2)
 
-	if !helpers.AssertNoMoreValues(t, client1.CloseCh, time.Millisecond*20, "client for deprecated key should not have been closed") {
+	// The client for the original SDK key should not have been closed, since it's valid for an hour.
+	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
 		t.FailNow()
 	}
 
-	env.RemoveCredential(envConfig.SDKKey)
+	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
+	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(45 * time.Minute)))
+	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
+		t.FailNow()
+	}
 
-	assert.Equal(t, []credential.SDKCredential{newKey}, env.GetCredentials())
+	// We are now an instant after the deprecation period. This should cause the original key to become expired
+	// and trigger the client to close.
+	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(1*time.Hour + 1*time.Millisecond)))
+	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	client1.AwaitClose(t, time.Millisecond*20)
+	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed") {
+		t.FailNow()
+	}
+
 }
 
 func TestSDKClientCreationFails(t *testing.T) {

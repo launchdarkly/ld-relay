@@ -64,9 +64,12 @@ func TestEnvironmentRepToParams(t *testing.T) {
 			ProjKey:  "projkey2",
 			ProjName: "projname2",
 		},
-		SDKKey:         env2.SDKKey.Value,
-		ExpiringSDKKey: env2.SDKKey.Expiring.Value,
-		MobileKey:      env2.MobKey,
+		SDKKey: env2.SDKKey.Value,
+		ExpiringSDKKey: ExpiringSDKKey{
+			Key:        env2.SDKKey.Expiring.Value,
+			Expiration: time.UnixMilli(int64(env2.SDKKey.Expiring.Timestamp)),
+		},
+		MobileKey: env2.MobKey,
 	}, params2)
 }
 

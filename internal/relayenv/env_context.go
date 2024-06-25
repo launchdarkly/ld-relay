@@ -20,6 +20,43 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
+// CredentialUpdate specifies the primary credential of a given credential kind for an environment.
+// For example, an environment may have a primary SDK key and a primary mobile key at the same time; each would
+// be specified in individual CredentialUpdate objects.
+type CredentialUpdate struct {
+	// The new primary credential
+	primary credential.SDKCredential
+	// An optional deprecated credential (only SDK keys are supported currently)
+	deprecated config.SDKKey
+	// When the deprecated credential expires
+	expiry time.Time
+	// The current time
+	now time.Time
+}
+
+// NewCredentialUpdate creates a CredentialUpdate from a given primary credential.
+// The default behavior of the environment is to immediately revoke the previous credential of this kind.
+func NewCredentialUpdate(primary credential.SDKCredential) *CredentialUpdate {
+	return &CredentialUpdate{primary: primary, now: time.Now()}
+}
+
+// WithGracePeriod modifies the default behavior from immediate revocation to a delayed revocation of the previous
+// credential. During the grace period, the previous credential continues to function.
+func (c *CredentialUpdate) WithGracePeriod(deprecated config.SDKKey, expiry time.Time) *CredentialUpdate {
+	c.deprecated = deprecated
+	c.expiry = expiry
+	return c
+}
+
+// WithTime overrides the update's current time for testing purposes.
+// Because the environment's credential rotation algorithm compares the current time to the specific expiry of
+// each credential, this can be used to trigger behavior in a more predictable way than relying on the actual time
+// in the test.
+func (c *CredentialUpdate) WithTime(t time.Time) *CredentialUpdate {
+	c.now = t
+	return c
+}
+
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
 //
 // The EnvContext is normally associated with an LDClient instance from the Go SDK, and allows direct access
@@ -39,28 +76,15 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
+	// UpdateCredential updates the environment with a new credential, optionally deprecating a previous one
+	// with a grace period.
+	UpdateCredential(update *CredentialUpdate)
+
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 
 	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
 	GetDeprecatedCredentials() []credential.SDKCredential
-
-	// AddCredential adds a new credential for the environment.
-	//
-	// If the credential is an SDK key, then a new SDK client is started with that SDK key, and event forwarding
-	// to server-side endpoints is switched to use the new key.
-	AddCredential(credential.SDKCredential)
-
-	// RemoveCredential removes a credential from the environment. Any active stream connections using that
-	// credential are immediately dropped.
-	//
-	// If the credential is an SDK key, then the SDK client that we started with that SDK key is disposed of.
-	RemoveCredential(credential.SDKCredential)
-
-	// DeprecateCredential marks an existing credential as not being a preferred one, without removing it or
-	// dropping any connections. It will no longer be included in the return value of GetCredentials(). This is
-	// used in Relay Proxy Enterprise when an SDK key is being changed but the old key has not expired yet.
-	DeprecateCredential(credential.SDKCredential)
 
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
@@ -83,7 +107,7 @@ type EnvContext interface {
 	// have its own prefix string and, optionally, its own log level.
 	GetLoggers() ldlog.Loggers
 
-	// GetHandler returns the HTTP handler for the specified kind of stream requests and credential for this
+	// GetStreamHandler returns the HTTP handler for the specified kind of stream requests and credential for this
 	// environment. If there is none, it returns a handler for a 404 status (not nil).
 	GetStreamHandler(streams.StreamProvider, credential.SDKCredential) http.Handler
 

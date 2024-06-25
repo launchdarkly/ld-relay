@@ -426,34 +426,6 @@ func TestEnvironmentManager_SimpleFilterCombination(t *testing.T) {
 	require.ElementsMatchf(t, out, []config.EnvironmentID{"a", "b", "a/foo", "a/bar", "b/foo", "b/bar"}, "default and filtered environments should be created")
 }
 
-func TestEnvironmentManager_KeyExpired(t *testing.T) {
-	t.Run("key expiry is broadcast n times", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
-
-		for i := 0; i < 10; i++ {
-			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
-
-			filters := makeFilters(i, []string{"foo"})
-			expected := []expiredParams{{id: "foo", filter: config.DefaultFilter, key: "sdk-123"}}
-			for _, f := range filters {
-				expected = append(expected, expiredParams{
-					id:     "foo",
-					filter: f.Key,
-					key:    "sdk-123",
-				})
-				m.AddFilter(f)
-			}
-
-			m.KeyExpired("foo", "sdk-123")
-			require.ElementsMatch(t, spy.expired, expected)
-		}
-	})
-
-}
-
 type command struct {
 	op           commandType
 	value        string

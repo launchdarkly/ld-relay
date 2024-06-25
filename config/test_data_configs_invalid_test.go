@@ -11,6 +11,9 @@ type testDataInvalidConfig struct {
 func makeInvalidConfigs() []testDataInvalidConfig {
 	return []testDataInvalidConfig{
 		makeInvalidConfigMissingSDKKey(),
+		makeInvalidConfigCredentialCleanupInterval("0s"),
+		makeInvalidConfigCredentialCleanupInterval("-1s"),
+		makeInvalidConfigCredentialCleanupInterval("99ms"),
 		makeInvalidConfigTLSWithNoCertOrKey(),
 		makeInvalidConfigTLSWithNoCert(),
 		makeInvalidConfigTLSWithNoKey(),
@@ -251,6 +254,16 @@ func makeInvalidConfigOfflineModeWithMonitoringInterval(interval string) testDat
 fileDataSource = foo.tar.gz
 fileDataSourceMonitoringInterval = ` + interval + `
 
+`
+	return c
+}
+
+func makeInvalidConfigCredentialCleanupInterval(interval string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "credential cleanup interval with invalid value"}
+	c.fileError = errInvalidCredentialCleanupInterval.Error()
+	c.fileContent = `
+[Main]
+expiredCredentialCleanupInterval = ` + interval + `
 `
 	return c
 }

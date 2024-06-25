@@ -11,23 +11,9 @@ type SDKCredential interface {
 	Defined() bool
 	// String returns the string form of the credential.
 	String() string
-	// Compare accepts a collection of AutoConfig credentials and inspects it, determining if this credential has
-	// changed in any way. If so, it should return the new credential and a status.
-	Compare(creds AutoConfig) (SDKCredential, Status)
+	// Masked returns a masked form of the credential suitable for log messages.
+	Masked() string
 }
-
-// Status represents that difference between an existing credential and one found in a new AutoConfig configuration
-// struct.
-type Status string
-
-const (
-	// Unchanged means the credential has not changed.
-	Unchanged = Status("unchanged")
-	// Deprecated means the existing credential has been deprecated in favor of a new one.
-	Deprecated = Status("deprecated")
-	// Expired means the existing credential should be removed in favor of a new one.
-	Expired = Status("expired")
-)
 
 // AutoConfig represents credentials that are updated via AutoConfig protocol.
 type AutoConfig struct {

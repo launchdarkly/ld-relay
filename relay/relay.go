@@ -361,8 +361,7 @@ func IsPayloadFilterNotFound(err error) bool {
 
 // getEnvironment returns the environment object corresponding to the given credential, or nil
 // if not found. The credential can be an SDK key, a mobile key, or an environment ID. The second
-// return value is normally true, but is false if Relay does not yet have a valid configuration
-// (which affects our error handling).
+// return value is normally nil, but is present if Relay does not yet have a valid configuration.
 func (r *Relay) getEnvironment(req sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -445,18 +444,20 @@ func (r *Relay) addEnvironment(
 		return r.clientFactory(sdkKey, config, timeout)
 	}
 	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
-		Identifiers:      identifiers,
-		EnvConfig:        envConfig,
-		AllConfig:        r.config,
-		ClientFactory:    wrappedClientFactory,
-		DataStoreFactory: dataStoreFactory,
-		DataStoreInfo:    dataStoreInfo,
-		StreamProviders:  r.allStreamProviders(),
-		JSClientContext:  jsClientContext,
-		MetricsManager:   r.metricsManager,
-		UserAgent:        r.userAgent,
-		LogNameMode:      r.envLogNameMode,
-		Loggers:          r.loggers,
+		Identifiers:                      identifiers,
+		EnvConfig:                        envConfig,
+		AllConfig:                        r.config,
+		ClientFactory:                    wrappedClientFactory,
+		DataStoreFactory:                 dataStoreFactory,
+		DataStoreInfo:                    dataStoreInfo,
+		StreamProviders:                  r.allStreamProviders(),
+		JSClientContext:                  jsClientContext,
+		MetricsManager:                   r.metricsManager,
+		UserAgent:                        r.userAgent,
+		LogNameMode:                      r.envLogNameMode,
+		Loggers:                          r.loggers,
+		ConnectionMapper:                 r,
+		ExpiredCredentialCleanupInterval: r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
 	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
@@ -494,19 +495,19 @@ func (r *Relay) setFullyConfigured(fullyConfigured bool) {
 	r.lock.Unlock()
 }
 
-// addConnectionMapping updates the RelayCore's environment mapping to reflect that a new
+// AddConnectionMapping updates the RelayCore's environment mapping to reflect that a new
 // credential is now enabled for this EnvContext. This should be done only *after* calling
 // EnvContext.AddCredential() so that if the RelayCore receives an incoming request with the new
 // credential immediately after this, it will work.
-func (r *Relay) addConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
+func (r *Relay) AddConnectionMapping(params sdkauth.ScopedCredential, env relayenv.EnvContext) {
 	r.envsByCredential.MapRequestParams(params, env)
 }
 
-// removeConnectionMapping updates the RelayCore's environment mapping to reflect that this
+// RemoveConnectionMapping updates the RelayCore's environment mapping to reflect that this
 // credential is no longer enabled. This should be done *before* calling EnvContext.RemoveCredential()
 // because RemoveCredential() disconnects all existing streams, and if a client immediately tries to
 // reconnect using the same credential we want it to be rejected.
-func (r *Relay) removeConnectionMapping(params sdkauth.ScopedCredential) {
+func (r *Relay) RemoveConnectionMapping(params sdkauth.ScopedCredential) {
 	r.envsByCredential.UnmapRequestParams(params)
 }
 

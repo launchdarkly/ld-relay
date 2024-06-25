@@ -88,6 +88,10 @@ const (
 	// the CPU time it takes to read the archive over and over again. It is somewhat arbitrary.
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumFileDataSourceMonitoringInterval = 100 * time.Millisecond
+	// This minimum was chosen to protect the host system from unnecessary work, while also allowing expired
+	// credentials to be revoked nearly instantaneously. It is not necessarily a recommendation.
+	// It likely doesn't make sense to use an interval this frequent in production use-cases.
+	minimumCredentialCleanupInterval = 100 * time.Millisecond
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -134,24 +138,25 @@ type Config struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type MainConfig struct {
-	ExitOnError                bool                     `conf:"EXIT_ON_ERROR"`
-	ExitAlways                 bool                     `conf:"EXIT_ALWAYS"`
-	IgnoreConnectionErrors     bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
-	StreamURI                  ct.OptURLAbsolute        `conf:"STREAM_URI"`
-	BaseURI                    ct.OptURLAbsolute        `conf:"BASE_URI"`
-	ClientSideBaseURI          ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
-	Port                       ct.OptIntGreaterThanZero `conf:"PORT"`
-	InitTimeout                ct.OptDuration           `conf:"INIT_TIMEOUT"`
-	HeartbeatInterval          ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
-	MaxClientConnectionTime    ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
-	DisconnectedStatusTime     ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
-	TLSEnabled                 bool                     `conf:"TLS_ENABLED"`
-	TLSCert                    string                   `conf:"TLS_CERT"`
-	TLSKey                     string                   `conf:"TLS_KEY"`
-	TLSMinVersion              OptTLSVersion            `conf:"TLS_MIN_VERSION"`
-	LogLevel                   OptLogLevel              `conf:"LOG_LEVEL"`
-	BigSegmentsStaleAsDegraded bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
-	BigSegmentsStaleThreshold  ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
+	ExitOnError                      bool                     `conf:"EXIT_ON_ERROR"`
+	ExitAlways                       bool                     `conf:"EXIT_ALWAYS"`
+	IgnoreConnectionErrors           bool                     `conf:"IGNORE_CONNECTION_ERRORS"`
+	StreamURI                        ct.OptURLAbsolute        `conf:"STREAM_URI"`
+	BaseURI                          ct.OptURLAbsolute        `conf:"BASE_URI"`
+	ClientSideBaseURI                ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
+	Port                             ct.OptIntGreaterThanZero `conf:"PORT"`
+	InitTimeout                      ct.OptDuration           `conf:"INIT_TIMEOUT"`
+	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
+	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
+	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`
+	TLSCert                          string                   `conf:"TLS_CERT"`
+	TLSKey                           string                   `conf:"TLS_KEY"`
+	TLSMinVersion                    OptTLSVersion            `conf:"TLS_MIN_VERSION"`
+	LogLevel                         OptLogLevel              `conf:"LOG_LEVEL"`
+	BigSegmentsStaleAsDegraded       bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
+	BigSegmentsStaleThreshold        ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
+	ExpiredCredentialCleanupInterval ct.OptDuration           `conf:"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
