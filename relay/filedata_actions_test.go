@@ -2,12 +2,13 @@ package relay
 
 import (
 	"fmt"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"

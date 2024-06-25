@@ -197,3 +197,29 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
 	assert.Empty(t, expirations)
 }
+
+func TestSDKKeyIsImmediatelyRotatedIfPreviousDeprecationAlreadyTookPlace(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	rotator.Initialize([]SDKCredential{config.SDKKey("key0")})
+
+	now := time.Unix(1000, 0)
+	expiry := now.Add(1 * time.Hour)
+	rotator.RotateWithGrace(config.SDKKey("key1"), NewGracePeriod("key0", expiry, now))
+
+	additions, expirations := rotator.StepTime(now.Add(30 * time.Minute))
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("key1")}, additions)
+	assert.Empty(t, expirations)
+
+	rotator.RotateWithGrace(config.SDKKey("key2"), NewGracePeriod("key0", expiry, now.Add(31*time.Minute)))
+
+	additions, expirations = rotator.StepTime(now.Add(31 * time.Minute))
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("key2")}, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("key1")}, expirations)
+
+	additions, expirations = rotator.StepTime(expiry.Add(1 * time.Millisecond))
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("key0")}, expirations)
+
+}

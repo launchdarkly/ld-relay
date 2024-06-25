@@ -1,8 +1,9 @@
 package relay
 
 import (
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 

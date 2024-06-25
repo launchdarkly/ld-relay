@@ -121,12 +121,8 @@ func (ar *archiveReader) GetEnvironmentMetadata(envID config.EnvironmentID) (env
 	if err := json.Unmarshal(data, &rep); err != nil {
 		return environmentMetadata{}, err
 	}
-
-	params := rep.Env.ToParams()
-	params.Offline = true // Signify that this environment is from an offline mode source
-
 	return environmentMetadata{
-		params:  params,
+		params:  rep.Env.ToParams(),
 		version: rep.Env.Version,
 		dataID:  rep.DataID,
 	}, nil

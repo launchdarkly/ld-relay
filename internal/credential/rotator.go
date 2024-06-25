@@ -218,16 +218,23 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 
 	return previous
 }
+func (r *Rotator) immediatelyRevoke(key config.SDKKey) {
+	if key.Defined() {
+		r.expirations = append(r.expirations, key)
+		r.loggers.Infof("SDK key %s has been immediately revoked", key.Masked())
+	}
+	return
+}
+
 func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	previous := r.swapPrimaryKey(sdkKey)
-	// Immediately revoke the previous SDK key if there's no explicit deprecation notice, otherwise it would
-	// hang around forever.
-	if previous.Defined() && grace == nil {
-		r.expirations = append(r.expirations, previous)
-		r.loggers.Infof("SDK key %s has been immediately revoked", previous.Masked())
+	// If there's no deprecation notice, then the previous key (if any) needs to be immediately revoked so it doesn't
+	// hang around forever valid.
+	if grace == nil {
+		r.immediatelyRevoke(previous)
 		return
 	}
 	if grace != nil {
@@ -235,6 +242,12 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 			if previousExpiry != grace.expiry {
 				r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
 			}
+			// When a key is deprecated by LD, it will stick around in the deprecated field of the message until something
+			// else is deprecated. This means that if a key is rotated *without* a deprecation period set for the previous key,
+			// then we'll receive that new primary key but the deprecation message will be stale - it'll be referring to some
+			// even older key. We detect this case here (since we already saw the deprecation message in our map) and
+			// ensure the previous key is revoked.
+			r.immediatelyRevoke(previous)
 			return
 		}
 
