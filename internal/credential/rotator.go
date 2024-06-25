@@ -145,6 +145,11 @@ type GracePeriod struct {
 	now time.Time
 }
 
+// Expired returns true if the key has already expired.
+func (g *GracePeriod) Expired() bool {
+	return g.now.After(g.expiry)
+}
+
 // NewGracePeriod constructs a new grace period. The current time must be provided in order to
 // determine if the credential is already expired.
 func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePeriod {
@@ -218,51 +223,53 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 
 	return previous
 }
+
 func (r *Rotator) immediatelyRevoke(key config.SDKKey) {
 	if key.Defined() {
 		r.expirations = append(r.expirations, key)
 		r.loggers.Infof("SDK key %s has been immediately revoked", key.Masked())
 	}
-	return
 }
 
 func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Previous will only be .Defined() if there was a previous primary key.
 	previous := r.swapPrimaryKey(sdkKey)
+
 	// If there's no deprecation notice, then the previous key (if any) needs to be immediately revoked so it doesn't
-	// hang around forever valid.
+	// hang around forever. This case is also true when there is a grace period, but we need to inspect the grace period
+	// in order to find out if immediate revocation is necessary.
 	if grace == nil {
 		r.immediatelyRevoke(previous)
 		return
 	}
-	if grace != nil {
-		if previousExpiry, ok := r.deprecatedSdkKeys[grace.key]; ok {
-			if previousExpiry != grace.expiry {
-				r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
-			}
-			// When a key is deprecated by LD, it will stick around in the deprecated field of the message until something
-			// else is deprecated. This means that if a key is rotated *without* a deprecation period set for the previous key,
-			// then we'll receive that new primary key but the deprecation message will be stale - it'll be referring to some
-			// even older key. We detect this case here (since we already saw the deprecation message in our map) and
-			// ensure the previous key is revoked.
-			r.immediatelyRevoke(previous)
-			return
-		}
 
-		if grace.now.After(grace.expiry) {
-			r.loggers.Infof("Deprecated SDK key %s already expired; ignoring", grace.key.Masked())
-			return
+	if previousExpiry, ok := r.deprecatedSdkKeys[grace.key]; ok {
+		if previousExpiry != grace.expiry {
+			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
 		}
+		// When a key is deprecated by LD, it will stick around in the deprecated field of the message until something
+		// else is deprecated. This means that if a key is rotated *without* a deprecation period set for the previous key,
+		// then we'll receive that new primary key but the deprecation message will be stale - it'll be referring to the
+		// last time a key was rotated with a deprecation period. We detect this case here (since we already saw the
+		// deprecation message in our map) and ensure the previous key is revoked.
+		r.immediatelyRevoke(previous)
+		return
+	}
 
-		r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
-		r.deprecatedSdkKeys[grace.key] = grace.expiry
+	if grace.Expired() {
+		r.loggers.Infof("Deprecated SDK key %s already expired at %v; ignoring", grace.key.Masked(), grace.expiry)
+		return
+	}
 
-		if grace.key != previous {
-			r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", grace.key.Masked())
-			r.additions = append(r.additions, grace.key)
-		}
+	r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+	r.deprecatedSdkKeys[grace.key] = grace.expiry
+
+	if grace.key != previous {
+		r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", grace.key.Masked())
+		r.additions = append(r.additions, grace.key)
 	}
 }
 
