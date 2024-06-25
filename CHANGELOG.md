@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.8.0](https://github.com/launchdarkly/ld-relay/compare/v8.7.1...v8.8.0) (2024-06-25)
+
+
+### Features
+
+* offline mode key rotation ([#408](https://github.com/launchdarkly/ld-relay/issues/408)) ([b3f03a4](https://github.com/launchdarkly/ld-relay/commit/b3f03a44bb071ba263e52eafadebdf121643364b))
+* periodic key revocation ([#401](https://github.com/launchdarkly/ld-relay/issues/401)) ([92033e9](https://github.com/launchdarkly/ld-relay/commit/92033e90ab480c3920c69fa122bdf1499a3a8e05))
+
+
+### Bug Fixes
+
+* offline mode would spam logs when file changes ([#406](https://github.com/launchdarkly/ld-relay/issues/406)) ([3c12e10](https://github.com/launchdarkly/ld-relay/commit/3c12e10718b6126c520da259c2b85e015aba05ae))
+
 ## [8.7.1](https://github.com/launchdarkly/ld-relay/compare/v8.7.0...v8.7.1) (2024-06-21)
 
 
