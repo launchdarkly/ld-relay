@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
@@ -25,8 +26,13 @@ type offlineModeTestData struct {
 	autoConfigID  autoConfigID
 }
 
+type apiParams struct {
+	numProjects     int
+	numEnvironments int
+}
+
 func testOfflineMode(t *testing.T, manager *integrationTestManager) {
-	withOfflineModeTestData(t, manager, func(testData offlineModeTestData) {
+	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 2}, func(testData offlineModeTestData) {
 		helpers.WithTempDir(func(dirPath string) {
 			fileName := "archive.tar.gz"
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
@@ -40,7 +46,66 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			})
 			defer manager.stopRelay(t)
 
-			manager.awaitEnvironments(t, testData.projsAndEnvs, true, func(proj projectInfo, env environmentInfo) string {
+			manager.awaitEnvironments(t, testData.projsAndEnvs, &envPropertyExpectations{nameAndKey: true}, func(proj projectInfo, env environmentInfo) string {
+				return string(env.id)
+			})
+			manager.verifyFlagValues(t, testData.projsAndEnvs)
+		})
+	})
+
+	// Tests that if we download an archive with a primary SDK key, and then it is subsequently updated
+	// with a deprecated key, we become initialized with both keys present.
+	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
+		helpers.WithTempDir(func(dirPath string) {
+			fileName := "archive.tar.gz"
+			filePath := filepath.Join(manager.relaySharedDir, fileName)
+
+			err := downloadRelayArchive(manager, testData.autoConfigKey, filePath)
+			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
+			require.NoError(t, err)
+
+			manager.startRelay(t, map[string]string{
+				"FILE_DATA_SOURCE":                    filepath.Join(relayContainerSharedDir, fileName),
+				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "100ms",
+			})
+			defer manager.stopRelay(t)
+
+			manager.awaitEnvironments(t, testData.projsAndEnvs, &envPropertyExpectations{nameAndKey: true}, func(proj projectInfo, env environmentInfo) string {
+				return string(env.id)
+			})
+			manager.verifyFlagValues(t, testData.projsAndEnvs)
+
+			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(1*time.Hour))
+
+			err = downloadRelayArchive(manager, testData.autoConfigKey, filePath)
+			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
+			require.NoError(t, err)
+
+			manager.awaitEnvironments(t, updated, &envPropertyExpectations{nameAndKey: true, expiringSDKKey: true}, func(proj projectInfo, env environmentInfo) string {
+				return string(env.id)
+			})
+		})
+	})
+
+	// Tests that upon startup, if an archive contains a primary and deprecated key, we become initialized with both keys.
+	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
+		helpers.WithTempDir(func(dirPath string) {
+			fileName := "archive.tar.gz"
+			filePath := filepath.Join(manager.relaySharedDir, fileName)
+
+			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(1*time.Hour))
+
+			err := downloadRelayArchive(manager, testData.autoConfigKey, filePath)
+			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
+			require.NoError(t, err)
+
+			manager.startRelay(t, map[string]string{
+				"FILE_DATA_SOURCE":                    filepath.Join(relayContainerSharedDir, fileName),
+				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "100ms",
+			})
+			defer manager.stopRelay(t)
+
+			manager.awaitEnvironments(t, updated, &envPropertyExpectations{nameAndKey: true, expiringSDKKey: true}, func(proj projectInfo, env environmentInfo) string {
 				return string(env.id)
 			})
 			manager.verifyFlagValues(t, testData.projsAndEnvs)
@@ -48,8 +113,8 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 	})
 }
 
-func withOfflineModeTestData(t *testing.T, manager *integrationTestManager, fn func(offlineModeTestData)) {
-	projsAndEnvs, err := manager.apiHelper.createProjectsAndEnvironments(2, 2)
+func withOfflineModeTestData(t *testing.T, manager *integrationTestManager, cfg apiParams, fn func(offlineModeTestData)) {
+	projsAndEnvs, err := manager.apiHelper.createProjectsAndEnvironments(cfg.numProjects, cfg.numEnvironments)
 	require.NoError(t, err)
 	defer manager.apiHelper.deleteProjects(projsAndEnvs)
 

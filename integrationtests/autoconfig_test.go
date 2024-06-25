@@ -77,7 +77,7 @@ func testPolicyUpdate(t *testing.T, manager *integrationTestManager) {
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if len(status.Environments) == 1 {
 				if envStatus, ok := status.Environments[string(remainingEnv.id)]; ok {
-					verifyEnvProperties(t, testData.project, remainingEnv, envStatus, true)
+					verifyEnvProperties(t, testData.project, remainingEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 					return true
 				}
 			}
@@ -96,7 +96,7 @@ func testAddEnvironment(t *testing.T, manager *integrationTestManager) {
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if len(status.Environments) == len(testData.environments)+1 {
 				if envStatus, ok := status.Environments[string(newEnv.id)]; ok {
-					verifyEnvProperties(t, testData.project, newEnv, envStatus, true)
+					verifyEnvProperties(t, testData.project, newEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 					return true
 				}
 			}
@@ -136,7 +136,7 @@ func testUpdatedSDKKeyWithoutExpiry(t *testing.T, manager *integrationTestManage
 
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
-				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 				return last5(envStatus.SDKKey) == last5(string(newKey)) && envStatus.ExpiringSDKKey == ""
 			}
 			return false
@@ -166,7 +166,7 @@ func testUpdatedSDKKeyWithExpiry(t *testing.T, manager *integrationTestManager) 
 				return false
 			}
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
-				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 				return last5(envStatus.SDKKey) == last5(string(newKey)) &&
 					last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
 			}
@@ -204,13 +204,13 @@ func testUpdatedSDKKeyWithExpiryBeforeStartingRelay(t *testing.T, manager *integ
 	})
 	defer manager.stopRelay(t)
 
-	manager.awaitEnvironments(t, projAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+	manager.awaitEnvironments(t, projAndEnvs, nil, func(proj projectInfo, env environmentInfo) string {
 		return string(env.id)
 	})
 
 	manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 		if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
-			verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+			verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 			return last5(envStatus.SDKKey) == last5(string(newKey)) &&
 				last5(envStatus.ExpiringSDKKey) == last5(string(oldKey))
 		}
@@ -238,7 +238,7 @@ func testUpdatedMobileKey(t *testing.T, manager *integrationTestManager) {
 
 		manager.awaitRelayStatus(t, func(status api.StatusRep) bool {
 			if envStatus, ok := status.Environments[string(envToUpdate.id)]; ok {
-				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, true)
+				verifyEnvProperties(t, testData.project, updatedEnv, envStatus, &envPropertyExpectations{nameAndKey: true})
 				return last5(envStatus.MobileKey) == last5(string(newKey))
 			}
 			return false
@@ -286,7 +286,7 @@ func withRelayAndTestData(t *testing.T, manager *integrationTestManager, action 
 
 func awaitInitialState(t *testing.T, manager *integrationTestManager, testData autoConfigTestData) {
 	projsAndEnvs := projsAndEnvs{testData.project: testData.environments}
-	manager.awaitEnvironments(t, projsAndEnvs, true, func(proj projectInfo, env environmentInfo) string {
+	manager.awaitEnvironments(t, projsAndEnvs, &envPropertyExpectations{nameAndKey: true}, func(proj projectInfo, env environmentInfo) string {
 		return string(env.id)
 	})
 }

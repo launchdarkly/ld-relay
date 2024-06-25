@@ -120,6 +120,7 @@ type envContextImpl struct {
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
+	offline                   bool
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -190,6 +191,7 @@ func NewEnvContext(
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
+		offline:                   envConfig.Offline,
 	}
 
 	envContext.keyRotator.Initialize([]credential.SDKCredential{
@@ -433,7 +435,9 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// new SDK client, but does requiring updating any event forwarding components that use a mobile key.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		go c.startSDKClient(key, nil, false)
+		if !c.offline {
+			go c.startSDKClient(key, nil, false)
+		}
 		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
 			c.metricsEventPub.ReplaceCredential(key)
 		}
@@ -457,11 +461,13 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	for _, handlers := range c.handlers {
 		delete(handlers, oldCredential)
 	}
-	if sdkKey, ok := oldCredential.(config.SDKKey); ok {
-		// The SDK client instance is tied to the SDK key, so get rid of it
-		if client := c.clients[sdkKey]; client != nil {
-			delete(c.clients, sdkKey)
-			_ = client.Close()
+	if !c.offline {
+		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
+			// The SDK client instance is tied to the SDK key, so get rid of it
+			if client := c.clients[sdkKey]; client != nil {
+				delete(c.clients, sdkKey)
+				_ = client.Close()
+			}
 		}
 	}
 }
@@ -560,6 +566,12 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.offline {
+		for _, client := range c.clients {
+			return client
+		}
+		return nil
+	}
 	return c.clients[c.keyRotator.SDKKey()]
 }
 

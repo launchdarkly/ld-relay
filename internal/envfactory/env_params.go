@@ -35,6 +35,9 @@ type EnvironmentParams struct {
 
 	// SecureMode is true if secure mode is required for this environment.
 	SecureMode bool
+
+	// True if the environment was created from an offline file data source.
+	Offline bool
 }
 
 type ExpiringSDKKey struct {

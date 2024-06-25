@@ -15,13 +15,14 @@ type projectInfo struct {
 }
 
 type environmentInfo struct {
-	id        config.EnvironmentID
-	key       string
-	name      string
-	sdkKey    config.SDKKey
-	mobileKey config.MobileKey
-	prefix    string
-	projKey   string
+	id             config.EnvironmentID
+	key            string
+	name           string
+	sdkKey         config.SDKKey
+	expiringSdkKey config.SDKKey
+	mobileKey      config.MobileKey
+	prefix         string
+	projKey        string
 
 	// this is a synthetic field, set only when this environment is a filtered environment.
 	filterKey config.FilterKey

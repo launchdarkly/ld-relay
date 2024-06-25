@@ -25,7 +25,7 @@ func testStandardMode(t *testing.T, manager *integrationTestManager) {
 		manager.startRelay(t, envVars)
 		defer manager.stopRelay(t)
 
-		manager.awaitEnvironments(t, testData.projsAndEnvs, false, func(proj projectInfo, env environmentInfo) string {
+		manager.awaitEnvironments(t, testData.projsAndEnvs, nil, func(proj projectInfo, env environmentInfo) string {
 			return string(env.name)
 		})
 		manager.verifyFlagValues(t, testData.projsAndEnvs)

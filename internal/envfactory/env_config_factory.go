@@ -54,6 +54,7 @@ func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config
 		AllowedHeader: f.AllowedHeader,
 		SecureMode:    params.SecureMode,
 		FilterKey:     params.Identifiers.FilterKey,
+		Offline:       params.Offline,
 	}
 	if params.TTL != 0 {
 		ret.TTL = ct.NewOptDuration(params.TTL)

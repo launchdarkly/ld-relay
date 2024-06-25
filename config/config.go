@@ -263,6 +263,7 @@ type EnvConfig struct {
 	TTL           ct.OptDuration   `conf:"LD_TTL_"`
 	ProjKey       string           `conf:"LD_PROJ_KEY_"`
 	FilterKey     FilterKey        // injected based on [filters] section
+	Offline       bool             // set to true if this environment was created in offline mode
 }
 
 type FiltersConfig struct {
