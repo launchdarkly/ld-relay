@@ -37,6 +37,21 @@ type apiParams struct {
 }
 
 func testOfflineMode(t *testing.T, manager *integrationTestManager) {
+	t.Run("expected environments and flag values", func(t *testing.T) {
+		testExpectedEnvironmentsAndFlagValues(t, manager)
+	})
+	t.Run("sdk key is rotated with deprecation after relay has started", func(t *testing.T) {
+		testSDKKeyRotatedAfterRelayStarted(t, manager)
+	})
+	t.Run("sdk key is rotated with deprecation before relay has started", func(t *testing.T) {
+		testSDKKeyRotatedBeforeRelayStarted(t, manager)
+	})
+	t.Run("sdk key is rotated multiple times without deprecation after relay started", func(t *testing.T) {
+		testSDKKeyRotatedWithoutDeprecation(t, manager)
+	})
+}
+
+func testExpectedEnvironmentsAndFlagValues(t *testing.T, manager *integrationTestManager) {
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 2}, func(testData offlineModeTestData) {
 		helpers.WithTempDir(func(dirPath string) {
 			fileName := "archive.tar.gz"
@@ -57,7 +72,9 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			manager.verifyFlagValues(t, testData.projsAndEnvs)
 		})
 	})
+}
 
+func testSDKKeyRotatedAfterRelayStarted(t *testing.T, manager *integrationTestManager) {
 	// If we download an archive with a primary SDK key, and then it is subsequently updated
 	// with a deprecated key, we become initialized with both keys present.
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
@@ -95,7 +112,9 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			})
 		})
 	})
+}
 
+func testSDKKeyRotatedBeforeRelayStarted(t *testing.T, manager *integrationTestManager) {
 	// Upon startup if an archive contains a primary and deprecated key, we become initialized with both keys.
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
 		helpers.WithTempDir(func(dirPath string) {
@@ -121,6 +140,9 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			manager.verifyFlagValues(t, testData.projsAndEnvs)
 		})
 	})
+}
+
+func testSDKKeyRotatedWithoutDeprecation(t *testing.T, manager *integrationTestManager) {
 
 	// If a key is deprecated and then expires, it should be removed from the environment credentials.
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
@@ -159,6 +181,9 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 			})
 		})
 	})
+}
+
+func testKeyIsRotatedWithoutGracePeriod(t *testing.T, manager *integrationTestManager) {
 
 	// If a key is rotated without a grace period, then the old one should be revoked immediately.
 	// If a key is deprecated and then expires, it should be removed from the environment credentials.
