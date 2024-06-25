@@ -6,17 +6,18 @@ import "fmt"
 // except for debug logging.
 
 const (
-	logMsgAddEnv                       = "Added environment %s (%s)"
-	logMsgUpdateEnv                    = "Updated environment %s (%s)"
-	logMsgDeleteEnv                    = "Removed environment %s (%s)"
-	logMsgNoEnvs                       = "The data file does not contain any environments; check your configuration"
-	logMsgBadEnvData                   = "Found invalid data for environment %s; skipping this environment"
-	logMsgReloadedData                 = "Reloaded data from %s"
-	logMsgReloadFileNotFound           = "Data file reload failed; file not found"
-	logMsgReloadError                  = "Data file reload failed; file is invalid or possibly incomplete (error: %s)"
-	logMsgReloadUnchangedRetry         = "Data file has not changed since last failure, will wait in case it is still being copied"
-	logMsgReloadUnchangedNoMoreRetries = "Data file reload failed, and no further changes were detected; giving up until next change (error: %s)"
-	logMsgReloadWillRetry              = "Will retry in %s"
+	logMsgAddEnv                     = "Added environment %s (%s)"
+	logMsgUpdateEnv                  = "Updated environment %s (%s)"
+	logMsgDeleteEnv                  = "Removed environment %s (%s)"
+	logMsgNoEnvs                     = "The data file does not contain any environments; check your configuration"
+	logMsgBadEnvData                 = "Found invalid data for environment %s; skipping this environment"
+	logMsgReloadedData               = "Reloaded data from %s"
+	logMsgMonitoringStarted          = "Monitoring data file %s for changes (every %s) (size=%d, mtime=%s)"
+	logMsgReloadFileStatNotFound     = "Data file stat failed; file %s not found"
+	logMsgReloadFileStatUnknownError = "Data file stat failed: %v"
+	logMsgReloadError                = "Data file reload failed; file is invalid or possibly incomplete (error: %s)"
+	logMsgFileChanged                = "Data file %s has changed (size=%d, mtime=%s)"
+	logMsgFileNotChanged             = "Data file %s has not changed (size=%d, mtime=%s)"
 )
 
 func errBadItemJSON(key, namespace string) error {

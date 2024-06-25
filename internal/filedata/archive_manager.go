@@ -94,7 +94,7 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 
 	prevInfo := original
 
-	am.loggers.Infof("Monitoring %s for changes (every %s) (size=%d, mtime=%s)", am.filePath, am.monitoringInterval, original.Size(), original.ModTime())
+	am.loggers.Infof(logMsgMonitoringStarted, am.filePath, am.monitoringInterval, original.Size(), original.ModTime())
 
 	for {
 		select {
@@ -104,14 +104,14 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 			nextInfo, err := os.Stat(am.filePath)
 			if err != nil {
 				if os.IsNotExist(err) {
-					am.loggers.Errorf("File %s not found", am.filePath)
+					am.loggers.Errorf(logMsgReloadFileStatNotFound, am.filePath)
 				} else {
-					am.loggers.Errorf("Error: %s", err)
+					am.loggers.Errorf(logMsgReloadFileStatUnknownError, err)
 				}
 				continue
 			}
 			if fileMayHaveChanged(prevInfo, nextInfo) {
-				am.loggers.Infof("File %s has changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				am.loggers.Infof(logMsgFileChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
 				reader, err := newArchiveReader(am.filePath)
 				if err != nil {
 					// A failure here might be a real failure, or it might be that the file is being copied
@@ -119,12 +119,14 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 					am.loggers.Warnf(logMsgReloadError, err.Error())
 					continue
 				}
-				am.loggers.Warnf("Reloaded data from %s", am.filePath)
+				am.loggers.Warnf(logMsgReloadedData, am.filePath)
 				am.updatedArchive(reader)
 				reader.Close()
 			} else {
-				am.loggers.Debugf("File %s has not changed (size=%d, mtime=%s)", am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				am.loggers.Debugf(logMsgFileNotChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
 			}
+
+			prevInfo = nextInfo
 		}
 	}
 }
