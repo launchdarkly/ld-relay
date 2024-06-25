@@ -15,12 +15,9 @@ outputs:
   hashes: 
     description: sha256sum hashes of built artifacts 
     value: ${{ steps.binary.outputs.hashes }}
-  image: 
-    description: built docker image names
-    value: ${{ steps.image.outputs.name }}
-  digest: 
-    description: built docker image digests 
-    value: ${{ steps.image.outputs.digest }}
+  images_and_digests: 
+    description: built docker image names and digests in JSON format
+    value: ${{ steps.image.outputs.images_and_digests }}
 
 runs:
   using: composite
@@ -57,19 +54,15 @@ runs:
 
         checksum_file=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Checksum") | .path')
         echo "hashes=$(cat $checksum_file | base64 -w0)" >> "$GITHUB_OUTPUT"
-    - name: Image digest 
-      id: image 
+    - name: Output image and digest
+      id: image
       shell: bash
       env:
         ARTIFACTS: "${{ steps.goreleaser.outputs.artifacts }}"
       run: |
         # Generate image digest
         set -euo pipefail
-        image_and_digest=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Docker Manifest") | .path')
-        image=$(echo "${image_and_digest}" | cut -d'@' -f1 | cut -d':' -f1)
-        digest=$(echo "${image_and_digest}" | cut -d'@' -f2)
-        { echo 'name<<END'; echo $image; echo END; } >> "$GITHUB_OUTPUT"
-        { echo 'digest<<END'; echo $digest; echo END; } >> "$GITHUB_OUTPUT"
+        echo "images_and_digests=$(echo "$ARTIFACTS" | jq -c '. | map(select (.type=="Docker Manifest") | .image=(.path | split(":")[0]) | .digest=(.extra | .Digest) | {image, digest})')" >> "$GITHUB_OUTPUT"
 
     - name: Upload Release Artifacts
       shell: bash
