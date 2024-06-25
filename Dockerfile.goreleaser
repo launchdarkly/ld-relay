@@ -1,6 +1,6 @@
 # This is a Dockerfile used for release (published to dockerhub by goreleaser)
 
-FROM alpine:3.20.0
+FROM alpine:3.20.1
 # See "Runtime platform versions" in CONTRIBUTING.md
 
 RUN apk add --no-cache \

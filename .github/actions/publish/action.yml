@@ -68,8 +68,8 @@ runs:
         image_and_digest=$(echo "$ARTIFACTS" | jq -r '.[] | select (.type=="Docker Manifest") | .path')
         image=$(echo "${image_and_digest}" | cut -d'@' -f1 | cut -d':' -f1)
         digest=$(echo "${image_and_digest}" | cut -d'@' -f2)
-        { echo 'name<<EOF'; echo $image; echo EOF } >> "$GITHUB_OUTPUT"
-        { echo 'digest<<EOF'; echo $digest; echo EOF } >> "$GITHUB_OUTPUT"
+        { echo 'name<<END'; echo $image; echo END; } >> "$GITHUB_OUTPUT"
+        { echo 'digest<<END'; echo $digest; echo END; } >> "$GITHUB_OUTPUT"
 
     - name: Upload Release Artifacts
       shell: bash
