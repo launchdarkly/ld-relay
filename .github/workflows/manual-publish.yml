@@ -24,8 +24,7 @@ jobs:
       contents: write # Needed to upload release artifacts
     outputs:
       hashes: ${{ steps.publish.outputs.hashes }}
-      image: ${{ steps.publish.outputs.image }}
-      digest: ${{ steps.publish.outputs.digest }}
+      images_and_digests: ${{ steps.publish.outputs.images_and_digests }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,9 +69,11 @@ jobs:
       id-token: write
       packages: write
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+    strategy:
+      matrix: ${{fromJson(needs.build-publish.outputs.images_and_digests)}}
     with:
-      image: ${{ needs.build-publish.outputs.image }}
-      digest: ${{ needs.build-publish.outputs.digest }}
+      image: ${{ matrix.image }}
+      digest: ${{ matrix.digest }}
       registry-username: ${{ github.actor }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
