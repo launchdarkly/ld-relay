@@ -334,7 +334,11 @@ func (m *integrationTestManager) rotateSDKKeys(t *testing.T, existing projsAndEn
 		for _, env := range envs {
 			newKey, err := m.apiHelper.rotateSDKKey(proj, env, expiry)
 			require.NoError(t, err, "failed to rotate SDK key for environment %s", env.id)
-			env.expiringSdkKey = env.sdkKey
+			if expiry.IsZero() {
+				env.expiringSdkKey = ""
+			} else {
+				env.expiringSdkKey = env.sdkKey
+			}
 			env.sdkKey = newKey
 			updated[proj] = append(updated[proj], env)
 		}
@@ -468,9 +472,14 @@ func (m *integrationTestManager) withExtraContainer(
 	action(container)
 }
 
+// Expectations of the test when checking the status response from Relay.
 type envPropertyExpectations struct {
-	nameAndKey     bool
-	expiringSDKKey bool
+	// The environment/project have names + keys
+	nameAndKey bool
+	// The environments have sdkKey and expiringSdkKey that match the expected values. Matching is determined
+	// by masking the keys and comparing those masked values, since the status response obscures most of the key except
+	// for the last few characters.
+	sdkKeys bool
 }
 
 func verifyEnvProperties(t *testing.T, project projectInfo, environment environmentInfo, envStatus api.EnvironmentStatusRep, expectations *envPropertyExpectations) {
@@ -484,8 +493,17 @@ func verifyEnvProperties(t *testing.T, project projectInfo, environment environm
 		assert.Equal(t, project.name, envStatus.ProjName)
 		assert.Equal(t, project.key, envStatus.ProjKey)
 	}
-	if expectations.expiringSDKKey {
-		assert.Equal(t, environment.expiringSdkKey.Masked(), config.SDKKey(envStatus.ExpiringSDKKey).Masked())
+	if expectations.sdkKeys {
+		if !environment.expiringSdkKey.Defined() {
+			assert.Empty(t, envStatus.ExpiringSDKKey, "expected no expiring SDK key to be defined")
+		} else {
+			assert.Equal(t, environment.expiringSdkKey.Masked(), config.SDKKey(envStatus.ExpiringSDKKey).Masked(), "expected expiring SDK key to match")
+		}
+		if !environment.sdkKey.Defined() {
+			assert.Empty(t, envStatus.SDKKey, "expected no SDK key to be defined")
+		} else {
+			assert.Equal(t, environment.sdkKey.Masked(), config.SDKKey(envStatus.SDKKey).Masked(), "expected SDK key to match")
+		}
 	}
 }
 

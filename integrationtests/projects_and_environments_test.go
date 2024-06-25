@@ -30,6 +30,15 @@ type environmentInfo struct {
 
 type projsAndEnvs map[projectInfo][]environmentInfo
 
+func (pe projsAndEnvs) withoutExpiringKeys() projsAndEnvs {
+	for _, envs := range pe {
+		for i := range envs {
+			envs[i].expiringSdkKey = ""
+		}
+	}
+	return pe
+}
+
 func (pe projsAndEnvs) enumerateEnvs(fn func(projectInfo, environmentInfo)) {
 	for proj, envs := range pe {
 		for _, env := range envs {
