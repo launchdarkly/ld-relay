@@ -46,20 +46,20 @@ func TestImmediateKeyExpiration(t *testing.T) {
 
 			// The first rotation shouldn't trigger any expirations because there was no previous key.
 			rotator.Rotate(c.keys[0])
-			additions, _ := rotator.Query(time.Now())
+			additions, _ := rotator.StepTime(time.Now())
 			assert.ElementsMatch(t, c.keys[0:1], additions)
 			assert.Equal(t, c.keys[0], c.getKey(rotator))
 
 			// The second rotation should trigger a deprecation of key1.
 			rotator.Rotate(c.keys[1])
-			additions, expirations := rotator.Query(time.Now())
+			additions, expirations := rotator.StepTime(time.Now())
 			assert.ElementsMatch(t, c.keys[1:2], additions)
 			assert.ElementsMatch(t, c.keys[0:1], expirations)
 			assert.Equal(t, c.keys[1], c.getKey(rotator))
 
 			// The third rotation should trigger a deprecation of key2.
 			rotator.Rotate(c.keys[2])
-			additions, expirations = rotator.Query(time.Now())
+			additions, expirations = rotator.StepTime(time.Now())
 			assert.ElementsMatch(t, c.keys[2:3], additions)
 			assert.ElementsMatch(t, c.keys[1:2], expirations)
 			assert.Equal(t, c.keys[2], c.getKey(rotator))
@@ -104,7 +104,7 @@ func TestManyImmediateKeyExpirations(t *testing.T) {
 
 			assert.Equal(t, c.makeKey(fmt.Sprintf("key%v", numKeys-1)), c.getKey(rotator))
 
-			additions, expirations := rotator.Query(time.Now())
+			additions, expirations := rotator.StepTime(time.Now())
 			assert.Len(t, additions, numKeys)
 			assert.Len(t, expirations, numKeys-1) // because the last key is still active
 		})
@@ -128,15 +128,15 @@ func TestSDKKeyDeprecation(t *testing.T) {
 	rotator.Initialize([]SDKCredential{key1})
 
 	rotator.RotateWithGrace(key2, NewGracePeriod(key1, deprecationTime, halfTime))
-	additions, expirations := rotator.Query(halfTime)
+	additions, expirations := rotator.StepTime(halfTime)
 	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
 	assert.Empty(t, expirations)
 
-	additions, expirations = rotator.Query(deprecationTime)
+	additions, expirations = rotator.StepTime(deprecationTime)
 	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 
-	additions, expirations = rotator.Query(deprecationTime.Add(1 * time.Millisecond))
+	additions, expirations = rotator.StepTime(deprecationTime.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
 }
@@ -172,12 +172,12 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 	assert.Equal(t, keysAdded[len(keysAdded)-1], rotator.SDKKey())
 
 	// Until and including the exact expiry timestamp, there should be no expirations.
-	additions, expirations := rotator.Query(expiryTime)
+	additions, expirations := rotator.StepTime(expiryTime)
 	assert.ElementsMatch(t, keysAdded, additions)
 	assert.Empty(t, expirations)
 
 	// One moment after the expiry time, we should now have a batch of expirations.
-	additions, expirations = rotator.Query(expiryTime.Add(1 * time.Millisecond))
+	additions, expirations = rotator.StepTime(expiryTime.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.ElementsMatch(t, keysDeprecated, expirations)
 }
@@ -193,7 +193,7 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 
 	rotator.RotateWithGrace(primaryKey, NewGracePeriod(obsoleteKey, obsoleteExpiry, now))
 
-	additions, expirations := rotator.Query(now)
+	additions, expirations := rotator.StepTime(now)
 	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
 	assert.Empty(t, expirations)
 }

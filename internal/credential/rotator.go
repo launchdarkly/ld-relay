@@ -38,6 +38,8 @@ type InitialCredentials struct {
 	EnvironmentID config.EnvironmentID
 }
 
+// NewRotator constructs a rotator with the provided loggers. A new rotator
+// contains no credentials and can optionally be initialized via Initialize.
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
 		loggers:           loggers,
@@ -46,6 +48,8 @@ func NewRotator(loggers ldlog.Loggers) *Rotator {
 	return r
 }
 
+// Initialize sets the initial credentials. Only credentials that are defined
+// will be stored.
 func (r *Rotator) Initialize(credentials []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,24 +69,28 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 	}
 }
 
+// MobileKey returns the primary mobile key.
 func (r *Rotator) MobileKey() config.MobileKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.primaryMobileKey
 }
 
+// SDKKey returns the primary SDK key.
 func (r *Rotator) SDKKey() config.SDKKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.primarySdkKey
 }
 
+// EnvironmentID returns the environment ID.
 func (r *Rotator) EnvironmentID() config.EnvironmentID {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.primaryEnvironmentID
 }
 
+// PrimaryCredentials returns the primary (non-deprecated) credentials.
 func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -107,32 +115,46 @@ func (r *Rotator) deprecatedCredentials() []SDKCredential {
 	return deprecated
 }
 
+// DeprecatedCredentials returns deprecated credentials (not expired or primary.)
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.deprecatedCredentials()
 }
 
+// AllCredentials returns the primary and deprecated credentials as one list.
 func (r *Rotator) AllCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return append(r.primaryCredentials(), r.deprecatedCredentials()...)
 }
 
+// Rotate sets a new primary credential while revoking the previous.
 func (r *Rotator) Rotate(cred SDKCredential) {
 	r.RotateWithGrace(cred, nil)
 }
 
+// GracePeriod represents a grace period (or deprecation period) within which
+// a particular SDK key is still valid, pending revocation.
 type GracePeriod struct {
-	key    config.SDKKey
+	// The SDK key that is being deprecated.
+	key config.SDKKey
+	// When the key will expire.
 	expiry time.Time
-	now    time.Time
+	// The current timestamp.
+	now time.Time
 }
 
+// NewGracePeriod constructs a new grace period. The current time must be provided in order to
+// determine if the credential is already expired.
 func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePeriod {
 	return &GracePeriod{key, expiry, now}
 }
 
+// RotateWithGrace sets a new primary credential while deprecating a previous credential. The grace
+// parameter may be nil to immediately revoke the previous credential.
+// It is invalid to specify a grace period when the credential being rotate is a mobile key or
+// environment ID.
 func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
 	switch primary := primary.(type) {
 	case config.SDKKey:
@@ -237,7 +259,9 @@ func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.expirations = append(r.expirations, sdkKey)
 }
 
-func (r *Rotator) Query(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
+// StepTime provides the current time to the Rotator, allowing it to compute the set of additions and expirations
+// for the tracked credentials since the last time this method was called.
+func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

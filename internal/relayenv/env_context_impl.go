@@ -540,7 +540,7 @@ func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
-	additions, expirations := c.keyRotator.Query(now)
+	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
 		c.addCredential(cred)
 	}
