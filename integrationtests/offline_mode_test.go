@@ -46,8 +46,11 @@ func testOfflineMode(t *testing.T, manager *integrationTestManager) {
 	t.Run("sdk key is rotated with deprecation before relay has started", func(t *testing.T) {
 		testSDKKeyRotatedBeforeRelayStarted(t, manager)
 	})
+	t.Run("sdk key is rotated and then expires", func(t *testing.T) {
+		testSDKKeyExpires(t, manager)
+	})
 	t.Run("sdk key is rotated multiple times without deprecation after relay started", func(t *testing.T) {
-		testSDKKeyRotatedWithoutDeprecation(t, manager)
+		testKeyIsRotatedWithoutGracePeriod(t, manager)
 	})
 }
 
@@ -86,9 +89,16 @@ func testSDKKeyRotatedAfterRelayStarted(t *testing.T, manager *integrationTestMa
 			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
 			require.NoError(t, err)
 
+			// Ensure the key won't expire during this test.
+			const keyGracePeriod = 1 * time.Hour
+			// Relay will check for expired keys at this interval.
+			const cleanupInterval = 100 * time.Millisecond
+			// We'll sleep longer than the interval after rotating keys, to try and reduce test flakiness.
+			const cleanupIntervalBuffer = 1 * time.Second
+
 			manager.startRelay(t, map[string]string{
 				"FILE_DATA_SOURCE":                    filepath.Join(relayContainerSharedDir, fileName),
-				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "100ms",
+				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": cleanupInterval.String(),
 			})
 			defer manager.stopRelay(t)
 
@@ -99,11 +109,13 @@ func testSDKKeyRotatedAfterRelayStarted(t *testing.T, manager *integrationTestMa
 
 			// The updated map will is modified to contain expiringSdkKey field (with the old SDK key) and
 			// the new key set to whatever the API call returned.
-			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(1*time.Hour))
+			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(keyGracePeriod))
 
 			err = downloadRelayArchive(manager, testData.autoConfigKey, filePath)
 			manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
 			require.NoError(t, err)
+
+			time.Sleep(cleanupIntervalBuffer)
 
 			// We are now asserting that the environment credentials returned by the status endpoint contains not just
 			// the new SDK key, but the expiring one as well.
@@ -121,6 +133,11 @@ func testSDKKeyRotatedBeforeRelayStarted(t *testing.T, manager *integrationTestM
 			fileName := "archive.tar.gz"
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
 
+			// Relay will check for expired keys at this interval.
+			const cleanupInterval = 100 * time.Millisecond
+			// We'll sleep longer than the interval after rotating keys, to try and reduce test flakiness.
+			const cleanupIntervalBuffer = 1 * time.Second
+
 			// Rotation happens before starting up the relay.
 			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(1*time.Hour))
 
@@ -130,9 +147,11 @@ func testSDKKeyRotatedBeforeRelayStarted(t *testing.T, manager *integrationTestM
 
 			manager.startRelay(t, map[string]string{
 				"FILE_DATA_SOURCE":                    filepath.Join(relayContainerSharedDir, fileName),
-				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "100ms",
+				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": cleanupInterval.String(),
 			})
 			defer manager.stopRelay(t)
+
+			time.Sleep(cleanupIntervalBuffer)
 
 			manager.awaitEnvironments(t, updated, &envPropertyExpectations{nameAndKey: true, sdkKeys: true}, func(proj projectInfo, env environmentInfo) string {
 				return string(env.id)
@@ -142,8 +161,7 @@ func testSDKKeyRotatedBeforeRelayStarted(t *testing.T, manager *integrationTestM
 	})
 }
 
-func testSDKKeyRotatedWithoutDeprecation(t *testing.T, manager *integrationTestManager) {
-
+func testSDKKeyExpires(t *testing.T, manager *integrationTestManager) {
 	// If a key is deprecated and then expires, it should be removed from the environment credentials.
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
 		helpers.WithTempDir(func(dirPath string) {
@@ -151,6 +169,8 @@ func testSDKKeyRotatedWithoutDeprecation(t *testing.T, manager *integrationTestM
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
 
 			const keyGracePeriod = 5 * time.Second
+			// Relay will check for expired keys at this interval.
+			const cleanupInterval = 100 * time.Millisecond
 
 			// Rotation happens before starting up the relay.
 			updated := manager.rotateSDKKeys(t, testData.projsAndEnvs, time.Now().Add(keyGracePeriod))
@@ -162,7 +182,7 @@ func testSDKKeyRotatedWithoutDeprecation(t *testing.T, manager *integrationTestM
 
 			manager.startRelay(t, map[string]string{
 				"FILE_DATA_SOURCE":                    filepath.Join(relayContainerSharedDir, fileName),
-				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "100ms",
+				"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": cleanupInterval.String(),
 			})
 			defer manager.stopRelay(t)
 
@@ -184,7 +204,6 @@ func testSDKKeyRotatedWithoutDeprecation(t *testing.T, manager *integrationTestM
 }
 
 func testKeyIsRotatedWithoutGracePeriod(t *testing.T, manager *integrationTestManager) {
-
 	// If a key is rotated without a grace period, then the old one should be revoked immediately.
 	// If a key is deprecated and then expires, it should be removed from the environment credentials.
 	withOfflineModeTestData(t, manager, apiParams{numEnvironments: 2, numProjects: 1}, func(testData offlineModeTestData) {
@@ -197,9 +216,9 @@ func testKeyIsRotatedWithoutGracePeriod(t *testing.T, manager *integrationTestMa
 			require.NoError(t, err)
 
 			// Relay will check for expired keys at this interval.
-			cleanupInterval := 100 * time.Millisecond
+			const cleanupInterval = 100 * time.Millisecond
 			// We'll sleep longer than the interval after rotating keys, to try and reduce test flakiness.
-			cleanupIntervalBuffer := 1 * time.Second
+			const cleanupIntervalBuffer = 1 * time.Second
 
 			fmt.Println(cleanupInterval)
 			manager.startRelay(t, map[string]string{
