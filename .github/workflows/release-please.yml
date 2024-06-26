@@ -76,10 +76,11 @@ jobs:
       packages: write
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
     strategy:
-      matrix: ${{fromJson(needs.release-relay.outputs.images_and_digests)}}
+      matrix: 
+        images_and_digests: ${{fromJson(needs.release-relay.outputs.images_and_digests)}}
     with:
-      image: ${{ matrix.image }}
-      digest: ${{ matrix.digest }}
+      image: ${{ matrix.images_and_digests.image }}
+      digest: ${{ matrix.images_and_digests.digest }}
       registry-username: ${{ github.actor }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
