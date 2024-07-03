@@ -218,11 +218,11 @@ func base64urlDecode(base64String string) ([]byte, error) {
 	return idStr, nil
 }
 
-func GzipMiddleware(maxInputPayloadSize ct.OptBase2Bytes) mux.MiddlewareFunc {
+func GzipMiddleware(maxInboundPayloadSize ct.OptBase2Bytes) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			isGzipped := strings.Contains(r.Header.Get("Content-Encoding"), "gzip")
-			reader, err := util.NewReader(r.Body, isGzipped, maxInputPayloadSize)
+			reader, err := util.NewReader(r.Body, isGzipped, maxInboundPayloadSize)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

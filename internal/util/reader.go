@@ -25,10 +25,10 @@ type PayloadReader struct {
 }
 
 // NewReader creates a new reader
-func NewReader(r io.ReadCloser, isGzipped bool, maxInputPayloadSize ct.OptBase2Bytes) (io.ReadCloser, error) {
+func NewReader(r io.ReadCloser, isGzipped bool, maxInboundPayloadSize ct.OptBase2Bytes) (io.ReadCloser, error) {
 	// If this isn't compressed, and we don't want to limit the size, just
 	// return the original reader
-	if !isGzipped && !maxInputPayloadSize.IsDefined() {
+	if !isGzipped && !maxInboundPayloadSize.IsDefined() {
 		return r, nil
 	}
 
@@ -46,14 +46,14 @@ func NewReader(r io.ReadCloser, isGzipped bool, maxInputPayloadSize ct.OptBase2B
 		}
 
 		// If we don't want to limit the size, just return the gzip reader
-		if !maxInputPayloadSize.IsDefined() {
+		if !maxInboundPayloadSize.IsDefined() {
 			return gzipReader, nil
 		}
 
 		s = gzipReader
 	}
 
-	maxBytes := int64(maxInputPayloadSize.GetOrElse(0))
+	maxBytes := int64(maxInboundPayloadSize.GetOrElse(0))
 	stream := io.LimitReader(s, maxBytes).(*io.LimitedReader)
 
 	payloadReader := &PayloadReader{
