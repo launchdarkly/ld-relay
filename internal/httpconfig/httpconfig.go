@@ -44,7 +44,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredent
 		return ret, errProxyAuthWithoutProxyURL
 	}
 	if proxyConfig.URL.IsDefined() {
-		loggers.Infof("Using proxy server at %s", proxyConfig.URL)
+		loggers.Infof("Using proxy server at %s", proxyConfig.URL.Get().Redacted())
 	}
 
 	caCertFiles := proxyConfig.CACertFiles.Values()
