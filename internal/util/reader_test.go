@@ -47,7 +47,6 @@ func TestPayloadBytesTracking(t *testing.T) {
 }
 
 func TestZipBombing(t *testing.T) {
-	// build a string
 	ret := strings.Repeat("0", 1_000)
 
 	nonZipBytes := []byte(ret)
