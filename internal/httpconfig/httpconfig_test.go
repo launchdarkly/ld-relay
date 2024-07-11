@@ -116,42 +116,44 @@ func TestNTLMProxyInvalidConfigs(t *testing.T) {
 
 	proxyConfig2 := proxyConfig1
 	proxyConfig2.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
-	mockLog2 := ldlogtest.NewMockLog()
-	_, err = NewHTTPConfig(proxyConfig2, nil, "", mockLog2.Loggers)
+	_, err = NewHTTPConfig(proxyConfig2, nil, "", ldlog.NewDisabledLoggers())
 	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
-	mockLog2.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://fake-proxy$")
 
 	proxyConfig3 := proxyConfig2
 	proxyConfig3.User = "user"
-	mockLog3 := ldlogtest.NewMockLog()
-	_, err = NewHTTPConfig(proxyConfig3, nil, "", mockLog3.Loggers)
+	_, err = NewHTTPConfig(proxyConfig3, nil, "", ldlog.NewDisabledLoggers())
 	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
-	mockLog3.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://fake-proxy$")
 
 	proxyConfig4 := proxyConfig3
 	proxyConfig4.Password = "pass"
-	mockLog4 := ldlogtest.NewMockLog()
-	_, err = NewHTTPConfig(proxyConfig4, nil, "", mockLog4.Loggers)
+	_, err = NewHTTPConfig(proxyConfig4, nil, "", ldlog.NewDisabledLoggers())
 	assert.NoError(t, err)
-	mockLog4.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://fake-proxy$")
 
 	proxyConfig5 := proxyConfig4
 	helpers.WithTempFile(func(certFileName string) {
 		proxyConfig5.CACertFiles = configtypes.NewOptStringList([]string{certFileName})
-		mockLog5 := ldlogtest.NewMockLog()
-		_, err = NewHTTPConfig(proxyConfig5, nil, "", mockLog5.Loggers)
+		_, err = NewHTTPConfig(proxyConfig5, nil, "", ldlog.NewDisabledLoggers())
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "invalid CA certificate data")
 		}
-		mockLog5.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://fake-proxy$")
 	})
+}
 
-	proxyConfig6 := proxyConfig4
-	url6, _ := url.Parse("http://my-user:my-password@my-proxy")
-	proxyConfig6.URL, _ = configtypes.NewOptURLAbsolute(url6)
-	mockLog6 := ldlogtest.NewMockLog()
-	_, err = NewHTTPConfig(proxyConfig6, nil, "", mockLog6.Loggers)
+func TestLogsRedactConnectionPassword(t *testing.T) {
+	// Username and password are specified separately in NTLM auth won't show in logs as they're not part of server name
+	url1, _ := configtypes.NewOptURLAbsoluteFromString("http://my-proxy")
+	proxyConfig1 := config.ProxyConfig{NTLMAuth: true, URL: url1, User: "my-user", Password: "my-pass"}
+	mockLog1 := ldlogtest.NewMockLog()
+	_, err := NewHTTPConfig(proxyConfig1, nil, "", mockLog1.Loggers)
 	assert.NoError(t, err)
-	mockLog6.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-user:xxxxx@my-proxy$")
+	mockLog1.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-proxy$")
 
+	// When username and password are configured as part of server name, verify the password is redacted
+	url2, _ := url.Parse("http://my-user:my-password@my-proxy")
+	url2Absolute, _ := configtypes.NewOptURLAbsolute(url2)
+	proxyConfig2 := config.ProxyConfig{URL: url2Absolute}
+	mockLog2 := ldlogtest.NewMockLog()
+	_, err = NewHTTPConfig(proxyConfig2, nil, "", mockLog2.Loggers)
+	assert.NoError(t, err)
+	mockLog2.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-user:xxxxx@my-proxy$")
 }
