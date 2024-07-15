@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.8.2](https://github.com/launchdarkly/ld-relay/compare/v8.8.1...v8.8.2) (2024-07-15)
+
+
+### Bug Fixes
+
+* redact password in logs if specified as part of URL ([#413](https://github.com/launchdarkly/ld-relay/issues/413)) ([0471d51](https://github.com/launchdarkly/ld-relay/commit/0471d51a315637df91d38f42afedd0e170cdefad))
+
 ## [8.8.1](https://github.com/launchdarkly/ld-relay/compare/v8.8.0...v8.8.1) (2024-07-10)
 
 
