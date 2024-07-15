@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -136,4 +137,23 @@ func TestNTLMProxyInvalidConfigs(t *testing.T) {
 			assert.Contains(t, err.Error(), "invalid CA certificate data")
 		}
 	})
+}
+
+func TestLogsRedactConnectionPassword(t *testing.T) {
+	// Username and password are specified separately in NTLM auth won't show in logs as they're not part of server name
+	url1, _ := configtypes.NewOptURLAbsoluteFromString("http://my-proxy")
+	proxyConfig1 := config.ProxyConfig{NTLMAuth: true, URL: url1, User: "my-user", Password: "my-pass"}
+	mockLog1 := ldlogtest.NewMockLog()
+	_, err := NewHTTPConfig(proxyConfig1, nil, "", mockLog1.Loggers)
+	assert.NoError(t, err)
+	mockLog1.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-proxy$")
+
+	// When username and password are configured as part of server name, verify the password is redacted
+	url2, _ := url.Parse("http://my-user:my-password@my-proxy")
+	url2Absolute, _ := configtypes.NewOptURLAbsolute(url2)
+	proxyConfig2 := config.ProxyConfig{URL: url2Absolute}
+	mockLog2 := ldlogtest.NewMockLog()
+	_, err = NewHTTPConfig(proxyConfig2, nil, "", mockLog2.Loggers)
+	assert.NoError(t, err)
+	mockLog2.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-user:xxxxx@my-proxy$")
 }
