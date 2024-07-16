@@ -121,6 +121,7 @@ type envContextImpl struct {
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
 	offline                   bool
+	closed                    bool
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -701,6 +702,11 @@ func (c *envContextImpl) FlushMetricsEvents() {
 
 func (c *envContextImpl) Close() error {
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
 	for _, client := range c.clients {
 		_ = client.Close()
 	}
