@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v8
 
-go 1.21
+go 1.20
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
