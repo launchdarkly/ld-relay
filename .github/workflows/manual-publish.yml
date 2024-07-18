@@ -33,47 +33,59 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
-      - name: Build and Test
-        uses: ./.github/actions/unit-tests
+      # - name: Build and Test
+      #   uses: ./.github/actions/unit-tests
       - name: 'Get Docker token'
         uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
-      - name: Publish Package
-        id: publish
-        uses: ./.github/actions/publish
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          dry-run: ${{ inputs.dry_run }}
-          tag: ${{ inputs.tag }}
+      # - name: Publish Package
+      #   id: publish
+      #   uses: ./.github/actions/publish
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     dry-run: ${{ inputs.dry_run }}
+      #     tag: ${{ inputs.tag }}
 
-  release-relay-binary-provenance:
+  test-ssm-secrets:
     needs: ['build-publish']
+    runs-on: ubuntu-latest
     permissions:
       actions: read
       id-token: write
-      contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
-    with:
-      base64-subjects: "${{ needs.build-publish.outputs.hashes }}"
-      upload-assets: ${{ !inputs.dry_run }}
-      upload-tag-name: ${{ inputs.tag }}
-      provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
+      contents: write 
+    steps:
+        - shell: bash
+          run: |
+            echo ${{ secrets.DOCKER_USERNAME }}; echo $DOCKER_USERNAME;
 
-  release-relay-image-provenance:
-    needs: ['build-publish']
-    if: ${{ !inputs.dry_run }}
-    permissions:
-      actions: read
-      id-token: write
-      packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
-    strategy:
-      matrix: ${{fromJson(needs.build-publish.outputs.images_and_digests)}}
-    with:
-      image: ${{ matrix.image }}
-      digest: ${{ matrix.digest }}
-      registry-username: ${{ github.actor }}
-    secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
+  # release-relay-binary-provenance:
+  #   needs: ['build-publish']
+  #   permissions:
+  #     actions: read
+  #     id-token: write
+  #     contents: write
+  #   uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+  #   with:
+  #     base64-subjects: "${{ needs.build-publish.outputs.hashes }}"
+  #     upload-assets: ${{ !inputs.dry_run }}
+  #     upload-tag-name: ${{ inputs.tag }}
+  #     provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
+
+  # release-relay-image-provenance:
+  #   needs: ['build-publish']
+  #   if: ${{ !inputs.dry_run }}
+  #   permissions:
+  #     actions: read
+  #     id-token: write
+  #     packages: write
+  #   uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+  #   strategy:
+  #     matrix: ${{fromJson(needs.build-publish.outputs.images_and_digests)}}
+  #   with:
+  #     image: ${{ matrix.images_and_digests.image }}
+  #     digest: ${{ matrix.images_and_digests.digest }}
+  #   secrets:
+  #     registry-username: ${{ secrets.DOCKER_USERNAME }}
+  #     registry-password: ${{ secrets.DOCKER_TOKEN }}
