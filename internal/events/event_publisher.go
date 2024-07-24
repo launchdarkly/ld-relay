@@ -343,11 +343,12 @@ func (p *HTTPEventPublisher) flush() {
 			// and error logging, in its SendEventData method. Retries could cause this call to block for a while,
 			// so it's run on a separate goroutine.
 			sendConfig := ldevents.EventSenderConfiguration{
-				Client:        p.client,
-				BaseURI:       p.baseURI,
-				BaseHeaders:   getBaseHeaders,
-				SchemaVersion: schemaVersion,
-				Loggers:       p.loggers,
+				Client:            p.client,
+				BaseURI:           p.baseURI,
+				BaseHeaders:       getBaseHeaders,
+				SchemaVersion:     schemaVersion,
+				Loggers:           p.loggers,
+				EnableCompression: true,
 			}
 			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)
 			p.wg.Done()
