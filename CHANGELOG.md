@@ -2,6 +2,20 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.9.0](https://github.com/launchdarkly/ld-relay/compare/v8.8.2...v8.9.0) (2024-07-25)
+
+
+### Features
+
+* Add new `MaxInboundPayloadSize` configuration to limit event payload sizes ([#364](https://github.com/launchdarkly/ld-relay/issues/364)) ([4803e76](https://github.com/launchdarkly/ld-relay/commit/4803e76abc8c26c32ed585a3a7a8684ff01a1495))
+* gzip event payloads before sending to upstream LaunchDarkly APIs ([#364](https://github.com/launchdarkly/ld-relay/issues/364)) ([4803e76](https://github.com/launchdarkly/ld-relay/commit/4803e76abc8c26c32ed585a3a7a8684ff01a1495))
+* Support receiving compressed event payloads ([#364](https://github.com/launchdarkly/ld-relay/issues/364)) ([4803e76](https://github.com/launchdarkly/ld-relay/commit/4803e76abc8c26c32ed585a3a7a8684ff01a1495))
+
+
+### Bug Fixes
+
+* Bump minimum go version to 1.21 ([#364](https://github.com/launchdarkly/ld-relay/issues/364)) ([4803e76](https://github.com/launchdarkly/ld-relay/commit/4803e76abc8c26c32ed585a3a7a8684ff01a1495))
+
 ## [8.8.2](https://github.com/launchdarkly/ld-relay/compare/v8.8.1...v8.8.2) (2024-07-15)
 
 
