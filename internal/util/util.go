@@ -1,8 +1,11 @@
 package util
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 )
 
@@ -35,4 +38,13 @@ func RedactURL(inputURL string) string {
 		}
 	}
 	return inputURL
+}
+
+func DecompressGzipData(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return data, err
+	}
+
+	return io.ReadAll(reader)
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -73,7 +74,11 @@ func verifyEventSummarizingRelay(t *testing.T, p autoConfTestParams, url string,
 
 	gotReq := helpers.RequireValue(t, p.eventRequestsCh, time.Second*5)
 	assert.Equal(p.t, authKey.GetAuthorizationHeaderValue(), gotReq.Request.Header.Get("Authorization"))
-	eventsValue := ldvalue.Parse(gotReq.Body)
+
+	decompressBody, err := util.DecompressGzipData(gotReq.Body)
+	assert.NoError(t, err)
+
+	eventsValue := ldvalue.Parse(decompressBody)
 	assert.Equal(p.t, "summary", eventsValue.GetByIndex(eventsValue.Count()-1).GetByKey("kind").StringValue())
 }
 

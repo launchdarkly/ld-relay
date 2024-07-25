@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
@@ -178,7 +179,10 @@ func TestVerbatimEventHandlers(t *testing.T) {
 					assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 					assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
 					assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-					assert.Equal(t, eventPayloadForVerbatimOnly, string(r.Body))
+
+					uncompressed, err := util.DecompressGzipData(r.Body)
+					require.NoError(t, err)
+					assert.Equal(t, eventPayloadForVerbatimOnly, string(uncompressed))
 				})
 			})
 		}
@@ -208,16 +212,33 @@ func TestVerbatimEventHandlers(t *testing.T) {
 						helpers.RequireValue(t, p.requestsCh, time.Second),
 						helpers.RequireValue(t, p.requestsCh, time.Second),
 					}
-					sort.Slice(received, func(i, j int) bool { return string(received[i].Body) < string(received[j].Body) })
+
+					type receivedPayload struct {
+						Request          *http.Request
+						UncompressedBody string
+					}
+
+					receivedPayloads := make([]receivedPayload, 0, len(received))
+
 					for _, r := range received {
+						uncompressed, err := util.DecompressGzipData([]byte(r.Body))
+						require.NoError(t, err)
+						receivedPayloads = append(receivedPayloads, receivedPayload{Request: r.Request, UncompressedBody: string(uncompressed)})
+					}
+
+					sort.Slice(receivedPayloads, func(i, j int) bool {
+						return receivedPayloads[i].UncompressedBody < receivedPayloads[j].UncompressedBody
+					})
+
+					for _, r := range receivedPayloads {
 						assert.Equal(t, "POST", r.Request.Method)
 						assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 						assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
 					}
-					assert.Equal(t, "3", received[0].Request.Header.Get(EventSchemaHeader))
-					assert.Equal(t, `["fake-event-v3-1","fake-event-v3-2","fake-event-v3-3"]`, string(received[0].Body))
-					assert.Equal(t, "4", received[1].Request.Header.Get(EventSchemaHeader))
-					assert.Equal(t, `["fake-event-v4-1","fake-event-v4-2"]`, string(received[1].Body))
+					assert.Equal(t, "3", receivedPayloads[0].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, `["fake-event-v3-1","fake-event-v3-2","fake-event-v3-3"]`, receivedPayloads[0].UncompressedBody)
+					assert.Equal(t, "4", receivedPayloads[1].Request.Header.Get(EventSchemaHeader))
+					assert.Equal(t, `["fake-event-v4-1","fake-event-v4-2"]`, receivedPayloads[1].UncompressedBody)
 				})
 			})
 		}
@@ -246,7 +267,10 @@ func TestSummarizingEventHandlers(t *testing.T) {
 				assert.Equal(t, e.analyticsPath, r.Request.URL.Path)
 				assert.Equal(t, e.authKey, r.Request.Header.Get("Authorization"))
 				assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-				m.In(t).Assert(r.Body, m.JSONStrEqual(summarizeEventsParams.expectedEventsJSON))
+
+				uncompressed, err := util.DecompressGzipData(r.Body)
+				require.NoError(t, err)
+				m.In(t).Assert(uncompressed, m.JSONStrEqual(summarizeEventsParams.expectedEventsJSON))
 			})
 		})
 	}
@@ -270,7 +294,10 @@ func TestDiagnosticEventForwarding(t *testing.T) {
 				assert.Equal(t, e.diagnosticPath, r.Request.URL.Path)
 				assert.Equal(t, "fake-auth", r.Request.Header.Get("Authorization"))
 				assert.Equal(t, "fake-user-agent", r.Request.Header.Get("User-Agent"))
-				assert.Equal(t, eventPayloadForVerbatimOnly, string(r.Body))
+
+				uncompressed, err := util.DecompressGzipData([]byte(r.Body))
+				require.NoError(t, err)
+				assert.Equal(t, eventPayloadForVerbatimOnly, string(uncompressed))
 			})
 		})
 	}

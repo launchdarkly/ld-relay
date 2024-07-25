@@ -11,6 +11,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -45,7 +46,10 @@ func TestHTTPEventPublisherSimple(t *testing.T) {
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello", "hello again"]`))
+
+		uncompressed, err := util.DecompressGzipData([]byte(r.Body))
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["hello", "hello again"]`))
 	})
 }
 
@@ -77,19 +81,28 @@ func TestHTTPEventPublisherMultiQueuesWithMetadata(t *testing.T) {
 		assert.Equal(t, string(testSDKKey), r0.Request.Header.Get("Authorization"))
 		assert.Equal(t, "3", r0.Request.Header.Get(EventSchemaHeader))
 		assert.Equal(t, "a", r0.Request.Header.Get(TagsHeader))
-		m.In(t).Assert(r0.Body, m.JSONStrEqual(`["also this"]`))
+
+		uncompressed0, err := util.DecompressGzipData(r0.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed0, m.JSONStrEqual(`["also this"]`))
 
 		assert.Equal(t, "/bulk", received[0].Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r1.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r1.Request.Header.Get(EventSchemaHeader))
 		assert.Equal(t, "a", r1.Request.Header.Get(TagsHeader))
-		m.In(t).Assert(r1.Body, m.JSONStrEqual(`["hello", "hello again"]`))
+
+		uncompressed1, err := util.DecompressGzipData(r1.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed1, m.JSONStrEqual(`["hello", "hello again"]`))
 
 		assert.Equal(t, "/bulk", r2.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r2.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r2.Request.Header.Get(EventSchemaHeader))
 		assert.Equal(t, "b", r2.Request.Header.Get(TagsHeader))
-		m.In(t).Assert(r2.Body, m.JSONStrEqual(`["ok", "thanks"]`))
+
+		uncompressed2, err := util.DecompressGzipData(r2.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed2, m.JSONStrEqual(`["ok", "thanks"]`))
 	})
 }
 
@@ -107,7 +120,10 @@ func TestHTTPEventPublisherOptionURIPath(t *testing.T) {
 		assert.Equal(t, "/special-path", r.Request.URL.Path)
 		assert.Equal(t, string(testSDKKey), r.Request.Header.Get("Authorization"))
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
+
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["hello"]`))
 	})
 }
 
@@ -130,7 +146,10 @@ func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		r := helpers.RequireValue(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
-		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
+
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["hello"]`))
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
 	})
 }
@@ -162,7 +181,11 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 		r := helpers.RequireValue(t, requestsCh, time.Second)
 		assert.Equal(t, "/bulk", r.Request.URL.Path)
 		assert.Equal(t, strconv.Itoa(CurrentEventsSchemaVersion), r.Request.Header.Get(EventSchemaHeader))
-		m.In(t).Assert(r.Body, m.JSONStrEqual(`["hello"]`))
+
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["hello"]`))
 	})
 }
 
@@ -182,10 +205,16 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 			timeStart := time.Now()
 			publisher.Flush()
 			req1 := helpers.RequireValue(t, requestsCh, time.Second*5)
+			uncompressed1, err := util.DecompressGzipData(req1.Body)
+			assert.NoError(t, err)
+
 			req2 := helpers.RequireValue(t, requestsCh, time.Second*5)
+			uncompressed2, err := util.DecompressGzipData(req2.Body)
+			assert.NoError(t, err)
+
 			elapsed := time.Since(timeStart)
-			assert.Equal(t, []byte(`["hello"]`), req1.Body)
-			assert.Equal(t, req1.Body, req2.Body)
+			assert.Equal(t, []byte(`["hello"]`), uncompressed1)
+			assert.Equal(t, uncompressed1, uncompressed2)
 			assert.GreaterOrEqual(t, int64(elapsed), int64(time.Second))
 
 			// There were two failures, so it should not have retried again after that (should not reach successHandler)
