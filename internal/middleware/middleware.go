@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+
+	ct "github.com/launchdarkly/go-configtypes"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
@@ -212,4 +216,19 @@ func base64urlDecode(base64String string) ([]byte, error) {
 	}
 
 	return idStr, nil
+}
+
+func GzipMiddleware(maxInboundPayloadSize ct.OptBase2Bytes) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			isGzipped := strings.Contains(r.Header.Get("Content-Encoding"), "gzip")
+			reader, err := util.NewReader(r.Body, isGzipped, maxInboundPayloadSize)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			r.Body = reader
+			next.ServeHTTP(w, r)
+		})
+	}
 }

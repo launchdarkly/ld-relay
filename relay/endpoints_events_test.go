@@ -14,6 +14,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/browser"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -35,7 +36,9 @@ type relayEventsTestParams struct {
 
 func (p relayEventsTestParams) requirePublishedEvent(t *testing.T, data []byte) publishedEvent {
 	event := helpers.RequireValue(t, p.publishedEvents, time.Second*3)
-	assert.JSONEq(t, string(data), string(event.data))
+	uncompressed, err := util.DecompressGzipData(event.data)
+	assert.NoError(t, err)
+	assert.JSONEq(t, string(data), string(uncompressed))
 	return event
 }
 

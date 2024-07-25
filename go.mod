@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v8
 
-go 1.20
+go 1.21
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.0
 	github.com/cyphar/filepath-securejoin v0.2.4
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gomodule/redigo v1.8.9
 	github.com/google/uuid v1.5.0 // indirect
@@ -25,15 +25,15 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.7.1
-	github.com/launchdarkly/go-configtypes v1.1.0
+	github.com/launchdarkly/go-configtypes v1.2.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.0.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.1.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.2.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.4.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.1.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.6.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.0.2
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.2
 	github.com/pborman/uuid v1.2.1
@@ -59,7 +59,10 @@ require (
 	golang.org/x/exp v0.0.0-20231206192017-f3f8817b8deb
 )
 
-require github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+require (
+	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9
+	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+)
 
 require (
 	cloud.google.com/go/compute v1.23.3 // indirect
@@ -123,8 +126,6 @@ require (
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/DataDog/dd-trace-go.v1 v1.56.1 // indirect
-	gopkg.in/launchdarkly/go-jsonstream.v1 v1.0.1 // indirect
-	gopkg.in/launchdarkly/go-sdk-common.v2 v2.5.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

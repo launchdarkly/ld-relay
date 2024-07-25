@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
@@ -355,7 +356,10 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 				select {
 				case req := <-requestsCh:
 					mockLog.Loggers.Infof("received metrics events: %s", req.Body)
-					data := ldvalue.Parse(req.Body)
+					uncompressed, err := util.DecompressGzipData(req.Body)
+					require.NoError(t, err)
+
+					data := ldvalue.Parse(uncompressed)
 					event := data.GetByIndex(0)
 					if !event.IsNull() {
 						conns := event.GetByKey("connections")
@@ -456,7 +460,10 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 		// Because the event schema version is >= 3, the event data should be forwarded verbatim with no processing.
 		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
 		require.Equal(t, string(st.EnvMain.Config.SDKKey), eventPost.Request.Header.Get("Authorization"))
-		require.Equal(t, string(body), string(eventPost.Body))
+
+		decodedBody, err := util.DecompressGzipData(eventPost.Body)
+		require.NoError(t, err)
+		require.Equal(t, string(body), string(decodedBody))
 	})
 }
 

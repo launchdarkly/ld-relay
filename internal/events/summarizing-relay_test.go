@@ -11,6 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -56,7 +57,10 @@ func TestSummarizeEvents(t *testing.T) {
 				p.dispatcher.flush()
 
 				payload := expectSummarizedPayload(t, p.requestsCh)
-				m.In(t).Assert(payload, m.JSONStrEqual(ep.expectedEventsJSON))
+
+				uncompressed, err := util.DecompressGzipData([]byte(payload))
+				require.NoError(t, err)
+				m.In(t).Assert(uncompressed, m.JSONStrEqual(ep.expectedEventsJSON))
 			})
 		})
 	}
@@ -97,12 +101,18 @@ func TestSummarizingRelayProcessesEventsSeparatelyForDifferentTags(t *testing.T)
 		assert.Equal(t, "tags1", request1.Request.Header.Get(TagsHeader))
 		assert.Equal(t, "tags2", request2.Request.Header.Get(TagsHeader))
 
-		m.In(t).Assert(json.RawMessage(request1.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
+		decompressedBody1, err := util.DecompressGzipData(request1.Body)
+		assert.NoError(t, err)
+
+		decompressedBody2, err := util.DecompressGzipData(request2.Body)
+		assert.NoError(t, err)
+
+		m.In(t).Assert(json.RawMessage(decompressedBody1), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1a"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1b"))),
 		)))
-		m.In(t).Assert(json.RawMessage(request2.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
+		m.In(t).Assert(json.RawMessage(decompressedBody2), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey2"))),
 		)))
@@ -149,11 +159,17 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 		assert.Equal(t, "tags1", request1a.Request.Header.Get(TagsHeader))
 		assert.Equal(t, "tags2", request2.Request.Header.Get(TagsHeader))
 
-		m.In(t).Assert(json.RawMessage(request1a.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
+		uncompressedBody1a, err := util.DecompressGzipData(request1a.Body)
+		assert.NoError(t, err)
+
+		uncompressedBody2, err := util.DecompressGzipData(request2.Body)
+		assert.NoError(t, err)
+
+		m.In(t).Assert(json.RawMessage(uncompressedBody1a), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1a"))),
 		)))
-		m.In(t).Assert(json.RawMessage(request2.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
+		m.In(t).Assert(json.RawMessage(uncompressedBody2), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey2"))),
 		)))
@@ -165,8 +181,12 @@ func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T)
 		p.dispatcher.flush()
 
 		request1b := expectSummarizedPayloadRequest(t, p.requestsCh)
+
+		uncompressedBody1b, err := util.DecompressGzipData(request1b.Body)
+		assert.NoError(t, err)
+
 		assert.Equal(t, "tags1", request1b.Request.Header.Get(TagsHeader))
-		m.In(t).Assert(json.RawMessage(request1b.Body), m.JSONArray().Should(m.ItemsInAnyOrder(
+		m.In(t).Assert(json.RawMessage(uncompressedBody1b), m.JSONArray().Should(m.ItemsInAnyOrder(
 			m.MapIncluding(m.KV("kind", m.Equal("index"))),
 			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1b"))),
 		)))

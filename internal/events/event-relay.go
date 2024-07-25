@@ -129,10 +129,11 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 		d.loggers.Debugf("Received diagnostic event to be proxied to %s/%s", d.baseURI, d.uriPath)
 
 		sendConfig := ldevents.EventSenderConfiguration{
-			Client:      d.httpClient,
-			BaseURI:     d.baseURI,
-			BaseHeaders: func() http.Header { return req.Header },
-			Loggers:     d.loggers,
+			Client:            d.httpClient,
+			BaseURI:           d.baseURI,
+			BaseHeaders:       func() http.Header { return req.Header },
+			Loggers:           d.loggers,
+			EnableCompression: true,
 		}
 		_ = ldevents.SendEventDataWithRetry(sendConfig, ldevents.DiagnosticEventDataKind, d.uriPath, body, 1)
 	})

@@ -16,6 +16,7 @@ var (
 	errFileDataWithAutoConf            = errors.New("cannot specify both auto-configuration key and file data source")
 	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
+	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
@@ -80,6 +81,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateConfigFilters(&result, c)
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
+	validateMaxInboundPayloadSize(&result, c)
 
 	return result.GetError()
 }
@@ -206,6 +208,16 @@ func validateCredentialCleanupInterval(result *ct.ValidationResult, c *Config) {
 		}
 	}
 }
+
+func validateMaxInboundPayloadSize(result *ct.ValidationResult, c *Config) {
+	if c.Events.MaxInboundPayloadSize.IsDefined() {
+		size := c.Events.MaxInboundPayloadSize.GetOrElse(0)
+		if size <= 0 {
+			result.AddError(nil, errMaxInboundPayloadSize)
+		}
+	}
+}
+
 func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
 	normalizeRedisConfig(result, c)
 

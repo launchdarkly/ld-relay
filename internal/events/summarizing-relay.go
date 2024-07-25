@@ -295,10 +295,11 @@ func makeEventSender(
 	}
 	return &eventSenderWithOverridePath{
 		config: ldevents.EventSenderConfiguration{
-			Client:      httpClient,
-			BaseURI:     eventsURI,
-			BaseHeaders: func() http.Header { return headers },
-			Loggers:     loggers,
+			Client:            httpClient,
+			BaseURI:           eventsURI,
+			BaseHeaders:       func() http.Header { return headers },
+			Loggers:           loggers,
+			EnableCompression: true,
 		},
 		remotePath: remotePath,
 	}

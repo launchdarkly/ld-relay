@@ -345,7 +345,7 @@ func NewEnvContext(
 		DataSource:       dataSource,
 		DataStore:        storeAdapter,
 		DiagnosticOptOut: !enableDiagnostics,
-		Events:           ldcomponents.SendEvents(),
+		Events:           ldcomponents.SendEvents().EnableGzip(true),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
 			Loggers(envLoggers).

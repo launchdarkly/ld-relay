@@ -184,11 +184,12 @@ type OfflineModeConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type EventsConfig struct {
-	EventsURI     ct.OptURLAbsolute        `conf:"EVENTS_HOST"`
-	SendEvents    bool                     `conf:"USE_EVENTS"`
-	FlushInterval ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
-	Capacity      ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
-	InlineUsers   bool                     `conf:"EVENTS_INLINE_USERS"`
+	EventsURI             ct.OptURLAbsolute        `conf:"EVENTS_HOST"`
+	SendEvents            bool                     `conf:"USE_EVENTS"`
+	FlushInterval         ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
+	Capacity              ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
+	InlineUsers           bool                     `conf:"EVENTS_INLINE_USERS"`
+	MaxInboundPayloadSize ct.OptBase2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
 }
 
 // RedisConfig configures the optional Redis integration.
