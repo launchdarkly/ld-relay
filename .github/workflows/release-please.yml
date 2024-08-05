@@ -84,3 +84,4 @@ jobs:
       registry-username: ${{ vars.DOCKER_USERNAME }}
     secrets:
       registry-password: ${{ secrets.DOCKER_TOKEN }}
+
