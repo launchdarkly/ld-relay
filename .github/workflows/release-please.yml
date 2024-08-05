@@ -81,6 +81,7 @@ jobs:
     with:
       image: ${{ matrix.images_and_digests.image }}
       digest: ${{ matrix.images_and_digests.digest }}
-      registry-username: ${{ github.actor }}
+      registry-username: ${{ vars.DOCKER_USERNAME }}
     secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
+      registry-password: ${{ secrets.DOCKER_TOKEN }}
+
