@@ -87,7 +87,7 @@ func (a *SSERelayDataStoreAdapter) Build(
 	return sw, nil
 }
 
-// A DataStore implementation that delegates to an underlying store but also publish
+// A DataStore implementation that delegates to an underlying store
 // but also publishes stream updates when the store is modified.
 type streamUpdatesStoreWrapper struct {
 	store   subsystems.DataStore
