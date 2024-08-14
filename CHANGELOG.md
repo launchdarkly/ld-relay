@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.9.3](https://github.com/launchdarkly/ld-relay/compare/v8.9.2...v8.9.3) (2024-08-14)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.23.0 and 1.22.6 ([#432](https://github.com/launchdarkly/ld-relay/issues/432)) ([e246aec](https://github.com/launchdarkly/ld-relay/commit/e246aec7e2b1e1c24a872875331ea929e17996ae))
+
 ## [8.9.2](https://github.com/launchdarkly/ld-relay/compare/v8.9.1...v8.9.2) (2024-08-07)
 
 
