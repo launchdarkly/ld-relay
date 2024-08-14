@@ -76,6 +76,6 @@ func (c *CommandWrapper) initCommand() *exec.Cmd {
 	}
 	cmd := exec.Command(c.command, c.args...) //nolint:gosec
 	cmd.Dir = path
-	cmd.Stderr = NewLineParsingWriter(func(line string) { fmt.Fprintf(c.outputWriter, "stderr >>> %s\n", line) })
+	cmd.Stderr = NewLineParsingWriter(func(line string) { _, _ = fmt.Fprintf(c.outputWriter, "stderr >>> %s\n", line) })
 	return cmd
 }
