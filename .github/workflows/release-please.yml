@@ -61,7 +61,7 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: "${{ needs.release-relay.outputs.hashes }}"
       upload-assets: true
@@ -74,9 +74,9 @@ jobs:
       actions: read
       id-token: write
       packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     strategy:
-      matrix: 
+      matrix:
         images_and_digests: ${{fromJson(needs.release-relay.outputs.images_and_digests)}}
     with:
       image: ${{ matrix.images_and_digests.image }}
@@ -84,4 +84,3 @@ jobs:
       registry-username: ${{ vars.DOCKER_USERNAME }}
     secrets:
       registry-password: ${{ secrets.DOCKER_TOKEN }}
-
