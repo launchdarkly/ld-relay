@@ -297,15 +297,6 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
 	bytes []byte, etagValue string) {
-	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
-	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag != "" {
-		if cachedEtag == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Etag", etag)
 	ttl := clientContext.GetTTL()
 	if ttl > 0 {
 		w.Header().Set("Vary", "Authorization")
@@ -315,7 +306,17 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
 		// will all see the same expiration time.
 	}
+
+	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
+	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
+
 	_, _ = w.Write(bytes)
 }
 
