@@ -68,6 +68,7 @@ func TestEndpointsPHPPolling(t *testing.T) {
 							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
+							assert.NotEmpty(t, result.Header.Get("Expires"))
 						})
 
 						t.Run("query with different ETag is cached", func(t *testing.T) {
@@ -76,6 +77,7 @@ func TestEndpointsPHPPolling(t *testing.T) {
 							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusOK, result.StatusCode)
+							assert.NotEmpty(t, result.Header.Get("Expires"))
 						})
 					}
 				}
