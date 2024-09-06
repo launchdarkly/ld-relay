@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.9.4](https://github.com/launchdarkly/ld-relay/compare/v8.9.3...v8.9.4) (2024-09-06)
+
+
+### Bug Fixes
+
+* Include expires header on 304 cache hit ([#438](https://github.com/launchdarkly/ld-relay/issues/438)) ([b24370e](https://github.com/launchdarkly/ld-relay/commit/b24370e951df90b35fca1efff49d940843d01d6e))
+
 ## [8.9.3](https://github.com/launchdarkly/ld-relay/compare/v8.9.2...v8.9.3) (2024-08-14)
 
 
