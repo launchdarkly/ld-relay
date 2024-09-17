@@ -30,13 +30,13 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup Go ${{ needs.go-versions.outputs.latest }}
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
       - name: Build and Test
         uses: ./.github/actions/unit-tests
       - name: 'Get Docker token'
-        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
+        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'

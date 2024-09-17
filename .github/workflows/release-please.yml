@@ -35,14 +35,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.1
+      - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         name: 'Get Docker token'
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
 
       - name: Setup Go ${{ needs.go-versions.outputs.latest }}
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
 
@@ -61,7 +61,7 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: "${{ needs.release-relay.outputs.hashes }}"
       upload-assets: true
@@ -74,9 +74,9 @@ jobs:
       actions: read
       id-token: write
       packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.10.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     strategy:
-      matrix: 
+      matrix:
         images_and_digests: ${{fromJson(needs.release-relay.outputs.images_and_digests)}}
     with:
       image: ${{ matrix.images_and_digests.image }}
@@ -84,4 +84,3 @@ jobs:
       registry-username: ${{ vars.DOCKER_USERNAME }}
     secrets:
       registry-password: ${{ secrets.DOCKER_TOKEN }}
-

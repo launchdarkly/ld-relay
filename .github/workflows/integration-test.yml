@@ -54,7 +54,7 @@ jobs:
             echo "clientsdk=https://clientsdk.launchdarkly.com" >> $GITHUB_OUTPUT
           fi
       - name: Setup Go ${{ inputs.go-version }}
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go-version }}
 
@@ -63,7 +63,7 @@ jobs:
         run: go install github.com/jstemmer/go-junit-report@v0.9.1
 
       - name: Fetch REST token
-        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.0.0
+        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: ${{ format('/development/relay-proxy/launchdarkly-rest-api/{0}_token = LD_API_TOKEN', inputs.environment) }}
