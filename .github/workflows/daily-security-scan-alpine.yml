@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: aquasecurity/trivy-action@master
+        env:
+          # Avoid rate-limiting on ghcr.io (https://github.com/aquasecurity/trivy-action/issues/389)
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
         with:
           image-ref: launchdarkly/ld-relay:${{ matrix.tag }}
           format: 'table'
