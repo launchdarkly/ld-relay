@@ -9,28 +9,67 @@ import (
 	"testing"
 )
 
-func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTestManager, fn func(data standardModeTestData, prereqs map[string][]string)) {
-	project, envs, err := manager.apiHelper.createProject(1)
-	require.NoError(t, err)
-	defer manager.apiHelper.deleteProject(project)
+type scopedApiHelper struct {
+	project   projectInfo
+	env       environmentInfo
+	apiHelper *apiHelper
+}
 
-	flagKey := func(name string) string {
-		return name + "-" + flagKeyForProj(project)
+func newScopedApiHelper(apiHelper *apiHelper) (*scopedApiHelper, error) {
+	project, envs, err := apiHelper.createProject(1)
+	if err != nil {
+		return nil, err
+	}
+	return &scopedApiHelper{
+		apiHelper: apiHelper,
+		project:   project,
+		env:       envs[0],
+	}, nil
+}
+
+func (s *scopedApiHelper) envVariables() map[string]string {
+	return map[string]string{
+		"LD_ENV_" + string(s.env.name):            string(s.env.sdkKey),
+		"LD_MOBILE_KEY_" + string(s.env.name):     string(s.env.mobileKey),
+		"LD_CLIENT_SIDE_ID_" + string(s.env.name): string(s.env.id),
+	}
+}
+
+func (s *scopedApiHelper) projAndEnvs() projsAndEnvs {
+	return projsAndEnvs{
+		s.project: {s.env},
+	}
+}
+
+func (s *scopedApiHelper) cleanup() {
+	s.apiHelper.deleteProject(s.project)
+}
+
+func (s *scopedApiHelper) createFlagWithVariations(key string, on bool, variation1 ldvalue.Value, variation2 ldvalue.Value) error {
+	return s.apiHelper.createFlagWithVariations(s.project, s.env, key, on, variation1, variation2)
+}
+
+func (s *scopedApiHelper) createFlagWithPrerequisites(key string, on bool, variation1 ldvalue.Value, variation2 ldvalue.Value, prereqs []ldapi.Prerequisite) error {
+	return s.apiHelper.createFlagWithPrerequisites(s.project, s.env, key, on, variation1, variation2, prereqs)
+}
+
+func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
+
+	// topLevel -> directPrereq1, directPrereq2
+	// directPrereq1 -> indirectPrereqOf1
+
+	if err := api.createFlagWithVariations("indirectPrereqOf1", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+		return nil, err
 	}
 
-	env := envs[0]
-	toplevel1 := flagKey("toplevel1")
-	prereq1 := flagKey("prereq1")
-	prereq2 := flagKey("prereq2")
+	if err := api.createFlagWithPrerequisites("directPrereq1", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
+		{Key: "indirectPrereqOf1", Variation: 1},
+	}); err != nil {
+		return nil, err
+	}
 
-	err = manager.apiHelper.createFlagWithVariations(project, env, prereq1, true, ldvalue.Bool(false), ldvalue.Bool(true))
-	require.NoError(t, err)
-
-	err = manager.apiHelper.createFlagWithVariations(project, env, prereq2, true, ldvalue.Bool(false), ldvalue.Bool(true))
-	require.NoError(t, err)
-
-	prerequisites := map[string][]string{
-		toplevel1: {prereq1, prereq2},
+	if err := api.createFlagWithVariations("directPrereq2", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+		return nil, err
 	}
 
 	// The createFlagWithVariations call sets up two variations, with the second one being used if the flag is on.
@@ -38,39 +77,38 @@ func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTes
 	// algorithm is going to short-circuit and we won't see the other prerequisite. So, we'll have two prerequisites,
 	// both of which are on, and both of which are satisfied. That way the evaluator will be forced to visit both,
 	// and we'll see the list of both when we query the eval endpoint.
-	const onVariation = 1
-	for flag, prereqs := range prerequisites {
-		var ps []ldapi.Prerequisite
-		for _, prereq := range prereqs {
-			ps = append(ps, ldapi.Prerequisite{Key: prereq, Variation: onVariation})
-		}
-		err = manager.apiHelper.createFlagWithPrerequisites(project, env, flag, true, ldvalue.Bool(false), ldvalue.Bool(true), ps)
-		require.NoError(t, err)
+
+	if err := api.createFlagWithPrerequisites("topLevel", true, ldvalue.Bool(false), ldvalue.Bool(true),
+		[]ldapi.Prerequisite{
+			{Key: "directPrereq1", Variation: 1},
+			{Key: "directPrereq2", Variation: 1},
+		}); err != nil {
+		return nil, err
 	}
 
-	testData := standardModeTestData{
-		projsAndEnvs: projsAndEnvs{
-			{key: project.key, name: project.name}: envs,
-		},
-	}
-
-	fn(testData, prerequisites)
+	return map[string][]string{
+		"topLevel":          {"directPrereq1", "directPrereq2"},
+		"directPrereq1":     {"indirectPrereqOf1"},
+		"directPrereq2":     {},
+		"indirectPrereqOf1": {},
+	}, nil
 }
 
 func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
-	withStandardModePrerequisitesTestData(t, manager, func(testData standardModeTestData, prerequisites map[string][]string) {
-		envVars := make(map[string]string)
-		testData.projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-			envVars["LD_ENV_"+string(env.name)] = string(env.sdkKey)
-			envVars["LD_MOBILE_KEY_"+string(env.name)] = string(env.mobileKey)
-			envVars["LD_CLIENT_SIDE_ID_"+string(env.name)] = string(env.id)
-		})
-		manager.startRelay(t, envVars)
+	t.Run("includes top-level prerequisites", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
+
+		prerequisites, err := makeTopLevelPrerequisites(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
 		defer manager.stopRelay(t)
 
-		manager.awaitEnvironments(t, testData.projsAndEnvs, nil, func(proj projectInfo, env environmentInfo) string {
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
 			return env.name
 		})
-		manager.verifyFlagPrerequisites(t, testData.projsAndEnvs, prerequisites)
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
 	})
 }

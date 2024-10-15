@@ -371,16 +371,18 @@ func (m *integrationTestManager) verifyFlagPrerequisites(t *testing.T, projsAndE
 		prereqMap := m.getFlagPrerequisites(t, proj, env, userJSON)
 		for flagKey, prereqKeys := range prereqs {
 			prereqArray := prereqMap.GetByKey(flagKey).AsValueArray()
-			if !prereqArray.IsDefined() {
-				m.loggers.Errorf("Expected flag %s to have prerequisites, but it did not", flagKey)
-				t.Fail()
+
+			actualCount := 0
+			if prereqArray.IsDefined() {
+				actualCount = prereqArray.Count()
+			}
+
+			if actualCount != len(prereqKeys) {
+				m.loggers.Errorf("Expected flag %s to have %d prerequisites, but it had %d",
+					flagKey, len(prereqKeys), actualCount)
 				continue
 			}
-			if prereqArray.Count() != len(prereqKeys) {
-				m.loggers.Errorf("Expected flag %s to have %d prerequisites, but it had %d", flagKey, len(prereqKeys), prereqArray.Count())
-				t.Fail()
-				continue
-			}
+
 			for i, expectedPrereqKey := range prereqKeys {
 				actualPrereqKey := prereqArray.Get(i).StringValue()
 				if expectedPrereqKey != actualPrereqKey {
