@@ -381,11 +381,11 @@ func (m *integrationTestManager) verifyFlagPrerequisites(t *testing.T, projsAndE
 				t.Fail()
 				continue
 			}
-			for i, prereqKey := range prereqKeys {
-				if prereqArray.Get(i).String() != prereqKey {
+			for i, expectedPrereqKey := range prereqKeys {
+				actualPrereqKey := prereqArray.Get(i).StringValue()
+				if expectedPrereqKey != actualPrereqKey {
 					m.loggers.Errorf("Expected flag %s to have prerequisite %s at index %d, but it had %s",
-						flagKey, prereqKey, i, prereqArray.Get(i).String())
-					t.Fail()
+						flagKey, expectedPrereqKey, i, actualPrereqKey)
 				}
 			}
 		}

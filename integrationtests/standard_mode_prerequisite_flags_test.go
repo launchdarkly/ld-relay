@@ -7,7 +7,6 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/stretchr/testify/require"
 	"testing"
-	"time"
 )
 
 func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTestManager, fn func(data standardModeTestData, prereqs map[string][]string)) {
@@ -15,34 +14,37 @@ func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTes
 	require.NoError(t, err)
 	defer manager.apiHelper.deleteProject(project)
 
-	trueVal := func(info environmentInfo) ldvalue.Value {
-		return ldvalue.Bool(true)
-	}
-
 	flagKey := func(name string) string {
 		return name + "-" + flagKeyForProj(project)
 	}
 
+	env := envs[0]
 	toplevel1 := flagKey("toplevel1")
 	prereq1 := flagKey("prereq1")
 	prereq2 := flagKey("prereq2")
 
-	err = manager.apiHelper.createFlag(project, envs, prereq1, trueVal)
+	err = manager.apiHelper.createFlagWithVariations(project, env, prereq1, true, ldvalue.Bool(false), ldvalue.Bool(true))
 	require.NoError(t, err)
 
-	err = manager.apiHelper.createFlag(project, envs, prereq2, trueVal)
+	err = manager.apiHelper.createFlagWithVariations(project, env, prereq2, true, ldvalue.Bool(false), ldvalue.Bool(true))
 	require.NoError(t, err)
 
 	prerequisites := map[string][]string{
 		toplevel1: {prereq1, prereq2},
 	}
 
+	// The createFlagWithVariations call sets up two variations, with the second one being used if the flag is on.
+	// The test here is to see which prerequisites were evaluated for a given flag. If a prerequisite fails, the eval
+	// algorithm is going to short-circuit and we won't see the other prerequisite. So, we'll have two prerequisites,
+	// both of which are on, and both of which are satisfied. That way the evaluator will be forced to visit both,
+	// and we'll see the list of both when we query the eval endpoint.
+	const onVariation = 1
 	for flag, prereqs := range prerequisites {
 		var ps []ldapi.Prerequisite
 		for _, prereq := range prereqs {
-			ps = append(ps, ldapi.Prerequisite{Key: prereq, Variation: 0})
+			ps = append(ps, ldapi.Prerequisite{Key: prereq, Variation: onVariation})
 		}
-		err = manager.apiHelper.createFlagWithPrerequisites(project, envs[0], flag, ldvalue.Bool(true), ps)
+		err = manager.apiHelper.createFlagWithPrerequisites(project, env, flag, true, ldvalue.Bool(false), ldvalue.Bool(true), ps)
 		require.NoError(t, err)
 	}
 
@@ -52,8 +54,6 @@ func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTes
 		},
 	}
 
-	// This is here because the backend takes a while to setup the filters, otherwise we get 404s when connecting.
-	time.Sleep(10 * time.Second)
 	fn(testData, prerequisites)
 }
 

@@ -32,7 +32,7 @@ func (a *apiHelper) logResult(desc string, err error) error {
 		return nil
 	}
 	addInfo := ""
-	if gse, ok := err.(ldapi.GenericOpenAPIError); ok {
+	if gse, ok := err.(*ldapi.GenericOpenAPIError); ok {
 		body := string(gse.Body())
 		addInfo = " - " + string(body)
 	}
@@ -368,17 +368,68 @@ func (a *apiHelper) createFlag(
 	return nil
 }
 
+// createFlagInEnvironment sets up a flag with two variations. The first
+// is served when the flag is off, and the second is served when it is on.
+func (a *apiHelper) createFlagWithVariations(
+	proj projectInfo,
+	env environmentInfo,
+	flagKey string,
+	on bool,
+	variation1 ldvalue.Value,
+	variation2 ldvalue.Value,
+) error {
+	flagPost := ldapi.FeatureFlagBody{
+		Name: flagKey,
+		Key:  flagKey,
+	}
+
+	for _, value := range []ldvalue.Value{variation1, variation2} {
+		valueAsInterface := value.AsArbitraryValue()
+		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
+	}
+
+	_, _, err := a.apiClient.FeatureFlagsApi.
+		PostFeatureFlag(a.apiContext, proj.key).
+		FeatureFlagBody(flagPost).
+		Execute()
+
+	err = a.logResult("Create flag "+flagKey+" in "+proj.key, err)
+	if err != nil {
+		return err
+	}
+
+	envPrefix := fmt.Sprintf("/environments/%s", env.key)
+	patch := ldapi.PatchWithComment{
+		Patch: []ldapi.PatchOperation{
+			makePatch("replace", envPrefix+"/offVariation", 0),
+			makePatch("replace", envPrefix+"/fallthrough/variation", 1),
+			makePatch("replace", envPrefix+"/on", on),
+		},
+	}
+	_, _, err = a.apiClient.FeatureFlagsApi.
+		PatchFeatureFlag(a.apiContext, proj.key, flagKey).
+		PatchWithComment(patch).
+		Execute()
+
+	err = a.logResult("Configure flag "+flagKey+" for "+env.key, err)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (a *apiHelper) createFlagWithPrerequisites(
 	proj projectInfo,
 	env environmentInfo,
 	flagKey string,
-	valueForEnv ldvalue.Value,
+	on bool,
+	variation1 ldvalue.Value,
+	variation2 ldvalue.Value,
 	prerequisites []ldapi.Prerequisite,
 ) error {
 
-	if err := a.createFlag(proj, []environmentInfo{env}, flagKey, func(info environmentInfo) ldvalue.Value {
-		return valueForEnv
-	}); err != nil {
+	if err := a.createFlagWithVariations(proj, env, flagKey, on, variation1, variation2); err != nil {
 		return err
 	}
 
@@ -388,8 +439,8 @@ func (a *apiHelper) createFlagWithPrerequisites(
 		Patch: []ldapi.PatchOperation{
 			makePatch("replace", envPrefix+"/prerequisites", prerequisites),
 			makePatch("replace", envPrefix+"/offVariation", 0),
-			makePatch("replace", envPrefix+"/on", true),
-			makePatch("replace", envPrefix+"/fallthrough/variation", 0),
+			makePatch("replace", envPrefix+"/on", on),
+			makePatch("replace", envPrefix+"/fallthrough/variation", 1),
 		},
 	}).Execute()
 
