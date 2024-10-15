@@ -19,14 +19,22 @@ func withStandardModePrerequisitesTestData(t *testing.T, manager *integrationTes
 		return ldvalue.Bool(true)
 	}
 
-	err = manager.apiHelper.createFlag(project, envs, "prereq1", trueVal)
+	flagKey := func(name string) string {
+		return name + "-" + flagKeyForProj(project)
+	}
+
+	toplevel1 := flagKey("toplevel1")
+	prereq1 := flagKey("prereq1")
+	prereq2 := flagKey("prereq2")
+
+	err = manager.apiHelper.createFlag(project, envs, prereq1, trueVal)
 	require.NoError(t, err)
 
-	err = manager.apiHelper.createFlag(project, envs, "prereq2", trueVal)
+	err = manager.apiHelper.createFlag(project, envs, prereq2, trueVal)
 	require.NoError(t, err)
 
 	prerequisites := map[string][]string{
-		"flag1": {"prereq1", "prereq2"},
+		toplevel1: {prereq1, prereq2},
 	}
 
 	for flag, prereqs := range prerequisites {
