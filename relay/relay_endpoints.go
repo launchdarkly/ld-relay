@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
@@ -247,7 +249,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 				}
 			}
 
-			result := evaluator.Evaluate(flag, ldContext, nil)
+			var prerequisites []string
+			result := evaluator.Evaluate(flag, ldContext, func(event ldeval.PrerequisiteFlagEvent) {
+				if event.TargetFlagKey == flag.Key {
+					prerequisites = append(prerequisites, event.PrerequisiteFlag.Key)
+				}
+			})
+
 			detail := result.Detail
 			isExperiment := result.IsExperiment
 
@@ -262,6 +270,15 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 			}
 			valueObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
 				Float64(float64(flag.DebugEventsUntilDate))
+
+			if len(prerequisites) > 0 {
+				prereqArray := valueObj.Name("prerequisites").Array()
+				for _, p := range prerequisites {
+					prereqArray.String(p)
+				}
+				prereqArray.End()
+			}
+
 			valueObj.End()
 		}
 	}
