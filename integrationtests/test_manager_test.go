@@ -364,6 +364,34 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 	})
 }
 
+func (m *integrationTestManager) verifyFlagPrerequisites(t *testing.T, projsAndEnvs projsAndEnvs, prereqs map[string][]string) {
+	userJSON := `{"key":"any-user-key"}`
+
+	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
+		prereqMap := m.getFlagPrerequisites(t, proj, env, userJSON)
+		for flagKey, prereqKeys := range prereqs {
+			prereqArray := prereqMap.GetByKey(flagKey).AsValueArray()
+			if !prereqArray.IsDefined() {
+				m.loggers.Errorf("Expected flag %s to have prerequisites, but it did not", flagKey)
+				t.Fail()
+				continue
+			}
+			if prereqArray.Count() != len(prereqKeys) {
+				m.loggers.Errorf("Expected flag %s to have %d prerequisites, but it had %d", flagKey, len(prereqKeys), prereqArray.Count())
+				t.Fail()
+				continue
+			}
+			for i, prereqKey := range prereqKeys {
+				if prereqArray.Get(i).String() != prereqKey {
+					m.loggers.Errorf("Expected flag %s to have prerequisite %s at index %d, but it had %s",
+						flagKey, prereqKey, i, prereqArray.Get(i).String())
+					t.Fail()
+				}
+			}
+		}
+	})
+}
+
 func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnvs projsAndEnvs) {
 	userJSON := `{"key":"any-user-key"}`
 
@@ -438,6 +466,48 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 			valuesObject := ldvalue.ObjectBuild()
 			for _, key := range flagData.Keys(nil) {
 				valuesObject.Set(key, flagData.GetByKey(key).GetByKey("value"))
+			}
+			return valuesObject.Build()
+		}
+		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
+			env.key, env.sdkKey, string(data))
+		t.FailNow()
+	} else {
+		m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
+			env.key, env.sdkKey, resp.StatusCode)
+		t.FailNow()
+	}
+	return ldvalue.Null()
+}
+
+func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+
+	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	if env.filterKey != config.DefaultFilter {
+		u.RawQuery = url.Values{
+			"filter": []string{string(env.filterKey)},
+		}.Encode()
+	}
+
+	req, err := http.NewRequest("GET", u.String(), nil)
+	require.NoError(t, err)
+	req.Header.Add("Authorization", string(env.sdkKey))
+	resp, err := m.makeHTTPRequestToRelay(req)
+	require.NoError(t, err)
+	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		flagData := ldvalue.Parse(data)
+		if !flagData.Equal(ldvalue.Null()) {
+			valuesObject := ldvalue.ObjectBuild()
+			for _, key := range flagData.Keys(nil) {
+				valuesObject.Set(key, flagData.GetByKey(key).GetByKey("prerequisites"))
 			}
 			return valuesObject.Build()
 		}

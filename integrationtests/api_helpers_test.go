@@ -368,6 +368,39 @@ func (a *apiHelper) createFlag(
 	return nil
 }
 
+func (a *apiHelper) createFlagWithPrerequisites(
+	proj projectInfo,
+	env environmentInfo,
+	flagKey string,
+	valueForEnv ldvalue.Value,
+	prerequisites []ldapi.Prerequisite,
+) error {
+
+	if err := a.createFlag(proj, []environmentInfo{env}, flagKey, func(info environmentInfo) ldvalue.Value {
+		return valueForEnv
+	}); err != nil {
+		return err
+	}
+
+	envPrefix := fmt.Sprintf("/environments/%s", env.key)
+
+	_, _, err := a.apiClient.FeatureFlagsApi.PatchFeatureFlag(a.apiContext, proj.key, flagKey).PatchWithComment(ldapi.PatchWithComment{
+		Patch: []ldapi.PatchOperation{
+			makePatch("replace", envPrefix+"/prerequisites", prerequisites),
+			makePatch("replace", envPrefix+"/offVariation", 0),
+			makePatch("replace", envPrefix+"/on", true),
+			makePatch("replace", envPrefix+"/fallthrough/variation", 0),
+		},
+	}).Execute()
+
+	err = a.logResult(fmt.Sprintf("Configure flag %s in %s:%s", flagKey, proj.key, env.key), err)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (a *apiHelper) createFlags(projsAndEnvs projsAndEnvs) error {
 	for proj, envs := range projsAndEnvs {
 		err := a.createFlag(proj, envs, flagKeyForProj(proj), flagValueForEnv)
