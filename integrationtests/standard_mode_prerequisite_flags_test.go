@@ -94,6 +94,50 @@ func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error
 	}, nil
 }
 
+func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
+
+	// flagOn -> prereq1
+	// failedPrereq -> prereq1
+
+	if err := api.createFlagWithVariations("prereq1", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+		return nil, err
+	}
+
+	if err := api.createFlagWithVariations("prereq2", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+		return nil, err
+	}
+
+	if err := api.createFlagWithPrerequisites("flagOn", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
+		{Key: "prereq1", Variation: 1},
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := api.createFlagWithPrerequisites("flagOff", false, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
+		{Key: "prereq1", Variation: 1},
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := api.createFlagWithPrerequisites("failedPrereq", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
+		{Key: "prereq1", Variation: 0}, // wrong variation!
+		{Key: "prereq2", Variation: 1}, // correct variation, but we shouldn't see it since the first prereq failed
+	}); err != nil {
+		return nil, err
+	}
+
+	return map[string][]string{
+		"flagOn":       {"prereq1"},
+		"flagOff":      {},
+		"failedPrereq": {"prereq1"},
+		"prereq1":      {},
+		"prereq2":      {},
+	}, nil
+
+}
+
+// TODO: Make a builder for the API client so that all flag options can be accessed.
+
 func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
 	t.Run("includes top-level prerequisites", func(t *testing.T) {
 		api, err := newScopedApiHelper(manager.apiHelper)
@@ -101,6 +145,23 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		defer api.cleanup()
 
 		prerequisites, err := makeTopLevelPrerequisites(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
+		defer manager.stopRelay(t)
+
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+			return env.name
+		})
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+	})
+
+	t.Run("ignores prereqs if not evaluated", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
+
+		prerequisites, err := makeFailedPrerequisites(api)
 		require.NoError(t, err)
 
 		manager.startRelay(t, api.envVariables())

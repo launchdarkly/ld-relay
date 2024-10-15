@@ -368,7 +368,7 @@ func (a *apiHelper) createFlag(
 	return nil
 }
 
-// createFlagInEnvironment sets up a flag with two variations. The first
+// createFlagWithVariations sets up a flag with two variations. The first
 // is served when the flag is off, and the second is served when it is on.
 func (a *apiHelper) createFlagWithVariations(
 	proj projectInfo,
@@ -378,15 +378,27 @@ func (a *apiHelper) createFlagWithVariations(
 	variation1 ldvalue.Value,
 	variation2 ldvalue.Value,
 ) error {
+	return a.createFlagWithBody(proj, env, flagKey, on, func(body *ldapi.FeatureFlagBody) {
+		for _, value := range []ldvalue.Value{variation1, variation2} {
+			valueAsInterface := value.AsArbitraryValue()
+			body.Variations = append(body.Variations, ldapi.Variation{Value: &valueAsInterface})
+		}
+	})
+}
+
+func (a *apiHelper) createFlagWithBody(
+	proj projectInfo,
+	env environmentInfo,
+	flagKey string,
+	on bool,
+	body func(body *ldapi.FeatureFlagBody),
+) error {
 	flagPost := ldapi.FeatureFlagBody{
 		Name: flagKey,
 		Key:  flagKey,
 	}
 
-	for _, value := range []ldvalue.Value{variation1, variation2} {
-		valueAsInterface := value.AsArbitraryValue()
-		flagPost.Variations = append(flagPost.Variations, ldapi.Variation{Value: &valueAsInterface})
-	}
+	body(&flagPost)
 
 	_, _, err := a.apiClient.FeatureFlagsApi.
 		PostFeatureFlag(a.apiContext, proj.key).
