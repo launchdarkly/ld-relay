@@ -23,6 +23,14 @@ func TestEndToEnd(t *testing.T) {
 		testStandardMode(t, manager)
 	})
 
+	t.Run("standard mode with prerequisites", func(t *testing.T) {
+		// The standard tests above use simple flags that don't contain prerequisite relationships. This
+		// test explicitly configures flags with prerequisites, and verifies that client side flag evals contain
+		// prerequisite metadata for each flag. This information needs to be passed to client-side SDKs so that they
+		// can generate prerequisite events to power LaunchDarkly SaaS features.
+		testStandardModeWithPrerequisites(t, manager)
+	})
+
 	t.Run("standard mode with payload filters", func(t *testing.T) {
 		t.Run("default filters", func(t *testing.T) {
 			// This case is similar to the "standard mode" test above, except with payload filtering in the picture.
