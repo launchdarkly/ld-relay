@@ -61,7 +61,7 @@ require (
 
 require (
 	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9
-	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+	github.com/launchdarkly/api-client-go/v17 v17.0.0
 )
 
 require (
