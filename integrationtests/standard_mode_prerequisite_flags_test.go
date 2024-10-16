@@ -66,8 +66,61 @@ func (s *scopedApiHelper) newFlag(key string) *flagBuilder {
 	return newFlagBuilder(s.apiHelper, key, s.project.key, s.env.key)
 }
 
-func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
+func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
+	t.Run("includes top-level prerequisites", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
 
+		prerequisites, err := makeTopLevelPrerequisites(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
+		defer manager.stopRelay(t)
+
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+			return env.name
+		})
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+	})
+
+	t.Run("ignores prereqs if not evaluated", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
+
+		prerequisites, err := makeFailedPrerequisites(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
+		defer manager.stopRelay(t)
+
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+			return env.name
+		})
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+	})
+
+	t.Run("ignores client-side-only for prereq keys", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
+
+		prerequisites, err := makeIgnoreClientSideOnlyPrereqs(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
+		defer manager.stopRelay(t)
+
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+			return env.name
+		})
+
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+	})
+}
+
+func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
 	// topLevel -> directPrereq1, directPrereq2
 	// directPrereq1 -> indirectPrereqOf1
 
@@ -112,7 +165,6 @@ func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error
 }
 
 func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
-
 	// flagOn -> prereq1
 	// failedPrereq -> prereq1
 
@@ -166,7 +218,6 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 }
 
 func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
-
 	// flag -> prereq1, prereq2
 
 	if err := api.newFlag("prereq1").
@@ -196,59 +247,4 @@ func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string,
 		"flag":    {"prereq1", "prereq2"},
 		"prereq1": {},
 	}, nil
-
-}
-
-func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
-	t.Run("includes top-level prerequisites", func(t *testing.T) {
-		api, err := newScopedApiHelper(manager.apiHelper)
-		require.NoError(t, err)
-		defer api.cleanup()
-
-		prerequisites, err := makeTopLevelPrerequisites(api)
-		require.NoError(t, err)
-
-		manager.startRelay(t, api.envVariables())
-		defer manager.stopRelay(t)
-
-		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
-			return env.name
-		})
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
-	})
-
-	t.Run("ignores prereqs if not evaluated", func(t *testing.T) {
-		api, err := newScopedApiHelper(manager.apiHelper)
-		require.NoError(t, err)
-		defer api.cleanup()
-
-		prerequisites, err := makeFailedPrerequisites(api)
-		require.NoError(t, err)
-
-		manager.startRelay(t, api.envVariables())
-		defer manager.stopRelay(t)
-
-		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
-			return env.name
-		})
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
-	})
-
-	t.Run("ignores client-side-only for prereq keys", func(t *testing.T) {
-		api, err := newScopedApiHelper(manager.apiHelper)
-		require.NoError(t, err)
-		defer api.cleanup()
-
-		prerequisites, err := makeIgnoreClientSideOnlyPrereqs(api)
-		require.NoError(t, err)
-
-		manager.startRelay(t, api.envVariables())
-		defer manager.stopRelay(t)
-
-		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
-			return env.name
-		})
-
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
-	})
 }
