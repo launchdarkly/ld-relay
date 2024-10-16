@@ -3,7 +3,6 @@
 package integrationtests
 
 import (
-	"errors"
 	"fmt"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
@@ -101,10 +100,8 @@ func (f *flagBuilder) Create() error {
 		FeatureFlagBody(flagPost).
 		Execute()
 
-	if err != nil {
-		return f.logAPIError("create flag", err)
-	} else {
-		f.logAPISuccess("create flag")
+	if err := f.logAPIResult("create flag", err); err != nil {
+		return err
 	}
 
 	envPrefix := fmt.Sprintf("/environments/%s", f.envKey)
@@ -122,30 +119,13 @@ func (f *flagBuilder) Create() error {
 		PatchWithComment(patch).
 		Execute()
 
-	if err != nil {
-		return f.logAPIError("patch flag", err)
-	} else {
-		f.logAPISuccess("patch flag")
-	}
-
-	return nil
+	return f.logAPIResult("patch flag", err)
 }
 
-func (f *flagBuilder) logAPIError(desc string, err error) error {
-	var apiError ldapi.GenericOpenAPIError
-	if errors.As(err, &apiError) {
-		body := string(apiError.Body())
-		f.helper.loggers.Errorf("%s: %s (response body: %s)", f.scopedOp(desc), err, body)
-	} else {
-		f.helper.loggers.Errorf("%s: %s", f.scopedOp(desc), err)
-	}
-	return err
+func (f *flagBuilder) logAPIResult(desc string, err error) error {
+	return f.helper.logResult(f.scopedOp(desc), err)
 }
 
 func (f *flagBuilder) scopedOp(desc string) string {
 	return fmt.Sprintf("%s %s in %s/%s", desc, f.key, f.projectKey, f.envKey)
-}
-
-func (f *flagBuilder) logAPISuccess(desc string) {
-	f.helper.loggers.Infof(f.scopedOp(desc))
 }
