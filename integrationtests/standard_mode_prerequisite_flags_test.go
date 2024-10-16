@@ -3,18 +3,26 @@
 package integrationtests
 
 import (
+	"testing"
+
 	ldapi "github.com/launchdarkly/api-client-go/v13"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
+// scopedApiHelper is meant to be a wrapper around the base apiHelper which scopes operations to a single
+// project/environment. It was created specifically for the prerequisite tests, since we aren't trying to verify
+// assertions across projects/environments - just that prerequisites are correct within a single payload.
+// This pattern could be extended or refactored into a dedicated helper package if necessary.
 type scopedApiHelper struct {
 	project   projectInfo
 	env       environmentInfo
 	apiHelper *apiHelper
 }
 
+// newScopedApiHelper wraps an existing apiHelper, automatically creating a project with a single environment.
+// Be sure to call cleanup() when done to delete the project, otherwise orphan projects will accumulate in the
+// testing account.
 func newScopedApiHelper(apiHelper *apiHelper) (*scopedApiHelper, error) {
 	project, envs, err := apiHelper.createProject(1)
 	if err != nil {
@@ -27,6 +35,8 @@ func newScopedApiHelper(apiHelper *apiHelper) (*scopedApiHelper, error) {
 	}, nil
 }
 
+// envVariables returns all the environment variables needed for Relay to be aware of the environment
+// and authenticate with it.
 func (s *scopedApiHelper) envVariables() map[string]string {
 	return map[string]string{
 		"LD_ENV_" + string(s.env.name):            string(s.env.sdkKey),
@@ -35,22 +45,25 @@ func (s *scopedApiHelper) envVariables() map[string]string {
 	}
 }
 
+// projsAndEnvs returns a map of project -> environment, which is necessary to interact with the integration
+// test manager's awaitEnvironments method.
 func (s *scopedApiHelper) projAndEnvs() projsAndEnvs {
 	return projsAndEnvs{
 		s.project: {s.env},
 	}
 }
 
+// cleanup deletes the project and environment created by this scopedApiHelper. A common pattern in tests would be
+// calling newScopedApiHelper, then deferring the cleanup call immediately after.
 func (s *scopedApiHelper) cleanup() {
 	s.apiHelper.deleteProject(s.project)
 }
 
-func (s *scopedApiHelper) createFlagWithVariations(key string, on bool, variation1 ldvalue.Value, variation2 ldvalue.Value) error {
-	return s.apiHelper.createFlagWithVariations(s.project, s.env, key, on, variation1, variation2)
-}
-
-func (s *scopedApiHelper) createFlagWithPrerequisites(key string, on bool, variation1 ldvalue.Value, variation2 ldvalue.Value, prereqs []ldapi.Prerequisite) error {
-	return s.apiHelper.createFlagWithPrerequisites(s.project, s.env, key, on, variation1, variation2, prereqs)
+// newFlag creates a new flag in the project. In LaunchDarkly, flags are created across all environments. The flag
+// builder allows configuring different aspects of the flag, such as variations and prerequisites - this configuration
+// is scoped to the single environment created by the scopedApiHelper.
+func (s *scopedApiHelper) newFlag(key string) *flagBuilder {
+	return newFlagBuilder(s.apiHelper, key, s.project.key, s.env.key)
 }
 
 func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
@@ -58,31 +71,35 @@ func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error
 	// topLevel -> directPrereq1, directPrereq2
 	// directPrereq1 -> indirectPrereqOf1
 
-	if err := api.createFlagWithVariations("indirectPrereqOf1", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+	if err := api.newFlag("indirectPrereqOf1").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithPrerequisites("directPrereq1", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
-		{Key: "indirectPrereqOf1", Variation: 1},
-	}); err != nil {
+	if err := api.newFlag("directPrereq1").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Prerequisite("indirectPrereqOf1", 1).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithVariations("directPrereq2", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+	if err := api.newFlag("directPrereq2").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	// The createFlagWithVariations call sets up two variations, with the second one being used if the flag is on.
-	// The test here is to see which prerequisites were evaluated for a given flag. If a prerequisite fails, the eval
-	// algorithm is going to short-circuit and we won't see the other prerequisite. So, we'll have two prerequisites,
-	// both of which are on, and both of which are satisfied. That way the evaluator will be forced to visit both,
-	// and we'll see the list of both when we query the eval endpoint.
-
-	if err := api.createFlagWithPrerequisites("topLevel", true, ldvalue.Bool(false), ldvalue.Bool(true),
-		[]ldapi.Prerequisite{
+	if err := api.newFlag("topLevel").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Prerequisites([]ldapi.Prerequisite{
 			{Key: "directPrereq1", Variation: 1},
 			{Key: "directPrereq2", Variation: 1},
-		}); err != nil {
+		}).Create(); err != nil {
 		return nil, err
 	}
 
@@ -99,30 +116,43 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 	// flagOn -> prereq1
 	// failedPrereq -> prereq1
 
-	if err := api.createFlagWithVariations("prereq1", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+	if err := api.newFlag("prereq1").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithVariations("prereq2", true, ldvalue.Bool(false), ldvalue.Bool(true)); err != nil {
+	if err := api.newFlag("prereq2").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithPrerequisites("flagOn", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
-		{Key: "prereq1", Variation: 1},
-	}); err != nil {
+	if err := api.newFlag("flagOn").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Prerequisite("prereq1", 1).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithPrerequisites("flagOff", false, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
-		{Key: "prereq1", Variation: 1},
-	}); err != nil {
+	if err := api.newFlag("flagOff").
+		On(false).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Prerequisite("prereq1", 1).
+		Create(); err != nil {
 		return nil, err
 	}
 
-	if err := api.createFlagWithPrerequisites("failedPrereq", true, ldvalue.Bool(false), ldvalue.Bool(true), []ldapi.Prerequisite{
-		{Key: "prereq1", Variation: 0}, // wrong variation!
-		{Key: "prereq2", Variation: 1}, // correct variation, but we shouldn't see it since the first prereq failed
-	}); err != nil {
+	if err := api.newFlag("failedPrereq").
+		On(true).
+		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		Prerequisites([]ldapi.Prerequisite{
+			{Key: "prereq1", Variation: 0}, // wrong variation!
+			{Key: "prereq2", Variation: 1}, // correct variation, but we shouldn't see it since the first prereq failed
+		}).Create(); err != nil {
 		return nil, err
 	}
 
@@ -133,10 +163,7 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 		"prereq1":      {},
 		"prereq2":      {},
 	}, nil
-
 }
-
-// TODO: Make a builder for the API client so that all flag options can be accessed.
 
 func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
 	t.Run("includes top-level prerequisites", func(t *testing.T) {
