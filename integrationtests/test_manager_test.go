@@ -7,11 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/exp/maps"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -368,7 +370,19 @@ func (m *integrationTestManager) verifyFlagPrerequisites(t *testing.T, projsAndE
 	userJSON := `{"key":"any-user-key"}`
 
 	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-		prereqMap := m.getFlagPrerequisites(t, proj, env, userJSON)
+		prereqMap := m.getFlagPrerequisites(t, env, userJSON)
+
+		expectedKeys := maps.Keys(prereqs)
+		slices.Sort(expectedKeys)
+
+		gotKeys := prereqMap.Keys(nil)
+		slices.Sort(gotKeys)
+
+		if !slices.Equal(expectedKeys, gotKeys) {
+			m.loggers.Errorf("Expected %v flag keys with prerequisites, but got %v", expectedKeys, gotKeys)
+			t.Fail()
+		}
+
 		for flagKey, prereqKeys := range prereqs {
 			prereqArray := prereqMap.GetByKey(flagKey).AsValueArray()
 
@@ -482,10 +496,12 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 	return ldvalue.Null()
 }
 
-func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, proj projectInfo, env environmentInfo, userJSON string) ldvalue.Value {
+// Note: unlike getFlagValues, this helper makes a request to a client-side endpoint, rather than the server-side
+// evaluation endpoint *that returns a client side payload.*
+func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, env environmentInfo, userJSON string) ldvalue.Value {
 	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
 
-	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/users/" + userBase64)
+	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/" + string(env.id) + "/users/" + userBase64)
 	if err != nil {
 		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
 	}
@@ -498,7 +514,7 @@ func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, proj project
 
 	req, err := http.NewRequest("GET", u.String(), nil)
 	require.NoError(t, err)
-	req.Header.Add("Authorization", string(env.sdkKey))
+	req.Header.Add("Authorization", string(env.id))
 	resp, err := m.makeHTTPRequestToRelay(req)
 	require.NoError(t, err)
 	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {

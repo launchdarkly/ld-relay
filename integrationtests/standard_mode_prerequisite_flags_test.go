@@ -165,6 +165,40 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 	}, nil
 }
 
+func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
+
+	// flag -> prereq1, prereq2
+
+	if err := api.newFlag("prereq1").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingEnvironmentID(true).
+		Create(); err != nil {
+		return nil, err
+	}
+
+	if err := api.newFlag("prereq2").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingEnvironmentID(false).
+		Create(); err != nil {
+		return nil, err
+	}
+	if err := api.newFlag("flag").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingEnvironmentID(true).
+		Prerequisites([]ldapi.Prerequisite{
+			{Key: "prereq1", Variation: 1},
+			{Key: "prereq2", Variation: 1},
+		}).Create(); err != nil {
+		return nil, err
+	}
+
+	return map[string][]string{
+		"flag":    {"prereq1", "prereq2"},
+		"prereq1": {},
+	}, nil
+
+}
+
 func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestManager) {
 	t.Run("includes top-level prerequisites", func(t *testing.T) {
 		api, err := newScopedApiHelper(manager.apiHelper)
@@ -197,6 +231,24 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
 			return env.name
 		})
+		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+	})
+
+	t.Run("ignores client-side-only for prereq keys", func(t *testing.T) {
+		api, err := newScopedApiHelper(manager.apiHelper)
+		require.NoError(t, err)
+		defer api.cleanup()
+
+		prerequisites, err := makeIgnoreClientSideOnlyPrereqs(api)
+		require.NoError(t, err)
+
+		manager.startRelay(t, api.envVariables())
+		defer manager.stopRelay(t)
+
+		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+			return env.name
+		})
+
 		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
 	})
 }
