@@ -454,19 +454,8 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 	return ldvalue.Null()
 }
 
-// Note: the getFlagValues helper calls /sdk/evalx/users, which is a *server-side* endpoint that returns a *client side*
-// payload. That is, it evaluates flags for a particular user, from the perspective of a server-side SDK.
-//
-// In contrast, this helper makes a request to /sdk/evalx/{envid}/users, which is a *client-side* endpoint.
-
-// This is necessary because the payload returned to a server-side SDK (using an SDK key) is necessarily different
-// from that returned to a client-side SDK (using an environment ID, or possibly a mobile key but that's not tested here.)
-//
-// Unlike server payloads, client-side payloads may omit certain flags that have client-side visibility disabled.
-// In this case, the expected behavior of Relay is:
-// 1. For visible flags that reference omitted flags as prerequisites, expose the prerequisite names in the
-// visible flag's 'prerequisites' array.
-// 2. Don't expose non-client-visible flags - that is, continue to omit them.
+// getFlagPrerequisites fetches a payload from the given URL, which is expected to be a Relay polling evaluation
+// endpoint, and returns the "prerequisites" field of the flags in the payload.
 func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, envKey string,
 	url *url.URL, auth credential.SDKCredential) ldvalue.Value {
 	req, err := http.NewRequest("GET", url.String(), nil)
