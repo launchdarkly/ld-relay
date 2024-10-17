@@ -116,13 +116,16 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 	})
 
-	t.Run("ignores client-side-only for prereq keys", func(t *testing.T) {
-		t.Run("environment ID", func(t *testing.T) {
+	t.Run("exposes prerequisite relationship even if prereq is hidden from clients", func(t *testing.T) {
+		t.Run("partially visible to environment ID", func(t *testing.T) {
 			api, err := newScopedApiHelper(manager.apiHelper)
 			require.NoError(t, err)
 			defer api.cleanup()
 
-			expectedPrerequisites, err := makeIgnoreEnvironmentIDOnlyPrereqs(api)
+			// One prereq is visible to env ID, the other is not. The top level flag
+			// is visible to env ID.  We should see an eval result for the top level flag (with prereqs),
+			// and for the one prereq that is visible, but not for the other.
+			expectedPrerequisites, err := makePartiallyVisibleToEnvironmentIDPrerequisites(api)
 			require.NoError(t, err)
 
 			manager.startRelay(t, api.envVariables())
@@ -140,12 +143,15 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 			requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 		})
 
-		t.Run("mobile key", func(t *testing.T) {
+		t.Run("partially visible to mobile key", func(t *testing.T) {
 			api, err := newScopedApiHelper(manager.apiHelper)
 			require.NoError(t, err)
 			defer api.cleanup()
 
-			expectedPrerequisites, err := makeIgnoreMobileKeyOnlyPrereqs(api)
+			// One prereq is visible to mobile key, the other is not. The top level flag
+			// is visible to mobile key.  We should see an eval result for the top level flag (with prereqs),
+			// and for the one prereq that is visible, but not for the other.
+			expectedPrerequisites, err := makePartiallyVisibleToMobileKeyPrerequisites(api)
 			require.NoError(t, err)
 
 			manager.startRelay(t, api.envVariables())
@@ -262,7 +268,7 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 	}, nil
 }
 
-func makeIgnoreEnvironmentIDOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
+func makePartiallyVisibleToEnvironmentIDPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
 	// flag -> prereq1, prereq2
 
 	if err := api.newFlag("prereq1").
@@ -297,7 +303,7 @@ func makeIgnoreEnvironmentIDOnlyPrereqs(api *scopedApiHelper) (map[string][]stri
 	}, nil
 }
 
-func makeIgnoreMobileKeyOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
+func makePartiallyVisibleToMobileKeyPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
 	// flag -> prereq1, prereq2
 
 	if err := api.newFlag("prereq1").
