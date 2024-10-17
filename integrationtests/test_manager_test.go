@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
@@ -450,6 +452,60 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 		t.FailNow()
 	}
 	return ldvalue.Null()
+}
+
+// getFlagPrerequisites fetches a payload from the given URL, which is expected to be a Relay polling evaluation
+// endpoint, and returns the "prerequisites" field of the flags in the payload.
+func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, envKey string,
+	url *url.URL, auth credential.SDKCredential) ldvalue.Value {
+	req, err := http.NewRequest("GET", url.String(), nil)
+	require.NoError(t, err)
+	req.Header.Add("Authorization", auth.GetAuthorizationHeaderValue())
+	resp, err := m.makeHTTPRequestToRelay(req)
+	require.NoError(t, err)
+	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment %s with credential %s", envKey, auth.Masked()) {
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		flagData := ldvalue.Parse(data)
+		if !flagData.Equal(ldvalue.Null()) {
+			valuesObject := ldvalue.ObjectBuild()
+			for _, key := range flagData.Keys(nil) {
+				valuesObject.Set(key, flagData.GetByKey(key).GetByKey("prerequisites"))
+			}
+			return valuesObject.Build()
+		}
+		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with credential %s: %s",
+			envKey, auth.Masked(), string(data))
+		t.FailNow()
+	} else {
+		m.loggers.Errorf("Flags poll request for environment %s with credential %s failed with status %d",
+			envKey, auth.Masked(), resp.StatusCode)
+		t.FailNow()
+	}
+	return ldvalue.Null()
+}
+
+func (m *integrationTestManager) msdkEvalxUsersRoute(t *testing.T, userJSON string) *url.URL {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+
+	u, err := url.Parse(m.relayBaseURL + "/msdk/evalx/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	return u
+}
+
+func (m *integrationTestManager) sdkEvalxUsersRoute(t *testing.T, envID config.EnvironmentID, userJSON string) *url.URL {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+
+	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/" + envID.String() + "/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	return u
 }
 
 func (m *integrationTestManager) withExtraContainer(
