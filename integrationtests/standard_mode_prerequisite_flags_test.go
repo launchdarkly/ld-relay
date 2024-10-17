@@ -5,6 +5,9 @@ package integrationtests
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"golang.org/x/exp/maps"
+
 	ldapi "github.com/launchdarkly/api-client-go/v13"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/stretchr/testify/require"
@@ -72,7 +75,7 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		require.NoError(t, err)
 		defer api.cleanup()
 
-		prerequisites, err := makeTopLevelPrerequisites(api)
+		expectedPrerequisites, err := makeTopLevelPrerequisites(api)
 		require.NoError(t, err)
 
 		manager.startRelay(t, api.envVariables())
@@ -81,7 +84,13 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
 			return env.name
 		})
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+
+		userJSON := `{"key":"any-user-key"}`
+
+		url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
+		gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
+
+		requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 	})
 
 	t.Run("ignores prereqs if not evaluated", func(t *testing.T) {
@@ -89,7 +98,7 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		require.NoError(t, err)
 		defer api.cleanup()
 
-		prerequisites, err := makeFailedPrerequisites(api)
+		expectedPrerequisites, err := makeFailedPrerequisites(api)
 		require.NoError(t, err)
 
 		manager.startRelay(t, api.envVariables())
@@ -98,25 +107,61 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
 			return env.name
 		})
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+
+		userJSON := `{"key":"any-user-key"}`
+
+		url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
+		gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
+
+		requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 	})
 
 	t.Run("ignores client-side-only for prereq keys", func(t *testing.T) {
-		api, err := newScopedApiHelper(manager.apiHelper)
-		require.NoError(t, err)
-		defer api.cleanup()
+		t.Run("environment ID", func(t *testing.T) {
+			api, err := newScopedApiHelper(manager.apiHelper)
+			require.NoError(t, err)
+			defer api.cleanup()
 
-		prerequisites, err := makeIgnoreClientSideOnlyPrereqs(api)
-		require.NoError(t, err)
+			expectedPrerequisites, err := makeIgnoreEnvironmentIDOnlyPrereqs(api)
+			require.NoError(t, err)
 
-		manager.startRelay(t, api.envVariables())
-		defer manager.stopRelay(t)
+			manager.startRelay(t, api.envVariables())
+			defer manager.stopRelay(t)
 
-		manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
-			return env.name
+			manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+				return env.name
+			})
+
+			userJSON := `{"key":"any-user-key"}`
+
+			url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
+			gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
+
+			requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 		})
 
-		manager.verifyFlagPrerequisites(t, api.projAndEnvs(), prerequisites)
+		t.Run("mobile key", func(t *testing.T) {
+			api, err := newScopedApiHelper(manager.apiHelper)
+			require.NoError(t, err)
+			defer api.cleanup()
+
+			expectedPrerequisites, err := makeIgnoreMobileKeyOnlyPrereqs(api)
+			require.NoError(t, err)
+
+			manager.startRelay(t, api.envVariables())
+			defer manager.stopRelay(t)
+
+			manager.awaitEnvironments(t, api.projAndEnvs(), nil, func(proj projectInfo, env environmentInfo) string {
+				return env.name
+			})
+
+			userJSON := `{"key":"any-user-key"}`
+
+			url := manager.msdkEvalxUsersRoute(t, userJSON)
+			gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.mobileKey)
+
+			requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
+		})
 	})
 }
 
@@ -217,12 +262,13 @@ func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) 
 	}, nil
 }
 
-func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
+func makeIgnoreEnvironmentIDOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
 	// flag -> prereq1, prereq2
 
 	if err := api.newFlag("prereq1").
 		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
 		ClientSideUsingEnvironmentID(true).
+		ClientSideUsingMobileKey(false).
 		Create(); err != nil {
 		return nil, err
 	}
@@ -230,12 +276,14 @@ func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string,
 	if err := api.newFlag("prereq2").
 		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
 		ClientSideUsingEnvironmentID(false).
+		ClientSideUsingMobileKey(false).
 		Create(); err != nil {
 		return nil, err
 	}
 	if err := api.newFlag("flag").
 		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
 		ClientSideUsingEnvironmentID(true).
+		ClientSideUsingMobileKey(false).
 		Prerequisites([]ldapi.Prerequisite{
 			{Key: "prereq1", Variation: 1},
 			{Key: "prereq2", Variation: 1},
@@ -247,4 +295,62 @@ func makeIgnoreClientSideOnlyPrereqs(api *scopedApiHelper) (map[string][]string,
 		"flag":    {"prereq1", "prereq2"},
 		"prereq1": {},
 	}, nil
+}
+
+func makeIgnoreMobileKeyOnlyPrereqs(api *scopedApiHelper) (map[string][]string, error) {
+	// flag -> prereq1, prereq2
+
+	if err := api.newFlag("prereq1").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingMobileKey(true).
+		ClientSideUsingEnvironmentID(false).
+		Create(); err != nil {
+		return nil, err
+	}
+
+	if err := api.newFlag("prereq2").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingMobileKey(false).
+		ClientSideUsingEnvironmentID(false).
+		Create(); err != nil {
+		return nil, err
+	}
+	if err := api.newFlag("flag").
+		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+		ClientSideUsingMobileKey(true).
+		ClientSideUsingEnvironmentID(false).
+		Prerequisites([]ldapi.Prerequisite{
+			{Key: "prereq1", Variation: 1},
+			{Key: "prereq2", Variation: 1},
+		}).Create(); err != nil {
+		return nil, err
+	}
+
+	return map[string][]string{
+		"flag":    {"prereq1", "prereq2"},
+		"prereq1": {},
+	}, nil
+}
+
+func requirePrerequisitesEqual(t *testing.T, expectedPrereqs map[string][]string, gotPrereqs ldvalue.Value) {
+	expectedKeys := maps.Keys(expectedPrereqs)
+	gotKeys := gotPrereqs.Keys(nil)
+
+	require.ElementsMatch(t, expectedKeys, gotKeys)
+
+	for flagKey, prereqKeys := range expectedPrereqs {
+		prereqArray := gotPrereqs.GetByKey(flagKey).AsValueArray()
+
+		actualCount := 0
+		if prereqArray.IsDefined() {
+			actualCount = prereqArray.Count()
+		}
+
+		assert.Equal(t, len(prereqKeys), actualCount)
+
+		for i, expectedPrereqKey := range prereqKeys {
+			actualPrereqKey := prereqArray.Get(i).StringValue()
+			assert.Equal(t, expectedPrereqKey, actualPrereqKey, "prerequisites of flag %s @ index %d", flagKey, i)
+		}
+	}
 }

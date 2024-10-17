@@ -58,6 +58,12 @@ func (f *flagBuilder) ClientSideUsingEnvironmentID(usingEnvID bool) *flagBuilder
 	return f
 }
 
+// ClientSideUsingMobileKey enables the flag for clients that use mobile keys for auth.
+func (f *flagBuilder) ClientSideUsingMobileKey(usingMobileKey bool) *flagBuilder {
+	f.clientSide.UsingMobileKey = usingMobileKey
+	return f
+}
+
 // Prerequisites overwrites the flag's prerequisites.
 func (f *flagBuilder) Prerequisites(prerequisites []ldapi.Prerequisite) *flagBuilder {
 	f.prerequisites = prerequisites

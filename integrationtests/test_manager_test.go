@@ -7,17 +7,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/maps"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
@@ -366,48 +366,6 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 	})
 }
 
-func (m *integrationTestManager) verifyFlagPrerequisites(t *testing.T, projsAndEnvs projsAndEnvs, prereqs map[string][]string) {
-	userJSON := `{"key":"any-user-key"}`
-
-	projsAndEnvs.enumerateEnvs(func(proj projectInfo, env environmentInfo) {
-		prereqMap := m.getFlagPrerequisites(t, env, userJSON)
-
-		expectedKeys := maps.Keys(prereqs)
-		slices.Sort(expectedKeys)
-
-		gotKeys := prereqMap.Keys(nil)
-		slices.Sort(gotKeys)
-
-		if !slices.Equal(expectedKeys, gotKeys) {
-			m.loggers.Errorf("Expected %v flag keys with prerequisites, but got %v", expectedKeys, gotKeys)
-			t.Fail()
-		}
-
-		for flagKey, prereqKeys := range prereqs {
-			prereqArray := prereqMap.GetByKey(flagKey).AsValueArray()
-
-			actualCount := 0
-			if prereqArray.IsDefined() {
-				actualCount = prereqArray.Count()
-			}
-
-			if actualCount != len(prereqKeys) {
-				m.loggers.Errorf("Expected flag %s to have %d prerequisites, but it had %d",
-					flagKey, len(prereqKeys), actualCount)
-				continue
-			}
-
-			for i, expectedPrereqKey := range prereqKeys {
-				actualPrereqKey := prereqArray.Get(i).StringValue()
-				if expectedPrereqKey != actualPrereqKey {
-					m.loggers.Errorf("Expected flag %s to have prerequisite %s at index %d, but it had %s",
-						flagKey, expectedPrereqKey, i, actualPrereqKey)
-				}
-			}
-		}
-	})
-}
-
 func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnvs projsAndEnvs) {
 	userJSON := `{"key":"any-user-key"}`
 
@@ -496,28 +454,27 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 	return ldvalue.Null()
 }
 
-// Note: unlike getFlagValues, this helper makes a request to a client-side endpoint, rather than the server-side
-// evaluation endpoint *that returns a client side payload.*
-func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, env environmentInfo, userJSON string) ldvalue.Value {
-	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+// Note: the getFlagValues helper calls /sdk/evalx/users, which is a *server-side* endpoint that returns a *client side*
+// payload. That is, it evaluates flags for a particular user, from the perspective of a server-side SDK.
+//
+// In contrast, this helper makes a request to /sdk/evalx/{envid}/users, which is a *client-side* endpoint.
 
-	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/" + string(env.id) + "/users/" + userBase64)
-	if err != nil {
-		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
-	}
-
-	if env.filterKey != config.DefaultFilter {
-		u.RawQuery = url.Values{
-			"filter": []string{string(env.filterKey)},
-		}.Encode()
-	}
-
-	req, err := http.NewRequest("GET", u.String(), nil)
+// This is necessary because the payload returned to a server-side SDK (using an SDK key) is necessarily different
+// from that returned to a client-side SDK (using an environment ID, or possibly a mobile key but that's not tested here.)
+//
+// Unlike server payloads, client-side payloads may omit certain flags that have client-side visibility disabled.
+// In this case, the expected behavior of Relay is:
+// 1. For visible flags that reference omitted flags as prerequisites, expose the prerequisite names in the
+// visible flag's 'prerequisites' array.
+// 2. Don't expose non-client-visible flags - that is, continue to omit them.
+func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, envKey string,
+	url *url.URL, auth credential.SDKCredential) ldvalue.Value {
+	req, err := http.NewRequest("GET", url.String(), nil)
 	require.NoError(t, err)
-	req.Header.Add("Authorization", string(env.id))
+	req.Header.Add("Authorization", auth.GetAuthorizationHeaderValue())
 	resp, err := m.makeHTTPRequestToRelay(req)
 	require.NoError(t, err)
-	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment "+env.key) {
+	if assert.Equal(t, 200, resp.StatusCode, "requested flags for environment %s with credential %s", envKey, auth.Masked()) {
 		defer resp.Body.Close()
 		data, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
@@ -529,15 +486,37 @@ func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, env environm
 			}
 			return valuesObject.Build()
 		}
-		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
-			env.key, env.sdkKey, string(data))
+		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with credential %s: %s",
+			envKey, auth.Masked(), string(data))
 		t.FailNow()
 	} else {
-		m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
-			env.key, env.sdkKey, resp.StatusCode)
+		m.loggers.Errorf("Flags poll request for environment %s with credential %s failed with status %d",
+			envKey, auth.Masked(), resp.StatusCode)
 		t.FailNow()
 	}
 	return ldvalue.Null()
+}
+
+func (m *integrationTestManager) msdkEvalxUsersRoute(t *testing.T, userJSON string) *url.URL {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+
+	u, err := url.Parse(m.relayBaseURL + "/msdk/evalx/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	return u
+}
+
+func (m *integrationTestManager) sdkEvalxUsersRoute(t *testing.T, envID config.EnvironmentID, userJSON string) *url.URL {
+	userBase64 := base64.URLEncoding.EncodeToString([]byte(userJSON))
+
+	u, err := url.Parse(m.relayBaseURL + "/sdk/evalx/" + envID.String() + "/users/" + userBase64)
+	if err != nil {
+		t.Fatalf("couldn't parse flag evaluation URL: %v", err)
+	}
+
+	return u
 }
 
 func (m *integrationTestManager) withExtraContainer(
