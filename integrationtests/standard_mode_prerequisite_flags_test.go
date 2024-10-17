@@ -75,8 +75,39 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		require.NoError(t, err)
 		defer api.cleanup()
 
-		expectedPrerequisites, err := makeTopLevelPrerequisites(api)
-		require.NoError(t, err)
+		flagSetup := func() error {
+			if err := api.newFlag("indirectPrereqOf1").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Create(); err != nil {
+				return err
+			}
+
+			if err := api.newFlag("directPrereq1").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Prerequisite("indirectPrereqOf1", 1).
+				Create(); err != nil {
+				return err
+			}
+
+			if err := api.newFlag("directPrereq2").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Create(); err != nil {
+				return err
+			}
+
+			return api.newFlag("topLevel").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Prerequisites([]ldapi.Prerequisite{
+					{Key: "directPrereq1", Variation: 1},
+					{Key: "directPrereq2", Variation: 1},
+				}).Create()
+		}
+
+		require.NoError(t, flagSetup())
 
 		manager.startRelay(t, api.envVariables())
 		defer manager.stopRelay(t)
@@ -89,6 +120,13 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 
 		url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
 		gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
+
+		expectedPrerequisites := map[string][]string{
+			"topLevel":          {"directPrereq1", "directPrereq2"},
+			"directPrereq1":     {"indirectPrereqOf1"},
+			"directPrereq2":     {},
+			"indirectPrereqOf1": {},
+		}
 
 		requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 	})
@@ -98,8 +136,47 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		require.NoError(t, err)
 		defer api.cleanup()
 
-		expectedPrerequisites, err := makeFailedPrerequisites(api)
-		require.NoError(t, err)
+		flagSetup := func() error {
+			if err := api.newFlag("prereq1").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Create(); err != nil {
+				return err
+			}
+
+			if err := api.newFlag("prereq2").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Create(); err != nil {
+				return err
+			}
+
+			if err := api.newFlag("flagOn").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Prerequisite("prereq1", 1).
+				Create(); err != nil {
+				return err
+			}
+
+			if err := api.newFlag("flagOff").
+				On(false).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Prerequisite("prereq1", 1).
+				Create(); err != nil {
+				return err
+			}
+
+			return api.newFlag("failedPrereq").
+				On(true).
+				Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+				Prerequisites([]ldapi.Prerequisite{
+					{Key: "prereq1", Variation: 0}, // wrong variation!
+					{Key: "prereq2", Variation: 1}, // correct variation, but we shouldn't see it since the first prereq failed
+				}).Create()
+		}
+
+		require.NoError(t, flagSetup())
 
 		manager.startRelay(t, api.envVariables())
 		defer manager.stopRelay(t)
@@ -113,6 +190,13 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 		url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
 		gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
 
+		expectedPrerequisites := map[string][]string{
+			"flagOn":       {"prereq1"},
+			"flagOff":      {},
+			"failedPrereq": {"prereq1"},
+			"prereq1":      {},
+			"prereq2":      {},
+		}
 		requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 	})
 
@@ -122,11 +206,34 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 			require.NoError(t, err)
 			defer api.cleanup()
 
-			// One prereq is visible to env ID, the other is not. The top level flag
-			// is visible to env ID.  We should see an eval result for the top level flag (with prereqs),
-			// and for the one prereq that is visible, but not for the other.
-			expectedPrerequisites, err := makePartiallyVisibleToEnvironmentIDPrerequisites(api)
-			require.NoError(t, err)
+			flagSetup := func() error {
+				if err := api.newFlag("prereq1").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingEnvironmentID(true).
+					ClientSideUsingMobileKey(false).
+					Create(); err != nil {
+					return err
+				}
+
+				if err := api.newFlag("prereq2").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingEnvironmentID(false).
+					ClientSideUsingMobileKey(false).
+					Create(); err != nil {
+					return err
+				}
+
+				return api.newFlag("flag").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingEnvironmentID(true).
+					ClientSideUsingMobileKey(false).
+					Prerequisites([]ldapi.Prerequisite{
+						{Key: "prereq1", Variation: 1},
+						{Key: "prereq2", Variation: 1},
+					}).Create()
+			}
+
+			require.NoError(t, flagSetup())
 
 			manager.startRelay(t, api.envVariables())
 			defer manager.stopRelay(t)
@@ -140,6 +247,14 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 			url := manager.sdkEvalxUsersRoute(t, api.env.id, userJSON)
 			gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.id)
 
+			// prereq1 is visible to env ID, but prereq2 is not. The top level flag
+			// is visible to env ID.  We should see an eval result for the top level flag (with prereqs),
+			// and for prereq1, but not for prereq2.
+			expectedPrerequisites := map[string][]string{
+				"flag":    {"prereq1", "prereq2"},
+				"prereq1": {},
+			}
+
 			requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 		})
 
@@ -148,11 +263,34 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 			require.NoError(t, err)
 			defer api.cleanup()
 
-			// One prereq is visible to mobile key, the other is not. The top level flag
-			// is visible to mobile key.  We should see an eval result for the top level flag (with prereqs),
-			// and for the one prereq that is visible, but not for the other.
-			expectedPrerequisites, err := makePartiallyVisibleToMobileKeyPrerequisites(api)
-			require.NoError(t, err)
+			flagSetup := func() error {
+				if err := api.newFlag("prereq1").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingMobileKey(true).
+					ClientSideUsingEnvironmentID(false).
+					Create(); err != nil {
+					return err
+				}
+
+				if err := api.newFlag("prereq2").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingMobileKey(false).
+					ClientSideUsingEnvironmentID(false).
+					Create(); err != nil {
+					return err
+				}
+
+				return api.newFlag("flag").
+					On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
+					ClientSideUsingMobileKey(true).
+					ClientSideUsingEnvironmentID(false).
+					Prerequisites([]ldapi.Prerequisite{
+						{Key: "prereq1", Variation: 1},
+						{Key: "prereq2", Variation: 1},
+					}).Create()
+			}
+
+			require.NoError(t, flagSetup())
 
 			manager.startRelay(t, api.envVariables())
 			defer manager.stopRelay(t)
@@ -163,189 +301,32 @@ func testStandardModeWithPrerequisites(t *testing.T, manager *integrationTestMan
 
 			userJSON := `{"key":"any-user-key"}`
 
+			// Note: 'msdk' not 'sdk' like the environment ID test.
 			url := manager.msdkEvalxUsersRoute(t, userJSON)
+			// Note: passing in mobile key here, not environment ID.
 			gotPrerequisites := manager.getFlagPrerequisites(t, api.env.key, url, api.env.mobileKey)
+
+			// prereq1 is visible to mobile keys, but prereq2 is not. The top level flag
+			// is visible to mobile keys.  We should see an eval result for the top level flag (with prereqs),
+			// and for prereq1, but not for prereq2.
+			expectedPrerequisites := map[string][]string{
+				"flag":    {"prereq1", "prereq2"},
+				"prereq1": {},
+			}
 
 			requirePrerequisitesEqual(t, expectedPrerequisites, gotPrerequisites)
 		})
 	})
 }
 
-func makeTopLevelPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
-	// topLevel -> directPrereq1, directPrereq2
-	// directPrereq1 -> indirectPrereqOf1
-
-	if err := api.newFlag("indirectPrereqOf1").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("directPrereq1").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Prerequisite("indirectPrereqOf1", 1).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("directPrereq2").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("topLevel").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Prerequisites([]ldapi.Prerequisite{
-			{Key: "directPrereq1", Variation: 1},
-			{Key: "directPrereq2", Variation: 1},
-		}).Create(); err != nil {
-		return nil, err
-	}
-
-	return map[string][]string{
-		"topLevel":          {"directPrereq1", "directPrereq2"},
-		"directPrereq1":     {"indirectPrereqOf1"},
-		"directPrereq2":     {},
-		"indirectPrereqOf1": {},
-	}, nil
-}
-
-func makeFailedPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
-	// flagOn -> prereq1
-	// failedPrereq -> prereq1
-
-	if err := api.newFlag("prereq1").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("prereq2").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("flagOn").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Prerequisite("prereq1", 1).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("flagOff").
-		On(false).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Prerequisite("prereq1", 1).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("failedPrereq").
-		On(true).
-		Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		Prerequisites([]ldapi.Prerequisite{
-			{Key: "prereq1", Variation: 0}, // wrong variation!
-			{Key: "prereq2", Variation: 1}, // correct variation, but we shouldn't see it since the first prereq failed
-		}).Create(); err != nil {
-		return nil, err
-	}
-
-	return map[string][]string{
-		"flagOn":       {"prereq1"},
-		"flagOff":      {},
-		"failedPrereq": {"prereq1"},
-		"prereq1":      {},
-		"prereq2":      {},
-	}, nil
-}
-
-func makePartiallyVisibleToEnvironmentIDPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
-	// flag -> prereq1, prereq2
-
-	if err := api.newFlag("prereq1").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingEnvironmentID(true).
-		ClientSideUsingMobileKey(false).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("prereq2").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingEnvironmentID(false).
-		ClientSideUsingMobileKey(false).
-		Create(); err != nil {
-		return nil, err
-	}
-	if err := api.newFlag("flag").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingEnvironmentID(true).
-		ClientSideUsingMobileKey(false).
-		Prerequisites([]ldapi.Prerequisite{
-			{Key: "prereq1", Variation: 1},
-			{Key: "prereq2", Variation: 1},
-		}).Create(); err != nil {
-		return nil, err
-	}
-
-	return map[string][]string{
-		"flag":    {"prereq1", "prereq2"},
-		"prereq1": {},
-	}, nil
-}
-
-func makePartiallyVisibleToMobileKeyPrerequisites(api *scopedApiHelper) (map[string][]string, error) {
-	// flag -> prereq1, prereq2
-
-	if err := api.newFlag("prereq1").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingMobileKey(true).
-		ClientSideUsingEnvironmentID(false).
-		Create(); err != nil {
-		return nil, err
-	}
-
-	if err := api.newFlag("prereq2").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingMobileKey(false).
-		ClientSideUsingEnvironmentID(false).
-		Create(); err != nil {
-		return nil, err
-	}
-	if err := api.newFlag("flag").
-		On(true).Variations(ldvalue.Bool(false), ldvalue.Bool(true)).
-		ClientSideUsingMobileKey(true).
-		ClientSideUsingEnvironmentID(false).
-		Prerequisites([]ldapi.Prerequisite{
-			{Key: "prereq1", Variation: 1},
-			{Key: "prereq2", Variation: 1},
-		}).Create(); err != nil {
-		return nil, err
-	}
-
-	return map[string][]string{
-		"flag":    {"prereq1", "prereq2"},
-		"prereq1": {},
-	}, nil
-}
-
-func requirePrerequisitesEqual(t *testing.T, expectedPrereqs map[string][]string, gotPrereqs ldvalue.Value) {
-	expectedKeys := maps.Keys(expectedPrereqs)
-	gotKeys := gotPrereqs.Keys(nil)
+func requirePrerequisitesEqual(t *testing.T, expected map[string][]string, got ldvalue.Value) {
+	expectedKeys := maps.Keys(expected)
+	gotKeys := got.Keys(nil)
 
 	require.ElementsMatch(t, expectedKeys, gotKeys)
 
-	for flagKey, prereqKeys := range expectedPrereqs {
-		prereqArray := gotPrereqs.GetByKey(flagKey).AsValueArray()
+	for flagKey, prereqKeys := range expected {
+		prereqArray := got.GetByKey(flagKey).AsValueArray()
 
 		actualCount := 0
 		if prereqArray.IsDefined() {
