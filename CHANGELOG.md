@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.10.0](https://github.com/launchdarkly/ld-relay/compare/v8.9.6...v8.10.0) (2024-10-17)
+
+
+### Features
+
+* add support for client-side prerequisite events ([#452](https://github.com/launchdarkly/ld-relay/issues/452)) ([9dea4b5](https://github.com/launchdarkly/ld-relay/commit/9dea4b584793cf24784e5859a94e8cee4e634f1f))
+
 ## [8.9.6](https://github.com/launchdarkly/ld-relay/compare/v8.9.5...v8.9.6) (2024-10-02)
 
 
