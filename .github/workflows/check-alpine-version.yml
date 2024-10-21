@@ -10,19 +10,15 @@ jobs:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        branch: ["v7", "v8"]
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.branch }}
+          ref: v8
 
       - name: Get current Alpine version
         id: alpine-current
         run: |
-          version=$(sed -n 's/^FROM \(.*\)/\1/p' Dockerfile.goreleaser)
+          version=$(sed -n 's/^FROM alpine:\(.*\)/\1/p' Dockerfile.goreleaser)
           echo "version=$version" >> $GITHUB_OUTPUT
       - name: Get latest Alpine tag semantic version, not 'latest'
         id: alpine-latest
