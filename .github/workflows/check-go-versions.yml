@@ -35,17 +35,13 @@ jobs:
       pull-requests: write
     needs: check-go-eol
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        branch: ["v7", "v8"]
-      fail-fast: false
     env:
       officialLatestVersion: ${{ needs.check-go-eol.outputs.latest }}
       officialPenultimateVersion: ${{ needs.check-go-eol.outputs.penultimate }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.branch }}
+          ref: v8
 
       - name: Get current Go versions
         id: go-versions
