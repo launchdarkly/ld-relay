@@ -2,6 +2,9 @@
 
 [![Actions Status](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml/badge.svg?branch=v7)](https://github.com/launchdarkly/ld-relay/actions/workflows/ci.yml)
 
+> [!WARNING]  
+> Relay Proxy v7 has reached [end-of-life](https://docs.launchdarkly.com/sdk/relay-proxy/versioning) on October 12, 2024. It is no longer actively maintained by LaunchDarkly. Please upgrade to Relay Proxy v8. 
+
 ## About the LaunchDarkly Relay Proxy
 
 The LaunchDarkly Relay Proxy establishes a connection to the LaunchDarkly streaming API, then proxies that stream connection to multiple clients. It lets a number of servers connect to a local stream instead of making a large number of outbound connections to `stream.launchdarkly.com`.
