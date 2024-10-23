@@ -11,6 +11,7 @@ builds:
   goos: # Goreleaser's default for this is darwin + linux, but let's be explicit
     - darwin
     - linux
+    - windows
   goarch: # Goreleaser's default for this is 386 + amd64, but let's be explicit
     - '386'
     - amd64
