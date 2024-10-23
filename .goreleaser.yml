@@ -8,10 +8,11 @@ builds:
   # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}`.
   ldflags:
   - -s -w -X internal.version.Version={{.Version}}
-  goos: # Goreleaser's default for this is darwin + linux, but let's be explicit
+  goos:
     - darwin
     - linux
-  goarch: # Goreleaser's default for this is 386 + amd64, but let's be explicit
+    - windows
+  goarch:
     - '386'
     - amd64
     - arm
