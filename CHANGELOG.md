@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.10.1](https://github.com/launchdarkly/ld-relay/compare/v8.10.0...v8.10.1) (2024-10-23)
+
+
+### Bug Fixes
+
+* **build:** add windows binaries ([388feb4](https://github.com/launchdarkly/ld-relay/commit/388feb45a1e211e6794f7ad0f239362608d88fa5))
+
 ## [8.10.0](https://github.com/launchdarkly/ld-relay/compare/v8.9.6...v8.10.0) (2024-10-17)
 
 
