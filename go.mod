@@ -17,7 +17,7 @@ require (
 	github.com/gomodule/redigo v1.8.9
 	github.com/google/uuid v1.5.0 // indirect
 	github.com/gorilla/mux v1.8.0
-	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
+	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/hashicorp/consul/api v1.25.1
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v1.5.0 // indirect

@@ -14,7 +14,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/internal/projmanager"
 
-	"github.com/gregjones/httpcache"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
@@ -416,7 +415,6 @@ func (r *Relay) addEnvironment(
 		jsClientContext.Origins = envConfig.AllowedOrigin.Values()
 		jsClientContext.Headers = envConfig.AllowedHeader.Values()
 
-		cachingTransport := httpcache.NewMemoryCacheTransport()
 		jsClientContext.Proxy = &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				url := req.URL
@@ -433,7 +431,6 @@ func (r *Relay) addEnvironment(
 				}
 				return nil
 			},
-			Transport: cachingTransport,
 		}
 	}
 
