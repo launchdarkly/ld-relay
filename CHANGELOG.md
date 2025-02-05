@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.10.6](https://github.com/launchdarkly/ld-relay/compare/v8.10.5...v8.10.6) (2025-02-05)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.23.6 and 1.22.12 ([#476](https://github.com/launchdarkly/ld-relay/issues/476)) ([1ce9396](https://github.com/launchdarkly/ld-relay/commit/1ce9396a03635a77d3c0f0323cd6c30ee269a443))
+* **deps:** update Dockerfiles from 3.21.0 to alpine:3.21.1 ([#470](https://github.com/launchdarkly/ld-relay/issues/470)) ([5b7a450](https://github.com/launchdarkly/ld-relay/commit/5b7a450533b590661eeb88cc72099e8c12d6dfd1))
+* **deps:** update Dockerfiles from 3.21.1 to alpine:3.21.2 ([#472](https://github.com/launchdarkly/ld-relay/issues/472)) ([580c48f](https://github.com/launchdarkly/ld-relay/commit/580c48f46c6083fd990812a25a441ef7d5739d23))
+* Mitigate web cache poisoning for `/sdk/goals` endpoint ([#475](https://github.com/launchdarkly/ld-relay/issues/475)) ([a6ee692](https://github.com/launchdarkly/ld-relay/commit/a6ee6920e28135c2673d71cd669afdef33a6edf2))
+
 ## [8.10.5](https://github.com/launchdarkly/ld-relay/compare/v8.10.4...v8.10.5) (2025-01-02)
 
 
