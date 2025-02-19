@@ -74,7 +74,7 @@ func (e ExpiringKeyRep) ToParams() ExpiringSDKKey {
 }
 
 func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
-	return time.UnixMilli(int64(millisecondTime))
+	return time.UnixMilli(int64(millisecondTime)) //nolint: gosec
 }
 
 // ToParams converts the JSON properties for an environment into our internal parameter type.
