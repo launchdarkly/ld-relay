@@ -2,4 +2,4 @@
 package version
 
 // Version is the package version
-const Version = "8.10.6" // {{ x-release-please-version }}
+const Version = "8.10.7" // {{ x-release-please-version }}
