@@ -1,5 +1,4 @@
-
-GOLANGCI_LINT_VERSION=v1.60.1
+GOLANGCI_LINT_VERSION=v1.64.5
 
 LINTER=./bin/golangci-lint
 LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)

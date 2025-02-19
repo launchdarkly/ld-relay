@@ -198,7 +198,7 @@ func (r *redisBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecondTime, 
 	if err != nil {
 		return 0, err
 	}
-	return ldtime.UnixMillisecondTime(milliseconds), nil
+	return ldtime.UnixMillisecondTime(milliseconds), nil //nolint: gosec
 }
 
 func (r *redisBigSegmentStore) Close() error {

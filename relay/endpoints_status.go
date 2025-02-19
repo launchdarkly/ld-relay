@@ -116,7 +116,7 @@ func statusHandler(relay *Relay) http.Handler {
 					bigSegmentStatus.LastSynchronizedOn = synchronizedOn
 					now := ldtime.UnixMillisNow()
 					stalenessThreshold := relay.config.Main.BigSegmentsStaleThreshold.GetOrElse(config.DefaultBigSegmentsStaleThreshold)
-					if !synchronizedOn.IsDefined() || now > (synchronizedOn+ldtime.UnixMillisecondTime(stalenessThreshold.Milliseconds())) {
+					if !synchronizedOn.IsDefined() || now > (synchronizedOn+ldtime.UnixMillisecondTime(stalenessThreshold.Milliseconds())) { //nolint: gosec
 						bigSegmentStatus.PotentiallyStale = true
 						if relay.config.Main.BigSegmentsStaleAsDegraded {
 							healthy = false
