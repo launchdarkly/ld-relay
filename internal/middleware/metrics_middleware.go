@@ -12,8 +12,8 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
-		instanceId := getInstanceId(req)
-		metrics.WithCount(ctx.GetMetricsContext(), userAgent, instanceId, func() {
+		instanceID := getInstanceID(req)
+		metrics.WithCount(ctx.GetMetricsContext(), userAgent, instanceID, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -23,8 +23,8 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
-		instanceId := getInstanceId(req)
-		metrics.WithGauge(ctx.Env.GetMetricsContext(), userAgent, instanceId, func() {
+		instanceID := getInstanceID(req)
+		metrics.WithGauge(ctx.Env.GetMetricsContext(), userAgent, instanceID, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -59,10 +59,10 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := GetEnvContextInfo(req.Context())
 			userAgent := getUserAgent(req)
-			instanceId := getInstanceId(req)
+			instanceID := getInstanceID(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.Env.GetMetricsContext(), userAgent, instanceId, route, req.Method, func() {
+			metrics.WithRouteCount(ctx.Env.GetMetricsContext(), userAgent, instanceID, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})

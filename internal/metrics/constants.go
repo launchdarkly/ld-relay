@@ -30,11 +30,11 @@ var (
 	relayIDTagKey, _          = tag.NewKey("relayId")          //nolint:gochecknoglobals
 	platformCategoryTagKey, _ = tag.NewKey("platformCategory") //nolint:gochecknoglobals
 	userAgentTagKey, _        = tag.NewKey("userAgent")        //nolint:gochecknoglobals
-	instanceIdTagKey, _       = tag.NewKey("instanceId")       //nolint:gochecknoglobals
+	instanceIDTagKey, _       = tag.NewKey("instanceId")       //nolint:gochecknoglobals
 	routeTagKey, _            = tag.NewKey("route")            //nolint:gochecknoglobals
 	methodTagKey, _           = tag.NewKey("method")           //nolint:gochecknoglobals
 	envNameTagKey, _          = tag.NewKey("env")              //nolint:gochecknoglobals
 
-	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, instanceIdTagKey, envNameTagKey}                //nolint:gochecknoglobals
-	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, instanceIdTagKey, relayIDTagKey, envNameTagKey} //nolint:gochecknoglobals
+	publicTags  = []tag.Key{platformCategoryTagKey, userAgentTagKey, instanceIDTagKey, envNameTagKey}                //nolint:gochecknoglobals
+	privateTags = []tag.Key{platformCategoryTagKey, userAgentTagKey, instanceIDTagKey, relayIDTagKey, envNameTagKey} //nolint:gochecknoglobals
 )

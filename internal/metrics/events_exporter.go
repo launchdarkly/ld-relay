@@ -14,21 +14,21 @@ import (
 
 type currentConnectionsMetric struct {
 	UserAgent        string `json:"userAgent"`
-	InstanceId       string `json:"instanceId"`
+	InstanceID       string `json:"instanceId"`
 	PlatformCategory string `json:"platformCategory"`
 	Current          int64  `json:"current"`
 }
 
 type newConnectionsMetric struct {
 	UserAgent        string `json:"userAgent"`
-	InstanceId       string `json:"instanceId"`
+	InstanceID       string `json:"instanceId"`
 	PlatformCategory string `json:"platformCategory"`
 	Count            int64  `json:"count"`
 }
 
 type pollingMetric struct {
 	UserAgent        string `json:"userAgent"`
-	InstanceId       string `json:"instanceId"`
+	InstanceID       string `json:"instanceId"`
 	PlatformCategory string `json:"platformCategory"`
 	Count            int64  `json:"count"`
 }
@@ -47,7 +47,7 @@ type relayMetricsEvent struct {
 
 type connectionsKeyType struct {
 	userAgent        string
-	instanceId       string
+	instanceID       string
 	platformCategory string
 }
 
@@ -112,7 +112,7 @@ func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 		for _, r := range viewData.Rows {
 			var platformCategory string
 			var userAgent string
-			var instanceId string
+			var instanceID string
 			relayIDFound := false
 			envNameFound := false
 			for _, t := range r.Tags {
@@ -131,8 +131,8 @@ func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 					}
 				case userAgentTagKey:
 					userAgent = t.Value
-				case instanceIdTagKey:
-					instanceId = t.Value
+				case instanceIDTagKey:
+					instanceID = t.Value
 				case platformCategoryTagKey:
 					platformCategory = t.Value
 				}
@@ -144,17 +144,17 @@ func (e *openCensusEventsExporter) ExportView(viewData *view.Data) {
 			if data, ok := r.Data.(*view.SumData); ok {
 				v = int64(data.Value)
 			}
-			e.updateValue(viewData.View.Name, platformCategory, userAgent, instanceId, v)
+			e.updateValue(viewData.View.Name, platformCategory, userAgent, instanceID, v)
 		}
 	}
 }
 
-func (e *openCensusEventsExporter) updateValue(name string, platformCategory string, userAgent string, instanceId string, value int64) {
+func (e *openCensusEventsExporter) updateValue(name string, platformCategory string, userAgent string, instanceID string, value int64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch name {
 	case privatePollingRequestsMeasureName:
-		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceId: instanceId}
+		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceID: instanceID}
 		if value == 0 {
 			delete(e.pollingCounts, key)
 			break
@@ -168,7 +168,7 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 		}
 
 	case privateConnMeasureName:
-		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceId: instanceId}
+		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceID: instanceID}
 		if value == 0 {
 			delete(e.currentConnections, key)
 		} else {
@@ -176,7 +176,7 @@ func (e *openCensusEventsExporter) updateValue(name string, platformCategory str
 		}
 
 	case privateNewConnMeasureName:
-		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceId: instanceId}
+		key := connectionsKeyType{platformCategory: platformCategory, userAgent: userAgent, instanceID: instanceID}
 		if value == 0 {
 			delete(e.newConnections, key) // COVERAGE: won't happen in practice since this measure is only ever incremented
 		} else {
@@ -232,7 +232,7 @@ func (e *openCensusEventsExporter) flush() {
 			if v.running != v.lastReported {
 				event.PollingCounts = append(event.PollingCounts, pollingMetric{
 					UserAgent:        k.userAgent,
-					InstanceId:       k.instanceId,
+					InstanceID:       k.instanceID,
 					PlatformCategory: k.platformCategory,
 					Count:            v.running - v.lastReported,
 				})
@@ -245,7 +245,7 @@ func (e *openCensusEventsExporter) flush() {
 	for k, v := range e.currentConnections {
 		event.Connections = append(event.Connections, currentConnectionsMetric{
 			UserAgent:        k.userAgent,
-			InstanceId:       k.instanceId,
+			InstanceID:       k.instanceID,
 			PlatformCategory: k.platformCategory,
 			Current:          v,
 		})
@@ -253,7 +253,7 @@ func (e *openCensusEventsExporter) flush() {
 	for k, v := range e.newConnections {
 		event.NewConnections = append(event.NewConnections, newConnectionsMetric{
 			UserAgent:        k.userAgent,
-			InstanceId:       k.instanceId,
+			InstanceID:       k.instanceID,
 			PlatformCategory: k.platformCategory,
 			Count:            v,
 		})
