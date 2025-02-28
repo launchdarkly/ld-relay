@@ -331,6 +331,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
+	fakeInstanceId := "fake-instance-id"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
@@ -350,7 +351,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, fakeInstanceId, func() {
 			require.Eventually(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
@@ -366,6 +367,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 						return event.GetByKey("kind").StringValue() == "relayMetrics" &&
 							conns.Count() == 1 &&
 							conns.GetByIndex(0).GetByKey("userAgent").StringValue() == fakeUserAgent &&
+							conns.GetByIndex(0).GetByKey("instanceId").StringValue() == fakeInstanceId &&
 							conns.GetByIndex(0).GetByKey("current").IntValue() == 1
 					}
 				default:
@@ -389,6 +391,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
+	fakeInstanceId := "fake-instance-id"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
@@ -406,7 +409,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, fakeInstanceId, func() {
 			require.Never(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {

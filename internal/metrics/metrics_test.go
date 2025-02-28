@@ -21,11 +21,12 @@ type measureAndPlatform struct {
 	platform string
 }
 
-func (m measureAndPlatform) getExpectedTagsMap(relayID string, envName string, userAgent string) map[string]string {
+func (m measureAndPlatform) getExpectedTagsMap(relayID string, envName string, userAgent string, instanceId string) map[string]string {
 	ret := map[string]string{
 		envNameTagKey.Name():          envName,
 		platformCategoryTagKey.Name(): m.platform,
 		userAgentTagKey.Name():        userAgent,
+		instanceIdTagKey.Name():       instanceId,
 	}
 	if relayID != "" {
 		ret[relayIDTagKey.Name()] = relayID
@@ -108,10 +109,10 @@ func TestConnectionMetrics(t *testing.T) {
 	for _, tt := range specs {
 		t.Run(tt.platform, func(*testing.T) {
 			testWithExporter(t, func(p testWithExporterParams) {
-				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
-				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
+				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue, instanceIdValue)
+				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue, instanceIdValue)
 
-				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, func() {
+				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, instanceIdValue, func() {
 					p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 						return d.HasRow(publicConnView.Name, st.TestMetricsRow{
 							Tags: expectedTags,
@@ -147,10 +148,10 @@ func TestNewConnectionMetrics(t *testing.T) {
 	for _, tt := range specs {
 		t.Run(tt.platform, func(*testing.T) {
 			testWithExporter(t, func(p testWithExporterParams) {
-				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
-				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
+				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue, instanceIdValue)
+				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue, instanceIdValue)
 
-				WithCount(p.env.GetOpenCensusContext(), userAgentValue, func() {}, tt.measure)
+				WithCount(p.env.GetOpenCensusContext(), userAgentValue, instanceIdValue, func() {}, tt.measure)
 
 				p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 					return d.HasRow(publicNewConnView.Name, st.TestMetricsRow{
@@ -168,7 +169,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 
 func TestWithRouteCount(t *testing.T) {
 	testWithExporter(t, func(p testWithExporterParams) {
-		WithRouteCount(p.env.GetOpenCensusContext(), userAgentValue, "someRoute", "GET", func() {
+		WithRouteCount(p.env.GetOpenCensusContext(), userAgentValue, instanceIdValue, "someRoute", "GET", func() {
 			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 				return d.HasRow(requestView.Name, st.TestMetricsRow{
 					Tags: map[string]string{
@@ -177,6 +178,7 @@ func TestWithRouteCount(t *testing.T) {
 						"platformCategory": "server",
 						"route":            "someRoute",
 						"userAgent":        userAgentValue,
+						"instanceId":       instanceIdValue,
 					},
 					Count: 1,
 				})

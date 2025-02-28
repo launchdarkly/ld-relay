@@ -44,22 +44,23 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			tag.Insert(relayIDTagKey, relayId),
 			tag.Insert(envNameTagKey, "envName"),
 			tag.Insert(platformCategoryTagKey, platformValue),
-			tag.Insert(userAgentTagKey, userAgentValue))
+			tag.Insert(userAgentTagKey, userAgentValue),
+			tag.Insert(instanceIdTagKey, instanceIdValue))
 		require.NoError(t, err)
 		privateConnMetricView := &view.View{
 			Measure:     privateConnMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey, instanceIdTagKey},
 		}
 		privateNewConnMetricView := &view.View{
 			Measure:     privateNewConnMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey, instanceIdTagKey},
 		}
 		privatePollingRequestsMeasureView := &view.View{
 			Measure:     privatePollingRequestsMeasure,
 			Aggregation: view.Sum(),
-			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey},
+			TagKeys:     []tag.Key{relayIDTagKey, envNameTagKey, platformCategoryTagKey, userAgentTagKey, instanceIdTagKey},
 		}
 		require.NoError(t, view.Register(privateConnMetricView))
 		defer view.Unregister(privateConnMetricView)
@@ -81,9 +82,9 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			stats.Record(ctx, privateNewConnMeasure.M(2))
 			stats.Record(ctx, privatePollingRequestsMeasure.M(3))
 
-			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
-			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 2}
-			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
+			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Current: 1}
+			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Count: 2}
+			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Count: 3}
 			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
@@ -105,7 +106,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			stats.Record(ctx, privatePollingRequestsMeasure.M(3))
-			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
+			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Count: 3}
 			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
@@ -113,7 +114,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			}, time.Second*5, time.Millisecond, "did not receive expected metrics")
 
 			stats.Record(ctx, privatePollingRequestsMeasure.M(7))
-			expectedPollingMetric = pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 7}
+			expectedPollingMetric = pollingMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Count: 7}
 			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
@@ -129,7 +130,7 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		publisher := newTestEventsPublisher()
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			stats.Record(ctx, privateConnMeasure.M(1))
-			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
+			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, InstanceId: instanceIdValue, PlatformCategory: platformValue, Current: 1}
 
 			for i := 0; i < 3; i++ {
 				require.Eventually(t, func() bool {
