@@ -119,6 +119,59 @@ func TestSummarizingRelayProcessesEventsSeparatelyForDifferentTags(t *testing.T)
 	})
 }
 
+func TestSummarizingRelayProcessesEventsSeparatelyForInstanceIds(t *testing.T) {
+	customEventData1a := `{
+		"kind": "custom", "creationDate": 1000, "key": "eventkey1a", "user": { "key": "userkey" }
+	}`
+	customEventData1b := `{
+		"kind": "custom", "creationDate": 1001, "key": "eventkey1b", "user": { "key": "userkey" }
+	}`
+	customEventData2 := `{
+		"kind": "custom", "creationDate": 1001, "key": "eventkey2", "user": { "key": "userkey" }
+	}`
+	payload1a := `[` + customEventData1a + `]`
+	payload1b := `[` + customEventData1b + `]`
+	payload2 := `[` + customEventData2 + `]`
+	headers1, headers2 := headersWithEventSchema(0), headersWithEventSchema(0)
+	headers1.Set(InstanceIDHeader, "instance1")
+	headers2.Set(InstanceIDHeader, "instance2")
+
+	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
+		req1a := st.BuildRequest("POST", "/", []byte(payload1a), headers1)
+		req1b := st.BuildRequest("POST", "/", []byte(payload1b), headers1)
+		req2 := st.BuildRequest("POST", "/", []byte(payload2), headers2)
+		for _, req := range []*http.Request{req1a, req2, req1b} {
+			p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)(httptest.NewRecorder(), req)
+		}
+		p.dispatcher.flush()
+
+		request1 := expectSummarizedPayloadRequest(t, p.requestsCh)
+		request2 := expectSummarizedPayloadRequest(t, p.requestsCh)
+		if request2.Request.Header.Get(TagsHeader) == "tags1" {
+			request1, request2 = request2, request1
+		}
+
+		assert.Equal(t, "instance1", request1.Request.Header.Get(InstanceIDHeader))
+		assert.Equal(t, "instance2", request2.Request.Header.Get(InstanceIDHeader))
+
+		decompressedBody1, err := util.DecompressGzipData(request1.Body)
+		assert.NoError(t, err)
+
+		decompressedBody2, err := util.DecompressGzipData(request2.Body)
+		assert.NoError(t, err)
+
+		m.In(t).Assert(json.RawMessage(decompressedBody1), m.JSONArray().Should(m.ItemsInAnyOrder(
+			m.MapIncluding(m.KV("kind", m.Equal("index"))),
+			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1a"))),
+			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey1b"))),
+		)))
+		m.In(t).Assert(json.RawMessage(decompressedBody2), m.JSONArray().Should(m.ItemsInAnyOrder(
+			m.MapIncluding(m.KV("kind", m.Equal("index"))),
+			m.MapIncluding(m.KV("kind", m.Equal("custom")), m.KV("key", m.Equal("eventkey2"))),
+		)))
+	})
+}
+
 func TestSummarizingRelayPeriodicallyClosesInactiveEventProcessors(t *testing.T) {
 	customEventData1a := `{
 		"kind": "custom", "creationDate": 1000, "key": "eventkey1a", "user": { "key": "userkey" }

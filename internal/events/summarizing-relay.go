@@ -290,6 +290,9 @@ func makeEventSender(
 	if metadata.Tags != "" {
 		headers.Set(TagsHeader, metadata.Tags)
 	}
+	if metadata.InstanceID != "" {
+		headers.Set(InstanceIDHeader, metadata.InstanceID)
+	}
 	if authKey.GetAuthorizationHeaderValue() != "" {
 		headers.Set("Authorization", authKey.GetAuthorizationHeaderValue())
 	}

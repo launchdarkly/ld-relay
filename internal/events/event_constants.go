@@ -17,4 +17,8 @@ const (
 	// TagsHeader is an HTTP header that may be sent by SDKs that support application metadata.
 	// We copy the value of this header when proxying events.
 	TagsHeader = "X-LaunchDarkly-Tags"
+
+	// InstanceIDHeader is an HTTP header that may be sent by SDKs that support instance ID.
+	// We copy the value of this header when proxying events.
+	InstanceIDHeader = "X-LaunchDarkly-Instance-Id"
 )

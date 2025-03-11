@@ -66,12 +66,15 @@ type EventPayloadMetadata struct {
 	SchemaVersion int
 	// Tags is the value of the X-LaunchDarkly-Tags header, or "" if none.
 	Tags string
+	// InstanceID is the value of the X-LaunchDarkly-Instance-ID header, or "" if none.
+	InstanceID string
 }
 
 // GetEventPayloadMetadata parses EventPayloadMetadata values from an HTTP request.
 func GetEventPayloadMetadata(req *http.Request) EventPayloadMetadata {
 	ret := EventPayloadMetadata{
-		Tags: req.Header.Get(TagsHeader),
+		Tags:       req.Header.Get(TagsHeader),
+		InstanceID: req.Header.Get(InstanceIDHeader),
 	}
 	ret.SchemaVersion, _ = strconv.Atoi(req.Header.Get(EventSchemaHeader))
 	if ret.SchemaVersion <= 0 {
@@ -323,6 +326,7 @@ func (p *HTTPEventPublisher) flush() {
 
 		schemaVersion := metadata.SchemaVersion
 		tags := metadata.Tags
+		instanceID := metadata.InstanceID
 
 		getBaseHeaders := func() http.Header {
 			ret := make(http.Header)
@@ -335,6 +339,10 @@ func (p *HTTPEventPublisher) flush() {
 			if tags != "" {
 				ret.Set(TagsHeader, tags)
 			}
+			if instanceID != "" {
+				ret.Set(InstanceIDHeader, instanceID)
+			}
+
 			return ret
 		}
 

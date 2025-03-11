@@ -27,11 +27,11 @@ var DefaultAllowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 	"Content-Length",
 	"Accept-Encoding",
 	"X-LaunchDarkly-User-Agent",
-	"X-LaunchDarkly-Instance-Id",
 	"X-LaunchDarkly-Payload-ID",
 	"X-LaunchDarkly-Wrapper",
 	events.EventSchemaHeader,
 	events.TagsHeader,
+	events.InstanceIDHeader,
 }, ",")
 
 // CORSContext represents a scope that has a specific set of allowed origins for CORS requests. This
