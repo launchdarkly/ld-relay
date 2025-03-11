@@ -35,7 +35,7 @@ trap "kill ${RELAY_PID} && $(dirname $0)/stop-streamer.sh && rm -rf ${TEMP_DIR}"
 # make an SDK endpoint request, causing request metric to be incremented (we don't care about the output)
 echo
 echo "querying Relay SDK endpoint to generate a metric"
-curl --fail --silent -X REPORT -H 'content-type:application/json' --data '{"key":"test-user"}' \
+curl --fail --silent -X REPORT -H 'content-type:application/json' -H 'x-launchdarkly-instance-id:exampleid' --data '{"key":"test-user"}' \
   http://localhost:${RELAY_PORT}/sdk/evalx/fake-env-id/user >/dev/null
 
 # hit the Prometheus exporter endpoint - allow a couple of retries since there can be a lag for the data
@@ -46,7 +46,7 @@ fail_count=0
 max_attempts=10
 while true; do
   curl --fail --silent http://localhost:${RELAY_METRICS_PORT}/metrics >${TEMP_FILE_METRICS} # endpoint should return 200 even if there's no data
-  grep 'env="test",method="REPORT",platformCategory="browser",route="_sdk_evalx_{envId}_user"' <${TEMP_FILE_METRICS} && break
+  grep 'env="test",instanceId="exampleid",method="REPORT",platformCategory="browser",route="_sdk_evalx_{envId}_user"' <${TEMP_FILE_METRICS} && break
   let "fail_count += 1"
   if [[ $fail_count -gt ${max_attempts} ]]; then
     echo "metrics did not show up after ${max_attempts} seconds; failing"
