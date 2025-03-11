@@ -39,6 +39,7 @@ func getEventsImage(w http.ResponseWriter, req *http.Request) {
 			eventsReq, _ := http.NewRequest("POST", "", bytes.NewBuffer(eventData))
 			eventsReq.Header.Add("Content-Type", "application/json")
 			eventsReq.Header.Add("X-LaunchDarkly-User-Agent", eventsReq.Header.Get("X-LaunchDarkly-User-Agent"))
+			eventsReq.Header.Add("X-LaunchDarkly-Instance-Id", eventsReq.Header.Get("X-LaunchDarkly-Instance-Id"))
 			eventsReq.Header.Add(events.EventSchemaHeader, strconv.Itoa(events.SummaryEventsSchemaVersion))
 			handler(nullW, eventsReq)
 		}()

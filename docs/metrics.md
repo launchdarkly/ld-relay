@@ -20,6 +20,7 @@ You can filter metrics by the following tags:
 - `route`: The request URL path. This can be any of the endpoint paths described in [Service endpoints](./endpoints.md) exactly as written there, so variables like `{user}` will appear as a placeholder rather than showing the actual value. Example: `/sdk/evalx/{envId}/users/{user}`
 - `method`: The HTTP method used for the request. Example: `GET`
 - `userAgent`: The user agent used to make the request, typically a LaunchDarkly SDK version. Example: "Node/3.4.0"
+- `instanceId`: The instance ID representing the SDK used to make the request.
 
 **Note:** Traces for stream connections will trace until the connection is closed.
 

@@ -27,6 +27,7 @@ var DefaultAllowedHeaders = strings.Join([]string{ //nolint:gochecknoglobals
 	"Content-Length",
 	"Accept-Encoding",
 	"X-LaunchDarkly-User-Agent",
+	"X-LaunchDarkly-Instance-Id",
 	"X-LaunchDarkly-Payload-ID",
 	"X-LaunchDarkly-Wrapper",
 	events.EventSchemaHeader,

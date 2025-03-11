@@ -79,36 +79,48 @@ func makeServerTags() []tag.Mutator {
 
 // WithGauge increments the specified metric before running the function and then decrements it (for use with
 // the active connection metrics).
-func WithGauge(ctx context.Context, userAgent string, f func(), measure Measure) {
+func WithGauge(ctx context.Context, userAgent string, instanceID string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil { // COVERAGE: can't make this happen in unit tests
 		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags: %s`, err)
 	} else {
-		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, measure.tags...)
-			stats.Record(ctx, m.M(1))
-			defer stats.Record(ctx, m.M(-1))
+		ctx, err = tag.New(ctx, tag.Insert(instanceIDTagKey, sanitizeTagValue(instanceID)))
+		if err != nil { // COVERAGE: can't make this happen in unit tests
+			logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for instance id : %s`, err)
+		} else {
+			for _, m := range measure.measures {
+				ctx, _ := tag.New(ctx, measure.tags...)
+				stats.Record(ctx, m.M(1))
+				defer stats.Record(ctx, m.M(-1))
+			}
 		}
 	}
+
 	f()
 }
 
 // WithCount runs a function and records a single-unit increment for the specified metric.
-func WithCount(ctx context.Context, userAgent string, f func(), measure Measure) {
+func WithCount(ctx context.Context, userAgent string, instanceID string, f func(), measure Measure) {
 	ctx, err := tag.New(ctx, tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)))
 	if err != nil { // COVERAGE: can't make this happen in unit tests
 		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for user agent : %s`, err)
 	} else {
-		for _, m := range measure.measures {
-			ctx, _ := tag.New(ctx, measure.tags...)
-			stats.Record(ctx, m.M(1))
+		ctx, err = tag.New(ctx, tag.Insert(instanceIDTagKey, sanitizeTagValue(instanceID)))
+		if err != nil { // COVERAGE: can't make this happen in unit tests
+			logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tag for instance id : %s`, err)
+		} else {
+			for _, m := range measure.measures {
+				ctx, _ := tag.New(ctx, measure.tags...)
+				stats.Record(ctx, m.M(1))
+			}
 		}
 	}
+
 	f()
 }
 
 // WithRouteCount records a route hit and starts a trace. For stream connections, the duration of the stream connection is recorded
-func WithRouteCount(ctx context.Context, userAgent, route, method string, f func(), measure Measure) {
+func WithRouteCount(ctx context.Context, userAgent, instanceID, route, method string, f func(), measure Measure) {
 	tagCtx, err := tag.New(ctx, tag.Insert(routeTagKey, sanitizeTagValue(route)), tag.Insert(methodTagKey, sanitizeTagValue(method)))
 	if err != nil { // COVERAGE: can't make this happen in unit tests
 		logging.GetGlobalContextLoggers(ctx).Errorf(`Failed to create tags for route "%s %s": %s`, method, route, err)
@@ -118,5 +130,5 @@ func WithRouteCount(ctx context.Context, userAgent, route, method string, f func
 	ctx, span := trace.StartSpan(ctx, route)
 	defer span.End()
 
-	WithCount(ctx, userAgent, f, measure)
+	WithCount(ctx, userAgent, instanceID, f, measure)
 }

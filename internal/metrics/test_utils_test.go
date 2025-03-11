@@ -22,6 +22,7 @@ import (
 const (
 	testMetricsRelayID = "test-metrics-relay-id"
 	userAgentValue     = "my-agent"
+	instanceIDValue    = "instance-id"
 )
 
 type testWithExporterParams struct {

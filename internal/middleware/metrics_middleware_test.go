@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	metricsTestUserAgent = "fake-user-agent"
+	metricsTestUserAgent  = "fake-user-agent"
+	metricsTestInstanceID = "fake-instance-id"
 )
 
 type metricsMiddlewareTestParams struct {
@@ -86,10 +87,12 @@ func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler,
 			"env":              p.envName,
 			"platformCategory": category,
 			"userAgent":        metricsTestUserAgent,
+			"instanceId":       metricsTestInstanceID,
 		}
 
 		req, _ := http.NewRequest("GET", "", nil)
 		req.Header.Set("User-Agent", metricsTestUserAgent)
+		req.Header.Set("X-LaunchDarkly-Instance-Id", metricsTestInstanceID)
 		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
 		rr := httptest.NewRecorder()
 
@@ -142,11 +145,13 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 			"route":            "_test-route",
 			"platformCategory": category,
 			"userAgent":        metricsTestUserAgent,
+			"instanceId":       metricsTestInstanceID,
 		}
 
 		makeRequest := func() *http.Request {
 			req, _ := http.NewRequest("GET", "/test-route", nil)
 			req.Header.Set("User-Agent", metricsTestUserAgent)
+			req.Header.Set("X-LaunchDarkly-Instance-Id", metricsTestInstanceID)
 			return req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
 		}
 
