@@ -183,7 +183,7 @@ func makeAllSummarizeEventsParams() []summarizeEventsParams {
 			expectedEventsJSON: `
 			[
 				{ "kind": "index", "creationDate": 1000, "context": {"key": "userkey"} },
-				{ "kind": "custom", "creationDate": 1000, "key": "eventkey1", "contextKeys": {"user": "userkey"} }
+				{ "kind": "custom", "creationDate": 1000, "key": "eventkey1", "context": {"key": "userkey"} }
 			]`,
 		},
 		{
