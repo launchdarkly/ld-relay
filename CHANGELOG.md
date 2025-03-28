@@ -2,6 +2,14 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.10.9](https://github.com/launchdarkly/ld-relay/compare/v8.10.8...v8.10.9) (2025-03-28)
+
+
+### Bug Fixes
+
+* Bump github.com/launchdarkly/opencensus-go-exporter-stackdriver to v0.14.4 ([#485](https://github.com/launchdarkly/ld-relay/issues/485)) ([ce91697](https://github.com/launchdarkly/ld-relay/commit/ce91697076206e87b7ea5ce7c2b230b7019711f3))
+* Bump launchdarkly/go-server-sdk/v7 to v7.10.0 ([#486](https://github.com/launchdarkly/ld-relay/issues/486)) ([0156adb](https://github.com/launchdarkly/ld-relay/commit/0156adb70eb2ff28bbbcadb6bc30749704d9a329))
+
 ## [8.10.8](https://github.com/launchdarkly/ld-relay/compare/v8.10.7...v8.10.8) (2025-03-06)
 
 
