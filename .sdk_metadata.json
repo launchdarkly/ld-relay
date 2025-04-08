@@ -6,7 +6,8 @@
       "type": "relay",
       "languages": [
         "Go"
-      ]
+      ],
+      "userAgents": ["LDRelay"]
     }
   }
 }
