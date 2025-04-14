@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -120,6 +121,9 @@ type EnvContext interface {
 	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
 	// environment.
 	GetMetricsContext() context.Context
+
+	// GetMetricsManager returns the top-level object that controls all of our metrics exporter activity.
+	GetMetricsManager() *metrics.Manager
 
 	// GetTTL returns the configured cache TTL for PHP SDK endpoints for this environment.
 	GetTTL() time.Duration

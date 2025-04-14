@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
@@ -15,7 +16,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
@@ -330,8 +330,13 @@ func NewEnvContext(
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}
+
 		thingsToCleanUp.AddFunc(func() { params.MetricsManager.RemoveEnvironment(em) })
+
+		params.MetricsManager.AddEnvironmentForUsage(params.Identifiers.GetDisplayName(), envContext.metricsEventPub)
+		thingsToCleanUp.AddFunc(func() { params.MetricsManager.RemoveEnvironmentForUsage(params.Identifiers.GetDisplayName()) })
 	}
+
 	envContext.metricsEnv = em
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
@@ -643,6 +648,10 @@ func (c *envContextImpl) GetMetricsContext() context.Context {
 	return c.metricsEnv.GetOpenCensusContext()
 }
 
+func (c *envContextImpl) GetMetricsManager() *metrics.Manager {
+	return c.metricsManager
+}
+
 func (c *envContextImpl) GetTTL() time.Duration {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -720,6 +729,9 @@ func (c *envContextImpl) Close() error {
 
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)
+	}
+	if c.metricsManager != nil {
+		c.metricsManager.RemoveEnvironmentForUsage(c.identifiers.GetDisplayName())
 	}
 	if c.metricsEventPub != nil {
 		c.metricsEventPub.Close()

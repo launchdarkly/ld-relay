@@ -152,3 +152,27 @@ func (p *testEventsPublisher) expectNoMetricsEvent(t *testing.T, timeout time.Du
 		t.FailNow()
 	}
 }
+
+func (p *testEventsPublisher) expectUsageEvent(t *testing.T, timeout time.Duration) relayUsageEvent {
+	if ret, ok := p.maybeReceiveUsageEvent(t, timeout); ok {
+		return ret
+	}
+	require.Fail(t, "timed out waiting for metrics event")
+	return relayUsageEvent{}
+}
+
+func (p *testEventsPublisher) maybeReceiveUsageEvent(t *testing.T, timeout time.Duration) (relayUsageEvent, bool) {
+	eventData, ok, _ := helpers.TryReceive(p.events, timeout)
+	if ok {
+		var metricsEvent relayUsageEvent
+		require.NoError(t, json.Unmarshal(eventData, &metricsEvent))
+		return metricsEvent, true
+	}
+	return relayUsageEvent{}, false
+}
+
+func (p *testEventsPublisher) expectNoUsageEvent(t *testing.T, timeout time.Duration) {
+	if !helpers.AssertNoMoreValues(t, p.events, timeout, "received unexpected metrics event") {
+		t.FailNow()
+	}
+}

@@ -24,6 +24,10 @@ const (
 	requestMeasureName = "requests"
 
 	defaultFlushInterval = time.Minute
+
+	BrowserPlatformCategory = "browser"
+	MobilePlatformCategory  = "mobile"
+	ServerPlatformCategory  = "server"
 )
 
 var (
