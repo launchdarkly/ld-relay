@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	userAgentHeader   = "user-agent"
-	ldUserAgentHeader = "X-LaunchDarkly-User-Agent"
+	userAgentHeader    = "user-agent"
+	ldUserAgentHeader  = "X-LaunchDarkly-User-Agent"
+	ldInstanceIDHeader = "X-LaunchDarkly-Instance-Id"
 
 	httpStatusMessageInvalidEnvCredential  = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
 	httpStatusMessageNotFullyConfigured    = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
@@ -61,6 +62,11 @@ func getUserAgent(req *http.Request) string {
 		return agent
 	}
 	return req.Header.Get(userAgentHeader)
+}
+
+// getInstanceID returns the X-LaunchDarkly-Instance-Id if available
+func getInstanceID(req *http.Request) string {
+	return req.Header.Get(ldInstanceIDHeader)
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.

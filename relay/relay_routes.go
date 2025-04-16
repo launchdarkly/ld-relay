@@ -48,6 +48,7 @@ func (r *Relay) makeRouter() *mux.Router {
 			mux.CORSMethodMiddleware(subrouter),
 			jsClientSelector, // selects an environment based on the client-side ID in the URL
 			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
+			middleware.UsageActivityCount(metrics.BrowserPlatformCategory),
 			middleware.RequestCount(metrics.BrowserRequests),
 		)
 	}
@@ -65,7 +66,9 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
-		middleware.RequestCount(metrics.ServerRequests))
+		middleware.UsageActivityCount(metrics.ServerPlatformCategory),
+		middleware.RequestCount(metrics.ServerRequests),
+	)
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
@@ -88,6 +91,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	// Mobile evaluation
 	mobileMiddlewareStack := middleware.Chain(
 		mobileKeySelector,
+		middleware.UsageActivityCount(metrics.MobilePlatformCategory),
 		middleware.RequestCount(metrics.MobileRequests))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
@@ -104,24 +108,24 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack, middleware.Streaming)
 	mobilePingWithUser := pingStreamHandlerWithContext(basictypes.MobileSDK, r.mobileStreamProvider)
-	mobileStreamRouter.Handle("", middleware.CountMobileConns(mobilePingWithUser)).Methods("REPORT")
-	mobileStreamRouter.Handle("/{context}", middleware.CountMobileConns(mobilePingWithUser)).Methods("GET")
+	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
+	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
 	router.Handle("/mping", mobileKeySelector(
-		middleware.CountMobileConns(middleware.Streaming(pingStreamHandler(r.mobileStreamProvider))))).Methods("GET")
+		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandler(r.mobileStreamProvider)))))).Methods("GET")
 
 	jsPing := pingStreamHandler(r.jsClientStreamProvider)
 	jsPingWithUser := pingStreamHandlerWithContext(basictypes.JSClientSDK, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
 	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter), middleware.Streaming)
-	clientSidePingRouter.Handle("", middleware.CountBrowserConns(jsPing)).Methods("GET", "OPTIONS")
+	clientSidePingRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPing))).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
 	clientSideStreamEvalRouter.Use(jsClientSideMiddlewareStack(clientSideStreamEvalRouter), middleware.Streaming)
 	// For now we implement eval as simply ping
-	clientSideStreamEvalRouter.Handle("/{context}", middleware.CountBrowserConns(jsPingWithUser)).Methods("GET", "OPTIONS")
-	clientSideStreamEvalRouter.Handle("", middleware.CountBrowserConns(jsPingWithUser)).Methods("REPORT", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPingWithUser))).Methods("GET", "OPTIONS")
+	clientSideStreamEvalRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPingWithUser))).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
 	mobileEventsRouter.Use(mobileMiddlewareStack, middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize))
@@ -150,12 +154,12 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideBulkEventsRouter.Handle("/bulk", bulkEventHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	serverSideBulkEventsRouter.Handle("/diagnostic", bulkEventHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
-	serverSideRouter.Handle("/all", middleware.CountServerConns(middleware.Streaming(
+	serverSideRouter.Handle("/all", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
-	))).Methods("GET")
-	serverSideRouter.Handle("/flags", middleware.CountServerConns(middleware.Streaming(
+	)))).Methods("GET")
+	serverSideRouter.Handle("/flags", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
-	))).Methods("GET")
+	)))).Methods("GET")
 
 	return router
 }

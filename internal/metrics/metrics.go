@@ -38,6 +38,22 @@ type Manager struct {
 	closeOnce      sync.Once
 	closed         bool
 	lock           sync.Mutex
+
+	usageChan            chan interface{}
+	environmentsForUsage map[string]*environmentMetricUsage
+}
+
+type addEnvironment struct {
+	envName   string
+	publisher events.EventPublisher
+}
+
+type removeEnvironment struct {
+	envName string
+}
+
+type shutdown struct {
+	closed chan struct{}
 }
 
 // EnvironmentManager controls the metrics exporter activity for a specific LD environment.
@@ -75,23 +91,81 @@ func NewManager(
 
 	ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, metricsRelayID))
 
+	usageChan := make(chan interface{})
 	m := &Manager{
-		openCensusCtx:  ctx,
-		metricsRelayID: metricsRelayID,
-		exporters:      exporters,
-		flushInterval:  flushInterval,
-		loggers:        loggers,
+		openCensusCtx:        ctx,
+		metricsRelayID:       metricsRelayID,
+		exporters:            exporters,
+		flushInterval:        flushInterval,
+		loggers:              loggers,
+		usageChan:            usageChan,
+		environmentsForUsage: make(map[string]*environmentMetricUsage),
 	}
 	if m.flushInterval <= 0 {
 		m.flushInterval = defaultFlushInterval
 	}
 
+	go m.consumeUsageStats()
+
 	return m, nil
+}
+
+func (m *Manager) UsageActivityCountMessage(envName, userAgent, platformCategory, instanceID string) {
+	m.usageChan <- &usageActivityMessage{
+		kind: UsageActivityKindCount, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+	}
+}
+
+func (m *Manager) UsageActivityStreamConnected(envName, userAgent, platformCategory, instanceID string) {
+	m.usageChan <- &usageActivityMessage{
+		kind: UsageActivityKindStreamConnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+	}
+}
+
+func (m *Manager) UsageActivityStreamDisconnected(envName, userAgent, platformCategory, instanceID string) {
+	m.usageChan <- &usageActivityMessage{
+		kind: UsageActivityKindStreamDisconnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+	}
+}
+
+func (m *Manager) consumeUsageStats() {
+	for usage := range m.usageChan {
+		switch usage := usage.(type) {
+		case *usageActivityMessage:
+			m.forwardUsageStats(usage)
+		case addEnvironment:
+			if _, ok := m.environmentsForUsage[usage.envName]; !ok {
+				em := NewEnvironmentMetricUsage(m.metricsRelayID, usage.publisher, 1*time.Minute)
+				m.environmentsForUsage[usage.envName] = em
+			}
+		case removeEnvironment:
+			if em, ok := m.environmentsForUsage[usage.envName]; ok {
+				delete(m.environmentsForUsage, usage.envName)
+				em.close()
+			}
+		case shutdown:
+			for env, em := range m.environmentsForUsage {
+				delete(m.environmentsForUsage, env)
+				em.close()
+			}
+			close(usage.closed)
+		}
+	}
+}
+
+func (m *Manager) forwardUsageStats(usage *usageActivityMessage) {
+	if em, ok := m.environmentsForUsage[usage.envName]; ok {
+		em.usageActivityMessage(usage)
+	}
 }
 
 // Close shuts down the Manager and all of its EnvironmentManager instances.
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
+		closed := make(chan struct{})
+		m.usageChan <- shutdown{closed: closed}
+		<-closed
+
 		m.lock.Lock()
 		exporters := m.exporters
 		environments := m.environments
@@ -132,6 +206,11 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 	return em, nil
 }
 
+// AddEnvironmentForUsage informs the Manager to start accepting and tracking usage metrics from our middleware.
+func (m *Manager) AddEnvironmentForUsage(envName string, publisher events.EventPublisher) {
+	m.usageChan <- addEnvironment{envName: envName, publisher: publisher}
+}
+
 // RemoveEnvironment shuts down this EnvironmentManager and removes it from the Manager.
 func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
 	m.lock.Lock()
@@ -148,6 +227,11 @@ func (m *Manager) RemoveEnvironment(em *EnvironmentManager) {
 	if found {
 		em.close()
 	}
+}
+
+// RemoveEnvironmentForUsage informs the Manager to stop tracking usage metrics for a particular environment.
+func (m *Manager) RemoveEnvironmentForUsage(envName string) {
+	m.usageChan <- removeEnvironment{envName: envName}
 }
 
 // GetOpenCensusContext returns the Context for this EnvironmentManager's OpenCensus operations.
