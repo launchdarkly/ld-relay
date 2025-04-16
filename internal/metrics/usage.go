@@ -208,10 +208,14 @@ func (e *environmentMetricUsage) run() {
 				case UsageActivityKindStreamDisconnected:
 					usage, exists := e.usages[key]
 					if !exists {
-						continue
+						usage = &metricUsage{
+							firstActive: now,
+						}
+					} else {
+						usage.streamingCount -= 1
 					}
+
 					usage.lastActive = now
-					usage.streamingCount -= 1
 					// When we disconnect, we add up the running time from the
 					// earliest bit of activity. Because we already stored an
 					// offset above, this should deal with any partial starts.
