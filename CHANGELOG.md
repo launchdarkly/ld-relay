@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.11.0](https://github.com/launchdarkly/ld-relay/compare/v8.10.10...v8.11.0) (2025-04-16)
+
+
+### Features
+
+* Improve relay usage tracking statistics ([#491](https://github.com/launchdarkly/ld-relay/issues/491)) ([1a55b52](https://github.com/launchdarkly/ld-relay/commit/1a55b52f5e9b883309e120d12c0de5d67cbfc2d2))
+
 ## [8.10.10](https://github.com/launchdarkly/ld-relay/compare/v8.10.9...v8.10.10) (2025-04-03)
 
 
