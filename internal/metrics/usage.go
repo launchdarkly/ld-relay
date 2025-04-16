@@ -8,9 +8,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 )
 
+const relayUsageKind = "relayUsage"
+
 // The relay will periodically capture usage information and emit that
 // information through the event stream.
 type relayUsageEvent struct {
+	Kind             string `json:"kind"`
 	RelayID          string `json:"relayId"`
 	UserAgent        string `json:"userAgent"`
 	PlatformCategory string `json:"platformCategory"`
@@ -255,6 +258,7 @@ func (e *environmentMetricUsage) flushInternal() {
 		elapsedStreaming := now.Sub(usage.firstActive) * time.Duration(usage.streamingCount)
 
 		relayUsageEvent := &relayUsageEvent{
+			Kind:             relayUsageKind,
 			RelayID:          e.relayID,
 			UserAgent:        key.userAgent,
 			PlatformCategory: key.platformCategory,
