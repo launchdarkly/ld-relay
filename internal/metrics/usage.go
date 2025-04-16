@@ -256,6 +256,13 @@ func (e *environmentMetricUsage) flushInternal() {
 		// Refer back to the metricUsage comment for an explanation on this
 		// calculation.
 		elapsedStreaming := now.Sub(usage.firstActive) * time.Duration(usage.streamingCount)
+		lastActive := usage.lastActive
+
+		// If we still have connected streaming clients, we need to make sure
+		// the last active is up to the current point in time.
+		if usage.streamingCount > 0 && lastActive.Before(now) {
+			lastActive = now
+		}
 
 		relayUsageEvent := &relayUsageEvent{
 			Kind:             relayUsageKind,
@@ -264,7 +271,7 @@ func (e *environmentMetricUsage) flushInternal() {
 			PlatformCategory: key.platformCategory,
 			InstanceID:       key.instanceID,
 			FirstActive:      ldtime.UnixMillisFromTime(usage.firstActive),
-			LastActive:       ldtime.UnixMillisFromTime(usage.lastActive),
+			LastActive:       ldtime.UnixMillisFromTime(lastActive),
 			TotalStreamMs:    (elapsedStreaming + usage.streamingDurationAdjustment).Milliseconds(),
 		}
 

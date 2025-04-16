@@ -188,6 +188,7 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
+	assert.NotEqual(t, event.FirstActive, event.LastActive) // Ensure timestamps differ
 	assert.InDeltaf(t, 10, event.TotalStreamMs, 5, "stream time should be approximately 10ms")
 
 	// Stream is still connected, so wait and try to force another event.
@@ -196,6 +197,7 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 
 	event = publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
+	assert.NotEqual(t, event.FirstActive, event.LastActive) // Ensure timestamps differ
 	assert.InDeltaf(t, 30, event.TotalStreamMs, 5, "stream time should be approximately 30ms")
 }
 
