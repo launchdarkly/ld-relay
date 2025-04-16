@@ -54,12 +54,70 @@ type usageActivityShutdown struct{}
 // from the usage middleware. We then track that usage and report it upstream
 // through our event processors.
 type metricUsage struct {
+	// The first and last active fields represent the period of activity for
+	// this reporting usage.
 	firstActive time.Time
 	lastActive  time.Time
 
-	streamingCount      int64
-	streamingOffset     time.Duration
-	streamingRunningSum time.Duration
+	// During the above duration, we need to report the total time spent
+	// streaming from all connections.
+	//
+	// One option requires tracking the starting time for each connection. On
+	// disconnect, we would add up the individual durations. This is
+	// inefficient, as the relay may support 100k connections.
+	//
+	// Tracking the number of connections is a simpler solution, since the
+	// calculation becomes:
+	//
+	//  elapsedStreaming = (lastActive - firstActive) * number of connections
+	//
+	// However, this isn't as accurate, since we need to account for:
+	//
+	// 1. A connection that starts after the first active time.
+	// 2. A connection that disconnects before the last active time.
+	//
+	// To handle #1, when a new stream connects, we need to account for the
+	// offset from the first active time.
+	//
+	//     0        10                                                60     adj
+	//     |........[-------------------------------------------------|      -10
+	//
+	//     In the above example, the first active time is 0. A stream connects
+	//     at 10, incrementing the streaming count to 1. We capture the offset
+	//     (10-0=10) and store that in the streamingDurationAdjustment as a
+	//     negative amount.
+	//
+	//     The total streaming duration calculation is then: 1 * (60 - 0) - 10 = 50
+	//
+	// To handle #2, when a stream disconnects, we need to calculate how long
+	// it was connected, and add that to the running offset.
+	//
+	//     0        10      15                                        60     adj
+	//     |.........[-------]........................................|      -10/+15
+	//
+	//     In the above example, the first active time is 0. A stream connects
+	//     at 10, incrementing the streaming count to 1. We capture the offset (as outlined above),
+	//	   and store that in the streamingDurationAdjustment as a negative amount.
+	//
+	//     The stream disconnects at 15, decrementing the streaming count to 0.
+	//     We need to save the total stream duration using the point of
+	//     disconnect and the first active time. We store that in the running duration
+	//     adjustment as a positive amount.
+	//
+	//     The total streaming duration calculation is then: 0 * (60 - 0) - 5 = 5
+	//
+	// At the risk of being excessive, here is a final, more complicated example.
+	//
+	//     0        10     15          30                             60     adj.
+	//     [---------]................................................|      +10
+	//     [----------------------------------------------------------]      +0
+	//     |................[-----------].............................]      -15/+30
+	//     |................[-----------------------------------------]      -15
+	//
+	//     The total streaming duration calculation is then: 2 * (60 - 0) + 10 = 130
+	//
+	streamingCount              int64
+	streamingDurationAdjustment time.Duration
 }
 
 // environmentMetricUsage is used to track usage information for a single
@@ -143,8 +201,8 @@ func (e *environmentMetricUsage) run() {
 					usage.streamingCount += 1
 					// Record how far into the metric interval we are so we can
 					// calculate the total stream time later. See #1 in the
-					// flushInterval comment below.
-					usage.streamingOffset += now.Sub(usage.firstActive)
+					// metricUsage comment above.
+					usage.streamingDurationAdjustment -= now.Sub(usage.firstActive)
 
 					e.usages[key] = usage
 				case UsageActivityKindStreamDisconnected:
@@ -157,8 +215,8 @@ func (e *environmentMetricUsage) run() {
 					// When we disconnect, we add up the running time from the
 					// earliest bit of activity. Because we already stored an
 					// offset above, this should deal with any partial starts.
-					// See #2 in the flushInterval comment below.
-					usage.streamingRunningSum += now.Sub(usage.firstActive)
+					// See #2 in the metricUsage comment above.
+					usage.streamingDurationAdjustment += now.Sub(usage.firstActive)
 
 					e.usages[key] = usage
 				}
@@ -188,13 +246,8 @@ func (e *environmentMetricUsage) flushInternal() {
 	now := time.Now()
 
 	for key, usage := range e.usages {
-		// We calculate the elapsedStreaming time to be N*the duration of this event.
-		// However, we have to deal with two situations:
-		// 1. A streaming connection starts after we have already seen usage for that instance.
-		// 2. A streaming connection disconnects before we have reported the usage for that instance.
-		//
-		// We handle #1 by removing the running offset we have been calculating when streams connect.
-		// We handle #2 by adding the running sum we have been calculating when streams disconnect.
+		// Refer back to the metricUsage comment for an explanation on this
+		// calculation.
 		elapsedStreaming := now.Sub(usage.firstActive) * time.Duration(usage.streamingCount)
 
 		relayUsageEvent := &relayUsageEvent{
@@ -204,7 +257,7 @@ func (e *environmentMetricUsage) flushInternal() {
 			InstanceID:       key.instanceID,
 			FirstActive:      ldtime.UnixMillisFromTime(usage.firstActive),
 			LastActive:       ldtime.UnixMillisFromTime(usage.lastActive),
-			TotalStreamMs:    (usage.streamingRunningSum + elapsedStreaming - usage.streamingOffset).Milliseconds(),
+			TotalStreamMs:    (elapsedStreaming + usage.streamingDurationAdjustment).Milliseconds(),
 		}
 
 		json, _ := json.Marshal(relayUsageEvent)
@@ -221,8 +274,7 @@ func (e *environmentMetricUsage) flushInternal() {
 			// event started.
 			usage.firstActive = now
 			usage.lastActive = now
-			usage.streamingOffset = 0
-			usage.streamingRunningSum = 0
+			usage.streamingDurationAdjustment = 0
 		}
 	}
 }
