@@ -1,9 +1,13 @@
 package application
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -35,6 +39,10 @@ func StartHTTPServer(
 
 	errCh := make(chan error)
 
+	// Create a channel to listen for signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM)
+
 	go func() {
 		var err error
 		loggers.Infof("Starting server listening on port %d\n", port)
@@ -48,8 +56,24 @@ func StartHTTPServer(
 		} else {
 			err = srv.ListenAndServe()
 		}
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
+		}
+	}()
+
+	// Handle graceful shutdown in a separate goroutine
+	go func() {
+		<-sigCh
+		loggers.Info("Received SIGTERM signal, initiating graceful shutdown...")
+
+		// Create a context with a timeout for graceful shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			loggers.Errorf("Error during server shutdown: %v", err)
+		} else {
+			loggers.Info("Server gracefully stopped")
 		}
 	}()
 
