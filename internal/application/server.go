@@ -23,6 +23,7 @@ func StartHTTPServer(
 	tlsEnabled bool,
 	tlsCertFile, tlsKeyFile string,
 	tlsMinVersion uint16,
+	gracefulShutdownTimeout time.Duration,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
 	srv := &http.Server{
@@ -67,7 +68,7 @@ func StartHTTPServer(
 		loggers.Info("Received SIGTERM signal, initiating graceful shutdown...")
 
 		// Create a context with a timeout for graceful shutdown
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {

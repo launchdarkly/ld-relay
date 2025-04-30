@@ -68,6 +68,7 @@ func main() {
 		c.Main.TLSCert,
 		c.Main.TLSKey,
 		c.Main.TLSMinVersion.Get(),
+		c.Main.GracefulShutdownTimeout.GetOrElse(config.DefaultGracefulShutdownTimeout),
 		loggers,
 	)
 
