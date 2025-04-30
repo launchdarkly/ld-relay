@@ -75,6 +75,7 @@ func StartHTTPServer(
 		} else {
 			loggers.Info("Server gracefully stopped")
 		}
+		close(errCh) // Close the error channel after shutdown
 	}()
 
 	return srv, errCh
