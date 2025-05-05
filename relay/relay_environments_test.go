@@ -287,7 +287,6 @@ func TestRelayUninitializedEnvironment(t *testing.T) {
 		assert.NotNil(t, env)
 		store := env.GetStore()
 		assert.NotNil(t, store)
-		store.Init(nil)
 
 		req1 := st.MakeSDKStreamEndpointRequest("", basictypes.ServerSideStream, problemEnv, "", 0)
 		resp1 := st.WithStreamRequest(t, req1, router, func(ch <-chan eventsource.Event) { <-ch })

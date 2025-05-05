@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -175,8 +177,17 @@ func (p relayEndToEndTestParams) expectSuccessFromAllEndpoints(testEnv st.TestEn
 }
 
 func TestRelayEndToEndSuccess(t *testing.T) {
-	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
-	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
+	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   "xfer-full",
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred(1)
+	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
 	testEnv := st.EnvWithAllCredentials
 
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}

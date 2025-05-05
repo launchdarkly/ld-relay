@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
@@ -90,8 +90,8 @@ type EnvContextImplParams struct {
 type envContextImpl struct {
 	mu                        sync.RWMutex
 	clients                   map[config.SDKKey]sdks.LDClientContext
-	storeAdapter              *store.SSERelayDataStoreAdapter
 	loggers                   ldlog.Loggers
+	wrapper                   *datadestination.DataDestinationWrapper
 	identifiers               EnvIdentifiers
 	secureMode                bool
 	envStreams                *streams.EnvStreams
@@ -276,12 +276,8 @@ func NewEnvContext(
 		envContext.handlers[sp] = handlers
 	}
 
-	dataStoreFactory := params.DataStoreFactory
-	if dataStoreFactory == nil {
-		dataStoreFactory = ldcomponents.InMemoryDataStore()
-	}
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates)
-	envContext.storeAdapter = storeAdapter
+	wrapper := datadestination.NewDataDesinationWrapper(envStreamUpdates)
+	envContext.wrapper = wrapper
 
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
@@ -298,14 +294,18 @@ func NewEnvContext(
 				envLoggers,
 				allConfig.Events,
 				httpConfig,
-				storeAdapter,
+				wrapper,
 				0, // 0 here means "use the default interval for any periodic cleanup task you may need to run"
 			)
 		}
 	}
 	envContext.eventDispatcher = eventDispatcher
 
-	streamURI := allConfig.Main.StreamURI.String()   // config.ValidateConfig has ensured that this has a value
+	streamURI := allConfig.Main.StreamURI.String() // config.ValidateConfig has ensured that this has a value
+	//nolint:godox
+	// TODO(sdk-1231): Can we use baseURI here, or is that tool specific to
+	// clients?
+	baseURI := allConfig.Main.BaseURI.String()
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
 	// Unlike our SDKs, the relay proxy does not provide an option to disable
@@ -341,15 +341,24 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
-	dataSource := ldcomponents.StreamingDataSource()
-
-	if params.EnvConfig.FilterKey != "" {
-		dataSource.PayloadFilter(string(params.EnvConfig.FilterKey))
+	endpoints := ldcomponents.Endpoints{
+		Streaming: streamURI,
+		Polling:   baseURI,
 	}
 
-	envContext.sdkConfig = ld.Config{
-		DataSource:       dataSource,
-		DataStore:        storeAdapter,
+	//nolint:godox
+	// TODO(sdk-1229): Hook up persistent storage to the data system.
+	//nolint:godox
+	// TODO(sdk-1230): Hook up payload filter for this environment.
+	dataSystemBuilder := ldcomponents.DataSystem().
+		WithEndpoints(endpoints).Default()
+
+	config := ld.Config{
+		DataSystem: dataSystemBuilder,
+		LDRelayDataDestination: func(dd subsystems.DataDestination, ro subsystems.ReadOnlyStore) subsystems.DataDestination {
+			wrapper.SetDataSystemPieces(dd, ro)
+			return wrapper
+		},
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents().EnableGzip(true),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
@@ -357,10 +366,15 @@ func NewEnvContext(
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 		ServiceEndpoints: interfaces.ServiceEndpoints{
-			Streaming: streamURI,
-			Events:    eventsURI,
+			//nolint:godox
+			// TODO(sdk-1232): What is the optimized way to configure this now
+			// that polling and streaming are configured through the data
+			// system?
+			Events: eventsURI,
 		},
 	}
+
+	envContext.sdkConfig = config
 
 	// If appropriate, create the SDK subcomponent that will be used for flag evaluations. We're
 	// creating and managing it separately from the full SDK instance that we'll be creating (in
@@ -496,7 +510,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// The data store instance is created by the SDK when it creates the client. Now that
 		// we have a data store, we can finish setting up the Evaluator that we'll use for this
 		// environment.
-		store := c.storeAdapter.GetStore()
+		store := c.wrapper.GetReadOnlyStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
 		evalOptions := []ldeval.EvaluatorOption{
 			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
@@ -593,8 +607,8 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	return c.clients[c.keyRotator.SDKKey()]
 }
 
-func (c *envContextImpl) GetStore() subsystems.DataStore {
-	return c.storeAdapter.GetStore()
+func (c *envContextImpl) GetStore() subsystems.ReadOnlyStore {
+	return c.wrapper.GetReadOnlyStore()
 }
 
 func (c *envContextImpl) GetEvaluator() ldeval.Evaluator {
@@ -764,14 +778,14 @@ func (c *envContextImpl) setBigSegmentsExist() {
 }
 
 func (q envContextStoreQueries) IsInitialized() bool {
-	if s := q.context.storeAdapter.GetStore(); s != nil {
+	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.IsInitialized()
 	}
 	return false
 }
 
 func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	if s := q.context.storeAdapter.GetStore(); s != nil {
+	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.GetAll(kind)
 	}
 	return nil, nil

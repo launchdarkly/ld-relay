@@ -9,11 +9,11 @@ import (
 
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/events/oldevents"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -35,7 +35,7 @@ type eventSummarizingRelay struct {
 	authKey      credential.SDKCredential
 	httpClient   *http.Client
 	baseHeaders  http.Header
-	storeAdapter *store.SSERelayDataStoreAdapter
+	wrapper      *datadestination.DataDestinationWrapper
 	eventsConfig ldevents.EventsConfiguration
 	baseURI      string
 	remotePath   string
@@ -61,7 +61,7 @@ func newEventSummarizingRelay(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	credential credential.SDKCredential,
-	storeAdapter *store.SSERelayDataStoreAdapter,
+	wrapper *datadestination.DataDestinationWrapper,
 	loggers ldlog.Loggers,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
@@ -83,7 +83,7 @@ func newEventSummarizingRelay(
 		authKey:      credential,
 		httpClient:   httpConfig.SDKHTTPConfig.CreateHTTPClient(),
 		baseHeaders:  baseHeaders,
-		storeAdapter: storeAdapter,
+		wrapper:      wrapper,
 		eventsConfig: eventsConfig,
 		baseURI:      getEventsURI(config),
 		remotePath:   remotePath,
@@ -161,7 +161,7 @@ func (er *eventSummarizingRelay) dispatchEvent(
 ) error {
 	switch e := oldEvent.(type) {
 	case oldevents.FeatureEvent:
-		evalData, err := oldevents.TranslateFeatureEvent(e, schemaVersion, er.storeAdapter.GetStore())
+		evalData, err := oldevents.TranslateFeatureEvent(e, schemaVersion, er.wrapper.GetReadOnlyStore())
 		if err != nil {
 			return err
 		}

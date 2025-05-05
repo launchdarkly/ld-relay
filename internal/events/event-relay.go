@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -43,7 +43,7 @@ type analyticsEventEndpointDispatcher struct {
 	remotePath                string
 	verbatimRelay             *eventVerbatimRelay
 	summarizingRelay          *eventSummarizingRelay
-	storeAdapter              *store.SSERelayDataStoreAdapter
+	wrapper                   *datadestination.DataDestinationWrapper
 	eventQueueCleanupInterval time.Duration
 	loggers                   ldlog.Loggers
 	mu                        sync.Mutex
@@ -179,7 +179,7 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
-		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.storeAdapter,
+		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.wrapper,
 			r.loggers, r.remotePath, r.eventQueueCleanupInterval)
 	}
 	return r.summarizingRelay
@@ -204,13 +204,13 @@ func NewEventDispatcher(
 	loggers ldlog.Loggers,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	storeAdapter *store.SSERelayDataStoreAdapter,
+	wrapper *datadestination.DataDestinationWrapper,
 	eventQueueCleanupInterval time.Duration, // normally zero to use the default; overridden in tests
 ) *EventDispatcher {
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
 			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, storeAdapter, loggers, "/bulk", eventQueueCleanupInterval),
+				config, httpConfig, wrapper, loggers, "/bulk", eventQueueCleanupInterval),
 		},
 		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
 			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
@@ -218,11 +218,11 @@ func NewEventDispatcher(
 	}
 	if mobileKey.Defined() {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, storeAdapter, loggers, "/mobile", eventQueueCleanupInterval)
+			config, httpConfig, wrapper, loggers, "/mobile", eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID.Defined() {
-		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, storeAdapter, loggers,
+		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, wrapper, loggers,
 			"/events/bulk/"+string(envID), eventQueueCleanupInterval)
 		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
@@ -276,7 +276,7 @@ func newAnalyticsEventEndpointDispatcher(
 	authKey credential.SDKCredential,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	storeAdapter *store.SSERelayDataStoreAdapter,
+	wrapper *datadestination.DataDestinationWrapper,
 	loggers ldlog.Loggers,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
@@ -286,7 +286,7 @@ func newAnalyticsEventEndpointDispatcher(
 		config:                    config,
 		httpClient:                httpConfig.Client(),
 		httpConfig:                httpConfig,
-		storeAdapter:              storeAdapter,
+		wrapper:                   wrapper,
 		loggers:                   loggers,
 		remotePath:                remotePath,
 		eventQueueCleanupInterval: eventQueueCleanupInterval,

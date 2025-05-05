@@ -566,7 +566,7 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	assert.False(t, synchronizer.isStarted())
 
 	// Simulate receiving some data
-	updates := env.(*envContextImpl).storeAdapter.GetUpdates()
+	updates := env.(*envContextImpl).wrapper.GetUpdates()
 
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
 	dataWithNoBigSegment := []ldstoretypes.Collection{
@@ -632,7 +632,7 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	assert.False(t, synchronizer.isStarted())
 
 	// Simulate receiving some data
-	updates := env.(*envContextImpl).storeAdapter.GetUpdates()
+	updates := env.(*envContextImpl).wrapper.GetUpdates()
 
 	f1 := ldbuilders.NewFlagBuilder("f1").Build()
 	updates.SendSingleItemUpdate(ldstoreimpl.Features(), f1.Key, st.FlagDesc(f1))
@@ -687,7 +687,6 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 
 	// Make sure the data store is initialized, otherwise the client-side endpoint won't broadcast a ping
 	<-sdkStartedCh
-	_ = env.GetStore().Init(nil)
 
 	req, _ := http.NewRequest("GET", "", nil)
 	st.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {

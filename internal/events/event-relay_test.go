@@ -8,20 +8,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
@@ -73,8 +74,8 @@ type eventRelayTestOptions struct {
 type eventRelayTestParams struct {
 	dispatcher *EventDispatcher
 	requestsCh <-chan httphelpers.HTTPRequestInfo
-	dataStore  subsystems.DataStore
 	mockLog    *ldlogtest.MockLog
+	wrapper    *datadestination.DataDestinationWrapper
 }
 
 func eventRelayTest(
@@ -99,8 +100,6 @@ func eventRelayTestWithOptions(
 
 	httpConfig, _ := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
 
-	store := st.NewInMemoryStore()
-
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		eventsConfig.SendEvents = true
@@ -110,6 +109,8 @@ func eventRelayTestWithOptions(
 		}
 		eventsConfig.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
+		wrapper := makeDataDestinationWrapper()
+
 		dispatcher := NewEventDispatcher(
 			testEnv.Config.SDKKey,
 			testEnv.Config.MobileKey,
@@ -117,7 +118,7 @@ func eventRelayTestWithOptions(
 			mockLog.Loggers,
 			eventsConfig,
 			httpConfig,
-			makeStoreAdapterWithExistingStore(store),
+			wrapper,
 			opts.eventQueueCleanupInterval,
 		)
 		defer dispatcher.Close()
@@ -125,7 +126,7 @@ func eventRelayTestWithOptions(
 		p := eventRelayTestParams{
 			dispatcher: dispatcher,
 			requestsCh: requestsCh,
-			dataStore:  store,
+			wrapper:    wrapper,
 			mockLog:    mockLog,
 		}
 		fn(p)
@@ -395,8 +396,10 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 	return headers
 }
 
-func makeStoreAdapterWithExistingStore(s subsystems.DataStore) *store.SSERelayDataStoreAdapter {
-	a := store.NewSSERelayDataStoreAdapter(st.ExistingInstance(s), nil)
-	_, _ = a.Build(subsystems.BasicClientContext{}) // ensure the wrapped store has been created
-	return a
+func makeDataDestinationWrapper() *datadestination.DataDestinationWrapper {
+	fakeStore := testclient.NewFakeStore(st.AllData)
+	wrapper := datadestination.NewDataDesinationWrapper(nil)
+	wrapper.SetDataSystemPieces(fakeStore, fakeStore)
+
+	return wrapper
 }
