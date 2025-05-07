@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -39,25 +40,25 @@ func TestStreamProviderServerSide(t *testing.T) {
 		maxConnTime := time.Hour
 		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
 			require.IsType(t, &serverSideStreamProvider{}, sp)
-			verifyServerProperties(t, sp.(*serverSideStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*serverSideStreamProvider).fdv1Server, maxConnTime)
 		})
 	})
 
 	t.Run("Handler", func(t *testing.T) {
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.NotNil(t, sp.Handler(validCredential))
-			assert.Nil(t, sp.Handler(invalidCredential1))
-			assert.Nil(t, sp.Handler(invalidCredential2))
+			assert.NotNil(t, sp.HandlerV1(validCredential))
+			assert.Nil(t, sp.HandlerV1(invalidCredential1))
+			assert.Nil(t, sp.HandlerV1(invalidCredential2))
 		})
 	})
 
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
 
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &serverSideEnvStreamProvider{}, esp)
@@ -71,7 +72,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			{Kind: ldstoreimpl.Segments(), Items: store.segments},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -94,7 +95,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			{Kind: ldstoreimpl.Segments(), Items: storeWithoutDeleted.segments},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -107,7 +108,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -125,7 +126,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -143,7 +144,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -151,62 +152,79 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 	})
 
-	t.Run("SendAllDataUpdate", func(t *testing.T) {
+	t.Run("SetBasis", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
+			changes := []subsystems.Change{
+				{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
+				{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
+			}
+
 			newData := []ldstoretypes.Collection{
-				{Kind: ldstoreimpl.Features(), Items: store.flags},
-				{Kind: ldstoreimpl.Segments(), Items: store.segments},
+				{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{
+					{Key: testFlag1.Key, Item: sharedtest.FlagDesc(testFlag1)},
+				}},
+				{Kind: ldstoreimpl.Segments(), Items: []ldstoretypes.KeyedItemDescriptor{
+					{Key: testSegment1.Key, Item: sharedtest.SegmentDesc(testSegment1)},
+				}},
 			}
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendAllDataUpdate(newData)
+					esp.SetBasis(changes, subsystems.Selector{})
 				},
 				MakeServerSidePutEvent(newData),
 			)
 		})
 	})
 
-	t.Run("SendSingleItemUpdate", func(t *testing.T) {
+	t.Run("ApplyDelta", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: testFlag1.Version, Object: testFlag1JSON},
+					}, subsystems.NoSelector())
 				},
 				MakeServerSidePatchEvent(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1)),
 			)
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: testSegment1.Version, Object: testSegment1JSON},
+					}, subsystems.NoSelector())
 				},
 				MakeServerSidePatchEvent(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1)),
 			)
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.DeletedItem(1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypeDelete, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: testFlag1.Version},
+					}, subsystems.NoSelector())
 				},
-				MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, 1),
+				MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, testFlag1.Version),
 			)
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.DeletedItem(1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypeDelete, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: testSegment1.Version},
+					}, subsystems.NoSelector())
 				},
-				MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, 1),
+				MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, testSegment1.Version),
 			)
 		})
 	})
@@ -215,7 +233,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 

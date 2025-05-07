@@ -7,12 +7,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,25 +36,26 @@ func TestStreamProviderMobilePing(t *testing.T) {
 		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
 			require.IsType(t, &clientSidePingStreamProvider{}, sp)
 			assert.False(t, sp.(*clientSidePingStreamProvider).isJSClient)
-			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).fdv1Server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).fdv2Server, maxConnTime)
 		})
 	})
 
 	t.Run("Handler", func(t *testing.T) {
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.NotNil(t, sp.Handler(validCredential))
-			assert.Nil(t, sp.Handler(invalidCredential1))
-			assert.Nil(t, sp.Handler(invalidCredential2))
+			assert.NotNil(t, sp.HandlerV1(validCredential))
+			assert.Nil(t, sp.HandlerV1(invalidCredential1))
+			assert.Nil(t, sp.HandlerV1(invalidCredential2))
 		})
 	})
 
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
 
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
@@ -81,25 +80,26 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 		withStreamProvider(t, maxConnTime, func(sp StreamProvider) {
 			require.IsType(t, &clientSidePingStreamProvider{}, sp)
 			assert.True(t, sp.(*clientSidePingStreamProvider).isJSClient)
-			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).fdv1Server, maxConnTime)
+			verifyServerProperties(t, sp.(*clientSidePingStreamProvider).fdv2Server, maxConnTime)
 		})
 	})
 
 	t.Run("Handler", func(t *testing.T) {
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.NotNil(t, sp.Handler(validCredential))
-			assert.Nil(t, sp.Handler(invalidCredential1))
-			assert.Nil(t, sp.Handler(invalidCredential2))
+			assert.NotNil(t, sp.HandlerV1(validCredential))
+			assert.Nil(t, sp.HandlerV1(invalidCredential1))
+			assert.Nil(t, sp.HandlerV1(invalidCredential2))
 		})
 	})
 
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.Register(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.Register(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
 
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
@@ -124,7 +124,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -137,7 +137,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -145,46 +145,50 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		})
 	})
 
-	t.Run("SendAllDataUpdate", func(t *testing.T) {
+	t.Run("SetBasis", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			newData := []ldstoretypes.Collection{
-				{Kind: ldstoreimpl.Features(), Items: store.flags},
-				{Kind: ldstoreimpl.Segments(), Items: store.segments},
+			changes := []subsystems.Change{
+				{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
+				{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
 			}
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
-					esp.SendAllDataUpdate(newData)
+					esp.SetBasis(changes, subsystems.Selector{})
 				},
 				MakePingEvent(),
 			)
 		})
 	})
 
-	t.Run("SendSingleItemUpdate", func(t *testing.T) {
+	t.Run("ApplyDelta", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Object: testFlag1JSON},
+					}, subsystems.NoSelector())
 				},
 				MakePingEvent(),
 			)
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
-					esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
+					esp.ApplyDelta([]subsystems.Change{
+						{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Object: testSegment1JSON},
+					}, subsystems.NoSelector())
 				},
 				MakePingEvent(),
 			)
@@ -195,7 +199,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 			require.NotNil(t, esp)
 			defer esp.Close()
 

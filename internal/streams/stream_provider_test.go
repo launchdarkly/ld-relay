@@ -48,7 +48,7 @@ func verifyServerProperties(t *testing.T, server *eventsource.Server, maxConnTim
 }
 
 func verifyHandlerGetsPublishedEvent(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential, key string, server *eventsource.Server) {
-	handler := sp.Handler(credential)
+	handler := sp.HandlerV1(credential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -79,7 +79,7 @@ func expectNoEvent(t *testing.T, eventCh <-chan eventsource.Event) {
 }
 
 func verifyHandlerInitialEvent(t *testing.T, sp StreamProvider, credential sdkauth.ScopedCredential, expected eventsource.Event) {
-	handler := sp.Handler(credential)
+	handler := sp.HandlerV1(credential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -100,7 +100,7 @@ func verifyHandlerUpdateEvent(
 	action func(),
 	expectedUpdateEvent eventsource.Event,
 ) {
-	handler := sp.Handler(credential)
+	handler := sp.HandlerV1(credential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -123,7 +123,7 @@ func verifyHandlerHeartbeat(
 	esp EnvStreamProvider,
 	credential sdkauth.ScopedCredential,
 ) {
-	handler := sp.Handler(credential)
+	handler := sp.HandlerV1(credential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)

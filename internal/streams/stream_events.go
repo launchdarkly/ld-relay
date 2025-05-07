@@ -6,8 +6,10 @@ import (
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 )
 
 // This file defines the format for all SSE events published by Relay. Its functions are normally only
@@ -31,6 +33,66 @@ type deferredEvent struct {
 func (e deferredEvent) Event() string { return e.name }
 func (e deferredEvent) Id() string    { return "" } //nolint:golint,stylecheck
 func (e deferredEvent) Data() string  { return e.result.Get() }
+
+func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Selector) []eventsource.Event {
+	// First create a new streaming protocol builder
+	protocol := ldservicesv2.NewStreamingProtocol()
+
+	// Add the server intent event
+	protocol = protocol.WithIntent(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "some-id",
+			Target: selector.Version(),
+			Code:   subsystems.IntentTransferFull,
+			Reason: "cant-catchup",
+		},
+	})
+
+	// Add each change as a put or delete event
+	for _, change := range changes {
+		// NOTE: We don't have to worry about delete events here since this is
+		// meant as a full replacement.
+		if change.Action == subsystems.ChangeTypePut {
+			protocol = protocol.WithPutObject(subsystems.PutObject{
+				Version: change.Version,
+				Kind:    change.Kind,
+				Key:     change.Key,
+				Object:  change.Object,
+			})
+		}
+	}
+
+	// Add the payload transferred event with the selector
+	protocol = protocol.WithTransferred(selector.State(), selector.Version())
+
+	return protocol.SSEEvents()
+}
+
+func MakeEventsForApplyDelta(changes []subsystems.Change, selector subsystems.Selector) []eventsource.Event {
+	protocol := ldservicesv2.NewStreamingProtocol()
+
+	for _, change := range changes {
+		switch change.Action {
+		case subsystems.ChangeTypePut:
+			protocol = protocol.WithPutObject(subsystems.PutObject{
+				Version: change.Version,
+				Kind:    change.Kind,
+				Key:     change.Key,
+				Object:  change.Object,
+			})
+		case subsystems.ChangeTypeDelete:
+			protocol = protocol.WithDeleteObject(subsystems.DeleteObject{
+				Version: change.Version,
+				Kind:    change.Kind,
+				Key:     change.Key,
+			})
+		}
+	}
+
+	protocol = protocol.WithTransferred(selector.State(), selector.Version())
+
+	return protocol.SSEEvents()
+}
 
 // MakeServerSidePutEvent creates a "put" event for server-side SDKs.
 func MakeServerSidePutEvent(allData []ldstoretypes.Collection) eventsource.Event {

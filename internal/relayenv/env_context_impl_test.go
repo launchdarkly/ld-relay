@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -36,8 +37,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -569,29 +568,21 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	updates := env.(*envContextImpl).wrapper.GetUpdates()
 
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
-	dataWithNoBigSegment := []ldstoretypes.Collection{
-		{
-			Kind: ldstoreimpl.Segments(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: "s1", Item: st.SegmentDesc(s1)},
-			},
-		},
+	s1JSON, _ := json.Marshal(s1)
+	changes := []subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: s1JSON},
 	}
-	updates.SendAllDataUpdate(dataWithNoBigSegment)
+	updates.SetBasis(changes, subsystems.NoSelector())
 
 	assert.False(t, synchronizer.isStarted())
 
 	s2 := ldbuilders.NewSegmentBuilder("s2").Unbounded(true).Generation(1).Build()
-	dataWithBigSegment := []ldstoretypes.Collection{
-		{
-			Kind: ldstoreimpl.Segments(),
-			Items: []ldstoretypes.KeyedItemDescriptor{
-				{Key: "s1", Item: st.SegmentDesc(s1)},
-				{Key: "s2", Item: st.SegmentDesc(s2)},
-			},
-		},
+	s2JSON, _ := json.Marshal(s2)
+	changes = []subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: s1JSON},
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s2.Key, Object: s2JSON},
 	}
-	updates.SendAllDataUpdate(dataWithBigSegment)
+	updates.SetBasis(changes, subsystems.NoSelector())
 
 	assert.True(t, synchronizer.isStarted())
 
@@ -635,17 +626,26 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	updates := env.(*envContextImpl).wrapper.GetUpdates()
 
 	f1 := ldbuilders.NewFlagBuilder("f1").Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Features(), f1.Key, st.FlagDesc(f1))
+	testFlag1JSON, _ := json.Marshal(f1)
+	updates.SetBasis([]subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: f1.Key, Object: testFlag1JSON},
+	}, subsystems.NoSelector())
 
 	assert.False(t, synchronizer.isStarted())
 
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s1.Key, st.SegmentDesc(s1))
+	testSegment1JSON, _ := json.Marshal(s1)
+	updates.SetBasis([]subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: testSegment1JSON},
+	}, subsystems.NoSelector())
 
 	assert.False(t, synchronizer.isStarted())
 
 	s2 := ldbuilders.NewSegmentBuilder("s2").Unbounded(true).Generation(1).Build()
-	updates.SendSingleItemUpdate(ldstoreimpl.Segments(), s2.Key, st.SegmentDesc(s2))
+	testSegment2JSON, _ := json.Marshal(s2)
+	updates.SetBasis([]subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s2.Key, Object: testSegment2JSON},
+	}, subsystems.NoSelector())
 
 	assert.True(t, synchronizer.isStarted())
 }
@@ -683,7 +683,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	synchronizer := fakeSynchronizerFactory.synchronizer
 	require.NotNil(t, synchronizer)
 
-	streamHandler := env.GetStreamHandler(jsClientStreams, envConfig.EnvID)
+	streamHandler := env.GetStreamHandlerV1(jsClientStreams, envConfig.EnvID)
 
 	// Make sure the data store is initialized, otherwise the client-side endpoint won't broadcast a ping
 	<-sdkStartedCh
