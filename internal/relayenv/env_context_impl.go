@@ -341,17 +341,23 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
-	endpoints := ldcomponents.Endpoints{
-		Streaming: streamURI,
-		Polling:   baseURI,
+	streamingBuilder := ldcomponents.StreamingDataSourceV2().BaseURI(streamURI)
+	pollingBuilder := ldcomponents.PollingDataSourceV2().BaseURI(baseURI)
+	fallbackBuilder := ldcomponents.FDv1PollingDataSourceV2().BaseURI(baseURI)
+
+	if params.EnvConfig.FilterKey != "" {
+		streamingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
+		pollingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
+		fallbackBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
 	}
 
 	//nolint:godox
 	// TODO(sdk-1229): Hook up persistent storage to the data system.
-	//nolint:godox
-	// TODO(sdk-1230): Hook up payload filter for this environment.
 	dataSystemBuilder := ldcomponents.DataSystem().
-		WithEndpoints(endpoints).Default()
+		Custom().
+		Initializers(pollingBuilder.AsInitializer()).
+		Synchronizers(streamingBuilder, pollingBuilder).
+		FDv1CompatibleSynchronizer(fallbackBuilder)
 
 	config := ld.Config{
 		DataSystem: dataSystemBuilder,
