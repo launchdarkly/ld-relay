@@ -1,0 +1,11 @@
+# FDv2 State Format Update
+
+This file documents the change from square brackets to parentheses in the FDv2 state format.
+
+The FDv2 state (sometimes called basis) format has been updated to use parentheses () instead of square brackets [].
+
+Example:
+- Old format: `[p:17YNC7XBH88Y6RDJJ48EKPCJS7:53]`
+- New format: `(p:17YNC7XBH88Y6RDJJ48EKPCJS7:53)`
+
+This change is part of SDK-1242.
