@@ -41,7 +41,7 @@ func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Sele
 	// Add the server intent event
 	protocol = protocol.WithIntent(subsystems.ServerIntent{
 		Payload: subsystems.Payload{
-			ID:     "some-id",
+			ID:     "relay-spoofed-id",
 			Target: selector.Version(),
 			Code:   subsystems.IntentTransferFull,
 			Reason: "cant-catchup",

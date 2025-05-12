@@ -197,7 +197,7 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 
 	serverIntent := subsystems.ServerIntent{
 		Payload: subsystems.Payload{
-			ID:     "some-id",
+			ID:     "relay-spoofed-id",
 			Target: 0,
 			Code:   subsystems.IntentTransferFull,
 			Reason: "cant-catchup",
