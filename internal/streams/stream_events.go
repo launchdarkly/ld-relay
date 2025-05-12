@@ -48,7 +48,6 @@ func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Sele
 		},
 	})
 
-	// Add each change as a put or delete event
 	for _, change := range changes {
 		// NOTE: We don't have to worry about delete events here since this is
 		// meant as a full replacement.
