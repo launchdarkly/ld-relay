@@ -359,13 +359,15 @@ func NewEnvContext(
 		fallbackBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
 	}
 
-	//nolint:godox
-	// TODO(sdk-1229): Hook up persistent storage to the data system.
 	dataSystemBuilder := ldcomponents.DataSystem().
 		Custom().
 		Initializers(pollingBuilder.AsInitializer()).
 		Synchronizers(streamingBuilder, pollingBuilder).
 		FDv1CompatibleSynchronizer(fallbackBuilder)
+
+	if params.DataStoreFactory != nil {
+		dataSystemBuilder.DataStore(params.DataStoreFactory, subsystems.DataStoreModeReadWrite)
+	}
 
 	config := ld.Config{
 		DataSystem: dataSystemBuilder,
