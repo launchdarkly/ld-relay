@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -22,10 +23,17 @@ const (
 )
 
 var (
-	fakeError    = errors.New("sorry")
-	testFlag1    = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
-	testFlag2    = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
-	testSegment1 = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
+	fakeError           = errors.New("sorry")
+	testFlag1           = ldbuilders.NewFlagBuilder("flag1").Version(1).On(true).Build()
+	testFlag2           = ldbuilders.NewFlagBuilder("flag2").Version(1).On(false).Build()
+	testSegment1        = ldbuilders.NewSegmentBuilder("segment1").Version(1).Build()
+	testFlag1JSON, _    = json.Marshal(testFlag1)
+	testSegment1JSON, _ = json.Marshal(testSegment1)
+
+	allDataChanges = []subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Object: testFlag1JSON},
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Object: testSegment1JSON},
+	}
 
 	allData = []ldstoretypes.Collection{
 		{
@@ -58,8 +66,8 @@ type mockStoreFactory struct {
 }
 
 type mockEnvStreamsUpdates struct {
-	allData    [][]ldstoretypes.Collection
-	singleItem []sharedtest.ReceivedItemUpdate
+	allData    [][]subsystems.Change
+	singleItem []subsystems.Change
 }
 
 func (s *mockStore) Init(allData []ldstoretypes.Collection) error {
@@ -114,17 +122,17 @@ func (f *mockStoreFactory) Build(
 	return f.instance, nil
 }
 
-func (m *mockEnvStreamsUpdates) SendAllDataUpdate(allData []ldstoretypes.Collection) {
-	m.allData = append(m.allData, allData)
+func (m *mockEnvStreamsUpdates) SetBasis(events []subsystems.Change, selector subsystems.Selector, persist bool) {
+	m.allData = append(m.allData, events)
 }
 
-func (m *mockEnvStreamsUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
-	m.singleItem = append(m.singleItem, sharedtest.ReceivedItemUpdate{kind, key, item})
+func (m *mockEnvStreamsUpdates) ApplyDelta(events []subsystems.Change, selector subsystems.Selector, persist bool) {
+	m.singleItem = append(m.singleItem, events...)
 }
 
 func (m *mockEnvStreamsUpdates) InvalidateClientSideState() {}
 
-func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []ldstoretypes.Collection {
+func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []subsystems.Change {
 	switch {
 	case len(m.allData) == 1:
 		return m.allData[0]
@@ -136,7 +144,7 @@ func (m *mockEnvStreamsUpdates) expectAllDataUpdate(t *testing.T) []ldstoretypes
 	return nil
 }
 
-func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) sharedtest.ReceivedItemUpdate {
+func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) subsystems.Change {
 	switch {
 	case len(m.singleItem) == 1:
 		return m.singleItem[0]
@@ -145,7 +153,7 @@ func (m *mockEnvStreamsUpdates) expectItemUpdate(t *testing.T) sharedtest.Receiv
 	default:
 		require.Fail(t, "did not receive expected update")
 	}
-	return sharedtest.ReceivedItemUpdate{}
+	return subsystems.Change{}
 }
 
 func (m *mockEnvStreamsUpdates) expectNoAllDataUpdate(t *testing.T) {

@@ -75,6 +75,10 @@ func (r *Relay) makeRouter() *mux.Router {
 	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
+	// FDv2 endpoints
+	serverSideSdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
+	))))).Methods("GET")
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
 	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
@@ -107,15 +111,15 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack, middleware.Streaming)
-	mobilePingWithUser := pingStreamHandlerWithContext(basictypes.MobileSDK, r.mobileStreamProvider)
+	mobilePingWithUser := pingStreamHandlerWithContextV1(basictypes.MobileSDK, r.mobileStreamProvider)
 	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
 	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
 	router.Handle("/mping", mobileKeySelector(
-		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandler(r.mobileStreamProvider)))))).Methods("GET")
+		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandlerV1(r.mobileStreamProvider)))))).Methods("GET")
 
-	jsPing := pingStreamHandler(r.jsClientStreamProvider)
-	jsPingWithUser := pingStreamHandlerWithContext(basictypes.JSClientSDK, r.jsClientStreamProvider)
+	jsPing := pingStreamHandlerV1(r.jsClientStreamProvider)
+	jsPingWithUser := pingStreamHandlerWithContextV1(basictypes.JSClientSDK, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
 	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter), middleware.Streaming)
@@ -155,10 +159,10 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideBulkEventsRouter.Handle("/diagnostic", bulkEventHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
 	serverSideRouter.Handle("/all", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
-		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
+		streamHandlerV1(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	)))).Methods("GET")
 	serverSideRouter.Handle("/flags", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
-		streamHandler(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
+		streamHandlerV1(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
 	)))).Methods("GET")
 
 	return router

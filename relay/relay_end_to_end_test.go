@@ -1,13 +1,14 @@
 package relay
 
 import (
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
@@ -186,7 +187,7 @@ func TestRelayEndToEndSuccess(t *testing.T) {
 			Reason: "payload-missing",
 		}}).
 		WithPutObjects(initialData.ToPutObjects()).
-		WithTransferred(1)
+		WithTransferred("state", 1)
 	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
 	testEnv := st.EnvWithAllCredentials
 

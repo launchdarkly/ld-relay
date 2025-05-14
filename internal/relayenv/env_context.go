@@ -108,9 +108,17 @@ type EnvContext interface {
 	// have its own prefix string and, optionally, its own log level.
 	GetLoggers() ldlog.Loggers
 
-	// GetStreamHandler returns the HTTP handler for the specified kind of stream requests and credential for this
+	// GetStreamHandlerV1 returns the HTTP handler for the specified kind of stream requests and credential for this
 	// environment. If there is none, it returns a handler for a 404 status (not nil).
-	GetStreamHandler(streams.StreamProvider, credential.SDKCredential) http.Handler
+	//
+	// This supports the legacy V1 delivery protocol.
+	GetStreamHandlerV1(streams.StreamProvider, credential.SDKCredential) http.Handler
+
+	// GetStreamHandlerV2 returns the HTTP handler for the specified kind of stream requests and credential for this
+	// environment. If there is none, it returns a handler for a 404 status (not nil).
+	//
+	// This supports the modern V2 delivery protocol.
+	GetStreamHandlerV2(streams.StreamProvider, credential.SDKCredential) http.Handler
 
 	// GetEventDispatcher returns the object that proxies events for this environment.
 	GetEventDispatcher() *events.EventDispatcher

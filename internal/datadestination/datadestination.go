@@ -15,7 +15,6 @@ func NewDataDesinationWrapper(updates streams.EnvStreamUpdates) *DataDestination
 }
 
 type DataDestinationWrapper struct {
-	logging         subsystems.LoggingConfiguration
 	dataDestination subsystems.DataDestination
 	readOnly        subsystems.ReadOnlyStore
 	updates         streams.EnvStreamUpdates
@@ -64,16 +63,10 @@ func (d *DataDestinationWrapper) Selector() subsystems.Selector {
 // If persist is true, it indicates that the data should be propagated to any connected persistent
 // store.
 func (d *DataDestinationWrapper) SetBasis(events []subsystems.Change, selector subsystems.Selector, persist bool) {
-	allData, err := subsystems.ToStorableItems(events)
-	if err != nil {
-		d.logging.Loggers.Debugf("Failed to convert events to storable items", "error", err)
-		return
-	}
-
 	d.dataDestination.SetBasis(events, selector, persist)
 
 	if d.updates != nil {
-		d.updates.SendAllDataUpdate(allData)
+		d.updates.SetBasis(events, selector)
 	}
 }
 
@@ -85,18 +78,8 @@ func (d *DataDestinationWrapper) SetBasis(events []subsystems.Change, selector s
 // If persist is true, it indicates that the changes should be propagated to any connected persistent
 // store.
 func (d *DataDestinationWrapper) ApplyDelta(events []subsystems.Change, selector subsystems.Selector, persist bool) {
-	allData, err := subsystems.ToStorableItems(events)
-	if err != nil {
-		d.logging.Loggers.Debugf("Failed to convert events to storable items", "error", err)
-		return
-	}
-
 	d.dataDestination.ApplyDelta(events, selector, persist)
 	if d.updates != nil {
-		for _, collection := range allData {
-			for _, item := range collection.Items {
-				d.updates.SendSingleItemUpdate(collection.Kind, item.Key, item.Item)
-			}
-		}
+		d.updates.ApplyDelta(events, selector)
 	}
 }

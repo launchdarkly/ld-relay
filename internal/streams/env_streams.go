@@ -10,6 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
@@ -17,15 +18,21 @@ import (
 // components that publish updates to EnvStreams should use this interface rather than the implementation
 // type, both to clarify that they don't need other EnvStreams functionality and to simplify testing.
 type EnvStreamUpdates interface {
-	// SendAllDataUpdate signals an update to the entire SDK data set. The specified data items will be
-	// broadcast to all connected server-side SDKs in a "put" event, and all connected client-side SDKs
-	// will receive a "ping" event to refresh their state.
-	SendAllDataUpdate(allData []ldstoretypes.Collection)
+	// SetBasis defines a new basis for the data store. This means the store must
+	// be emptied of any existing data before applying the events. This operation should be
+	// atomic with respect to any other operations that modify the store.
+	//
+	// The selector defines the version of the basis.
+	SetBasis(events []subsystems.Change, selector subsystems.Selector)
 
-	// SendSingleItemUpdate signals an update to an individual SDK data item (flag or segment). The
-	// specified data item will be broadcast to all connected server-side SDKs in a "patch" event, and
-	// all connected client-side SDKs will receive a "ping" event to refresh their state.
-	SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor)
+	// ApplyDelta applies a set of changes to an existing basis. This operation should be atomic with
+	// respect to any other operations that modify the store.
+	//
+	// The selector defines the new version of the basis.
+	//
+	// If persist is true, it indicates that the changes should be propagated to any connected persistent
+	// store.
+	ApplyDelta(events []subsystems.Change, selector subsystems.Selector)
 
 	// InvalidateClientSideState signals an update that could affect client-side evaluations, but does
 	// not change any server-side data item. Updating big segment data is such an event, since the
@@ -113,7 +120,12 @@ func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	}
 	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
 	for _, sp := range es.streamProviders {
-		if esp := sp.Register(scopedCred, es.storeQueries, es.loggers); esp != nil {
+		if esp := sp.RegisterV1(scopedCred, es.storeQueries, es.loggers); esp != nil {
+			es.lock.Lock()
+			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
+			es.lock.Unlock()
+		}
+		if esp := sp.RegisterV2(scopedCred, es.storeQueries, es.loggers); esp != nil {
 			es.lock.Lock()
 			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
 			es.lock.Unlock()
@@ -144,23 +156,24 @@ func (es *EnvStreams) RemoveCredential(credential credential.SDKCredential) {
 	}
 }
 
-// SendAllDataUpdate sends all appropriate stream updates for when the full data set has been refreshed.
-func (es *EnvStreams) SendAllDataUpdate(
-	allData []ldstoretypes.Collection,
-) {
+// SetBasis defines a new basis for the data store. This means the store must
+// be emptied of any existing data before applying the events. This operation should be
+// atomic with respect to any other operations that modify the store.
+//
+// The selector defines the version of the basis.
+func (es *EnvStreams) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
 	for _, esp := range es.getEnvStreamProviders() {
-		esp.SendAllDataUpdate(allData)
+		esp.SetBasis(events, selector)
 	}
 }
 
-// SendSingleItemUpdate sends all appropriate stream updates for when an individual item has been updated.
-func (es *EnvStreams) SendSingleItemUpdate(
-	kind ldstoretypes.DataKind,
-	key string,
-	item ldstoretypes.ItemDescriptor,
-) {
+// ApplyDelta applies a set of changes to an existing basis. This operation should be atomic with
+// respect to any other operations that modify the store.
+//
+// The selector defines the new version of the basis.
+func (es *EnvStreams) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
 	for _, esp := range es.getEnvStreamProviders() {
-		esp.SendSingleItemUpdate(kind, key, item)
+		esp.ApplyDelta(events, selector)
 	}
 }
 

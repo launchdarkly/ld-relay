@@ -78,34 +78,71 @@ func getClientSideContextProperties(
 
 // Old stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
 // or clientstream.ld.com/ping/{envId} (JS)
-func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerV1(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
-		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+		clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
 
+//nolint: godox
+// TODO(fdv2): Hook this up to new routes
+// V2 stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
+// or clientstream.ld.com/ping/{envId} (JS)
+// func pingStreamHandlerV2(streamProvider streams.StreamProvider) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+// 		clientCtx := middleware.GetEnvContextInfo(req.Context())
+// 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
+// 		clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+// 	})
+// }
+
 // This handler is used for client-side streaming endpoints that require context properties. Currently it is
 // implemented the same as the ping stream once we have validated the context.
-func pingStreamHandlerWithContext(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
 		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
-			clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+			clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
+	})
+}
+
+//nolint: godox
+// TODO(fdv2): Hook this up to new routes
+// This handler is used for client-side streaming endpoints that require context properties. Currently it is
+// implemented the same as the ping stream once we have validated the context.
+// func pingStreamHandlerWithContextV2(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+// 		clientCtx := middleware.GetEnvContextInfo(req.Context())
+// 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
+//
+// 		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
+// 			clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+// 		}
+// 	})
+// }
+
+// Multi-purpose streaming handler; all details of the behavior of the particular type of stream are
+// abstracted in StreamProvider and EnvStreams
+func streamHandlerV1(streamProvider streams.StreamProvider, logMessage string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
+		clientCtx.Env.GetLoggers().Debug(logMessage)
+		clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
 
 // Multi-purpose streaming handler; all details of the behavior of the particular type of stream are
 // abstracted in StreamProvider and EnvStreams
-func streamHandler(streamProvider streams.StreamProvider, logMessage string) http.Handler {
+func streamHandlerV2(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug(logMessage)
-		clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+		clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
 
@@ -313,7 +350,8 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 }
 
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
-	bytes []byte, etagValue string) {
+	bytes []byte, etagValue string,
+) {
 	ttl := clientContext.GetTTL()
 	if ttl > 0 {
 		w.Header().Set("Vary", "Authorization")
