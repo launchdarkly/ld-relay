@@ -129,4 +129,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.10.2-0.20250512211044-f4b15896248d
+replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.10.2-0.20250514133849-48de5e3549c8
