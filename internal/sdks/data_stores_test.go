@@ -46,7 +46,7 @@ func assertFactoryConfigured(
 }
 
 func TestConfigureDataStoreDefault(t *testing.T) {
-	log := assertFactoryConfigured(t, ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, config.Config{}, config.EnvConfig{})
+	log := assertFactoryConfigured(t, nil, DataStoreEnvironmentInfo{}, config.Config{}, config.EnvConfig{})
 	assert.Len(t, log.GetAllOutput(), 0)
 }
 
