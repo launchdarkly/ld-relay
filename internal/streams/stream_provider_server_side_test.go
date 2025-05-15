@@ -116,31 +116,10 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 	})
 
-	t.Run("initial event - store error for flags", func(t *testing.T) {
+	t.Run("initial event - store error", func(t *testing.T) {
 		store := newMockStoreQueries()
-		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-			if kind == ldstoreimpl.Features() {
-				return nil, fakeError
-			}
-			return nil, nil
-		})
-
-		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
-			require.NotNil(t, esp)
-			defer esp.Close()
-
-			verifyHandlerInitialEvent(t, sp, validCredential, nil)
-		})
-	})
-
-	t.Run("initial event - store error for segments", func(t *testing.T) {
-		store := newMockStoreQueries()
-		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-			if kind == ldstoreimpl.Segments() {
-				return nil, fakeError
-			}
-			return nil, nil
+		store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+			return nil, subsystems.NoSelector(), fakeError
 		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
@@ -258,17 +237,15 @@ func TestStreamProviderServerSide(t *testing.T) {
 			}
 		}
 
-		queryThatIncrementsFlagVersionOnEachCall := func() func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+		queryThatIncrementsFlagVersionOnEachCall := func() func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
 			nextVersion := 1
-			return func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-				if kind != ldstoreimpl.Features() {
-					return nil, nil
-				}
+			return func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
 				flag := ldbuilders.NewFlagBuilder("flagkey").Version(nextVersion).Build()
 				nextVersion++
-				return []ldstoretypes.KeyedItemDescriptor{
-					{Key: flag.Key, Item: sharedtest.FlagDesc(flag)},
-				}, nil
+				return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+					ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+					ldstoreimpl.Segments(): {},
+				}, subsystems.NoSelector(), nil
 			}
 		}
 
@@ -286,7 +263,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 
 		t.Run("second client connects after first computation is done", func(t *testing.T) {
 			store := newMockStoreQueries()
-			store.setupGetAllFn(queryThatIncrementsFlagVersionOnEachCall())
+			store.setupSnapshotFn(queryThatIncrementsFlagVersionOnEachCall())
 			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
 
 			eventCh1 := repo.Replay("", "")
@@ -307,12 +284,9 @@ func TestStreamProviderServerSide(t *testing.T) {
 			replayCanFinish := make(chan struct{}, 1)
 			var gateFirstReplay sync.Once
 			store := newMockStoreQueries()
-			store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-				if kind != ldstoreimpl.Features() {
-					return nil, nil
-				}
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
 				replayStarted <- struct{}{}
-				ret, err := underlyingQuery(kind)
+				ret, selector, err := underlyingQuery()
 				gateFirstReplay.Do(func() {
 					<-replayCanFinish
 				})
@@ -323,7 +297,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 				// the first one to complete, without adding just-for-tests instrumentation inside of
 				// serverSideEnvStreamRepository.getReplayEvent().
 
-				return ret, err
+				return ret, selector, err
 			})
 			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
 

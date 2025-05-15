@@ -144,12 +144,12 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.E
 		if !r.store.IsInitialized() {
 			return nil, nil
 		}
-		flags, err := r.store.GetAll(ldstoreimpl.Features())
-
+		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return nil, err
 		}
+		flags := snapshot[ldstoreimpl.Features()]
 
 		event := MakeServerSideFlagsOnlyPutEvent(
 			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})

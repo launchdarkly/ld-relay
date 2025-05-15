@@ -8,7 +8,6 @@ import (
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -223,12 +222,7 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 	eventData = append(eventData, j)
 
 	for _, flag := range flags {
-		flagJSON, err := json.Marshal(
-			ldstoretypes.ItemDescriptor{
-				Version: flag.Version,
-				Item:    flag,
-			},
-		)
+		flagJSON, err := json.Marshal(flag)
 		assert.NoError(t, err)
 
 		putObject := subsystems.PutObject{
@@ -243,12 +237,7 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 	}
 
 	for _, segment := range segments {
-		segmentJSON, err := json.Marshal(
-			ldstoretypes.ItemDescriptor{
-				Version: segment.Version,
-				Item:    segment,
-			},
-		)
+		segmentJSON, err := json.Marshal(segment)
 		assert.NoError(t, err)
 
 		putObject := subsystems.PutObject{
