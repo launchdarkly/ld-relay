@@ -126,3 +126,12 @@ func (s *FakeStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItem
 func (s *FakeStore) IsInitialized() bool {
 	return true
 }
+
+func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+	result := make(map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor)
+	for _, collection := range s.collections {
+		result[collection.Kind] = collection.Items
+	}
+
+	return result, subsystems.NoSelector(), nil
+}

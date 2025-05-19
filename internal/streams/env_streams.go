@@ -71,7 +71,7 @@ type streamInfo struct {
 // data from the store, for generating "put" events.
 type EnvStoreQueries interface {
 	IsInitialized() bool
-	GetAll(ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error)
+	Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error)
 }
 
 // NewEnvStreams creates an instance of EnvStreams.

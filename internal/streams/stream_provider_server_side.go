@@ -1,10 +1,10 @@
 package streams
 
 import (
-	"encoding/json"
 	"net/http"
 	"sync"
 
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -171,17 +171,15 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
 func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
-		flags, err := r.store.GetAll(ldstoreimpl.Features())
+	data, err, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
+		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return nil, err
 		}
-		segments, err := r.store.GetAll(ldstoreimpl.Segments())
-		if err != nil {
-			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
-			return nil, err
-		}
+
+		flags := snapshot[ldstoreimpl.Features()]
+		segments := snapshot[ldstoreimpl.Segments()]
 
 		allData := []ldstoretypes.Collection{
 			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
@@ -202,53 +200,45 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 }
 
 func (r *serverSideEnvStreamRepository) getReplayEventsV2() ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEvent", func() (interface{}, error) {
-		flags, err := r.store.GetAll(ldstoreimpl.Features())
+	data, err, _ := r.flightGroup.Do("getReplayEventV2", func() (interface{}, error) {
+		//nolint:godox
+		// TODO(fdv2): Compare the selector and decide if we need a replay event.
+		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return nil, err
 		}
-		segments, err := r.store.GetAll(ldstoreimpl.Segments())
-		if err != nil {
-			r.loggers.Errorf("Error getting all segments: %s\n", err.Error())
-			return nil, err
-		}
 
 		changes := []subsystems.Change{}
-		for _, flag := range flags {
-			//nolint:godox
-			// TODO(fdv2): This is a temporary implementation until we can change the
-			// language to be in changesets
-			flagJson, err := json.Marshal(flag.Item)
-			if err != nil {
-				return nil, err
-			}
-			changes = append(changes, subsystems.Change{
-				Action:  subsystems.ChangeTypePut,
-				Kind:    subsystems.FlagKind,
-				Key:     flag.Key,
-				Version: flag.Item.Version,
-				Object:  flagJson,
-			})
+		kinds := map[ldstoretypes.DataKind]subsystems.ObjectKind{
+			ldstoreimpl.Features(): subsystems.FlagKind,
+			ldstoreimpl.Segments(): subsystems.SegmentKind,
 		}
-		for _, segment := range segments {
-			//nolint:godox
-			// TODO(fdv2): This is a temporary implementation until we can change the
-			// language to be in changesets
-			segmentJson, err := json.Marshal(segment.Item)
-			if err != nil {
-				return nil, err
+		for dataKind, objectKind := range kinds {
+			items, ok := snapshot[dataKind]
+			if ok {
+				for _, item := range items {
+					// This replay event is always replacing the entire payload, so we
+					// can ignore deleted / missing items to reduce the payload size.
+					if item.Item.Item == nil {
+						continue
+					}
+
+					writer := jwriter.NewWriter()
+					serializeItem(dataKind, item.Item, &writer)
+					json := writer.Bytes()
+					changes = append(changes, subsystems.Change{
+						Action:  subsystems.ChangeTypePut,
+						Kind:    objectKind,
+						Key:     item.Key,
+						Version: item.Item.Version,
+						Object:  json,
+					})
+				}
 			}
-			changes = append(changes, subsystems.Change{
-				Action:  subsystems.ChangeTypePut,
-				Kind:    subsystems.SegmentKind,
-				Key:     segment.Key,
-				Version: segment.Item.Version,
-				Object:  segmentJson,
-			})
 		}
 
-		return MakeEventsForSetBasis(changes, subsystems.Selector{}), nil
+		return MakeEventsForSetBasis(changes, selector), nil
 	})
 
 	if err != nil {

@@ -108,10 +108,10 @@ func TestStreamProviderServerSideFlagsOnly(t *testing.T) {
 		})
 	})
 
-	t.Run("initial event - store error for flags", func(t *testing.T) {
+	t.Run("initial event - store error", func(t *testing.T) {
 		store := newMockStoreQueries()
-		store.setupGetAllFn(func(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-			return nil, fakeError
+		store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+			return nil, subsystems.NoSelector(), fakeError
 		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {

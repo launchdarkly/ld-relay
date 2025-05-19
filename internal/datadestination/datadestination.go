@@ -16,12 +16,12 @@ func NewDataDesinationWrapper(updates streams.EnvStreamUpdates) *DataDestination
 
 type DataDestinationWrapper struct {
 	dataDestination subsystems.DataDestination
-	readOnly        subsystems.ReadOnlyStore
+	readOnly        subsystems.ReadOnlyDataStore
 	updates         streams.EnvStreamUpdates
 	mu              sync.RWMutex
 }
 
-func (d *DataDestinationWrapper) GetReadOnlyStore() subsystems.ReadOnlyStore {
+func (d *DataDestinationWrapper) GetReadOnlyStore() subsystems.ReadOnlyDataStore {
 	d.mu.RLock()
 	s := d.readOnly
 	d.mu.RUnlock()
@@ -41,7 +41,7 @@ func (d *DataDestinationWrapper) GetUpdates() streams.EnvStreamUpdates {
 // SetDataSystemPieces sets the DataDestination and ReadOnlyStore for this
 // wrapper. This allows the relay access to both persist, and query, for
 // information managed by the SDKs' data system.
-func (d *DataDestinationWrapper) SetDataSystemPieces(dd subsystems.DataDestination, ro subsystems.ReadOnlyStore) {
+func (d *DataDestinationWrapper) SetDataSystemPieces(dd subsystems.DataDestination, ro subsystems.ReadOnlyDataStore) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dataDestination = dd
