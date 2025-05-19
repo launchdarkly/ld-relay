@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/config"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/relay"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -181,6 +185,73 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 	// Verify shutdown messages were logged
 	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Received SIGTERM signal, initiating graceful shutdown\.\.\.`)
 	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Server gracefully stopped`)
+
+	// Verify no errors were sent to error channel
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			t.Fatalf("Unexpected error from server: %v", err)
+		}
+		// Channel was closed, which is expected
+	default:
+		t.Fatal("Error channel was not closed")
+	}
+}
+
+func TestStartHTTPServerWithRelayHandler(t *testing.T) {
+	port := st.GetAvailablePort(t)
+	mockLog := ldlogtest.NewMockLog()
+	urlStr := fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	// Create a basic relay configuration
+	parsedURL, err := url.Parse(urlStr)
+	require.NoError(t, err)
+	streamURI, err := ct.NewOptURLAbsolute(parsedURL)
+	require.NoError(t, err)
+
+	relayConfig := config.Config{
+		Main: config.MainConfig{
+			StreamURI: streamURI,
+		},
+		AutoConfig: config.AutoConfigConfig{
+			Key: "x",
+		},
+	}
+	r, err := relay.NewRelay(relayConfig, mockLog.Loggers, nil)
+	require.NoError(t, err)
+
+	// Start the server with the relay handler
+	server, errCh := StartHTTPServer(
+		port,
+		r,
+		false, // No TLS
+		"",    // No cert file
+		"",    // No key file
+		0,     // No min TLS version
+		1*time.Second,
+		mockLog.Loggers,
+	)
+	require.NotNil(t, server)
+	require.NotNil(t, errCh)
+
+	// Send SIGTERM signal
+	process, err := os.FindProcess(os.Getpid())
+	require.NoError(t, err)
+	require.NoError(t, process.Signal(syscall.SIGTERM))
+
+	// Wait for server to fully shut down
+	require.Eventually(t, func() bool {
+		_, err := http.Get(urlStr)
+		return err != nil
+	}, 20*time.Second, time.Millisecond*10)
+
+	// Give a moment for the final log message to be written
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify shutdown messages were logged
+	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Received SIGTERM signal, initiating graceful shutdown\.\.\.`)
+	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Server gracefully stopped`)
+	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Shutting down Relay Proxy`)
 
 	// Verify no errors were sent to error channel
 	select {

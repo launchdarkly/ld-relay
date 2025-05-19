@@ -302,6 +302,7 @@ func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Durat
 // closing database connections if any, and stopping all Relay port listeners, goroutines,
 // and OpenCensus exporters.
 func (r *Relay) Close() error {
+	r.loggers.Info("Shutting down Relay Proxy")
 	r.lock.Lock()
 	if r.closed {
 		r.lock.Unlock()

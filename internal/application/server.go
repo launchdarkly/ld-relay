@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/relay"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
@@ -66,6 +67,12 @@ func StartHTTPServer(
 	go func() {
 		<-sigCh
 		loggers.Info("Received SIGTERM signal, initiating graceful shutdown...")
+
+		if relay, ok := handler.(*relay.Relay); ok {
+			if err := relay.Close(); err != nil {
+				loggers.Errorf("Error closing relay: %v", err)
+			}
+		}
 
 		// Create a context with a timeout for graceful shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
