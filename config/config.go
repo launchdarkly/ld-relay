@@ -32,6 +32,9 @@ const (
 	// DefaultInitTimeout is the default value for MainConfig.InitTimeout if not specified.
 	DefaultInitTimeout = time.Second * 10
 
+	// DefaultGracefulShutdownTimeout is the default value for MainConfig.GracefulShutdownTimeout if not specified.
+	DefaultGracefulShutdownTimeout = time.Second * 30
+
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
@@ -146,6 +149,7 @@ type MainConfig struct {
 	ClientSideBaseURI                ct.OptURLAbsolute        `conf:"CLIENT_SIDE_BASE_URI"`
 	Port                             ct.OptIntGreaterThanZero `conf:"PORT"`
 	InitTimeout                      ct.OptDuration           `conf:"INIT_TIMEOUT"`
+	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
