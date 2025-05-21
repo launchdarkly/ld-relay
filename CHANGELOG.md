@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.12.0](https://github.com/launchdarkly/ld-relay/compare/v8.11.0...v8.12.0) (2025-05-19)
+
+
+### Features
+
+* support for graceful shutdown of http server in case of SIGTERM signal ([#493](https://github.com/launchdarkly/ld-relay/issues/493)) ([11429dd](https://github.com/launchdarkly/ld-relay/commit/11429ddbccda0719bbf465d95e332e5fe4ba28ee))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.24.3 and 1.23.9 ([#496](https://github.com/launchdarkly/ld-relay/issues/496)) ([b92f25b](https://github.com/launchdarkly/ld-relay/commit/b92f25ba2d70200041eaa78527286e35bb3084b1))
+
 ## [8.11.0](https://github.com/launchdarkly/ld-relay/compare/v8.10.10...v8.11.0) (2025-04-16)
 
 
