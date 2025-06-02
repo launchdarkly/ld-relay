@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.12.1](https://github.com/launchdarkly/ld-relay/compare/v8.12.0...v8.12.1) (2025-06-02)
+
+
+### Bug Fixes
+
+* Bump eventsource v1.9.1 ([f8837e0](https://github.com/launchdarkly/ld-relay/commit/f8837e017c97d9bb1b399caa1f271abeb805bdcd))
+* Bump server SDK v7.10.2 ([f8837e0](https://github.com/launchdarkly/ld-relay/commit/f8837e017c97d9bb1b399caa1f271abeb805bdcd))
+* **deps:** update Dockerfiles from 3.21.3 to alpine:3.22.0 ([#503](https://github.com/launchdarkly/ld-relay/issues/503)) ([ef7cc53](https://github.com/launchdarkly/ld-relay/commit/ef7cc539adf42c15bcc9d972196410088a7084b7))
+
 ## [8.12.0](https://github.com/launchdarkly/ld-relay/compare/v8.11.0...v8.12.0) (2025-05-19)
 
 
