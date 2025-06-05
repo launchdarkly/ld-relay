@@ -812,8 +812,8 @@ github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e 
 github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e/go.mod h1:cQRkOAs0LGcfIs6RSsHNqwhzItUZooyhpqPv0hgiQZM=
 github.com/launchdarkly/ccache v1.1.0 h1:voD1M+ZJXR3MREOKtBwgTF9hYHl1jg+vFKS/+VAkR2k=
 github.com/launchdarkly/ccache v1.1.0/go.mod h1:TlxzrlnzvYeXiLHmesMuvoZetu4Z97cV1SsdqqBJi1Q=
-github.com/launchdarkly/eventsource v1.9.0 h1:xhIBrqUgEeS+Q9F/p05cdV+DUHddTJ6vxkPQBWXVcto=
-github.com/launchdarkly/eventsource v1.9.0/go.mod h1:IBckHy1VOjJGqSg07EJJLiUnk5DPunX9LKD9vbcgeHo=
+github.com/launchdarkly/eventsource v1.9.1 h1:Ov89TFuSrKZewotRvnh6CuqXqlxJhk4JMPWdR3l1DJQ=
+github.com/launchdarkly/eventsource v1.9.1/go.mod h1:IBckHy1VOjJGqSg07EJJLiUnk5DPunX9LKD9vbcgeHo=
 github.com/launchdarkly/go-configtypes v1.2.0 h1:Jffn87daoeJZBGwKNgaf7UcIZIk1DUVIo/HPauXHwlM=
 github.com/launchdarkly/go-configtypes v1.2.0/go.mod h1:HtmuhT0J4NUTtvlVIlvc84NpmsJ1mWlcrajbM7R8K3Q=
 github.com/launchdarkly/go-jsonstream/v3 v3.1.0 h1:U/7/LplZO72XefBQ+FzHf6o4FwLHVqBE+4V58Ornu/E=
@@ -842,8 +842,8 @@ github.com/launchdarkly/go-test-helpers/v2 v2.3.2 h1:WX6qSzt7v8xz6d94nVcoil9ljuL
 github.com/launchdarkly/go-test-helpers/v2 v2.3.2/go.mod h1:L7+th5govYp5oKU9iN7To5PgznBuIjBPn+ejqKR0avw=
 github.com/launchdarkly/go-test-helpers/v3 v3.0.2 h1:rh0085g1rVJM5qIukdaQ8z1XTWZztbJ49vRZuveqiuU=
 github.com/launchdarkly/go-test-helpers/v3 v3.0.2/go.mod h1:u2ZvJlc/DDJTFrshWW50tWMZHLVYXofuSHUfTU/eIwM=
-github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.4 h1:rjMnfQk/RM6QVqEipA8g8vjWIYEZ8YRLML7G66rbtMg=
-github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.4/go.mod h1:0JwlpWOdrtHLDkdXp+JhBatS2RbbHy/usVLQcEaWLWs=
+github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5 h1:qhr7RPbf7bvgTTxZVSpRMLsdNG8hoZtdJ8E7hsdtRF8=
+github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5/go.mod h1:c3uBHrJ/D1+yK0zwNtlMlheWrh0LCp3LT9ABulV4zoA=
 github.com/leodido/go-urn v1.2.0/go.mod h1:+8+nEpDfqqsY+g338gtMEUOtuK+4dEMhiQEgxpxOKII=
 github.com/linode/linodego v1.4.0/go.mod h1:PVsRxSlOiJyvG4/scTszpmZDTdgS+to3X6eS8pRrWI8=
 github.com/linuxkit/virtsock v0.0.0-20201010232012-f8cee7dfc7a3/go.mod h1:3r6x7q95whyfWQpmGZTu3gk3v2YkMi05HEzl7Tf7YEo=
@@ -1429,8 +1429,8 @@ golang.org/x/net v0.0.0-20220225172249-27dd8689420f/go.mod h1:CfG3xpIq0wQ8r1q4Su
 golang.org/x/net v0.0.0-20220325170049-de3da57026de/go.mod h1:CfG3xpIq0wQ8r1q4Su4UZFWDARRcnwPjda9FqA0JpMk=
 golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
 golang.org/x/net v0.3.0/go.mod h1:MBQ8lrhLObU/6UmLb4fmbmk5OcyYmqtbGd/9yIeKjEE=
-golang.org/x/net v0.37.0 h1:1zLorHbz+LYj7MQlSf1+2tPIIgibq2eL5xkrGk6f+2c=
-golang.org/x/net v0.37.0/go.mod h1:ivrbrMbzFq5J41QOQh0siUuly180yBYtLp+CKbEaFx8=
+golang.org/x/net v0.38.0 h1:vRMAPTMaeGqVhG5QyLJHqNDwecKTomGeqbnfZyKlBI8=
+golang.org/x/net v0.38.0/go.mod h1:ivrbrMbzFq5J41QOQh0siUuly180yBYtLp+CKbEaFx8=
 golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
 golang.org/x/oauth2 v0.0.0-20190226205417-e64efc72b421/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=
 golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=

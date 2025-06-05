@@ -1,12 +1,17 @@
 package application
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/relay"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
@@ -19,6 +24,7 @@ func StartHTTPServer(
 	tlsEnabled bool,
 	tlsCertFile, tlsKeyFile string,
 	tlsMinVersion uint16,
+	gracefulShutdownTimeout time.Duration,
 	loggers ldlog.Loggers,
 ) (*http.Server, <-chan error) {
 	srv := &http.Server{
@@ -35,6 +41,10 @@ func StartHTTPServer(
 
 	errCh := make(chan error)
 
+	// Create a channel to listen for signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM)
+
 	go func() {
 		var err error
 		loggers.Infof("Starting server listening on port %d\n", port)
@@ -48,9 +58,32 @@ func StartHTTPServer(
 		} else {
 			err = srv.ListenAndServe()
 		}
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
+	}()
+
+	// Handle graceful shutdown in a separate goroutine
+	go func() {
+		<-sigCh
+		loggers.Info("Received SIGTERM signal, initiating graceful shutdown...")
+
+		if relay, ok := handler.(*relay.Relay); ok {
+			if err := relay.Close(); err != nil {
+				loggers.Errorf("Error closing relay: %v", err)
+			}
+		}
+
+		// Create a context with a timeout for graceful shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			loggers.Errorf("Error during server shutdown: %v", err)
+		} else {
+			loggers.Info("Server gracefully stopped")
+		}
+		close(errCh) // Close the error channel after shutdown
 	}()
 
 	return srv, errCh
