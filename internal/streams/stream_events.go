@@ -34,6 +34,23 @@ func (e deferredEvent) Event() string { return e.name }
 func (e deferredEvent) Id() string    { return "" } //nolint:golint,stylecheck
 func (e deferredEvent) Data() string  { return e.result.Get() }
 
+func MakeEventsForUpToDate(selector subsystems.Selector) []eventsource.Event {
+	// First create a new streaming protocol builder
+	protocol := ldservicesv2.NewStreamingProtocol()
+
+	// Add the server intent event
+	protocol = protocol.WithIntent(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     selector.State(),
+			Target: selector.Version(),
+			Code:   subsystems.IntentNone,
+			Reason: "up-to-date",
+		},
+	})
+
+	return protocol.SSEEvents()
+}
+
 func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Selector) []eventsource.Event {
 	// First create a new streaming protocol builder
 	protocol := ldservicesv2.NewStreamingProtocol()
@@ -41,7 +58,7 @@ func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Sele
 	// Add the server intent event
 	protocol = protocol.WithIntent(subsystems.ServerIntent{
 		Payload: subsystems.Payload{
-			ID:     "relay-spoofed-id",
+			ID:     selector.State(),
 			Target: selector.Version(),
 			Code:   subsystems.IntentTransferFull,
 			Reason: "cant-catchup",

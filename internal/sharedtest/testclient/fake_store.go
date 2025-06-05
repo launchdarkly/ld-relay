@@ -2,7 +2,6 @@ package testclient
 
 import (
 	"encoding/json"
-
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -11,10 +10,14 @@ import (
 
 type FakeStore struct {
 	collections []ldstoretypes.Collection
+	selector    subsystems.Selector
 }
 
 func NewFakeStore(collections []ldstoretypes.Collection) *FakeStore {
-	return &FakeStore{collections: collections}
+	return &FakeStore{
+		collections: collections,
+		selector:    subsystems.NewSelector("initial-state", 1),
+	}
 }
 
 func (s *FakeStore) Close() error {
@@ -22,7 +25,7 @@ func (s *FakeStore) Close() error {
 }
 
 func (s *FakeStore) Selector() subsystems.Selector {
-	return subsystems.NoSelector()
+	return s.selector
 }
 
 func (s *FakeStore) SetBasis(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
@@ -55,6 +58,7 @@ func (s *FakeStore) SetBasis(changes []subsystems.Change, selector subsystems.Se
 			})
 		}
 	}
+	s.selector = selector
 }
 
 func (s *FakeStore) ApplyDelta(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
@@ -97,6 +101,7 @@ func (s *FakeStore) ApplyDelta(changes []subsystems.Change, selector subsystems.
 			}
 		}
 	}
+	s.selector = selector
 }
 
 func (s *FakeStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
@@ -124,7 +129,7 @@ func (s *FakeStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItem
 }
 
 func (s *FakeStore) IsInitialized() bool {
-	return true
+	return s.selector.IsDefined()
 }
 
 func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
@@ -133,5 +138,5 @@ func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedIt
 		result[collection.Kind] = collection.Items
 	}
 
-	return result, subsystems.NoSelector(), nil
+	return result, s.selector, nil
 }
