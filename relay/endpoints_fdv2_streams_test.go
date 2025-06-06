@@ -58,7 +58,7 @@ func (s fdv2StreamEndpointTestParams) runBasicStreamTests(
 			require.Nil(t, err)
 
 			st.WithStreamRequest(t, s.request(), p.relay, func(eventCh <-chan eventsource.Event) {
-				expectedCount := 11 // = 1 intent + 8 flags + 1 segment + 1 payload transferred
+				expectedCount := len(s.expectedEvents)
 				actualCount := 0
 				timer := time.NewTimer(time.Second * 3)
 			L:
@@ -196,8 +196,8 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 
 	serverIntent := subsystems.ServerIntent{
 		Payload: subsystems.Payload{
-			ID:     "relay-spoofed-id",
-			Target: 0,
+			ID:     "initial-state",
+			Target: 1,
 			Code:   subsystems.IntentTransferFull,
 			Reason: "cant-catchup",
 		},
@@ -251,10 +251,22 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 		eventData = append(eventData, j)
 	}
 
-	selector := subsystems.NoSelector()
+	selector := subsystems.NewSelector("initial-state", 1)
 	j, err = selector.MarshalJSON()
 	assert.NoError(t, err)
 	eventData = append(eventData, j)
+
+	noChangeIntent := subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "initial-state",
+			Target: 1,
+			Code:   subsystems.IntentNone,
+			Reason: "up-to-date",
+		},
+	}
+	noChangeIntentJSON, err := noChangeIntent.MarshalJSON()
+	assert.NoError(t, err)
+	noChangeEventData := [][]byte{noChangeIntentJSON}
 
 	specs := []fdv2StreamEndpointTestParams{
 		// TODO(fdv2): Re-enable once flag only streaming is enabled
@@ -274,6 +286,13 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 				"payload-transferred",
 			},
 			expectedEventData: eventData,
+		},
+		// Connecting with the same basis should result in a single event because we are up to date.
+		{
+			endpointTestParams: endpointTestParams{"all stream", "GET", "/sdk/stream?basis=initial-state", nil, sdkKey, 200, st.ExpectNoBody()}, expectedEvents: []string{
+				"server-intent",
+			},
+			expectedEventData: noChangeEventData,
 		},
 	}
 

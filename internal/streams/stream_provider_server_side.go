@@ -50,7 +50,23 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.fdv2Server.Handler(credential.String())
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// While FDv2 supports a basis parameter, the SSE spec and by proxy, the eventsource pkg, does not.
+		//
+		// To allow us to support the basis feature, we are going to send the basis value as the
+		// Last-Event-ID header. This is a standard feature of the SSE spec, and allows us to
+		// support the basis feature without having to modify the eventsource package.
+		//
+		// The Last-Event-ID header is passed back to the repository (defined in
+		// this pkg). We will interpret that value as a basis, and respond
+		// appropriately.
+		if basis := r.URL.Query().Get("basis"); basis != "" {
+			r.Header.Set("Last-Event-ID", basis)
+		}
+
+		s.fdv2Server.Handler(credential.String()).ServeHTTP(w, r)
+	}
 }
 
 func (s *serverSideStreamProvider) RegisterV1(
@@ -151,10 +167,9 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 		var events []eventsource.Event
 		var err error
 		if r.isV2 {
-			//nolint:godox
-			// TODO(fdv2): Only send this if the provided selector doesn't match the
-			// current store.
-			events, err = r.getReplayEventsV2()
+			// See the note in HandlerV2 about how we use the Last-Event-ID header to
+			// pass the basis.
+			events, err = r.getReplayEventsV2(id)
 		} else {
 			events, err = r.getReplayEventsV1()
 		}
@@ -199,14 +214,16 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 	return []eventsource.Event{event}, nil
 }
 
-func (r *serverSideEnvStreamRepository) getReplayEventsV2() ([]eventsource.Event, error) {
+func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
 	data, err, _ := r.flightGroup.Do("getReplayEventV2", func() (interface{}, error) {
-		//nolint:godox
-		// TODO(fdv2): Compare the selector and decide if we need a replay event.
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return nil, err
+		}
+
+		if basis != "" && selector.IsDefined() && selector.State() == basis {
+			return MakeEventsForUpToDate(selector), nil
 		}
 
 		changes := []subsystems.Change{}
