@@ -631,7 +631,7 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	return c.clients[c.keyRotator.SDKKey()]
 }
 
-func (c *envContextImpl) GetStore() subsystems.ReadOnlyStore {
+func (c *envContextImpl) GetStore() subsystems.ReadOnlyDataStore {
 	return c.wrapper.GetReadOnlyStore()
 }
 

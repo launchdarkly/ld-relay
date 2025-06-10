@@ -94,7 +94,7 @@ type EnvContext interface {
 
 	// GetStore returns the SDK data store instance for this environment. This is nil if initialization is not
 	// yet complete.
-	GetStore() subsystems.ReadOnlyStore
+	GetStore() subsystems.ReadOnlyDataStore
 
 	// GetEvaluator returns an instance of the evaluation engine for evaluating feature flags in this environment.
 	// This is nil if initialization is not yet complete.

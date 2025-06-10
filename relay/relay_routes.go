@@ -79,6 +79,8 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideSdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
+	serverSideSdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
 	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
