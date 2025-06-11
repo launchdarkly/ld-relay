@@ -249,6 +249,16 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 				}
 			}
 		}
+		j, err := selector.MarshalJSON()
+		if err != nil {
+			clientCtx.Env.GetLoggers().Errorf("Error marshaling selector: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event:     "payload-transferred",
+			EventData: j,
+		})
 	}
 
 	json, err := json.Marshal(pollingPayload)
