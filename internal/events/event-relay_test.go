@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
@@ -72,10 +73,11 @@ type eventRelayTestOptions struct {
 }
 
 type eventRelayTestParams struct {
-	dispatcher *EventDispatcher
-	requestsCh <-chan httphelpers.HTTPRequestInfo
-	mockLog    *ldlogtest.MockLog
-	wrapper    *datadestination.DataDestinationWrapper
+	dispatcher  *EventDispatcher
+	requestsCh  <-chan httphelpers.HTTPRequestInfo
+	mockLog     *ldlogtest.MockLog
+	wrapper     *datadestination.DataDestinationWrapper
+	changeSetCh chan subsystems.ChangeSet
 }
 
 func eventRelayTest(
@@ -109,7 +111,7 @@ func eventRelayTestWithOptions(
 		}
 		eventsConfig.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 
-		wrapper := makeDataDestinationWrapper()
+		wrapper, changeSetCh := makeDataDestinationWrapper()
 
 		dispatcher := NewEventDispatcher(
 			testEnv.Config.SDKKey,
@@ -124,10 +126,11 @@ func eventRelayTestWithOptions(
 		defer dispatcher.Close()
 
 		p := eventRelayTestParams{
-			dispatcher: dispatcher,
-			requestsCh: requestsCh,
-			wrapper:    wrapper,
-			mockLog:    mockLog,
+			dispatcher:  dispatcher,
+			requestsCh:  requestsCh,
+			wrapper:     wrapper,
+			changeSetCh: changeSetCh,
+			mockLog:     mockLog,
 		}
 		fn(p)
 	})
@@ -396,10 +399,11 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 	return headers
 }
 
-func makeDataDestinationWrapper() *datadestination.DataDestinationWrapper {
+func makeDataDestinationWrapper() (*datadestination.DataDestinationWrapper, chan subsystems.ChangeSet) {
 	fakeStore := testclient.NewFakeStore(st.AllData)
-	wrapper := datadestination.NewDataDesinationWrapper(nil)
-	wrapper.SetDataSystemPieces(fakeStore, fakeStore)
+	wrapper := datadestination.NewDataDesinationWrapper(fakeStore)
+	c := make(chan subsystems.ChangeSet)
+	wrapper.SetDataSystemPieces(fakeStore, c)
 
-	return wrapper
+	return wrapper, c
 }

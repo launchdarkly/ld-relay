@@ -15,9 +15,9 @@ func (d *FakeDataDestination) Selector() subsystems.Selector {
 }
 
 func (d *FakeDataDestination) SetBasis(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
-	d.store.SetBasis(changes, selector, persist)
+	d.store.SetBasis(changes, selector)
 }
 
 func (d *FakeDataDestination) ApplyDelta(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
-	d.store.ApplyDelta(changes, selector, persist)
+	d.store.ApplyDelta(changes, selector)
 }

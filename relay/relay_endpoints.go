@@ -164,6 +164,10 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
+	} else if collection == nil || !selector.IsDefined() {
+		clientCtx.Env.GetLoggers().Error("Snapshot selector is not defined; no data to return")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	numItems := 2
