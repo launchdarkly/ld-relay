@@ -34,7 +34,6 @@ func (d *DataDestinationWrapper) GetReadOnlyStore() subsystems.ReadOnlyDataStore
 func (d *DataDestinationWrapper) SetDataSystemPieces(ro subsystems.ReadOnlyDataStore, changeSetUpdates <-chan subsystems.ChangeSet) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// d.dataDestination = dd
 	d.readOnly = ro
 
 	canReceiveUpdates := d.updates != nil
