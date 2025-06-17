@@ -8,11 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
@@ -21,13 +20,10 @@ import (
 )
 
 func CreateDummyClient(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
-	if sdkConfig.DataSystem != nil {
-		_, _ = sdkConfig.DataSystem.Build(subsystems.BasicClientContext{})
-	}
 	if sdkConfig.LDRelayDataDestination != nil {
-		store := NewFakeStore(sharedtest.AllData)
-		sdkConfig.LDRelayDataDestination(NewFakeDataDestination(store), store)
+		sdkConfig.LDRelayDataDestination(NewFakeStore(sharedtest.AllData), nil)
 	}
+
 	return &FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{}), initialized: true}, nil
 }
 
@@ -93,32 +89,15 @@ func FakeHashForContext(context ldcontext.Context) string {
 }
 
 func FakeLDClientFactory(shouldBeInitialized bool) sdks.ClientFactoryFunc {
-	return FakeLDClientFactoryWithChannel(shouldBeInitialized, nil)
+	return FakeLDClientFactoryWithChannel(shouldBeInitialized, nil, nil)
 }
 
-func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *FakeLDClient) sdks.ClientFactoryFunc {
+func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *FakeLDClient, changeSetCh <-chan subsystems.ChangeSet) sdks.ClientFactoryFunc {
 	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
-		if config.DataSystem != nil {
-			_, err := config.DataSystem.Build(
-				subsystems.BasicClientContext{},
-			)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if config.LDRelayDataDestination != nil {
-			store := NewFakeStore(sharedtest.AllData)
-			config.LDRelayDataDestination(NewFakeDataDestination(store), store)
-		}
 		// We're not creating a real client, but we still need to invoke the DataStoreFactory as the
 		// SDK would do, since that's how Relay obtains its shared reference to the data store.
-		if config.DataStore != nil {
-			_, err := config.DataStore.Build(
-				subsystems.BasicClientContext{},
-			)
-			if err != nil {
-				return nil, err
-			}
+		if config.LDRelayDataDestination != nil {
+			config.LDRelayDataDestination(NewFakeStore(sharedtest.AllData), changeSetCh)
 		}
 		c := &FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{}), initialized: shouldBeInitialized}
 		if createdCh != nil {

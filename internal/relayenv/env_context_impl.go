@@ -371,9 +371,8 @@ func NewEnvContext(
 
 	config := ld.Config{
 		DataSystem: dataSystemBuilder,
-		LDRelayDataDestination: func(dd subsystems.DataDestination, ro subsystems.ReadOnlyDataStore) subsystems.DataDestination {
-			wrapper.SetDataSystemPieces(dd, ro)
-			return wrapper
+		LDRelayDataDestination: func(ro subsystems.ReadOnlyDataStore, changeSetUpdates <-chan subsystems.ChangeSet) {
+			wrapper.SetDataSystemPieces(ro, changeSetUpdates)
 		},
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents().EnableGzip(true),
@@ -822,7 +821,7 @@ func (q envContextStoreQueries) Snapshot() (map[ldstoretypes.DataKind][]ldstoret
 	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.Snapshot()
 	}
-	return nil, subsystems.NoSelector(), nil
+	return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{}, subsystems.NoSelector(), nil
 }
 
 func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {

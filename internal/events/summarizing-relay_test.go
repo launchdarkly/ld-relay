@@ -2,12 +2,14 @@ package events
 
 import (
 	"encoding/json"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
@@ -50,14 +52,31 @@ func TestSummarizeEvents(t *testing.T) {
 					raw, err := ep.storedFlag.MarshalJSON()
 					require.NoError(t, err)
 
-					change := subsystems.Change{
-						Action:  "put",
-						Kind:    "flag",
-						Key:     ep.storedFlag.Key,
-						Version: ep.storedFlag.Version,
-						Object:  raw,
+					changeSetBuilder := subsystems.NewChangeSetBuilder()
+					changeSetBuilder.Start(subsystems.ServerIntent{
+						Payload: subsystems.Payload{
+							ID:     "payload-id",
+							Target: 1,
+							Code:   subsystems.IntentTransferFull,
+							Reason: "stale",
+						},
+					})
+					changeSetBuilder.AddPut(subsystems.FlagKind, ep.storedFlag.Key, ep.storedFlag.Version, raw)
+					changeSet, err := changeSetBuilder.Finish(subsystems.NewSelector("state", 1))
+					assert.NoError(t, err)
+
+					p.changeSetCh <- *changeSet
+
+					timeout := time.After(100 * time.Millisecond)
+					select {
+					case <-timeout:
+						t.Fatal("timed out waiting for change set to be processed")
+					default:
+						item, err := p.wrapper.GetReadOnlyStore().Get(ldstoreimpl.Features(), ep.storedFlag.Key)
+						if err != nil && item.Item != nil {
+							break
+						}
 					}
-					p.wrapper.ApplyDelta([]subsystems.Change{change}, subsystems.NewSelector("state", 1), true)
 				}
 
 				headers := headersWithEventSchema(ep.schemaVersion)
