@@ -310,9 +310,6 @@ func NewEnvContext(
 	envContext.eventDispatcher = eventDispatcher
 
 	streamURI := allConfig.Main.StreamURI.String() // config.ValidateConfig has ensured that this has a value
-	//nolint:godox
-	// TODO(sdk-1231): Can we use baseURI here, or is that tool specific to
-	// clients?
 	baseURI := allConfig.Main.BaseURI.String()
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
@@ -381,10 +378,6 @@ func NewEnvContext(
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 		ServiceEndpoints: interfaces.ServiceEndpoints{
-			//nolint:godox
-			// TODO(sdk-1232): What is the optimized way to configure this now
-			// that polling and streaming are configured through the data
-			// system?
 			Events: eventsURI,
 		},
 	}
