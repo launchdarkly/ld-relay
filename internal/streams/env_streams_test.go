@@ -60,7 +60,6 @@ func (p *mockStreamProvider) RegisterV1(
 	return esp
 }
 
-// TODO(fdv2): Implement this to support fdv2 endpoints
 func (p *mockStreamProvider) RegisterV2(
 	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
