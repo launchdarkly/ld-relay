@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.12.3](https://github.com/launchdarkly/ld-relay/compare/v8.12.2...v8.12.3) (2025-07-01)
+
+
+### Bug Fixes
+
+* Bump version to override default docker ([#515](https://github.com/launchdarkly/ld-relay/issues/515)) ([39da958](https://github.com/launchdarkly/ld-relay/commit/39da95843a3677ba7f14c9a707aab066c3539377))
+
 ## [8.12.2](https://github.com/launchdarkly/ld-relay/compare/v8.12.1...v8.12.2) (2025-06-06)
 
 
