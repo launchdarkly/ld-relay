@@ -1,4 +1,5 @@
 project_name: ld-relay
+version: 2
 
 builds:
 - env:
