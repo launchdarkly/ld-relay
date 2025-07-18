@@ -48,12 +48,17 @@ jobs:
 
       - uses: ./.github/actions/unit-tests
 
+      - name: Set IS_DEFAULT_BRANCH
+        run: echo "IS_DEFAULT_BRANCH=$([[ '${{ github.ref_name }}' == '${{ github.event.repository.default_branch }}' ]] && echo true || echo false)" >> $GITHUB_ENV
+
       - uses: ./.github/actions/publish
         id: publish
         with:
           dry-run: 'false'
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.release-please.outputs.tag_name }}
+          update-major-tag: ${{ env.IS_DEFAULT_BRANCH }}
+          update-latest-tag: ${{ env.IS_DEFAULT_BRANCH }}
 
   release-relay-binary-provenance:
     needs: ['release-please', 'release-relay']
