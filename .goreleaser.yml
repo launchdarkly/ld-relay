@@ -86,7 +86,7 @@ dockers:
     goos: linux
     goarch: "386"
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/386"
@@ -97,7 +97,7 @@ dockers:
     goos: linux
     goarch: "386"
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/386"
@@ -120,7 +120,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -131,7 +131,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -156,7 +156,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -168,7 +168,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -191,7 +191,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -202,7 +202,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -229,7 +229,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -240,7 +240,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -265,7 +265,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -277,7 +277,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -300,7 +300,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -311,7 +311,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -339,7 +339,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -350,7 +350,7 @@ dockers:
     goos: linux
     goarch: amd64
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
@@ -375,7 +375,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -387,7 +387,7 @@ dockers:
     goarch: arm
     goarm: 7
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm/v7"
@@ -410,7 +410,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -421,7 +421,7 @@ dockers:
     goos: linux
     goarch: arm64
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64/v8"
@@ -439,7 +439,7 @@ docker_manifests:
       - "launchdarkly/ld-relay:{{ .Version }}-i386"
 
   - name_template: "launchdarkly/ld-relay:v{{ .Major }}"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
       - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
@@ -447,7 +447,7 @@ docker_manifests:
       - "launchdarkly/ld-relay:v{{ .Major }}-i386"
 
   - name_template: "launchdarkly/ld-relay:latest"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:latest-amd64"
       - "launchdarkly/ld-relay:latest-armv7"
@@ -465,7 +465,7 @@ docker_manifests:
       - "launchdarkly/ld-relay:{{ .Version }}-i386"
 
   - name_template: "launchdarkly/ld-relay:v{{ .Major }}-alpine"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
       - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
@@ -473,7 +473,7 @@ docker_manifests:
       - "launchdarkly/ld-relay:v{{ .Major }}-i386"
 
   - name_template: "launchdarkly/ld-relay:latest-alpine"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:latest-amd64"
       - "launchdarkly/ld-relay:latest-armv7"
@@ -489,14 +489,14 @@ docker_manifests:
       - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
 
   - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
 
   - name_template: "launchdarkly/ld-relay:latest-static-debian12-nonroot"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
       - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
@@ -510,14 +510,14 @@ docker_manifests:
       - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
 
   - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_MAJOR") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
       - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
 
   - name_template: "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot"
-    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "true" }}'
+    skip_push: '{{ eq (env "LD_RELEASER_UPDATE_LATEST") "false" }}'
     image_templates:
       - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
       - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
