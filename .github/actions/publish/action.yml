@@ -11,6 +11,14 @@ inputs:
   tag:
     description: 'Tag to upload artifacts to.'
     required: true
+  update-major-tag:
+    description: "Should vX.Y.Z be tagged as 'vX' in Dockerhub?"
+    required: false
+    default: 'false'
+  update-latest-tag:
+    description: "Should vX.Y.Z be tagged as 'latest' in Dockerhub?"
+    required: false
+    default: 'false'
 outputs:
   hashes: 
     description: sha256sum hashes of built artifacts 
@@ -43,6 +51,8 @@ runs:
         args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        LD_RELEASER_UPDATE_MAJOR: ${{ inputs.update-major-tag }}
+        LD_RELEASER_UPDATE_LATEST: ${{ inputs.update-latest-tag }}
     - name: Generate binary hashes
       id: binary 
       shell: bash

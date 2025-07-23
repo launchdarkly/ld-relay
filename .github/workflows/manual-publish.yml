@@ -7,6 +7,16 @@ on:
         type: boolean
         required: false
         default: true
+      update_major_tag:
+        description: "Should vX.Y.Z be tagged as 'vX' in Dockerhub?"
+        type: boolean
+        required: false
+        default: false
+      update_latest_tag:
+        description: "Should vX.Y.Z be tagged as 'latest' in Dockerhub?"
+        type: boolean
+        required: false
+        default: false
       tag:
         description: 'Tag to upload binary artifacts to.'
         type: string
@@ -47,6 +57,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
           tag: ${{ inputs.tag }}
+          update-major-tag: ${{ inputs.update_major_tag }}
+          update-latest-tag: ${{ inputs.update_latest_tag }}
 
   release-relay-binary-provenance:
     needs: ['build-publish']
