@@ -2,6 +2,25 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.12.4](https://github.com/launchdarkly/ld-relay/compare/v8.12.3...v8.12.4) (2025-07-07)
+
+
+### Bug Fixes
+
+* Bump github.com/google/uuid to v1.6.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+* Bump github.com/hashicorp/consul/api to v1.27.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+* Bump github.com/launchdarkly/eventsource to v1.10.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+* Bump github.com/launchdarkly/go-sdk-common/v3 to v3.3.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+* Bump github.com/launchdarkly/go-server-sdk/v7 to v7.11.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+* Bump github.com/prometheus/client_golang to v1.22.0 ([685bbaf](https://github.com/launchdarkly/ld-relay/commit/685bbafa4c2b43fbd07b62dcca4c3b930e66d4ac))
+
+## [8.12.3](https://github.com/launchdarkly/ld-relay/compare/v8.12.2...v8.12.3) (2025-07-01)
+
+
+### Bug Fixes
+
+* Bump version to override default docker ([#515](https://github.com/launchdarkly/ld-relay/issues/515)) ([39da958](https://github.com/launchdarkly/ld-relay/commit/39da95843a3677ba7f14c9a707aab066c3539377))
+
 ## [8.12.2](https://github.com/launchdarkly/ld-relay/compare/v8.12.1...v8.12.2) (2025-06-06)
 
 
