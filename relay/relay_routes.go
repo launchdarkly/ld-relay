@@ -14,6 +14,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 
+	h "github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -33,6 +34,9 @@ func (r *Relay) makeRouter() *mux.Router {
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if r.loggers.GetMinLevel() == ldlog.Debug {
 		router.Use(logging.RequestLoggerMiddleware(r.loggers))
+	}
+	if r.config.Http.EnableCompression {
+		router.Use(h.CompressHandler)
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
 

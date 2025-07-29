@@ -1,6 +1,10 @@
 package relay
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -163,4 +167,79 @@ func TestMakeFilteredEnvironments_ManyFilters_ManyEnvironments(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "a/foo", "a/bar", "b/foo", "b/bar", "c/baz"} {
 		assert.Contains(t, envs, id)
 	}
+}
+
+func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
+	// Test with compression enabled
+	configWithCompression := c.Config{
+		Http: c.HttpConfig{
+			EnableCompression: true,
+		},
+		Environment: map[string]*c.EnvConfig{
+			"test": {
+				SDKKey: "test-key",
+			},
+		},
+	}
+
+	withStartedRelay(t, configWithCompression, func(p relayTestParams) {
+		// Create a request to the status endpoint
+		req, _ := http.NewRequest("GET", "/status", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		w := httptest.NewRecorder()
+		p.relay.ServeHTTP(w, req)
+
+		// Verify the response is compressed
+		assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+		assert.Equal(t, "gzip", w.Header().Get("Content-Encoding"))
+
+		// Verify the content is actually compressed
+		body := w.Body.Bytes()
+		assert.Greater(t, len(body), 0, "Response body should not be empty")
+
+		// Try to decompress the body to verify it's actually gzipped
+		reader, err := gzip.NewReader(io.NopCloser(bytes.NewReader(body)))
+		require.NoError(t, err, "Response should be valid gzip content")
+		defer reader.Close()
+
+		decompressed, err := io.ReadAll(reader)
+		assert.NoError(t, err, "Should be able to read decompressed content")
+		assert.Greater(t, len(decompressed), 0, "Decompressed content should not be empty")
+	})
+}
+
+func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
+	// Test with compression disabled
+	configWithoutCompression := c.Config{
+		Http: c.HttpConfig{
+			EnableCompression: false,
+		},
+		Environment: map[string]*c.EnvConfig{
+			"test": {
+				SDKKey: "test-key",
+			},
+		},
+	}
+
+	withStartedRelay(t, configWithoutCompression, func(p relayTestParams) {
+		// Create a request to the status endpoint
+		req, _ := http.NewRequest("GET", "/status", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		w := httptest.NewRecorder()
+		p.relay.ServeHTTP(w, req)
+
+		// Verify the response is not compressed
+		assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+		assert.Equal(t, "", w.Header().Get("Content-Encoding"))
+
+		// Verify the content is not compressed
+		body := w.Body.Bytes()
+		assert.Greater(t, len(body), 0, "Response body should not be empty")
+
+		// Try to decompress the body - this should fail since it's not compressed
+		_, err := gzip.NewReader(io.NopCloser(bytes.NewReader(body)))
+		assert.Error(t, err, "Response should not be gzip content when compression is disabled")
+	})
 }
