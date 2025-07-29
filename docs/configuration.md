@@ -293,6 +293,12 @@ To learn more, read [Metrics integrations](./metrics.md).
 | `caCertFiles`    | `PROXY_CA_CERTS`      | String  |         | List of file paths to additional CA certificates that should be trusted (in PEM format). For multiple files, if using a configuration file, you can specify `caCertFiles` multiple times; if using environment variables, you can set `PROXY_CA_CERTS` to a comma-delimited list. |
 | `ntlmAuth`       | `PROXY_AUTH_NTLM`     | Boolean | `false` | Enables NTLM proxy authentication (requires user, password, and domain).                                                                                                                                                                                                          |
 
+### File section: `[Http]`
+
+| Property in file | Environment var        |  Type   | Default | Description                                                                                                 |
+|------------------|------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------|
+| `enableCompression` | `HTTP_ENABLE_COMPRESSION` | Boolean | `false` | When enabled, the Relay Proxy will compress HTTP responses using gzip compression. This can reduce bandwidth usage but may increase CPU usage. |
+
 ### Experimental/testing variables
 
 The current version of the Relay Proxy also supports the following environment variables. These do not have an equivalent in a configuration file; they are not intended for production use; and they are not guaranteed to work in any other Relay Proxy versions.
