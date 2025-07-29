@@ -136,7 +136,8 @@ func TestMakeFilteredEnvironments_OneFilter_OneEnvironment(t *testing.T) {
 		},
 		Filters: map[string]*c.FiltersConfig{
 			"proj": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
-		}}
+		},
+	}
 	envs := makeFilteredEnvironments(cfg)
 	for _, id := range []string{"a", "a/foo", "a/bar"} {
 		require.Contains(t, envs, id)
@@ -162,7 +163,8 @@ func TestMakeFilteredEnvironments_ManyFilters_ManyEnvironments(t *testing.T) {
 		Filters: map[string]*c.FiltersConfig{
 			"projA": {Keys: configtypes.NewOptStringList([]string{"foo", "bar"})},
 			"projB": {Keys: configtypes.NewOptStringList([]string{"baz"})},
-		}}
+		},
+	}
 	envs := makeFilteredEnvironments(cfg)
 	for _, id := range []string{"a", "b", "c", "a/foo", "a/bar", "b/foo", "b/bar", "c/baz"} {
 		assert.Contains(t, envs, id)
@@ -172,7 +174,7 @@ func TestMakeFilteredEnvironments_ManyFilters_ManyEnvironments(t *testing.T) {
 func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
 	// Test with compression enabled
 	configWithCompression := c.Config{
-		Http: c.HttpConfig{
+		HTTP: c.HTTPConfig{
 			EnableCompression: true,
 		},
 		Environment: map[string]*c.EnvConfig{
@@ -212,7 +214,7 @@ func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
 func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
 	// Test with compression disabled
 	configWithoutCompression := c.Config{
-		Http: c.HttpConfig{
+		HTTP: c.HTTPConfig{
 			EnableCompression: false,
 		},
 		Environment: map[string]*c.EnvConfig{

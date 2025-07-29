@@ -35,7 +35,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	if r.loggers.GetMinLevel() == ldlog.Debug {
 		router.Use(logging.RequestLoggerMiddleware(r.loggers))
 	}
-	if r.config.Http.EnableCompression {
+	if r.config.HTTP.EnableCompression {
 		router.Use(h.CompressHandler)
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
