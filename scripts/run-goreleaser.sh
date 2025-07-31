@@ -13,4 +13,4 @@ RELEASE_NOTES=`(GIT_EXTERNAL_DIFF='bash -c "diff --unchanged-line-format=\"\" $2
 # we want it to start from a clean state even if we've previously run a build - and also
 # because during a release, we may need to run this command under another account and we
 # don't want to mess up file permissions in the regular GOPATH.
-go run github.com/goreleaser/goreleaser@v1.23.0 --clean --release-notes <(echo "${RELEASE_NOTES}") "$@"
+go run github.com/goreleaser/goreleaser@v2.11.2 --clean --release-notes <(echo "${RELEASE_NOTES}") "$@"

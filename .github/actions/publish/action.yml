@@ -45,9 +45,8 @@ runs:
         echo $DOCKER_TOKEN | docker login --username $DOCKER_USERNAME --password-stdin
     - name: Run Goreleaser
       id: goreleaser
-      uses: goreleaser/goreleaser-action@v5
+      uses: goreleaser/goreleaser-action@v6
       with:
-        version: '~> v2'
         args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
