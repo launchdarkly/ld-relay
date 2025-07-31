@@ -20,10 +20,10 @@ inputs:
     required: false
     default: 'false'
 outputs:
-  hashes: 
-    description: sha256sum hashes of built artifacts 
+  hashes:
+    description: sha256sum hashes of built artifacts
     value: ${{ steps.binary.outputs.hashes }}
-  images_and_digests: 
+  images_and_digests:
     description: built docker image names and digests in JSON format
     value: ${{ steps.image.outputs.images_and_digests }}
 
@@ -47,16 +47,16 @@ runs:
       id: goreleaser
       uses: goreleaser/goreleaser-action@v5
       with:
-        version: latest
+        version: '~> v2'
         args: release --clean ${{ inputs.dry-run == 'true' && '--skip=publish' || '' }}
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
         LD_RELEASER_UPDATE_MAJOR: ${{ inputs.update-major-tag }}
         LD_RELEASER_UPDATE_LATEST: ${{ inputs.update-latest-tag }}
     - name: Generate binary hashes
-      id: binary 
+      id: binary
       shell: bash
-      env: 
+      env:
         ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
       run: |
         # Generate binary hashes
