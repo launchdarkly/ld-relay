@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.13.2](https://github.com/launchdarkly/ld-relay/compare/v8.13.1...v8.13.2) (2025-08-12)
+
+
+### Bug Fixes
+
+* Fix enabling gzip compression via environment variable ([#530](https://github.com/launchdarkly/ld-relay/issues/530)) ([6c3fe0c](https://github.com/launchdarkly/ld-relay/commit/6c3fe0c1cf5d40a85b3fcf45c91dd06c17123505))
+
 ## [8.13.1](https://github.com/launchdarkly/ld-relay/compare/v8.13.0...v8.13.1) (2025-08-07)
 
 
