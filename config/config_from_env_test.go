@@ -144,6 +144,26 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 			makeConfig: func(c *Config) { c.Main.ExitOnError = false },
 			envVars:    map[string]string{"EXIT_ON_ERROR": "0"},
 		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Http.EnableCompression = true },
+			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "true"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Http.EnableCompression = true },
+			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "1"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "false"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "0"},
+		})
+		testValidConfigVars(t, testDataValidConfig{
+			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			envVars:    map[string]string{},
+		})
 	})
 
 	t.Run("rejects invalid boolean", func(t *testing.T) {
