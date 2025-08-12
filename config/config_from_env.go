@@ -149,7 +149,7 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 
 	reader.ReadStruct(&c.Proxy, false)
 
-	reader.ReadStruct(&c.Http, false)
+	reader.ReadStruct(&c.HTTP, false)
 
 	return reader.Result()
 }

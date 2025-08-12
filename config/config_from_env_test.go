@@ -145,23 +145,23 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 			envVars:    map[string]string{"EXIT_ON_ERROR": "0"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Http.EnableCompression = true },
+			makeConfig: func(c *Config) { c.HTTP.EnableCompression = true },
 			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "true"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Http.EnableCompression = true },
+			makeConfig: func(c *Config) { c.HTTP.EnableCompression = true },
 			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "1"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			makeConfig: func(c *Config) { c.HTTP.EnableCompression = false },
 			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "false"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			makeConfig: func(c *Config) { c.HTTP.EnableCompression = false },
 			envVars:    map[string]string{"HTTP_ENABLE_COMPRESSION": "0"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Http.EnableCompression = false },
+			makeConfig: func(c *Config) { c.HTTP.EnableCompression = false },
 			envVars:    map[string]string{},
 		})
 	})
