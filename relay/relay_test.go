@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -185,9 +187,10 @@ func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
 	}
 
 	withStartedRelay(t, configWithCompression, func(p relayTestParams) {
-		// Create a request to the status endpoint
-		req, _ := http.NewRequest("GET", "/status", nil)
+		// Create a request to the flags endpoint which returns more data
+		req, _ := http.NewRequest("GET", "/sdk/flags", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set("Authorization", "test-key")
 
 		w := httptest.NewRecorder()
 		p.relay.ServeHTTP(w, req)
@@ -208,6 +211,9 @@ func TestCompressionIsAppliedWhenEnabled(t *testing.T) {
 		decompressed, err := io.ReadAll(reader)
 		assert.NoError(t, err, "Should be able to read decompressed content")
 		assert.Greater(t, len(decompressed), 0, "Decompressed content should not be empty")
+
+		// Verify the decompressed content is substantial enough to test compression
+		assert.Greater(t, len(decompressed), gzhttp.DefaultMinSize, fmt.Sprintf("Decompressed content should be larger than %d bytes to properly test compression", gzhttp.DefaultMinSize))
 	})
 }
 
@@ -225,9 +231,10 @@ func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
 	}
 
 	withStartedRelay(t, configWithoutCompression, func(p relayTestParams) {
-		// Create a request to the status endpoint
-		req, _ := http.NewRequest("GET", "/status", nil)
+		// Create a request to the flags endpoint which returns more data
+		req, _ := http.NewRequest("GET", "/sdk/flags", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set("Authorization", "test-key")
 
 		w := httptest.NewRecorder()
 		p.relay.ServeHTTP(w, req)
@@ -239,6 +246,9 @@ func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
 		// Verify the content is not compressed
 		body := w.Body.Bytes()
 		assert.Greater(t, len(body), 0, "Response body should not be empty")
+
+		// Verify the uncompressed content is substantial enough
+		assert.Greater(t, len(body), gzhttp.DefaultMinSize, fmt.Sprintf("Uncompressed content should be larger than %d bytes", gzhttp.DefaultMinSize))
 
 		// Try to decompress the body - this should fail since it's not compressed
 		_, err := gzip.NewReader(io.NopCloser(bytes.NewReader(body)))
