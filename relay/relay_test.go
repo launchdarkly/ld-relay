@@ -365,14 +365,11 @@ func TestLoadCompression(t *testing.T) {
 		t.Logf("Load test completed: %d requests processed", requestCount)
 
 		if failed {
-			t.Logf("Test failed: %v", lastError)
-			// The test is expected to fail under memory pressure, so we don't fail the test
-			// but we do want to see how many requests we got through
-			assert.Greater(t, requestCount, 0, "Should have processed at least some requests before failing")
-		} else {
-			t.Logf("Test completed successfully with %d requests", requestCount)
-			assert.Greater(t, requestCount, 0, "Should have processed requests successfully")
+			t.Fatalf("Test failed: %v", lastError)
 		}
+
+		t.Logf("Test completed successfully with %d requests", requestCount)
+		assert.Greater(t, requestCount, 0, "Should have processed requests successfully")
 
 		// Final memory stats
 		var m runtime.MemStats
