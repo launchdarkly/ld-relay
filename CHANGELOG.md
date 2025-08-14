@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.13.3](https://github.com/launchdarkly/ld-relay/compare/v8.13.2...v8.13.3) (2025-08-14)
+
+
+### Bug Fixes
+
+* Improve compression performance via new provider ([#532](https://github.com/launchdarkly/ld-relay/issues/532)) ([3ece4f4](https://github.com/launchdarkly/ld-relay/commit/3ece4f470b35ee75bc86276d5d1578ed031d6944))
+
 ## [8.13.2](https://github.com/launchdarkly/ld-relay/compare/v8.13.1...v8.13.2) (2025-08-12)
 
 
