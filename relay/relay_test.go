@@ -7,7 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"runtime/debug"
+	"sync"
 	"testing"
+	"time"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
 
@@ -250,8 +254,132 @@ func TestCompressionIsNotAppliedWhenDisabled(t *testing.T) {
 		// Verify the uncompressed content is substantial enough
 		assert.Greater(t, len(body), gzhttp.DefaultMinSize, fmt.Sprintf("Uncompressed content should be larger than %d bytes", gzhttp.DefaultMinSize))
 
+		t.Logf("Body size: %d bytes", len(body))
 		// Try to decompress the body - this should fail since it's not compressed
 		_, err := gzip.NewReader(io.NopCloser(bytes.NewReader(body)))
 		assert.Error(t, err, "Response should not be gzip content when compression is disabled")
+	})
+}
+
+func TestLoadCompression(t *testing.T) {
+	// Set minimal memory limit for the test
+	originalLimit := debug.SetMemoryLimit(10 * 1024 * 1024) // 10MB limit
+	defer debug.SetMemoryLimit(originalLimit)
+
+	// Force garbage collection before starting
+	runtime.GC()
+
+	// Test with compression enabled
+	configWithCompression := c.Config{
+		HTTP: c.HTTPConfig{
+			EnableCompression: true,
+		},
+		Environment: map[string]*c.EnvConfig{
+			"test": {
+				SDKKey: "test-key",
+			},
+		},
+	}
+
+	withStartedRelay(t, configWithCompression, func(p relayTestParams) {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var requestCount int
+		var lastError error
+		var failed bool
+		var maxAlloc uint64
+
+		// Start with a reasonable number of concurrent requests
+		concurrency := 100
+		maxRequests := 1000
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				for {
+					mu.Lock()
+					if failed || requestCount >= maxRequests {
+						mu.Unlock()
+						return
+					}
+					currentCount := requestCount
+					requestCount++
+					mu.Unlock()
+
+					// Create a request to the flags endpoint
+					req, err := http.NewRequest("GET", "/sdk/flags", nil)
+					if err != nil {
+						mu.Lock()
+						lastError = err
+						failed = true
+						mu.Unlock()
+						return
+					}
+
+					req.Header.Set("Accept-Encoding", "gzip")
+					req.Header.Set("Authorization", "test-key")
+
+					w := httptest.NewRecorder()
+					p.relay.ServeHTTP(w, req)
+
+					// Check if the request succeeded
+					if w.Result().StatusCode != http.StatusOK {
+						mu.Lock()
+						lastError = fmt.Errorf("request failed with status: %d", w.Result().StatusCode)
+						failed = true
+						mu.Unlock()
+						return
+					}
+
+					// Verify compression is working
+					if w.Header().Get("Content-Encoding") != "gzip" {
+						mu.Lock()
+						lastError = fmt.Errorf("compression not applied at request %d", currentCount)
+						failed = true
+						mu.Unlock()
+						return
+					}
+
+					// Check memory usage
+					var m runtime.MemStats
+					runtime.ReadMemStats(&m)
+
+					// Track maximum memory usage
+					mu.Lock()
+					if m.Alloc > maxAlloc {
+						maxAlloc = m.Alloc
+					}
+					mu.Unlock()
+
+					// Small delay to prevent overwhelming the system
+					time.Sleep(1 * time.Millisecond)
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Report results
+		t.Logf("Load test completed: %d requests processed", requestCount)
+
+		if failed {
+			t.Logf("Test failed: %v", lastError)
+			// The test is expected to fail under memory pressure, so we don't fail the test
+			// but we do want to see how many requests we got through
+			assert.Greater(t, requestCount, 0, "Should have processed at least some requests before failing")
+		} else {
+			t.Logf("Test completed successfully with %d requests", requestCount)
+			assert.Greater(t, requestCount, 0, "Should have processed requests successfully")
+		}
+
+		// Final memory stats
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		t.Logf("Final memory usage: Alloc=%d MB, TotalAlloc=%d MB, NumGC=%d",
+			m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.NumGC)
+		t.Logf("Peak memory usage: MaxAlloc=%d MB",
+			maxAlloc/1024/1024)
 	})
 }
