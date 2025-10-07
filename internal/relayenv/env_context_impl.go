@@ -14,6 +14,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v8/internal/cache"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
@@ -85,6 +86,7 @@ type EnvContextImplParams struct {
 	Loggers                          ldlog.Loggers
 	ConnectionMapper                 ConnectionMapper
 	ExpiredCredentialCleanupInterval time.Duration
+	SharedCache                      *cache.SharedObjectCache // Optional shared object cache
 }
 
 type envContextImpl struct {
@@ -280,7 +282,7 @@ func NewEnvContext(
 	if dataStoreFactory == nil {
 		dataStoreFactory = ldcomponents.InMemoryDataStore()
 	}
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates)
+	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates, params.SharedCache)
 	envContext.storeAdapter = storeAdapter
 
 	var eventDispatcher *events.EventDispatcher

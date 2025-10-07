@@ -14,6 +14,14 @@ type ReceivedItemUpdate struct {
 	Item ldstoretypes.ItemDescriptor
 }
 
+// NewTestContext creates a minimal ClientContext for testing with logging enabled.
+func NewTestContext() subsystems.BasicClientContext {
+	ctx := subsystems.BasicClientContext{}
+	loggingConfig := ldcomponents.Logging()
+	ctx.Logging, _ = loggingConfig.Build(ctx)
+	return ctx
+}
+
 func NewInMemoryStore() subsystems.DataStore {
 	store, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
 	if err != nil {

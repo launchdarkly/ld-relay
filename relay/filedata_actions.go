@@ -51,7 +51,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return config
 	}
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
-	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
+	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return

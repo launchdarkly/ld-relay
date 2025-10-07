@@ -396,7 +396,7 @@ func headersWithEventSchema(schemaVersion int) http.Header {
 }
 
 func makeStoreAdapterWithExistingStore(s subsystems.DataStore) *store.SSERelayDataStoreAdapter {
-	a := store.NewSSERelayDataStoreAdapter(st.ExistingInstance(s), nil)
+	a := store.NewSSERelayDataStoreAdapter(st.ExistingInstance(s), nil, nil)
 	_, _ = a.Build(subsystems.BasicClientContext{}) // ensure the wrapped store has been created
 	return a
 }

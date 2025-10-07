@@ -3,6 +3,7 @@ package store
 import (
 	"sync"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/cache"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -25,10 +26,11 @@ import (
 // wrapped factory to produce the underlying data store, then creates our own store instance, and then
 // puts a reference to that instance inside itself where we can see it.
 type SSERelayDataStoreAdapter struct {
-	store          subsystems.DataStore
-	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore]
-	updates        streams.EnvStreamUpdates
-	mu             sync.RWMutex
+	store             subsystems.DataStore
+	wrappedFactory    subsystems.ComponentConfigurer[subsystems.DataStore]
+	updates           streams.EnvStreamUpdates
+	sharedObjectCache *cache.SharedObjectCache
+	mu                sync.RWMutex
 }
 
 // DataStoreProvider is an interface implemented by SSERelayDataStoreAdapter, describing a component that
@@ -59,10 +61,12 @@ func (a *SSERelayDataStoreAdapter) GetUpdates() streams.EnvStreamUpdates {
 func NewSSERelayDataStoreAdapter(
 	wrappedFactory subsystems.ComponentConfigurer[subsystems.DataStore],
 	updates streams.EnvStreamUpdates,
+	sharedObjectCache *cache.SharedObjectCache,
 ) *SSERelayDataStoreAdapter {
 	return &SSERelayDataStoreAdapter{
-		wrappedFactory: wrappedFactory,
-		updates:        updates,
+		wrappedFactory:    wrappedFactory,
+		updates:           updates,
+		sharedObjectCache: sharedObjectCache,
 	}
 }
 
@@ -79,6 +83,7 @@ func (a *SSERelayDataStoreAdapter) Build(
 		a.updates,
 		wrappedStore,
 		context.GetLogging().Loggers,
+		a.sharedObjectCache,
 	)
 
 	a.mu.Lock()
@@ -90,20 +95,23 @@ func (a *SSERelayDataStoreAdapter) Build(
 // A DataStore implementation that delegates to an underlying store
 // but also publishes stream updates when the store is modified.
 type streamUpdatesStoreWrapper struct {
-	store   subsystems.DataStore
-	updates streams.EnvStreamUpdates
-	loggers ldlog.Loggers
+	store             subsystems.DataStore
+	updates           streams.EnvStreamUpdates
+	loggers           ldlog.Loggers
+	sharedObjectCache *cache.SharedObjectCache
 }
 
 func newStreamUpdatesStoreWrapper(
 	updates streams.EnvStreamUpdates,
 	baseFeatureStore subsystems.DataStore,
 	loggers ldlog.Loggers,
+	sharedObjectCache *cache.SharedObjectCache,
 ) *streamUpdatesStoreWrapper {
 	relayStore := &streamUpdatesStoreWrapper{
-		store:   baseFeatureStore,
-		updates: updates,
-		loggers: loggers,
+		store:             baseFeatureStore,
+		updates:           updates,
+		loggers:           loggers,
+		sharedObjectCache: sharedObjectCache,
 	}
 	return relayStore
 }
@@ -126,10 +134,18 @@ func (sw *streamUpdatesStoreWrapper) GetAll(kind ldstoretypes.DataKind) ([]ldsto
 
 func (sw *streamUpdatesStoreWrapper) Init(allData []ldstoretypes.Collection) error {
 	sw.loggers.Debug("Received all feature flags")
-	err := sw.store.Init(allData)
+
+	// Deduplicate collections before storing if cache is enabled
+	deduplicatedData := allData
+	if sw.sharedObjectCache != nil && sw.sharedObjectCache.IsEnabled() {
+		deduplicatedData = sw.sharedObjectCache.DeduplicateCollections(allData)
+		sw.loggers.Debug("Applied object deduplication to initial data")
+	}
+
+	err := sw.store.Init(deduplicatedData)
 
 	// See comments in Upsert for why we call SendAllDataUpdate here even if Init returned an error.
-	sw.updates.SendAllDataUpdate(allData)
+	sw.updates.SendAllDataUpdate(deduplicatedData)
 
 	return err
 }
@@ -140,7 +156,14 @@ func (sw *streamUpdatesStoreWrapper) Upsert(
 	item ldstoretypes.ItemDescriptor,
 ) (bool, error) {
 	sw.loggers.Debugf(`Received feature flag update: %s (version %d)`, key, item.Version)
-	updated, err := sw.store.Upsert(kind, key, item)
+
+	// Deduplicate single item before storing if cache is enabled
+	deduplicatedItem := item
+	if sw.sharedObjectCache != nil && sw.sharedObjectCache.IsEnabled() {
+		deduplicatedItem = sw.sharedObjectCache.DeduplicateItem(kind, key, item)
+	}
+
+	updated, err := sw.store.Upsert(kind, key, deduplicatedItem)
 
 	// Note that Upsert returns two values; the first is a boolean which is true if it really did the update,
 	// or false if it did not because the store already contained an equal or greater version number.
@@ -163,7 +186,7 @@ func (sw *streamUpdatesStoreWrapper) Upsert(
 	// connected clients, because they may be using the stream rather than the database as their source of
 	// truth.
 
-	sw.updates.SendSingleItemUpdate(kind, key, item)
+	sw.updates.SendSingleItemUpdate(kind, key, deduplicatedItem)
 
 	return updated, err
 }

@@ -127,6 +127,7 @@ type Config struct {
 	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
+	ObjectCache ObjectCacheConfig
 
 	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
 	// MetricsConfig is not the name of a configuration file section; the actual sections are the
@@ -299,6 +300,19 @@ type ProxyConfig struct {
 // configuration.
 type HTTPConfig struct {
 	EnableCompression bool `conf:"HTTP_ENABLE_COMPRESSION"`
+}
+
+// ObjectCacheConfig contains configuration parameters for the shared object cache feature.
+//
+// This corresponds to the [ObjectCache] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
+type ObjectCacheConfig struct {
+	Enabled    bool                     `conf:"OBJECT_CACHE_ENABLED"`
+	MaxObjects ct.OptIntGreaterThanZero `conf:"OBJECT_CACHE_MAX_OBJECTS"`
+	TTL        ct.OptDuration           `conf:"OBJECT_CACHE_TTL"`
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.

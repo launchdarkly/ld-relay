@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
-
 	"github.com/launchdarkly/ld-relay/v8/internal/projmanager"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/cache"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
@@ -30,9 +30,7 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 )
 
-var (
-	errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
-)
+var errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
 
 // The Relay Proxy Auto-Config Protocol has two major versions.
 // For Relay < v8, that was '1'.
@@ -69,6 +67,7 @@ type Relay struct {
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
 	loggers                       ldlog.Loggers
+	sharedCaches                  map[string]*cache.SharedObjectCache // Map of shared object caches, indexed by environment SDK key.
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -163,6 +162,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		envLogNameMode:                logNameMode,
 		config:                        c,
 		loggers:                       loggers,
+		sharedCaches:                  make(map[string]*cache.SharedObjectCache),
 	}
 
 	thingsToCleanUp.AddCloser(r)
@@ -170,7 +170,11 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
 	for envName, envConfig := range makeFilteredEnvironments(&c) {
-		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
+		// Filter and unfiltered environments share the same underlying data, so they should share
+		// the same cache. We can do this by using the SDK key as the index for the shared cache map.
+		sharedCache := r.getOrCreateSharedCache(string(envConfig.SDKKey), &c)
+
+		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil, sharedCache)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +202,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
-			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, loggers),
+			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, c.ObjectCache, loggers),
 			httpConfig,
 			0,
 			rpacProtocolVersion,
@@ -251,6 +255,25 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	return r, nil
 }
 
+// getOrCreateSharedCache returns an existing shared cache for the provided key
+// or creates a new one if it doesn't exist
+func (r *Relay) getOrCreateSharedCache(baseEnvKey string, c *config.Config) *cache.SharedObjectCache {
+	if existingCache, exists := r.sharedCaches[baseEnvKey]; exists {
+		return existingCache
+	}
+
+	cacheConfig := cache.NewCacheConfigFromRelay(c.ObjectCache)
+	sharedCache := cache.NewSharedObjectCache(cacheConfig, r.loggers)
+	r.sharedCaches[baseEnvKey] = sharedCache
+
+	r.loggers.Debugf("Created shared object cache for base environment %s - enabled: %t, max objects: %d, TTL: %v",
+		baseEnvKey, cacheConfig.Enabled, cacheConfig.MaxObjects, cacheConfig.TTL)
+
+	sharedCache.StartCleanupRoutine()
+
+	return sharedCache
+}
+
 func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
 	if c.Filters == nil {
 		return c.Environment
@@ -291,7 +314,8 @@ func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
 }
 
 func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
-	filedata.ArchiveManagerInterface, error) {
+	filedata.ArchiveManagerInterface, error,
+) {
 	am, err := filedata.NewArchiveManager(filePath, handler, monitoringInterval, loggers)
 	return am, err
 }
@@ -327,6 +351,12 @@ func (r *Relay) Close() error {
 		}
 	}
 
+	// Clean up shared caches and stop their cleanup routines
+	for baseEnvKey, sharedCache := range r.sharedCaches {
+		sharedCache.StopCleanupRoutine()
+		delete(r.sharedCaches, baseEnvKey)
+	}
+
 	for _, sp := range r.allStreamProviders() {
 		sp.Close()
 	}
@@ -343,9 +373,11 @@ func (r *Relay) allStreamProviders() []streams.StreamProvider {
 	}
 }
 
-var errRelayNotReady = errors.New("relay is not yet fully configured")
-var errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
-var errPayloadFilterNotFound = errors.New("credential corresponds to an environment but filter is unrecognized")
+var (
+	errRelayNotReady           = errors.New("relay is not yet fully configured")
+	errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
+	errPayloadFilterNotFound   = errors.New("credential corresponds to an environment but filter is unrecognized")
+)
 
 func IsNotReady(err error) bool {
 	return err == errRelayNotReady
@@ -395,6 +427,7 @@ func (r *Relay) addEnvironment(
 	identifiers relayenv.EnvIdentifiers,
 	envConfig config.EnvConfig,
 	transformClientConfig func(ld.Config) ld.Config,
+	sharedCache *cache.SharedObjectCache,
 ) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -456,6 +489,7 @@ func (r *Relay) addEnvironment(
 		Loggers:                          r.loggers,
 		ConnectionMapper:                 r,
 		ExpiredCredentialCleanupInterval: r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
+		SharedCache:                      sharedCache,
 	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)

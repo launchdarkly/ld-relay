@@ -113,7 +113,7 @@ func TestRelayAddEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer relay.Close()
 
-	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
+	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 	require.NotNil(t, resultCh)
@@ -134,7 +134,7 @@ func TestRelayAddEnvironmentAfterClosed(t *testing.T) {
 	require.NoError(t, err)
 	_ = relay.Close()
 
-	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil)
+	env, resultCh, err := relay.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: st.EnvMobile.Name}, st.EnvMobile.Config, nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, env)
 	assert.Nil(t, resultCh)

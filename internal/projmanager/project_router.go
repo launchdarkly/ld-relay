@@ -18,9 +18,10 @@ type AutoConfigActions interface {
 // ProjectRouter is responsible for accepting commands relating to the creation, destruction, or modification of
 // environments and filters, and then forwarding them to a ProjectManager based on the environment/filter's project key.
 type ProjectRouter struct {
-	managers map[string]*EnvironmentManager
-	actions  AutoConfigActions
-	loggers  ldlog.Loggers
+	managers          map[string]*EnvironmentManager
+	actions           AutoConfigActions
+	loggers           ldlog.Loggers
+	objectCacheConfig config.ObjectCacheConfig
 }
 
 func (e *ProjectRouter) Manager(projKey string) *EnvironmentManager {
@@ -36,9 +37,14 @@ func (e *ProjectRouter) Projects() []string {
 }
 
 // NewProjectRouter creates a new router which is ready to accept commands.
-func NewProjectRouter(handler AutoConfigActions, loggers ldlog.Loggers) *ProjectRouter {
+func NewProjectRouter(handler AutoConfigActions, objectCacheConfig config.ObjectCacheConfig, loggers ldlog.Loggers) *ProjectRouter {
 	loggers.SetPrefix("[ProjectRouter]")
-	return &ProjectRouter{managers: make(map[string]*EnvironmentManager), actions: handler, loggers: loggers}
+	return &ProjectRouter{
+		managers:          make(map[string]*EnvironmentManager),
+		actions:           handler,
+		loggers:           loggers,
+		objectCacheConfig: objectCacheConfig,
+	}
 }
 
 // AddEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its project key, or instantiates
@@ -47,7 +53,7 @@ func (e *ProjectRouter) AddEnvironment(params envfactory.EnvironmentParams) {
 	proj := params.Identifiers.ProjKey
 	manager, ok := e.managers[proj]
 	if !ok {
-		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.loggers)
+		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.objectCacheConfig, e.loggers)
 		manager = e.managers[proj]
 	}
 	manager.AddEnvironment(params)
@@ -92,7 +98,7 @@ func (e *ProjectRouter) AddFilter(params envfactory.FilterParams) {
 	proj := params.ProjKey
 	manager, ok := e.managers[proj]
 	if !ok {
-		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.loggers)
+		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.objectCacheConfig, e.loggers)
 		manager = e.managers[proj]
 	}
 	manager.AddFilter(params)

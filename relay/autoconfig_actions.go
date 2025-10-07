@@ -2,6 +2,7 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/cache"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -22,13 +23,13 @@ type relayAutoConfigActions struct {
 	r *Relay
 }
 
-func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
+func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams, sharedCache *cache.SharedObjectCache) {
 	// Since we're not holding the lock on the RelayCore, there is theoretically a race condition here
 	// where an environment could be added from elsewhere after we checked in AddOrUpdateEnvironment.
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
 	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
-	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
+	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil, sharedCache)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 	}
