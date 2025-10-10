@@ -5,11 +5,12 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/cache"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
 type EnvironmentActions interface {
-	AddEnvironment(params envfactory.EnvironmentParams)
+	AddEnvironment(params envfactory.EnvironmentParams, sharedCache *cache.SharedObjectCache)
 	UpdateEnvironment(params envfactory.EnvironmentParams)
 	DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey)
 }
@@ -28,22 +29,26 @@ type filterMapping struct {
 // - Additionally, N*K "filtered environments" must be setup
 // In total, each EnvironmentManager would then manage N*(K+1) environments.
 type EnvironmentManager struct {
-	defaults map[config.EnvironmentID]envfactory.EnvironmentParams
-	filtered map[config.FilterID]*filterMapping
-	project  string
-	loggers  ldlog.Loggers
-	handler  EnvironmentActions
+	defaults          map[config.EnvironmentID]envfactory.EnvironmentParams
+	filtered          map[config.FilterID]*filterMapping
+	project           string
+	loggers           ldlog.Loggers
+	handler           EnvironmentActions
+	objectCacheConfig config.ObjectCacheConfig
+	sharedCaches      map[string]*cache.SharedObjectCache // Allows sharing between filter and unfiltered envs by indexing on env ID.
 }
 
-func NewEnvironmentManager(project string, handler EnvironmentActions, loggers ldlog.Loggers) *EnvironmentManager {
+func NewEnvironmentManager(project string, handler EnvironmentActions, objectCacheConfig config.ObjectCacheConfig, loggers ldlog.Loggers) *EnvironmentManager {
 	loggers.SetPrefix(fmt.Sprintf("[EnvironmentManager(%s)]", project))
 
 	return &EnvironmentManager{
-		project:  project,
-		defaults: make(map[config.EnvironmentID]envfactory.EnvironmentParams),
-		filtered: make(map[config.FilterID]*filterMapping),
-		loggers:  loggers,
-		handler:  handler,
+		project:           project,
+		defaults:          make(map[config.EnvironmentID]envfactory.EnvironmentParams),
+		filtered:          make(map[config.FilterID]*filterMapping),
+		loggers:           loggers,
+		handler:           handler,
+		objectCacheConfig: objectCacheConfig,
+		sharedCaches:      make(map[string]*cache.SharedObjectCache),
 	}
 }
 
@@ -65,18 +70,42 @@ func (e *EnvironmentManager) AddEnvironment(env envfactory.EnvironmentParams) {
 		return
 	}
 
+	sharedCache := e.getOrCreateSharedCache(string(env.EnvID), &e.objectCacheConfig)
+
 	// The new environment is considered "default" - meaning unfiltered.
 	e.defaults[env.EnvID] = env
 	// This is where logic would go to suppress creation of a default environment, if such a configuration
 	// was desirable.
-	e.handler.AddEnvironment(env)
+	e.handler.AddEnvironment(env, sharedCache)
 
 	for _, filter := range e.filtered {
 		// Associate the new environment with all existing filters, and..
 		filter.envs[env.EnvID] = struct{}{}
 		// Spawn a new filtered environment.
-		e.handler.AddEnvironment(env.WithFilter(filter.key))
+		e.handler.AddEnvironment(env.WithFilter(filter.key), sharedCache)
 	}
+}
+
+// getOrCreateSharedCache returns an existing shared cache for the base environment
+// or creates a new one if it doesn't exist
+func (e *EnvironmentManager) getOrCreateSharedCache(baseEnvKey string, objectCacheConfig *config.ObjectCacheConfig) *cache.SharedObjectCache {
+	if existingCache, exists := e.sharedCaches[baseEnvKey]; exists {
+		return existingCache
+	}
+
+	// Create new shared cache for this base environment
+	cacheConfig := cache.NewCacheConfigFromRelay(*objectCacheConfig)
+	sharedCache := cache.NewSharedObjectCache(cacheConfig, e.loggers)
+	e.sharedCaches[baseEnvKey] = sharedCache
+
+	e.loggers.Debugf("Created shared object cache for base environment %s - enabled: %t, max objects: %d, TTL: %v",
+		baseEnvKey, cacheConfig.Enabled, cacheConfig.MaxObjects, cacheConfig.TTL)
+
+	// Start the cleanup routine for this cache
+	// It will be stopped when DeleteEnvironment calls StopCleanupRoutine
+	sharedCache.StartCleanupRoutine()
+
+	return sharedCache
 }
 
 func (e *EnvironmentManager) DeleteEnvironment(id config.EnvironmentID) bool {
@@ -95,6 +124,11 @@ func (e *EnvironmentManager) DeleteEnvironment(id config.EnvironmentID) bool {
 		e.handler.DeleteEnvironment(id, filter.key)
 	}
 
+	if cache, exists := e.sharedCaches[string(id)]; exists {
+		cache.StopCleanupRoutine()
+	}
+	delete(e.sharedCaches, string(id))
+
 	return true
 }
 
@@ -111,7 +145,8 @@ func (e *EnvironmentManager) AddFilter(filter envfactory.FilterParams) {
 
 	for id, env := range e.defaults {
 		mapping.envs[id] = struct{}{}
-		e.handler.AddEnvironment(env.WithFilter(filter.Key))
+		sharedObjectCache := e.sharedCaches[string(id)]
+		e.handler.AddEnvironment(env.WithFilter(filter.Key), sharedObjectCache)
 	}
 
 	e.filtered[filter.ID] = mapping

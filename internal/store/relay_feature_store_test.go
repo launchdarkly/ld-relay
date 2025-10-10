@@ -17,7 +17,7 @@ import (
 func makeTestComponents() (*mockStore, *streamUpdatesStoreWrapper, *mockEnvStreamsUpdates) {
 	baseStore := &mockStore{realStore: sharedtest.NewInMemoryStore()}
 	updates := &mockEnvStreamsUpdates{}
-	store := newStreamUpdatesStoreWrapper(updates, baseStore, ldlog.NewDisabledLoggers())
+	store := newStreamUpdatesStoreWrapper(updates, baseStore, ldlog.NewDisabledLoggers(), nil)
 	return baseStore, store, updates
 }
 
@@ -26,7 +26,7 @@ func TestStoreAdapterLazilyCreatesStore(t *testing.T) {
 	factory := &mockStoreFactory{instance: store}
 	updates := &mockEnvStreamsUpdates{}
 
-	adapter := NewSSERelayDataStoreAdapter(factory, updates)
+	adapter := NewSSERelayDataStoreAdapter(factory, updates, nil)
 	assert.Nil(t, adapter.GetStore())
 
 	context := subsystems.BasicClientContext{}
@@ -48,7 +48,7 @@ func TestStoreAdapterReturnsErrorIfStoreCannotBeCreated(t *testing.T) {
 	factory.fakeError = fakeError
 	updates := &mockEnvStreamsUpdates{}
 
-	adapter := NewSSERelayDataStoreAdapter(factory, updates)
+	adapter := NewSSERelayDataStoreAdapter(factory, updates, nil)
 	context := subsystems.BasicClientContext{}
 	created, err := adapter.Build(context)
 

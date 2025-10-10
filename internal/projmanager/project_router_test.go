@@ -50,7 +50,6 @@ type noopActions struct {
 }
 
 func (n *spyHandler) ReceivedAllEnvironments() {
-
 }
 
 func TestProjectRouter_NewIsEmpty(t *testing.T) {
@@ -58,7 +57,7 @@ func TestProjectRouter_NewIsEmpty(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
-	router := NewProjectRouter(&noopActions{}, mockLog.Loggers)
+	router := NewProjectRouter(&noopActions{}, config.ObjectCacheConfig{}, mockLog.Loggers)
 	require.Empty(t, router.Projects())
 }
 
@@ -68,7 +67,6 @@ func TestProjectRouter_NewIsEmpty(t *testing.T) {
 //  2. Every project currently managed by the router was a project that was seen by the router
 //     (either via adding environments, or filters.)
 func TestProjectRouter_VerifySetProperty(t *testing.T) {
-
 	// Makes a list of unique project keys.
 	makeProjects := func(count int) []string {
 		var projects []string
@@ -94,7 +92,7 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 		defer mockLog.DumpIfTestFailed(t)
 		mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
-		router := NewProjectRouter(newHandlerSpy(), mockLog.Loggers)
+		router := NewProjectRouter(newHandlerSpy(), config.ObjectCacheConfig{}, mockLog.Loggers)
 
 		expectedProjects := makeProjects(nProjects)
 
@@ -123,7 +121,6 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 				t.Errorf("project (%s) seen by router was not in expected list", g)
 				return false
 			}
-
 		}
 		return true
 	}
@@ -152,7 +149,6 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 	// Since it's impractical to exhaustively verify the property with large amounts of environments/projects,
 	// cherry-pick a few scenarios.
 	t.Run("spot checks", func(t *testing.T) {
-
 		type scenario struct {
 			environments int
 			projects     int

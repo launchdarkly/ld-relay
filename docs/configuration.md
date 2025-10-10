@@ -299,6 +299,16 @@ To learn more, read [Metrics integrations](./metrics.md).
 |------------------|------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------|
 | `enableCompression` | `HTTP_ENABLE_COMPRESSION` | Boolean | `false` | When enabled, the Relay Proxy will compress HTTP responses using gzip compression. This can reduce bandwidth usage but may increase CPU usage. |
 
+### File section: `[ObjectCache]`
+
+The object cache is an in-memory cache that deduplicates feature flags and segments across multiple environments, reducing memory usage when multiple filtered or unfiltered environments share the same underlying data.
+
+| Property in file | Environment var           |   Type   | Default | Description                                                                                                                                                                              |
+|------------------|---------------------------|:--------:|:--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`        | `OBJECT_CACHE_ENABLED`    | Boolean  | `false` | Enables the shared object cache. When enabled, flag and segment data is deduplicated across an environment and its filtered variants.                                                    |
+| `maxObjects`     | `OBJECT_CACHE_MAX_OBJECTS`|  Number  | `10000` | Maximum number of objects (flags and segments) to cache. When this limit is reached, older objects may be evicted.                                                                      |
+| `ttl`            | `OBJECT_CACHE_TTL`        | Duration | `5m`    | Time-to-live for cached objects. Objects that haven't been accessed within this duration may be evicted during cleanup. This helps prevent memory leaks from stale data.                |
+
 ### Experimental/testing variables
 
 The current version of the Relay Proxy also supports the following environment variables. These do not have an equivalent in a configuration file; they are not intended for production use; and they are not guaranteed to work in any other Relay Proxy versions.

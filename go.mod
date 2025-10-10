@@ -26,7 +26,7 @@ require (
 	github.com/launchdarkly/eventsource v1.10.0
 	github.com/launchdarkly/go-configtypes v1.2.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.0
-	github.com/launchdarkly/go-sdk-common/v3 v3.3.0
+	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
 	github.com/launchdarkly/go-sdk-events/v3 v3.5.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
@@ -36,7 +36,7 @@ require (
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5
 	github.com/pborman/uuid v1.2.1
-	github.com/prometheus/client_golang v1.22.0 // indirect; override to address CVE-2022-21698
+	github.com/prometheus/client_golang v1.22.0 // override to address CVE-2022-21698
 	github.com/stretchr/testify v1.10.0
 	go.opencensus.io v0.24.0
 	golang.org/x/sync v0.15.0
