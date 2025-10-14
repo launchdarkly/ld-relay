@@ -60,7 +60,7 @@ jobs:
 
       - name: Install go-junit-report
         shell: bash
-        run: go install github.com/jstemmer/go-junit-report@v0.9.1
+        run: go install github.com/jstemmer/go-junit-report@cc1f095d5cc5eca2844f5c5ea7bb37f6b9bf6cac
 
       - name: Fetch REST token
         uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
