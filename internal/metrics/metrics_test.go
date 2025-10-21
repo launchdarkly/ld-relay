@@ -178,6 +178,7 @@ func TestWithRouteCount(t *testing.T) {
 						"platformCategory": "server",
 						"route":            "someRoute",
 						"userAgent":        userAgentValue,
+						"sdkWrapper":       "not-provided",
 					},
 					Count: 1,
 				})

@@ -86,6 +86,7 @@ func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler,
 			"env":              p.envName,
 			"platformCategory": category,
 			"userAgent":        metricsTestUserAgent,
+			"sdkWrapper":       "not-provided",
 		}
 
 		req, _ := http.NewRequest("GET", "", nil)
@@ -142,6 +143,7 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 			"route":            "_test-route",
 			"platformCategory": category,
 			"userAgent":        metricsTestUserAgent,
+			"sdkWrapper":       "not-provided",
 		}
 
 		makeRequest := func() *http.Request {
