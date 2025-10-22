@@ -26,6 +26,7 @@ func (m measureAndPlatform) getExpectedTagsMap(relayID string, envName string, u
 		envNameTagKey.Name():          envName,
 		platformCategoryTagKey.Name(): m.platform,
 		userAgentTagKey.Name():        userAgent,
+		sdkWrapperTagKey.Name():       "not-provided", // empty wrapper defaults to "not-provided"
 	}
 	if relayID != "" {
 		ret[relayIDTagKey.Name()] = relayID
@@ -111,7 +112,7 @@ func TestConnectionMetrics(t *testing.T) {
 				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
 				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
 
-				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, func() {
+				WithGauge(p.env.GetOpenCensusContext(), userAgentValue, "", func() {
 					p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 						return d.HasRow(publicConnView.Name, st.TestMetricsRow{
 							Tags: expectedTags,
@@ -150,7 +151,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 				expectedTags := tt.getExpectedTagsMap("", p.envName, userAgentValue)
 				expectedPrivateTags := tt.getExpectedTagsMap(p.relayID, p.envName, userAgentValue)
 
-				WithCount(p.env.GetOpenCensusContext(), userAgentValue, func() {}, tt.measure)
+				WithCount(p.env.GetOpenCensusContext(), userAgentValue, "", func() {}, tt.measure)
 
 				p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 					return d.HasRow(publicNewConnView.Name, st.TestMetricsRow{
@@ -168,7 +169,7 @@ func TestNewConnectionMetrics(t *testing.T) {
 
 func TestWithRouteCount(t *testing.T) {
 	testWithExporter(t, func(p testWithExporterParams) {
-		WithRouteCount(p.env.GetOpenCensusContext(), userAgentValue, "someRoute", "GET", func() {
+		WithRouteCount(p.env.GetOpenCensusContext(), userAgentValue, "", "someRoute", "GET", func() {
 			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
 				return d.HasRow(requestView.Name, st.TestMetricsRow{
 					Tags: map[string]string{
@@ -177,6 +178,7 @@ func TestWithRouteCount(t *testing.T) {
 						"platformCategory": "server",
 						"route":            "someRoute",
 						"userAgent":        userAgentValue,
+						"sdkWrapper":       "not-provided",
 					},
 					Count: 1,
 				})
@@ -189,5 +191,7 @@ func TestWithRouteCount(t *testing.T) {
 
 func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "_", sanitizeTagValue(""))
+	assert.Equal(t, "not-provided", sanitizeTagValue(""))
+	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
+	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
 }

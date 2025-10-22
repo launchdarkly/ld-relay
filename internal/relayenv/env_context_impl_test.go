@@ -350,7 +350,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, "", func() {
 			require.Eventually(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
@@ -406,7 +406,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, func() {
+		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, "", func() {
 			require.Never(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
