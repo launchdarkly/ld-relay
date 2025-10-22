@@ -2,6 +2,21 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.14.0](https://github.com/launchdarkly/ld-relay/compare/v8.13.3...v8.14.0) (2025-10-22)
+
+
+### Features
+
+* Add SDK wrapper metric tagging ([#542](https://github.com/launchdarkly/ld-relay/issues/542)) ([ab5a69b](https://github.com/launchdarkly/ld-relay/commit/ab5a69ba1add404189224939d4e936b436ddf1de))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.0 and 1.24.6 ([#533](https://github.com/launchdarkly/ld-relay/issues/533)) ([8b70264](https://github.com/launchdarkly/ld-relay/commit/8b70264e30e5ccd92b988ca6e20fede2bf3613c3))
+* **deps:** bump supported Go versions to 1.25.1 and 1.24.7 ([#536](https://github.com/launchdarkly/ld-relay/issues/536)) ([fba0368](https://github.com/launchdarkly/ld-relay/commit/fba0368063cf642f9da455fcaa6d4ce1e2d7fb3f))
+* **deps:** bump supported Go versions to 1.25.2 and 1.24.8 ([#537](https://github.com/launchdarkly/ld-relay/issues/537)) ([8f50322](https://github.com/launchdarkly/ld-relay/commit/8f50322c35ba7db9b4ac891331019c5b0bd3251f))
+* **deps:** update Dockerfiles from 3.22.1 to alpine:3.22.2 ([#539](https://github.com/launchdarkly/ld-relay/issues/539)) ([c686a36](https://github.com/launchdarkly/ld-relay/commit/c686a36292e44e40a89cf738a32884979f439967))
+
 ## [8.13.3](https://github.com/launchdarkly/ld-relay/compare/v8.13.2...v8.13.3) (2025-08-14)
 
 
