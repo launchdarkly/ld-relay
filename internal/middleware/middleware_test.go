@@ -147,6 +147,22 @@ func TestGetUserAgent(t *testing.T) {
 		req.Header.Set(userAgentHeader, "my-agent")
 		assert.Equal(t, "my-agent", getUserAgent(req))
 	})
+	t.Run("returns empty string when no user-agent headers are present", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		assert.Equal(t, "", getUserAgent(req))
+	})
+}
+
+func TestGetSDKWrapper(t *testing.T) {
+	t.Run("returns X-LaunchDarkly-Wrapper header value", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header.Set(ldWrapperHeader, "react/2.0.0")
+		assert.Equal(t, "react/2.0.0", getSDKWrapper(req))
+	})
+	t.Run("returns empty string when X-LaunchDarkly-Wrapper header is not present", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		assert.Equal(t, "", getSDKWrapper(req))
+	})
 }
 
 func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {

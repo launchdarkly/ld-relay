@@ -255,10 +255,12 @@ func (em *EnvironmentManager) close() {
 	})
 }
 
-// Pad empty keys to match tag keyset cardinality since empty strings are dropped
+// sanitizeTagValue ensures tag values are valid for OpenCensus metrics.
+// OpenCensus drops empty tag values, which causes cardinality mismatches in views.
+// We use descriptive default values instead of generic placeholders.
 func sanitizeTagValue(v string) string {
 	if strings.TrimSpace(v) == "" {
-		return "_"
+		return "not-provided"
 	}
 	return strings.ReplaceAll(v, "/", "_")
 }
