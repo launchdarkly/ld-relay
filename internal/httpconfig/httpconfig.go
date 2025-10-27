@@ -83,6 +83,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 			configBuilder.HTTPClientFactory(func() *http.Client {
 				client := baseFactory()
 				if transport, ok := client.Transport.(*http.Transport); ok {
+					// Apply custom transport settings
 					if httpConfig.IdleConnTimeout > 0 {
 						transport.IdleConnTimeout = httpConfig.IdleConnTimeout
 					}
@@ -95,13 +96,19 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 					if httpConfig.DisableKeepAlives {
 						transport.DisableKeepAlives = true
 					}
+					loggers.Debug("Applied custom HTTP transport settings to NTLM proxy client")
+				} else {
+					// This should never happen based on ldntlm implementation, but defend against it
+					loggers.Warn("Unable to apply custom HTTP transport settings to NTLM proxy - unexpected transport type")
 				}
 				return client
 			})
+			loggers.Infof("NTLM proxy authentication enabled with custom HTTP transport (IdleConnTimeout=%s, MaxIdleConns=%d, MaxIdleConnsPerHost=%d, DisableKeepAlives=%t)",
+				httpConfig.IdleConnTimeout, httpConfig.MaxIdleConns, httpConfig.MaxIdleConnsPerHost, httpConfig.DisableKeepAlives)
 		} else {
 			configBuilder.HTTPClientFactory(factory)
+			loggers.Info("NTLM proxy authentication enabled")
 		}
-		loggers.Info("NTLM proxy authentication enabled")
 	} else {
 		if proxyConfig.URL.IsDefined() {
 			configBuilder.ProxyURL(proxyConfig.URL.String())
@@ -112,7 +119,8 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 				// Create base transport with cert files if needed
 				transport, _, err := ldhttp.NewHTTPTransport(transportOpts...)
 				if err != nil {
-					// Fall back to default client
+					// This should rarely happen, but log it if transport creation fails
+					loggers.Warnf("Failed to create custom HTTP transport: %v - using default client", err)
 					return &http.Client{}
 				}
 
@@ -130,8 +138,15 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 					transport.DisableKeepAlives = true
 				}
 
+				loggers.Debug("Applied custom HTTP transport settings")
 				return &http.Client{Transport: transport}
 			})
+
+			// Log settings on initialization (not per client creation)
+			if hasCustomTransportSettings {
+				loggers.Infof("Custom HTTP transport configured (IdleConnTimeout=%s, MaxIdleConns=%d, MaxIdleConnsPerHost=%d, DisableKeepAlives=%t)",
+					httpConfig.IdleConnTimeout, httpConfig.MaxIdleConns, httpConfig.MaxIdleConnsPerHost, httpConfig.DisableKeepAlives)
+			}
 		}
 	}
 
