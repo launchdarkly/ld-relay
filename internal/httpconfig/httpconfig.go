@@ -24,10 +24,10 @@ var (
 )
 
 // applyCustomTransportSettings applies custom HTTP transport settings to the given transport.
-// Only non-zero/non-default values are applied.
+// Only configured values are applied.
 func applyCustomTransportSettings(transport *http.Transport, httpConfig config.HTTPConfig) {
-	if httpConfig.IdleConnTimeout > 0 {
-		transport.IdleConnTimeout = httpConfig.IdleConnTimeout
+	if httpConfig.IdleConnTimeout.IsDefined() {
+		transport.IdleConnTimeout = httpConfig.IdleConnTimeout.GetOrElse(0)
 	}
 	if httpConfig.MaxIdleConns > 0 {
 		transport.MaxIdleConns = httpConfig.MaxIdleConns
@@ -41,11 +41,11 @@ func applyCustomTransportSettings(transport *http.Transport, httpConfig config.H
 }
 
 // formatTransportSettings returns a human-readable string of configured HTTP transport settings.
-// Only non-zero/non-default values are included in the output.
+// Only configured values are included in the output.
 func formatTransportSettings(httpConfig config.HTTPConfig) string {
 	var settings []string
-	if httpConfig.IdleConnTimeout > 0 {
-		settings = append(settings, fmt.Sprintf("IdleConnTimeout=%s", httpConfig.IdleConnTimeout))
+	if httpConfig.IdleConnTimeout.IsDefined() {
+		settings = append(settings, fmt.Sprintf("IdleConnTimeout=%s", httpConfig.IdleConnTimeout.GetOrElse(0)))
 	}
 	if httpConfig.MaxIdleConns > 0 {
 		settings = append(settings, fmt.Sprintf("MaxIdleConns=%d", httpConfig.MaxIdleConns))
@@ -103,7 +103,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 	}
 
 	// Check if custom HTTP transport settings are configured
-	hasCustomTransportSettings := httpConfig.IdleConnTimeout > 0 ||
+	hasCustomTransportSettings := httpConfig.IdleConnTimeout.IsDefined() ||
 		httpConfig.MaxIdleConns > 0 ||
 		httpConfig.MaxIdleConnsPerHost > 0 ||
 		httpConfig.DisableKeepAlives
