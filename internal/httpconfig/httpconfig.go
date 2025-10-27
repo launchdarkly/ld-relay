@@ -76,7 +76,31 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 		if err != nil {
 			return ret, err
 		}
-		configBuilder.HTTPClientFactory(factory)
+
+		// Wrap the NTLM factory to apply custom HTTP transport settings if configured
+		if hasCustomTransportSettings {
+			baseFactory := factory
+			configBuilder.HTTPClientFactory(func() *http.Client {
+				client := baseFactory()
+				if transport, ok := client.Transport.(*http.Transport); ok {
+					if httpConfig.IdleConnTimeout > 0 {
+						transport.IdleConnTimeout = httpConfig.IdleConnTimeout
+					}
+					if httpConfig.MaxIdleConns > 0 {
+						transport.MaxIdleConns = httpConfig.MaxIdleConns
+					}
+					if httpConfig.MaxIdleConnsPerHost > 0 {
+						transport.MaxIdleConnsPerHost = httpConfig.MaxIdleConnsPerHost
+					}
+					if httpConfig.DisableKeepAlives {
+						transport.DisableKeepAlives = true
+					}
+				}
+				return client
+			})
+		} else {
+			configBuilder.HTTPClientFactory(factory)
+		}
 		loggers.Info("NTLM proxy authentication enabled")
 	} else {
 		if proxyConfig.URL.IsDefined() {
