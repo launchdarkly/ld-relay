@@ -21,7 +21,7 @@ import (
 )
 
 func TestUserAgentHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "abc", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "abc", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -29,7 +29,7 @@ func TestUserAgentHeader(t *testing.T) {
 }
 
 func TestNoAuthorizationHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -37,7 +37,7 @@ func TestNoAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuthorizationHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.SDKKey("key"), "", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, config.SDKKey("key"), "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -52,7 +52,7 @@ func TestSimpleProxy(t *testing.T) {
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		proxyConfig := config.ProxyConfig{}
 		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+		hc, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 
 		mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
 
@@ -77,7 +77,7 @@ func TestSimpleProxyWithCACert(t *testing.T) {
 			proxyConfig := config.ProxyConfig{}
 			proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 			proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
-			hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+			hc, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 
 			mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
 
@@ -99,7 +99,7 @@ func TestSimpleProxyCACertError(t *testing.T) {
 		proxyConfig := config.ProxyConfig{}
 		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
 		proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
-		_, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+		_, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "invalid CA certificate data")
 		}

@@ -29,7 +29,7 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent(userAgent)
 
@@ -49,17 +49,27 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredent
 
 	caCertFiles := proxyConfig.CACertFiles.Values()
 
+	// Build base transport options
+	transportOpts := []ldhttp.TransportOption{
+		ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
+	}
+
+	// Add CA certificates if specified
+	for _, filePath := range caCertFiles {
+		if filePath != "" {
+			transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
+		}
+	}
+
+	// Check if custom HTTP transport settings are configured
+	hasCustomTransportSettings := httpConfig.IdleConnTimeout > 0 ||
+		httpConfig.MaxIdleConns > 0 ||
+		httpConfig.MaxIdleConnsPerHost > 0 ||
+		httpConfig.DisableKeepAlives
+
 	if proxyConfig.NTLMAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errNTLMProxyAuthWithoutCredentials
-		}
-		transportOpts := []ldhttp.TransportOption{
-			ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
-		}
-		for _, filePath := range caCertFiles {
-			if filePath != "" {
-				transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
-			}
 		}
 		factory, err := ldntlm.NewNTLMProxyHTTPClientFactory(proxyConfig.URL.String(),
 			proxyConfig.User, proxyConfig.Password, proxyConfig.Domain, transportOpts...)
@@ -72,10 +82,32 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredent
 		if proxyConfig.URL.IsDefined() {
 			configBuilder.ProxyURL(proxyConfig.URL.String())
 		}
-		for _, filePath := range caCertFiles {
-			if filePath != "" {
-				configBuilder.CACertFile(filePath)
-			}
+		// Apply custom HTTP transport settings if specified
+		if hasCustomTransportSettings || len(caCertFiles) > 0 {
+			configBuilder.HTTPClientFactory(func() *http.Client {
+				// Create base transport with cert files if needed
+				transport, _, err := ldhttp.NewHTTPTransport(transportOpts...)
+				if err != nil {
+					// Fall back to default client
+					return &http.Client{}
+				}
+
+				// Apply custom transport settings
+				if httpConfig.IdleConnTimeout > 0 {
+					transport.IdleConnTimeout = httpConfig.IdleConnTimeout
+				}
+				if httpConfig.MaxIdleConns > 0 {
+					transport.MaxIdleConns = httpConfig.MaxIdleConns
+				}
+				if httpConfig.MaxIdleConnsPerHost > 0 {
+					transport.MaxIdleConnsPerHost = httpConfig.MaxIdleConnsPerHost
+				}
+				if httpConfig.DisableKeepAlives {
+					transport.DisableKeepAlives = true
+				}
+
+				return &http.Client{Transport: transport}
+			})
 		}
 	}
 
