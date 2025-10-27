@@ -3,7 +3,9 @@ package httpconfig
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
@@ -20,6 +22,45 @@ var (
 	errNTLMProxyAuthWithoutCredentials = errors.New("NTLM proxy authentication requires username and password")
 	errProxyAuthWithoutProxyURL        = errors.New("cannot specify proxy authentication without a proxy URL")
 )
+
+// applyCustomTransportSettings applies custom HTTP transport settings to the given transport.
+// Only non-zero/non-default values are applied.
+func applyCustomTransportSettings(transport *http.Transport, httpConfig config.HTTPConfig) {
+	if httpConfig.IdleConnTimeout > 0 {
+		transport.IdleConnTimeout = httpConfig.IdleConnTimeout
+	}
+	if httpConfig.MaxIdleConns > 0 {
+		transport.MaxIdleConns = httpConfig.MaxIdleConns
+	}
+	if httpConfig.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = httpConfig.MaxIdleConnsPerHost
+	}
+	if httpConfig.DisableKeepAlives {
+		transport.DisableKeepAlives = true
+	}
+}
+
+// formatTransportSettings returns a human-readable string of configured HTTP transport settings.
+// Only non-zero/non-default values are included in the output.
+func formatTransportSettings(httpConfig config.HTTPConfig) string {
+	var settings []string
+	if httpConfig.IdleConnTimeout > 0 {
+		settings = append(settings, fmt.Sprintf("IdleConnTimeout=%s", httpConfig.IdleConnTimeout))
+	}
+	if httpConfig.MaxIdleConns > 0 {
+		settings = append(settings, fmt.Sprintf("MaxIdleConns=%d", httpConfig.MaxIdleConns))
+	}
+	if httpConfig.MaxIdleConnsPerHost > 0 {
+		settings = append(settings, fmt.Sprintf("MaxIdleConnsPerHost=%d", httpConfig.MaxIdleConnsPerHost))
+	}
+	if httpConfig.DisableKeepAlives {
+		settings = append(settings, "DisableKeepAlives=true")
+	}
+	if len(settings) == 0 {
+		return "none"
+	}
+	return strings.Join(settings, ", ")
+}
 
 // HTTPConfig encapsulates ProxyConfig plus any other HTTP options we may support in the future (currently none).
 type HTTPConfig struct {
@@ -83,28 +124,15 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 			configBuilder.HTTPClientFactory(func() *http.Client {
 				client := baseFactory()
 				if transport, ok := client.Transport.(*http.Transport); ok {
-					// Apply custom transport settings
-					if httpConfig.IdleConnTimeout > 0 {
-						transport.IdleConnTimeout = httpConfig.IdleConnTimeout
-					}
-					if httpConfig.MaxIdleConns > 0 {
-						transport.MaxIdleConns = httpConfig.MaxIdleConns
-					}
-					if httpConfig.MaxIdleConnsPerHost > 0 {
-						transport.MaxIdleConnsPerHost = httpConfig.MaxIdleConnsPerHost
-					}
-					if httpConfig.DisableKeepAlives {
-						transport.DisableKeepAlives = true
-					}
-					loggers.Debug("Applied custom HTTP transport settings to NTLM proxy client")
+					applyCustomTransportSettings(transport, httpConfig)
 				} else {
 					// This should never happen based on ldntlm implementation, but defend against it
 					loggers.Warn("Unable to apply custom HTTP transport settings to NTLM proxy - unexpected transport type")
 				}
 				return client
 			})
-			loggers.Infof("NTLM proxy authentication enabled with custom HTTP transport (IdleConnTimeout=%s, MaxIdleConns=%d, MaxIdleConnsPerHost=%d, DisableKeepAlives=%t)",
-				httpConfig.IdleConnTimeout, httpConfig.MaxIdleConns, httpConfig.MaxIdleConnsPerHost, httpConfig.DisableKeepAlives)
+			loggers.Infof("NTLM proxy authentication enabled with custom HTTP transport (%s)",
+				formatTransportSettings(httpConfig))
 		} else {
 			configBuilder.HTTPClientFactory(factory)
 			loggers.Info("NTLM proxy authentication enabled")
@@ -125,27 +153,14 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 				}
 
 				// Apply custom transport settings
-				if httpConfig.IdleConnTimeout > 0 {
-					transport.IdleConnTimeout = httpConfig.IdleConnTimeout
-				}
-				if httpConfig.MaxIdleConns > 0 {
-					transport.MaxIdleConns = httpConfig.MaxIdleConns
-				}
-				if httpConfig.MaxIdleConnsPerHost > 0 {
-					transport.MaxIdleConnsPerHost = httpConfig.MaxIdleConnsPerHost
-				}
-				if httpConfig.DisableKeepAlives {
-					transport.DisableKeepAlives = true
-				}
+				applyCustomTransportSettings(transport, httpConfig)
 
-				loggers.Debug("Applied custom HTTP transport settings")
 				return &http.Client{Transport: transport}
 			})
 
 			// Log settings on initialization (not per client creation)
 			if hasCustomTransportSettings {
-				loggers.Infof("Custom HTTP transport configured (IdleConnTimeout=%s, MaxIdleConns=%d, MaxIdleConnsPerHost=%d, DisableKeepAlives=%t)",
-					httpConfig.IdleConnTimeout, httpConfig.MaxIdleConns, httpConfig.MaxIdleConnsPerHost, httpConfig.DisableKeepAlives)
+				loggers.Infof("Custom HTTP transport configured: %s", formatTransportSettings(httpConfig))
 			}
 		}
 	}
