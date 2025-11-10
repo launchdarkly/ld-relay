@@ -298,11 +298,11 @@ type ProxyConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type HTTPConfig struct {
-	EnableCompression     bool           `conf:"HTTP_ENABLE_COMPRESSION"`
-	IdleConnTimeout       ct.OptDuration `conf:"HTTP_IDLE_CONN_TIMEOUT"`
-	MaxIdleConns          int            `conf:"HTTP_MAX_IDLE_CONNS"`
-	MaxIdleConnsPerHost   int            `conf:"HTTP_MAX_IDLE_CONNS_PER_HOST"`
-	DisableKeepAlives     bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
+	EnableCompression   bool           `conf:"HTTP_ENABLE_COMPRESSION"`
+	IdleConnTimeout     ct.OptDuration `conf:"HTTP_IDLE_CONN_TIMEOUT"`
+	MaxIdleConns        ct.OptInt      `conf:"HTTP_MAX_IDLE_CONNS"`
+	MaxIdleConnsPerHost int            `conf:"HTTP_MAX_IDLE_CONNS_PER_HOST"`
+	DisableKeepAlives   bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.
