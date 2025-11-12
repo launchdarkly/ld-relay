@@ -32,7 +32,7 @@ require (
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.13.5-0.20251110185214-43752e37168d
+	github.com/launchdarkly/go-server-sdk/v7 v7.14.0
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5
 	github.com/pborman/uuid v1.2.1
