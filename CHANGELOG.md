@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.15.0](https://github.com/launchdarkly/ld-relay/compare/v8.14.0...v8.15.0) (2025-11-13)
+
+
+### Features
+
+* Add HTTP client transport configuration options ([#545](https://github.com/launchdarkly/ld-relay/issues/545)) ([cab095a](https://github.com/launchdarkly/ld-relay/commit/cab095aebbae0f24ab3c76e049163177cebaa272))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.3 and 1.24.9 ([#541](https://github.com/launchdarkly/ld-relay/issues/541)) ([1f37eac](https://github.com/launchdarkly/ld-relay/commit/1f37eac501b1ca9994b3ca26a6128b70365035de))
+* **deps:** bump supported Go versions to 1.25.4 and 1.24.10 ([#548](https://github.com/launchdarkly/ld-relay/issues/548)) ([91cf12f](https://github.com/launchdarkly/ld-relay/commit/91cf12fa2facd3f754aeb13d731373e4552ef812))
+
 ## [8.14.0](https://github.com/launchdarkly/ld-relay/compare/v8.13.3...v8.14.0) (2025-10-22)
 
 
