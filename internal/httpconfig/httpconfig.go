@@ -84,10 +84,8 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 
 		configBuilder.HTTPClientFactory(factory)
 		loggers.Info("NTLM proxy authentication enabled")
-	} else {
-		if proxyConfig.URL.IsDefined() {
-			configBuilder.ProxyURL(proxyConfig.URL.String())
-		}
+	} else if proxyConfig.URL.IsDefined() {
+		configBuilder.ProxyURL(proxyConfig.URL.String())
 	}
 
 	var err error
