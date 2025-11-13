@@ -21,7 +21,7 @@ import (
 )
 
 func TestUserAgentHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "abc", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "abc", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -29,7 +29,7 @@ func TestUserAgentHeader(t *testing.T) {
 }
 
 func TestNoAuthorizationHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -37,7 +37,7 @@ func TestNoAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuthorizationHeader(t *testing.T) {
-	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.SDKKey("key"), "", ldlog.NewDefaultLoggers())
+	hc, err := NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, config.SDKKey("key"), "", ldlog.NewDefaultLoggers())
 	require.NoError(t, err)
 	require.NotNil(t, hc)
 	headers := hc.SDKHTTPConfig.DefaultHeaders
@@ -52,7 +52,7 @@ func TestSimpleProxy(t *testing.T) {
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		proxyConfig := config.ProxyConfig{}
 		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+		hc, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 
 		mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
 
@@ -77,7 +77,7 @@ func TestSimpleProxyWithCACert(t *testing.T) {
 			proxyConfig := config.ProxyConfig{}
 			proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
 			proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
-			hc, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+			hc, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 
 			mockLog.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at "+server.URL)
 
@@ -99,7 +99,7 @@ func TestSimpleProxyCACertError(t *testing.T) {
 		proxyConfig := config.ProxyConfig{}
 		proxyConfig.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
 		proxyConfig.CACertFiles = configtypes.NewOptStringList([]string{certFilePath})
-		_, err := NewHTTPConfig(proxyConfig, nil, "", mockLog.Loggers)
+		_, err := NewHTTPConfig(proxyConfig, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "invalid CA certificate data")
 		}
@@ -111,28 +111,28 @@ func TestNTLMProxyInvalidConfigs(t *testing.T) {
 	// so here we're only testing that we validate the parameters correctly.
 
 	proxyConfig1 := config.ProxyConfig{NTLMAuth: true}
-	_, err := NewHTTPConfig(proxyConfig1, nil, "", ldlog.NewDisabledLoggers())
+	_, err := NewHTTPConfig(proxyConfig1, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	assert.Equal(t, errProxyAuthWithoutProxyURL, err)
 
 	proxyConfig2 := proxyConfig1
 	proxyConfig2.URL, _ = configtypes.NewOptURLAbsoluteFromString("http://fake-proxy")
-	_, err = NewHTTPConfig(proxyConfig2, nil, "", ldlog.NewDisabledLoggers())
+	_, err = NewHTTPConfig(proxyConfig2, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
 
 	proxyConfig3 := proxyConfig2
 	proxyConfig3.User = "user"
-	_, err = NewHTTPConfig(proxyConfig3, nil, "", ldlog.NewDisabledLoggers())
+	_, err = NewHTTPConfig(proxyConfig3, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	assert.Equal(t, errNTLMProxyAuthWithoutCredentials, err)
 
 	proxyConfig4 := proxyConfig3
 	proxyConfig4.Password = "pass"
-	_, err = NewHTTPConfig(proxyConfig4, nil, "", ldlog.NewDisabledLoggers())
+	_, err = NewHTTPConfig(proxyConfig4, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	assert.NoError(t, err)
 
 	proxyConfig5 := proxyConfig4
 	helpers.WithTempFile(func(certFileName string) {
 		proxyConfig5.CACertFiles = configtypes.NewOptStringList([]string{certFileName})
-		_, err = NewHTTPConfig(proxyConfig5, nil, "", ldlog.NewDisabledLoggers())
+		_, err = NewHTTPConfig(proxyConfig5, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "invalid CA certificate data")
 		}
@@ -144,7 +144,7 @@ func TestLogsRedactConnectionPassword(t *testing.T) {
 	url1, _ := configtypes.NewOptURLAbsoluteFromString("http://my-proxy")
 	proxyConfig1 := config.ProxyConfig{NTLMAuth: true, URL: url1, User: "my-user", Password: "my-pass"}
 	mockLog1 := ldlogtest.NewMockLog()
-	_, err := NewHTTPConfig(proxyConfig1, nil, "", mockLog1.Loggers)
+	_, err := NewHTTPConfig(proxyConfig1, config.HTTPConfig{}, nil, "", mockLog1.Loggers)
 	assert.NoError(t, err)
 	mockLog1.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-proxy$")
 
@@ -153,7 +153,7 @@ func TestLogsRedactConnectionPassword(t *testing.T) {
 	url2Absolute, _ := configtypes.NewOptURLAbsolute(url2)
 	proxyConfig2 := config.ProxyConfig{URL: url2Absolute}
 	mockLog2 := ldlogtest.NewMockLog()
-	_, err = NewHTTPConfig(proxyConfig2, nil, "", mockLog2.Loggers)
+	_, err = NewHTTPConfig(proxyConfig2, config.HTTPConfig{}, nil, "", mockLog2.Loggers)
 	assert.NoError(t, err)
 	mockLog2.AssertMessageMatch(t, true, ldlog.Info, "Using proxy server at http://my-user:xxxxx@my-proxy$")
 }

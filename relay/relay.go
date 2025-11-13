@@ -188,6 +188,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	if hasAutoConfigKey {
 		httpConfig, err := httpconfig.NewHTTPConfig(
 			c.Proxy,
+			c.HTTP,
 			c.AutoConfig.Key,
 			userAgent,
 			loggers,
