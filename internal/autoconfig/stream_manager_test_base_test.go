@@ -224,7 +224,7 @@ func streamManagerTestWithStreamHandler(
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
 	handler, requestsCh := httphelpers.RecordingHandler(autoConfigEndpointHandler(streamHandler))
-	httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", mockLog.Loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", mockLog.Loggers)
 	if err != nil {
 		panic(err)
 	}
