@@ -146,15 +146,16 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
 	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
+	pingStreamJitterTime := c.Main.PingStreamJitterTime.GetOrElse(0)
 
 	userAgent := "LDRelay/" + version.Version
 
 	r := &Relay{
 		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime),
-		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime),
-		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime),
-		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),
 		metricsManager:                metricsManager,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,
