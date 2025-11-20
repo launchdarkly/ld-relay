@@ -104,13 +104,13 @@ func (s *serverSideStreamProvider) Close() {
 	})
 }
 
-func (e *serverSideEnvStreamProvider) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
+func (e *serverSideEnvStreamProvider) SetBasis(changes []subsystems.Change, selector subsystems.Selector) {
 	if e.isV2 {
-		for _, event := range MakeEventsForSetBasis(events, selector) {
+		for _, event := range MakeEventsForSetBasis(changes, selector) {
 			e.server.Publish(e.channels, event)
 		}
 	} else {
-		allData, err := subsystems.ToStorableItems(events)
+		allData, err := subsystems.ToStorableItems(changes)
 		if err != nil {
 			return
 		}
