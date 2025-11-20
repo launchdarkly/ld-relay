@@ -2,6 +2,68 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.15.0](https://github.com/launchdarkly/ld-relay/compare/v8.14.0...v8.15.0) (2025-11-13)
+
+
+### Features
+
+* Add HTTP client transport configuration options ([#545](https://github.com/launchdarkly/ld-relay/issues/545)) ([cab095a](https://github.com/launchdarkly/ld-relay/commit/cab095aebbae0f24ab3c76e049163177cebaa272))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.3 and 1.24.9 ([#541](https://github.com/launchdarkly/ld-relay/issues/541)) ([1f37eac](https://github.com/launchdarkly/ld-relay/commit/1f37eac501b1ca9994b3ca26a6128b70365035de))
+* **deps:** bump supported Go versions to 1.25.4 and 1.24.10 ([#548](https://github.com/launchdarkly/ld-relay/issues/548)) ([91cf12f](https://github.com/launchdarkly/ld-relay/commit/91cf12fa2facd3f754aeb13d731373e4552ef812))
+
+## [8.14.0](https://github.com/launchdarkly/ld-relay/compare/v8.13.3...v8.14.0) (2025-10-22)
+
+
+### Features
+
+* Add SDK wrapper metric tagging ([#542](https://github.com/launchdarkly/ld-relay/issues/542)) ([ab5a69b](https://github.com/launchdarkly/ld-relay/commit/ab5a69ba1add404189224939d4e936b436ddf1de))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.0 and 1.24.6 ([#533](https://github.com/launchdarkly/ld-relay/issues/533)) ([8b70264](https://github.com/launchdarkly/ld-relay/commit/8b70264e30e5ccd92b988ca6e20fede2bf3613c3))
+* **deps:** bump supported Go versions to 1.25.1 and 1.24.7 ([#536](https://github.com/launchdarkly/ld-relay/issues/536)) ([fba0368](https://github.com/launchdarkly/ld-relay/commit/fba0368063cf642f9da455fcaa6d4ce1e2d7fb3f))
+* **deps:** bump supported Go versions to 1.25.2 and 1.24.8 ([#537](https://github.com/launchdarkly/ld-relay/issues/537)) ([8f50322](https://github.com/launchdarkly/ld-relay/commit/8f50322c35ba7db9b4ac891331019c5b0bd3251f))
+* **deps:** update Dockerfiles from 3.22.1 to alpine:3.22.2 ([#539](https://github.com/launchdarkly/ld-relay/issues/539)) ([c686a36](https://github.com/launchdarkly/ld-relay/commit/c686a36292e44e40a89cf738a32884979f439967))
+
+## [8.13.3](https://github.com/launchdarkly/ld-relay/compare/v8.13.2...v8.13.3) (2025-08-14)
+
+
+### Bug Fixes
+
+* Improve compression performance via new provider ([#532](https://github.com/launchdarkly/ld-relay/issues/532)) ([3ece4f4](https://github.com/launchdarkly/ld-relay/commit/3ece4f470b35ee75bc86276d5d1578ed031d6944))
+
+## [8.13.2](https://github.com/launchdarkly/ld-relay/compare/v8.13.1...v8.13.2) (2025-08-12)
+
+
+### Bug Fixes
+
+* Fix enabling gzip compression via environment variable ([#530](https://github.com/launchdarkly/ld-relay/issues/530)) ([6c3fe0c](https://github.com/launchdarkly/ld-relay/commit/6c3fe0c1cf5d40a85b3fcf45c91dd06c17123505))
+
+## [8.13.1](https://github.com/launchdarkly/ld-relay/compare/v8.13.0...v8.13.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.24.6 and 1.23.12 ([#528](https://github.com/launchdarkly/ld-relay/issues/528)) ([2576371](https://github.com/launchdarkly/ld-relay/commit/25763713b9846b62acb123f9e71e4fb2a2c72972))
+
+## [8.13.0](https://github.com/launchdarkly/ld-relay/compare/v8.12.4...v8.13.0) (2025-07-29)
+
+
+### Features
+
+* Support gzip compression across serviced endpoints ([#526](https://github.com/launchdarkly/ld-relay/issues/526)) ([b0f8fda](https://github.com/launchdarkly/ld-relay/commit/b0f8fdab50866f1cd5ab17783c4d6db5ef9c5252))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.24.5 and 1.23.11 ([#521](https://github.com/launchdarkly/ld-relay/issues/521)) ([0811cd4](https://github.com/launchdarkly/ld-relay/commit/0811cd4cfc949a40dd804301b0129ad529a37733))
+* **deps:** update Dockerfiles from 3.22.0 to alpine:3.22.1 ([#523](https://github.com/launchdarkly/ld-relay/issues/523)) ([cf7c914](https://github.com/launchdarkly/ld-relay/commit/cf7c9147c5e01f1b2bf831866089530fa6a5d777))
+
 ## [8.12.4](https://github.com/launchdarkly/ld-relay/compare/v8.12.3...v8.12.4) (2025-07-07)
 
 

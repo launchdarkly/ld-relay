@@ -21,7 +21,7 @@ func ExistingInstance[T any](instance T) subsystems.ComponentConfigurer[T] {
 }
 
 func MakeBasicHTTPConfig() httpconfig.HTTPConfig {
-	ret, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDisabledLoggers())
+	ret, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	if err != nil {
 		panic(err)
 	}

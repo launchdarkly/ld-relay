@@ -15,6 +15,7 @@ import (
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 
 	"github.com/gorilla/mux"
+	h "github.com/klauspost/compress/gzhttp"
 )
 
 const (
@@ -33,6 +34,11 @@ func (r *Relay) makeRouter() *mux.Router {
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if r.loggers.GetMinLevel() == ldlog.Debug {
 		router.Use(logging.RequestLoggerMiddleware(r.loggers))
+	}
+	if r.config.HTTP.EnableCompression {
+		router.Use(func(next http.Handler) http.Handler {
+			return h.GzipHandler(next)
+		})
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
 

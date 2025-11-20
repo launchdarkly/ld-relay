@@ -29,9 +29,33 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+	transportOpts := []ldhttp.TransportOption{
+		ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
+		ldhttp.MaxIdleConnsPerHostOption(httpConfig.MaxIdleConnsPerHost),
+		ldhttp.DisableKeepAlivesOption(httpConfig.DisableKeepAlives),
+	}
+
+	if httpConfig.IdleConnTimeout.IsDefined() {
+		transportOpts = append(transportOpts, ldhttp.IdleConnTimeoutOption(httpConfig.IdleConnTimeout.GetOrElse(0)))
+	}
+
+	if httpConfig.MaxIdleConns.IsDefined() {
+		transportOpts = append(transportOpts, ldhttp.MaxIdleConnsOption(httpConfig.MaxIdleConns.GetOrElse(0)))
+	}
+
+	caCertFiles := proxyConfig.CACertFiles.Values()
+
+	// Add CA certificates if specified
+	for _, filePath := range caCertFiles {
+		if filePath != "" {
+			transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
+		}
+	}
+
 	configBuilder := ldcomponents.HTTPConfiguration()
 	configBuilder.UserAgent(userAgent)
+	configBuilder.HTTPOptions(transportOpts)
 
 	ret := HTTPConfig{ProxyConfig: proxyConfig}
 
@@ -47,36 +71,21 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, authKey credential.SDKCredent
 		loggers.Infof("Using proxy server at %s", proxyConfig.URL.Get().Redacted())
 	}
 
-	caCertFiles := proxyConfig.CACertFiles.Values()
-
 	if proxyConfig.NTLMAuth {
 		if proxyConfig.User == "" || proxyConfig.Password == "" {
 			return ret, errNTLMProxyAuthWithoutCredentials
 		}
-		transportOpts := []ldhttp.TransportOption{
-			ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
-		}
-		for _, filePath := range caCertFiles {
-			if filePath != "" {
-				transportOpts = append(transportOpts, ldhttp.CACertFileOption(filePath))
-			}
-		}
+
 		factory, err := ldntlm.NewNTLMProxyHTTPClientFactory(proxyConfig.URL.String(),
 			proxyConfig.User, proxyConfig.Password, proxyConfig.Domain, transportOpts...)
 		if err != nil {
 			return ret, err
 		}
+
 		configBuilder.HTTPClientFactory(factory)
 		loggers.Info("NTLM proxy authentication enabled")
-	} else {
-		if proxyConfig.URL.IsDefined() {
-			configBuilder.ProxyURL(proxyConfig.URL.String())
-		}
-		for _, filePath := range caCertFiles {
-			if filePath != "" {
-				configBuilder.CACertFile(filePath)
-			}
-		}
+	} else if proxyConfig.URL.IsDefined() {
+		configBuilder.ProxyURL(proxyConfig.URL.String())
 	}
 
 	var err error

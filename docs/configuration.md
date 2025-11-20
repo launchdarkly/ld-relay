@@ -293,6 +293,16 @@ To learn more, read [Metrics integrations](./metrics.md).
 | `caCertFiles`    | `PROXY_CA_CERTS`      | String  |         | List of file paths to additional CA certificates that should be trusted (in PEM format). For multiple files, if using a configuration file, you can specify `caCertFiles` multiple times; if using environment variables, you can set `PROXY_CA_CERTS` to a comma-delimited list. |
 | `ntlmAuth`       | `PROXY_AUTH_NTLM`     | Boolean | `false` | Enables NTLM proxy authentication (requires user, password, and domain).                                                                                                                                                                                                          |
 
+### File section: `[Http]`
+
+| Property in file | Environment var        |  Type   | Default | Description                                                                                                 |
+|------------------|------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------|
+| `enableCompression` | `HTTP_ENABLE_COMPRESSION` | Boolean | `false` | When enabled, the Relay Proxy will compress HTTP responses using gzip compression. This can reduce bandwidth usage but may increase CPU usage. |
+| `idleConnTimeout` | `HTTP_IDLE_CONN_TIMEOUT` | Duration |  | Maximum amount of time an idle (keep-alive) HTTP connection will remain idle before closing. Examples: `30s`, `5m`. If not set, uses Go's default of 90 seconds. Reducing this can help prevent EOF errors when intermediate load balancers or NAT gateways close idle connections. |
+| `maxIdleConns` | `HTTP_MAX_IDLE_CONNS` | Integer |  | Maximum number of idle (keep-alive) HTTP connections across all hosts. If not set, uses Go's default of 100. Increase this value for high-concurrency scenarios with many environments. |
+| `maxIdleConnsPerHost` | `HTTP_MAX_IDLE_CONNS_PER_HOST` | Integer |  | Maximum number of idle (keep-alive) HTTP connections to keep per-host. If not set, uses Go's default of 2. Increase this if you have multiple environments connecting to the same LaunchDarkly endpoints. |
+| `disableKeepAlive` | `HTTP_DISABLE_KEEPALIVE` | Boolean | `false` | When enabled, disables HTTP keep-alive connections. This forces the relay to use a new connection for each HTTP request. Use this only for debugging connection issues, as it significantly increases overhead. |
+
 ### Experimental/testing variables
 
 The current version of the Relay Proxy also supports the following environment variables. These do not have an equivalent in a configuration file; they are not intended for production use; and they are not guaranteed to work in any other Relay Proxy versions.

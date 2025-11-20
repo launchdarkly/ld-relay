@@ -126,6 +126,7 @@ type Config struct {
 	Environment map[string]*EnvConfig
 	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
+	HTTP        HTTPConfig
 
 	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
 	// MetricsConfig is not the name of a configuration file section; the actual sections are the
@@ -287,6 +288,21 @@ type ProxyConfig struct {
 	Password    string            `conf:"PROXY_AUTH_PASSWORD"`
 	Domain      string            `conf:"PROXY_AUTH_DOMAIN"`
 	CACertFiles ct.OptStringList  `conf:"PROXY_CA_CERTS"`
+}
+
+// HTTPConfig contains HTTP-related configuration options.
+//
+// This corresponds to the [Http] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
+type HTTPConfig struct {
+	EnableCompression   bool           `conf:"HTTP_ENABLE_COMPRESSION"`
+	IdleConnTimeout     ct.OptDuration `conf:"HTTP_IDLE_CONN_TIMEOUT"`
+	MaxIdleConns        ct.OptInt      `conf:"HTTP_MAX_IDLE_CONNS"`
+	MaxIdleConnsPerHost int            `conf:"HTTP_MAX_IDLE_CONNS_PER_HOST"`
+	DisableKeepAlives   bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.

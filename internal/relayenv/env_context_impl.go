@@ -168,7 +168,7 @@ func NewEnvContext(
 		),
 	)
 
-	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, envConfig.SDKKey, params.UserAgent, params.Loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, allConfig.HTTP, envConfig.SDKKey, params.UserAgent, params.Loggers)
 	if err != nil {
 		return nil, err
 	}
