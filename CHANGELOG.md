@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.16.0](https://github.com/launchdarkly/ld-relay/compare/v8.15.0...v8.16.0) (2025-11-21)
+
+
+### Features
+
+* Support jitter for client/mobile ping stream connections ([#551](https://github.com/launchdarkly/ld-relay/issues/551)) ([ab1b945](https://github.com/launchdarkly/ld-relay/commit/ab1b945c8e9a3f851b448bdb283baddf8a6ede6a))
+
+
+### Bug Fixes
+
+* Bump github.com/launchdarkly/go-server-sdk/v7 from v7.14.0 -&gt; v7.14.1 ([#553](https://github.com/launchdarkly/ld-relay/issues/553)) ([ea8df17](https://github.com/launchdarkly/ld-relay/commit/ea8df1743d14651028d5821763b6e88451d659f9))
+* Bump minimum go to 1.24 ([#552](https://github.com/launchdarkly/ld-relay/issues/552)) ([7f622ac](https://github.com/launchdarkly/ld-relay/commit/7f622acb7aea99c6a2c4e42b03448bec14460440))
+
 ## [8.15.0](https://github.com/launchdarkly/ld-relay/compare/v8.14.0...v8.15.0) (2025-11-13)
 
 
