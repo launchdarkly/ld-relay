@@ -32,14 +32,14 @@ require (
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.14.0
+	github.com/launchdarkly/go-server-sdk/v7 v7.14.1
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5
 	github.com/pborman/uuid v1.2.1
 	github.com/prometheus/client_golang v1.22.0 // indirect; override to address CVE-2022-21698
 	github.com/stretchr/testify v1.10.0
 	go.opencensus.io v0.24.0
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.18.0
 	gopkg.in/gcfg.v1 v1.2.3
 )
 
@@ -93,8 +93,8 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/launchdarkly/ccache v1.1.0 // indirect
-	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.2 // indirect
-	github.com/launchdarkly/go-ntlmssp v1.0.2 // indirect
+	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.3 // indirect
+	github.com/launchdarkly/go-ntlmssp v1.0.3 // indirect
 	github.com/launchdarkly/go-semver v1.0.3 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -118,14 +118,14 @@ require (
 	go.opentelemetry.io/otel v1.22.0 // indirect
 	go.opentelemetry.io/otel/metric v1.22.0 // indirect
 	go.opentelemetry.io/otel/trace v1.22.0 // indirect
-	golang.org/x/crypto v0.39.0 // indirect
-	golang.org/x/mod v0.25.0 // indirect
-	golang.org/x/net v0.41.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.28.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.34.0 // indirect
+	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/api v0.157.0 // indirect
 	google.golang.org/genproto v0.0.0-20240102182953-50ed04b92917 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240116215550-a9fa1716bcac // indirect
