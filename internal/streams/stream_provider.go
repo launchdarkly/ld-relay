@@ -47,7 +47,7 @@ type EnvStreamProvider interface {
 }
 
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime time.Duration) StreamProvider {
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
@@ -55,12 +55,12 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime time.Duration) St
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServer(maxConnTime),
+			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServer(maxConnTime),
+			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: true,
 		}
 	default:
@@ -72,6 +72,15 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime time.Duration) St
 
 func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
 	s := eventsource.NewServer()
+	s.Gzip = false
+	s.AllowCORS = true
+	s.ReplayAll = true
+	s.MaxConnTime = maxConnTime
+	return s
+}
+
+func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration) *eventsource.Server {
+	s := eventsource.NewServerWithJitter(jitter)
 	s.Gzip = false
 	s.AllowCORS = true
 	s.ReplayAll = true

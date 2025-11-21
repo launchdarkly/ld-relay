@@ -662,7 +662,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
-	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour)
+	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
 	sdkStartedCh := make(chan EnvContext)
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
