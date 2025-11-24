@@ -50,6 +50,15 @@ func TestBigSegmentsRedis(t *testing.T) {
 		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisURL)
 	})
 
+	t.Run("password is redacted in log", func(t *testing.T) {
+		urlWithPassword := "redis://username:very-secret-password@redishost:3000"
+		redactedURL := "redis://username:xxxxx@redishost:3000"
+		var c config.Config
+		c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(urlWithPassword)
+		log := assertBigSegmentsConfigured(t, c, config.EnvConfig{})
+		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redactedURL)
+	})
+
 	t.Run("prefix", func(t *testing.T) {
 		c := config.Config{
 			Redis: config.RedisConfig{
