@@ -2,6 +2,7 @@ package sdks
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
@@ -24,7 +25,8 @@ func ConfigureBigSegments(
 
 	if allConfig.Redis.URL.IsDefined() {
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
-		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redisURL, envConfig.Prefix)
+		redactedURL := util.RedactURL(redisURL)
+		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redactedURL, envConfig.Prefix)
 		storeFactory = redisBuilder
 	} else if allConfig.DynamoDB.Enabled {
 		dynamoDBBuilder, tableName, err := makeDynamoDBDataStoreBuilder(lddynamodb.BigSegmentStore, allConfig, envConfig)
