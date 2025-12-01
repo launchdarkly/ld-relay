@@ -11,9 +11,9 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,11 +30,11 @@ func TestPingStreamJitterDelaysPings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -44,7 +44,17 @@ func TestPingStreamJitterDelaysPings(t *testing.T) {
 
 		// Trigger an update and measure how long it takes to receive the ping
 		start := time.Now()
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changes, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changes)
 
 		// Should receive the ping after a delay
 		event := helpers.RequireValue(t, eventCh, jitterTime*2, "timed out waiting for delayed ping")
@@ -75,11 +85,11 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -88,11 +98,56 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 		expectEvent(t, eventCh, MakePingEvent())
 
 		// Send multiple updates in quick succession
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-1",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		time.Sleep(10 * time.Millisecond)
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag2.Key, sharedtest.FlagDesc(testFlag2))
+
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-2",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag2.Key, 1, testFlag2JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		time.Sleep(10 * time.Millisecond)
-		esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
+
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-3",
+			},
+		}).AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
+		time.Sleep(10 * time.Millisecond)
+
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-4",
+			},
+		}).AddPut(subsystems.SegmentKind, testSegment1.Key, 2, testSegment1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 
 		// Should receive only ONE ping event after the jitter delay
 		event := helpers.RequireValue(t, eventCh, jitterTime*2, "timed out waiting for coalesced ping")
@@ -114,11 +169,11 @@ func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -128,7 +183,17 @@ func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 
 		// Send an update and verify it's received immediately (within a reasonable time)
 		start := time.Now()
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 
 		event := helpers.RequireValue(t, eventCh, 100*time.Millisecond, "timed out waiting for immediate ping")
 		elapsed := time.Since(start)
@@ -152,11 +217,11 @@ func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -165,13 +230,43 @@ func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
 		expectEvent(t, eventCh, MakePingEvent())
 
 		// Send multiple updates
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-1",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		expectEvent(t, eventCh, MakePingEvent())
 
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag2.Key, sharedtest.FlagDesc(testFlag2))
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-2",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag2.Key, 1, testFlag2JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		expectEvent(t, eventCh, MakePingEvent())
 
-		esp.SendSingleItemUpdate(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1))
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-3",
+			},
+		}).AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		expectEvent(t, eventCh, MakePingEvent())
 	})
 }
@@ -186,11 +281,11 @@ func TestJSClientPingStreamJitter(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -199,9 +294,30 @@ func TestJSClientPingStreamJitter(t *testing.T) {
 		expectEvent(t, eventCh, MakePingEvent())
 
 		// Send multiple updates in quick succession
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-1",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 		time.Sleep(10 * time.Millisecond)
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag2.Key, sharedtest.FlagDesc(testFlag2))
+
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-2",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag2.Key, 1, testFlag2JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 
 		// Should receive only ONE ping event after the jitter delay
 		event := helpers.RequireValue(t, eventCh, jitterTime*2, "timed out waiting for coalesced ping")
@@ -224,11 +340,11 @@ func TestServerSideStreamNoJitter(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore([]ldmodel.FeatureFlag{testFlag1}, []ldmodel.Segment{testSegment1})
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -240,7 +356,17 @@ func TestServerSideStreamNoJitter(t *testing.T) {
 
 		// Send an update - should receive a "patch" event immediately
 		start := time.Now()
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag2.Key, sharedtest.FlagDesc(testFlag2))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag2.Key, 1, testFlag2JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
 
 		event = helpers.RequireValue(t, eventCh, 100*time.Millisecond, "timed out waiting for patch event")
 		elapsed := time.Since(start)
@@ -265,11 +391,11 @@ func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.Register(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
-	handler := sp.Handler(validCredential)
+	handler := sp.HandlerV1(validCredential)
 	require.NotNil(t, handler)
 
 	req, _ := http.NewRequest("GET", "", nil)
@@ -278,7 +404,18 @@ func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
 		expectEvent(t, eventCh, MakePingEvent())
 
 		// First update - should be jittered
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1))
+		changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-1",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
+
 		event1 := helpers.RequireValue(t, eventCh, jitterTime*2, "timed out waiting for first ping")
 		require.NotNil(t, event1)
 
@@ -287,7 +424,18 @@ func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
 
 		// Second update - should also be jittered
 		start := time.Now()
-		esp.SendSingleItemUpdate(ldstoreimpl.Features(), testFlag2.Key, sharedtest.FlagDesc(testFlag2))
+		changeSet, err = subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferChanges,
+				Reason: "test-update-2",
+			},
+		}).AddPut(subsystems.FlagKind, testFlag2.Key, 1, testFlag2JSON).
+			Finish(subsystems.NewSelector("state", 1))
+		require.NoError(t, err)
+		esp.Apply(*changeSet)
+
 		event2 := helpers.RequireValue(t, eventCh, jitterTime*2, "timed out waiting for second ping")
 		elapsed := time.Since(start)
 

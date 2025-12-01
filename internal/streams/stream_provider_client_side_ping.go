@@ -96,6 +96,15 @@ func (s *clientSidePingStreamProvider) Close() {
 	})
 }
 
+func (e *clientSidePingEnvStreamProvider) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		e.SetBasis(changeSet.Changes(), changeSet.Selector())
+	case subsystems.IntentTransferChanges:
+		e.ApplyDelta(changeSet.Changes(), changeSet.Selector())
+	}
+}
+
 func (e *clientSidePingEnvStreamProvider) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
 	e.server.Publish(e.channels, MakePingEvent())
 }

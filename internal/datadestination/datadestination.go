@@ -46,12 +46,7 @@ func (d *DataDestinationWrapper) SetDataSystemPieces(ro subsystems.ReadOnlyDataS
 				continue
 			}
 
-			switch changeSet.IntentCode() {
-			case subsystems.IntentTransferFull:
-				d.updates.SetBasis(changeSet.Changes(), changeSet.Selector())
-			case subsystems.IntentTransferChanges:
-				d.updates.ApplyDelta(changeSet.Changes(), changeSet.Selector())
-			}
+			d.updates.Apply(changeSet)
 		}
 	}()
 }

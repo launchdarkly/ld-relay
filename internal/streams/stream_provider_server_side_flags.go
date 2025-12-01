@@ -84,16 +84,25 @@ func (s *serverSideFlagsOnlyStreamProvider) Close() {
 	})
 }
 
-func (e *serverSideFlagsOnlyEnvStreamProvider) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
-	allData, err := subsystems.ToStorableItems(events)
+func (e *serverSideFlagsOnlyEnvStreamProvider) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		e.setBasis(changeSet)
+	case subsystems.IntentTransferChanges:
+		e.applyDelta(changeSet)
+	}
+}
+
+func (e *serverSideFlagsOnlyEnvStreamProvider) setBasis(changeSet subsystems.ChangeSet) {
+	allData, err := changeSet.Collections()
 	if err != nil {
 		return
 	}
 	e.server.Publish(e.channels, MakeServerSideFlagsOnlyPutEvent(allData))
 }
 
-func (e *serverSideFlagsOnlyEnvStreamProvider) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
-	allData, err := subsystems.ToStorableItems(events)
+func (e *serverSideFlagsOnlyEnvStreamProvider) applyDelta(changeSet subsystems.ChangeSet) {
+	allData, err := changeSet.Collections()
 	if err != nil {
 		return
 	}

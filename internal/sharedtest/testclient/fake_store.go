@@ -34,7 +34,16 @@ func (s *FakeStore) Selector() subsystems.Selector {
 	return selector
 }
 
-func (s *FakeStore) SetBasis(changes []subsystems.Change, selector subsystems.Selector) {
+func (s *FakeStore) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		s.setBasis(changeSet.Changes(), changeSet.Selector())
+	case subsystems.IntentTransferChanges:
+		s.applyDelta(changeSet.Changes(), changeSet.Selector())
+	}
+}
+
+func (s *FakeStore) setBasis(changes []subsystems.Change, selector subsystems.Selector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.collections = make([]ldstoretypes.Collection, 2)
@@ -77,7 +86,7 @@ func (s *FakeStore) SetBasis(changes []subsystems.Change, selector subsystems.Se
 	s.selector = selector
 }
 
-func (s *FakeStore) ApplyDelta(changes []subsystems.Change, selector subsystems.Selector) {
+func (s *FakeStore) applyDelta(changes []subsystems.Change, selector subsystems.Selector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, change := range changes {

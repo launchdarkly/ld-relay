@@ -28,7 +28,20 @@ var (
 	testFlag1JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag1)
 	testFlag2JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag2)
 	testSegment1JSON, _ = ldmodel.NewJSONDataModelSerialization().MarshalSegment(testSegment1)
-	fdv2AllData         = []subsystems.Change{
+	fdv2ChangeSet, _    = subsystems.NewChangeSetBuilder().
+				Start(subsystems.ServerIntent{
+			Payload: subsystems.Payload{
+				ID:     "state",
+				Target: 1,
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
+			},
+		}).
+		AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+		AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+		Finish(subsystems.NewSelector("state", 1))
+
+	fdv2AllData = []subsystems.Change{
 		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
 		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
 	}
