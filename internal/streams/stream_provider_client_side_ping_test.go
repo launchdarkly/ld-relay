@@ -191,8 +191,8 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 					Payload: subsystems.Payload{
 						ID:     "state",
 						Target: 1,
-						Code:   subsystems.IntentTransferFull,
-						Reason: "cant-catchup",
+						Code:   subsystems.IntentTransferChanges,
+						Reason: "stale",
 					},
 				}).
 				AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
