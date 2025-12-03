@@ -126,7 +126,7 @@ func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req 
 	consumeEvents(w, req, d.loggers, func(body []byte) {
 		// We are just operating as a reverse proxy and passing the request on verbatim to LD; we do not
 		// need to parse the JSON.
-		d.loggers.Debugf("Received diagnostic event to be proxied to %s/%s", d.baseURI, d.uriPath)
+		d.loggers.Debugf("Received diagnostic event to be proxied to %s%s", d.baseURI, d.uriPath)
 
 		sendConfig := ldevents.EventSenderConfiguration{
 			Client:            d.httpClient,
