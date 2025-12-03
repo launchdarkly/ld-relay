@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.16.2](https://github.com/launchdarkly/ld-relay/compare/v8.16.1...v8.16.2) (2025-12-03)
+
+
+### Bug Fixes
+
+* Remove double slash in diagnostic url debug message ([#558](https://github.com/launchdarkly/ld-relay/issues/558)) ([b7c3a58](https://github.com/launchdarkly/ld-relay/commit/b7c3a585acb6066ce5f54ca909ab44f02159e71e))
+
 ## [8.16.1](https://github.com/launchdarkly/ld-relay/compare/v8.16.0...v8.16.1) (2025-11-24)
 
 
