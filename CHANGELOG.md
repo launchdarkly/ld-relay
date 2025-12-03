@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.16.1](https://github.com/launchdarkly/ld-relay/compare/v8.16.0...v8.16.1) (2025-11-24)
+
+
+### Bug Fixes
+
+* Redact Redis password from Big Segment logs ([#555](https://github.com/launchdarkly/ld-relay/issues/555)) ([e9dc1b9](https://github.com/launchdarkly/ld-relay/commit/e9dc1b9bf147fea087b73cccea0913a21d863090)), closes [#550](https://github.com/launchdarkly/ld-relay/issues/550)
+
 ## [8.16.0](https://github.com/launchdarkly/ld-relay/compare/v8.15.0...v8.16.0) (2025-11-21)
 
 
