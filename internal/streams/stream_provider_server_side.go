@@ -104,13 +104,23 @@ func (s *serverSideStreamProvider) Close() {
 	})
 }
 
-func (e *serverSideEnvStreamProvider) SetBasis(changes []subsystems.Change, selector subsystems.Selector) {
+func (e *serverSideEnvStreamProvider) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		e.SetBasis(changeSet)
+	case subsystems.IntentTransferChanges:
+		e.ApplyDelta(changeSet)
+	}
+}
+
+func (e *serverSideEnvStreamProvider) SetBasis(changeSet subsystems.ChangeSet) {
 	if e.isV2 {
+		changes, selector := changeSet.Changes(), changeSet.Selector()
 		for _, event := range MakeEventsForSetBasis(changes, selector) {
 			e.server.Publish(e.channels, event)
 		}
 	} else {
-		allData, err := subsystems.ToStorableItems(changes)
+		allData, err := changeSet.Collections()
 		if err != nil {
 			return
 		}
@@ -118,16 +128,18 @@ func (e *serverSideEnvStreamProvider) SetBasis(changes []subsystems.Change, sele
 	}
 }
 
-func (e *serverSideEnvStreamProvider) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
+func (e *serverSideEnvStreamProvider) ApplyDelta(changeSet subsystems.ChangeSet) {
 	if e.isV2 {
-		for _, event := range MakeEventsForApplyDelta(events, selector) {
+		changes, selector := changeSet.Changes(), changeSet.Selector()
+		for _, event := range MakeEventsForApplyDelta(changes, selector) {
 			e.server.Publish(e.channels, event)
 		}
 	} else {
-		allData, err := subsystems.ToStorableItems(events)
+		allData, err := changeSet.Collections()
 		if err != nil {
 			return
 		}
+
 		for _, collection := range allData {
 			for _, item := range collection.Items {
 				if item.Item.Item == nil {

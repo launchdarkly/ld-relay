@@ -75,12 +75,13 @@ func (p *mockStreamProvider) RegisterV2(
 
 func (p *mockStreamProvider) Close() {}
 
-func (e *mockEnvStreamProvider) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
-	e.allDataUpdates = append(e.allDataUpdates, events)
-}
-
-func (e *mockEnvStreamProvider) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
-	e.itemUpdates = append(e.itemUpdates, events...)
+func (e *mockEnvStreamProvider) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		e.allDataUpdates = append(e.allDataUpdates, changeSet.Changes())
+	case subsystems.IntentTransferChanges:
+		e.itemUpdates = append(e.itemUpdates, changeSet.Changes()...)
+	}
 }
 
 func (e *mockEnvStreamProvider) InvalidateClientSideState() {
@@ -231,7 +232,7 @@ func TestSetBasisGoesToAllStreams(t *testing.T) {
 
 	es.RemoveCredential(sdkKey2)
 
-	es.SetBasis(fdv2AllData, subsystems.Selector{})
+	es.Apply(*fdv2ChangeSet)
 	expected := [][]subsystems.Change{fdv2AllData}
 
 	assert.Equal(t, expected, esp1.allDataUpdates)
@@ -261,9 +262,19 @@ func TestApplyDeltaGoesToAllStreams(t *testing.T) {
 
 	es.RemoveCredential(sdkKey2)
 
-	es.ApplyDelta([]subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Object: testFlag1JSON},
-	}, subsystems.NoSelector())
+	changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "state",
+			Target: 1,
+			Code:   subsystems.IntentTransferChanges,
+			Reason: "stale",
+		},
+	}).
+		AddPut(subsystems.FlagKind, testFlag1.Key, 0, testFlag1JSON).
+		Finish(subsystems.NewSelector("state", 1))
+	assert.NoError(t, err)
+
+	es.Apply(*changeSet)
 	expected := []subsystems.Change{
 		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Object: testFlag1JSON},
 	}

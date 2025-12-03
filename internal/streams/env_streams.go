@@ -18,21 +18,11 @@ import (
 // components that publish updates to EnvStreams should use this interface rather than the implementation
 // type, both to clarify that they don't need other EnvStreams functionality and to simplify testing.
 type EnvStreamUpdates interface {
-	// SetBasis defines a new basis for the data store. This means the store must
-	// be emptied of any existing data before applying the events. This operation should be
-	// atomic with respect to any other operations that modify the store.
-	//
-	// The selector defines the version of the basis.
-	SetBasis(events []subsystems.Change, selector subsystems.Selector)
-
-	// ApplyDelta applies a set of changes to an existing basis. This operation should be atomic with
-	// respect to any other operations that modify the store.
-	//
-	// The selector defines the new version of the basis.
-	//
-	// If persist is true, it indicates that the changes should be propagated to any connected persistent
-	// store.
-	ApplyDelta(events []subsystems.Change, selector subsystems.Selector)
+	// Apply accepts a changeSet containing data store modifications (such as flag or segment updates)
+	// and forwards it to all active streams for broadcasting to connected SDK clients. The changeSet
+	// represents atomic changes to be applied to the data store and will be serialized appropriately
+	// for each stream type (server-side vs client-side SDKs).
+	Apply(changeSet subsystems.ChangeSet)
 
 	// InvalidateClientSideState signals an update that could affect client-side evaluations, but does
 	// not change any server-side data item. Updating big segment data is such an event, since the
@@ -156,24 +146,9 @@ func (es *EnvStreams) RemoveCredential(credential credential.SDKCredential) {
 	}
 }
 
-// SetBasis defines a new basis for the data store. This means the store must
-// be emptied of any existing data before applying the events. This operation should be
-// atomic with respect to any other operations that modify the store.
-//
-// The selector defines the version of the basis.
-func (es *EnvStreams) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
+func (es *EnvStreams) Apply(changeSet subsystems.ChangeSet) {
 	for _, esp := range es.getEnvStreamProviders() {
-		esp.SetBasis(events, selector)
-	}
-}
-
-// ApplyDelta applies a set of changes to an existing basis. This operation should be atomic with
-// respect to any other operations that modify the store.
-//
-// The selector defines the new version of the basis.
-func (es *EnvStreams) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
-	for _, esp := range es.getEnvStreamProviders() {
-		esp.ApplyDelta(events, selector)
+		esp.Apply(changeSet)
 	}
 }
 

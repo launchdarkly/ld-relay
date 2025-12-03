@@ -846,14 +846,9 @@ func (u *envContextStreamUpdates) handleBigSegments(events []subsystems.Change) 
 	}
 }
 
-func (u *envContextStreamUpdates) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
-	u.context.envStreams.SetBasis(events, selector)
-	u.handleBigSegments(events)
-}
-
-func (u *envContextStreamUpdates) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
-	u.context.envStreams.ApplyDelta(events, selector)
-	u.handleBigSegments(events)
+func (u *envContextStreamUpdates) Apply(changeSet subsystems.ChangeSet) {
+	u.context.envStreams.Apply(changeSet)
+	u.handleBigSegments(changeSet.Changes())
 }
 
 func (u *envContextStreamUpdates) InvalidateClientSideState() {
