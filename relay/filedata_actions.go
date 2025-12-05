@@ -44,7 +44,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		syncFactory := filedata.OfflineModeSynchronizerFactory{Synchronizer: synchronizer}
 		config.DataSystem = ldcomponents.DataSystem().
 			Custom().
-			Synchronizers(syncFactory, syncFactory) // primary and fallback use the same synchronizer
+			Synchronizers(syncFactory, nil) // primary and fallback use the same synchronizer
 		config.Events = ldcomponents.NoEvents()
 		return config
 	}
