@@ -161,18 +161,16 @@ func (p offlineModeTestParams) shouldNotCreateClient(timeout time.Duration) {
 func TestOfflineModeDeleteEnvironment(t *testing.T) {
 	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
 		p.updateHandler.AddEnvironment(testFileDataEnv1)
-		p.updateHandler.AddEnvironment(testFileDataEnv2)
-
 		client1 := p.awaitClient()
-		client2 := p.awaitClient()
 		assert.Equal(t, testFileDataEnv1.Params.SDKKey, client1.Key)
-		assert.Equal(t, testFileDataEnv2.Params.SDKKey, client2.Key)
-
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+
+		p.updateHandler.AddEnvironment(testFileDataEnv2)
+		client2 := p.awaitClient()
+		assert.Equal(t, testFileDataEnv2.Params.SDKKey, client2.Key)
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 
 		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID, testFileDataEnv1.Params.Identifiers.FilterKey)
-
 		p.shouldNotHaveEnvironment(testFileDataEnv1.Params.EnvID, time.Second)
 	})
 }
