@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 )
 
 // DefaultConfigPath is the default configuration file path.
@@ -14,13 +13,10 @@ const DefaultConfigPath = "/etc/ld-relay.conf"
 
 // Options represents all options that can be set from the command line.
 type Options struct {
-	ConfigFile          string
-	AllowMissingFile    bool
-	UseEnvironment      bool
-	PrintVersion        bool
-	MemProfileDuration  time.Duration
-	MemProfileInterval  time.Duration
-	DisableMemProfiling bool
+	ConfigFile       string
+	AllowMissingFile bool
+	UseEnvironment   bool
+	PrintVersion     bool
 }
 
 func errConfigFileNotFound(filename string) error {
@@ -63,9 +59,6 @@ func ReadOptions(osArgs []string, errorOutput io.Writer) (Options, error) {
 	fs.BoolVar(&o.AllowMissingFile, "allow-missing-file", false, "suppress error if config file is not found")
 	fs.BoolVar(&o.UseEnvironment, "from-env", false, "read configuration from environment variables")
 	fs.BoolVar(&o.PrintVersion, "version", false, "print relay's version")
-	fs.DurationVar(&o.MemProfileDuration, "memprofile-duration", 15*time.Second, "duration to collect memory profiles")
-	fs.DurationVar(&o.MemProfileInterval, "memprofile-interval", 1*time.Second, "interval between memory profile snapshots")
-	fs.BoolVar(&o.DisableMemProfiling, "no-memprofile", false, "disable memory profiling")
 	err := fs.Parse(osArgs[1:])
 	if err != nil {
 		return o, err
