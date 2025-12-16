@@ -16,16 +16,30 @@ jobs:
   # Runs the common tasks (unit tests, lint, benchmarks, installation test)
   # against each Go version in the matrix.
   go-matrix:
-    name: ${{ format('Go {0}', matrix.go-version) }}
+    name: ${{ format('Go {0}, {1}', matrix.go-version, matrix.store) }}
     needs: go-versions
     strategy:
       # Let jobs fail independently, in case it's a single version that's broken.
       fail-fast: false
       matrix:
         go-version: ${{ fromJSON(needs.go-versions.outputs.matrix) }}
+        store: [Redis, Valkey]
+        include:
+          - store: Redis
+            redis: true
+            suffix: redis
+          - store: Valkey
+            valkey: true
+            valkey_port: 6379
+            suffix: valkey
     uses: ./.github/workflows/common_ci.yml
     with:
       go-version: ${{ matrix.go-version }}
+      store: ${{ matrix.store }}
+      redis: ${{ matrix.redis || false }}
+      valkey: ${{ matrix.valkey || false }}
+      valkey_port: ${{ matrix.valkey_port || '' }}
+      suffix: ${{ matrix.suffix }}
 
   # Integration tests run only on the latest Go version since they are more
   # time intensive, and we'd likely be rate-limited by LaunchDarkly SaaS if we
