@@ -9,6 +9,10 @@ inputs:
     description: 'Whether to run coverage.'
     required: false
     default: 'false'
+  suffix:
+    description: 'Suffix for artifact names to differentiate test runs.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -45,12 +49,12 @@ runs:
       if: steps.process-test.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
-        name: Test-result-${{ steps.go-version.outputs.version }}
+        name: Test-result-${{ steps.go-version.outputs.version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
         path: junit_report.xml
 
     - name: Upload coverage results
       if: steps.test-coverage.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
-        name: Coverage-result-${{ steps.go-version.outputs.version }}
+        name: Coverage-result-${{ steps.go-version.outputs.version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
         path: build/coverage*
