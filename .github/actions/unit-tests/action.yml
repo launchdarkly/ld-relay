@@ -28,10 +28,9 @@ runs:
       run: make lint
 
     - name: Test
-      if: inputs.coverage == 'false'
       shell: bash
       id: test
-      run: make test | tee raw_report.txt
+      run: TAGS='big_segment_external_store_tests,redis_unit_tests' make test | tee raw_report.txt
 
     - name: Process test results
       if: steps.test.outcome == 'success'
