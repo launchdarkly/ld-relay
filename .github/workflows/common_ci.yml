@@ -37,12 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     name: ${{ format('Unit Tests ({0})', inputs.store) }}
     steps:
-      # - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0.2.0
-      #   with:
-      #     dynamodb: true
-      #     redis: ${{ inputs.redis }}
-      #     valkey: ${{ inputs.valkey }}
-      #     valkey_port: ${{ inputs.valkey_port }}
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0.2.0
+        with:
+          dynamodb: true
+          redis: ${{ inputs.redis }}
+          valkey: ${{ inputs.valkey }}
+          valkey_port: ${{ inputs.valkey_port }}
       - uses: actions/checkout@v4
       - name: Setup Go ${{ inputs.go-version }}
         uses: actions/setup-go@v5
