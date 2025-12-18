@@ -8,6 +8,8 @@ To learn more, read [Using a persistent feature store](https://docs.launchdarkly
 
 The Relay Proxy does not support clustered Redis or Redis Sentinel.
 
+**Note:** The Redis configurations should also work with [Valkey](https://valkey.io/), as Valkey maintains Redis compatibility.
+
 ```
 # Configuration file examples
 

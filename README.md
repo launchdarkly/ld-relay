@@ -96,6 +96,8 @@ You can configure Relay Proxy nodes to persist feature flag settings in Redis, D
 
 You can also configure the Relay Proxy to persist segment information for Big Segments in Redis or DynamoDB. To learn more, read [Configuring the Relay Proxy for segments](https://docs.launchdarkly.com/home/relay-proxy/using#configuring-the-relay-proxy-for-segments).
 
+**Note:** The Redis configurations should also work with [Valkey](https://valkey.io/), as Valkey maintains Redis compatibility.
+
 > Segments let you target groups of contexts that encounter feature flags. Big Segments are segments with more than 15,000 targets, or that are synced from external tools. You must use either the Relay Proxy or a persistent store integration if you use server-side SDKs and Big Segments. If supporting segments is your only use case, we recommend using a persistent store integration rather than the Relay Proxy.
 
 For persistent storage configuration details, read [Persistent Storage](./docs/persistent-storage.md).
