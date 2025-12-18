@@ -43,6 +43,10 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0.2.0
+        with:
+          dynamodb: true
+          redis: true
       - name: Build and Test
         uses: ./.github/actions/unit-tests
       - name: 'Get Docker token'
