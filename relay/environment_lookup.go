@@ -1,8 +1,10 @@
 package relay
 
 import (
+	"strings"
 	"sync"
 
+	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
@@ -53,12 +55,30 @@ import (
 //
 // As shown, given N environments in a project, and M filters for that project, then N*(M+1) environment connections are
 // maintained: N=2, M=1, count = 2*(1+1) = 4.
+
+// projEnvKey is a composite key for looking up environments by project key and environment key.
+// This is only available in auto-config mode where environments have project and environment metadata.
+type projEnvKey struct {
+	projKey string
+	envKey  string
+}
+
 type EnvironmentLookup struct {
 	// mapping maps {credential, filter} keys to environment connections.
 	mapping map[sdkauth.ScopedCredential]relayenv.EnvContext
 	// conns is the set of unique environment connections
 	conns map[relayenv.EnvContext]struct{}
-	// mu protects any access to 'mapping' and 'conns'
+
+	// Identifier-based indexes for status endpoint lookups.
+	// Each environment can have multiple filter variants, so values are slices.
+	// envIDIndex maps environment IDs to environments (auto-config mode)
+	envIDIndex map[config.EnvironmentID][]relayenv.EnvContext
+	// configNameIndex maps configured names to environments (manual config mode)
+	configNameIndex map[string][]relayenv.EnvContext
+	// projEnvKeyIndex maps {projKey, envKey} to environments (auto-config mode, human-readable)
+	projEnvKeyIndex map[projEnvKey][]relayenv.EnvContext
+
+	// mu protects access to all maps
 	mu sync.RWMutex
 }
 
@@ -66,8 +86,11 @@ type EnvironmentLookup struct {
 // are thread safe.
 func NewEnvironmentLookup() *EnvironmentLookup {
 	return &EnvironmentLookup{
-		mapping: make(map[sdkauth.ScopedCredential]relayenv.EnvContext),
-		conns:   make(map[relayenv.EnvContext]struct{}),
+		mapping:         make(map[sdkauth.ScopedCredential]relayenv.EnvContext),
+		conns:           make(map[relayenv.EnvContext]struct{}),
+		envIDIndex:      make(map[config.EnvironmentID][]relayenv.EnvContext),
+		configNameIndex: make(map[string][]relayenv.EnvContext),
+		projEnvKeyIndex: make(map[projEnvKey][]relayenv.EnvContext),
 	}
 }
 
@@ -85,6 +108,9 @@ func (e *EnvironmentLookup) InsertEnvironment(env relayenv.EnvContext) {
 	}
 
 	e.conns[env] = struct{}{}
+
+	// Populate identifier-based indexes for status endpoint lookups
+	e.addToIdentifierIndexes(env)
 }
 
 // MapRequestParams creates a mapping from connection parameters to an environment connection. It can be used
@@ -113,6 +139,56 @@ func (e *EnvironmentLookup) Lookup(params sdkauth.ScopedCredential) (relayenv.En
 	defer e.mu.RUnlock()
 
 	return e.lookup(params)
+}
+
+// LookupByIdentifier searches for an environment by a flexible identifier string and optional filter key.
+// The identifier can be:
+// - An environment ID (e.g., "507f1f77bcf86cd799439011")
+// - A project/environment key pair separated by "/" (e.g., "my-app/production")
+// - A configured name (e.g., "My Production Environment")
+//
+// Lookup precedence: envID → projKey/envKey (contains "/") → configuredName
+//
+// The filterKey parameter specifies which filter variant to return. Use an empty string for the
+// unfiltered (base) environment.
+//
+// If a matching environment is found, returns true; otherwise, returns false.
+func (e *EnvironmentLookup) LookupByIdentifier(identifier string, filterKey config.FilterKey) (relayenv.EnvContext, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Try environment ID first (most specific)
+	if envID := config.EnvironmentID(identifier); envID != "" {
+		// Note: A single envID can have multiple EnvContext instances when payload filters are configured.
+		// Each filter variant (base + filter1, filter2, etc.) is a separate EnvContext with the same envID.
+		// We use findEnvWithFilter to select the specific variant matching the requested filterKey.
+		if envs, ok := e.envIDIndex[envID]; ok {
+			if env := findEnvWithFilter(envs, filterKey); env != nil {
+				return env, true
+			}
+		}
+	}
+
+	// Try project/environment key pair (contains "/")
+	if idx := strings.Index(identifier, "/"); idx > 0 && idx < len(identifier)-1 {
+		projKey := identifier[:idx]
+		envKey := identifier[idx+1:]
+		key := projEnvKey{projKey: projKey, envKey: envKey}
+		if envs, ok := e.projEnvKeyIndex[key]; ok {
+			if env := findEnvWithFilter(envs, filterKey); env != nil {
+				return env, true
+			}
+		}
+	}
+
+	// Try configured name last (fallback)
+	if envs, ok := e.configNameIndex[identifier]; ok {
+		if env := findEnvWithFilter(envs, filterKey); env != nil {
+			return env, true
+		}
+	}
+
+	return nil, false
 }
 
 // DeleteEnvironment searches for an environment identified by the client request params, deletes it, and then
@@ -166,5 +242,93 @@ func (e *EnvironmentLookup) deleteEnvironment(env relayenv.EnvContext) (found bo
 		}
 	}
 	delete(e.conns, env)
+	e.removeFromIdentifierIndexes(env)
 	return
+}
+
+// addToIdentifierIndexes adds the environment to all applicable identifier-based indexes.
+// This must be called with the mutex already locked.
+func (e *EnvironmentLookup) addToIdentifierIndexes(env relayenv.EnvContext) {
+	identifiers := env.GetIdentifiers()
+
+	// Index by environment ID if present (auto-config mode)
+	var envID config.EnvironmentID
+	for _, cred := range env.GetCredentials() {
+		if id, ok := cred.(config.EnvironmentID); ok && id.Defined() {
+			envID = id
+			break
+		}
+	}
+	if envID != "" {
+		e.envIDIndex[envID] = append(e.envIDIndex[envID], env)
+	}
+
+	// Index by configured name if present (manual config mode)
+	if identifiers.ConfiguredName != "" {
+		e.configNameIndex[identifiers.ConfiguredName] = append(e.configNameIndex[identifiers.ConfiguredName], env)
+	}
+
+	// Index by project+environment keys if both present (auto-config mode)
+	if identifiers.ProjKey != "" && identifiers.EnvKey != "" {
+		key := projEnvKey{projKey: identifiers.ProjKey, envKey: identifiers.EnvKey}
+		e.projEnvKeyIndex[key] = append(e.projEnvKeyIndex[key], env)
+	}
+}
+
+// removeFromIdentifierIndexes removes the environment from all identifier-based indexes.
+// This must be called with the mutex already locked.
+func (e *EnvironmentLookup) removeFromIdentifierIndexes(env relayenv.EnvContext) {
+	identifiers := env.GetIdentifiers()
+
+	// Remove from environment ID index
+	var envID config.EnvironmentID
+	for _, cred := range env.GetCredentials() {
+		if id, ok := cred.(config.EnvironmentID); ok && id.Defined() {
+			envID = id
+			break
+		}
+	}
+	if envID != "" {
+		e.envIDIndex[envID] = removeEnvFromSlice(e.envIDIndex[envID], env)
+		if len(e.envIDIndex[envID]) == 0 {
+			delete(e.envIDIndex, envID)
+		}
+	}
+
+	// Remove from configured name index
+	if identifiers.ConfiguredName != "" {
+		e.configNameIndex[identifiers.ConfiguredName] = removeEnvFromSlice(e.configNameIndex[identifiers.ConfiguredName], env)
+		if len(e.configNameIndex[identifiers.ConfiguredName]) == 0 {
+			delete(e.configNameIndex, identifiers.ConfiguredName)
+		}
+	}
+
+	// Remove from project+environment key index
+	if identifiers.ProjKey != "" && identifiers.EnvKey != "" {
+		key := projEnvKey{projKey: identifiers.ProjKey, envKey: identifiers.EnvKey}
+		e.projEnvKeyIndex[key] = removeEnvFromSlice(e.projEnvKeyIndex[key], env)
+		if len(e.projEnvKeyIndex[key]) == 0 {
+			delete(e.projEnvKeyIndex, key)
+		}
+	}
+}
+
+// removeEnvFromSlice removes an environment from a slice and returns the updated slice.
+func removeEnvFromSlice(slice []relayenv.EnvContext, env relayenv.EnvContext) []relayenv.EnvContext {
+	for i, e := range slice {
+		if e == env {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
+}
+
+// findEnvWithFilter searches a slice of environments for one matching the specified filter key.
+func findEnvWithFilter(envs []relayenv.EnvContext, filterKey config.FilterKey) relayenv.EnvContext {
+	for _, env := range envs {
+		if env.GetPayloadFilter() == filterKey {
+			return env
+		}
+	}
+	return nil
 }
