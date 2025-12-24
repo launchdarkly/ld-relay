@@ -2,6 +2,7 @@ package filedata
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -52,7 +53,8 @@ type OfflineModeSynchronizerFactory struct {
 // It loads pre-populated data from the archive file without connecting to LaunchDarkly.
 type OfflineModeSynchronizer struct {
 	mu                   sync.RWMutex
-	currentData          []ldstoretypes.Collection
+	currentChangeSet     *subsystems.ChangeSet
+	initError            error
 	changeSetBroadcaster *simpleBroadcaster[subsystems.ChangeSet]
 	statusBroadcaster    *simpleBroadcaster[interfaces.DataSynchronizerStatus]
 	version              int32
@@ -61,12 +63,21 @@ type OfflineModeSynchronizer struct {
 }
 
 func NewOfflineModeSynchronizer(initialData []ldstoretypes.Collection) *OfflineModeSynchronizer {
-	return &OfflineModeSynchronizer{
-		currentData:          initialData,
+	s := &OfflineModeSynchronizer{
 		changeSetBroadcaster: newSimpleBroadcaster[subsystems.ChangeSet](),
 		statusBroadcaster:    newSimpleBroadcaster[interfaces.DataSynchronizerStatus](),
 		quit:                 make(chan struct{}),
 	}
+
+	// Convert initial data to ChangeSet
+	changeSet, err := s.makeChangeSetFromCollections(initialData)
+	if err != nil {
+		s.initError = err
+	} else {
+		s.currentChangeSet = changeSet
+	}
+
+	return s
 }
 
 func (f OfflineModeSynchronizerFactory) Build(
@@ -90,13 +101,17 @@ func (s *OfflineModeSynchronizer) Name() string {
 // Fetch returns the current basis (full dataset) from the offline data source.
 func (s *OfflineModeSynchronizer) Fetch(ds subsystems.DataSelector, ctx context.Context) (*subsystems.Basis, error) {
 	s.mu.RLock()
-	data := s.currentData
+	changeSet := s.currentChangeSet
+	initError := s.initError
 	s.mu.RUnlock()
 
-	changeSet, err := s.makeChangeSetFromCollections(data)
-	if err != nil {
-		return nil, err
+	if initError != nil {
+		return nil, initError
 	}
+	if changeSet == nil {
+		return nil, errors.New("no data available in offline mode")
+	}
+
 	return &subsystems.Basis{
 		ChangeSet: *changeSet,
 		Persist:   false,
@@ -115,19 +130,19 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 
 		// Get initial data from stored state
 		s.mu.RLock()
-		data := s.currentData
+		changeSet := s.currentChangeSet
+		initError := s.initError
 		s.mu.RUnlock()
 
 		result := subsystems.DataSynchronizerResult{
 			State: interfaces.DataSourceStateInitializing,
 		}
 
-		changeSet, err := s.makeChangeSetFromCollections(data)
-		if err != nil {
+		if initError != nil {
 			result.State = interfaces.DataSourceStateOff
 			result.Error = interfaces.DataSourceErrorInfo{
 				Kind:    interfaces.DataSourceErrorKindUnknown,
-				Message: err.Error(),
+				Message: initError.Error(),
 			}
 		} else {
 			result.State = interfaces.DataSourceStateValid
@@ -188,14 +203,16 @@ func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
 
 // UpdateData allows external updates to the data (e.g., when the archive file changes).
 func (s *OfflineModeSynchronizer) UpdateData(collections []ldstoretypes.Collection) error {
-	s.mu.Lock()
-	s.currentData = collections
-	s.mu.Unlock()
-
 	changeSet, err := s.makeChangeSetFromCollections(collections)
 	if err != nil {
 		return err
 	}
+
+	s.mu.Lock()
+	s.currentChangeSet = changeSet
+	s.initError = nil // Clear any previous initialization error
+	s.mu.Unlock()
+
 	s.changeSetBroadcaster.Broadcast(*changeSet)
 	return nil
 }
