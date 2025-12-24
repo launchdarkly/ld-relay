@@ -12,7 +12,6 @@ import (
 
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 const (
@@ -31,11 +30,8 @@ type relayFileDataActions struct {
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
-	// Create a channel to pass the archive data to the offline synchronizer
-	dataCh := make(chan []ldstoretypes.Collection, 1)
-
-	// Create the synchronizer instance that we can later update when the file changes
-	synchronizer := filedata.NewOfflineModeSynchronizer(dataCh)
+	// Create the synchronizer with the initial archive data
+	synchronizer := filedata.NewOfflineModeSynchronizer(ae.SDKData)
 
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
@@ -44,7 +40,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		syncFactory := filedata.OfflineModeSynchronizerFactory{Synchronizer: synchronizer}
 		config.DataSystem = ldcomponents.DataSystem().
 			Custom().
-			Synchronizers(syncFactory, nil) // primary and fallback use the same synchronizer
+			Synchronizers(syncFactory, nil)
 		config.Events = ldcomponents.NoEvents()
 		return config
 	}
@@ -66,10 +62,6 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		a.envSynchronizers = make(map[config.EnvironmentID]*filedata.OfflineModeSynchronizer)
 	}
 	a.envSynchronizers[ae.Params.EnvID] = synchronizer
-
-	// Send the initial archive data to the synchronizer
-	// The synchronizer will be waiting for this data in its Sync() method
-	dataCh <- ae.SDKData
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
