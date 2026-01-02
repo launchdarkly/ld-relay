@@ -71,7 +71,7 @@ type OfflineModeSynchronizer struct {
 	initError            error
 	changeSetBroadcaster *simpleBroadcaster[subsystems.ChangeSet]
 	statusBroadcaster    *simpleBroadcaster[interfaces.DataSynchronizerStatus]
-	version              int32
+	version              int // Protected by mu; no need for atomic since access is always under lock
 	quit                 chan struct{}
 	closed               atomic.Bool
 }
@@ -199,10 +199,15 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 // makeChangeSetFromCollections converts old-style Collection data to a new-style ChangeSet.
 // This uses the SDK's NewChangeSetFromCollections which pre-caches the collections,
 // avoiding redundant conversions when the data is accessed later.
+//
+// IMPORTANT: This method must be called either:
+// - With s.mu held (when updating existing data), OR
+// - Before the synchronizer is shared across goroutines (during construction)
 func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
 	collections []ldstoretypes.Collection,
 ) (*subsystems.ChangeSet, error) {
-	version := int(atomic.AddInt32(&s.version, 1))
+	s.version++
+	version := s.version
 
 	return subsystems.NewChangeSetFromCollections(
 		subsystems.ServerIntent{
@@ -220,12 +225,13 @@ func (s *OfflineModeSynchronizer) makeChangeSetFromCollections(
 
 // UpdateData allows external updates to the data (e.g., when the archive file changes).
 func (s *OfflineModeSynchronizer) UpdateData(collections []ldstoretypes.Collection) error {
+	// Acquire lock before version increment to ensure atomicity of the entire operation
+	s.mu.Lock()
 	changeSet, err := s.makeChangeSetFromCollections(collections)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
-
-	s.mu.Lock()
 	s.currentChangeSet = changeSet
 	s.initError = nil // Clear any previous initialization error
 	s.mu.Unlock()
