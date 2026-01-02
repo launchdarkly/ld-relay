@@ -31,6 +31,20 @@ func (b *simpleBroadcaster[T]) AddListener() <-chan T {
 	return ch
 }
 
+func (b *simpleBroadcaster[T]) RemoveListener(ch <-chan T) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, listener := range b.listeners {
+		if listener == ch {
+			// Remove by swapping with last element and truncating
+			b.listeners[i] = b.listeners[len(b.listeners)-1]
+			b.listeners = b.listeners[:len(b.listeners)-1]
+			close(listener)
+			break
+		}
+	}
+}
+
 func (b *simpleBroadcaster[T]) Broadcast(value T) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -127,6 +141,8 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 
 	go func() {
 		defer close(resultChan)
+		defer s.changeSetBroadcaster.RemoveListener(changeSetChan)
+		defer s.statusBroadcaster.RemoveListener(statusChan)
 
 		// Get initial data from stored state
 		s.mu.RLock()
@@ -161,6 +177,7 @@ func (s *OfflineModeSynchronizer) Sync(ds subsystems.DataSelector) <-chan subsys
 				}
 				result.ChangeSet = &changeSet
 				result.State = interfaces.DataSourceStateValid
+				result.Error = interfaces.DataSourceErrorInfo{} // Clear any previous error
 				resultChan <- result
 			case statusChange, ok := <-statusChan:
 				if !ok {
