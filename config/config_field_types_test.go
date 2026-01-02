@@ -47,6 +47,57 @@ func TestOptLogLevel(t *testing.T) {
 	})
 }
 
+func TestOptLogFormat(t *testing.T) {
+	t.Run("zero value", func(t *testing.T) {
+		o := OptLogFormat{}
+		assert.False(t, o.IsDefined())
+		assert.Equal(t, LogFormatText, o.GetOrElse(LogFormatText))
+		assert.Equal(t, LogFormatJSON, o.GetOrElse(LogFormatJSON))
+	})
+
+	t.Run("new from valid string", func(t *testing.T) {
+		for _, val := range []struct {
+			s string
+			f LogFormat
+		}{{"text", LogFormatText}, {"TEXT", LogFormatText}, {"json", LogFormatJSON}, {"JSON", LogFormatJSON}, {"Json", LogFormatJSON}} {
+			t.Run(val.s, func(t *testing.T) {
+				o, err := NewOptLogFormatFromString(val.s)
+				assert.NoError(t, err)
+				assert.True(t, o.IsDefined())
+				assert.Equal(t, val.f, o.GetOrElse(LogFormatText))
+			})
+		}
+	})
+
+	t.Run("new from empty string", func(t *testing.T) {
+		o, err := NewOptLogFormatFromString("")
+		assert.NoError(t, err)
+		assert.Equal(t, OptLogFormat{}, o)
+	})
+
+	t.Run("new from invalid string", func(t *testing.T) {
+		for _, s := range []string{"xml", "yaml", "invalid"} {
+			t.Run(s, func(t *testing.T) {
+				o, err := NewOptLogFormatFromString(s)
+				assert.Equal(t, errBadLogFormat(s), err)
+				assert.Equal(t, OptLogFormat{}, o)
+			})
+		}
+	})
+
+	t.Run("LogFormat.String()", func(t *testing.T) {
+		assert.Equal(t, "text", LogFormatText.String())
+		assert.Equal(t, "json", LogFormatJSON.String())
+	})
+
+	t.Run("unmarshal text", func(t *testing.T) {
+		var o OptLogFormat
+		assert.NoError(t, o.UnmarshalText([]byte("json")))
+		assert.True(t, o.IsDefined())
+		assert.Equal(t, LogFormatJSON, o.GetOrElse(LogFormatText))
+	})
+}
+
 func TestOptTLSVersion(t *testing.T) {
 	t.Run("zero value", func(t *testing.T) {
 		o := OptTLSVersion{}

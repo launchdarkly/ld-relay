@@ -19,6 +19,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
@@ -135,6 +136,11 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	if c.Main.LogLevel.IsDefined() {
 		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
+	}
+
+	if c.Main.LogFormat.IsDefined() {
+		useJSON := c.Main.LogFormat.GetOrElse(config.LogFormatText) == config.LogFormatJSON
+		logging.ApplyLogFormat(&loggers, useJSON)
 	}
 
 	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)

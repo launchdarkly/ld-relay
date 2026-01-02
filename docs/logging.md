@@ -29,6 +29,32 @@ The minimum enabled log level for per-environment messages is controlled in [you
 
 If you don't specify a log level for an environment, it uses the same log level that was specified for global messages. You can control these messages separately in the [configuration](./configuration.md). For instance, you may wish to see more verbose output in one environment than another, or enable Debug logging globally for HTTP requests without enabling it for per-environment messages.
 
+## Log format
+
+The Relay Proxy supports two log output formats:
+
+* **Text** (default): Traditional text-based log format with timestamps
+* **JSON**: JSON-structured log output for easier parsing by log aggregation systems
+
+The log format is controlled by the `LOG_FORMAT` environment variable or the `[Main] logFormat` configuration parameter. Valid values are `text` (default) and `json`.
+
+### Text format example
+
+```
+2024/01/15 10:30:45.123456 INFO: Starting LaunchDarkly relay version 8.0.0
+```
+
+### JSON format example
+
+```json
+{"timestamp":"2024-01-15T10:30:45.123456789Z","level":"INFO","message":"Starting LaunchDarkly relay version 8.0.0"}
+```
+
+Each JSON log entry contains:
+- `timestamp`: RFC3339Nano formatted UTC timestamp
+- `level`: Log level (DEBUG, INFO, WARN, or ERROR)
+- `message`: The log message content
+
 ## Debug logging
 
 Enabling the Debug log level for global messages causes the Relay Proxy to log every HTTP request that it receives.

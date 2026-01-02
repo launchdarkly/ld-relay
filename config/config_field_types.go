@@ -188,6 +188,82 @@ func (o *OptLogLevel) UnmarshalText(data []byte) error {
 	return err
 }
 
+// LogFormat represents the log output format.
+type LogFormat int
+
+const (
+	// LogFormatText is the default text-based log format.
+	LogFormatText LogFormat = iota
+	// LogFormatJSON outputs logs as JSON-structured lines.
+	LogFormatJSON
+)
+
+func (f LogFormat) String() string {
+	switch f {
+	case LogFormatJSON:
+		return "json"
+	default:
+		return "text"
+	}
+}
+
+func errBadLogFormat(s string) error {
+	return fmt.Errorf("%q is not a valid log format (use 'text' or 'json')", s)
+}
+
+// OptLogFormat represents an optional log format parameter. It must match one of "text" or "json"
+// (case-insensitive).
+//
+// The zero value OptLogFormat{} is valid and undefined (IsDefined() is false), defaulting to text format.
+type OptLogFormat struct {
+	format  LogFormat
+	defined bool
+}
+
+// NewOptLogFormat creates an OptLogFormat that wraps the given value.
+func NewOptLogFormat(format LogFormat) OptLogFormat {
+	return OptLogFormat{format: format, defined: true}
+}
+
+// NewOptLogFormatFromString creates an OptLogFormat from a string that must either be a valid log format
+// name ("text" or "json") or an empty string.
+func NewOptLogFormatFromString(formatName string) (OptLogFormat, error) {
+	if formatName == "" {
+		return OptLogFormat{}, nil
+	}
+	switch strings.ToLower(formatName) {
+	case "text":
+		return NewOptLogFormat(LogFormatText), nil
+	case "json":
+		return NewOptLogFormat(LogFormatJSON), nil
+	default:
+		return OptLogFormat{}, errBadLogFormat(formatName)
+	}
+}
+
+// IsDefined returns true if the instance contains a value.
+func (o OptLogFormat) IsDefined() bool {
+	return o.defined
+}
+
+// GetOrElse returns the wrapped value, or the alternative value if there is no value.
+func (o OptLogFormat) GetOrElse(orElseValue LogFormat) LogFormat {
+	if !o.defined {
+		return orElseValue
+	}
+	return o.format
+}
+
+// UnmarshalText attempts to parse the value from a byte string, using the same logic as
+// NewOptLogFormatFromString.
+func (o *OptLogFormat) UnmarshalText(data []byte) error {
+	opt, err := NewOptLogFormatFromString(string(data))
+	if err == nil {
+		*o = opt
+	}
+	return err
+}
+
 // OptTLSVersion represents an optional TLS level parameter. When represented as a string, it must be
 // "1.0", "1.1", "1.2", or "1.3". This is converted into a uint16 value as defined by crypto/tls.
 type OptTLSVersion struct {
