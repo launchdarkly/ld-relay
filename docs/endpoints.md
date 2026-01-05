@@ -114,6 +114,100 @@ The status properties are defined as follows:
 
 The JSON property names within `"environments"` (`"environment1"` and `"environment2"` in this example) are normally the environment names as defined in the Relay Proxy configuration. When using Relay Proxy Enterprise in automatic configuration mode, these will instead be the same as the `envId`, since the environment names may not always stay the same.
 
+### Per-environment status
+
+For querying the status of a specific environment without fetching data for all environments, the Relay Proxy provides granular status endpoints. These are useful for monitoring specific environments or for debugging. There is no authentication required for these requests.
+
+**Endpoints:**
+
+```
+GET /status/{identifier}
+GET /status/{identifier}/filters/{filterKey}
+GET /status/{projKey}/{envKey}
+GET /status/{projKey}/{envKey}/filters/{filterKey}
+```
+
+**Identifier formats:**
+
+The `{identifier}` parameter supports different formats depending on your configuration mode:
+
+**Manual configuration mode:**
+- **Configured name** (e.g., `My%20Production%20Env`) - The environment name as defined in your Relay Proxy configuration file. URL-encode spaces and special characters.
+- **Environment ID** (e.g., `507f1f77bcf86cd799439011`) - Only available if you explicitly configured the `envId` field for the environment (typically used when supporting client-side JavaScript SDKs).
+
+**Automatic configuration mode:**
+- **Environment ID** (e.g., `507f1f77bcf86cd799439011`) - Always available. This is a stable identifier, ideal for automation and monitoring scripts.
+- **Project/environment key route**: `/status/{projKey}/{envKey}` (e.g., `/status/my-app/production`) - Human-readable hierarchical identifiers.
+
+**Filter support:**
+
+When [payload filters](./configuration.md#payload-filtering) are configured, you can query the status of specific filtered variants:
+
+- `/status/{identifier}/filters/{filterKey}` - Status for a filtered variant by environment ID or configured name
+- `/status/{projKey}/{envKey}/filters/{filterKey}` - Status for a filtered variant by project/environment keys
+
+**Response format:**
+
+The response is a single environment status object (not wrapped in an `"environments"` map):
+
+```json
+{
+  "sdkKey": "sdk-********-****-****-****-*******99999",
+  "envId": "507f1f77bcf86cd799439011",
+  "envKey": "production",
+  "envName": "Production",
+  "projKey": "my-app",
+  "projName": "My Application",
+  "mobileKey": "mob-********-****-****-****-*******99999",
+  "status": "connected",
+  "connectionStatus": {
+    "state": "VALID",
+    "stateSince": 10000000
+  },
+  "dataStoreStatus": {
+    "state": "VALID",
+    "stateSince": 10000000,
+    "database": "redis",
+    "dbServer": "redis://my-redis-host",
+    "dbPrefix": "ld-507f1f77bcf86cd799439011"
+  }
+}
+```
+
+The response structure matches the per-environment data returned by `/status`, with the same properties and meanings described above. The `envKey`, `envName`, `projKey`, and `projName` fields are only present when using automatic configuration mode.
+
+**HTTP status codes:**
+
+- `200 OK` - Environment found and status returned successfully
+- `404 Not Found` - The specified environment identifier or filter does not exist
+- `503 Service Unavailable` - The Relay Proxy has not yet fully initialized
+
+**Example requests:**
+
+```shell
+# Manual config mode - by configured name
+curl http://localhost:8030/status/production-env
+
+# Manual config mode - by environment ID (if envId is configured)
+curl http://localhost:8030/status/507f1f77bcf86cd799439011
+
+# Auto-config mode - by environment ID
+curl http://localhost:8030/status/507f1f77bcf86cd799439011
+
+# Auto-config mode - by project/environment keys
+curl http://localhost:8030/status/my-app/production
+
+# With filters (any mode)
+curl http://localhost:8030/status/507f1f77bcf86cd799439011/filters/microservice-a
+curl http://localhost:8030/status/my-app/production/filters/microservice-a
+```
+
+**Use cases:**
+
+- **Monitoring**: Poll specific environments without fetching data for all environments
+- **Debugging**: Quickly check the status of a single environment during troubleshooting
+- **Filtered environments**: Verify the status of specific payload filter variants
+
 ### Special flag evaluation endpoints
 
 If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or want to evaluate feature flags internally without an SDK instance, the Relay Proxy provides endpoints for evaluating all feature flags for a given user.

@@ -392,6 +392,40 @@ func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
 	return r.envsByCredential.Environments()
 }
 
+// getEnvironmentByIdentifier returns the environment object corresponding to the given identifier
+// and optional filter key. The identifier can be:
+// - An environment ID (e.g., "507f1f77bcf86cd799439011")
+// - A project/environment key pair (e.g., "my-app/production")
+// - A configured name (e.g., "My Production Environment")
+//
+// The filterKey parameter specifies which filter variant to return. Use an empty string for the
+// unfiltered (base) environment.
+//
+// Returns an error if Relay is not fully configured, if the environment is not found, or if the
+// filter is not found for an otherwise valid environment.
+func (r *Relay) getEnvironmentByIdentifier(identifier string, filterKey config.FilterKey) (relayenv.EnvContext, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if !r.fullyConfigured {
+		return nil, errRelayNotReady
+	}
+
+	env, found := r.envsByCredential.LookupByIdentifier(identifier, filterKey)
+	if found {
+		return env, nil
+	}
+
+	// Check if the environment exists but the filter doesn't
+	if filterKey != "" {
+		if _, foundUnfiltered := r.envsByCredential.LookupByIdentifier(identifier, ""); foundUnfiltered {
+			return nil, errPayloadFilterNotFound
+		}
+	}
+
+	return nil, errUnrecognizedEnvironment
+}
+
 // addEnvironment attempts to add a new environment. It returns an error only if the configuration
 // is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
 func (r *Relay) addEnvironment(
