@@ -47,6 +47,9 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	}
 
 	env.SetIdentifiers(params.Identifiers)
+	// Refresh identifier-based indexes after identifiers change
+	a.r.envsByCredential.RefreshEnvironmentIndexes(env)
+
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 

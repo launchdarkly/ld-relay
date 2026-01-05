@@ -323,6 +323,40 @@ func removeEnvFromSlice(slice []relayenv.EnvContext, env relayenv.EnvContext) []
 	return slice
 }
 
+// RefreshEnvironmentIndexes updates the identifier-based indexes for an environment.
+// This should be called after the environment's identifiers have changed via SetIdentifiers.
+// It removes all existing index entries for this environment and re-adds them with current identifiers.
+func (e *EnvironmentLookup) RefreshEnvironmentIndexes(env relayenv.EnvContext) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Remove this environment from all identifier indexes by iterating through them
+	// and removing any entries that reference this specific environment instance
+	for envID, envs := range e.envIDIndex {
+		e.envIDIndex[envID] = removeEnvFromSlice(envs, env)
+		if len(e.envIDIndex[envID]) == 0 {
+			delete(e.envIDIndex, envID)
+		}
+	}
+
+	for name, envs := range e.configNameIndex {
+		e.configNameIndex[name] = removeEnvFromSlice(envs, env)
+		if len(e.configNameIndex[name]) == 0 {
+			delete(e.configNameIndex, name)
+		}
+	}
+
+	for key, envs := range e.projEnvKeyIndex {
+		e.projEnvKeyIndex[key] = removeEnvFromSlice(envs, env)
+		if len(e.projEnvKeyIndex[key]) == 0 {
+			delete(e.projEnvKeyIndex, key)
+		}
+	}
+
+	// Re-add using current identifiers
+	e.addToIdentifierIndexes(env)
+}
+
 // findEnvWithFilter searches a slice of environments for one matching the specified filter key.
 func findEnvWithFilter(envs []relayenv.EnvContext, filterKey config.FilterKey) relayenv.EnvContext {
 	for _, env := range envs {

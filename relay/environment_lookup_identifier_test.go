@@ -126,4 +126,44 @@ func TestEnvironmentLookup_LookupByIdentifier(t *testing.T) {
 			assert.False(t, found, "Should not match non-existent projKey/envKey")
 		})
 	})
+
+	t.Run("refresh indexes after identifier change", func(t *testing.T) {
+		var cfg config.Config
+		cfg.Environment = st.MakeEnvConfigs(st.EnvClientSide)
+
+		withStartedRelay(t, cfg, func(p relayTestParams) {
+			lookup := p.relay.envsByCredential
+			envID := st.EnvClientSide.Config.EnvID
+
+			// Verify environment is accessible by envID
+			env, found := lookup.LookupByIdentifier(string(envID), "")
+			require.True(t, found, "Environment should be found by envID")
+
+			// Verify it's accessible by configured name
+			_, found = lookup.LookupByIdentifier(st.EnvClientSide.Name, "")
+			require.True(t, found, "Environment should be found by configured name")
+
+			// Simulate identifier change (as happens in auto-config updates)
+			oldIdentifiers := env.GetIdentifiers()
+			newIdentifiers := oldIdentifiers
+			newIdentifiers.ConfiguredName = "New Name After Update"
+			newIdentifiers.ProjKey = "new-project"
+			newIdentifiers.EnvKey = "new-env"
+
+			env.SetIdentifiers(newIdentifiers)
+			lookup.RefreshEnvironmentIndexes(env)
+
+			// Old configured name should not work
+			_, found = lookup.LookupByIdentifier(st.EnvClientSide.Name, "")
+			assert.False(t, found, "Old configured name should not be found after refresh")
+
+			// New configured name should work
+			_, found = lookup.LookupByIdentifier("New Name After Update", "")
+			assert.True(t, found, "New configured name should be found after refresh")
+
+			// Environment ID should still work (doesn't change)
+			_, found = lookup.LookupByIdentifier(string(envID), "")
+			assert.True(t, found, "Environment ID lookup should still work after refresh")
+		})
+	})
 }
