@@ -2,6 +2,18 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.0](https://github.com/launchdarkly/ld-relay/compare/v8.16.4...v8.17.0) (2026-01-26)
+
+
+### Features
+
+* Add support for structured JSON logging ([#572](https://github.com/launchdarkly/ld-relay/issues/572)) ([9afcc4d](https://github.com/launchdarkly/ld-relay/commit/9afcc4d74310df8c6abef181f695829d3aaf22b1))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.6 and 1.24.12 ([#575](https://github.com/launchdarkly/ld-relay/issues/575)) ([5b4810a](https://github.com/launchdarkly/ld-relay/commit/5b4810a4985b47f3ddf2cff6536c108dd13aaf79))
+
 ## [8.16.4](https://github.com/launchdarkly/ld-relay/compare/v8.16.3...v8.16.4) (2025-12-18)
 
 
