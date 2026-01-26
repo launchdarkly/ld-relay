@@ -56,11 +56,11 @@ func (l *JSONLogger) output(message string) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		// Fallback to plain output if JSON marshaling fails
-		fmt.Fprintln(l.writer, message)
+		_, _ = fmt.Fprintln(l.writer, message)
 		return
 	}
 
-	fmt.Fprintln(l.writer, string(data))
+	_, _ = fmt.Fprintln(l.writer, string(data))
 }
 
 // parseLogLevel extracts the log level prefix from a message.
