@@ -18,7 +18,7 @@ import (
 func MakeDefaultLoggers() ldlog.Loggers {
 	loggers := ldlog.NewDefaultLoggers()
 
-	if strings.EqualFold(os.Getenv("LOG_FORMAT"), "json") {
+	if isJSONFormat() {
 		loggers.SetBaseLogger(NewJSONLogger(os.Stdout))
 		loggers.SetBaseLoggerForLevel(ldlog.Error, NewJSONLogger(os.Stderr))
 	} else {
@@ -28,6 +28,12 @@ func MakeDefaultLoggers() ldlog.Loggers {
 
 	loggers.SetMinLevel(ldlog.Info)
 	return loggers
+}
+
+// isJSONFormat checks if LOG_FORMAT environment variable is set to "json".
+func isJSONFormat() bool {
+	format := os.Getenv("LOG_FORMAT")
+	return strings.EqualFold(format, "json")
 }
 
 func makeTextLog(w io.Writer) *log.Logger {
