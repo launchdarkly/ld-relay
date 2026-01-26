@@ -160,7 +160,6 @@ type MainConfig struct {
 	TLSKey                           string                   `conf:"TLS_KEY"`
 	TLSMinVersion                    OptTLSVersion            `conf:"TLS_MIN_VERSION"`
 	LogLevel                         OptLogLevel              `conf:"LOG_LEVEL"`
-	LogFormat                        OptLogFormat             `conf:"LOG_FORMAT"`
 	BigSegmentsStaleAsDegraded       bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
 	BigSegmentsStaleThreshold        ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
 	ExpiredCredentialCleanupInterval ct.OptDuration           `conf:"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL"`

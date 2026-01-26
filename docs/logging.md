@@ -36,7 +36,7 @@ The Relay Proxy supports two log output formats:
 * **Text** (default): Traditional text-based log format with timestamps
 * **JSON**: JSON-structured log output for easier parsing by log aggregation systems
 
-The log format is controlled by the `LOG_FORMAT` environment variable or the `[Main] logFormat` configuration parameter. Valid values are `text` (default) and `json`.
+The log format is controlled by the `LOG_FORMAT` environment variable. Valid values are `text` (default) and `json`. This must be set as an environment variable (not in the configuration file) so that all log output, including startup messages, uses the correct format.
 
 ### Text format example
 
