@@ -46,6 +46,10 @@ jobs:
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
 
+      - uses: launchdarkly/gh-actions/actions/persistent-stores@persistent-stores-v0.2.0
+        with:
+          dynamodb: true
+          redis: true
       - uses: ./.github/actions/unit-tests
 
       - name: Set IS_DEFAULT_BRANCH

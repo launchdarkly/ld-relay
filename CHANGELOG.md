@@ -2,6 +2,40 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.0](https://github.com/launchdarkly/ld-relay/compare/v8.16.4...v8.17.0) (2026-01-26)
+
+
+### Features
+
+* Add support for structured JSON logging ([#572](https://github.com/launchdarkly/ld-relay/issues/572)) ([9afcc4d](https://github.com/launchdarkly/ld-relay/commit/9afcc4d74310df8c6abef181f695829d3aaf22b1))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.6 and 1.24.12 ([#575](https://github.com/launchdarkly/ld-relay/issues/575)) ([5b4810a](https://github.com/launchdarkly/ld-relay/commit/5b4810a4985b47f3ddf2cff6536c108dd13aaf79))
+
+## [8.16.4](https://github.com/launchdarkly/ld-relay/compare/v8.16.3...v8.16.4) (2025-12-18)
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from 3.23.0 to alpine:3.23.2 ([#569](https://github.com/launchdarkly/ld-relay/issues/569)) ([4bb745d](https://github.com/launchdarkly/ld-relay/commit/4bb745d9aa823b64bfeaa46a7f2281ead70e8c04))
+
+## [8.16.3](https://github.com/launchdarkly/ld-relay/compare/v8.16.2...v8.16.3) (2025-12-18)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.5 and 1.24.11 ([#560](https://github.com/launchdarkly/ld-relay/issues/560)) ([c986132](https://github.com/launchdarkly/ld-relay/commit/c9861325faaf7a0ce72c5e4601de0105fd5f3229))
+* **deps:** update Dockerfiles from 3.22.2 to alpine:3.23.0 ([#566](https://github.com/launchdarkly/ld-relay/issues/566)) ([090e7b0](https://github.com/launchdarkly/ld-relay/commit/090e7b0e7be13ae3fa2cfa91f04a1bc4cd9ec24d))
+
+## [8.16.2](https://github.com/launchdarkly/ld-relay/compare/v8.16.1...v8.16.2) (2025-12-03)
+
+
+### Bug Fixes
+
+* Remove double slash in diagnostic url debug message ([#558](https://github.com/launchdarkly/ld-relay/issues/558)) ([b7c3a58](https://github.com/launchdarkly/ld-relay/commit/b7c3a585acb6066ce5f54ca909ab44f02159e71e))
+
 ## [8.16.1](https://github.com/launchdarkly/ld-relay/compare/v8.16.0...v8.16.1) (2025-11-24)
 
 

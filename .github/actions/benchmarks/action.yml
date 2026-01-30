@@ -4,6 +4,10 @@ inputs:
   go-version:
     description: 'Go version to use for build & test.'
     required: true
+  suffix:
+    description: 'Suffix for artifact names to differentiate test runs.'
+    required: false
+    default: ''
 
 
 runs:
@@ -23,5 +27,5 @@ runs:
         if: steps.benchmarks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-            name: Benchmarks-go${{ inputs.go-version }}
+            name: Benchmarks-go${{ inputs.go-version }}${{ inputs.suffix && format('-{0}', inputs.suffix) || '' }}
             path: benchmarks.txt
