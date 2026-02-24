@@ -4,16 +4,24 @@ import (
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 
 	"github.com/gorilla/mux"
 )
 
+func getInstruments(env relayenv.EnvContext) *metrics.Instruments {
+	if mgr := env.GetMetricsManager(); mgr != nil {
+		return mgr.GetInstruments()
+	}
+	return nil
+}
+
 func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := GetEnvContextInfo(req.Context()).Env
+		env := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
 		sdkWrapper := getSDKWrapper(req)
-		metrics.WithCount(ctx.GetMetricsContext(), userAgent, sdkWrapper, func() {
+		metrics.WithCount(env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -21,10 +29,10 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 
 func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := GetEnvContextInfo(req.Context())
+		env := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
 		sdkWrapper := getSDKWrapper(req)
-		metrics.WithGauge(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, func() {
+		metrics.WithGauge(env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -57,12 +65,14 @@ func PollingRequestCount(handler http.Handler) http.Handler {
 func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := GetEnvContextInfo(req.Context())
+			env := GetEnvContextInfo(req.Context()).Env
 			userAgent := getUserAgent(req)
 			sdkWrapper := getSDKWrapper(req)
-			// Ignoring internal routing error that would have been ignored anyway
-			route, _ := mux.CurrentRoute(req).GetPathTemplate()
-			metrics.WithRouteCount(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, route, req.Method, func() {
+			var route string
+			if r := mux.CurrentRoute(req); r != nil {
+				route, _ = r.GetPathTemplate()
+			}
+			metrics.WithRouteCount(req.Context(), env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
 		})

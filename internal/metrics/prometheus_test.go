@@ -17,45 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrometheusExporterType(t *testing.T) {
-	exporterType := prometheusExporterType
-
-	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, "Prometheus", exporterType.getName())
-	})
-
-	t.Run("included in allExporterTypes", func(t *testing.T) {
-		assert.Contains(t, allExporterTypes(), exporterType)
-	})
-
-	t.Run("does not create exporter if Prometheus is disabled", func(t *testing.T) {
-		var mc config.MetricsConfig
-		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
-		require.NoError(t, err)
-		assert.Nil(t, e)
-	})
-
-	t.Run("creates exporter if Prometheus is enabled", func(t *testing.T) {
-		var mc config.MetricsConfig
-		mc.Prometheus.Enabled = true
-		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
-		require.NoError(t, err)
-		assert.NotNil(t, e)
-		e.close()
-	})
-
-	// There's currently no way to make prometheus.NewExporter fail for bad options
-
-	t.Run("registers exporter without errors", func(t *testing.T) {
-		var mc config.MetricsConfig
-		mc.Prometheus.Enabled = true
-		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
-		require.NoError(t, err)
-		assert.NotNil(t, e)
-		defer e.close()
-		assert.NoError(t, e.register())
-	})
-
+func TestPrometheusExporter(t *testing.T) {
 	verifyPrometheusEndpointIsReachable := func(t *testing.T, port int, timeout time.Duration) {
 		url := fmt.Sprintf("http://localhost:%d/metrics", port)
 		require.Eventually(
@@ -73,45 +35,54 @@ func TestPrometheusExporterType(t *testing.T) {
 		)
 	}
 
-	t.Run("listens on default port", func(t *testing.T) {
-		var mc config.MetricsConfig
-		mc.Prometheus.Enabled = true
-		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
+	t.Run("does not create exporter if Prometheus is disabled", func(t *testing.T) {
+		mc := config.MetricsConfig{}
+		manager, err := NewManager(mc, 0, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
-		require.NotNil(t, e)
+		defer manager.Close()
+		assert.Nil(t, manager.prometheusServer)
+	})
 
-		defer e.close()
-		require.NoError(t, e.register())
+	t.Run("creates exporter if Prometheus is enabled", func(t *testing.T) {
+		availablePort := st.GetAvailablePort(t)
+		mc := config.MetricsConfig{}
+		mc.Prometheus.Enabled = true
+		mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(availablePort)
+		manager, err := NewManager(mc, 0, ldlog.NewDisabledLoggers())
+		require.NoError(t, err)
+		defer manager.Close()
+		assert.NotNil(t, manager.prometheusServer)
+	})
+
+	t.Run("listens on default port", func(t *testing.T) {
+		mc := config.MetricsConfig{}
+		mc.Prometheus.Enabled = true
+		manager, err := NewManager(mc, 0, ldlog.NewDisabledLoggers())
+		require.NoError(t, err)
+		defer manager.Close()
 
 		verifyPrometheusEndpointIsReachable(t, config.DefaultPrometheusPort, time.Second)
 	})
 
 	t.Run("listens on custom port", func(t *testing.T) {
 		availablePort := st.GetAvailablePort(t)
-		var mc config.MetricsConfig
+		mc := config.MetricsConfig{}
 		mc.Prometheus.Enabled = true
 		mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(availablePort)
-		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
+		manager, err := NewManager(mc, 0, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
-		require.NotNil(t, e)
-
-		defer e.close()
-		require.NoError(t, e.register())
+		defer manager.Close()
 
 		verifyPrometheusEndpointIsReachable(t, availablePort, time.Second)
 	})
 
 	t.Run("returns error if port is unavailable", func(t *testing.T) {
 		st.WithListenerForAnyPort(t, func(l net.Listener, usedPort int) {
-			var mc config.MetricsConfig
+			mc := config.MetricsConfig{}
 			mc.Prometheus.Enabled = true
 			mc.Prometheus.Port, _ = ct.NewOptIntGreaterThanZero(usedPort)
-			e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
-			require.NoError(t, err)
-			require.NotNil(t, e)
-
-			defer e.close()
-			assert.Error(t, e.register())
+			_, err := NewManager(mc, 0, ldlog.NewDisabledLoggers())
+			assert.Error(t, err)
 		})
 	})
 }

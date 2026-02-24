@@ -1,2 +1,2 @@
-// Package metrics implements Relay's integration with OpenCensus.
+// Package metrics implements Relay's integration with OpenTelemetry.
 package metrics

@@ -146,6 +146,7 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 
 	reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
 	reader.ReadStruct(&c.MetricsConfig.Prometheus, false)
+	reader.ReadStruct(&c.MetricsConfig.OpenTelemetry, false)
 
 	reader.ReadStruct(&c.Proxy, false)
 

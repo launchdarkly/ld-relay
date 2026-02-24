@@ -1,122 +1,79 @@
 package sharedtest
 
 import (
-	"reflect"
+	"context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	helpers "github.com/launchdarkly/go-test-helpers/v3"
-
 	"github.com/stretchr/testify/require"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-// TestMetricsExporter accumulates OpenCensus metrics for tests. It deaggregates the view data to make it
-// easier to test for a specific row that we expect to see in the data.
-type TestMetricsExporter struct {
-	dataCh   chan TestMetricsData
-	spansCh  chan *trace.SpanData
-	lastData TestMetricsData
-	lock     sync.Mutex
+// TestMetricsReader is a test helper that allows reading OTel metric data.
+type TestMetricsReader struct {
+	reader       sdkmetric.Reader
+	spanExporter *tracetest.InMemoryExporter
+	lock         sync.Mutex
 }
 
-// TestMetricsData is a map of OpenCensus view names to row data.
-type TestMetricsData map[string][]TestMetricsRow
-
-// HasRow returns true if this row exists for the specified view name.
-func (d TestMetricsData) HasRow(viewName string, expectedRow TestMetricsRow) bool {
-	for _, r := range d[viewName] {
-		if reflect.DeepEqual(r, expectedRow) {
-			return true
-		}
-	}
-	return false
-}
-
-// TestMetricsRow is a simplified version of an OpenCensus view row.
-type TestMetricsRow struct {
-	Tags  map[string]string
-	Count int64
-	Sum   float64
-}
-
-// NewTestMetricsExporter creates a TestMetricsExporter.
-func NewTestMetricsExporter() *TestMetricsExporter {
-	return &TestMetricsExporter{
-		dataCh:   make(chan TestMetricsData, 10),
-		spansCh:  make(chan *trace.SpanData, 10),
-		lastData: make(TestMetricsData),
+// NewTestMetricsReader creates a TestMetricsReader with an OTel ManualReader and InMemoryExporter.
+func NewTestMetricsReader() *TestMetricsReader {
+	return &TestMetricsReader{
+		reader:       sdkmetric.NewManualReader(),
+		spanExporter: tracetest.NewInMemoryExporter(),
 	}
 }
 
-// WithExporter registers the exporter, then calls the function, then unregisters the exporter. It also
-// overrides the default OpenCensus reporting parameters to ensure that data is exported promptly.
-func (e *TestMetricsExporter) WithExporter(fn func()) {
-	view.SetReportingPeriod(time.Millisecond * 10)
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
-	view.RegisterExporter(e)
-	defer view.UnregisterExporter(e)
-	trace.RegisterExporter(e)
-	defer trace.UnregisterExporter(e)
-	fn()
+// GetReader returns the sdkmetric.Reader for use in MeterProvider construction.
+func (r *TestMetricsReader) GetReader() sdkmetric.Reader {
+	return r.reader
 }
 
-// ExportSpan is called by OpenCensus.
-func (e *TestMetricsExporter) ExportSpan(s *trace.SpanData) {
-	e.spansCh <- s
+// GetTracerProvider returns a TracerProvider that exports to the in-memory span exporter.
+func (r *TestMetricsReader) GetTracerProvider() *sdktrace.TracerProvider {
+	return sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(r.spanExporter),
+	)
 }
 
-// ExportView is called by OpenCensus.
-func (e *TestMetricsExporter) ExportView(viewData *view.Data) {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
-	viewName := viewData.View.Name
-	rows := []TestMetricsRow{}
-	for _, vr := range viewData.Rows {
-		tr := TestMetricsRow{Tags: make(map[string]string, len(vr.Tags))}
-		for _, t := range vr.Tags {
-			tr.Tags[t.Key.Name()] = t.Value
-		}
-
-		if sumData, ok := vr.Data.(*view.SumData); ok {
-			tr.Sum = sumData.Value
-		}
-		if countData, ok := vr.Data.(*view.CountData); ok {
-			tr.Count = countData.Value
-		}
-		rows = append(rows, tr)
-	}
-
-	if !reflect.DeepEqual(rows, e.lastData[viewName]) {
-		e.lastData[viewName] = rows
-		dataCopy := make(TestMetricsData)
-		for k, v := range e.lastData {
-			dataCopy[k] = v
-		}
-		e.dataCh <- dataCopy
-	}
+// CollectMetrics collects the current metric data from the reader.
+func (r *TestMetricsReader) CollectMetrics() (*metricdata.ResourceMetrics, error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	var rm metricdata.ResourceMetrics
+	err := r.reader.Collect(context.Background(), &rm)
+	return &rm, err
 }
 
-// AwaitData waits until matching view data is received.
-func (e *TestMetricsExporter) AwaitData(t *testing.T, timeout time.Duration, loggers ldlog.Loggers, fn func(TestMetricsData) bool) {
+// AwaitSpan waits for a span to be exported within the given timeout.
+func (r *TestMetricsReader) AwaitSpan(t *testing.T, timeout time.Duration) tracetest.SpanStub {
 	deadline := time.After(timeout)
 	for {
+		spans := r.spanExporter.GetSpans()
+		if len(spans) > 0 {
+			return spans[0]
+		}
 		select {
-		case d := <-e.dataCh:
-			loggers.Infof("exporter got metrics: %+v", d)
-			if fn(d) {
-				return
-			}
 		case <-deadline:
-			require.Fail(t, "timed out waiting for metrics data")
+			require.Fail(t, "timed out waiting for span data")
+			return tracetest.SpanStub{}
+		case <-time.After(time.Millisecond * 10):
 		}
 	}
 }
 
-func (e *TestMetricsExporter) AwaitSpan(t *testing.T, timeout time.Duration) *trace.SpanData {
-	return helpers.RequireValue(t, e.spansCh, timeout, "timed out waiting for metrics data")
+// FindMetricByName searches resource metrics for a metric with the given name and returns its data points.
+func FindMetricByName(rm *metricdata.ResourceMetrics, name string) *metricdata.Metrics {
+	for _, sm := range rm.ScopeMetrics {
+		for i := range sm.Metrics {
+			if sm.Metrics[i].Name == name {
+				return &sm.Metrics[i]
+			}
+		}
+	}
+	return nil
 }

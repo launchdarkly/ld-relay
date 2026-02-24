@@ -6,61 +6,38 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-
-	"contrib.go.opencensus.io/exporter/prometheus"
-	"go.opencensus.io/stats/view"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/otlptranslator"
+	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-func errPrometheusListenerFailed(err error) error {
-	return fmt.Errorf("failed to start Prometheus listener: %w", err)
-}
-
-var prometheusExporterType exporterType = prometheusExporterTypeImpl{} //nolint:gochecknoglobals
-
-type prometheusExporterTypeImpl struct{}
-
-type prometheusExporterImpl struct {
-	exporter *prometheus.Exporter
+type prometheusServer struct {
+	reader   sdkmetric.Reader
 	server   *http.Server
 	listener net.Listener
 	loggers  ldlog.Loggers
 }
 
-func (p prometheusExporterTypeImpl) getName() string {
-	return "Prometheus"
-}
+func newPrometheusExporter(promConfig config.PrometheusConfig, loggers ldlog.Loggers) (*prometheusServer, error) {
+	port := promConfig.Port.GetOrElse(config.DefaultPrometheusPort)
 
-func (p prometheusExporterTypeImpl) createExporterIfEnabled(
-	mc config.MetricsConfig,
-	loggers ldlog.Loggers,
-) (exporter, error) {
-	if !mc.Prometheus.Enabled {
-		return nil, nil
-	}
-
-	port := mc.Prometheus.Port.GetOrElse(config.DefaultPrometheusPort)
-
-	logPrometheusError := func(e error) { // COVERAGE: can't make this happen in unit tests
-		loggers.Errorf("Prometheus exporter error: %s", e)
-	}
-
-	options := prometheus.Options{
-		Namespace: getPrefix(mc.Prometheus.Prefix),
-		OnError:   logPrometheusError,
-	}
-	exporter, err := prometheus.NewExporter(options)
-
-	// The current implementation of prometheus.NewExporter() apparently can never return a non-nil error,
-	// but in case it does in the future, we should check it
+	registry := prometheus.NewRegistry()
+	exporter, err := promexporter.New(
+		promexporter.WithRegisterer(registry),
+		promexporter.WithNamespace(getPrefix(promConfig.Prefix)),
+		promexporter.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithSuffixes),
+	)
 	if err != nil {
-		return nil, err // COVERAGE: can't make this happen in unit tests
+		return nil, err
 	}
 
 	exporterMux := http.NewServeMux()
-	exporterMux.Handle("/metrics", exporter)
+	exporterMux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
@@ -68,40 +45,43 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	return &prometheusExporterImpl{
-		exporter: exporter,
-		server:   server,
-		loggers:  loggers,
-	}, nil
-}
-
-func (p *prometheusExporterImpl) register() error {
-	// Separate Listen and Serve here instead of calling ListenAndServe() so that we can immediately
-	// detect if the port isn't available
-	listener, err := net.Listen("tcp", p.server.Addr)
+	// Separate Listen and Serve here so we can immediately detect if the port isn't available
+	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
-		return errPrometheusListenerFailed(err)
+		return nil, fmt.Errorf("failed to start Prometheus listener: %w", err)
 	}
-	p.listener = listener
+
+	ps := &prometheusServer{
+		reader:   exporter,
+		server:   server,
+		listener: listener,
+		loggers:  loggers,
+	}
+
 	go func() {
-		err := p.server.Serve(p.listener)
-		if err != http.ErrServerClosed { // Serve never returns a nil error value
-			p.loggers.Error(errPrometheusListenerFailed(err)) // COVERAGE: can't make this happen in unit tests
+		err := server.Serve(listener)
+		if err != http.ErrServerClosed {
+			loggers.Errorf("Prometheus listener failed: %s", err)
 		}
 	}()
 
-	view.RegisterExporter(p.exporter)
-	// Note: we do not call trace.RegisterExporter for the Prometheus exporter, because the different
-	// semantics of Prometheus (their agent calls our endpoint) makes trace inapplicable.
+	loggers.Infof("Successfully registered Prometheus metrics exporter on port %d", port)
 
-	return nil
+	return ps, nil
 }
 
-func (p *prometheusExporterImpl) close() error {
-	view.UnregisterExporter(p.exporter)
-	err := p.server.Close()
-	if p.listener != nil {
-		_ = p.listener.Close()
+func (ps *prometheusServer) close() {
+	if ps.server != nil {
+		_ = ps.server.Close()
 	}
-	return err
+	if ps.listener != nil {
+		_ = ps.listener.Close()
+	}
+}
+
+func getPrefix(configuredPrefix string) string {
+	if configuredPrefix != "" {
+		return configuredPrefix
+	}
+	return defaultMetricsPrefix
 }

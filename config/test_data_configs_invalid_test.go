@@ -43,6 +43,9 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
+		makeInvalidConfigOTLPInvalidProtocol(),
+		makeInvalidConfigDatadogRemoved(),
+		makeInvalidConfigStackdriverRemoved(),
 	}
 }
 
@@ -442,6 +445,47 @@ func makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName() testDataInvalidConfi
 Key = autokey
 
 [DynamoDB]
+Enabled = true
+`
+	return c
+}
+
+func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "OTLP - invalid protocol"}
+	c.envVarsError = errOTLPInvalidProtocol.Error()
+	c.envVars = map[string]string{
+		"USE_OTLP":      "1",
+		"OTLP_PROTOCOL": "websocket",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+Protocol = websocket
+`
+	return c
+}
+
+func makeInvalidConfigDatadogRemoved() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Datadog - removed exporter"}
+	c.envVarsError = errDatadogRemoved.Error()
+	c.envVars = map[string]string{
+		"USE_DATADOG": "1",
+	}
+	c.fileContent = `
+[Datadog]
+Enabled = true
+`
+	return c
+}
+
+func makeInvalidConfigStackdriverRemoved() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Stackdriver - removed exporter"}
+	c.envVarsError = errStackdriverRemoved.Error()
+	c.envVars = map[string]string{
+		"USE_STACKDRIVER": "1",
+	}
+	c.fileContent = `
+[Stackdriver]
 Enabled = true
 `
 	return c

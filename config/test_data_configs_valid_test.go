@@ -87,12 +87,11 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBAll(),
 		makeValidConfigDynamoDBMultiEnvsWithTable(),
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
-		makeValidConfigDatadogMinimal(),
-		makeValidConfigDatadogAll(),
-		makeValidConfigStackdriverMinimal(),
-		makeValidConfigStackdriverAll(),
+		// Datadog and Stackdriver configs are now validation errors (see test_data_configs_invalid_test.go)
 		makeValidConfigPrometheusMinimal(),
 		makeValidConfigPrometheusAll(),
+		makeValidConfigOTLPMinimal(),
+		makeValidConfigOTLPAll(),
 		makeValidConfigProxy(),
 	}
 }
@@ -739,94 +738,6 @@ Enabled = true
 	return c
 }
 
-func makeValidConfigDatadogMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Datadog - minimal parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Datadog = DatadogConfig{
-			Enabled: true,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_DATADOG": "1",
-	}
-	c.fileContent = `
-[Datadog]
-Enabled = true
-`
-	return c
-}
-
-func makeValidConfigDatadogAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Datadog - all parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Datadog = DatadogConfig{
-			Enabled:   true,
-			Prefix:    "pre-",
-			TraceAddr: "trace",
-			StatsAddr: "stats",
-			Tag:       []string{"tag1:value1", "tag2:value2"},
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_DATADOG":        "1",
-		"DATADOG_PREFIX":     "pre-",
-		"DATADOG_TRACE_ADDR": "trace",
-		"DATADOG_STATS_ADDR": "stats",
-		"DATADOG_TAG_tag1":   "value1",
-		"DATADOG_TAG_tag2":   "value2",
-	}
-	c.fileContent = `
-[Datadog]
-Enabled = true
-Prefix = "pre-"
-TraceAddr = "trace"
-StatsAddr = "stats"
-Tag = "tag1:value1"
-Tag = "tag2:value2"
-`
-	return c
-}
-
-func makeValidConfigStackdriverMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Stackdriver - minimal parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Stackdriver = StackdriverConfig{
-			Enabled: true,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_STACKDRIVER": "1",
-	}
-	c.fileContent = `
-[Stackdriver]
-Enabled = true
-`
-	return c
-}
-
-func makeValidConfigStackdriverAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Stackdriver - all parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Stackdriver = StackdriverConfig{
-			Enabled:   true,
-			Prefix:    "pre-",
-			ProjectID: "proj",
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_STACKDRIVER":        "1",
-		"STACKDRIVER_PREFIX":     "pre-",
-		"STACKDRIVER_PROJECT_ID": "proj",
-	}
-	c.fileContent = `
-[Stackdriver]
-Enabled = true
-Prefix = "pre-"
-ProjectID = "proj"
-`
-	return c
-}
-
 func makeValidConfigPrometheusMinimal() testDataValidConfig {
 	c := testDataValidConfig{name: "Prometheus - minimal parameters"}
 	c.makeConfig = func(c *Config) {
@@ -863,6 +774,55 @@ func makeValidConfigPrometheusAll() testDataValidConfig {
 Enabled = true
 Prefix = "pre-"
 Port = 8333
+`
+	return c
+}
+
+func makeValidConfigOTLPMinimal() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - minimal parameters"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled: true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP": "1",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+`
+	return c
+}
+
+func makeValidConfigOTLPAll() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
+	c.makeConfig = func(c *Config) {
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:  true,
+			Endpoint: "otel-collector:4317",
+			Protocol: "grpc",
+			Headers:  "api-key=secret,env=prod",
+			Insecure: true,
+			Traces:   true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_OTLP":       "1",
+		"OTLP_ENDPOINT":  "otel-collector:4317",
+		"OTLP_PROTOCOL":  "grpc",
+		"OTLP_HEADERS":   "api-key=secret,env=prod",
+		"OTLP_INSECURE":  "1",
+		"OTLP_TRACES":    "1",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+Endpoint = otel-collector:4317
+Protocol = grpc
+Headers = api-key=secret,env=prod
+Insecure = true
+Traces = true
 `
 	return c
 }

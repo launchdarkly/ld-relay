@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,7 +16,13 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 const (
@@ -23,10 +30,18 @@ const (
 )
 
 type metricsMiddlewareTestParams struct {
-	env      relayenv.EnvContext
-	envName  string
-	exporter *st.TestMetricsExporter
-	mockLog  *ldlogtest.MockLog
+	env     relayenv.EnvContext
+	envName string
+	reader  sdkmetric.Reader
+	mockLog *ldlogtest.MockLog
+}
+
+func (p metricsMiddlewareTestParams) collectMetrics(t *testing.T) *metricdata.ResourceMetrics {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	err := p.reader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+	return &rm
 }
 
 func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams)) {
@@ -37,12 +52,17 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	require.NoError(t, err)
 	defer manager.Close()
 
-	exporter := st.NewTestMetricsExporter()
+	// Set up OTel test infrastructure
+	reader := sdkmetric.NewManualReader()
+	spanExporter := tracetest.NewInMemoryExporter()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 
-	// Since the global OpenCensus state will accumulate metrics from different tests, we'll use a randomized
-	// environment name to isolate the data from this particular test.
-	envName := "testenv" // "env-" + uuid.New()
+	instruments, err := metrics.NewInstrumentsForTest(meterProvider.Meter("ld-relay"), tracerProvider.Tracer("ld-relay"))
+	require.NoError(t, err)
+	manager.SetInstrumentsForTest(instruments)
 
+	envName := "testenv"
 	envConfig := config.EnvConfig{}
 	allConfig := config.Config{}
 
@@ -58,13 +78,11 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	require.NoError(t, err)
 	defer env.Close()
 
-	exporter.WithExporter(func() {
-		action(metricsMiddlewareTestParams{
-			env:      env,
-			envName:  envName,
-			exporter: exporter,
-			mockLog:  mockLog,
-		})
+	action(metricsMiddlewareTestParams{
+		env:     env,
+		envName: envName,
+		reader:  reader,
+		mockLog: mockLog,
 	})
 }
 
@@ -75,46 +93,39 @@ func TestCountConnections(t *testing.T) {
 	t.Run("mobile", func(t *testing.T) {
 		testCountConnections(t, CountMobileConns, "mobile")
 	})
-	t.Run("browser", func(t *testing.T) {
+	t.Run("server", func(t *testing.T) {
 		testCountConnections(t, CountServerConns, "server")
 	})
 }
 
 func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler, category string) {
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
-		expectedTags := map[string]string{
-			"env":              p.envName,
-			"platformCategory": category,
-			"userAgent":        metricsTestUserAgent,
-			"sdkWrapper":       "not-provided",
-		}
-
 		req, _ := http.NewRequest("GET", "", nil)
 		req.Header.Set("User-Agent", metricsTestUserAgent)
 		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
 		rr := httptest.NewRecorder()
 
 		countFn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-				return d.HasRow("connections", st.TestMetricsRow{
-					Tags: expectedTags,
-					Sum:  1,
-				}) && d.HasRow("newconnections", st.TestMetricsRow{
-					Tags: expectedTags,
-					Sum:  1,
-				})
-			})
+			// While inside the handler, connections should be active
+			rm := p.collectMetrics(t)
+			connMetric := st.FindMetricByName(rm, "connections")
+			require.NotNil(t, connMetric, "connections metric not found")
+			assertMetricHasValue(t, connMetric, p.envName, category, 1)
+
+			newConnMetric := st.FindMetricByName(rm, "newconnections")
+			require.NotNil(t, newConnMetric, "newconnections metric not found")
+			assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 		})).ServeHTTP(rr, req)
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("connections", st.TestMetricsRow{
-				Tags: expectedTags,
-				Sum:  0,
-			}) && d.HasRow("newconnections", st.TestMetricsRow{
-				Tags: expectedTags,
-				Sum:  1,
-			})
-		})
+		// After handler returns, connection gauge should be 0 but new connections stays at 1
+		rm := p.collectMetrics(t)
+		connMetric := st.FindMetricByName(rm, "connections")
+		require.NotNil(t, connMetric, "connections metric not found")
+		assertMetricHasValue(t, connMetric, p.envName, category, 0)
+
+		newConnMetric := st.FindMetricByName(rm, "newconnections")
+		require.NotNil(t, newConnMetric, "newconnections metric not found")
+		assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 	})
 }
 
@@ -137,15 +148,6 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 	router.Handle("/test-route", nullHandler()).Methods("GET")
 
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
-		expectedTags := map[string]string{
-			"env":              p.envName,
-			"method":           "GET",
-			"route":            "_test-route",
-			"platformCategory": category,
-			"userAgent":        metricsTestUserAgent,
-			"sdkWrapper":       "not-provided",
-		}
-
 		makeRequest := func() *http.Request {
 			req, _ := http.NewRequest("GET", "/test-route", nil)
 			req.Header.Set("User-Agent", metricsTestUserAgent)
@@ -154,20 +156,33 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("requests", st.TestMetricsRow{
-				Tags:  expectedTags,
-				Count: 1,
-			})
-		})
+		rm := p.collectMetrics(t)
+		reqMetric := st.FindMetricByName(rm, "requests")
+		require.NotNil(t, reqMetric, "requests metric not found")
+		assertMetricHasValue(t, reqMetric, p.envName, category, 1)
 
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("requests", st.TestMetricsRow{
-				Tags:  expectedTags,
-				Count: 2,
-			})
-		})
+		rm = p.collectMetrics(t)
+		reqMetric = st.FindMetricByName(rm, "requests")
+		require.NotNil(t, reqMetric, "requests metric not found")
+		assertMetricHasValue(t, reqMetric, p.envName, category, 2)
 	})
+}
+
+// assertMetricHasValue checks that a metric has the expected value for the given environment and platform.
+func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
+	t.Helper()
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+	found := false
+	for _, dp := range sum.DataPoints {
+		platVal, platOK := dp.Attributes.Value(attribute.Key("platformCategory"))
+		envVal, envOK := dp.Attributes.Value(attribute.Key("env"))
+		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
+			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
+			found = true
+		}
+	}
+	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
 }

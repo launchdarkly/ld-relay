@@ -308,11 +308,12 @@ type HTTPConfig struct {
 
 // MetricsConfig contains configurations for optional metrics integrations.
 //
-// This corresponds to the [Datadog], [Stackdriver], and [Prometheus] sections in the configuration file.
+// This corresponds to the [Datadog], [Stackdriver], [Prometheus], and [OpenTelemetry] sections in the configuration file.
 type MetricsConfig struct {
-	Datadog     DatadogConfig
-	Stackdriver StackdriverConfig
-	Prometheus  PrometheusConfig
+	Datadog       DatadogConfig
+	Stackdriver   StackdriverConfig
+	Prometheus    PrometheusConfig
+	OpenTelemetry OpenTelemetryConfig
 }
 
 // DatadogConfig configures the optional Datadog integration, which is used only if Enabled is true.
@@ -354,4 +355,16 @@ type PrometheusConfig struct {
 	Enabled bool                     `conf:"USE_PROMETHEUS"`
 	Prefix  string                   `conf:"PROMETHEUS_PREFIX"`
 	Port    ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
+}
+
+// OpenTelemetryConfig configures the optional OTLP export integration, which is used only if Enabled is true.
+//
+// This corresponds to the [OpenTelemetry] section in the configuration file.
+type OpenTelemetryConfig struct {
+	Enabled  bool   `conf:"USE_OTLP"`
+	Endpoint string `conf:"OTLP_ENDPOINT"`
+	Protocol string `conf:"OTLP_PROTOCOL"`
+	Headers  string `conf:"OTLP_HEADERS"`
+	Insecure bool   `conf:"OTLP_INSECURE"`
+	Traces   bool   `conf:"OTLP_TRACES"`
 }
