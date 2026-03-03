@@ -129,13 +129,8 @@ func WithCount(em *EnvironmentManager, instruments *Instruments, userAgent, sdkW
 	if measure.recordRequests && instruments != nil {
 		instruments.requests.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
 	}
-	if measure.recordPolling {
-		if instruments != nil {
-			instruments.requests.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
-		}
-		if em.collector != nil {
-			em.collector.RecordPollingRequest(measure.platformCategory, sanitizedUA, sanitizedWrapper)
-		}
+	if measure.recordPolling && em.collector != nil {
+		em.collector.RecordPollingRequest(measure.platformCategory, sanitizedUA, sanitizedWrapper)
 	}
 
 	f()
