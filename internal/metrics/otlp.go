@@ -32,99 +32,92 @@ func newOTLPExporters(
 
 	ctx := context.Background()
 
-	var metricReader *sdkmetric.PeriodicReader
+	type metricExporterFactory func(ctx context.Context) (sdkmetric.Exporter, error)
+	type traceExporterFactory func(ctx context.Context) (sdktrace.SpanExporter, error)
+
+	var (
+		createMetricExporter metricExporterFactory
+		createTraceExporter  traceExporterFactory
+	)
+
+	headers := parseHeaders(otlpConfig.Headers)
 
 	switch protocol {
 	case "grpc":
-		// Metric exporter
-		grpcOpts := []otlpmetricgrpc.Option{}
-		if otlpConfig.Endpoint != "" {
-			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(otlpConfig.Endpoint))
-		}
-		if otlpConfig.Insecure {
-			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithInsecure())
-		}
-		if otlpConfig.Headers != "" {
-			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithHeaders(parseHeaders(otlpConfig.Headers)))
-		}
-
-		metricExporter, err := otlpmetricgrpc.New(ctx, grpcOpts...)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create OTLP gRPC metric exporter: %w", err)
-		}
-		metricReader = sdkmetric.NewPeriodicReader(metricExporter)
-		opts = append(opts, sdkmetric.WithReader(metricReader))
-
-		// Trace exporter (if enabled)
-		if otlpConfig.Traces {
-			traceOpts := []otlptracegrpc.Option{}
+		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
+			var gopts []otlpmetricgrpc.Option
 			if otlpConfig.Endpoint != "" {
-				traceOpts = append(traceOpts, otlptracegrpc.WithEndpoint(otlpConfig.Endpoint))
+				gopts = append(gopts, otlpmetricgrpc.WithEndpoint(otlpConfig.Endpoint))
 			}
 			if otlpConfig.Insecure {
-				traceOpts = append(traceOpts, otlptracegrpc.WithInsecure())
+				gopts = append(gopts, otlpmetricgrpc.WithInsecure())
 			}
-			if otlpConfig.Headers != "" {
-				traceOpts = append(traceOpts, otlptracegrpc.WithHeaders(parseHeaders(otlpConfig.Headers)))
+			if len(headers) > 0 {
+				gopts = append(gopts, otlpmetricgrpc.WithHeaders(headers))
 			}
-
-			traceExporter, err := otlptracegrpc.New(ctx, traceOpts...)
-			if err != nil {
-				_ = metricReader.Shutdown(ctx)
-				return nil, nil, fmt.Errorf("failed to create OTLP gRPC trace exporter: %w", err)
-			}
-			tracerProvider = sdktrace.NewTracerProvider(
-				sdktrace.WithBatcher(traceExporter),
-				sdktrace.WithResource(res),
-			)
+			return otlpmetricgrpc.New(ctx, gopts...)
 		}
-
+		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
+			var gopts []otlptracegrpc.Option
+			if otlpConfig.Endpoint != "" {
+				gopts = append(gopts, otlptracegrpc.WithEndpoint(otlpConfig.Endpoint))
+			}
+			if otlpConfig.Insecure {
+				gopts = append(gopts, otlptracegrpc.WithInsecure())
+			}
+			if len(headers) > 0 {
+				gopts = append(gopts, otlptracegrpc.WithHeaders(headers))
+			}
+			return otlptracegrpc.New(ctx, gopts...)
+		}
 	case "http":
-		// Metric exporter
-		httpOpts := []otlpmetrichttp.Option{}
-		if otlpConfig.Endpoint != "" {
-			httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(otlpConfig.Endpoint))
-		}
-		if otlpConfig.Insecure {
-			httpOpts = append(httpOpts, otlpmetrichttp.WithInsecure())
-		}
-		if otlpConfig.Headers != "" {
-			httpOpts = append(httpOpts, otlpmetrichttp.WithHeaders(parseHeaders(otlpConfig.Headers)))
-		}
-
-		metricExporter, err := otlpmetrichttp.New(ctx, httpOpts...)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create OTLP HTTP metric exporter: %w", err)
-		}
-		metricReader = sdkmetric.NewPeriodicReader(metricExporter)
-		opts = append(opts, sdkmetric.WithReader(metricReader))
-
-		// Trace exporter (if enabled)
-		if otlpConfig.Traces {
-			traceOpts := []otlptracehttp.Option{}
+		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
+			var hopts []otlpmetrichttp.Option
 			if otlpConfig.Endpoint != "" {
-				traceOpts = append(traceOpts, otlptracehttp.WithEndpoint(otlpConfig.Endpoint))
+				hopts = append(hopts, otlpmetrichttp.WithEndpoint(otlpConfig.Endpoint))
 			}
 			if otlpConfig.Insecure {
-				traceOpts = append(traceOpts, otlptracehttp.WithInsecure())
+				hopts = append(hopts, otlpmetrichttp.WithInsecure())
 			}
-			if otlpConfig.Headers != "" {
-				traceOpts = append(traceOpts, otlptracehttp.WithHeaders(parseHeaders(otlpConfig.Headers)))
+			if len(headers) > 0 {
+				hopts = append(hopts, otlpmetrichttp.WithHeaders(headers))
 			}
-
-			traceExporter, err := otlptracehttp.New(ctx, traceOpts...)
-			if err != nil {
-				_ = metricReader.Shutdown(ctx)
-				return nil, nil, fmt.Errorf("failed to create OTLP HTTP trace exporter: %w", err)
-			}
-			tracerProvider = sdktrace.NewTracerProvider(
-				sdktrace.WithBatcher(traceExporter),
-				sdktrace.WithResource(res),
-			)
+			return otlpmetrichttp.New(ctx, hopts...)
 		}
-
+		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
+			var hopts []otlptracehttp.Option
+			if otlpConfig.Endpoint != "" {
+				hopts = append(hopts, otlptracehttp.WithEndpoint(otlpConfig.Endpoint))
+			}
+			if otlpConfig.Insecure {
+				hopts = append(hopts, otlptracehttp.WithInsecure())
+			}
+			if len(headers) > 0 {
+				hopts = append(hopts, otlptracehttp.WithHeaders(headers))
+			}
+			return otlptracehttp.New(ctx, hopts...)
+		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
+	}
+
+	metricExporter, err := createMetricExporter(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create OTLP %s metric exporter: %w", protocol, err)
+	}
+	metricReader := sdkmetric.NewPeriodicReader(metricExporter)
+	opts = append(opts, sdkmetric.WithReader(metricReader))
+
+	if otlpConfig.Traces {
+		traceExporter, err := createTraceExporter(ctx)
+		if err != nil {
+			_ = metricReader.Shutdown(ctx)
+			return nil, nil, fmt.Errorf("failed to create OTLP %s trace exporter: %w", protocol, err)
+		}
+		tracerProvider = sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(traceExporter),
+			sdktrace.WithResource(res),
+		)
 	}
 
 	loggers.Infof("Successfully registered OTLP metrics exporter (protocol=%s, endpoint=%s)", protocol, otlpConfig.Endpoint)
