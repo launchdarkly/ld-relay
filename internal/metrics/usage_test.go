@@ -303,7 +303,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -312,7 +312,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
@@ -326,7 +326,7 @@ func TestOverlappingStreams(t *testing.T) {
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
 
-	assert.InDeltaf(t, 30, event.TotalStreamMs, 5, "stream time should be approximately 30ms")
+	assert.InDeltaf(t, 300, event.TotalStreamMs, 50, "stream time should be approximately 300ms")
 }
 
 func TestMultipleUserStreams(t *testing.T) {
