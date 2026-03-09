@@ -19,9 +19,10 @@ var (
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errDatadogRemoved        = errors.New("Datadog exporter has been removed in v9. Use OTLP export instead (USE_OTLP=true, OTLP_ENDPOINT=<datadog-agent:4317>)")       //nolint:stylecheck
-	errStackdriverRemoved    = errors.New("Stackdriver exporter has been removed in v9. Use OTLP export instead (USE_OTLP=true, OTLP_ENDPOINT=<gcp-endpoint>)") //nolint:stylecheck
-	errOTLPInvalidProtocol   = errors.New(`OTLP protocol must be "grpc" or "http" (OTLP_PROTOCOL)`)                                                                    //nolint:stylecheck
+	errDatadogRemoved        = errors.New("Datadog exporter has been removed in v9. Use OTLP export instead (USE_OTLP=true, OTLP_ENDPOINT=<datadog-agent:4317>)")                                       //nolint:stylecheck
+	errStackdriverRemoved    = errors.New("Stackdriver exporter has been removed in v9. Use OTLP export instead (USE_OTLP=true, OTLP_ENDPOINT=<gcp-endpoint>)")                                   //nolint:stylecheck
+	errPrometheusRemoved     = errors.New("Prometheus exporter has been removed in v9. Use OTLP export instead (USE_OTLP=true, OTLP_ENDPOINT=<prometheus-host:9090>, OTLP_PROTOCOL=http)") //nolint:stylecheck
+	errOTLPInvalidProtocol   = errors.New(`OTLP protocol must be "grpc" or "http" (OTLP_PROTOCOL)`)                                                                                              //nolint:stylecheck
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
@@ -284,6 +285,9 @@ func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
 	}
 	if c.MetricsConfig.Stackdriver.Enabled {
 		result.AddError(nil, errStackdriverRemoved)
+	}
+	if c.MetricsConfig.Prometheus.Enabled {
+		result.AddError(nil, errPrometheusRemoved)
 	}
 	if c.MetricsConfig.OpenTelemetry.Enabled {
 		protocol := strings.ToLower(c.MetricsConfig.OpenTelemetry.Protocol)

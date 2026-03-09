@@ -50,9 +50,6 @@ const (
 	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
 	DefaultDatabaseCacheTTL = time.Second * 30
 
-	// DefaultPrometheusPort is the default value for PrometheusConfig.Port if not specified.
-	DefaultPrometheusPort = 8031
-
 	// DefaultBigSegmentsStaleThreshold is the default value for MainConfig.BigSegmentsStaleThreshold if not specified.
 	DefaultBigSegmentsStaleThreshold = time.Minute * 5
 
@@ -309,6 +306,8 @@ type HTTPConfig struct {
 // MetricsConfig contains configurations for optional metrics integrations.
 //
 // This corresponds to the [Datadog], [Stackdriver], [Prometheus], and [OpenTelemetry] sections in the configuration file.
+// Note: Datadog, Stackdriver, and Prometheus exporters have been removed in v9. Their config structs are retained
+// only so that using them produces a helpful error message rather than silently being ignored.
 type MetricsConfig struct {
 	Datadog       DatadogConfig
 	Stackdriver   StackdriverConfig

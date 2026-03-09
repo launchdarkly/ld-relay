@@ -46,6 +46,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigOTLPInvalidProtocol(),
 		makeInvalidConfigDatadogRemoved(),
 		makeInvalidConfigStackdriverRemoved(),
+		makeInvalidConfigPrometheusRemoved(),
 	}
 }
 
@@ -486,6 +487,19 @@ func makeInvalidConfigStackdriverRemoved() testDataInvalidConfig {
 	}
 	c.fileContent = `
 [Stackdriver]
+Enabled = true
+`
+	return c
+}
+
+func makeInvalidConfigPrometheusRemoved() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Prometheus - removed exporter"}
+	c.envVarsError = errPrometheusRemoved.Error()
+	c.envVars = map[string]string{
+		"USE_PROMETHEUS": "1",
+	}
+	c.fileContent = `
+[Prometheus]
 Enabled = true
 `
 	return c

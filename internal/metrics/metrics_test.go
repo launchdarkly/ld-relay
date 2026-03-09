@@ -21,7 +21,6 @@ func TestNewManagerWithNoExporters(t *testing.T) {
 	defer manager.Close()
 
 	assert.NotNil(t, manager.instruments)
-	assert.Nil(t, manager.prometheusServer)
 }
 
 func TestNewManagerReturnsInstruments(t *testing.T) {
@@ -207,11 +206,6 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
 	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
-}
-
-func TestGetPrefix(t *testing.T) {
-	assert.Equal(t, "x", getPrefix("x"))
-	assert.Equal(t, defaultMetricsPrefix, getPrefix(""))
 }
 
 // Helper functions for asserting OTel metric data

@@ -87,9 +87,7 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBAll(),
 		makeValidConfigDynamoDBMultiEnvsWithTable(),
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
-		// Datadog and Stackdriver configs are now validation errors (see test_data_configs_invalid_test.go)
-		makeValidConfigPrometheusMinimal(),
-		makeValidConfigPrometheusAll(),
+		// Datadog, Stackdriver, and Prometheus configs are now validation errors (see test_data_configs_invalid_test.go)
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
 		makeValidConfigProxy(),
@@ -735,46 +733,6 @@ SdkKey = key1
 Enabled = true
 `
 	c.warnings = []string{warnEnvWithoutDBDisambiguation("env1", true)}
-	return c
-}
-
-func makeValidConfigPrometheusMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Prometheus - minimal parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Prometheus = PrometheusConfig{
-			Enabled: true,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_PROMETHEUS": "1",
-	}
-	c.fileContent = `
-[Prometheus]
-Enabled = true
-`
-	return c
-}
-
-func makeValidConfigPrometheusAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Prometheus - all parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Prometheus = PrometheusConfig{
-			Enabled: true,
-			Prefix:  "pre-",
-			Port:    mustOptIntGreaterThanZero(8333),
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_PROMETHEUS":    "1",
-		"PROMETHEUS_PREFIX": "pre-",
-		"PROMETHEUS_PORT":   "8333",
-	}
-	c.fileContent = `
-[Prometheus]
-Enabled = true
-Prefix = "pre-"
-Port = 8333
-`
 	return c
 }
 

@@ -8,11 +8,8 @@ import (
 )
 
 const (
-	defaultMetricsPrefix = "launchdarkly_relay"
-
-	// Metric instrument names. These are bare names without a prefix. The Prometheus exporter
-	// applies the "launchdarkly_relay" namespace prefix via its WithNamespace option, while the
-	// OTLP exporter sends these names as-is (the receiving backend typically handles namespacing).
+	// Metric instrument names. These are bare names without a prefix; the receiving backend
+	// typically handles namespacing.
 	connMeasureName    = "connections"
 	newConnMeasureName = "newconnections"
 	requestMeasureName = "requests"

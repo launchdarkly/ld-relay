@@ -31,10 +31,9 @@ var (
 type Manager struct {
 	metricsRelayID   string
 	instruments      *Instruments
-	meterProvider    *sdkmetric.MeterProvider
-	tracerProvider   *sdktrace.TracerProvider
-	prometheusServer *prometheusServer
-	flushInterval    time.Duration
+	meterProvider  *sdkmetric.MeterProvider
+	tracerProvider *sdktrace.TracerProvider
+	flushInterval  time.Duration
 	loggers          ldlog.Loggers
 	closeOnce        sync.Once
 	closed           bool
@@ -80,25 +79,11 @@ func NewManager(
 
 	var opts []sdkmetric.Option
 
-	// Prometheus reader (if enabled)
-	var promServer *prometheusServer
-	if metricsConfig.Prometheus.Enabled {
-		var err error
-		promServer, err = newPrometheusExporter(metricsConfig.Prometheus, loggers)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, sdkmetric.WithReader(promServer.reader))
-	}
-
 	// OTLP reader (if enabled)
 	var tracerProvider *sdktrace.TracerProvider
 	if metricsConfig.OpenTelemetry.Enabled {
 		otlpOpts, tp, err := newOTLPExporters(metricsConfig.OpenTelemetry, res, loggers)
 		if err != nil {
-			if promServer != nil {
-				promServer.close()
-			}
 			return nil, err
 		}
 		opts = append(opts, otlpOpts...)
@@ -142,7 +127,6 @@ func NewManager(
 		instruments:          instruments,
 		meterProvider:        meterProvider,
 		tracerProvider:       tracerProvider,
-		prometheusServer:     promServer,
 		flushInterval:        flushInterval,
 		loggers:              loggers,
 		usageChan:            usageChan,
@@ -233,9 +217,6 @@ func (m *Manager) Close() {
 			env.close()
 		}
 
-		if m.prometheusServer != nil {
-			m.prometheusServer.close()
-		}
 		if m.meterProvider != nil {
 			_ = m.meterProvider.Shutdown(context.Background())
 		}
