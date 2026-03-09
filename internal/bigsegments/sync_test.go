@@ -314,7 +314,6 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq3, patch1.Version)
 
-			requireNoMorePatches(t, storeMock)
 			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*50) {
 				t.FailNow()
 			}
@@ -330,6 +329,8 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
 				t.FailNow()
 			}
+
+			requireNoMorePatches(t, storeMock)
 
 			assert.Equal(t, []string{
 				"BigSegmentSynchronizer: Applied 1 update",
