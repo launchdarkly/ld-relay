@@ -240,6 +240,8 @@ func testKeyIsRotatedWithoutGracePeriod(t *testing.T, manager *integrationTestMa
 				// time.Time{} to signify that there's no deprecation period.
 				updated = manager.rotateSDKKeys(t, updated, time.Time{})
 
+				time.Sleep(5 * time.Second)
+
 				err = downloadRelayArchive(manager, testData.autoConfigKey, filePath)
 				manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
 				require.NoError(t, err)
