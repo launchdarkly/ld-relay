@@ -48,7 +48,7 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
-	manager, err := metrics.NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
+	manager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)
 	defer manager.Close()
 

@@ -16,7 +16,7 @@ import (
 )
 
 func TestNewManagerWithNoExporters(t *testing.T) {
-	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -24,7 +24,7 @@ func TestNewManagerWithNoExporters(t *testing.T) {
 }
 
 func TestNewManagerReturnsInstruments(t *testing.T) {
-	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -37,7 +37,7 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
-	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -51,7 +51,7 @@ func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
 func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 	publisher := newTestEventsPublisher()
 
-	manager, err := NewManager(config.MetricsConfig{}, time.Millisecond*10, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -72,7 +72,7 @@ func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 }
 
 func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
-	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	manager.Close()
 	env, err := manager.AddEnvironment("name", nil)
@@ -81,7 +81,7 @@ func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
 }
 
 func TestRemoveEnvironment(t *testing.T) {
-	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)
 	defer manager.Close()
 

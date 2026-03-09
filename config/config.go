@@ -125,10 +125,7 @@ type Config struct {
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
 
-	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
-	// MetricsConfig is not the name of a configuration file section; the actual section is the
-	// OpenTelemetry struct within this struct.
-	MetricsConfig
+	OpenTelemetry OpenTelemetryConfig
 }
 
 // MainConfig contains global configuration options for Relay.
@@ -301,13 +298,6 @@ type HTTPConfig struct {
 	MaxIdleConns        ct.OptInt      `conf:"HTTP_MAX_IDLE_CONNS"`
 	MaxIdleConnsPerHost int            `conf:"HTTP_MAX_IDLE_CONNS_PER_HOST"`
 	DisableKeepAlives   bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
-}
-
-// MetricsConfig contains configurations for optional metrics integrations.
-//
-// This corresponds to the [OpenTelemetry] section in the configuration file.
-type MetricsConfig struct {
-	OpenTelemetry OpenTelemetryConfig
 }
 
 // OpenTelemetryConfig configures the optional OTLP export integration, which is used only if Enabled is true.

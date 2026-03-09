@@ -277,8 +277,8 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 }
 
 func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
-	if c.MetricsConfig.OpenTelemetry.Enabled {
-		protocol := strings.ToLower(c.MetricsConfig.OpenTelemetry.Protocol)
+	if c.OpenTelemetry.Enabled {
+		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
 		if protocol != "" && protocol != "grpc" && protocol != "http" {
 			result.AddError(nil, errOTLPInvalidProtocol)
 		}

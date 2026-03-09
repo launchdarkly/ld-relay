@@ -329,7 +329,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		var allConfig config.Config
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		metricsManager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
 		env, err := NewEnvContext(EnvContextImplParams{
 			Identifiers:    EnvIdentifiers{ConfiguredName: envName},
@@ -384,7 +384,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		metricsManager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
 		env, err := NewEnvContext(EnvContextImplParams{
 			Identifiers:    EnvIdentifiers{ConfiguredName: envName},

@@ -70,7 +70,7 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 		tracer:         tracer,
 	}
 
-	manager, err := NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)
 	defer manager.Close()
 

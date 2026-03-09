@@ -66,7 +66,7 @@ type EnvironmentManager struct {
 
 // NewManager creates a Manager instance.
 func NewManager(
-	metricsConfig config.MetricsConfig,
+	otlpConfig config.OpenTelemetryConfig,
 	flushInterval time.Duration,
 	loggers ldlog.Loggers,
 ) (*Manager, error) {
@@ -81,8 +81,8 @@ func NewManager(
 
 	// OTLP reader (if enabled)
 	var tracerProvider *sdktrace.TracerProvider
-	if metricsConfig.OpenTelemetry.Enabled {
-		otlpOpts, tp, err := newOTLPExporters(metricsConfig.OpenTelemetry, res, loggers)
+	if otlpConfig.Enabled {
+		otlpOpts, tp, err := newOTLPExporters(otlpConfig, res, loggers)
 		if err != nil {
 			return nil, err
 		}
