@@ -36,22 +36,6 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments.tracer)
 }
 
-func TestNewManagerWithDatadogConfigReturnsError(t *testing.T) {
-	mc := config.MetricsConfig{}
-	mc.Datadog.Enabled = true
-	err := config.ValidateConfig(&config.Config{MetricsConfig: mc}, ldlog.NewDisabledLoggers())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Datadog exporter has been removed")
-}
-
-func TestNewManagerWithStackdriverConfigReturnsError(t *testing.T) {
-	mc := config.MetricsConfig{}
-	mc.Stackdriver.Enabled = true
-	err := config.ValidateConfig(&config.Config{MetricsConfig: mc}, ldlog.NewDisabledLoggers())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Stackdriver exporter has been removed")
-}
-
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
 	manager, err := NewManager(config.MetricsConfig{}, 0, ldlog.NewDisabledLoggers())
 	require.NoError(t, err)

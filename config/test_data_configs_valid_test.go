@@ -87,7 +87,6 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBAll(),
 		makeValidConfigDynamoDBMultiEnvsWithTable(),
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
-		// Datadog, Stackdriver, and Prometheus configs are now validation errors (see test_data_configs_invalid_test.go)
 		makeValidConfigOTLPMinimal(),
 		makeValidConfigOTLPAll(),
 		makeValidConfigProxy(),

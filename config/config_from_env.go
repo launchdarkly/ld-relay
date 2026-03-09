@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
@@ -136,16 +135,6 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 		reader.ReadStruct(&c.DynamoDB, false)
 	}
 
-	reader.ReadStruct(&c.MetricsConfig.Datadog, false)
-	if c.MetricsConfig.Datadog.Enabled {
-		for tagName, tagVal := range reader.FindPrefixedValues("DATADOG_TAG_") {
-			c.MetricsConfig.Datadog.Tag = append(c.MetricsConfig.Datadog.Tag, tagName+":"+tagVal)
-		}
-		sort.Strings(c.MetricsConfig.Datadog.Tag) // for test determinacy
-	}
-
-	reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
-	reader.ReadStruct(&c.MetricsConfig.Prometheus, false)
 	reader.ReadStruct(&c.MetricsConfig.OpenTelemetry, false)
 
 	reader.ReadStruct(&c.Proxy, false)

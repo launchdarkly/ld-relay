@@ -44,9 +44,6 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigOTLPInvalidProtocol(),
-		makeInvalidConfigDatadogRemoved(),
-		makeInvalidConfigStackdriverRemoved(),
-		makeInvalidConfigPrometheusRemoved(),
 	}
 }
 
@@ -462,45 +459,6 @@ func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
 [OpenTelemetry]
 Enabled = true
 Protocol = websocket
-`
-	return c
-}
-
-func makeInvalidConfigDatadogRemoved() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Datadog - removed exporter"}
-	c.envVarsError = errDatadogRemoved.Error()
-	c.envVars = map[string]string{
-		"USE_DATADOG": "1",
-	}
-	c.fileContent = `
-[Datadog]
-Enabled = true
-`
-	return c
-}
-
-func makeInvalidConfigStackdriverRemoved() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Stackdriver - removed exporter"}
-	c.envVarsError = errStackdriverRemoved.Error()
-	c.envVars = map[string]string{
-		"USE_STACKDRIVER": "1",
-	}
-	c.fileContent = `
-[Stackdriver]
-Enabled = true
-`
-	return c
-}
-
-func makeInvalidConfigPrometheusRemoved() testDataInvalidConfig {
-	c := testDataInvalidConfig{name: "Prometheus - removed exporter"}
-	c.envVarsError = errPrometheusRemoved.Error()
-	c.envVars = map[string]string{
-		"USE_PROMETHEUS": "1",
-	}
-	c.fileContent = `
-[Prometheus]
-Enabled = true
 `
 	return c
 }
