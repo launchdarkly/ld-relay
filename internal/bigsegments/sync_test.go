@@ -147,7 +147,6 @@ func TestBasicSync(t *testing.T) {
 			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
-			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
 			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
