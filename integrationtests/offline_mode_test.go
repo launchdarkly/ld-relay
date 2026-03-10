@@ -303,24 +303,11 @@ func downloadRelayArchive(manager *integrationTestManager, configKey config.Auto
 	}
 
 	defer resp.Body.Close()
-	dir := filepath.Dir(filePath)
-	tmp, err := os.CreateTemp(dir, ".archive-*.tmp")
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	if _, err = io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	if err = os.Chmod(tmpPath, 0644); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	return os.Rename(tmpPath, filePath)
+	defer file.Close()
+	_, err = io.Copy(file, resp.Body)
+	return err
 }
