@@ -318,5 +318,9 @@ func downloadRelayArchive(manager *integrationTestManager, configKey config.Auto
 		os.Remove(tmpPath)
 		return err
 	}
+	if err = os.Chmod(tmpPath, 0644); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
 	return os.Rename(tmpPath, filePath)
 }
