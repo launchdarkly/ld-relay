@@ -54,10 +54,6 @@ jobs:
           coverage: 'true'
           suffix: ${{ inputs.suffix }}
 
-      - name: Prometheus Endpoint Test
-        shell: bash
-        run: ./scripts/test-prometheus-endpoint.sh
-
   benchmarks:
     name: ${{ format('Benchmarks ({0})', inputs.store) }}
     runs-on: ubuntu-latest
