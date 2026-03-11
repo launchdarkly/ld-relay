@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.3](https://github.com/launchdarkly/ld-relay/compare/v8.17.2...v8.17.3) (2026-03-11)
+
+
+### Bug Fixes
+
+* Drop windows/arm support ([#588](https://github.com/launchdarkly/ld-relay/issues/588)) ([34e80af](https://github.com/launchdarkly/ld-relay/commit/34e80afa4cf522fcc1a7780fc6769438db01b470))
+
 ## [8.17.2](https://github.com/launchdarkly/ld-relay/compare/v8.17.1...v8.17.2) (2026-03-11)
 
 
