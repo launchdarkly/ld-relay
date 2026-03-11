@@ -307,7 +307,18 @@ func downloadRelayArchive(manager *integrationTestManager, configKey config.Auto
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = io.Copy(file, resp.Body)
-	return err
+	n, err := io.Copy(file, resp.Body)
+	if err != nil {
+		file.Close()
+		return err
+	}
+	if n == 0 {
+		file.Close()
+		return fmt.Errorf("downloaded empty archive (0 bytes)")
+	}
+	if err = file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
