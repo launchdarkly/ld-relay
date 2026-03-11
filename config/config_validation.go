@@ -21,7 +21,7 @@ var (
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
-	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:stylecheck
+	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
@@ -252,14 +252,14 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	switch {
 	case len(c.Environment) == 1:
 		for name, e := range c.Environment {
-			if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
+			if e.Prefix == "" && (!c.DynamoDB.Enabled || e.TableName == "") {
 				loggers.Warn(warnEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
 			}
 		}
 
 	case len(c.Environment) > 1:
 		for name, e := range c.Environment {
-			if e.Prefix == "" && !(c.DynamoDB.Enabled && e.TableName != "") {
+			if e.Prefix == "" && (!c.DynamoDB.Enabled || e.TableName == "") {
 				result.AddError(nil, errEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
 			}
 		}
@@ -267,7 +267,7 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	case c.AutoConfig.Key.Defined():
 		// Same as previous case, except that in auto-config mode we must assume that there are multiple environments.
 		if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
-			!(c.DynamoDB.Enabled && strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
+			(!c.DynamoDB.Enabled || !strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
 			result.AddError(nil, errAutoConfWithoutDBDisambig)
 		}
 	}
