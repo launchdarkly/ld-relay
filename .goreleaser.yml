@@ -24,6 +24,8 @@ builds:
   ignore: # Go 1.15+ doesn't support 32-bit Darwin
     - goos: darwin
       goarch: '386'
+    - goos: windows
+      goarch: arm
 
 nfpms:
   -
