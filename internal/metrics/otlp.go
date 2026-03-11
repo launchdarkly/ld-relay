@@ -45,57 +45,17 @@ func newOTLPExporters(
 	switch protocol {
 	case "grpc":
 		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
-			var gopts []otlpmetricgrpc.Option
-			if otlpConfig.Endpoint != "" {
-				gopts = append(gopts, otlpmetricgrpc.WithEndpoint(otlpConfig.Endpoint))
-			}
-			if otlpConfig.Insecure {
-				gopts = append(gopts, otlpmetricgrpc.WithInsecure())
-			}
-			if len(headers) > 0 {
-				gopts = append(gopts, otlpmetricgrpc.WithHeaders(headers))
-			}
-			return otlpmetricgrpc.New(ctx, gopts...)
+			return otlpmetricgrpc.New(ctx, buildGRPCMetricOptions(otlpConfig, headers)...)
 		}
 		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
-			var gopts []otlptracegrpc.Option
-			if otlpConfig.Endpoint != "" {
-				gopts = append(gopts, otlptracegrpc.WithEndpoint(otlpConfig.Endpoint))
-			}
-			if otlpConfig.Insecure {
-				gopts = append(gopts, otlptracegrpc.WithInsecure())
-			}
-			if len(headers) > 0 {
-				gopts = append(gopts, otlptracegrpc.WithHeaders(headers))
-			}
-			return otlptracegrpc.New(ctx, gopts...)
+			return otlptracegrpc.New(ctx, buildGRPCTraceOptions(otlpConfig, headers)...)
 		}
 	case "http":
 		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
-			var hopts []otlpmetrichttp.Option
-			if otlpConfig.Endpoint != "" {
-				hopts = append(hopts, otlpmetrichttp.WithEndpoint(otlpConfig.Endpoint))
-			}
-			if otlpConfig.Insecure {
-				hopts = append(hopts, otlpmetrichttp.WithInsecure())
-			}
-			if len(headers) > 0 {
-				hopts = append(hopts, otlpmetrichttp.WithHeaders(headers))
-			}
-			return otlpmetrichttp.New(ctx, hopts...)
+			return otlpmetrichttp.New(ctx, buildHTTPMetricOptions(otlpConfig, headers)...)
 		}
 		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
-			var hopts []otlptracehttp.Option
-			if otlpConfig.Endpoint != "" {
-				hopts = append(hopts, otlptracehttp.WithEndpoint(otlpConfig.Endpoint))
-			}
-			if otlpConfig.Insecure {
-				hopts = append(hopts, otlptracehttp.WithInsecure())
-			}
-			if len(headers) > 0 {
-				hopts = append(hopts, otlptracehttp.WithHeaders(headers))
-			}
-			return otlptracehttp.New(ctx, hopts...)
+			return otlptracehttp.New(ctx, buildHTTPTraceOptions(otlpConfig, headers)...)
 		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
@@ -138,4 +98,60 @@ func parseHeaders(headers string) map[string]string {
 		}
 	}
 	return result
+}
+
+func buildGRPCMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlpmetricgrpc.Option {
+	var opts []otlpmetricgrpc.Option
+	if otlpConfig.Endpoint != "" {
+		opts = append(opts, otlpmetricgrpc.WithEndpoint(otlpConfig.Endpoint))
+	}
+	if otlpConfig.Insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlpmetricgrpc.WithHeaders(headers))
+	}
+	return opts
+}
+
+func buildGRPCTraceOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlptracegrpc.Option {
+	var opts []otlptracegrpc.Option
+	if otlpConfig.Endpoint != "" {
+		opts = append(opts, otlptracegrpc.WithEndpoint(otlpConfig.Endpoint))
+	}
+	if otlpConfig.Insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(headers))
+	}
+	return opts
+}
+
+func buildHTTPMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlpmetrichttp.Option {
+	var opts []otlpmetrichttp.Option
+	if otlpConfig.Endpoint != "" {
+		opts = append(opts, otlpmetrichttp.WithEndpoint(otlpConfig.Endpoint))
+	}
+	if otlpConfig.Insecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlpmetrichttp.WithHeaders(headers))
+	}
+	return opts
+}
+
+func buildHTTPTraceOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlptracehttp.Option {
+	var opts []otlptracehttp.Option
+	if otlpConfig.Endpoint != "" {
+		opts = append(opts, otlptracehttp.WithEndpoint(otlpConfig.Endpoint))
+	}
+	if otlpConfig.Insecure {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlptracehttp.WithHeaders(headers))
+	}
+	return opts
 }
