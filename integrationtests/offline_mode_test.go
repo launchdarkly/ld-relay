@@ -240,6 +240,8 @@ func testKeyIsRotatedWithoutGracePeriod(t *testing.T, manager *integrationTestMa
 				// time.Time{} to signify that there's no deprecation period.
 				updated = manager.rotateSDKKeys(t, updated, time.Time{})
 
+				time.Sleep(5 * time.Second)
+
 				err = downloadRelayArchive(manager, testData.autoConfigKey, filePath)
 				manager.apiHelper.logResult("Download data archive from /relay/latest-all to "+filePath, err)
 				require.NoError(t, err)
@@ -301,11 +303,22 @@ func downloadRelayArchive(manager *integrationTestManager, configKey config.Auto
 	}
 
 	defer resp.Body.Close()
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = io.Copy(file, resp.Body)
-	return err
+	n, err := io.Copy(file, resp.Body)
+	if err != nil {
+		file.Close()
+		return err
+	}
+	if n == 0 {
+		file.Close()
+		return fmt.Errorf("downloaded empty archive (0 bytes)")
+	}
+	if err = file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
