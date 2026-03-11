@@ -63,7 +63,7 @@ type FeatureEvent struct {
 	Reason               ldreason.EvaluationReason  `json:"reason"`
 }
 
-func (e FeatureEvent) Kind() string { return featureKind } //nolint:revive
+func (e FeatureEvent) Kind() string { return featureKind } //nolint:golint
 
 // IdentifyEvent represents an "identify" event in old event data.
 //
@@ -75,7 +75,7 @@ type IdentifyEvent struct {
 	Context       *ReceivedEventContext      `json:"context"`
 }
 
-func (e IdentifyEvent) Kind() string { return identifyKind } //nolint:revive
+func (e IdentifyEvent) Kind() string { return identifyKind } //nolint:golint
 
 // CustomEvent represents a "custom" event in old event data.
 //
@@ -90,7 +90,7 @@ type CustomEvent struct {
 	MetricValue   *float64                   `json:"metricValue"`
 }
 
-func (e CustomEvent) Kind() string { return customKind } //nolint:revive
+func (e CustomEvent) Kind() string { return customKind } //nolint:golint
 
 // UntranslatedEvent represents an event that we do not implement any special processing for.
 type UntranslatedEvent struct {
@@ -98,4 +98,4 @@ type UntranslatedEvent struct {
 	kind     string
 }
 
-func (e UntranslatedEvent) Kind() string { return e.kind } //nolint:revive
+func (e UntranslatedEvent) Kind() string { return e.kind } //nolint:golint

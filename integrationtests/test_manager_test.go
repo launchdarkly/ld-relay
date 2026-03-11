@@ -39,8 +39,8 @@ const (
 	defaultStreamBaseURL    = "https://stream-stg.launchdarkly.com"
 	defaultSDKBaseURL       = "https://sdk-stg.launchdarkly.com"
 	defaultClientSDKBaseURL = "https://clientsdk-stg.launchdarkly.com"
-	// 30 seconds because the previous value of 10 resulted in flaky autoconfig tests.
-	defaultStatusPollTimeout = time.Second * 30
+	// 10 seconds because the previous value of 5 resulted in flaky autoconfig tests.
+	defaultStatusPollTimeout = time.Second * 10
 	// 1 second because the previous value of 100ms seemed unnecessarily aggressive.
 	defaultStatusPollInterval = 1 * time.Second
 	relayContainerSharedDir   = "/tmp/relay-shared"

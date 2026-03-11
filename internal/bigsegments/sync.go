@@ -21,7 +21,6 @@ const (
 	unboundedPollPath          = "/sdk/big-segments/revisions"
 	unboundedStreamPath        = "/big-segments"
 	streamReadTimeout          = 5 * time.Minute
-	revisionsPollTimeout       = 90 * time.Second
 	defaultStreamRetryInterval = 10 * time.Second
 	synchronizedOnInterval     = 30 * time.Second
 
@@ -300,7 +299,6 @@ func isHTTPErrorRecoverable(statusCode int) bool {
 
 func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, error) {
 	client := s.httpConfig.Client()
-	client.Timeout = revisionsPollTimeout
 
 	request, err := http.NewRequest("GET", s.pollURI, nil)
 	if err != nil {

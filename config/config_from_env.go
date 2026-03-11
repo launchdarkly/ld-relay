@@ -136,16 +136,16 @@ func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.Validati
 		reader.ReadStruct(&c.DynamoDB, false)
 	}
 
-	reader.ReadStruct(&c.Datadog, false)
-	if c.Datadog.Enabled {
+	reader.ReadStruct(&c.MetricsConfig.Datadog, false)
+	if c.MetricsConfig.Datadog.Enabled {
 		for tagName, tagVal := range reader.FindPrefixedValues("DATADOG_TAG_") {
-			c.Datadog.Tag = append(c.Datadog.Tag, tagName+":"+tagVal)
+			c.MetricsConfig.Datadog.Tag = append(c.MetricsConfig.Datadog.Tag, tagName+":"+tagVal)
 		}
-		sort.Strings(c.Datadog.Tag) // for test determinacy
+		sort.Strings(c.MetricsConfig.Datadog.Tag) // for test determinacy
 	}
 
-	reader.ReadStruct(&c.Stackdriver, false)
-	reader.ReadStruct(&c.Prometheus, false)
+	reader.ReadStruct(&c.MetricsConfig.Stackdriver, false)
+	reader.ReadStruct(&c.MetricsConfig.Prometheus, false)
 
 	reader.ReadStruct(&c.Proxy, false)
 

@@ -2,29 +2,6 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
-## [8.17.3](https://github.com/launchdarkly/ld-relay/compare/v8.17.2...v8.17.3) (2026-03-11)
-
-
-### Bug Fixes
-
-* Drop windows/arm support ([#588](https://github.com/launchdarkly/ld-relay/issues/588)) ([34e80af](https://github.com/launchdarkly/ld-relay/commit/34e80afa4cf522fcc1a7780fc6769438db01b470))
-
-## [8.17.2](https://github.com/launchdarkly/ld-relay/compare/v8.17.1...v8.17.2) (2026-03-11)
-
-
-### Bug Fixes
-
-* Set timeout for big segment revisions poll ([#584](https://github.com/launchdarkly/ld-relay/issues/584)) ([2b3051e](https://github.com/launchdarkly/ld-relay/commit/2b3051e98e92003f1c4f23d136e732efb9d2a45e))
-
-## [8.17.1](https://github.com/launchdarkly/ld-relay/compare/v8.17.0...v8.17.1) (2026-03-11)
-
-
-### Bug Fixes
-
-* **deps:** bump supported Go versions to 1.25.7 and 1.24.13 ([#579](https://github.com/launchdarkly/ld-relay/issues/579)) ([9f99a49](https://github.com/launchdarkly/ld-relay/commit/9f99a4946e79ea038d97d21ff92672e6f55fd789))
-* **deps:** bump supported Go versions to 1.26.1 and 1.25.8 ([#585](https://github.com/launchdarkly/ld-relay/issues/585)) ([49aa16e](https://github.com/launchdarkly/ld-relay/commit/49aa16e533e8ea0186e59f28db8866ba9a35e38b))
-* **deps:** update Dockerfiles from 3.23.2 to alpine:3.23.3 ([#577](https://github.com/launchdarkly/ld-relay/issues/577)) ([f6b4e48](https://github.com/launchdarkly/ld-relay/commit/f6b4e485fe9bfa90831590d5f0cff9947c41ac81))
-
 ## [8.17.0](https://github.com/launchdarkly/ld-relay/compare/v8.16.4...v8.17.0) (2026-01-26)
 
 

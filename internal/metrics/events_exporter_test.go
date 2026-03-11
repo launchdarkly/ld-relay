@@ -84,12 +84,6 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 			expectedConn := currentConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Current: 1}
 			expectedNewConn := newConnectionsMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 2}
 			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
-
-			// Because the reporting period is very short, the three stats.Record calls may land in
-			// different export cycles. NewConnections resets after each flush and PollingCounts only
-			// reports deltas, so all three metrics may never appear in a single event. We accumulate
-			// across events instead.
-			var sawConn, sawNewConn, sawPolling bool
 			require.Eventually(t, func() bool {
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
 				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
@@ -97,16 +91,9 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 				assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
 				assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
 				assert.Equal(t, relayID, metricsEvent.RelayID)
-				if len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn {
-					sawConn = true
-				}
-				if len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn {
-					sawNewConn = true
-				}
-				if len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric {
-					sawPolling = true
-				}
-				return sawConn && sawNewConn && sawPolling
+				return len(metricsEvent.Connections) == 1 && metricsEvent.Connections[0] == expectedConn &&
+					len(metricsEvent.NewConnections) == 1 && metricsEvent.NewConnections[0] == expectedNewConn &&
+					len(metricsEvent.PollingCounts) == 1 && metricsEvent.PollingCounts[0] == expectedPollingMetric
 			}, time.Second*5, time.Millisecond*100, "did not receive expected metrics")
 		})
 	})

@@ -287,7 +287,6 @@ func (store *dynamoDBBigSegmentStore) GetSynchronizedOn() (ldtime.UnixMillisecon
 }
 
 func (store *dynamoDBBigSegmentStore) Close() error {
-	store.cancelContext()
 	return nil
 }
 

@@ -75,7 +75,7 @@ func (e *TestMetricsExporter) ExportView(viewData *view.Data) {
 	defer e.lock.Unlock()
 
 	viewName := viewData.View.Name
-	rows := make([]TestMetricsRow, 0, len(viewData.Rows))
+	rows := []TestMetricsRow{}
 	for _, vr := range viewData.Rows {
 		tr := TestMetricsRow{Tags: make(map[string]string, len(vr.Tags))}
 		for _, t := range vr.Tags {

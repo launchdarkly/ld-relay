@@ -303,7 +303,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamConnected,
@@ -312,7 +312,7 @@ func TestOverlappingStreams(t *testing.T) {
 		instanceID:       "instanceID",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	env.usageActivityMessage(&usageActivityMessage{
 		kind:             UsageActivityKindStreamDisconnected,
@@ -326,7 +326,7 @@ func TestOverlappingStreams(t *testing.T) {
 	event := publisher.expectUsageEvent(t, time.Second)
 	assert.Equal(t, "userAgent", event.UserAgent)
 
-	assert.InDeltaf(t, 300, event.TotalStreamMs, 50, "stream time should be approximately 300ms")
+	assert.InDeltaf(t, 30, event.TotalStreamMs, 5, "stream time should be approximately 30ms")
 }
 
 func TestMultipleUserStreams(t *testing.T) {
@@ -341,7 +341,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID1",
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 
 	// Second user connects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -351,7 +351,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID2",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	// First user disconnects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -361,7 +361,7 @@ func TestMultipleUserStreams(t *testing.T) {
 		instanceID:       "instanceID1",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 
 	// Second user disconnects
 	env.usageActivityMessage(&usageActivityMessage{
@@ -383,10 +383,10 @@ func TestMultipleUserStreams(t *testing.T) {
 
 	assert.Equal(t, "platform1", event1.PlatformCategory)
 	assert.Equal(t, "instanceID1", event1.InstanceID)
-	assert.InDeltaf(t, 150, event1.TotalStreamMs, 50, "stream time should be approximately 150ms")
+	assert.InDeltaf(t, 15, event1.TotalStreamMs, 5, "stream time should be approximately 15ms")
 
 	assert.Equal(t, "userAgent2", event2.UserAgent)
 	assert.Equal(t, "platform2", event2.PlatformCategory)
 	assert.Equal(t, "instanceID2", event2.InstanceID)
-	assert.InDeltaf(t, 300, event2.TotalStreamMs, 50, "stream time should be approximately 300ms")
+	assert.InDeltaf(t, 30, event2.TotalStreamMs, 5, "stream time should be approximately 30ms")
 }

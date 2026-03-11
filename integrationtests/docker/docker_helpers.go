@@ -119,8 +119,7 @@ func (cb *ContainerBuilder) args(args ...string) *ContainerBuilder {
 }
 
 func (cb *ContainerBuilder) Build() (*Container, error) {
-	args := make([]string, 0, 2+len(cb.params)+len(cb.containerParams))
-	args = append(args, "create")
+	args := []string{"create"}
 	args = append(args, cb.params...)
 	args = append(args, cb.imageName)
 	args = append(args, cb.containerParams...)
@@ -136,8 +135,7 @@ func (cb *ContainerBuilder) Build() (*Container, error) {
 }
 
 func (cb *ContainerBuilder) Run() error {
-	args := make([]string, 0, 2+len(cb.params)+len(cb.containerParams))
-	args = append(args, "run")
+	args := []string{"run"}
 	args = append(args, cb.params...)
 	args = append(args, cb.imageName)
 	args = append(args, cb.containerParams...)
@@ -170,8 +168,7 @@ func (c *Container) FollowLogs(outputWriter io.Writer) error {
 }
 
 func (c *Container) CommandInContainer(commandLine ...string) *oshelpers.CommandWrapper {
-	args := make([]string, 0, 2+len(commandLine))
-	args = append(args, "exec", c.id)
+	args := []string{"exec", c.id}
 	args = append(args, commandLine...)
 	return command("docker", args...)
 }

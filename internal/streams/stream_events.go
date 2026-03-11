@@ -31,7 +31,7 @@ type deferredEvent struct {
 }
 
 func (e deferredEvent) Event() string { return e.name }
-func (e deferredEvent) Id() string    { return "" } //nolint:revive
+func (e deferredEvent) Id() string    { return "" } //nolint:golint,stylecheck
 func (e deferredEvent) Data() string  { return e.result.Get() }
 
 func MakeEventsForUpToDate(selector subsystems.Selector) []eventsource.Event {

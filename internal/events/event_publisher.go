@@ -263,7 +263,7 @@ func (p *HTTPEventPublisher) append(batch eventBatch) {
 	queue.events = append(queue.events, batch.events[:taken]...)
 }
 
-func (p *HTTPEventPublisher) ReplaceCredential(newCredential credential.SDKCredential) { //nolint:revive // method is already documented in interface
+func (p *HTTPEventPublisher) ReplaceCredential(newCredential credential.SDKCredential) { //nolint:golint // method is already documented in interface
 	p.lock.Lock()
 	if reflect.TypeOf(newCredential) == reflect.TypeOf(p.authKey) {
 		p.authKey = newCredential
@@ -271,11 +271,11 @@ func (p *HTTPEventPublisher) ReplaceCredential(newCredential credential.SDKCrede
 	p.lock.Unlock()
 }
 
-func (p *HTTPEventPublisher) Publish(metadata EventPayloadMetadata, events ...json.RawMessage) { //nolint:revive // method is already documented in interface
+func (p *HTTPEventPublisher) Publish(metadata EventPayloadMetadata, events ...json.RawMessage) { //nolint:golint // method is already documented in interface
 	p.inputQueue <- eventBatch{metadata, events}
 }
 
-func (p *HTTPEventPublisher) Flush() { //nolint:revive // method is already documented in interface
+func (p *HTTPEventPublisher) Flush() { //nolint:golint // method is already documented in interface
 	p.inputQueue <- flush{}
 }
 
@@ -359,7 +359,7 @@ func (p *HTTPEventPublisher) flush() {
 	}
 }
 
-func (p *HTTPEventPublisher) Close() { //nolint:revive // method is already documented in interface
+func (p *HTTPEventPublisher) Close() { //nolint:golint // method is already documented in interface
 	p.closeOnce.Do(func() {
 		close(p.closer)
 		p.wg.Wait()
