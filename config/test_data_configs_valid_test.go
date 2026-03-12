@@ -760,25 +760,22 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 			Endpoint: "otel-collector:4317",
 			Protocol: "grpc",
 			Headers:  "api-key=secret,env=prod",
-			Insecure: true,
 			Traces:   true,
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                        "1",
-		"OTEL_EXPORTER_OTLP_ENDPOINT":    "otel-collector:4317",
-		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
-		"OTEL_EXPORTER_OTLP_HEADERS":     "api-key=secret,env=prod",
-		"OTEL_EXPORTER_OTLP_INSECURE":    "1",
-		"OTLP_TRACES":                    "1",
+		"USE_OTLP":                     "1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		"OTEL_EXPORTER_OTLP_HEADERS":  "api-key=secret,env=prod",
+		"OTLP_TRACES":                 "1",
 	}
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
-Endpoint = otel-collector:4317
+Endpoint = http://otel-collector:4317
 Protocol = grpc
 Headers = api-key=secret,env=prod
-Insecure = true
 Traces = true
 `
 	return c
