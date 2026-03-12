@@ -305,9 +305,8 @@ func newEventVerbatimRelay(
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionBaseURI(eventsURI),
 		OptionURIPath(remotePath),
+		OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)),
 	}
-
-	opts = append(opts, OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)))
 
 	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, loggers, opts...)
 

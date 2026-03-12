@@ -10,10 +10,10 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
+	"github.com/gorilla/mux"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
-	"github.com/gorilla/mux"
 )
 
 const (
