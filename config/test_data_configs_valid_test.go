@@ -757,7 +757,7 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
 			Enabled:  true,
-			Endpoint: "otel-collector:4317",
+			Endpoint: "http://otel-collector:4317",
 			Protocol: "grpc",
 			Headers:  "api-key=secret,env=prod",
 			Traces:   true,
