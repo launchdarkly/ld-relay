@@ -55,7 +55,7 @@ func getClientSideContextProperties(
 	if contextDecodeErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write(util.ErrorJSONMsg(contextDecodeErr.Error()))
+		_, _ = w.Write(util.ErrorJSONMsg(contextDecodeErr.Error())) //nolint:gosec
 		return ldContext, false
 	}
 
@@ -280,7 +280,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	respData := serializeFlagsAsMap(data)
 	// Compute an overall Etag for the data set by hashing flag keys and versions
-	hash := sha1.New()                                                         //nolint:gas // just used for insecure hashing
+	hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
 	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
 	for _, item := range data {
 		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
