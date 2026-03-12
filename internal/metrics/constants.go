@@ -8,11 +8,10 @@ import (
 )
 
 const (
-	// Metric instrument names. These are bare names without a prefix; the receiving backend
-	// typically handles namespacing.
-	connMeasureName    = "connections"
-	newConnMeasureName = "newconnections"
-	requestMeasureName = "requests"
+	// Metric instrument names.
+	connMeasureName    = "launchdarkly.relay.connections"
+	newConnMeasureName = "launchdarkly.relay.newconnections"
+	requestMeasureName = "launchdarkly.relay.requests"
 
 	defaultFlushInterval = time.Minute
 
