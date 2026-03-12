@@ -241,7 +241,7 @@ func doBigSegmentsTestWithFirstSegmentAddedAfterStartup(
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey,
-					segmentInfo.includedUserKeys, segmentInfo.excludedUserKeys, segmentInfo.includedByRuleUserKeys))
+					segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
 			}
 
 			flagKey := flagKeyForProj(projectInfo)
