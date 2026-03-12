@@ -765,12 +765,12 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":       "1",
-		"OTLP_ENDPOINT":  "otel-collector:4317",
-		"OTLP_PROTOCOL":  "grpc",
-		"OTLP_HEADERS":   "api-key=secret,env=prod",
-		"OTLP_INSECURE":  "1",
-		"OTLP_TRACES":    "1",
+		"USE_OTLP":                        "1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":    "otel-collector:4317",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":    "grpc",
+		"OTEL_EXPORTER_OTLP_HEADERS":     "api-key=secret,env=prod",
+		"OTEL_EXPORTER_OTLP_INSECURE":    "1",
+		"OTLP_TRACES":                    "1",
 	}
 	c.fileContent = `
 [OpenTelemetry]

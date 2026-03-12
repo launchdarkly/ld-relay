@@ -452,8 +452,8 @@ func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
 	c := testDataInvalidConfig{name: "OTLP - invalid protocol"}
 	c.envVarsError = errOTLPInvalidProtocol.Error()
 	c.envVars = map[string]string{
-		"USE_OTLP":      "1",
-		"OTLP_PROTOCOL": "websocket",
+		"USE_OTLP":                     "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": "websocket",
 	}
 	c.fileContent = `
 [OpenTelemetry]

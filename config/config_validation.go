@@ -19,7 +19,7 @@ var (
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
