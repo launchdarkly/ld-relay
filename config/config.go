@@ -308,5 +308,4 @@ type OpenTelemetryConfig struct {
 	Endpoint string `conf:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 	Protocol string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	Headers  string `conf:"OTEL_EXPORTER_OTLP_HEADERS"`
-	Traces   bool   `conf:"OTLP_TRACES"`
 }

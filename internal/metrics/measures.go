@@ -4,15 +4,13 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
-// Instruments holds the OTel metric instruments and tracer used for recording metrics.
+// Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
 	connections    metric.Int64UpDownCounter // active connections (+1/-1)
 	newConnections metric.Int64Counter       // cumulative new connections
 	requests       metric.Int64Counter       // cumulative HTTP requests
-	tracer         trace.Tracer              // for route-level spans
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -59,9 +57,9 @@ var (
 	PollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
 )
 
-// NewInstrumentsForTest creates Instruments backed by the given OTel meter and tracer.
+// NewInstrumentsForTest creates Instruments backed by the given OTel meter.
 // This is intended for use by tests outside the metrics package.
-func NewInstrumentsForTest(meter metric.Meter, tracer trace.Tracer) (*Instruments, error) {
+func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	connections, err := meter.Int64UpDownCounter(connMeasureName)
 	if err != nil {
 		return nil, err
@@ -78,7 +76,6 @@ func NewInstrumentsForTest(meter metric.Meter, tracer trace.Tracer) (*Instrument
 		connections:    connections,
 		newConnections: newConnections,
 		requests:       requests,
-		tracer:         tracer,
 	}, nil
 }
 
@@ -136,22 +133,15 @@ func WithCount(em *EnvironmentManager, instruments *Instruments, userAgent, sdkW
 	f()
 }
 
-// WithRouteCount records a route hit and starts a trace span. The provided context is used
-// as the parent for the span, enabling correlation with incoming request traces.
+// WithRouteCount records a route hit for the specified metric.
 func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper, route, method string, f func(), measure Measure) {
-	if em != nil && instruments != nil {
+	if em != nil && instruments != nil && measure.recordRequests {
 		sanitizedUA := sanitizeTagValue(userAgent)
 		sanitizedWrapper := sanitizeTagValue(sdkWrapper)
 		sanitizedRoute := sanitizeTagValue(route)
 		sanitizedMethod := sanitizeTagValue(method)
 		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
-
-		if measure.recordRequests {
-			instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
-		}
-
-		_, span := instruments.tracer.Start(ctx, route)
-		defer span.End()
+		instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
 	}
 
 	f()

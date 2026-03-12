@@ -19,8 +19,6 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 const (
@@ -29,14 +27,13 @@ const (
 )
 
 type testWithOTelParams struct {
-	manager      *Manager
-	relayID      string
-	envName      string
-	env          *EnvironmentManager
-	instruments  *Instruments
-	reader       sdkmetric.Reader
-	spanExporter *tracetest.InMemoryExporter
-	mockLog      *ldlogtest.MockLog
+	manager     *Manager
+	relayID     string
+	envName     string
+	env         *EnvironmentManager
+	instruments *Instruments
+	reader      sdkmetric.Reader
+	mockLog     *ldlogtest.MockLog
 }
 
 // collectMetrics reads the current metrics from the test reader.
@@ -52,22 +49,17 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 
 	// Create a ManualReader for the test
 	reader := sdkmetric.NewManualReader()
-	spanExporter := tracetest.NewInMemoryExporter()
-	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
-
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := meterProvider.Meter("ld-relay")
 
 	connections, _ := meter.Int64UpDownCounter(connMeasureName)
 	newConnections, _ := meter.Int64Counter(newConnMeasureName)
 	requests, _ := meter.Int64Counter(requestMeasureName)
-	tracer := tracerProvider.Tracer("ld-relay")
 
 	instruments := &Instruments{
 		connections:    connections,
 		newConnections: newConnections,
 		requests:       requests,
-		tracer:         tracer,
 	}
 
 	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
@@ -85,14 +77,13 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	require.NoError(t, err)
 
 	action(testWithOTelParams{
-		manager:      manager,
-		relayID:      manager.metricsRelayID,
-		envName:      envName,
-		env:          env,
-		instruments:  instruments,
-		reader:       reader,
-		spanExporter: spanExporter,
-		mockLog:      mockLog,
+		manager:     manager,
+		relayID:     manager.metricsRelayID,
+		envName:     envName,
+		env:         env,
+		instruments: instruments,
+		reader:      reader,
+		mockLog:     mockLog,
 	})
 }
 

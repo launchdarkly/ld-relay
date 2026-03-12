@@ -10,79 +10,44 @@ import (
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func newOTLPExporters(
 	otlpConfig config.OpenTelemetryConfig,
 	res *resource.Resource,
 	loggers ldlog.Loggers,
-) ([]sdkmetric.Option, *sdktrace.TracerProvider, error) {
-	var opts []sdkmetric.Option
-	var tracerProvider *sdktrace.TracerProvider
-
+) ([]sdkmetric.Option, error) {
 	protocol := strings.ToLower(otlpConfig.Protocol)
 	if protocol == "" {
 		protocol = "grpc"
 	}
 
 	ctx := context.Background()
-
-	type metricExporterFactory func(ctx context.Context) (sdkmetric.Exporter, error)
-	type traceExporterFactory func(ctx context.Context) (sdktrace.SpanExporter, error)
-
-	var (
-		createMetricExporter metricExporterFactory
-		createTraceExporter  traceExporterFactory
-	)
-
 	headers := parseHeaders(otlpConfig.Headers)
+
+	var metricExporter sdkmetric.Exporter
+	var err error
 
 	switch protocol {
 	case "grpc":
-		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
-			return otlpmetricgrpc.New(ctx, buildGRPCMetricOptions(otlpConfig, headers)...)
-		}
-		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
-			return otlptracegrpc.New(ctx, buildGRPCTraceOptions(otlpConfig, headers)...)
-		}
+		metricExporter, err = otlpmetricgrpc.New(ctx, buildGRPCMetricOptions(otlpConfig, headers)...)
 	case "http":
-		createMetricExporter = func(ctx context.Context) (sdkmetric.Exporter, error) {
-			return otlpmetrichttp.New(ctx, buildHTTPMetricOptions(otlpConfig, headers)...)
-		}
-		createTraceExporter = func(ctx context.Context) (sdktrace.SpanExporter, error) {
-			return otlptracehttp.New(ctx, buildHTTPTraceOptions(otlpConfig, headers)...)
-		}
+		metricExporter, err = otlpmetrichttp.New(ctx, buildHTTPMetricOptions(otlpConfig, headers)...)
 	default:
-		return nil, nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
+		return nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
 	}
 
-	metricExporter, err := createMetricExporter(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OTLP %s metric exporter: %w", protocol, err)
+		return nil, fmt.Errorf("failed to create OTLP %s metric exporter: %w", protocol, err)
 	}
-	metricReader := sdkmetric.NewPeriodicReader(metricExporter)
-	opts = append(opts, sdkmetric.WithReader(metricReader))
 
-	if otlpConfig.Traces {
-		traceExporter, err := createTraceExporter(ctx)
-		if err != nil {
-			_ = metricReader.Shutdown(ctx)
-			return nil, nil, fmt.Errorf("failed to create OTLP %s trace exporter: %w", protocol, err)
-		}
-		tracerProvider = sdktrace.NewTracerProvider(
-			sdktrace.WithBatcher(traceExporter),
-			sdktrace.WithResource(res),
-		)
-	}
+	opts := []sdkmetric.Option{sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter))}
 
 	loggers.Infof("Successfully registered OTLP metrics exporter (protocol=%s, endpoint=%s)", protocol, otlpConfig.Endpoint)
 
-	return opts, tracerProvider, nil
+	return opts, nil
 }
 
 func parseHeaders(headers string) map[string]string {
@@ -111,17 +76,6 @@ func buildGRPCMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[s
 	return opts
 }
 
-func buildGRPCTraceOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlptracegrpc.Option {
-	var opts []otlptracegrpc.Option
-	if otlpConfig.Endpoint != "" {
-		opts = append(opts, otlptracegrpc.WithEndpointURL(otlpConfig.Endpoint))
-	}
-	if len(headers) > 0 {
-		opts = append(opts, otlptracegrpc.WithHeaders(headers))
-	}
-	return opts
-}
-
 func buildHTTPMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlpmetrichttp.Option {
 	var opts []otlpmetrichttp.Option
 	if otlpConfig.Endpoint != "" {
@@ -129,17 +83,6 @@ func buildHTTPMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[s
 	}
 	if len(headers) > 0 {
 		opts = append(opts, otlpmetrichttp.WithHeaders(headers))
-	}
-	return opts
-}
-
-func buildHTTPTraceOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlptracehttp.Option {
-	var opts []otlptracehttp.Option
-	if otlpConfig.Endpoint != "" {
-		opts = append(opts, otlptracehttp.WithEndpointURL(otlpConfig.Endpoint))
-	}
-	if len(headers) > 0 {
-		opts = append(opts, otlptracehttp.WithHeaders(headers))
 	}
 	return opts
 }

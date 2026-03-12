@@ -21,8 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 const (
@@ -54,11 +52,9 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 
 	// Set up OTel test infrastructure
 	reader := sdkmetric.NewManualReader()
-	spanExporter := tracetest.NewInMemoryExporter()
-	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 
-	instruments, err := metrics.NewInstrumentsForTest(meterProvider.Meter("ld-relay"), tracerProvider.Tracer("ld-relay"))
+	instruments, err := metrics.NewInstrumentsForTest(meterProvider.Meter("ld-relay"))
 	require.NoError(t, err)
 	manager.SetInstrumentsForTest(instruments)
 
@@ -108,22 +104,22 @@ func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler,
 		countFn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// While inside the handler, connections should be active
 			rm := p.collectMetrics(t)
-			connMetric := st.FindMetricByName(rm, "connections")
+			connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
 			require.NotNil(t, connMetric, "connections metric not found")
 			assertMetricHasValue(t, connMetric, p.envName, category, 1)
 
-			newConnMetric := st.FindMetricByName(rm, "newconnections")
+			newConnMetric := st.FindMetricByName(rm, "launchdarkly.relay.newconnections")
 			require.NotNil(t, newConnMetric, "newconnections metric not found")
 			assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 		})).ServeHTTP(rr, req)
 
 		// After handler returns, connection gauge should be 0 but new connections stays at 1
 		rm := p.collectMetrics(t)
-		connMetric := st.FindMetricByName(rm, "connections")
+		connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
 		require.NotNil(t, connMetric, "connections metric not found")
 		assertMetricHasValue(t, connMetric, p.envName, category, 0)
 
-		newConnMetric := st.FindMetricByName(rm, "newconnections")
+		newConnMetric := st.FindMetricByName(rm, "launchdarkly.relay.newconnections")
 		require.NotNil(t, newConnMetric, "newconnections metric not found")
 		assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 	})
@@ -157,14 +153,14 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
 		rm := p.collectMetrics(t)
-		reqMetric := st.FindMetricByName(rm, "requests")
+		reqMetric := st.FindMetricByName(rm, "launchdarkly.relay.requests")
 		require.NotNil(t, reqMetric, "requests metric not found")
 		assertMetricHasValue(t, reqMetric, p.envName, category, 1)
 
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
 		rm = p.collectMetrics(t)
-		reqMetric = st.FindMetricByName(rm, "requests")
+		reqMetric = st.FindMetricByName(rm, "launchdarkly.relay.requests")
 		require.NotNil(t, reqMetric, "requests metric not found")
 		assertMetricHasValue(t, reqMetric, p.envName, category, 2)
 	})

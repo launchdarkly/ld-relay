@@ -16,10 +16,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	oteltrace "go.opentelemetry.io/otel/trace"
-	nooptrace "go.opentelemetry.io/otel/trace/noop"
 )
 
 var (
@@ -31,9 +28,8 @@ var (
 type Manager struct {
 	metricsRelayID   string
 	instruments      *Instruments
-	meterProvider  *sdkmetric.MeterProvider
-	tracerProvider *sdktrace.TracerProvider
-	flushInterval  time.Duration
+	meterProvider *sdkmetric.MeterProvider
+	flushInterval time.Duration
 	loggers          ldlog.Loggers
 	closeOnce        sync.Once
 	closed           bool
@@ -79,15 +75,12 @@ func NewManager(
 
 	var opts []sdkmetric.Option
 
-	// OTLP reader (if enabled)
-	var tracerProvider *sdktrace.TracerProvider
 	if otlpConfig.Enabled {
-		otlpOpts, tp, err := newOTLPExporters(otlpConfig, res, loggers)
+		otlpOpts, err := newOTLPExporters(otlpConfig, res, loggers)
 		if err != nil {
 			return nil, err
 		}
 		opts = append(opts, otlpOpts...)
-		tracerProvider = tp
 	}
 
 	var meterProvider *sdkmetric.MeterProvider
@@ -107,18 +100,10 @@ func NewManager(
 	requests, _ := meter.Int64Counter(requestMeasureName,
 		otelmetric.WithDescription("number of hits to a route"))
 
-	var tracer oteltrace.Tracer
-	if tracerProvider != nil {
-		tracer = tracerProvider.Tracer("ld-relay")
-	} else {
-		tracer = nooptrace.NewTracerProvider().Tracer("ld-relay")
-	}
-
 	instruments := &Instruments{
 		connections:    connections,
 		newConnections: newConnections,
 		requests:       requests,
-		tracer:         tracer,
 	}
 
 	usageChan := make(chan any, 256)
@@ -126,7 +111,6 @@ func NewManager(
 		metricsRelayID:       metricsRelayID,
 		instruments:          instruments,
 		meterProvider:        meterProvider,
-		tracerProvider:       tracerProvider,
 		flushInterval:        flushInterval,
 		loggers:              loggers,
 		usageChan:            usageChan,
@@ -219,9 +203,6 @@ func (m *Manager) Close() {
 
 		if m.meterProvider != nil {
 			_ = m.meterProvider.Shutdown(context.Background())
-		}
-		if m.tracerProvider != nil {
-			_ = m.tracerProvider.Shutdown(context.Background())
 		}
 	})
 }

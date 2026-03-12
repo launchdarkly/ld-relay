@@ -33,7 +33,6 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.newConnections)
 	assert.NotNil(t, instruments.requests)
-	assert.NotNil(t, instruments.tracer)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -178,10 +177,6 @@ func TestWithRouteCount(t *testing.T) {
 		}
 		assert.True(t, found, "expected data point with route=someRoute, method=GET")
 
-		// Verify span was created
-		spans := p.spanExporter.GetSpans()
-		require.NotEmpty(t, spans)
-		assert.Equal(t, "someRoute", spans[0].Name)
 	})
 }
 
