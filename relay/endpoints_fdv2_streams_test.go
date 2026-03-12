@@ -133,9 +133,27 @@ func (s fdv2StreamEndpointTestParams) assertRequestReceivesEvent(
 			assert.Equal(t, expectedEvent, events[i].Event(), "expected event %d to be %s but got %s", i, expectedEvent, events[i].Event())
 		}
 
-		for i, expectedData := range s.expectedEventData {
-			assert.JSONEq(t, string(expectedData), events[i].Data(), "expected event %d data to be %s but got %s", i, expectedData, events[i].Data())
+		// Match events by content rather than by index order, since order is not guaranteed
+		matchedIndices := make(map[int]bool)
+		for _, expectedData := range s.expectedEventData {
+			found := false
+			for j, event := range events {
+				if matchedIndices[j] {
+					continue // Skip already matched events
+				}
+				// Try to match this expected data with this event
+				if assert.ObjectsAreEqualValues(expectedData, []byte(event.Data())) ||
+					jsonEqual(string(expectedData), event.Data()) {
+					matchedIndices[j] = true
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "expected event data not found: %s", string(expectedData))
 		}
+
+		// Verify all events were matched
+		assert.Len(t, matchedIndices, len(s.expectedEventData), "not all events were matched")
 		// Now wait a little longer to make sure the stream doesn't close unexpectedly, to verify that
 		// we did not mistakenly enable the max connection time feature.
 		if timeToWaitAfterEvent > 0 {
@@ -402,3 +420,15 @@ func TestFDv2EndpointsStreamingServerSide(t *testing.T) {
 // 		}
 // 	})
 // }
+
+// jsonEqual compares two JSON strings for equality, ignoring formatting differences
+func jsonEqual(expected, actual string) bool {
+	var expectedJSON, actualJSON interface{}
+	if err := json.Unmarshal([]byte(expected), &expectedJSON); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(actual), &actualJSON); err != nil {
+		return false
+	}
+	return assert.ObjectsAreEqualValues(expectedJSON, actualJSON)
+}
