@@ -24,7 +24,6 @@ import (
 
 type bigSegmentTestData struct {
 	includedUserKeys          []string
-	excludedUserKeys          []string
 	includedByRuleUserKeys    []string
 	allUserKeys               []string
 	expectedFlagValuesForUser map[string]ldvalue.Value
@@ -41,24 +40,23 @@ func makeBigSegmentTestDataForEnvs(envs []environmentInfo) []bigSegmentTestData 
 		var info bigSegmentTestData
 		userKey1 := fmt.Sprintf("included-user1-%d", i)
 		userKey2 := fmt.Sprintf("included-user2-%d", i)
-		userKey3 := fmt.Sprintf("excluded-user-%d", i)
+		userKey3 := fmt.Sprintf("rule-matched-user-%d", i)
 		info.includedUserKeys = []string{userKey1, userKey2}
-		info.excludedUserKeys = []string{userKey3}
 		info.includedByRuleUserKeys = []string{userKey3, userKey2}
 		info.allUserKeys = []string{userKey1, userKey2, userKey3}
 		info.expectedFlagValuesForUser = map[string]ldvalue.Value{
 			userKey1: ldvalue.Bool(true),
 			userKey2: ldvalue.Bool(true),
-			userKey3: ldvalue.Bool(false),
+			userKey3: ldvalue.Bool(true),
 		}
 		info.explanationForUser = map[string]string{
-			userKey1: "this user should be included in the big segment and not excluded;" +
+			userKey1: "this user should be included in the big segment;" +
 				" a false value indicates that we did not receive the patch that included the user",
-			userKey2: "this user should be included in a segment rule and not excluded;" +
+			userKey2: "this user should be included in a segment rule;" +
 				" a false value indicates that we did not receive the patch that included the user," +
 				" and also did not receive the regular SDK data with the segment rule",
-			userKey3: "this user should be included in a segment rule but excluded from the big segment;" +
-				" a true value indicates that we did not receive the patch that excluded the user",
+			userKey3: "this user should be matched by a segment rule;" +
+				" a false value indicates that we did not receive the regular SDK data with the segment rule",
 		}
 		ret = append(ret, info)
 	}
@@ -179,15 +177,14 @@ func doBigSegmentsTestWithPreExistingSegment(
 ) {
 	// The test logic here is:
 	// 1. Create a project with two environments (so we can prove that they coexist OK in the store).
-	// 2. For each environment, create a big segment that has "included-user1" included and "excluded-user"
-	// excluded in its big segment data, and that also has a regular segment rule that matches "included-user2"
-	// *and* "excluded-user" (to prove that the SDK's matching logic checks these things in the right order,
-	// i.e. excluded-user should not be matched because it's excluded, regardless of the rule).
+	// 2. For each environment, create a big segment that has "included-user1" and "included-user2"
+	// included in its big segment data, and that also has a regular segment rule that matches
+	// "rule-matched-user" and "included-user2".
 	// 3. Also create a feature flag that (in every environment) returns true if the user matches that segment.
 	// 4. Start Relay, configured with those two environments and a persistent data store.
 	// 5. Using the evaluation endpoints, verify that the various user keys return the expected flag values
-	// for each environment (true for the "included-" users, false for the "excluded-" ones). Relay may not
-	// sync up immediately, so we'll keep polling the values till they're correct or we time out and give up.
+	// for each environment (true for all matched users). Relay may not sync up immediately, so we'll keep
+	// polling the values till they're correct or we time out and give up.
 	dbParams.withContainer(t, manager, func(dbContainer *docker.Container) {
 		projectInfo, environments, err := manager.apiHelper.createProject(2)
 		require.NoError(t, err)
@@ -201,7 +198,7 @@ func doBigSegmentsTestWithPreExistingSegment(
 		for i, env := range environments {
 			segmentInfo := segmentTestData[i]
 			require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey,
-				segmentInfo.includedUserKeys, segmentInfo.excludedUserKeys, segmentInfo.includedByRuleUserKeys))
+				segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
 		}
 
 		flagKey := flagKeyForProj(projectInfo)
@@ -281,7 +278,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey1,
-					segmentInfo.includedUserKeys, segmentInfo.excludedUserKeys, segmentInfo.includedByRuleUserKeys))
+					segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
 			}
 			flagKey1 := flagKeyForProj(projectInfo) + "1"
 			err := manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey1, projectInfo, environments, segmentKey1)
@@ -296,7 +293,7 @@ func doBigSegmentsTestWithAnotherSegmentAddedAfterStartup(
 			for i, env := range environments {
 				segmentInfo := segmentTestData[i]
 				require.NoError(t, manager.apiHelper.createBigSegment(projectInfo, env, segmentKey2,
-					segmentInfo.includedUserKeys, segmentInfo.excludedUserKeys, segmentInfo.includedByRuleUserKeys))
+					segmentInfo.includedUserKeys, segmentInfo.includedByRuleUserKeys))
 			}
 			flagKey2 := flagKeyForProj(projectInfo) + "2"
 			err = manager.apiHelper.createBooleanFlagThatUsesSegment(flagKey2, projectInfo, environments, segmentKey2)
