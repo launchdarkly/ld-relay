@@ -14,27 +14,25 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-var (
-	errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
-)
+var errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
 
 // Manager is the top-level object that controls all of our metrics exporter activity. It should be
 // created and retained by the Relay instance, and closed when the Relay instance is closed.
 type Manager struct {
-	metricsRelayID   string
-	instruments      *Instruments
-	meterProvider *sdkmetric.MeterProvider
-	flushInterval time.Duration
-	loggers          ldlog.Loggers
-	closeOnce        sync.Once
-	closed           bool
-	lock             sync.Mutex
-	environments     []*EnvironmentManager
+	metricsRelayID string
+	instruments    *Instruments
+	meterProvider  *sdkmetric.MeterProvider
+	flushInterval  time.Duration
+	loggers        ldlog.Loggers
+	closeOnce      sync.Once
+	closed         bool
+	lock           sync.Mutex
+	environments   []*EnvironmentManager
 
 	usageChan            chan any
 	environmentsForUsage map[string]*environmentMetricUsage
@@ -76,7 +74,7 @@ func NewManager(
 	var opts []sdkmetric.Option
 
 	if otlpConfig.Enabled {
-		otlpOpts, err := newOTLPExporters(otlpConfig, res, loggers)
+		otlpOpts, err := newOTLPExporters(otlpConfig, loggers)
 		if err != nil {
 			return nil, err
 		}

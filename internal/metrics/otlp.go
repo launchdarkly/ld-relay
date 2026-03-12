@@ -11,12 +11,10 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 func newOTLPExporters(
 	otlpConfig config.OpenTelemetryConfig,
-	res *resource.Resource,
 	loggers ldlog.Loggers,
 ) ([]sdkmetric.Option, error) {
 	protocol := strings.ToLower(otlpConfig.Protocol)
