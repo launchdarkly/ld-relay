@@ -756,14 +756,16 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
 		c.OpenTelemetry = OpenTelemetryConfig{
-			Enabled:  true,
-			Endpoint: "http://otel-collector:4317",
-			Protocol: "grpc",
-			Headers:  "api-key=secret,env=prod",
+			Enabled:     true,
+			ServiceName: "my-relay",
+			Endpoint:    "http://otel-collector:4317",
+			Protocol:    "grpc",
+			Headers:     "api-key=secret,env=prod",
 		}
 	}
 	c.envVars = map[string]string{
 		"USE_OTLP":                     "1",
+		"OTEL_SERVICE_NAME":            "my-relay",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
 		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		"OTEL_EXPORTER_OTLP_HEADERS":  "api-key=secret,env=prod",
@@ -771,6 +773,7 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 	c.fileContent = `
 [OpenTelemetry]
 Enabled = true
+ServiceName = my-relay
 Endpoint = http://otel-collector:4317
 Protocol = grpc
 Headers = api-key=secret,env=prod

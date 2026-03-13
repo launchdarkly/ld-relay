@@ -304,8 +304,9 @@ type HTTPConfig struct {
 //
 // This corresponds to the [OpenTelemetry] section in the configuration file.
 type OpenTelemetryConfig struct {
-	Enabled  bool   `conf:"USE_OTLP"`
-	Endpoint string `conf:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	Protocol string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
-	Headers  string `conf:"OTEL_EXPORTER_OTLP_HEADERS"`
+	Enabled     bool   `conf:"USE_OTLP"`
+	ServiceName string `conf:"OTEL_SERVICE_NAME"`
+	Endpoint    string `conf:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	Protocol    string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	Headers     string `conf:"OTEL_EXPORTER_OTLP_HEADERS"`
 }
