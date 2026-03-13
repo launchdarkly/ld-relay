@@ -66,9 +66,11 @@ func NewManager(
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	res := resource.NewWithAttributes(
-		semconv.SchemaURL,
-		semconv.ServiceName("ld-relay"),
+	// Build the OTel resource. OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES are
+	// merged in from the environment, taking precedence over our "ld-relay" default.
+	res, _ := resource.New(context.Background(),
+		resource.WithFromEnv(),
+		resource.WithAttributes(semconv.ServiceName("ld-relay")),
 	)
 
 	var meterProvider *sdkmetric.MeterProvider
