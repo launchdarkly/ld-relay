@@ -71,19 +71,13 @@ func NewManager(
 		semconv.ServiceName("ld-relay"),
 	)
 
-	var opts []sdkmetric.Option
-
+	var meterProvider *sdkmetric.MeterProvider
+	var meter otelmetric.Meter
 	if otlpConfig.Enabled {
-		otlpOpts, err := newOTLPExporters(otlpConfig, loggers)
+		opts, err := newOTLPExporters(otlpConfig, loggers)
 		if err != nil {
 			return nil, err
 		}
-		opts = append(opts, otlpOpts...)
-	}
-
-	var meterProvider *sdkmetric.MeterProvider
-	var meter otelmetric.Meter
-	if len(opts) > 0 {
 		opts = append(opts, sdkmetric.WithResource(res))
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		meter = meterProvider.Meter("ld-relay")
