@@ -78,7 +78,9 @@ func TestStartHTTPServerSecure(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d", port))
-			require.NoError(t, err)
+			if err != nil {
+				return false
+			}
 			return resp.StatusCode == http.StatusOK
 		}, time.Second, time.Millisecond*10)
 		mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf("listening on port %d", port))

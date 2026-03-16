@@ -50,9 +50,6 @@ const (
 	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
 	DefaultDatabaseCacheTTL = time.Second * 30
 
-	// DefaultPrometheusPort is the default value for PrometheusConfig.Port if not specified.
-	DefaultPrometheusPort = 8031
-
 	// DefaultBigSegmentsStaleThreshold is the default value for MainConfig.BigSegmentsStaleThreshold if not specified.
 	DefaultBigSegmentsStaleThreshold = time.Minute * 5
 
@@ -128,10 +125,7 @@ type Config struct {
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
 
-	// Optional configuration for metrics integrations. Note that unlike the other fields in Config,
-	// MetricsConfig is not the name of a configuration file section; the actual sections are the
-	// structs within this struct (Datadog, etc.).
-	MetricsConfig
+	OpenTelemetry OpenTelemetryConfig
 }
 
 // MainConfig contains global configuration options for Relay.
@@ -306,52 +300,13 @@ type HTTPConfig struct {
 	DisableKeepAlives   bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
 }
 
-// MetricsConfig contains configurations for optional metrics integrations.
+// OpenTelemetryConfig configures the optional OTLP export integration, which is used only if Enabled is true.
 //
-// This corresponds to the [Datadog], [Stackdriver], and [Prometheus] sections in the configuration file.
-type MetricsConfig struct {
-	Datadog     DatadogConfig
-	Stackdriver StackdriverConfig
-	Prometheus  PrometheusConfig
-}
-
-// DatadogConfig configures the optional Datadog integration, which is used only if Enabled is true.
-//
-// This corresponds to the [Datadog] section in the configuration file.
-//
-// Since configuration options can be set either programmatically, or from a file, or from environment
-// variables, individual fields are not documented here; instead, see the `README.md` section on
-// configuration.
-type DatadogConfig struct {
-	Enabled   bool     `conf:"USE_DATADOG"`
-	Prefix    string   `conf:"DATADOG_PREFIX"`
-	TraceAddr string   `conf:"DATADOG_TRACE_ADDR"`
-	StatsAddr string   `conf:"DATADOG_STATS_ADDR"`
-	Tag       []string // special handling in LoadConfigFromEnvironment
-}
-
-// StackdriverConfig configures the optional Stackdriver integration, which is used only if Enabled is true.
-//
-// This corresponds to the [StackdriverConfig] section in the configuration file.
-//
-// Since configuration options can be set either programmatically, or from a file, or from environment
-// variables, individual fields are not documented here; instead, see the `README.md` section on
-// configuration.
-type StackdriverConfig struct {
-	Enabled   bool   `conf:"USE_STACKDRIVER"`
-	Prefix    string `conf:"STACKDRIVER_PREFIX"`
-	ProjectID string `conf:"STACKDRIVER_PROJECT_ID"`
-}
-
-// PrometheusConfig configures the optional Prometheus integration, which is used only if Enabled is true.
-//
-// This corresponds to the [PrometheusConfig] section in the configuration file.
-//
-// Since configuration options can be set either programmatically, or from a file, or from environment
-// variables, individual fields are not documented here; instead, see the `README.md` section on
-// configuration.
-type PrometheusConfig struct {
-	Enabled bool                     `conf:"USE_PROMETHEUS"`
-	Prefix  string                   `conf:"PROMETHEUS_PREFIX"`
-	Port    ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
+// This corresponds to the [OpenTelemetry] section in the configuration file.
+type OpenTelemetryConfig struct {
+	Enabled     bool   `conf:"USE_OTLP"`
+	ServiceName string `conf:"OTEL_SERVICE_NAME"`
+	Endpoint    string `conf:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	Protocol    string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
+	Headers     string `conf:"OTEL_EXPORTER_OTLP_HEADERS"`
 }

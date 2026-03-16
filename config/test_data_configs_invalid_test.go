@@ -43,6 +43,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
+		makeInvalidConfigOTLPInvalidProtocol(),
 	}
 }
 
@@ -443,6 +444,21 @@ Key = autokey
 
 [DynamoDB]
 Enabled = true
+`
+	return c
+}
+
+func makeInvalidConfigOTLPInvalidProtocol() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "OTLP - invalid protocol"}
+	c.envVarsError = errOTLPInvalidProtocol.Error()
+	c.envVars = map[string]string{
+		"USE_OTLP":                     "1",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": "websocket",
+	}
+	c.fileContent = `
+[OpenTelemetry]
+Enabled = true
+Protocol = websocket
 `
 	return c
 }

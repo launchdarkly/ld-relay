@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -12,11 +13,12 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 const (
@@ -24,90 +26,65 @@ const (
 	userAgentValue     = "my-agent"
 )
 
-type testWithExporterParams struct {
-	exporter *st.TestMetricsExporter
-	relayID  string
-	envName  string
-	env      *EnvironmentManager
-	mockLog  *ldlogtest.MockLog
+type testWithOTelParams struct {
+	manager     *Manager
+	relayID     string
+	envName     string
+	env         *EnvironmentManager
+	instruments *Instruments
+	reader      sdkmetric.Reader
+	mockLog     *ldlogtest.MockLog
 }
 
-func testWithExporter(t *testing.T, action func(testWithExporterParams)) {
+// collectMetrics reads the current metrics from the test reader.
+func (p testWithOTelParams) collectMetrics() (*metricdata.ResourceMetrics, error) {
+	var rm metricdata.ResourceMetrics
+	err := p.reader.Collect(context.Background(), &rm)
+	return &rm, err
+}
+
+func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
-	manager, err := NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
+	// Create a ManualReader for the test
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	meter := meterProvider.Meter("ld-relay")
+
+	connections, _ := meter.Int64UpDownCounter(connMeasureName)
+	newConnections, _ := meter.Int64Counter(newConnMeasureName)
+	requests, _ := meter.Int64Counter(requestMeasureName)
+
+	instruments := &Instruments{
+		connections:    connections,
+		newConnections: newConnections,
+		requests:       requests,
+	}
+
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)
 	defer manager.Close()
 
-	// Since the global OpenCensus state will accumulate metrics from different tests, we'll use a randomized
-	// environment name to isolate the data from this particular test.
+	// Override the instruments on the manager with our test ones
+	manager.instruments = instruments
+
+	// Since OTel doesn't have global state like OpenCensus, we just use a randomized
+	// environment name for test isolation.
 	envName := "env-" + uuid.New()
 
 	env, err := manager.AddEnvironment(envName, nil)
 	require.NoError(t, err)
 
-	exporter := st.NewTestMetricsExporter()
-	exporter.WithExporter(func() {
-		action(testWithExporterParams{
-			exporter: exporter,
-			relayID:  manager.metricsRelayID,
-			envName:  envName,
-			env:      env,
-			mockLog:  mockLog,
-		})
+	action(testWithOTelParams{
+		manager:     manager,
+		relayID:     manager.metricsRelayID,
+		envName:     envName,
+		env:         env,
+		instruments: instruments,
+		reader:      reader,
+		mockLog:     mockLog,
 	})
-}
-
-type testExporterTypeImpl struct {
-	name            string
-	checkEnabled    func(config.MetricsConfig) bool
-	errorOnCreate   error
-	errorOnRegister error
-	errorOnClose    error
-	created         []*testExporterImpl
-}
-
-type testExporterImpl struct {
-	exporterType *testExporterTypeImpl
-	registered   bool
-	closed       bool
-}
-
-func (t *testExporterTypeImpl) getName() string {
-	if t.name == "" {
-		return "testExporter"
-	}
-	return t.name
-}
-
-func (t *testExporterTypeImpl) createExporterIfEnabled(
-	mc config.MetricsConfig,
-	loggers ldlog.Loggers,
-) (exporter, error) {
-	if t.errorOnCreate != nil {
-		return nil, t.errorOnCreate
-	}
-	if t.checkEnabled != nil && !t.checkEnabled(mc) {
-		return nil, nil
-	}
-	impl := &testExporterImpl{exporterType: t}
-	t.created = append(t.created, impl)
-	return impl, nil
-}
-
-func (t *testExporterImpl) register() error {
-	if t.exporterType.errorOnRegister == nil {
-		t.registered = true
-	}
-	return t.exporterType.errorOnRegister
-}
-
-func (t *testExporterImpl) close() error {
-	if t.exporterType.errorOnClose == nil {
-		t.closed = true
-	}
-	return t.exporterType.errorOnClose
 }
 
 type testEventsPublisher struct {
