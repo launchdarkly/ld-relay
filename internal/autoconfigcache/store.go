@@ -3,6 +3,7 @@ package autoconfigcache
 import (
 	"context"
 	"io"
+	"strings"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -24,7 +25,7 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 	if !c.AutoConfig.Key.Defined() || !c.AutoConfig.InitFromStoreFirst {
 		return nil, nil
 	}
-	cacheKey := trimCacheKey(c.AutoConfig.CacheKey)
+	cacheKey := strings.TrimSpace(c.AutoConfig.CacheKey)
 	if cacheKey == "" {
 		return nil, nil
 	}
@@ -39,17 +40,4 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 		return newRedisStore(c.Redis, cacheKey, encKey, loggers)
 	}
 	return newDynamoDBStore(c.DynamoDB, cacheKey, encKey, loggers)
-}
-
-func trimCacheKey(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] != ' ' && s[i] != '\t' {
-			end := len(s)
-			for end > i && (s[end-1] == ' ' || s[end-1] == '\t') {
-				end--
-			}
-			return s[i:end]
-		}
-	}
-	return ""
 }

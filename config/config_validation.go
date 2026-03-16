@@ -23,8 +23,9 @@ var (
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
-	errInitFromStoreFirstWithoutStore    = errors.New("AUTO_CONFIG_INIT_FROM_STORE_FIRST requires Redis or DynamoDB to be enabled")
-	errInitFromStoreFirstWithoutCacheKey = errors.New("AUTO_CONFIG_INIT_FROM_STORE_FIRST requires AUTO_CONFIG_CACHE_KEY to be set")
+	errInitFromStoreFirstWithoutStore       = errors.New("AUTO_CONFIG_INIT_FROM_STORE_FIRST requires Redis or DynamoDB to be enabled")
+	errInitFromStoreFirstWithoutCacheKey    = errors.New("AUTO_CONFIG_INIT_FROM_STORE_FIRST requires AUTO_CONFIG_CACHE_KEY to be set")
+	errInitFromStoreFirstWithoutDynamoTable = errors.New("AUTO_CONFIG_INIT_FROM_STORE_FIRST with DynamoDB requires DYNAMODB_TABLE to be set (the cache uses the global table, not ENV_DATASTORE_TABLE_NAME)")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
@@ -204,6 +205,9 @@ func validateAutoConfigInitFromStore(result *ct.ValidationResult, c *Config) {
 	}
 	if strings.TrimSpace(c.AutoConfig.CacheKey) == "" {
 		result.AddError(nil, errInitFromStoreFirstWithoutCacheKey)
+	}
+	if c.DynamoDB.Enabled && strings.TrimSpace(c.DynamoDB.TableName) == "" {
+		result.AddError(nil, errInitFromStoreFirstWithoutDynamoTable)
 	}
 }
 
