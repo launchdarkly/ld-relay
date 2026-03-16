@@ -103,9 +103,9 @@ You can also configure the Relay Proxy to persist segment information for Big Se
 For persistent storage configuration details, read [Persistent Storage](./docs/persistent-storage.md).
 
 
-## Exporting metrics and traces
+## Exporting metrics
 
-The Relay Proxy may be configured to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn more, read [Metrics integrations](./docs/metrics.md).
+The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) to any compatible backend. To learn more, read [Metrics](./docs/metrics.md).
 
 
 ## Logging
