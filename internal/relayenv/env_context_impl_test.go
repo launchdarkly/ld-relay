@@ -94,8 +94,8 @@ func TestConstructorBasicProperties(t *testing.T) {
 	assert.Equal(t, envName, env.GetIdentifiers().ConfiguredName)
 	assert.Equal(t, time.Hour, env.GetTTL())
 	assert.True(t, env.IsSecureMode())
-	assert.Nil(t, env.GetEventDispatcher())                        // events were not enabled
-	assert.Nil(t, env.GetMetricsEnv()) // metrics aren't being used
+	assert.Nil(t, env.GetEventDispatcher()) // events were not enabled
+	assert.Nil(t, env.GetMetricsEnv())      // metrics aren't being used
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)

@@ -27,10 +27,10 @@ type pollingMetric struct {
 const relayMetricsKind = "relayMetrics"
 
 type relayMetricsEvent struct {
-	Kind           string                     `json:"kind"`
-	RelayID        string                     `json:"relayId"`
-	StartDate      ldtime.UnixMillisecondTime `json:"startDate"`
-	EndDate        ldtime.UnixMillisecondTime `json:"endDate"`
+	Kind          string                     `json:"kind"`
+	RelayID       string                     `json:"relayId"`
+	StartDate     ldtime.UnixMillisecondTime `json:"startDate"`
+	EndDate       ldtime.UnixMillisecondTime `json:"endDate"`
 	Connections   []currentConnectionsMetric `json:"connections,omitempty"`
 	PollingCounts []pollingMetric            `json:"pollingCounts,omitempty"`
 }
