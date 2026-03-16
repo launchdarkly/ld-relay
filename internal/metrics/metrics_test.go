@@ -33,6 +33,7 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requests)
 	assert.NotNil(t, instruments.requestDuration)
+	assert.NotNil(t, instruments.eventsIngestedBytes)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -173,6 +174,30 @@ func TestWithRouteCount(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "expected duration data point with route=someRoute, method=GET")
+	})
+}
+
+func TestRecordEventsIngestedBytes(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, 1024)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsIngestedBytesMeasureName)
+		require.NotNil(t, m, "events ingested bytes metric not found")
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data")
+		require.NotEmpty(t, sum.DataPoints)
+		found := false
+		for _, dp := range sum.DataPoints {
+			platVal, platOK := dp.Attributes.Value(platformCategoryAttrKey)
+			envVal, envOK := dp.Attributes.Value(envNameAttrKey)
+			if platOK && envOK && platVal.AsString() == ServerPlatformCategory && envVal.AsString() == p.envName {
+				assert.Equal(t, int64(1024), dp.Value)
+				found = true
+			}
+		}
+		assert.True(t, found, "expected data point for events ingested bytes")
 	})
 }
 

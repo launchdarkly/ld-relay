@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
@@ -9,6 +11,22 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+// countingReader wraps an io.ReadCloser and counts the bytes read.
+type countingReader struct {
+	reader    io.ReadCloser
+	bytesRead atomic.Int64
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.reader.Read(p)
+	cr.bytesRead.Add(int64(n))
+	return n, err
+}
+
+func (cr *countingReader) Close() error {
+	return cr.reader.Close()
+}
 
 func getInstruments(env relayenv.EnvContext) *metrics.Instruments {
 	if mgr := env.GetMetricsManager(); mgr != nil {
@@ -79,6 +97,24 @@ func RequestMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 				next.ServeHTTP(w, req)
 			}, measure)
 			metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), userAgent, sdkWrapper, route, req.Method, time.Since(start), measure)
+		})
+	}
+}
+
+// EventBytesMetrics is a middleware function that records the number of event bytes ingested.
+// This should be applied after GzipMiddleware so that it measures decompressed bytes.
+func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.Body == nil || req.Body == http.NoBody {
+				next.ServeHTTP(w, req)
+				return
+			}
+			cr := &countingReader{reader: req.Body}
+			req.Body = cr
+			next.ServeHTTP(w, req)
+			env := GetEnvContextInfo(req.Context()).Env
+			metrics.RecordEventsIngestedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, cr.bytesRead.Load())
 		})
 	}
 }

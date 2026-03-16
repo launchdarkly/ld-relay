@@ -9,9 +9,10 @@ import (
 
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
-	connections     metric.Int64UpDownCounter   // active connections (+1/-1)
-	requests        metric.Int64Counter         // cumulative HTTP requests
-	requestDuration metric.Float64Histogram     // request duration in seconds
+	connections         metric.Int64UpDownCounter // active connections (+1/-1)
+	requests            metric.Int64Counter       // cumulative HTTP requests
+	requestDuration     metric.Float64Histogram   // request duration in seconds
+	eventsIngestedBytes metric.Int64Counter       // cumulative bytes of event data ingested
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -63,10 +64,15 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
+	eventsIngestedBytes, err := meter.Int64Counter(eventsIngestedBytesMeasureName)
+	if err != nil {
+		return nil, err
+	}
 	return &Instruments{
-		connections:     connections,
-		requests:        requests,
-		requestDuration: requestDuration,
+		connections:         connections,
+		requests:            requests,
+		requestDuration:     requestDuration,
+		eventsIngestedBytes: eventsIngestedBytes,
 	}, nil
 }
 
@@ -128,6 +134,15 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 	}
 
 	f()
+}
+
+// RecordEventsIngestedBytes records the number of event bytes ingested.
+func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, bytes int64) {
+	if em == nil || instruments == nil || bytes <= 0 {
+		return
+	}
+	attrs := buildAttributes(em.envKVs, platformCategory, "", "")
+	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.

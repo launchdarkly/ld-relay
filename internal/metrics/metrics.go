@@ -98,11 +98,15 @@ func NewManager(
 	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
 		otelmetric.WithDescription("request duration in seconds"),
 		otelmetric.WithUnit("s"))
+	eventsIngestedBytes, _ := meter.Int64Counter(eventsIngestedBytesMeasureName,
+		otelmetric.WithDescription("cumulative bytes of event data ingested"),
+		otelmetric.WithUnit("By"))
 
 	instruments := &Instruments{
-		connections:     connections,
-		requests:        requests,
-		requestDuration: requestDuration,
+		connections:         connections,
+		requests:            requests,
+		requestDuration:     requestDuration,
+		eventsIngestedBytes: eventsIngestedBytes,
 	}
 
 	usageChan := make(chan any, 256)

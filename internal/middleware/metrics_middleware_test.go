@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,6 +178,29 @@ func TestRequestDuration(t *testing.T) {
 		require.True(t, ok, "expected Histogram[float64] data")
 		require.NotEmpty(t, hist.DataPoints)
 		assert.Equal(t, uint64(1), hist.DataPoints[0].Count, "expected 1 duration recording")
+	})
+}
+
+func TestEventBytesMetrics(t *testing.T) {
+	router := mux.NewRouter()
+	router.Use(EventBytesMetrics(metrics.ServerPlatformCategory))
+	router.Handle("/events", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Consume the body so counting reader sees the bytes
+		_, _ = io.ReadAll(req.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})).Methods("POST")
+
+	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+		body := strings.NewReader(`[{"kind":"identify","key":"user1"}]`)
+		req, _ := http.NewRequest("POST", "/events", body)
+		req.Header.Set("User-Agent", metricsTestUserAgent)
+		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+		router.ServeHTTP(httptest.NewRecorder(), req)
+
+		rm := p.collectMetrics(t)
+		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.ingested.bytes")
+		require.NotNil(t, bytesMetric, "events ingested bytes metric not found")
+		assertMetricHasValue(t, bytesMetric, p.envName, "server", 35)
 	})
 }
 
