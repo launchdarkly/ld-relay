@@ -93,15 +93,12 @@ func NewManager(
 
 	connections, _ := meter.Int64UpDownCounter(connMeasureName,
 		otelmetric.WithDescription("current number of connections"))
-	newConnections, _ := meter.Int64Counter(newConnMeasureName,
-		otelmetric.WithDescription("total number of connections"))
 	requests, _ := meter.Int64Counter(requestMeasureName,
 		otelmetric.WithDescription("number of hits to a route"))
 
 	instruments := &Instruments{
-		connections:    connections,
-		newConnections: newConnections,
-		requests:       requests,
+		connections: connections,
+		requests:    requests,
 	}
 
 	usageChan := make(chan any, 256)

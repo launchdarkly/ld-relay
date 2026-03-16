@@ -8,19 +8,17 @@ import (
 
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
-	connections    metric.Int64UpDownCounter // active connections (+1/-1)
-	newConnections metric.Int64Counter       // cumulative new connections
-	requests       metric.Int64Counter       // cumulative HTTP requests
+	connections metric.Int64UpDownCounter // active connections (+1/-1)
+	requests    metric.Int64Counter       // cumulative HTTP requests
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
 // instruments should be incremented and what platform category to use.
 type Measure struct {
-	recordConnections    bool
-	recordNewConnections bool
-	recordRequests       bool
-	recordPolling        bool
-	platformCategory     string
+	recordConnections bool
+	recordRequests    bool
+	recordPolling     bool
+	platformCategory  string
 }
 
 // To avoid having to put nolint:gochecknoglobals on everything here, that linter is excluded
@@ -34,15 +32,6 @@ var (
 
 	// ServerConns is a Measure representing the current number of active stream connections from server-side SDKs.
 	ServerConns = Measure{recordConnections: true, platformCategory: ServerPlatformCategory}
-
-	// NewBrowserConns is a Measure representing the cumulative number of stream connections from browsers.
-	NewBrowserConns = Measure{recordNewConnections: true, platformCategory: BrowserPlatformCategory}
-
-	// NewMobileConns is a Measure representing the cumulative number of stream connections from mobile SDKs.
-	NewMobileConns = Measure{recordNewConnections: true, platformCategory: MobilePlatformCategory}
-
-	// NewServerConns is a Measure representing the cumulative number of stream connections from server-side SDKs.
-	NewServerConns = Measure{recordNewConnections: true, platformCategory: ServerPlatformCategory}
 
 	// BrowserRequests is a Measure representing the number of HTTP requests from browsers.
 	BrowserRequests = Measure{recordRequests: true, platformCategory: BrowserPlatformCategory}
@@ -64,18 +53,13 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	newConnections, err := meter.Int64Counter(newConnMeasureName)
-	if err != nil {
-		return nil, err
-	}
 	requests, err := meter.Int64Counter(requestMeasureName)
 	if err != nil {
 		return nil, err
 	}
 	return &Instruments{
-		connections:    connections,
-		newConnections: newConnections,
-		requests:       requests,
+		connections: connections,
+		requests:    requests,
 	}, nil
 }
 
@@ -115,14 +99,6 @@ func WithCount(em *EnvironmentManager, instruments *Instruments, userAgent, sdkW
 	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
 	attrs := buildAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper)
 
-	if measure.recordNewConnections {
-		if instruments != nil {
-			instruments.newConnections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
-		}
-		if em.collector != nil {
-			em.collector.RecordNewConnection(measure.platformCategory, sanitizedUA, sanitizedWrapper)
-		}
-	}
 	if measure.recordRequests && instruments != nil {
 		instruments.requests.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
 	}

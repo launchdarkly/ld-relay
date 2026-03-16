@@ -129,7 +129,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
 	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
-	router.Handle("/mping", mobileKeySelector(
+	router.Handle("/mping", mobileMiddlewareStack(
 		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandlerV1(r.mobileStreamProvider)))))).Methods("GET")
 
 	jsPing := pingStreamHandlerV1(r.jsClientStreamProvider)

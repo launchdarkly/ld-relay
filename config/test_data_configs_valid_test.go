@@ -764,8 +764,8 @@ func makeValidConfigOTLPAll() testDataValidConfig {
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_OTLP":                     "1",
-		"OTEL_SERVICE_NAME":            "my-relay",
+		"USE_OTLP":                    "1",
+		"OTEL_SERVICE_NAME":           "my-relay",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
 		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		"OTEL_EXPORTER_OTLP_HEADERS":  "api-key=secret,env=prod",
