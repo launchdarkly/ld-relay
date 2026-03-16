@@ -2,11 +2,12 @@ package autoconfigcache
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/go-redis/redis/v8"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
 const redisKeyPrefix = "ld:autoconfig:"
@@ -36,6 +37,12 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 	}
 	if redisConfig.Username != "" {
 		uo.Username = redisConfig.Username
+	}
+	if redisConfig.TLS && uo.TLSConfig == nil {
+		uo.TLSConfig = &tls.Config{
+			ServerName: redisConfig.URL.Get().Hostname(),
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 	client := redis.NewUniversalClient(uo)
 	if err := client.Ping(context.Background()).Err(); err != nil {
