@@ -17,13 +17,6 @@ type currentConnectionsMetric struct {
 	Current          int64  `json:"current"`
 }
 
-type newConnectionsMetric struct {
-	UserAgent        string `json:"userAgent"`
-	SDKWrapper       string `json:"sdkWrapper"`
-	PlatformCategory string `json:"platformCategory"`
-	Count            int64  `json:"count"`
-}
-
 type pollingMetric struct {
 	UserAgent        string `json:"userAgent"`
 	SDKWrapper       string `json:"sdkWrapper"`
@@ -38,9 +31,8 @@ type relayMetricsEvent struct {
 	RelayID        string                     `json:"relayId"`
 	StartDate      ldtime.UnixMillisecondTime `json:"startDate"`
 	EndDate        ldtime.UnixMillisecondTime `json:"endDate"`
-	Connections    []currentConnectionsMetric `json:"connections,omitempty"`
-	NewConnections []newConnectionsMetric     `json:"newConnections,omitempty"`
-	PollingCounts  []pollingMetric            `json:"pollingCounts,omitempty"`
+	Connections   []currentConnectionsMetric `json:"connections,omitempty"`
+	PollingCounts []pollingMetric            `json:"pollingCounts,omitempty"`
 }
 
 type connectionsKeyType struct {
@@ -66,7 +58,6 @@ type RelayMetricsCollector struct {
 	intervalStartTime time.Time
 
 	currentConnections map[connectionsKeyType]int64
-	newConnections     map[connectionsKeyType]int64
 
 	pollingDataIsDirty bool
 	pollingCounts      map[connectionsKeyType]pollingCounts
@@ -84,7 +75,6 @@ func newRelayMetricsCollector(relayID, envName string, publisher events.EventPub
 		intervalStartTime:  time.Now(),
 		pollingDataIsDirty: false,
 		currentConnections: make(map[connectionsKeyType]int64),
-		newConnections:     make(map[connectionsKeyType]int64),
 		pollingCounts:      make(map[connectionsKeyType]pollingCounts),
 	}
 
@@ -121,14 +111,6 @@ func (c *RelayMetricsCollector) RecordConnectionChange(platform, userAgent, sdkW
 	}
 }
 
-// RecordNewConnection records a new connection (cumulative counter).
-func (c *RelayMetricsCollector) RecordNewConnection(platform, userAgent, sdkWrapper string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	key := connectionsKeyType{platformCategory: platform, userAgent: userAgent, sdkWrapper: sdkWrapper}
-	c.newConnections[key]++
-}
-
 // RecordPollingRequest records a polling request.
 func (c *RelayMetricsCollector) RecordPollingRequest(platform, userAgent, sdkWrapper string) {
 	c.mu.Lock()
@@ -145,9 +127,6 @@ func (c *RelayMetricsCollector) hasMetricDataToReport() bool {
 		return true
 	}
 	if len(c.currentConnections) > 0 {
-		return true
-	}
-	if len(c.newConnections) > 0 {
 		return true
 	}
 	return false
@@ -192,14 +171,6 @@ func (c *RelayMetricsCollector) flush() {
 			SDKWrapper:       k.sdkWrapper,
 			PlatformCategory: k.platformCategory,
 			Current:          v,
-		})
-	}
-	for k, v := range c.newConnections {
-		event.NewConnections = append(event.NewConnections, newConnectionsMetric{
-			UserAgent:        k.userAgent,
-			SDKWrapper:       k.sdkWrapper,
-			PlatformCategory: k.platformCategory,
-			Count:            v,
 		})
 	}
 	c.mu.Unlock()

@@ -53,13 +53,11 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	meter := meterProvider.Meter("ld-relay")
 
 	connections, _ := meter.Int64UpDownCounter(connMeasureName)
-	newConnections, _ := meter.Int64Counter(newConnMeasureName)
 	requests, _ := meter.Int64Counter(requestMeasureName)
 
 	instruments := &Instruments{
-		connections:    connections,
-		newConnections: newConnections,
-		requests:       requests,
+		connections: connections,
+		requests:    requests,
 	}
 
 	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)

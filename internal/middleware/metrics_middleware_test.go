@@ -107,21 +107,13 @@ func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler,
 			connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
 			require.NotNil(t, connMetric, "connections metric not found")
 			assertMetricHasValue(t, connMetric, p.envName, category, 1)
-
-			newConnMetric := st.FindMetricByName(rm, "launchdarkly.relay.newconnections")
-			require.NotNil(t, newConnMetric, "newconnections metric not found")
-			assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 		})).ServeHTTP(rr, req)
 
-		// After handler returns, connection gauge should be 0 but new connections stays at 1
+		// After handler returns, connection gauge should be 0
 		rm := p.collectMetrics(t)
 		connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
 		require.NotNil(t, connMetric, "connections metric not found")
 		assertMetricHasValue(t, connMetric, p.envName, category, 0)
-
-		newConnMetric := st.FindMetricByName(rm, "launchdarkly.relay.newconnections")
-		require.NotNil(t, newConnMetric, "newconnections metric not found")
-		assertMetricHasValue(t, newConnMetric, p.envName, category, 1)
 	})
 }
 

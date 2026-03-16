@@ -38,22 +38,22 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
-// CountMobileConns is a middleware function that increments the total number of mobile connections,
-// and also increments the number of active mobile connections until the handler ends.
+// CountMobileConns is a middleware function that increments the number of active mobile connections
+// until the handler ends.
 func CountMobileConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.MobileConns), metrics.NewMobileConns)
+	return withGauge(handler, metrics.MobileConns)
 }
 
-// CountBrowserConns is a middleware function that increments the total number of browser connections,
-// and also increments the number of active browser connections until the handler ends.
+// CountBrowserConns is a middleware function that increments the number of active browser connections
+// until the handler ends.
 func CountBrowserConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.BrowserConns), metrics.NewBrowserConns)
+	return withGauge(handler, metrics.BrowserConns)
 }
 
-// CountServerConns is a middleware function that increments the total number of server-side connections,
-// and also increments the number of active server-side connections until the handler ends.
+// CountServerConns is a middleware function that increments the number of active server-side connections
+// until the handler ends.
 func CountServerConns(handler http.Handler) http.Handler {
-	return withCount(withGauge(handler, metrics.ServerConns), metrics.NewServerConns)
+	return withGauge(handler, metrics.ServerConns)
 }
 
 // PollingRequestCount is a middleware function that increments the total number of server-side polling requests.

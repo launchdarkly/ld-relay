@@ -9,7 +9,6 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 | Metric | Type | Description |
 |--------|------|-------------|
 | `launchdarkly.relay.connections` | UpDownCounter | The number of currently active stream connections from SDKs to the Relay Proxy. |
-| `launchdarkly.relay.newconnections` | Counter | The cumulative number of stream connections made to the Relay Proxy since startup. |
 | `launchdarkly.relay.requests` | Counter | The cumulative number of requests received by the Relay Proxy's [service endpoints](./endpoints.md) since startup. |
 
 ## Attributes
@@ -41,7 +40,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://<prometheus-host>:9090/api/v1/otlp/v1/metrics
 OTEL_EXPORTER_OTLP_PROTOCOL=http
 ```
 
-Prometheus converts OpenTelemetry metric names by replacing dots with underscores, so the metrics will appear as `launchdarkly_relay_connections`, `launchdarkly_relay_newconnections_total`, and `launchdarkly_relay_requests_total`.
+Prometheus converts OpenTelemetry metric names by replacing dots with underscores, so the metrics will appear as `launchdarkly_relay_connections` and `launchdarkly_relay_requests_total`.
 
 ### OpenTelemetry Collector
 

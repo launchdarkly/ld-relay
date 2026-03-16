@@ -31,7 +31,6 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	instruments := manager.GetInstruments()
 	assert.NotNil(t, instruments)
 	assert.NotNil(t, instruments.connections)
-	assert.NotNil(t, instruments.newConnections)
 	assert.NotNil(t, instruments.requests)
 }
 
@@ -128,31 +127,6 @@ func TestConnectionMetrics(t *testing.T) {
 	}
 }
 
-func TestNewConnectionMetrics(t *testing.T) {
-	specs := []struct {
-		platform string
-		measure  Measure
-	}{
-		{platform: BrowserPlatformCategory, measure: NewBrowserConns},
-		{platform: MobilePlatformCategory, measure: NewMobileConns},
-		{platform: ServerPlatformCategory, measure: NewServerConns},
-	}
-
-	for _, tt := range specs {
-		t.Run(tt.platform, func(t *testing.T) {
-			testWithOTel(t, func(p testWithOTelParams) {
-				WithCount(p.env, p.instruments, userAgentValue, "", func() {}, tt.measure)
-
-				rm, err := p.collectMetrics()
-				require.NoError(t, err)
-				m := findMetric(rm, newConnMeasureName)
-				require.NotNil(t, m, "newconnections metric not found")
-				assertCounterValue(t, m, p.envName, tt.platform, 1)
-			})
-		})
-	}
-}
-
 func TestWithRouteCount(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
 		WithRouteCount(context.Background(), p.env, p.instruments, userAgentValue, "", "someRoute", "GET", func() {}, ServerRequests)
@@ -201,22 +175,6 @@ func findMetric(rm *metricdata.ResourceMetrics, name string) *metricdata.Metrics
 }
 
 func assertGaugeValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
-	t.Helper()
-	sum, ok := m.Data.(metricdata.Sum[int64])
-	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
-	found := false
-	for _, dp := range sum.DataPoints {
-		platVal, platOK := dp.Attributes.Value(platformCategoryAttrKey)
-		envVal, envOK := dp.Attributes.Value(envNameAttrKey)
-		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
-			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
-			found = true
-		}
-	}
-	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
-}
-
-func assertCounterValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
