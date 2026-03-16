@@ -328,6 +328,22 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	}
 }
 
+// SeedFromPutContent records the given envs and filters in the stream's receivers without dispatching to the handler.
+// Call this after applying cached PutContent to the handler so that when the first PUT arrives from the stream,
+// envReceiver/filterReceiver already know about cached items: updates and deletes are applied correctly instead of
+// inserts being skipped and cached-only items never being removed.
+func (s *StreamManager) SeedFromPutContent(content PutContent) {
+	for id, rep := range content.Environments {
+		if id != rep.EnvID {
+			continue
+		}
+		s.envReceiver.Seed(string(id), rep, rep.Version)
+	}
+	for id, filter := range content.Filters {
+		s.filterReceiver.Seed(string(id), filter, filter.Version)
+	}
+}
+
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
 func (s *StreamManager) handlePut(content PutContent) {

@@ -211,8 +211,14 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			}
 		}
 		projectRouter := projmanager.NewProjectRouter(actions, loggers)
+		var cachedContent *autoconfig.PutContent
 		if autoConfigCache != nil {
-			if loaded := loadAutoConfigFromStoreAndApply(autoConfigCache, projectRouter, loggers); loaded {
+			content, err := loadAutoConfigFromStore(autoConfigCache)
+			if err != nil {
+				loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+			} else if content != nil {
+				applyPutContentToHandler(projectRouter, *content)
+				cachedContent = content
 				loggers.Info("AutoConfig loaded from persistent store; Relay can serve while connecting to LaunchDarkly")
 			}
 		}
@@ -225,6 +231,9 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			rpacProtocolVersion,
 			loggers,
 		)
+		if cachedContent != nil {
+			r.autoConfigStream.SeedFromPutContent(*cachedContent)
+		}
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
 			err := <-autoConfigResult

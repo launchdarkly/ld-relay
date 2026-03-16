@@ -3,8 +3,8 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfigcache"
@@ -65,24 +65,22 @@ func applyPutContentToHandler(handler autoconfig.MessageHandler, content autocon
 	handler.ReceivedAllEnvironments()
 }
 
-// loadAutoConfigFromStoreAndApply reads the cached AutoConfig from the store, unmarshals it, and applies it
-// to the given handler. Returns true if a valid snapshot was loaded and applied.
-func loadAutoConfigFromStoreAndApply(store autoconfigcache.Store, handler autoconfig.MessageHandler, loggers ldlog.Loggers) bool {
+// loadAutoConfigFromStore reads the cached AutoConfig from the store and unmarshals it.
+// Returns the PutContent when valid; the caller must apply it to the handler and seed the StreamManager
+// so the first PUT from the stream is applied as updates/deletes rather than skipping inserts and leaving stale envs.
+func loadAutoConfigFromStore(store autoconfigcache.Store) (*autoconfig.PutContent, error) {
 	data, err := store.Get(context.Background())
 	if err != nil {
-		loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
-		return false
+		return nil, fmt.Errorf("cache read: %w", err)
 	}
 	if len(data) == 0 {
-		return false
+		return nil, nil
 	}
 	var content autoconfig.PutContent
 	if err := json.Unmarshal(data, &content); err != nil {
-		loggers.Warnf("AutoConfig cache data invalid (will rely on stream): %v", err)
-		return false
+		return nil, fmt.Errorf("cache data invalid: %w", err)
 	}
-	applyPutContentToHandler(handler, content)
-	return true
+	return &content, nil
 }
 
 func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {
