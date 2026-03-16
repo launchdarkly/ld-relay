@@ -9,8 +9,9 @@ import (
 
 const (
 	// Metric instrument names.
-	connMeasureName    = "launchdarkly.relay.connections"
-	requestMeasureName = "launchdarkly.relay.requests"
+	connMeasureName            = "launchdarkly.relay.connections"
+	requestMeasureName         = "launchdarkly.relay.requests"
+	requestDurationMeasureName = "launchdarkly.relay.request.duration"
 
 	defaultFlushInterval = time.Minute
 

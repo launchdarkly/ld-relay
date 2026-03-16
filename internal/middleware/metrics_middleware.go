@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
@@ -61,8 +62,9 @@ func PollingRequestCount(handler http.Handler) http.Handler {
 	return withCount(handler, metrics.PollingRequests)
 }
 
-// RequestCount is a middleware function that increments the specified metric for each request.
-func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
+// RequestMetrics is a middleware function that increments the request counter
+// and records the request duration for the specified metric.
+func RequestMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			env := GetEnvContextInfo(req.Context()).Env
@@ -72,9 +74,11 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 			if r := mux.CurrentRoute(req); r != nil {
 				route, _ = r.GetPathTemplate()
 			}
+			start := time.Now()
 			metrics.WithRouteCount(req.Context(), env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
+			metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), userAgent, sdkWrapper, route, req.Method, time.Since(start), measure)
 		})
 	}
 }

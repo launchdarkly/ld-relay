@@ -2,14 +2,16 @@ package metrics
 
 import (
 	"context"
+	"time"
 
 	"go.opentelemetry.io/otel/metric"
 )
 
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
-	connections metric.Int64UpDownCounter // active connections (+1/-1)
-	requests    metric.Int64Counter       // cumulative HTTP requests
+	connections     metric.Int64UpDownCounter   // active connections (+1/-1)
+	requests        metric.Int64Counter         // cumulative HTTP requests
+	requestDuration metric.Float64Histogram     // request duration in seconds
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -57,9 +59,14 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
+	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName)
+	if err != nil {
+		return nil, err
+	}
 	return &Instruments{
-		connections: connections,
-		requests:    requests,
+		connections:     connections,
+		requests:        requests,
+		requestDuration: requestDuration,
 	}, nil
 }
 
@@ -121,4 +128,17 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 	}
 
 	f()
+}
+
+// RecordRequestDuration records a request duration measurement with the given attributes.
+func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, userAgent, sdkWrapper, route, method string, duration time.Duration, measure Measure) {
+	if em == nil || instruments == nil || !measure.recordRequests {
+		return
+	}
+	sanitizedUA := sanitizeTagValue(userAgent)
+	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
+	sanitizedRoute := sanitizeTagValue(route)
+	sanitizedMethod := sanitizeTagValue(method)
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
+	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }

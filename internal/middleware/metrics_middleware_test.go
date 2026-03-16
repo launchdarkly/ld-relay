@@ -130,9 +130,9 @@ func TestCountRequests(t *testing.T) {
 }
 
 func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
-	// We need to build a router here because RequestCount expects mux.CurrentRoute() to work.
+	// We need to build a router here because RequestMetrics expects mux.CurrentRoute() to work.
 	router := mux.NewRouter()
-	router.Use(RequestCount(measure))
+	router.Use(RequestMetrics(measure))
 	router.Handle("/test-route", nullHandler()).Methods("GET")
 
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
@@ -155,6 +155,27 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 		reqMetric = st.FindMetricByName(rm, "launchdarkly.relay.requests")
 		require.NotNil(t, reqMetric, "requests metric not found")
 		assertMetricHasValue(t, reqMetric, p.envName, category, 2)
+	})
+}
+
+func TestRequestDuration(t *testing.T) {
+	router := mux.NewRouter()
+	router.Use(RequestMetrics(metrics.ServerRequests))
+	router.Handle("/test-route", nullHandler()).Methods("GET")
+
+	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+		req, _ := http.NewRequest("GET", "/test-route", nil)
+		req.Header.Set("User-Agent", metricsTestUserAgent)
+		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+		router.ServeHTTP(httptest.NewRecorder(), req)
+
+		rm := p.collectMetrics(t)
+		durMetric := st.FindMetricByName(rm, "launchdarkly.relay.request.duration")
+		require.NotNil(t, durMetric, "request duration metric not found")
+		hist, ok := durMetric.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "expected Histogram[float64] data")
+		require.NotEmpty(t, hist.DataPoints)
+		assert.Equal(t, uint64(1), hist.DataPoints[0].Count, "expected 1 duration recording")
 	})
 }
 

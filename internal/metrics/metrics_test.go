@@ -32,6 +32,7 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments)
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requests)
+	assert.NotNil(t, instruments.requestDuration)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -151,6 +152,27 @@ func TestWithRouteCount(t *testing.T) {
 		}
 		assert.True(t, found, "expected data point with route=someRoute, method=GET")
 
+		// Verify RecordRequestDuration records to the histogram
+		RecordRequestDuration(context.Background(), p.instruments, p.env, userAgentValue, "", "someRoute", "GET", 50*time.Millisecond, ServerRequests)
+
+		rm, err = p.collectMetrics()
+		require.NoError(t, err)
+		dm := findMetric(rm, requestDurationMeasureName)
+		require.NotNil(t, dm, "request duration metric not found")
+		hist, ok := dm.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "expected Histogram[float64] data")
+		require.NotEmpty(t, hist.DataPoints)
+		found = false
+		for _, dp := range hist.DataPoints {
+			routeVal, routeOK := dp.Attributes.Value(routeAttrKey)
+			methodVal, methodOK := dp.Attributes.Value(methodAttrKey)
+			if routeOK && methodOK && routeVal.AsString() == "someRoute" && methodVal.AsString() == "GET" {
+				assert.Equal(t, uint64(1), dp.Count)
+				assert.InDelta(t, 0.05, dp.Sum, 0.01, "expected ~50ms duration")
+				found = true
+			}
+		}
+		assert.True(t, found, "expected duration data point with route=someRoute, method=GET")
 	})
 }
 

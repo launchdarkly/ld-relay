@@ -54,10 +54,12 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 
 	connections, _ := meter.Int64UpDownCounter(connMeasureName)
 	requests, _ := meter.Int64Counter(requestMeasureName)
+	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName)
 
 	instruments := &Instruments{
-		connections: connections,
-		requests:    requests,
+		connections:     connections,
+		requests:        requests,
+		requestDuration: requestDuration,
 	}
 
 	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)

@@ -95,10 +95,14 @@ func NewManager(
 		otelmetric.WithDescription("current number of connections"))
 	requests, _ := meter.Int64Counter(requestMeasureName,
 		otelmetric.WithDescription("number of hits to a route"))
+	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
+		otelmetric.WithDescription("request duration in seconds"),
+		otelmetric.WithUnit("s"))
 
 	instruments := &Instruments{
-		connections: connections,
-		requests:    requests,
+		connections:     connections,
+		requests:        requests,
+		requestDuration: requestDuration,
 	}
 
 	usageChan := make(chan any, 256)
