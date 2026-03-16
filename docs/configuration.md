@@ -231,57 +231,17 @@ To learn more, read [Persistent storage](./persistent-storage.md).
 | `tokenFile`      | `CONSUL_TOKEN_FILE` |  String  |             | If you would prefer to keep your ACL token in a separate file rather than in the Relay Proxy configuration, set this to the file path. |
 | `localTtl`       | `CACHE_TTL`         | Duration | `30s`       | Length of time that database items can be cached in memory.                                                                            |
 
-### File section: `[Datadog]`
+### File section: `[OpenTelemetry]`
 
-To learn more, read [Metrics integrations](./metrics.md).
+To learn more, read [Metrics](./metrics.md).
 
-| Property in file | Environment var       |  Type   | Default | Description                                                                                                   |
-|------------------|-----------------------|:-------:|:--------|---------------------------------------------------------------------------------------------------------------|
-| `enabled`        | `USE_DATADOG`         | Boolean | false   | If true, enables exporting to Datadog.                                                                        |
-| `statsAddr`      | `DATADOG_STATS_ADDR`  |   URI   |         | URI of the DogStatsD agent. If not provided, stats will not be collected. Example: `localhost:8125`           |
-| `traceAddr`      | `DATADOG_TRACE_ADDR`  |   URI   |         | URI of the Datadog trace agent. If not provided, traces will not be collected. Example: `localhost:8126`      |
-| `tag`            | `DATADOG_TAG_TagName` | String  |         | A tag to be applied to all metrics sent to datadog. This variable can be provided multiple times (see below). |
-| `prefix`         | `DATADOG_PREFIX`      | String  |         | The metrics prefix to be used by Datadog.                                                                     |
-
-There may be any number of DataDog tags. Use the following format:
-
-```
-# Configuration file example
-
-[Datadog]
-    enabled = true
-    tag = firstTagName:firstTagValue
-    tag = secondTagName:secondTagValue
-```
-
-```
-# Environment variables example
-
-USE_DATADOG=1
-DATADOG_TAG_firstTagName=firstTagValue
-DATADOG_TAG_secondTagName=secondTagValue
-```
-
-
-### File section: `[Stackdriver]`
-
-To learn more, read [Metrics integrations](./metrics.md).
-
-| Property in file | Environment var          |  Type   | Default | Description                                                   |
-|------------------|--------------------------|:-------:|:--------|---------------------------------------------------------------|
-| `enabled`        | `USE_STACKDRIVER`        | Boolean | `false` | If true, enables exporting metrics and traces to Stackdriver. |
-| `projectID`      | `STACKDRIVER_PROJECT_ID` | String  |         | Google cloud project ID.                                      |
-| `prefix`         | `STACKDRIVER_PREFIX`     | String  |         | The metrics prefix to be used by Stackdriver.                 |
-
-### File section: `[Prometheus]`
-
-To learn more, read [Metrics integrations](./metrics.md).
-
-| Property in file | Environment var     |  Type   | Default | Description                                                            |
-|------------------|---------------------|:-------:|:--------|------------------------------------------------------------------------|
-| `enabled`        | `USE_PROMETHEUS`    | Boolean | `false` | If true, enables exporting traces to Prometheus.                       |
-| `port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will provide the `/metrics` endpoint on. |
-| `prefix`         | `PROMETHEUS_PREFIX` | String  |         | The metrics prefix to be used by Prometheus.                           |
+| Property in file | Environment var                |  Type   | Default | Description                                                                                                                                                                                                        |
+|------------------|--------------------------------|:-------:|:--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`        | `USE_OTLP`                     | Boolean | `false` | If true, enables exporting metrics via OTLP.                                                                                                                                                                       |
+| `serviceName`    | `OTEL_SERVICE_NAME`            | String  |         | The service name reported in exported telemetry. If not set, defaults to `ld-relay`.                                                                                                                               |
+| `endpoint`       | `OTEL_EXPORTER_OTLP_ENDPOINT` | String  |         | The OTLP endpoint to export metrics to. Example: `http://otel-collector:4317`                                                                                                                                      |
+| `protocol`       | `OTEL_EXPORTER_OTLP_PROTOCOL` | String  |         | The OTLP transport protocol. Must be `grpc` or `http`.                                                                                                                                                             |
+| `headers`        | `OTEL_EXPORTER_OTLP_HEADERS`  | String  |         | Headers to include in OTLP export requests, as a comma-delimited list of `key=value` pairs. Example: `api-key=secret,env=prod`                                                                                    |
 
 ### File section: `[Proxy]`
 
