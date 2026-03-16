@@ -1,7 +1,13 @@
 package relay
 
 import (
+	"context"
+	"encoding/json"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfigcache"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -20,6 +26,63 @@ const (
 // interface methods on this object to let us know when environments have been added or changed.
 type relayAutoConfigActions struct {
 	r *Relay
+}
+
+// cachingAutoConfigHandler wraps relayAutoConfigActions and implements autoconfig.PutContentReceiver
+// to persist each put payload to the cache store when InitFromStoreFirst is enabled.
+type cachingAutoConfigHandler struct {
+	*relayAutoConfigActions
+	cache autoconfigcache.Store
+}
+
+var _ autoconfig.PutContentReceiver = (*cachingAutoConfigHandler)(nil)
+
+func (c *cachingAutoConfigHandler) ReceivedPutContent(content autoconfig.PutContent) {
+	if c.cache == nil {
+		return
+	}
+	raw, err := json.Marshal(content)
+	if err != nil {
+		c.r.loggers.Warnf("Failed to marshal AutoConfig put content for cache: %v", err)
+		return
+	}
+	if err := c.cache.Set(context.Background(), raw); err != nil {
+		c.r.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+	}
+}
+
+// applyPutContentToHandler replays a put payload onto the handler (e.g. after loading from cache on startup).
+func applyPutContentToHandler(handler autoconfig.MessageHandler, content autoconfig.PutContent) {
+	for id, rep := range content.Environments {
+		if id != rep.EnvID {
+			continue
+		}
+		handler.AddEnvironment(rep.ToParams())
+	}
+	for id, filter := range content.Filters {
+		handler.AddFilter(filter.ToParams(id))
+	}
+	handler.ReceivedAllEnvironments()
+}
+
+// loadAutoConfigFromStoreAndApply reads the cached AutoConfig from the store, unmarshals it, and applies it
+// to the given handler. Returns true if a valid snapshot was loaded and applied.
+func loadAutoConfigFromStoreAndApply(store autoconfigcache.Store, handler autoconfig.MessageHandler, loggers ldlog.Loggers) bool {
+	data, err := store.Get(context.Background())
+	if err != nil {
+		loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+		return false
+	}
+	if len(data) == 0 {
+		return false
+	}
+	var content autoconfig.PutContent
+	if err := json.Unmarshal(data, &content); err != nil {
+		loggers.Warnf("AutoConfig cache data invalid (will rely on stream): %v", err)
+		return false
+	}
+	applyPutContentToHandler(handler, content)
+	return true
 }
 
 func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentParams) {

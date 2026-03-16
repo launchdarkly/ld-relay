@@ -365,6 +365,9 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
+	if pr, ok := s.handler.(PutContentReceiver); ok {
+		pr.ReceivedPutContent(content)
+	}
 }
 
 func obfuscateEventData(data string) string {

@@ -113,3 +113,11 @@ func (e *ProjectRouter) DeleteFilter(id config.FilterID) {
 		e.loggers.Errorf("precondition violation: received delete request for filter (%s), which was associated with more than one project", id)
 	}
 }
+
+// ReceivedPutContent forwards the put payload to the underlying actions if it implements PutContentReceiver
+// (e.g. for persisting AutoConfig cache when InitFromStoreFirst is enabled).
+func (e *ProjectRouter) ReceivedPutContent(content autoconfig.PutContent) {
+	if pr, ok := e.actions.(autoconfig.PutContentReceiver); ok {
+		pr.ReceivedPutContent(content)
+	}
+}

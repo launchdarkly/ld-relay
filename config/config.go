@@ -167,11 +167,14 @@ type MainConfig struct {
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.
 type AutoConfigConfig struct {
-	Key                   AutoConfigKey    `conf:"AUTO_CONFIG_KEY"`
-	EnvDatastorePrefix    string           `conf:"ENV_DATASTORE_PREFIX"`
-	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
-	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
-	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	Key                       AutoConfigKey    `conf:"AUTO_CONFIG_KEY"`
+	EnvDatastorePrefix        string           `conf:"ENV_DATASTORE_PREFIX"`
+	EnvDatastoreTableName     string           `conf:"ENV_DATASTORE_TABLE_NAME"`
+	EnvAllowedOrigin          ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
+	EnvAllowedHeader          ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	InitFromStoreFirst        bool             `conf:"AUTO_CONFIG_INIT_FROM_STORE_FIRST"`
+	CacheKey                  string           `conf:"AUTO_CONFIG_CACHE_KEY"`
+	CacheEncryptionKey        string           `conf:"AUTO_CONFIG_CACHE_ENCRYPTION_KEY"`
 }
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.

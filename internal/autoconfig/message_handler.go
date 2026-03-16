@@ -32,3 +32,10 @@ type MessageHandler interface {
 	// DeleteFilter is called whenever a filter should be deleted, via a "delete" message.
 	DeleteFilter(id config.FilterID)
 }
+
+// PutContentReceiver is an optional interface that MessageHandler may implement.
+// When implemented, StreamManager calls ReceivedPutContent with the full put payload after
+// applying it, so the handler can persist the snapshot (e.g. for init-from-store-first).
+type PutContentReceiver interface {
+	ReceivedPutContent(content PutContent)
+}

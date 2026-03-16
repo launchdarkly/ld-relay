@@ -16,6 +16,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfigcache"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -197,10 +198,28 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		if err != nil {
 			return nil, err
 		}
+		var actions projmanager.AutoConfigActions = &relayAutoConfigActions{r: r}
+		var autoConfigCache autoconfigcache.Store
+		if c.AutoConfig.InitFromStoreFirst {
+			autoConfigCache, err = autoconfigcache.NewStore(c, loggers)
+			if err != nil {
+				return nil, err
+			}
+			if autoConfigCache != nil {
+				thingsToCleanUp.AddCloser(autoConfigCache)
+				actions = &cachingAutoConfigHandler{relayAutoConfigActions: actions.(*relayAutoConfigActions), cache: autoConfigCache}
+			}
+		}
+		projectRouter := projmanager.NewProjectRouter(actions, loggers)
+		if autoConfigCache != nil {
+			if loaded := loadAutoConfigFromStoreAndApply(autoConfigCache, projectRouter, loggers); loaded {
+				loggers.Info("AutoConfig loaded from persistent store; Relay can serve while connecting to LaunchDarkly")
+			}
+		}
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
-			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, loggers),
+			projectRouter,
 			httpConfig,
 			0,
 			rpacProtocolVersion,
