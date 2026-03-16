@@ -109,7 +109,7 @@ func TestConnectionMetrics(t *testing.T) {
 	for _, tt := range specs {
 		t.Run(tt.platform, func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				WithGauge(p.env, p.instruments, userAgentValue, "", "/test", "GET", func() {
+				WithGauge(p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET"}, func() {
 					// While the gauge is active, check that the connection count is 1
 					rm, err := p.collectMetrics()
 					require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestConnectionMetrics(t *testing.T) {
 
 func TestWithRouteCount(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		WithRouteCount(context.Background(), p.env, p.instruments, userAgentValue, "", "someRoute", "GET", func() {}, ServerRequests)
+		WithRouteCount(context.Background(), p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, func() {}, ServerRequests)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestWithRouteCount(t *testing.T) {
 		assert.True(t, found, "expected data point with route=someRoute, method=GET")
 
 		// Verify RecordRequestDuration records to the histogram
-		RecordRequestDuration(context.Background(), p.instruments, p.env, userAgentValue, "", "someRoute", "GET", 50*time.Millisecond, ServerRequests)
+		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond, ServerRequests)
 
 		rm, err = p.collectMetrics()
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestWithRouteCount(t *testing.T) {
 
 func TestRecordEventsIngestedBytes(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, userAgentValue, "", "/bulk", "POST", 1024)
+		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)

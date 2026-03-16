@@ -343,7 +343,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), fakeUserAgent, "", "/test", "GET", func() {
+		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Eventually(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
@@ -397,7 +397,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), fakeUserAgent, "", "/test", "GET", func() {
+		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Never(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {

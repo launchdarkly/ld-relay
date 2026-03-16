@@ -26,6 +26,8 @@ All metrics include the following attributes:
 | `sdkWrapper` | The SDK wrapper identifier, if provided. Example: `flutter-client/2.0.0` |
 | `route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `method` | The HTTP method. Example: `GET` |
+| `application` | The application tags from the `X-LaunchDarkly-Tags` header, identifying the application name and version. |
+| `instanceId` | The SDK instance identifier from the `X-LaunchDarkly-Instance-Id` header. |
 
 ## Backend-specific notes
 

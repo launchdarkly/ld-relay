@@ -29,6 +29,8 @@ var (
 	routeAttrKey            = attribute.Key("route")            //nolint:gochecknoglobals
 	methodAttrKey           = attribute.Key("method")           //nolint:gochecknoglobals
 	envNameAttrKey          = attribute.Key("env")              //nolint:gochecknoglobals
+	applicationAttrKey      = attribute.Key("application")      //nolint:gochecknoglobals
+	instanceIDAttrKey       = attribute.Key("instanceId")       //nolint:gochecknoglobals
 )
 
 // buildAttributes creates an OTel attribute set from base key-values plus per-request attributes.
@@ -46,8 +48,8 @@ func buildAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapp
 
 // buildRequestAttributes creates an OTel attribute set for request metrics (includes route and method).
 // All string values should be pre-sanitized via sanitizeTagValue before calling this function.
-func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapper, route, method string) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+5)
+func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapper, route, method, application, instanceID string) attribute.Set {
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+7)
 	copy(attrs, baseKVs)
 	attrs = append(attrs,
 		platformCategoryAttrKey.String(platform),
@@ -55,6 +57,8 @@ func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, s
 		sdkWrapperAttrKey.String(sdkWrapper),
 		routeAttrKey.String(route),
 		methodAttrKey.String(method),
+		applicationAttrKey.String(application),
+		instanceIDAttrKey.String(instanceID),
 	)
 	return attribute.NewSet(attrs...)
 }

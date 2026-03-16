@@ -76,19 +76,35 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	}, nil
 }
 
+// RequestInfo contains per-request metadata used as metric attributes.
+type RequestInfo struct {
+	UserAgent   string
+	SDKWrapper  string
+	Route       string
+	Method      string
+	Application string
+	InstanceID  string
+}
+
+func (ri RequestInfo) sanitized() (ua, wrapper, route, method, app, instanceID string) {
+	return sanitizeTagValue(ri.UserAgent),
+		sanitizeTagValue(ri.SDKWrapper),
+		sanitizeRouteValue(ri.Route),
+		sanitizeTagValue(ri.Method),
+		sanitizeTagValue(ri.Application),
+		sanitizeTagValue(ri.InstanceID)
+}
+
 // WithGauge increments the specified metric before running the function and then decrements it (for use with
 // the active connection metrics).
-func WithGauge(em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper, route, method string, f func(), measure Measure) {
+func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
 	if em == nil || !measure.recordConnections {
 		f()
 		return
 	}
 
-	sanitizedUA := sanitizeTagValue(userAgent)
-	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	sanitizedRoute := sanitizeRouteValue(route)
-	sanitizedMethod := sanitizeTagValue(method)
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
+	ua, wrapper, route, method, app, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
 
 	if instruments != nil {
 		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
@@ -96,42 +112,38 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, userAgent, sdkW
 	}
 
 	if em.collector != nil {
-		em.collector.RecordConnectionChange(measure.platformCategory, sanitizedUA, sanitizedWrapper, 1)
-		defer em.collector.RecordConnectionChange(measure.platformCategory, sanitizedUA, sanitizedWrapper, -1)
+		em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
+		defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
 	}
 
 	f()
 }
 
 // WithCount runs a function and records a single-unit increment for the specified metric.
-func WithCount(em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper string, f func(), measure Measure) {
+func WithCount(em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
 	if em == nil {
 		f()
 		return
 	}
 
-	sanitizedUA := sanitizeTagValue(userAgent)
-	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	attrs := buildAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper)
+	ua, wrapper, _, _, _, _ := ri.sanitized()
+	attrs := buildAttributes(em.envKVs, measure.platformCategory, ua, wrapper)
 
 	if measure.recordRequests && instruments != nil {
 		instruments.requests.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
 	}
 	if measure.recordPolling && em.collector != nil {
-		em.collector.RecordPollingRequest(measure.platformCategory, sanitizedUA, sanitizedWrapper)
+		em.collector.RecordPollingRequest(measure.platformCategory, ua, wrapper)
 	}
 
 	f()
 }
 
 // WithRouteCount records a route hit for the specified metric.
-func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper, route, method string, f func(), measure Measure) {
+func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
 	if em != nil && instruments != nil && measure.recordRequests {
-		sanitizedUA := sanitizeTagValue(userAgent)
-		sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-		sanitizedRoute := sanitizeRouteValue(route)
-		sanitizedMethod := sanitizeTagValue(method)
-		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
+		ua, wrapper, route, method, app, instanceID := ri.sanitized()
+		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
 		instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
 	}
 
@@ -139,27 +151,21 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 }
 
 // RecordEventsIngestedBytes records the number of event bytes ingested.
-func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory, userAgent, sdkWrapper, route, method string, bytes int64) {
+func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	sanitizedUA := sanitizeTagValue(userAgent)
-	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	sanitizedRoute := sanitizeRouteValue(route)
-	sanitizedMethod := sanitizeTagValue(method)
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
+	ua, wrapper, route, method, app, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, app, instanceID)
 	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
-func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, userAgent, sdkWrapper, route, method string, duration time.Duration, measure Measure) {
+func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration, measure Measure) {
 	if em == nil || instruments == nil || !measure.recordRequests {
 		return
 	}
-	sanitizedUA := sanitizeTagValue(userAgent)
-	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	sanitizedRoute := sanitizeRouteValue(route)
-	sanitizedMethod := sanitizeTagValue(method)
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
+	ua, wrapper, route, method, app, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }

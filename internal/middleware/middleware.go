@@ -29,6 +29,7 @@ const (
 	ldUserAgentHeader  = "X-LaunchDarkly-User-Agent"
 	ldInstanceIDHeader = "X-LaunchDarkly-Instance-Id"
 	ldWrapperHeader    = "X-LaunchDarkly-Wrapper"
+	ldTagsHeader       = "X-LaunchDarkly-Tags"
 
 	httpStatusMessageInvalidEnvCredential  = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
 	httpStatusMessageNotFullyConfigured    = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
@@ -73,6 +74,10 @@ func getInstanceID(req *http.Request) string {
 // getSDKWrapper returns the X-LaunchDarkly-Wrapper if available
 func getSDKWrapper(req *http.Request) string {
 	return req.Header.Get(ldWrapperHeader)
+}
+
+func getApplicationTags(req *http.Request) string {
+	return req.Header.Get(ldTagsHeader)
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.
