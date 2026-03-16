@@ -19,15 +19,12 @@ All metrics include the following attributes:
 
 | Attribute | Description |
 |-----------|-------------|
+| `relayId` | A unique identifier for this Relay Proxy instance, generated at startup. |
 | `env` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
 | `platformCategory` | The kind of SDK that generated the metric: `server`, `mobile`, or `browser`. |
 | `userAgent` | The user agent of the SDK making the request. Example: `Node/3.4.0` |
-
-The `launchdarkly.relay.requests` and `launchdarkly.relay.request.duration` metrics additionally include:
-
-| Attribute | Description |
-|-----------|-------------|
-| `route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/users/{user}` |
+| `sdkWrapper` | The SDK wrapper identifier, if provided. Example: `flutter-client/2.0.0` |
+| `route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `method` | The HTTP method. Example: `GET` |
 
 ## Backend-specific notes

@@ -78,7 +78,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 
 // WithGauge increments the specified metric before running the function and then decrements it (for use with
 // the active connection metrics).
-func WithGauge(em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper string, f func(), measure Measure) {
+func WithGauge(em *EnvironmentManager, instruments *Instruments, userAgent, sdkWrapper, route, method string, f func(), measure Measure) {
 	if em == nil || !measure.recordConnections {
 		f()
 		return
@@ -86,7 +86,9 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, userAgent, sdkW
 
 	sanitizedUA := sanitizeTagValue(userAgent)
 	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	attrs := buildAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper)
+	sanitizedRoute := sanitizeRouteValue(route)
+	sanitizedMethod := sanitizeTagValue(method)
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
 
 	if instruments != nil {
 		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
@@ -127,7 +129,7 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 	if em != nil && instruments != nil && measure.recordRequests {
 		sanitizedUA := sanitizeTagValue(userAgent)
 		sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-		sanitizedRoute := sanitizeTagValue(route)
+		sanitizedRoute := sanitizeRouteValue(route)
 		sanitizedMethod := sanitizeTagValue(method)
 		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
 		instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
@@ -137,11 +139,15 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 }
 
 // RecordEventsIngestedBytes records the number of event bytes ingested.
-func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, bytes int64) {
+func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory, userAgent, sdkWrapper, route, method string, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	attrs := buildAttributes(em.envKVs, platformCategory, "", "")
+	sanitizedUA := sanitizeTagValue(userAgent)
+	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
+	sanitizedRoute := sanitizeRouteValue(route)
+	sanitizedMethod := sanitizeTagValue(method)
+	attrs := buildRequestAttributes(em.envKVs, platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
 	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
@@ -152,7 +158,7 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	}
 	sanitizedUA := sanitizeTagValue(userAgent)
 	sanitizedWrapper := sanitizeTagValue(sdkWrapper)
-	sanitizedRoute := sanitizeTagValue(route)
+	sanitizedRoute := sanitizeRouteValue(route)
 	sanitizedMethod := sanitizeTagValue(method)
 	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, sanitizedUA, sanitizedWrapper, sanitizedRoute, sanitizedMethod)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))

@@ -51,7 +51,11 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 		env := GetEnvContextInfo(req.Context()).Env
 		userAgent := getUserAgent(req)
 		sdkWrapper := getSDKWrapper(req)
-		metrics.WithGauge(env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, func() {
+		var route string
+		if r := mux.CurrentRoute(req); r != nil {
+			route, _ = r.GetPathTemplate()
+		}
+		metrics.WithGauge(env.GetMetricsEnv(), getInstruments(env), userAgent, sdkWrapper, route, req.Method, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -114,7 +118,13 @@ func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
 			req.Body = cr
 			next.ServeHTTP(w, req)
 			env := GetEnvContextInfo(req.Context()).Env
-			metrics.RecordEventsIngestedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, cr.bytesRead.Load())
+			userAgent := getUserAgent(req)
+			sdkWrapper := getSDKWrapper(req)
+			var route string
+			if r := mux.CurrentRoute(req); r != nil {
+				route, _ = r.GetPathTemplate()
+			}
+			metrics.RecordEventsIngestedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, userAgent, sdkWrapper, route, req.Method, cr.bytesRead.Load())
 		})
 	}
 }

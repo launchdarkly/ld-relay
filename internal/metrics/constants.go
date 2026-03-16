@@ -61,9 +61,20 @@ func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, s
 
 // sanitizeTagValue ensures attribute values are valid.
 // Empty values are replaced with descriptive defaults, and slashes are replaced with underscores.
+// This is appropriate for user agent strings and SDK wrapper names, but not for routes.
 func sanitizeTagValue(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "not-provided"
 	}
 	return strings.ReplaceAll(v, "/", "_")
+}
+
+// sanitizeRouteValue ensures route attribute values are valid.
+// Empty values are replaced with descriptive defaults. Unlike sanitizeTagValue,
+// slashes are preserved since they are meaningful in route paths.
+func sanitizeRouteValue(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "not-provided"
+	}
+	return v
 }

@@ -109,7 +109,7 @@ func TestConnectionMetrics(t *testing.T) {
 	for _, tt := range specs {
 		t.Run(tt.platform, func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				WithGauge(p.env, p.instruments, userAgentValue, "", func() {
+				WithGauge(p.env, p.instruments, userAgentValue, "", "/test", "GET", func() {
 					// While the gauge is active, check that the connection count is 1
 					rm, err := p.collectMetrics()
 					require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestWithRouteCount(t *testing.T) {
 
 func TestRecordEventsIngestedBytes(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, 1024)
+		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, userAgentValue, "", "/bulk", "POST", 1024)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -206,6 +206,12 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
 	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+func TestSanitizeRouteValue(t *testing.T) {
+	assert.Equal(t, "/sdk/evalx/contexts/{context}", sanitizeRouteValue("/sdk/evalx/contexts/{context}"))
+	assert.Equal(t, "not-provided", sanitizeRouteValue(""))
+	assert.Equal(t, "not-provided", sanitizeRouteValue("   "))
 }
 
 // Helper functions for asserting OTel metric data
