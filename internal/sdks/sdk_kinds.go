@@ -46,6 +46,19 @@ func GetCredential(k basictypes.SDKKind, req *http.Request) (credential.SDKCrede
 	return nil, errUnknownSDKKind
 }
 
+// FetchClientSideAuthToken extracts a client-side auth token from the request.
+// It first checks the Authorization header, then falls back to the "auth" query parameter.
+func FetchClientSideAuthToken(req *http.Request) (string, error) {
+	token, err := fetchAuthToken(req)
+	if err == nil {
+		return token, nil
+	}
+	if authParam := req.URL.Query().Get("auth"); authParam != "" {
+		return authParam, nil
+	}
+	return "", errNoAuthToken
+}
+
 func fetchAuthToken(req *http.Request) (string, error) {
 	authHdr := req.Header.Get("Authorization")
 	if strings.HasPrefix(authHdr, "api_key ") {

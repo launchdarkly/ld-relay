@@ -13,7 +13,9 @@ import (
 
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 
+	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
@@ -40,7 +42,7 @@ func getClientSideContextProperties(
 	var ldContext ldcontext.Context
 	var contextDecodeErr error
 
-	if req.Method == "REPORT" {
+	if req.Method == "REPORT" || req.Method == "POST" {
 		if req.Header.Get("Content-Type") != "application/json" {
 			w.WriteHeader(http.StatusUnsupportedMediaType)
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
@@ -87,17 +89,15 @@ func pingStreamHandlerV1(streamProvider streams.StreamProvider) http.Handler {
 	})
 }
 
-//nolint: godox
-// TODO(fdv2): Hook this up to new routes
-// V2 stream endpoint that just sends "ping" events: clientstream.ld.com/mping (mobile)
-// or clientstream.ld.com/ping/{envId} (JS)
-// func pingStreamHandlerV2(streamProvider streams.StreamProvider) http.Handler {
-// 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-// 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-// 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
-// 		clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
-// 	})
-// }
+// sdkKindFromCredential determines the SDK kind based on the credential type.
+func sdkKindFromCredential(cred credential.SDKCredential) basictypes.SDKKind {
+	switch cred.(type) {
+	case config.MobileKey:
+		return basictypes.MobileSDK
+	default:
+		return basictypes.JSClientSDK
+	}
+}
 
 // This handler is used for client-side streaming endpoints that require context properties. Currently it is
 // implemented the same as the ping stream once we have validated the context.
@@ -112,20 +112,26 @@ func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider s
 	})
 }
 
-//nolint: godox
-// TODO(fdv2): Hook this up to new routes
-// This handler is used for client-side streaming endpoints that require context properties. Currently it is
-// implemented the same as the ping stream once we have validated the context.
-// func pingStreamHandlerWithContextV2(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
-// 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-// 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-// 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
-//
-// 		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
-// 			clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
-// 		}
-// 	})
-// }
+// pingStreamHandlerWithContextV2 handles FDv2 client-side ping streams. It accepts two stream providers
+// (mobile and JS client) and selects the appropriate one based on the credential type.
+func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.StreamProvider) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		clientCtx := middleware.GetEnvContextInfo(req.Context())
+		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream (FDv2)")
+
+		sdkKind := sdkKindFromCredential(clientCtx.Credential)
+		var streamProvider streams.StreamProvider
+		if sdkKind == basictypes.MobileSDK {
+			streamProvider = mobileProvider
+		} else {
+			streamProvider = jsClientProvider
+		}
+
+		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
+			clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
+		}
+	})
+}
 
 // Multi-purpose streaming handler; all details of the behavior of the particular type of stream are
 // abstracted in StreamProvider and EnvStreams
@@ -267,6 +273,167 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	}
 
 	writeCacheableJSONResponse(w, req, clientCtx.Env, json, selector.State())
+}
+
+// FDv2 client-side polling endpoint that evaluates flags against a context.
+func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
+	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	client := clientCtx.Env.GetClient()
+	store := clientCtx.Env.GetStore()
+	loggers := clientCtx.Env.GetLoggers()
+
+	sdkKind := sdkKindFromCredential(clientCtx.Credential)
+
+	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
+	if !ok {
+		return
+	}
+
+	withReasons := req.URL.Query().Get("withReasons") == "true"
+
+	if !client.Initialized() {
+		if store.IsInitialized() {
+			loggers.Warn("Called before client initialization; using last known values from feature store")
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			loggers.Warn("Called before client initialization. Feature store not available")
+			_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
+			return
+		}
+	}
+
+	if !ldContext.Multiple() && ldContext.Key() == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(util.ErrorJSONMsg("User must have a 'key' attribute"))
+		return
+	}
+
+	collection, selector, err := store.Snapshot()
+	if err != nil {
+		loggers.Errorf("Error reading feature store: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	} else if collection == nil || !selector.IsDefined() {
+		loggers.Error("Snapshot selector is not defined; no data to return")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	pollingPayload := pollingPayload{
+		Events: make([]payloadEvent, 0),
+	}
+
+	basis := req.URL.Query().Get("basis")
+	if selector.IsDefined() && basis != "" && selector.State() == basis {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentNone,
+				Reason: "up-to-date",
+			}},
+		})
+	} else {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
+			}},
+		})
+
+		evaluator := clientCtx.Env.GetEvaluator()
+		flagEvalKind := subsystems.ObjectKind("flag-eval")
+
+		for kind, keyedItems := range collection {
+			if kind != ldstoreimpl.Features() {
+				continue
+			}
+			for _, keyedItem := range keyedItems {
+				if keyedItem.Item.Item == nil {
+					continue
+				}
+				flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag)
+				if !ok {
+					loggers.Error("Error casting keyed item to feature flag")
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				switch sdkKind {
+				case basictypes.JSClientSDK:
+					if !flag.ClientSideAvailability.UsingEnvironmentID {
+						continue
+					}
+				case basictypes.MobileSDK:
+					if !flag.ClientSideAvailability.UsingMobileKey {
+						continue
+					}
+				}
+
+				var prerequisites []string
+				result := evaluator.Evaluate(flag, ldContext, func(event ldeval.PrerequisiteFlagEvent) {
+					if event.TargetFlagKey == flag.Key {
+						prerequisites = append(prerequisites, event.PrerequisiteFlag.Key)
+					}
+				})
+
+				detail := result.Detail
+				isExperiment := result.IsExperiment
+
+				evalWriter := jwriter.NewWriter()
+				evalObj := evalWriter.Object()
+				detail.Value.WriteToJSONWriter(evalObj.Name("value"))
+				detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
+				evalObj.Name("flagVersion").Int(flag.Version)
+				if len(prerequisites) > 0 {
+					prereqArray := evalObj.Name("prerequisites").Array()
+					for _, p := range prerequisites {
+						prereqArray.String(p)
+					}
+					prereqArray.End()
+				}
+				evalObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
+				evalObj.Maybe("trackReason", isExperiment).Bool(true)
+				if withReasons || isExperiment {
+					detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
+				}
+				evalObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
+					Float64(float64(flag.DebugEventsUntilDate))
+				if flag.SamplingRatio.IsDefined() {
+					evalObj.Name("samplingRatio").Int(flag.SamplingRatio.IntValue())
+				}
+				evalObj.End()
+
+				pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+					Event: "put-object",
+					EventData: subsystems.PutObject{
+						Version: keyedItem.Item.Version,
+						Kind:    flagEvalKind,
+						Key:     keyedItem.Key,
+						Object:  evalWriter.Bytes(),
+					},
+				})
+			}
+		}
+
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event:     "payload-transferred",
+			EventData: selector,
+		})
+	}
+
+	jsonData, err := json.Marshal(pollingPayload)
+	if err != nil {
+		loggers.Errorf("Error marshaling polling response: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags

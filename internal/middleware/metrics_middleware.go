@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 
@@ -26,6 +28,14 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 
 func (cr *countingReader) Close() error {
 	return cr.reader.Close()
+}
+
+// clientPlatformCategory returns the platform category based on the credential type.
+func clientPlatformCategory(cred credential.SDKCredential) string {
+	if _, ok := cred.(config.MobileKey); ok {
+		return metrics.MobilePlatformCategory
+	}
+	return metrics.BrowserPlatformCategory
 }
 
 func getInstruments(env relayenv.EnvContext) *metrics.Instruments {
@@ -92,7 +102,52 @@ func CountServerConns(handler http.Handler) http.Handler {
 
 // PollingRequestCount is a middleware function that increments the total number of server-side polling requests.
 func PollingRequestCount(handler http.Handler) http.Handler {
-	return withCount(handler, metrics.PollingRequests)
+	return withCount(handler, metrics.ServerPollingRequests)
+}
+
+// DynamicPollingRequestCount is a middleware function for FDv2 client-side endpoints that dynamically
+// determines the polling request metric based on the credential type.
+func DynamicPollingRequestCount(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		cred := GetEnvContextInfo(req.Context()).Credential
+		var measure metrics.Measure
+		if _, ok := cred.(config.MobileKey); ok {
+			measure = metrics.MobilePollingRequests
+		} else {
+			measure = metrics.BrowserPollingRequests
+		}
+		withCount(handler, measure).ServeHTTP(w, req)
+	})
+}
+
+// CountClientConns is a middleware function for FDv2 client-side endpoints that dynamically
+// determines whether to count as mobile or browser connections based on the credential type.
+func CountClientConns(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		cred := GetEnvContextInfo(req.Context()).Credential
+		if _, ok := cred.(config.MobileKey); ok {
+			CountMobileConns(handler).ServeHTTP(w, req)
+		} else {
+			CountBrowserConns(handler).ServeHTTP(w, req)
+		}
+	})
+}
+
+// DynamicRequestMetrics is a middleware function for FDv2 client-side endpoints that dynamically
+// determines the request metrics based on the credential type.
+func DynamicRequestMetrics() mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			cred := GetEnvContextInfo(req.Context()).Credential
+			var measure metrics.Measure
+			if _, ok := cred.(config.MobileKey); ok {
+				measure = metrics.MobileRequests
+			} else {
+				measure = metrics.BrowserRequests
+			}
+			RequestMetrics(measure)(next).ServeHTTP(w, req)
+		})
+	}
 }
 
 // RequestMetrics is a middleware function that increments the request counter

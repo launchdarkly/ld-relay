@@ -142,7 +142,7 @@ func (m *Manager) SetInstrumentsForTest(instruments *Instruments) {
 	m.instruments = instruments
 }
 
-func (m *Manager) UsageActivityCountMessage(envName, userAgent, platformCategory, instanceID string) {
+func (m *Manager) TrackUsageActivityMessage(envName, userAgent, platformCategory, instanceID string) {
 	m.usageChan <- &usageActivityMessage{
 		kind: UsageActivityKindCount, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
 	}
