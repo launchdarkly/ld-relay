@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.4](https://github.com/launchdarkly/ld-relay/compare/v8.17.3...v8.17.4) (2026-03-12)
+
+
+### Bug Fixes
+
+* Remove deprecated big segment excluded usage from integration tests ([#591](https://github.com/launchdarkly/ld-relay/issues/591)) ([81c53aa](https://github.com/launchdarkly/ld-relay/commit/81c53aa43b074010d9d7cbc76d1ac06520862db9))
+
 ## [8.17.3](https://github.com/launchdarkly/ld-relay/compare/v8.17.2...v8.17.3) (2026-03-11)
 
 
