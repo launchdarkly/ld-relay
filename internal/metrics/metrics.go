@@ -11,6 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 
 	"github.com/pborman/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -87,6 +88,9 @@ func NewManager(
 		opts = append(opts, sdkmetric.WithResource(res))
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		meter = meterProvider.Meter("ld-relay")
+		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
+			loggers.Warnf("Failed to start Go runtime metrics: %s", err)
+		}
 	} else {
 		meter = noop.Meter{}
 	}
