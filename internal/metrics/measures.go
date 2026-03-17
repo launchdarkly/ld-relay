@@ -78,20 +78,22 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 
 // RequestInfo contains per-request metadata used as metric attributes.
 type RequestInfo struct {
-	UserAgent   string
-	SDKWrapper  string
-	Route       string
-	Method      string
-	Application string
-	InstanceID  string
+	UserAgent          string
+	SDKWrapper         string
+	Route              string
+	Method             string
+	ApplicationID      string
+	ApplicationVersion string
+	InstanceID         string
 }
 
-func (ri RequestInfo) sanitized() (ua, wrapper, route, method, app, instanceID string) {
+func (ri RequestInfo) sanitized() (ua, wrapper, route, method, appID, appVersion, instanceID string) {
 	return sanitizeTagValue(ri.UserAgent),
 		sanitizeTagValue(ri.SDKWrapper),
 		sanitizeRouteValue(ri.Route),
 		sanitizeTagValue(ri.Method),
-		sanitizeTagValue(ri.Application),
+		sanitizeTagValue(ri.ApplicationID),
+		sanitizeTagValue(ri.ApplicationVersion),
 		sanitizeTagValue(ri.InstanceID)
 }
 
@@ -103,8 +105,8 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 		return
 	}
 
-	ua, wrapper, route, method, app, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
+	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
 
 	if instruments != nil {
 		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
@@ -126,7 +128,7 @@ func WithCount(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 		return
 	}
 
-	ua, wrapper, _, _, _, _ := ri.sanitized()
+	ua, wrapper, _, _, _, _, _ := ri.sanitized()
 	attrs := buildAttributes(em.envKVs, measure.platformCategory, ua, wrapper)
 
 	if measure.recordRequests && instruments != nil {
@@ -142,8 +144,8 @@ func WithCount(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 // WithRouteCount records a route hit for the specified metric.
 func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
 	if em != nil && instruments != nil && measure.recordRequests {
-		ua, wrapper, route, method, app, instanceID := ri.sanitized()
-		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
+		ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
+		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
 		instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
 	}
 
@@ -155,8 +157,8 @@ func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	ua, wrapper, route, method, app, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, app, instanceID)
+	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
 	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
@@ -165,7 +167,7 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	if em == nil || instruments == nil || !measure.recordRequests {
 		return
 	}
-	ua, wrapper, route, method, app, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, app, instanceID)
+	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }

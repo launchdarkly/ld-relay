@@ -40,13 +40,15 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 	if r := mux.CurrentRoute(req); r != nil {
 		route, _ = r.GetPathTemplate()
 	}
+	appID, appVersion := parseApplicationTags(req)
 	return metrics.RequestInfo{
-		UserAgent:   getUserAgent(req),
-		SDKWrapper:  getSDKWrapper(req),
-		Route:       route,
-		Method:      req.Method,
-		Application: getApplicationTags(req),
-		InstanceID:  getInstanceID(req),
+		UserAgent:          getUserAgent(req),
+		SDKWrapper:         getSDKWrapper(req),
+		Route:              route,
+		Method:             req.Method,
+		ApplicationID:      appID,
+		ApplicationVersion: appVersion,
+		InstanceID:         getInstanceID(req),
 	}
 }
 

@@ -76,8 +76,22 @@ func getSDKWrapper(req *http.Request) string {
 	return req.Header.Get(ldWrapperHeader)
 }
 
-func getApplicationTags(req *http.Request) string {
-	return req.Header.Get(ldTagsHeader)
+// parseApplicationTags extracts the application ID and version from the
+// X-LaunchDarkly-Tags header. The header format is space-separated key/value
+// pairs like "application-id/my-app application-version/1.0.0".
+func parseApplicationTags(req *http.Request) (applicationID, applicationVersion string) {
+	tags := req.Header.Get(ldTagsHeader)
+	for _, part := range strings.Split(tags, " ") {
+		if k, v, ok := strings.Cut(part, "/"); ok {
+			switch k {
+			case "application-id":
+				applicationID = v
+			case "application-version":
+				applicationVersion = v
+			}
+		}
+	}
+	return
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.
