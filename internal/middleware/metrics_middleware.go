@@ -106,7 +106,9 @@ func RequestMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 			metrics.WithRouteCount(req.Context(), env.GetMetricsEnv(), getInstruments(env), ri, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
-			metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start), measure)
+			if w.Header().Get("X-Accel-Buffering") != "no" {
+				metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start), measure)
+			}
 		})
 	}
 }
