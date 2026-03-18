@@ -22,13 +22,13 @@ const (
 )
 
 var (
-	relayIDAttrKey          = attribute.Key("relayId")          //nolint:gochecknoglobals
-	platformCategoryAttrKey = attribute.Key("platformCategory") //nolint:gochecknoglobals
-	userAgentAttrKey        = attribute.Key("userAgent")        //nolint:gochecknoglobals
-	sdkWrapperAttrKey       = attribute.Key("sdkWrapper")       //nolint:gochecknoglobals
-	routeAttrKey            = attribute.Key("route")            //nolint:gochecknoglobals
-	methodAttrKey           = attribute.Key("method")           //nolint:gochecknoglobals
-	envNameAttrKey          = attribute.Key("env")              //nolint:gochecknoglobals
+	relayIDAttrKey            = attribute.Key("relayId")             //nolint:gochecknoglobals
+	platformCategoryAttrKey   = attribute.Key("platformCategory")    //nolint:gochecknoglobals
+	userAgentAttrKey          = attribute.Key("userAgent")           //nolint:gochecknoglobals
+	sdkWrapperAttrKey         = attribute.Key("sdkWrapper")          //nolint:gochecknoglobals
+	routeAttrKey              = attribute.Key("route")               //nolint:gochecknoglobals
+	methodAttrKey             = attribute.Key("method")              //nolint:gochecknoglobals
+	envNameAttrKey            = attribute.Key("env")                 //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instanceId")          //nolint:gochecknoglobals
