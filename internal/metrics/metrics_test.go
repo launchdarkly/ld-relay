@@ -32,6 +32,8 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments)
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requests)
+	assert.NotNil(t, instruments.requestDuration)
+	assert.NotNil(t, instruments.eventsIngestedBytes)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -107,7 +109,7 @@ func TestConnectionMetrics(t *testing.T) {
 	for _, tt := range specs {
 		t.Run(tt.platform, func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				WithGauge(p.env, p.instruments, userAgentValue, "", func() {
+				WithGauge(p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET"}, func() {
 					// While the gauge is active, check that the connection count is 1
 					rm, err := p.collectMetrics()
 					require.NoError(t, err)
@@ -129,7 +131,7 @@ func TestConnectionMetrics(t *testing.T) {
 
 func TestWithRouteCount(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		WithRouteCount(context.Background(), p.env, p.instruments, userAgentValue, "", "someRoute", "GET", func() {}, ServerRequests)
+		WithRouteCount(context.Background(), p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, func() {}, ServerRequests)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -151,6 +153,51 @@ func TestWithRouteCount(t *testing.T) {
 		}
 		assert.True(t, found, "expected data point with route=someRoute, method=GET")
 
+		// Verify RecordRequestDuration records to the histogram
+		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond, ServerRequests)
+
+		rm, err = p.collectMetrics()
+		require.NoError(t, err)
+		dm := findMetric(rm, requestDurationMeasureName)
+		require.NotNil(t, dm, "request duration metric not found")
+		hist, ok := dm.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "expected Histogram[float64] data")
+		require.NotEmpty(t, hist.DataPoints)
+		found = false
+		for _, dp := range hist.DataPoints {
+			routeVal, routeOK := dp.Attributes.Value(routeAttrKey)
+			methodVal, methodOK := dp.Attributes.Value(methodAttrKey)
+			if routeOK && methodOK && routeVal.AsString() == "someRoute" && methodVal.AsString() == "GET" {
+				assert.Equal(t, uint64(1), dp.Count)
+				assert.InDelta(t, 0.05, dp.Sum, 0.01, "expected ~50ms duration")
+				found = true
+			}
+		}
+		assert.True(t, found, "expected duration data point with route=someRoute, method=GET")
+	})
+}
+
+func TestRecordEventsIngestedBytes(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsIngestedBytesMeasureName)
+		require.NotNil(t, m, "events ingested bytes metric not found")
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data")
+		require.NotEmpty(t, sum.DataPoints)
+		found := false
+		for _, dp := range sum.DataPoints {
+			platVal, platOK := dp.Attributes.Value(platformCategoryAttrKey)
+			envVal, envOK := dp.Attributes.Value(envNameAttrKey)
+			if platOK && envOK && platVal.AsString() == ServerPlatformCategory && envVal.AsString() == p.envName {
+				assert.Equal(t, int64(1024), dp.Value)
+				found = true
+			}
+		}
+		assert.True(t, found, "expected data point for events ingested bytes")
 	})
 }
 
@@ -159,6 +206,12 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
 	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+func TestSanitizeRouteValue(t *testing.T) {
+	assert.Equal(t, "/sdk/evalx/contexts/{context}", sanitizeRouteValue("/sdk/evalx/contexts/{context}"))
+	assert.Equal(t, "not-provided", sanitizeRouteValue(""))
+	assert.Equal(t, "not-provided", sanitizeRouteValue("   "))
 }
 
 // Helper functions for asserting OTel metric data
