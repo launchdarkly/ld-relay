@@ -174,6 +174,13 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			// OPTIONS preflight requests don't carry Authorization headers, so skip auth.
+			// The CORS middleware later in the chain will handle the response.
+			if req.Method == "OPTIONS" {
+				next.ServeHTTP(w, req)
+				return
+			}
+
 			token, err := sdks.FetchClientSideAuthToken(req)
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
