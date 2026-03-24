@@ -100,8 +100,8 @@ func CountServerConns(handler http.Handler) http.Handler {
 	return withGauge(handler, metrics.ServerConns)
 }
 
-// PollingRequestCount is a middleware function that increments the total number of server-side polling requests.
-func PollingRequestCount(handler http.Handler) http.Handler {
+// ServerPollingRequestCount is a middleware function that increments the total number of server-side polling requests.
+func ServerPollingRequestCount(handler http.Handler) http.Handler {
 	return withCount(handler, metrics.ServerPollingRequests)
 }
 

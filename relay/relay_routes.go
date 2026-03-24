@@ -91,7 +91,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2Selector := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
@@ -130,9 +130,9 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
 
 	// PHP SDK endpoints
-	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
-	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
-	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
+	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := middleware.Chain(
