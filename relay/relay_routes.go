@@ -94,12 +94,12 @@ func (r *Relay) makeRouter() *mux.Router {
 	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
-	clientSideFDv2Selector := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
+	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
 
 	clientSideFDv2StreamRouter := sdkRouter.PathPrefix("/stream/eval").Subrouter()
 	clientSideFDv2StreamMiddleware := middleware.Chain(
 		mux.CORSMethodMiddleware(clientSideFDv2StreamRouter),
-		clientSideFDv2Selector,
+		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
 		middleware.DynamicRequestMetrics(),
@@ -112,7 +112,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	clientSideFDv2PollRouter := sdkRouter.PathPrefix("/poll/eval").Subrouter()
 	clientSideFDv2PollMiddleware := middleware.Chain(
 		mux.CORSMethodMiddleware(clientSideFDv2PollRouter),
-		clientSideFDv2Selector,
+		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
 		middleware.DynamicRequestMetrics(),
