@@ -11,6 +11,9 @@ jobs:
 
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -24,7 +27,6 @@ jobs:
     permissions:
       id-token: write # Needed to obtain Docker tokens
       contents: write # Needed to upload release artifacts
-      pull-requests: write
     outputs:
       hashes: ${{ steps.publish.outputs.hashes }}
       images_and_digests: ${{ steps.publish.outputs.images_and_digests }}
