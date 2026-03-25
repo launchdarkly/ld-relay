@@ -82,12 +82,12 @@ func (r *Relay) makeRouter() *mux.Router {
 	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
 
 	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 
 	// PHP SDK endpoints
 	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
