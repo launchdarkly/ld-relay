@@ -122,12 +122,12 @@ func (r *Relay) makeRouter() *mux.Router {
 	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("POST", "OPTIONS")
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK)))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 
 	// PHP SDK endpoints
 	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
