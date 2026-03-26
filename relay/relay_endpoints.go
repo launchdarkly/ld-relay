@@ -24,6 +24,7 @@ import (
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	"github.com/launchdarkly/go-sdk-common/v3/ldreason"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -348,76 +349,43 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 		evaluator := clientCtx.Env.GetEvaluator()
 		flagEvalKind := subsystems.ObjectKind("flag-eval")
 
+		var allItems []ldstoretypes.KeyedItemDescriptor
 		for kind, keyedItems := range collection {
-			if kind != ldstoreimpl.Features() {
-				continue
+			if kind == ldstoreimpl.Features() {
+				allItems = keyedItems
+				break
 			}
-			for _, keyedItem := range keyedItems {
-				if keyedItem.Item.Item == nil {
-					continue
-				}
-				flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag)
-				if !ok {
-					loggers.Error("Error casting keyed item to feature flag")
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
+		}
 
-				switch sdkKind {
-				case basictypes.JSClientSDK:
-					if !flag.ClientSideAvailability.UsingEnvironmentID {
-						continue
-					}
-				case basictypes.MobileSDK:
-					if !flag.ClientSideAvailability.UsingMobileKey {
-						continue
-					}
-				}
-
-				var prerequisites []string
-				result := evaluator.Evaluate(flag, ldContext, func(event ldeval.PrerequisiteFlagEvent) {
-					if event.TargetFlagKey == flag.Key {
-						prerequisites = append(prerequisites, event.PrerequisiteFlag.Key)
-					}
-				})
-
-				detail := result.Detail
-				isExperiment := result.IsExperiment
-
-				evalWriter := jwriter.NewWriter()
-				evalObj := evalWriter.Object()
-				detail.Value.WriteToJSONWriter(evalObj.Name("value"))
-				detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
-				evalObj.Name("flagVersion").Int(flag.Version)
-				if len(prerequisites) > 0 {
-					prereqArray := evalObj.Name("prerequisites").Array()
-					for _, p := range prerequisites {
-						prereqArray.String(p)
-					}
-					prereqArray.End()
-				}
-				evalObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
-				evalObj.Maybe("trackReason", isExperiment).Bool(true)
-				if withReasons || isExperiment {
-					detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
-				}
-				evalObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
-					Float64(float64(flag.DebugEventsUntilDate))
-				if flag.SamplingRatio.IsDefined() {
-					evalObj.Name("samplingRatio").Int(flag.SamplingRatio.IntValue())
-				}
-				evalObj.End()
-
-				pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-					Event: "put-object",
-					EventData: subsystems.PutObject{
-						Version: keyedItem.Item.Version,
-						Kind:    flagEvalKind,
-						Key:     keyedItem.Key,
-						Object:  evalWriter.Bytes(),
-					},
-				})
+		evalResults := evaluateFlags(evaluator, allItems, sdkKind, ldContext)
+		for _, er := range evalResults {
+			evalWriter := jwriter.NewWriter()
+			evalObj := evalWriter.Object()
+			er.Detail.Value.WriteToJSONWriter(evalObj.Name("value"))
+			er.Detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
+			evalObj.Name("flagVersion").Int(er.Flag.Version)
+			writePrerequisites(&evalObj, er.Prerequisites)
+			evalObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
+			evalObj.Maybe("trackReason", er.IsExperiment).Bool(true)
+			if withReasons || er.IsExperiment {
+				er.Detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
 			}
+			evalObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
+				Float64(float64(er.Flag.DebugEventsUntilDate))
+			if er.Flag.SamplingRatio.IsDefined() {
+				evalObj.Name("samplingRatio").Int(er.Flag.SamplingRatio.IntValue())
+			}
+			evalObj.End()
+
+			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+				Event: "put-object",
+				EventData: subsystems.PutObject{
+					Version: er.Flag.Version,
+					Kind:    flagEvalKind,
+					Key:     er.Flag.Key,
+					Object:  evalWriter.Bytes(),
+				},
+			})
 		}
 
 		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
@@ -517,6 +485,68 @@ func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWri
 	}
 }
 
+// flagEvalResult holds the result of evaluating a single flag against a context.
+type flagEvalResult struct {
+	Flag          *ldmodel.FeatureFlag
+	Detail        ldreason.EvaluationDetail
+	IsExperiment  bool
+	Prerequisites []string
+}
+
+// evaluateFlags evaluates all flags visible to the given SDK kind against the context.
+// It filters flags by ClientSideAvailability and collects prerequisites.
+func evaluateFlags(
+	evaluator ldeval.Evaluator,
+	items []ldstoretypes.KeyedItemDescriptor,
+	sdkKind basictypes.SDKKind,
+	ldContext ldcontext.Context,
+) []flagEvalResult {
+	var results []flagEvalResult
+	for _, item := range items {
+		flag, ok := item.Item.Item.(*ldmodel.FeatureFlag)
+		if !ok || flag == nil {
+			continue
+		}
+
+		switch sdkKind {
+		case basictypes.JSClientSDK:
+			if !flag.ClientSideAvailability.UsingEnvironmentID {
+				continue
+			}
+		case basictypes.MobileSDK:
+			if !flag.ClientSideAvailability.UsingMobileKey {
+				continue
+			}
+		}
+
+		var prerequisites []string
+		result := evaluator.Evaluate(flag, ldContext, func(event ldeval.PrerequisiteFlagEvent) {
+			if event.TargetFlagKey == flag.Key {
+				prerequisites = append(prerequisites, event.PrerequisiteFlag.Key)
+			}
+		})
+
+		results = append(results, flagEvalResult{
+			Flag:          flag,
+			Detail:        result.Detail,
+			IsExperiment:  result.IsExperiment,
+			Prerequisites: prerequisites,
+		})
+	}
+	return results
+}
+
+// writePrerequisites writes a prerequisites JSON array to the given object if non-empty.
+func writePrerequisites(obj *jwriter.ObjectState, prerequisites []string) {
+	if len(prerequisites) > 0 {
+		prereqArray := obj.Name("prerequisites").Array()
+		for _, p := range prerequisites {
+			prereqArray.String(p)
+		}
+		prereqArray.End()
+	}
+}
+
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
@@ -560,54 +590,24 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 	}
 
 	evaluator := clientCtx.Env.GetEvaluator()
+	evalResults := evaluateFlags(evaluator, items, sdkKind, ldContext)
 
 	responseWriter := jwriter.NewWriter()
 	responseObj := responseWriter.Object()
-	for _, item := range items {
-		if flag, ok := item.Item.Item.(*ldmodel.FeatureFlag); ok {
-			switch sdkKind {
-			case basictypes.JSClientSDK:
-				if !flag.ClientSideAvailability.UsingEnvironmentID {
-					continue
-				}
-			case basictypes.MobileSDK:
-				if !flag.ClientSideAvailability.UsingMobileKey {
-					continue
-				}
-			}
-
-			var prerequisites []string
-			result := evaluator.Evaluate(flag, ldContext, func(event ldeval.PrerequisiteFlagEvent) {
-				if event.TargetFlagKey == flag.Key {
-					prerequisites = append(prerequisites, event.PrerequisiteFlag.Key)
-				}
-			})
-
-			detail := result.Detail
-			isExperiment := result.IsExperiment
-
-			valueObj := responseObj.Name(flag.Key).Object()
-			detail.Value.WriteToJSONWriter(valueObj.Name("value"))
-			detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
-			valueObj.Name("version").Int(flag.Version)
-			valueObj.Maybe("trackEvents", flag.TrackEvents || isExperiment).Bool(true)
-			valueObj.Maybe("trackReason", isExperiment).Bool(true)
-			if withReasons || isExperiment {
-				detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
-			}
-			valueObj.Maybe("debugEventsUntilDate", flag.DebugEventsUntilDate != 0).
-				Float64(float64(flag.DebugEventsUntilDate))
-
-			if len(prerequisites) > 0 {
-				prereqArray := valueObj.Name("prerequisites").Array()
-				for _, p := range prerequisites {
-					prereqArray.String(p)
-				}
-				prereqArray.End()
-			}
-
-			valueObj.End()
+	for _, er := range evalResults {
+		valueObj := responseObj.Name(er.Flag.Key).Object()
+		er.Detail.Value.WriteToJSONWriter(valueObj.Name("value"))
+		er.Detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
+		valueObj.Name("version").Int(er.Flag.Version)
+		valueObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
+		valueObj.Maybe("trackReason", er.IsExperiment).Bool(true)
+		if withReasons || er.IsExperiment {
+			er.Detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
 		}
+		valueObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
+			Float64(float64(er.Flag.DebugEventsUntilDate))
+		writePrerequisites(&valueObj, er.Prerequisites)
+		valueObj.End()
 	}
 	responseObj.End()
 	result := responseWriter.Bytes()
