@@ -81,6 +81,7 @@ jobs:
       upload-assets: ${{ !inputs.dry_run }}
       upload-tag-name: ${{ inputs.tag }}
       provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', inputs.tag) }}
+      draft-release: true
 
   release-relay-image-provenance:
     needs: ['build-publish']
