@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.5](https://github.com/launchdarkly/ld-relay/compare/v8.17.4...v8.17.5) (2026-03-27)
+
+
+### Bug Fixes
+
+* Include server evalx routes in polling metrics ([#601](https://github.com/launchdarkly/ld-relay/issues/601)) ([3e78c23](https://github.com/launchdarkly/ld-relay/commit/3e78c234662e6ed1f8e2dbe60236634e108fa245))
+
 ## [8.17.4](https://github.com/launchdarkly/ld-relay/compare/v8.17.3...v8.17.4) (2026-03-12)
 
 
