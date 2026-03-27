@@ -18,9 +18,14 @@ on:
         required: false
         default: false
       tag:
-        description: 'Tag to upload binary artifacts to.'
+        description: 'Tag of an existing draft release to upload binary artifacts to.'
         type: string
         required: true
+      publish_release:
+        description: 'Publish (un-draft) the release after all artifacts are uploaded?'
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   go-versions:
@@ -96,7 +101,7 @@ jobs:
 
   publish-release:
     needs: ['build-publish', 'release-relay-binary-provenance', 'release-relay-image-provenance']
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && inputs.publish_release }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
