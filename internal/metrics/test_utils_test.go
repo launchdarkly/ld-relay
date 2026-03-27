@@ -55,7 +55,7 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	connections, _ := meter.Int64UpDownCounter(connMeasureName)
 	requests, _ := meter.Int64Counter(requestMeasureName)
 	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName)
-	eventsIngestedBytes, _ := meter.Int64Counter(eventsIngestedBytesMeasureName)
+	eventsIngestedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName)
 
 	instruments := &Instruments{
 		connections:         connections,

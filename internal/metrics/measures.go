@@ -2,8 +2,11 @@ package metrics
 
 import (
 	"context"
+	"strconv"
 	"time"
 
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -13,6 +16,11 @@ type Instruments struct {
 	requests            metric.Int64Counter       // cumulative HTTP requests
 	requestDuration     metric.Float64Histogram   // request duration in seconds
 	eventsIngestedBytes metric.Int64Counter       // cumulative bytes of event data ingested
+	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
+	eventsSent          metric.Int64Counter       // cumulative count of events successfully sent
+	eventsFailedSend    metric.Int64Counter       // cumulative count of events that failed to send
+	eventsBytesSent     metric.Int64Counter       // cumulative bytes of event payloads successfully sent
+	pendingEvents     metric.Int64Gauge         // current number of events pending delivery
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -70,7 +78,27 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventsIngestedBytes, err := meter.Int64Counter(eventsIngestedBytesMeasureName)
+	eventsIngestedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
+	if err != nil {
+		return nil, err
+	}
+	eventsDropped, err := meter.Int64Counter(eventsSentDroppedMeasureName)
+	if err != nil {
+		return nil, err
+	}
+	eventsSent, err := meter.Int64Counter(eventsSentCountMeasureName)
+	if err != nil {
+		return nil, err
+	}
+	eventsFailedSend, err := meter.Int64Counter(eventsSentFailuresMeasureName)
+	if err != nil {
+		return nil, err
+	}
+	eventsBytesSent, err := meter.Int64Counter(eventsSentBytesMeasureName)
+	if err != nil {
+		return nil, err
+	}
+	pendingEvents, err := meter.Int64Gauge(eventsSentPendingMeasureName)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +107,11 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsIngestedBytes: eventsIngestedBytes,
+		eventsDropped:       eventsDropped,
+		eventsSent:          eventsSent,
+		eventsFailedSend:    eventsFailedSend,
+		eventsBytesSent:     eventsBytesSent,
+		pendingEvents:     pendingEvents,
 	}, nil
 }
 
@@ -176,4 +209,62 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
 	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
+}
+
+// EventMetricsRecorder implements the EventMetrics interface defined in both the events package
+// and go-sdk-events, recording event processing metrics via OTEL instruments. It uses
+// environment-level attributes only (relayId, env) since event drops occur asynchronously,
+// detached from any specific HTTP request context.
+type EventMetricsRecorder struct {
+	instruments *Instruments
+	envKVs      []attribute.KeyValue
+}
+
+// RecordDroppedEvents records the number of events dropped due to capacity overflow.
+func (r *EventMetricsRecorder) RecordDroppedEvents(count int) {
+	if r.instruments == nil || count <= 0 {
+		return
+	}
+	attrs := attribute.NewSet(r.envKVs...)
+	r.instruments.eventsDropped.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+}
+
+// RecordEventsSent records the number of events successfully delivered to the events service.
+func (r *EventMetricsRecorder) RecordEventsSent(count int) {
+	if r.instruments == nil || count <= 0 {
+		return
+	}
+	attrs := attribute.NewSet(r.envKVs...)
+	r.instruments.eventsSent.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+}
+
+// RecordPendingEvents records the current number of events pending delivery.
+func (r *EventMetricsRecorder) RecordPendingEvents(depth int) {
+	if r.instruments == nil {
+		return
+	}
+	attrs := attribute.NewSet(r.envKVs...)
+	r.instruments.pendingEvents.Record(context.Background(), int64(depth), metric.WithAttributeSet(attrs))
+}
+
+// RecordEventsBytesSent records the size of event payloads successfully delivered.
+func (r *EventMetricsRecorder) RecordEventsBytesSent(bytes int) {
+	if r.instruments == nil || bytes <= 0 {
+		return
+	}
+	attrs := attribute.NewSet(r.envKVs...)
+	r.instruments.eventsBytesSent.Add(context.Background(), int64(bytes), metric.WithAttributeSet(attrs))
+}
+
+// RecordEventsFailedSend records the number of events that could not be delivered after all retries.
+// The status code from the metadata is included as an attribute on the metric.
+func (r *EventMetricsRecorder) RecordEventsFailedSend(count int, metadata ldevents.EventSendFailureMetadata) {
+	if r.instruments == nil || count <= 0 {
+		return
+	}
+	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+1)
+	copy(kvs, r.envKVs)
+	kvs = append(kvs, statusCodeAttrKey.String(strconv.Itoa(metadata.StatusCode)))
+	attrs := attribute.NewSet(kvs...)
+	r.instruments.eventsFailedSend.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
 }

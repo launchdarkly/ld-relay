@@ -102,15 +102,32 @@ func NewManager(
 	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
 		otelmetric.WithDescription("request duration in seconds"),
 		otelmetric.WithUnit("s"))
-	eventsIngestedBytes, _ := meter.Int64Counter(eventsIngestedBytesMeasureName,
+	eventsIngestedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName,
 		otelmetric.WithDescription("cumulative bytes of event data ingested"),
 		otelmetric.WithUnit("By"))
+
+	eventsDropped, _ := meter.Int64Counter(eventsSentDroppedMeasureName,
+		otelmetric.WithDescription("cumulative count of events dropped due to capacity overflow"))
+	eventsSent, _ := meter.Int64Counter(eventsSentCountMeasureName,
+		otelmetric.WithDescription("cumulative count of events successfully sent"))
+	eventsFailedSend, _ := meter.Int64Counter(eventsSentFailuresMeasureName,
+		otelmetric.WithDescription("cumulative count of events that failed to send after all retries"))
+	eventsBytesSent, _ := meter.Int64Counter(eventsSentBytesMeasureName,
+		otelmetric.WithDescription("cumulative bytes of event payloads successfully sent"),
+		otelmetric.WithUnit("By"))
+	pendingEvents, _ := meter.Int64Gauge(eventsSentPendingMeasureName,
+		otelmetric.WithDescription("current number of events buffered in the queue"))
 
 	instruments := &Instruments{
 		connections:         connections,
 		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsIngestedBytes: eventsIngestedBytes,
+		eventsDropped:       eventsDropped,
+		eventsSent:          eventsSent,
+		eventsFailedSend:    eventsFailedSend,
+		eventsBytesSent:     eventsBytesSent,
+		pendingEvents:     pendingEvents,
 	}
 
 	usageChan := make(chan any, 256)
@@ -272,6 +289,13 @@ func (m *Manager) RemoveEnvironmentForUsage(envName string) {
 // GetAttributes returns the attribute set for this EnvironmentManager.
 func (em *EnvironmentManager) GetAttributes() attribute.Set {
 	return attribute.NewSet(em.envKVs...)
+}
+
+// NewEventMetricsRecorder creates an EventMetricsRecorder that records event processing metrics
+// with this environment's attributes. The returned recorder satisfies the EventMetrics interfaces
+// defined in both the events package and go-sdk-events.
+func (em *EnvironmentManager) NewEventMetricsRecorder(instruments *Instruments) *EventMetricsRecorder {
+	return &EventMetricsRecorder{instruments: instruments, envKVs: em.envKVs}
 }
 
 // FlushEventsExporter is used in testing to trigger the collector to post data to the event publisher.

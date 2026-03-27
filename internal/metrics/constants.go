@@ -12,7 +12,12 @@ const (
 	connMeasureName                = "launchdarkly.relay.connections"
 	requestMeasureName             = "launchdarkly.relay.requests"
 	requestDurationMeasureName     = "launchdarkly.relay.request.duration"
-	eventsIngestedBytesMeasureName = "launchdarkly.relay.events.ingested.bytes"
+	eventsReceivedBytesMeasureName = "launchdarkly.relay.events.received.bytes"
+	eventsSentCountMeasureName     = "launchdarkly.relay.events.sent.count"
+	eventsSentBytesMeasureName     = "launchdarkly.relay.events.sent.bytes"
+	eventsSentFailuresMeasureName  = "launchdarkly.relay.events.sent.failures"
+	eventsSentDroppedMeasureName   = "launchdarkly.relay.events.sent.dropped"
+	eventsSentPendingMeasureName = "launchdarkly.relay.events.sent.pending"
 
 	defaultFlushInterval = time.Minute
 
@@ -32,6 +37,7 @@ var (
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instanceId")          //nolint:gochecknoglobals
+	statusCodeAttrKey         = attribute.Key("statusCode")          //nolint:gochecknoglobals
 )
 
 // buildAttributes creates an OTel attribute set from base key-values plus per-request attributes.

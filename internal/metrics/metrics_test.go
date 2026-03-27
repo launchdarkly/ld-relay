@@ -183,7 +183,7 @@ func TestRecordEventsIngestedBytes(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsIngestedBytesMeasureName)
+		m := findMetric(rm, eventsReceivedBytesMeasureName)
 		require.NotNil(t, m, "events ingested bytes metric not found")
 		sum, ok := m.Data.(metricdata.Sum[int64])
 		require.True(t, ok, "expected Sum[int64] data")

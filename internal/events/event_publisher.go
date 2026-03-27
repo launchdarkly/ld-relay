@@ -103,10 +103,11 @@ type HTTPEventPublisher struct {
 	disableQueue chan interface{}
 	disabled     bool
 
-	queues     map[EventPayloadMetadata]*publisherQueue
-	capacity   int
-	overflowed bool
-	lock       sync.RWMutex
+	queues       map[EventPayloadMetadata]*publisherQueue
+	capacity     int
+	overflowed   bool
+	eventMetrics EventMetrics
+	lock         sync.RWMutex
 }
 
 type eventBatch struct {
@@ -156,6 +157,17 @@ type OptionCapacity int
 
 func (o OptionCapacity) apply(p *HTTPEventPublisher) error {
 	p.capacity = int(o)
+	return nil
+}
+
+// OptionEventMetrics provides an EventMetrics implementation for recording metrics about event
+// processing such as dropped event counts.
+type OptionEventMetrics struct {
+	EventMetrics EventMetrics
+}
+
+func (o OptionEventMetrics) apply(p *HTTPEventPublisher) error {
+	p.eventMetrics = o.EventMetrics
 	return nil
 }
 
@@ -257,10 +269,24 @@ func (p *HTTPEventPublisher) append(batch eventBatch) {
 			p.overflowed = true
 		}
 		taken = available
+		if dropped := len(batch.events) - taken; dropped > 0 && p.eventMetrics != nil {
+			p.eventMetrics.RecordDroppedEvents(dropped)
+		}
 	} else {
 		p.overflowed = false
 	}
 	queue.events = append(queue.events, batch.events[:taken]...)
+	if p.eventMetrics != nil {
+		p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
+	}
+}
+
+func (p *HTTPEventPublisher) totalPendingEvents() int {
+	total := 0
+	for _, q := range p.queues {
+		total += len(q.events)
+	}
+	return total
 }
 
 func (p *HTTPEventPublisher) ReplaceCredential(newCredential credential.SDKCredential) { //nolint:revive // method is already documented in interface
@@ -338,6 +364,7 @@ func (p *HTTPEventPublisher) flush() {
 			return ret
 		}
 
+		eventMetrics := p.eventMetrics
 		go func() {
 			// The EventSender created by ldevents.NewDefaultEventSender implements the standard retry behavior,
 			// and error logging, in its SendEventData method. Retries could cause this call to block for a while,
@@ -351,11 +378,24 @@ func (p *HTTPEventPublisher) flush() {
 				EnableCompression: true,
 			}
 			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)
+			if eventMetrics != nil {
+				if result.Success {
+					eventMetrics.RecordEventsSent(count)
+					eventMetrics.RecordEventsBytesSent(len(payload))
+				} else {
+					eventMetrics.RecordEventsFailedSend(count, EventSendFailureMetadata{
+						StatusCode: result.StatusCode,
+					})
+				}
+			}
 			p.wg.Done()
 			if result.MustShutDown {
 				p.disableQueue <- struct{}{}
 			}
 		}()
+	}
+	if p.eventMetrics != nil {
+		p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
 	}
 }
 

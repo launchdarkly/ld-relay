@@ -122,6 +122,7 @@ func eventRelayTestWithOptions(
 			httpConfig,
 			wrapper,
 			opts.eventQueueCleanupInterval,
+			nil,
 		)
 		defer dispatcher.Close()
 

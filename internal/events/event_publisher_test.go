@@ -189,6 +189,148 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 	})
 }
 
+type mockEventMetrics struct {
+	droppedCount       int
+	sentCount          int
+	failedSendCount    int
+	lastFailedSendMeta EventSendFailureMetadata
+	bytesSent          int
+	lastPendingEvents  int
+}
+
+func (m *mockEventMetrics) RecordDroppedEvents(count int) {
+	m.droppedCount += count
+}
+
+func (m *mockEventMetrics) RecordEventsSent(count int) {
+	m.sentCount += count
+}
+
+func (m *mockEventMetrics) RecordEventsFailedSend(count int, metadata EventSendFailureMetadata) {
+	m.failedSendCount += count
+	m.lastFailedSendMeta = metadata
+}
+
+func (m *mockEventMetrics) RecordEventsBytesSent(bytes int) {
+	m.bytesSent += bytes
+}
+
+func (m *mockEventMetrics) RecordPendingEvents(depth int) {
+	m.lastPendingEvents = depth
+}
+
+func TestHTTPEventPublisherDroppedEventsMetric(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		metrics := &mockEventMetrics{}
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionCapacity(2), OptionEventMetrics{EventMetrics: metrics})
+		defer publisher.Close()
+
+		// Publish 5 events with capacity 2 — should drop 3
+		publisher.Publish(EventPayloadMetadata{},
+			json.RawMessage(`"a"`), json.RawMessage(`"b"`),
+			json.RawMessage(`"c"`), json.RawMessage(`"d"`), json.RawMessage(`"e"`))
+		publisher.Flush()
+
+		r := helpers.RequireValue(t, requestsCh, time.Second)
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["a","b"]`))
+
+		assert.Equal(t, 3, metrics.droppedCount)
+	})
+}
+
+func TestHTTPEventPublisherEventsSentMetric(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		metrics := &mockEventMetrics{}
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
+		defer publisher.Close()
+
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"a"`), json.RawMessage(`"b"`), json.RawMessage(`"c"`))
+		publisher.Flush()
+
+		_ = helpers.RequireValue(t, requestsCh, time.Second)
+		// Wait for the goroutine to record the metric after the send completes
+		assert.Eventually(t, func() bool { return metrics.sentCount == 3 }, time.Second, 10*time.Millisecond)
+		assert.Greater(t, metrics.bytesSent, 0)
+	})
+}
+
+func TestHTTPEventPublisherPendingEventsMetric(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		metrics := &mockEventMetrics{}
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
+		defer publisher.Close()
+
+		// Publish 3 events — queue depth should be 3 after processing
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"a"`), json.RawMessage(`"b"`), json.RawMessage(`"c"`))
+		// Flush will clear the queue — depth should go to 0
+		publisher.Flush()
+
+		_ = helpers.RequireValue(t, requestsCh, time.Second)
+		assert.Eventually(t, func() bool { return metrics.lastPendingEvents == 0 }, time.Second, 10*time.Millisecond)
+	})
+}
+
+func TestHTTPEventPublisherEventsFailedSendMetric(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	// Return 500 twice (exhausts retries) so the send fails
+	handler, requestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(
+			httphelpers.HandlerWithStatus(503),
+			httphelpers.HandlerWithStatus(503),
+		),
+	)
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		metrics := &mockEventMetrics{}
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
+		defer publisher.Close()
+
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"a"`), json.RawMessage(`"b"`))
+		publisher.Flush()
+
+		// Wait for both retry attempts
+		_ = helpers.RequireValue(t, requestsCh, 5*time.Second)
+		_ = helpers.RequireValue(t, requestsCh, 5*time.Second)
+
+		assert.Eventually(t, func() bool { return metrics.failedSendCount == 2 }, 5*time.Second, 10*time.Millisecond)
+		assert.Equal(t, 0, metrics.sentCount)
+		assert.Equal(t, 503, metrics.lastFailedSendMeta.StatusCode)
+	})
+}
+
+func TestHTTPEventPublisherDroppedEventsMetricNilIsNoOp(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		// No EventMetrics option — should not panic
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionCapacity(1))
+		defer publisher.Close()
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`), json.RawMessage(`"goodbye"`))
+		publisher.Flush()
+		r := helpers.RequireValue(t, requestsCh, time.Second)
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["hello"]`))
+	})
+}
+
 func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 	testRecoverableError := func(t *testing.T, errorHandler http.Handler) {
 		mockLog := ldlogtest.NewMockLog()
