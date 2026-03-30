@@ -35,7 +35,7 @@ jobs:
     needs: go-versions
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # Needed to get Docker tokens during publishing and sign attestations
+      id-token: write # Needed to get Docker tokens during publishing and to sign attestations
       contents: write # Needed to upload release artifacts
       attestations: write # Needed for artifact attestations
     outputs:

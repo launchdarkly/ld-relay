@@ -25,7 +25,7 @@ jobs:
 
   release-relay:
     permissions:
-      id-token: write # Needed to obtain Docker tokens and sign attestations
+      id-token: write # Needed to obtain Docker tokens and to sign attestations
       contents: write # Needed to upload release artifacts
       attestations: write # Needed for artifact attestations
     outputs:
