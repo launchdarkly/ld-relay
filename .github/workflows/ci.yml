@@ -83,7 +83,7 @@ jobs:
         id: image-tag
         run:
           echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
-      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         id: scan-alpine
         continue-on-error: true
         with:
@@ -94,7 +94,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         id: scan-distroless
         continue-on-error: true
         with:
@@ -102,7 +102,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         continue-on-error: true
         id: scan-debug-distroless
         with:
