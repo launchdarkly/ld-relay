@@ -38,6 +38,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Create release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ needs.release-please.outputs.tag_name }}"
+          git push origin "${{ needs.release-please.outputs.tag_name }}"
+
       - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         name: 'Get Docker token'
         with:
