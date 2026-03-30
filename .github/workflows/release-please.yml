@@ -47,10 +47,10 @@ jobs:
             echo "Tag ${TAG_NAME} already exists, skipping creation."
           else
             echo "Creating tag ${TAG_NAME}."
-            gh api "repos/${{ github.repository }}/git/refs" \
-              --method POST \
-              -f ref="refs/tags/${TAG_NAME}" \
-              -f sha="$(git rev-parse HEAD)"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "${TAG_NAME}"
+            git push origin "${TAG_NAME}"
           fi
 
       - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
