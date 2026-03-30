@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.6](https://github.com/launchdarkly/ld-relay/compare/v8.17.5...v8.17.6) (2026-03-30)
+
+
+### Bug Fixes
+
+* Manually create tag on release ([#611](https://github.com/launchdarkly/ld-relay/issues/611)) ([d217e67](https://github.com/launchdarkly/ld-relay/commit/d217e678a17d76d4cd816726306c3a25cd1cb3ca))
+
 ## [8.17.5](https://github.com/launchdarkly/ld-relay/compare/v8.17.4...v8.17.5) (2026-03-27)
 
 
