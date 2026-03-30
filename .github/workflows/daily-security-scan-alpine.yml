@@ -11,14 +11,21 @@ jobs:
         tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
       fail-fast: false
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@master
-        env:
-          # Avoid rate-limiting on ghcr.io (https://github.com/aquasecurity/trivy-action/issues/389)
-          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+      - name: 'Get Docker token'
+        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         with:
-          image-ref: launchdarkly/ld-relay:${{ matrix.tag }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
+          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
+          ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
+        with:
+          command: cves
+          image: launchdarkly/ld-relay:${{ matrix.tag }}
+          exit-code: true
+          only-fixed: true
+          write-comment: false
+          dockerhub-user: ${{ env.DOCKER_USERNAME }}
+          dockerhub-password: ${{ env.DOCKER_TOKEN }}
