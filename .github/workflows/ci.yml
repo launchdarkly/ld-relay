@@ -72,9 +72,9 @@ jobs:
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
       - name: Build Docker Images
@@ -83,7 +83,7 @@ jobs:
         id: image-tag
         run:
           echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
         id: scan-alpine
         continue-on-error: true
         with:
@@ -94,7 +94,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
         id: scan-distroless
         continue-on-error: true
         with:
@@ -102,7 +102,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
         continue-on-error: true
         id: scan-debug-distroless
         with:
