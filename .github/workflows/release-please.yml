@@ -38,6 +38,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Create release tag
+        env:
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists, skipping creation."
+          else
+            echo "Creating tag ${TAG_NAME}."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "${TAG_NAME}"
+            git push origin "${TAG_NAME}"
+          fi
+
       - uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         name: 'Get Docker token'
         with:
