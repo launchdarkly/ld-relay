@@ -25,10 +25,10 @@ jobs:
 
   release-relay:
     permissions:
-      id-token: write # Needed to obtain Docker tokens
+      id-token: write # Needed to obtain Docker tokens and sign attestations
       contents: write # Needed to upload release artifacts
+      attestations: write # Needed for artifact attestations
     outputs:
-      hashes: ${{ steps.publish.outputs.hashes }}
       images_and_digests: ${{ steps.publish.outputs.images_and_digests }}
     needs: [ release-please, go-versions ]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
@@ -82,39 +82,29 @@ jobs:
           update-major-tag: ${{ env.IS_DEFAULT_BRANCH }}
           update-latest-tag: ${{ env.IS_DEFAULT_BRANCH }}
 
-  release-relay-binary-provenance:
-    needs: ['release-please', 'release-relay']
-    permissions:
-      actions: read
-      id-token: write
-      contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: "${{ needs.release-relay.outputs.hashes }}"
-      upload-assets: true
-      upload-tag-name: ${{ needs.release-please.outputs.tag_name }}
-      provenance-name: ${{ format('ld-relay-{0}_multiple_provenance.intoto.jsonl', needs.release-please.outputs.tag_name) }}
-      draft-release: true
+      - name: Attest binary artifacts
+        uses: actions/attest@v4
+        with:
+          subject-checksums: ${{ steps.publish.outputs.checksum-file }}
 
-  release-relay-image-provenance:
-    needs: ['release-please', 'release-relay']
+  attest-image-provenance:
+    needs: ['release-relay']
+    runs-on: ubuntu-latest
     permissions:
-      actions: read
       id-token: write
-      packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+      attestations: write
     strategy:
       matrix:
         images_and_digests: ${{fromJson(needs.release-relay.outputs.images_and_digests)}}
-    with:
-      image: ${{ matrix.images_and_digests.image }}
-      digest: ${{ matrix.images_and_digests.digest }}
-      registry-username: ${{ vars.DOCKER_USERNAME }}
-    secrets:
-      registry-password: ${{ secrets.DOCKER_TOKEN }}
+    steps:
+      - name: Attest container image
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ matrix.images_and_digests.image }}
+          subject-digest: ${{ matrix.images_and_digests.digest }}
 
   publish-release:
-    needs: ['release-please', 'release-relay', 'release-relay-binary-provenance', 'release-relay-image-provenance']
+    needs: ['release-please', 'release-relay', 'attest-image-provenance']
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
