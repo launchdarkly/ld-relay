@@ -5,15 +5,14 @@ on:
     - cron: "0 8 * * *"
 
 jobs:
-  scan-relay:
-    strategy:
-      matrix:
-        tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
-      fail-fast: false
+  get-docker-credentials:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+    outputs:
+      docker-username: ${{ steps.export.outputs.docker-username }}
+      docker-token: ${{ steps.export.outputs.docker-token }}
     steps:
       - uses: actions/checkout@v4
       - name: 'Get Docker token'
@@ -21,6 +20,24 @@ jobs:
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
           ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
+      - name: Export masked credentials
+        id: export
+        run: |
+          echo "::add-mask::$DOCKER_USERNAME"
+          echo "::add-mask::$DOCKER_TOKEN"
+          echo "docker-username=$DOCKER_USERNAME" >> $GITHUB_OUTPUT
+          echo "docker-token=$DOCKER_TOKEN" >> $GITHUB_OUTPUT
+
+  scan-relay:
+    needs: get-docker-credentials
+    strategy:
+      matrix:
+        tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
+      fail-fast: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
         with:
           command: cves
@@ -28,5 +45,5 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ env.DOCKER_USERNAME }}
-          dockerhub-password: ${{ env.DOCKER_TOKEN }}
+          dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
+          dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
