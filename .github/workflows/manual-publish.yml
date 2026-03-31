@@ -73,7 +73,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         uses: actions/attest@v4
         with:
-          subject-checksums: ${{ steps.publish.outputs.checksum-file }}
+          subject-checksums: ${{ steps.publish.outputs.checksum_file }}
 
   attest-image-provenance:
     needs: ['build-publish']
