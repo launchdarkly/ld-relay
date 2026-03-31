@@ -245,6 +245,7 @@ func streamManagerTestWithStreamHandler(
 			time.Millisecond,
 			rpacProtocolVersion,
 			mockLog.Loggers,
+			nil,
 		)
 		defer p.streamManager.Close()
 

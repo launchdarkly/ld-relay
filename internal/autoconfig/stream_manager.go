@@ -1,6 +1,7 @@
 package autoconfig
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -34,6 +35,12 @@ var (
 	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
+// CacheWriter is an optional interface for persisting PutContent after each PUT event.
+// This is satisfied by autoconfigcache.Store but defined here to avoid import cycles.
+type CacheWriter interface {
+	SetAll(ctx context.Context, content PutContent) error
+}
+
 // StreamManager manages the auto-configuration SSE stream.
 //
 // That includes managing the stream connection itself (reconnecting as needed, the same as the SDK streams),
@@ -47,6 +54,7 @@ type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               *url.URL
 	handler           MessageHandler
+	cacheWriter       CacheWriter
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
@@ -59,6 +67,7 @@ type StreamManager struct {
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
+// The optional cacheWriter, if non-nil, will be used to persist PutContent after each PUT event.
 func NewStreamManager(
 	key config.AutoConfigKey,
 	streamURI *url.URL,
@@ -67,6 +76,7 @@ func NewStreamManager(
 	initialRetryDelay time.Duration,
 	protocolVersion int,
 	loggers ldlog.Loggers,
+	cacheWriter CacheWriter,
 ) *StreamManager {
 	loggers.SetPrefix("AutoConfiguration")
 	if protocolVersion > 1 {
@@ -78,6 +88,7 @@ func NewStreamManager(
 		key:               key,
 		uri:               streamURI,
 		handler:           handler,
+		cacheWriter:       cacheWriter,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
@@ -328,20 +339,11 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	}
 }
 
-// SeedFromPutContent records the given envs and filters in the stream's receivers without dispatching to the handler.
-// Call this after applying cached PutContent to the handler so that when the first PUT arrives from the stream,
-// envReceiver/filterReceiver already know about cached items: updates and deletes are applied correctly instead of
-// inserts being skipped and cached-only items never being removed.
-func (s *StreamManager) SeedFromPutContent(content PutContent) {
-	for id, rep := range content.Environments {
-		if id != rep.EnvID {
-			continue
-		}
-		s.envReceiver.Seed(string(id), rep, rep.Version)
-	}
-	for id, filter := range content.Filters {
-		s.filterReceiver.Seed(string(id), filter, filter.Version)
-	}
+// ApplyCachedPut processes the given PutContent through the normal handlePut path, as if it were the first
+// PUT event from the stream. This populates the MessageReceivers and dispatches to the handler.
+// Must be called before Start() — there is no concurrency with the stream goroutine.
+func (s *StreamManager) ApplyCachedPut(content PutContent) {
+	s.handlePut(content)
 }
 
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
@@ -381,8 +383,10 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-	if pr, ok := s.handler.(PutContentReceiver); ok {
-		pr.ReceivedPutContent(content)
+	if s.cacheWriter != nil {
+		if err := s.cacheWriter.SetAll(context.Background(), content); err != nil {
+			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+		}
 	}
 }
 

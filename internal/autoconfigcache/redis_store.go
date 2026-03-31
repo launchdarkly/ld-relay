@@ -3,20 +3,28 @@ package autoconfigcache
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
-const redisKeyPrefix = "ld:autoconfig:"
+const (
+	redisKeyPrefix    = "ld:autoconfig:"
+	redisEnvPrefix    = "env:"
+	redisFilterPrefix = "filter:"
+)
 
 type redisStore struct {
-	client   redis.UniversalClient
-	fullKey  string
-	encKey   []byte
-	loggers  ldlog.Loggers
+	client  redis.UniversalClient
+	hashKey string
+	encKey  []byte
+	loggers ldlog.Loggers
 }
 
 func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byte, loggers ldlog.Loggers) (Store, error) {
@@ -49,27 +57,103 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		_ = client.Close()
 		return nil, err
 	}
-	fullKey := redisKeyPrefix + cacheKey
-	return &redisStore{client: client, fullKey: fullKey, encKey: encKey, loggers: loggers}, nil
+	hashKey := redisKeyPrefix + cacheKey
+	return &redisStore{client: client, hashKey: hashKey, encKey: encKey, loggers: loggers}, nil
 }
 
-func (s *redisStore) Get(ctx context.Context) ([]byte, error) {
-	enc, err := s.client.Get(ctx, s.fullKey).Bytes()
+func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error) {
+	fields, err := s.client.HGetAll(ctx, s.hashKey).Result()
 	if err != nil {
-		if err == redis.Nil {
-			return nil, nil
-		}
 		return nil, err
 	}
-	return decrypt(enc, s.encKey)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	content := &autoconfig.PutContent{
+		Environments: make(map[config.EnvironmentID]envfactory.EnvironmentRep),
+		Filters:      make(map[config.FilterID]envfactory.FilterRep),
+	}
+
+	for field, encValue := range fields {
+		plaintext, err := decrypt([]byte(encValue), s.encKey)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: failed to decrypt field %q: %v", field, err)
+			continue
+		}
+
+		if strings.HasPrefix(field, redisEnvPrefix) {
+			envID := config.EnvironmentID(strings.TrimPrefix(field, redisEnvPrefix))
+			var rep envfactory.EnvironmentRep
+			if err := json.Unmarshal(plaintext, &rep); err != nil {
+				s.loggers.Warnf("AutoConfig cache: failed to unmarshal env %q: %v", envID, err)
+				continue
+			}
+			content.Environments[envID] = rep
+		} else if strings.HasPrefix(field, redisFilterPrefix) {
+			filterID := config.FilterID(strings.TrimPrefix(field, redisFilterPrefix))
+			var rep envfactory.FilterRep
+			if err := json.Unmarshal(plaintext, &rep); err != nil {
+				s.loggers.Warnf("AutoConfig cache: failed to unmarshal filter %q: %v", filterID, err)
+				continue
+			}
+			content.Filters[filterID] = rep
+		}
+	}
+
+	if len(content.Environments) == 0 && len(content.Filters) == 0 {
+		return nil, nil
+	}
+
+	return content, nil
 }
 
-func (s *redisStore) Set(ctx context.Context, value []byte) error {
-	enc, err := encrypt(value, s.encKey)
-	if err != nil {
-		return fmt.Errorf("encrypt autoconfig cache: %w", err)
+func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) error {
+	fields := make(map[string]interface{})
+
+	for id, rep := range content.Environments {
+		if id != rep.EnvID {
+			continue
+		}
+		raw, err := json.Marshal(rep)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: failed to marshal env %q: %v", id, err)
+			continue
+		}
+		enc, err := encrypt(raw, s.encKey)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: failed to encrypt env %q: %v", id, err)
+			continue
+		}
+		fields[redisEnvPrefix+string(id)] = enc
 	}
-	return s.client.Set(ctx, s.fullKey, enc, 0).Err()
+
+	for id, rep := range content.Filters {
+		raw, err := json.Marshal(rep)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: failed to marshal filter %q: %v", id, err)
+			continue
+		}
+		enc, err := encrypt(raw, s.encKey)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: failed to encrypt filter %q: %v", id, err)
+			continue
+		}
+		fields[redisFilterPrefix+string(id)] = enc
+	}
+
+	// Atomic replacement: DEL + HSET in a MULTI/EXEC transaction
+	_, err := s.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(ctx, s.hashKey)
+		if len(fields) > 0 {
+			pipe.HSet(ctx, s.hashKey, fields)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("AutoConfig cache redis write: %w", err)
+	}
+	return nil
 }
 
 func (s *redisStore) Close() error {

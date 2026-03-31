@@ -144,13 +144,6 @@ func (v *MessageReceiver[T]) Delete(id string, version int) Action {
 	return ActionNoop
 }
 
-// Seed records that the receiver has already seen the given item and version, without emitting an action or logging.
-// Used when loading from cache so the next PUT is applied as updates/deletes rather than inserts, and so Retain
-// will remove cached items that are no longer in the PUT.
-func (v *MessageReceiver[T]) Seed(id string, item T, version int) {
-	v.seen[id] = newVersioned(item, version)
-}
-
 // Forget causes MessageReceiver to behave as if the ID was never seen before. It may invoke the ItemReceiver's
 // delete command if the item exists.
 func (v *MessageReceiver[T]) Forget(id string) Action {
