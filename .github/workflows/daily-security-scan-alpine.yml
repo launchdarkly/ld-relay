@@ -38,7 +38,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         with:
           command: cves
           image: launchdarkly/ld-relay:${{ matrix.tag }}

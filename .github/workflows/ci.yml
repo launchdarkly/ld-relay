@@ -1,13 +1,13 @@
 name: CI
 on:
   push:
-    branches: [ 'v8' ]
+    branches: ["v8"]
     paths-ignore:
-      - '**.md' # Don't run CI on markdown changes.
+      - "**.md" # Don't run CI on markdown changes.
   pull_request:
-    branches: [ 'v8', 'feat/**' ]
+    branches: ["v8", "feat/**"]
     paths-ignore:
-      - '**.md'
+      - "**.md"
 
 jobs:
   go-versions:
@@ -51,9 +51,8 @@ jobs:
       id-token: write
       contents: read
     with:
-      environment: 'staging'
+      environment: "staging"
       go-version: ${{ needs.go-versions.outputs.latest }}
-
 
   # Fetches Docker Hub credentials via OIDC/AWS in an isolated job so that
   # the scanner job never has access to the OIDC token or AWS role.
@@ -67,11 +66,11 @@ jobs:
       docker-token: ${{ steps.export.outputs.docker-token }}
     steps:
       - uses: actions/checkout@v4
-      - name: 'Get Docker token'
+      - name: "Get Docker token"
         uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
         with:
           aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
-          ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN'
+          ssm_parameter_pairs: "/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN"
       - name: Export masked credentials
         id: export
         run: |
@@ -90,24 +89,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: 'true'
+          fetch-tags: "true"
       - name: Setup Go ${{ inputs.go-version }}
         uses: actions/setup-go@v5
         with:
           go-version: ${{ needs.go-versions.outputs.latest }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/386
       - name: Build Docker Images
         run: make products-for-release
       - name: Get current Relay version
         id: image-tag
-        run:
-          echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
+        run: echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-alpine
         continue-on-error: true
         with:
@@ -121,7 +119,7 @@ jobs:
           write-comment: false
           dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
           dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-distroless
         continue-on-error: true
         with:
@@ -132,7 +130,7 @@ jobs:
           write-comment: false
           dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
           dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
-      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         continue-on-error: true
         id: scan-debug-distroless
         with:
