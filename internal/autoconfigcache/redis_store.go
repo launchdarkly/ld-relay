@@ -52,10 +52,6 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		}
 	}
 	client := redis.NewUniversalClient(uo)
-	if err := client.Ping(context.Background()).Err(); err != nil {
-		_ = client.Close()
-		return nil, err
-	}
 	hashKey := cacheKey
 	return &redisStore{client: client, hashKey: hashKey, encKey: encKey, loggers: loggers}, nil
 }
