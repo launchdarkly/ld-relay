@@ -102,8 +102,8 @@ func NewManager(
 	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
 		otelmetric.WithDescription("request duration in seconds"),
 		otelmetric.WithUnit("s"))
-	eventsIngestedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName,
-		otelmetric.WithDescription("cumulative bytes of event data ingested"),
+	eventsReceivedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName,
+		otelmetric.WithDescription("cumulative bytes of event data received"),
 		otelmetric.WithUnit("By"))
 
 	eventsDropped, _ := meter.Int64Counter(eventsSentDroppedMeasureName,
@@ -122,7 +122,7 @@ func NewManager(
 		connections:         connections,
 		requests:            requests,
 		requestDuration:     requestDuration,
-		eventsIngestedBytes: eventsIngestedBytes,
+		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
 		eventsSent:          eventsSent,
 		eventsFailedSend:    eventsFailedSend,

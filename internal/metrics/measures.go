@@ -15,7 +15,7 @@ type Instruments struct {
 	connections         metric.Int64UpDownCounter // active connections (+1/-1)
 	requests            metric.Int64Counter       // cumulative HTTP requests
 	requestDuration     metric.Float64Histogram   // request duration in seconds
-	eventsIngestedBytes metric.Int64Counter       // cumulative bytes of event data ingested
+	eventsReceivedBytes metric.Int64Counter       // cumulative bytes of event data received
 	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
 	eventsSent          metric.Int64Counter       // cumulative count of events successfully sent
 	eventsFailedSend    metric.Int64Counter       // cumulative count of events that failed to send
@@ -78,7 +78,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventsIngestedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
+	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 		connections:         connections,
 		requests:            requests,
 		requestDuration:     requestDuration,
-		eventsIngestedBytes: eventsIngestedBytes,
+		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
 		eventsSent:          eventsSent,
 		eventsFailedSend:    eventsFailedSend,
@@ -191,14 +191,14 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 	f()
 }
 
-// RecordEventsIngestedBytes records the number of event bytes ingested.
-func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
+// RecordEventsReceivedBytes records the number of event bytes received.
+func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
 	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
-	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
+	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
@@ -211,10 +211,6 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 
-// EventMetricsRecorder implements the EventMetrics interface defined in both the events package
-// and go-sdk-events, recording event processing metrics via OTEL instruments. It uses
-// environment-level attributes only (relayId, env) since event drops occur asynchronously,
-// detached from any specific HTTP request context.
 // EventMetricsRecorder implements the EventMetrics interface defined in both the events package
 // and go-sdk-events, recording event processing metrics via OTEL instruments. It uses
 // environment-level attributes only (relayId, env) since event drops occur asynchronously,
