@@ -47,6 +47,9 @@ jobs:
   integration-test:
     needs: go-versions
     uses: ./.github/workflows/integration-test.yml
+    permissions:
+      id-token: write
+      contents: read
     with:
       environment: 'staging'
       go-version: ${{ needs.go-versions.outputs.latest }}
