@@ -80,6 +80,10 @@ jobs:
       - name: Get current Relay version
         id: image-tag
         run: echo "value=$(jq -r '.version' < dist/metadata.json)" >> $GITHUB_OUTPUT
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_RO_TOKEN }}
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-alpine
         continue-on-error: true
@@ -92,8 +96,6 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-distroless
         continue-on-error: true
@@ -103,8 +105,6 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         continue-on-error: true
         id: scan-debug-distroless
@@ -114,8 +114,6 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - name: Fail if any of scan-alpine, scan-distroless, or scan-distroless-debug failed
         if: ${{ steps.scan-alpine.outcome != 'success' || steps.scan-distroless.outcome != 'success' || steps.scan-debug-distroless.outcome != 'success' }}
         run: exit 1
