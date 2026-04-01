@@ -113,4 +113,3 @@ func (e *ProjectRouter) DeleteFilter(id config.FilterID) {
 		e.loggers.Errorf("precondition violation: received delete request for filter (%s), which was associated with more than one project", id)
 	}
 }
-

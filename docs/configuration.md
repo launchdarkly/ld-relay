@@ -299,7 +299,7 @@ To learn more, read [Metrics integrations](./metrics.md).
 | `caCertFiles`    | `PROXY_CA_CERTS`      | String  |         | List of file paths to additional CA certificates that should be trusted (in PEM format). For multiple files, if using a configuration file, you can specify `caCertFiles` multiple times; if using environment variables, you can set `PROXY_CA_CERTS` to a comma-delimited list. |
 | `ntlmAuth`       | `PROXY_AUTH_NTLM`     | Boolean | `false` | Enables NTLM proxy authentication (requires user, password, and domain).                                                                                                                                                                                                          |
 
-### File section: `[HTTP]`
+### File section: `[Http]`
 
 | Property in file | Environment var        |  Type   | Default | Description                                                                                                 |
 |------------------|------------------------|:-------:|:--------|-------------------------------------------------------------------------------------------------------------|
