@@ -14,7 +14,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
-
 type redisStore struct {
 	client  redis.UniversalClient
 	hashKey string

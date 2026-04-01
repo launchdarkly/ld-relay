@@ -22,7 +22,6 @@ const (
 	dynamoDBItemAttr     = "item"
 	dynamoDBMaxItemSize  = 400000
 	dynamoDBMaxBatchSize = 25
-
 )
 
 type dynamoDBStore struct {

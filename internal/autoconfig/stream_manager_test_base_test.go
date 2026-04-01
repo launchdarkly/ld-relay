@@ -24,8 +24,8 @@ import (
 
 type noopTestCache struct{}
 
-func (noopTestCache) GetAll(context.Context) (*PutContent, error)              { return nil, nil }
-func (noopTestCache) SetAll(context.Context, PutContent) error                 { return nil }
+func (noopTestCache) GetAll(context.Context) (*PutContent, error)                  { return nil, nil }
+func (noopTestCache) SetAll(context.Context, PutContent) error                     { return nil }
 func (noopTestCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
 func (noopTestCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (noopTestCache) Close() error                                                 { return nil }

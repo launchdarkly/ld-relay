@@ -65,8 +65,8 @@ func cacheField(kind autoconfig.CacheKind, id string) string {
 // noopStore is a cache that does nothing. Used when no persistent store is configured.
 type noopStore struct{}
 
-func (noopStore) GetAll(context.Context) (*autoconfig.PutContent, error)              { return nil, nil }
-func (noopStore) SetAll(context.Context, autoconfig.PutContent) error                 { return nil }
+func (noopStore) GetAll(context.Context) (*autoconfig.PutContent, error)                  { return nil, nil }
+func (noopStore) SetAll(context.Context, autoconfig.PutContent) error                     { return nil }
 func (noopStore) Upsert(context.Context, autoconfig.CacheKind, string, interface{}) error { return nil }
 func (noopStore) Delete(context.Context, autoconfig.CacheKind, string) error              { return nil }
 func (noopStore) Close() error                                                            { return nil }
