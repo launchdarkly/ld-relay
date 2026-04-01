@@ -2,8 +2,6 @@ module github.com/launchdarkly/ld-relay/v8
 
 go 1.25.0
 
-replace github.com/launchdarkly/go-sdk-events/v3 => /home/mkeeler/code/launchdarkly/go-sdk-events.git/enhanced-telemetry
-
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.24.1
@@ -27,7 +25,7 @@ require (
 	github.com/launchdarkly/go-configtypes v1.2.0
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.5.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.6.0
 	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1

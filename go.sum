@@ -280,6 +280,8 @@ github.com/launchdarkly/go-ntlmssp v1.0.3 h1:rFxOnnEJ2DzJ+NU0plhXqnldJUwn3wWJFTW
 github.com/launchdarkly/go-ntlmssp v1.0.3/go.mod h1:P1z6fX/y9zgBvfnZP7AKWilW9AX5M3czsa1S4Zpp2nM=
 github.com/launchdarkly/go-sdk-common/v3 v3.4.0 h1:GTRulE0G43xdWY1QdjAXJ7QnZ8PMFU8pOWZICCydEtM=
 github.com/launchdarkly/go-sdk-common/v3 v3.4.0/go.mod h1:6MNeeP8b2VtsM6I3TbShCHW/+tYh2c+p5dB+ilS69sg=
+github.com/launchdarkly/go-sdk-events/v3 v3.6.0 h1:6AeoJot+bfptz4gtwPvPOXwwEGj9K1SLEGERPRaoNKU=
+github.com/launchdarkly/go-sdk-events/v3 v3.6.0/go.mod h1:/N3ZUpfd1a+NrnJiO+812WrG5RQQNYP9qlgtI4I/IE4=
 github.com/launchdarkly/go-semver v1.0.3 h1:agIy/RN3SqeQDIfKkl+oFslEdeIs7pgsJBs3CdCcGQM=
 github.com/launchdarkly/go-semver v1.0.3/go.mod h1:xFmMwXba5Mb+3h72Z+VeSs9ahCvKo2QFUTHRNHVqR28=
 github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.0 h1:AXmmU4rsMxdA75o4a9p+7Pl3SzdfUCLIw7CM7pBRifE=
