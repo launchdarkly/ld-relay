@@ -20,9 +20,12 @@ jobs:
       fail-fast: false
       matrix:
         environment: ['staging', 'production']
-        branch: ['v7', 'v8']
+        branch: ['v8']
 
     uses: ./.github/workflows/integration-test.yml
+    permissions:
+      id-token: write
+      contents: read
     with:
       environment: ${{ matrix.environment }}
       go-version: ${{ inputs.go-version != '' && inputs.go-version || needs.go-versions.outputs.latest }}
