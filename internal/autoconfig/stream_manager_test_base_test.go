@@ -1,6 +1,7 @@
 package autoconfig
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+type noopTestCache struct{}
+
+func (noopTestCache) GetAll(context.Context) (*PutContent, error) { return nil, nil }
+func (noopTestCache) SetAll(context.Context, PutContent) error    { return nil }
+func (noopTestCache) Close() error                                { return nil }
 
 const (
 	testConfigKey config.AutoConfigKey = "test-key"
@@ -245,7 +252,7 @@ func streamManagerTestWithStreamHandler(
 			time.Millisecond,
 			rpacProtocolVersion,
 			mockLog.Loggers,
-			nil,
+			noopTestCache{},
 		)
 		defer p.streamManager.Close()
 

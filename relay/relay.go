@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httputil"
@@ -201,20 +200,14 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			return nil, err
 		}
 
-		var autoConfigCache autoconfigcache.Store
-		if c.AutoConfig.InitFromStoreFirst {
-			autoConfigCache, err = autoconfigcache.NewStore(c, loggers)
-			if err != nil {
-				return nil, err
-			}
-			if autoConfigCache != nil {
-				thingsToCleanUp.AddCloser(autoConfigCache)
-			}
+		autoConfigCache, err := autoconfigcache.NewStore(c, loggers)
+		if err != nil {
+			return nil, err
 		}
+		thingsToCleanUp.AddCloser(autoConfigCache)
 
 		projectRouter := projmanager.NewProjectRouter(&relayAutoConfigActions{r: r}, loggers)
 
-		// Pass the cache store to StreamManager so it can persist PutContent after each PUT.
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
@@ -225,17 +218,6 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			loggers,
 			autoConfigCache,
 		)
-
-		// If we have a cache, try to load and apply it as the first PUT before starting the stream.
-		if autoConfigCache != nil {
-			content, err := autoConfigCache.GetAll(context.Background())
-			if err != nil {
-				loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
-			} else if content != nil {
-				r.autoConfigStream.ApplyCachedPut(*content)
-				loggers.Info("AutoConfig loaded from persistent store; Relay can serve while connecting to LaunchDarkly")
-			}
-		}
 
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {

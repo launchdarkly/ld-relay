@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -35,9 +36,13 @@ var (
 	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
-// CacheWriter is an optional interface for persisting PutContent after each PUT event.
-// This is satisfied by autoconfigcache.Store but defined here to avoid import cycles.
-type CacheWriter interface {
+// Cache provides read/write access to the AutoConfig persistent cache.
+// This is satisfied by autoconfigcache.Store (and its noopStore) but defined here to avoid import cycles.
+type Cache interface {
+	io.Closer
+	// GetAll returns the cached PutContent, or nil if the cache is empty.
+	GetAll(ctx context.Context) (*PutContent, error)
+	// SetAll writes the PutContent to the cache.
 	SetAll(ctx context.Context, content PutContent) error
 }
 
@@ -54,7 +59,7 @@ type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               *url.URL
 	handler           MessageHandler
-	cacheWriter       CacheWriter
+	cache             Cache
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
@@ -67,7 +72,7 @@ type StreamManager struct {
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
-// The optional cacheWriter, if non-nil, will be used to persist PutContent after each PUT event.
+// The cache is used to read cached PutContent on startup and persist it after each PUT event.
 func NewStreamManager(
 	key config.AutoConfigKey,
 	streamURI *url.URL,
@@ -76,7 +81,7 @@ func NewStreamManager(
 	initialRetryDelay time.Duration,
 	protocolVersion int,
 	loggers ldlog.Loggers,
-	cacheWriter CacheWriter,
+	cache Cache,
 ) *StreamManager {
 	loggers.SetPrefix("AutoConfiguration")
 	if protocolVersion > 1 {
@@ -88,7 +93,7 @@ func NewStreamManager(
 		key:               key,
 		uri:               streamURI,
 		handler:           handler,
-		cacheWriter:       cacheWriter,
+		cache:             cache,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
@@ -114,10 +119,27 @@ func NewStreamManager(
 
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
 // receives nil for a successful connection, or an error if it has permanently failed.
+//
+// Before connecting, Start reads the cache. If cached data exists, it is processed through the normal
+// handlePut path so environments are available immediately while the stream connects.
 func (s *StreamManager) Start() <-chan error {
+	s.loadFromCache()
 	readyCh := make(chan error, 1)
 	go s.subscribe(readyCh)
 	return readyCh
+}
+
+func (s *StreamManager) loadFromCache() {
+	content, err := s.cache.GetAll(context.Background())
+	if err != nil {
+		s.loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+		return
+	}
+	if content == nil {
+		return
+	}
+	s.handlePut(*content)
+	s.loggers.Info("AutoConfig loaded from persistent cache; Relay can serve while connecting to LaunchDarkly")
 }
 
 // Close permanently shuts down the stream.
@@ -339,13 +361,6 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	}
 }
 
-// ApplyCachedPut processes the given PutContent through the normal handlePut path, as if it were the first
-// PUT event from the stream. This populates the MessageReceivers and dispatches to the handler.
-// Must be called before Start() — there is no concurrency with the stream goroutine.
-func (s *StreamManager) ApplyCachedPut(content PutContent) {
-	s.handlePut(content)
-}
-
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
 func (s *StreamManager) handlePut(content PutContent) {
@@ -383,10 +398,8 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-	if s.cacheWriter != nil {
-		if err := s.cacheWriter.SetAll(context.Background(), content); err != nil {
-			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
-		}
+	if err := s.cache.SetAll(context.Background(), content); err != nil {
+		s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
 	}
 }
 

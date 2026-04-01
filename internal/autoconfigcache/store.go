@@ -22,18 +22,18 @@ type Store interface {
 	SetAll(ctx context.Context, content autoconfig.PutContent) error
 }
 
-// NewStore creates a Store from the Relay config when InitFromStoreFirst is enabled with Redis or DynamoDB.
-// Returns nil when InitFromStoreFirst is false or no store is configured.
+// NewStore creates a Store from the Relay config. Returns a Redis or DynamoDB-backed store when
+// InitFromStoreFirst is enabled and a backing store is configured; otherwise returns a noopStore.
 func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 	if !c.AutoConfig.Key.Defined() || !c.AutoConfig.InitFromStoreFirst {
-		return nil, nil
+		return noopStore{}, nil
 	}
 	cacheKey := strings.TrimSpace(c.AutoConfig.CacheKey)
 	if cacheKey == "" {
-		return nil, nil
+		return noopStore{}, nil
 	}
 	if !c.Redis.URL.IsDefined() && !c.DynamoDB.Enabled {
-		return nil, nil
+		return noopStore{}, nil
 	}
 	encKey, err := resolveEncryptionKey(c)
 	if err != nil {
@@ -44,3 +44,10 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 	}
 	return newDynamoDBStore(c.DynamoDB, cacheKey, encKey, loggers)
 }
+
+// noopStore is a cache that does nothing. Used when no persistent store is configured.
+type noopStore struct{}
+
+func (noopStore) GetAll(context.Context) (*autoconfig.PutContent, error) { return nil, nil }
+func (noopStore) SetAll(context.Context, autoconfig.PutContent) error    { return nil }
+func (noopStore) Close() error                                           { return nil }
