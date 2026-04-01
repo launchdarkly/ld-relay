@@ -5,7 +5,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"io"
 	"strings"
@@ -13,39 +12,15 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
-const aesKeySize = 32
-
-// resolveEncryptionKey returns a 32-byte key for AES-256. If CacheEncryptionKey is set, it must be
-// 32 bytes or base64-encoded 32 bytes. If not set, the AutoConfig key is used (SHA-256 derived).
+// resolveEncryptionKey returns a 32-byte key for AES-256 by deriving it via SHA-256.
+// If CacheEncryptionKey is set, it is used as the input. Otherwise the AutoConfig key is used.
 func resolveEncryptionKey(c config.Config) ([]byte, error) {
 	s := strings.TrimSpace(c.AutoConfig.CacheEncryptionKey)
-	if s != "" {
-		return decodeEncryptionKey(s)
+	if s == "" {
+		s = string(c.AutoConfig.Key)
 	}
-	// Use AutoConfig key as the encryption key (derive 32 bytes via SHA-256).
-	return deriveKeyFromAutoconfigKey(string(c.AutoConfig.Key)), nil
-}
-
-// decodeEncryptionKey returns a 32-byte key for AES-256. It accepts raw 32-byte string or base64.
-func decodeEncryptionKey(s string) ([]byte, error) {
-	raw := []byte(s)
-	if len(raw) == aesKeySize {
-		return raw, nil
-	}
-	dec, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, errors.New("AUTO_CONFIG_CACHE_ENCRYPTION_KEY must be 32 bytes or base64-encoded 32 bytes")
-	}
-	if len(dec) != aesKeySize {
-		return nil, errors.New("AUTO_CONFIG_CACHE_ENCRYPTION_KEY must decode to 32 bytes for AES-256")
-	}
-	return dec, nil
-}
-
-// deriveKeyFromAutoconfigKey produces a 32-byte key from the AutoConfig key string using SHA-256.
-func deriveKeyFromAutoconfigKey(autoconfigKey string) []byte {
-	h := sha256.Sum256([]byte(autoconfigKey))
-	return h[:]
+	h := sha256.Sum256([]byte(s))
+	return h[:], nil
 }
 
 func encrypt(plaintext, key []byte) ([]byte, error) {
