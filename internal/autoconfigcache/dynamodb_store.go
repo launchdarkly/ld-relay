@@ -53,7 +53,7 @@ func newDynamoDBStore(dbConfig config.DynamoDBConfig, cacheKey string, encKey []
 	return &dynamoDBStore{
 		client:    client,
 		table:     dbConfig.TableName,
-		namespace: "ld:autoconfig:" + cacheKey,
+		namespace: cacheKey,
 		encKey:    encKey,
 		loggers:   loggers,
 	}, nil

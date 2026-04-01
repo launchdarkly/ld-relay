@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	redisKeyPrefix    = "ld:autoconfig:"
 	redisEnvPrefix    = "env:"
 	redisFilterPrefix = "filter:"
 )
@@ -57,7 +56,7 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		_ = client.Close()
 		return nil, err
 	}
-	hashKey := redisKeyPrefix + cacheKey
+	hashKey := cacheKey
 	return &redisStore{client: client, hashKey: hashKey, encKey: encKey, loggers: loggers}, nil
 }
 
