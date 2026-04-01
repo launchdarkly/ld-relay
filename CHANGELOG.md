@@ -2,6 +2,13 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.17.7](https://github.com/launchdarkly/ld-relay/compare/v8.17.6...v8.17.7) (2026-04-01)
+
+
+### Bug Fixes
+
+* **deps:** bump google.golang.org/grpc from 1.61.0 to 1.79.3 ([2ebb357](https://github.com/launchdarkly/ld-relay/commit/2ebb357971092aa82e0d617767505ba96fcaa7de))
+
 ## [8.17.6](https://github.com/launchdarkly/ld-relay/compare/v8.17.5...v8.17.6) (2026-03-30)
 
 
