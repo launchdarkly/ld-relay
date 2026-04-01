@@ -14,10 +14,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
-const (
-	redisEnvPrefix    = "env:"
-	redisFilterPrefix = "filter:"
-)
 
 type redisStore struct {
 	client  redis.UniversalClient
@@ -77,16 +73,16 @@ func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error)
 			continue
 		}
 
-		if strings.HasPrefix(field, redisEnvPrefix) {
-			envID := config.EnvironmentID(strings.TrimPrefix(field, redisEnvPrefix))
+		if strings.HasPrefix(field, envItemPrefix) {
+			envID := config.EnvironmentID(strings.TrimPrefix(field, envItemPrefix))
 			var rep envfactory.EnvironmentRep
 			if err := json.Unmarshal(plaintext, &rep); err != nil {
 				s.loggers.Warnf("AutoConfig cache: failed to unmarshal env %q: %v", envID, err)
 				continue
 			}
 			content.Environments[envID] = rep
-		} else if strings.HasPrefix(field, redisFilterPrefix) {
-			filterID := config.FilterID(strings.TrimPrefix(field, redisFilterPrefix))
+		} else if strings.HasPrefix(field, filterItemPrefix) {
+			filterID := config.FilterID(strings.TrimPrefix(field, filterItemPrefix))
 			var rep envfactory.FilterRep
 			if err := json.Unmarshal(plaintext, &rep); err != nil {
 				s.loggers.Warnf("AutoConfig cache: failed to unmarshal filter %q: %v", filterID, err)
@@ -120,7 +116,7 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 			s.loggers.Warnf("AutoConfig cache: failed to encrypt env %q: %v", id, err)
 			continue
 		}
-		fields[redisEnvPrefix+string(id)] = enc
+		fields[envItemPrefix+string(id)] = enc
 	}
 
 	for id, rep := range content.Filters {
@@ -134,7 +130,7 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 			s.loggers.Warnf("AutoConfig cache: failed to encrypt filter %q: %v", id, err)
 			continue
 		}
-		fields[redisFilterPrefix+string(id)] = enc
+		fields[filterItemPrefix+string(id)] = enc
 	}
 
 	// Atomic replacement: DEL + HSET in a MULTI/EXEC transaction
@@ -149,6 +145,23 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 		return fmt.Errorf("AutoConfig cache redis write: %w", err)
 	}
 	return nil
+}
+
+func (s *redisStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
+	field := cacheField(kind, id)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("AutoConfig cache: failed to marshal %q: %w", field, err)
+	}
+	enc, err := encrypt(raw, s.encKey)
+	if err != nil {
+		return fmt.Errorf("AutoConfig cache: failed to encrypt %q: %w", field, err)
+	}
+	return s.client.HSet(ctx, s.hashKey, field, enc).Err()
+}
+
+func (s *redisStore) Delete(ctx context.Context, kind autoconfig.CacheKind, id string) error {
+	return s.client.HDel(ctx, s.hashKey, cacheField(kind, id)).Err()
 }
 
 func (s *redisStore) Close() error {

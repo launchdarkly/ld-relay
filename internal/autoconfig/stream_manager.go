@@ -36,14 +36,26 @@ var (
 	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
+// CacheKind identifies the type of item being cached.
+type CacheKind int
+
+const (
+	CacheKindEnvironment CacheKind = iota
+	CacheKindFilter
+)
+
 // Cache provides read/write access to the AutoConfig persistent cache.
 // This is satisfied by autoconfigcache.Store (and its noopStore) but defined here to avoid import cycles.
 type Cache interface {
 	io.Closer
 	// GetAll returns the cached PutContent, or nil if the cache is empty.
 	GetAll(ctx context.Context) (*PutContent, error)
-	// SetAll writes the PutContent to the cache.
+	// SetAll writes the full PutContent to the cache, removing stale items.
 	SetAll(ctx context.Context, content PutContent) error
+	// Upsert writes a single item to the cache.
+	Upsert(ctx context.Context, kind CacheKind, id string, data interface{}) error
+	// Delete removes a single item from the cache.
+	Delete(ctx context.Context, kind CacheKind, id string) error
 }
 
 // StreamManager manages the auto-configuration SSE stream.
@@ -284,14 +296,22 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 						s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
 						break
 					}
-					s.dispatchEnvAction(config.EnvironmentID(id), envRep, s.envReceiver.Upsert(id, envRep, envRep.Version))
+					action := s.envReceiver.Upsert(id, envRep, envRep.Version)
+					s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
+					if action != ActionNoop {
+						s.cacheUpsert(CacheKindEnvironment, id, envRep)
+					}
 				case filterPathPrefix:
 					filterRep := envfactory.FilterRep{}
 					if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
 						gotMalformedEvent(event, err)
 						break
 					}
-					s.dispatchFilterAction(config.FilterID(id), filterRep, s.filterReceiver.Upsert(id, filterRep, filterRep.Version))
+					action := s.filterReceiver.Upsert(id, filterRep, filterRep.Version)
+					s.dispatchFilterAction(config.FilterID(id), filterRep, action)
+					if action != ActionNoop {
+						s.cacheUpsert(CacheKindFilter, id, filterRep)
+					}
 				default:
 					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
 					// entities are received. If new entities are added in the future, we don't want the log blowing
@@ -308,9 +328,17 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				prefix, id := path.Split(deleteMessage.Path)
 				switch prefix {
 				case environmentPathPrefix:
-					s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, s.envReceiver.Delete(id, deleteMessage.Version))
+					action := s.envReceiver.Delete(id, deleteMessage.Version)
+					s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
+					if action == ActionDelete {
+						s.cacheDelete(CacheKindEnvironment, id)
+					}
 				case filterPathPrefix:
-					s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, s.filterReceiver.Delete(id, deleteMessage.Version))
+					action := s.filterReceiver.Delete(id, deleteMessage.Version)
+					s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, action)
+					if action == ActionDelete {
+						s.cacheDelete(CacheKindFilter, id)
+					}
 				default:
 					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
 					// entities are received. If new entities are added in the future, we don't want the log blowing
@@ -400,6 +428,18 @@ func (s *StreamManager) handlePut(content PutContent) {
 	s.handler.ReceivedAllEnvironments()
 	if err := s.cache.SetAll(context.Background(), content); err != nil {
 		s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+	}
+}
+
+func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {
+	if err := s.cache.Upsert(context.Background(), kind, id, data); err != nil {
+		s.loggers.Warnf("Failed to upsert AutoConfig cache item %q: %v", id, err)
+	}
+}
+
+func (s *StreamManager) cacheDelete(kind CacheKind, id string) {
+	if err := s.cache.Delete(context.Background(), kind, id); err != nil {
+		s.loggers.Warnf("Failed to delete AutoConfig cache item %q: %v", id, err)
 	}
 }
 

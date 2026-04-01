@@ -17,9 +17,12 @@ type Store interface {
 	io.Closer
 	// GetAll returns the cached PutContent, or nil if the cache is empty.
 	GetAll(ctx context.Context) (*autoconfig.PutContent, error)
-	// SetAll writes the PutContent to the store, storing each environment and filter as an individual item.
-	// Stale items that are no longer in the content are removed.
+	// SetAll writes the full PutContent to the store, removing stale items.
 	SetAll(ctx context.Context, content autoconfig.PutContent) error
+	// Upsert writes a single item to the store.
+	Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error
+	// Delete removes a single item from the store.
+	Delete(ctx context.Context, kind autoconfig.CacheKind, id string) error
 }
 
 // NewStore creates a Store from the Relay config. Returns a Redis or DynamoDB-backed store when
@@ -42,9 +45,28 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 	return newDynamoDBStore(c.DynamoDB, cacheKey, encKey, loggers)
 }
 
+const (
+	envItemPrefix    = "env:"
+	filterItemPrefix = "filter:"
+)
+
+// cacheField returns the storage key for a cached item based on its kind and ID.
+func cacheField(kind autoconfig.CacheKind, id string) string {
+	switch kind {
+	case autoconfig.CacheKindEnvironment:
+		return envItemPrefix + id
+	case autoconfig.CacheKindFilter:
+		return filterItemPrefix + id
+	default:
+		return id
+	}
+}
+
 // noopStore is a cache that does nothing. Used when no persistent store is configured.
 type noopStore struct{}
 
-func (noopStore) GetAll(context.Context) (*autoconfig.PutContent, error) { return nil, nil }
-func (noopStore) SetAll(context.Context, autoconfig.PutContent) error    { return nil }
-func (noopStore) Close() error                                           { return nil }
+func (noopStore) GetAll(context.Context) (*autoconfig.PutContent, error)              { return nil, nil }
+func (noopStore) SetAll(context.Context, autoconfig.PutContent) error                 { return nil }
+func (noopStore) Upsert(context.Context, autoconfig.CacheKind, string, interface{}) error { return nil }
+func (noopStore) Delete(context.Context, autoconfig.CacheKind, string) error              { return nil }
+func (noopStore) Close() error                                                            { return nil }

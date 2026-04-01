@@ -23,8 +23,6 @@ const (
 	dynamoDBMaxItemSize  = 400000
 	dynamoDBMaxBatchSize = 25
 
-	dynamoDBEnvPrefix    = "env:"
-	dynamoDBFilterPrefix = "filter:"
 )
 
 type dynamoDBStore struct {
@@ -98,16 +96,16 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 				continue
 			}
 
-			if strings.HasPrefix(sortKey, dynamoDBEnvPrefix) {
-				envID := config.EnvironmentID(strings.TrimPrefix(sortKey, dynamoDBEnvPrefix))
+			if strings.HasPrefix(sortKey, envItemPrefix) {
+				envID := config.EnvironmentID(strings.TrimPrefix(sortKey, envItemPrefix))
 				var rep envfactory.EnvironmentRep
 				if err := json.Unmarshal(plaintext, &rep); err != nil {
 					s.loggers.Warnf("AutoConfig cache: failed to unmarshal env %q: %v", envID, err)
 					continue
 				}
 				content.Environments[envID] = rep
-			} else if strings.HasPrefix(sortKey, dynamoDBFilterPrefix) {
-				filterID := config.FilterID(strings.TrimPrefix(sortKey, dynamoDBFilterPrefix))
+			} else if strings.HasPrefix(sortKey, filterItemPrefix) {
+				filterID := config.FilterID(strings.TrimPrefix(sortKey, filterItemPrefix))
 				var rep envfactory.FilterRep
 				if err := json.Unmarshal(plaintext, &rep); err != nil {
 					s.loggers.Warnf("AutoConfig cache: failed to unmarshal filter %q: %v", filterID, err)
@@ -170,7 +168,7 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		if id != rep.EnvID {
 			continue
 		}
-		sortKey := dynamoDBEnvPrefix + string(id)
+		sortKey := envItemPrefix + string(id)
 		newKeys[sortKey] = true
 		item, err := s.buildItem(sortKey, rep)
 		if err != nil {
@@ -186,7 +184,7 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 	}
 
 	for id, rep := range content.Filters {
-		sortKey := dynamoDBFilterPrefix + string(id)
+		sortKey := filterItemPrefix + string(id)
 		newKeys[sortKey] = true
 		item, err := s.buildItem(sortKey, rep)
 		if err != nil {
@@ -271,6 +269,34 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 			s.loggers.Warnf("AutoConfig cache DynamoDB batch write failed (continuing): %v", err)
 		}
 	}
+}
+
+func (s *dynamoDBStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
+	sortKey := cacheField(kind, id)
+	item, err := s.buildItem(sortKey, data)
+	if err != nil {
+		return fmt.Errorf("AutoConfig cache: failed to build item %q: %w", sortKey, err)
+	}
+	if !s.checkSizeLimit(item, sortKey) {
+		return nil
+	}
+	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(s.table),
+		Item:      item,
+	})
+	return err
+}
+
+func (s *dynamoDBStore) Delete(ctx context.Context, kind autoconfig.CacheKind, id string) error {
+	sortKey := cacheField(kind, id)
+	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(s.table),
+		Key: map[string]types.AttributeValue{
+			dynamoDBPartitionKey: &types.AttributeValueMemberS{Value: s.namespace},
+			dynamoDBSortKey:      &types.AttributeValueMemberS{Value: sortKey},
+		},
+	})
+	return err
 }
 
 func (s *dynamoDBStore) Close() error {
