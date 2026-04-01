@@ -229,6 +229,9 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 					// Ensure we free up as much memory as we can by clearing any pending events
 					p.queues = make(map[EventPayloadMetadata]*publisherQueue)
 					p.disabled = true
+					if p.eventMetrics != nil {
+						p.eventMetrics.RecordPendingEvents(0)
+					}
 				case e := <-inputQueue:
 					if p.disabled {
 						continue
