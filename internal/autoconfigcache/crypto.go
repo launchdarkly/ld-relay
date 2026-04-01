@@ -14,13 +14,13 @@ import (
 
 // resolveEncryptionKey returns a 32-byte key for AES-256 by deriving it via SHA-256.
 // If CacheEncryptionKey is set, it is used as the input. Otherwise the AutoConfig key is used.
-func resolveEncryptionKey(c config.Config) ([]byte, error) {
+func resolveEncryptionKey(c config.Config) []byte {
 	s := strings.TrimSpace(c.AutoConfig.CacheEncryptionKey)
 	if s == "" {
 		s = string(c.AutoConfig.Key)
 	}
 	h := sha256.Sum256([]byte(s))
-	return h[:], nil
+	return h[:]
 }
 
 func encrypt(plaintext, key []byte) ([]byte, error) {

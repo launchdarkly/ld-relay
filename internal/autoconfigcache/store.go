@@ -35,10 +35,7 @@ func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
 	if !c.Redis.URL.IsDefined() && !c.DynamoDB.Enabled {
 		return noopStore{}, nil
 	}
-	encKey, err := resolveEncryptionKey(c)
-	if err != nil {
-		return nil, err
-	}
+	encKey := resolveEncryptionKey(c)
 	if c.Redis.URL.IsDefined() {
 		return newRedisStore(c.Redis, cacheKey, encKey, loggers)
 	}
