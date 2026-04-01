@@ -17,7 +17,7 @@ const (
 	eventsSentBytesMeasureName     = "launchdarkly.relay.events.sent.bytes"
 	eventsSentFailuresMeasureName  = "launchdarkly.relay.events.sent.failures"
 	eventsSentDroppedMeasureName   = "launchdarkly.relay.events.sent.dropped"
-	eventsSentPendingMeasureName = "launchdarkly.relay.events.sent.pending"
+	eventsSentPendingMeasureName   = "launchdarkly.relay.events.sent.pending"
 
 	defaultFlushInterval = time.Minute
 

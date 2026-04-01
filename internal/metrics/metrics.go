@@ -127,7 +127,7 @@ func NewManager(
 		eventsSent:          eventsSent,
 		eventsFailedSend:    eventsFailedSend,
 		eventsBytesSent:     eventsBytesSent,
-		pendingEvents:     pendingEvents,
+		pendingEvents:       pendingEvents,
 	}
 
 	usageChan := make(chan any, 256)

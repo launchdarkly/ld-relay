@@ -20,7 +20,7 @@ type Instruments struct {
 	eventsSent          metric.Int64Counter       // cumulative count of events successfully sent
 	eventsFailedSend    metric.Int64Counter       // cumulative count of events that failed to send
 	eventsBytesSent     metric.Int64Counter       // cumulative bytes of event payloads successfully sent
-	pendingEvents     metric.Int64Gauge         // current number of events pending delivery
+	pendingEvents       metric.Int64Gauge         // current number of events pending delivery
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -111,7 +111,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 		eventsSent:          eventsSent,
 		eventsFailedSend:    eventsFailedSend,
 		eventsBytesSent:     eventsBytesSent,
-		pendingEvents:     pendingEvents,
+		pendingEvents:       pendingEvents,
 	}, nil
 }
 
