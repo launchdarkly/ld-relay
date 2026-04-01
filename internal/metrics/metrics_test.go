@@ -201,6 +201,32 @@ func TestRecordEventsIngestedBytes(t *testing.T) {
 	})
 }
 
+func TestEventMetricsRecorderViaTestHelper(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordDroppedEvents(5)
+		recorder.RecordEventsSent(10)
+		recorder.RecordEventsBytesSent(2048)
+		recorder.RecordPendingEvents(3)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+
+		droppedMetric := findMetric(rm, eventsSentDroppedMeasureName)
+		require.NotNil(t, droppedMetric, "events dropped metric not found")
+
+		sentMetric := findMetric(rm, eventsSentCountMeasureName)
+		require.NotNil(t, sentMetric, "events sent metric not found")
+
+		bytesMetric := findMetric(rm, eventsSentBytesMeasureName)
+		require.NotNil(t, bytesMetric, "events bytes sent metric not found")
+
+		pendingMetric := findMetric(rm, eventsSentPendingMeasureName)
+		require.NotNil(t, pendingMetric, "events pending metric not found")
+	})
+}
+
 func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "abc", sanitizeTagValue("abc"))
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
