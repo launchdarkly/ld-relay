@@ -5,31 +5,7 @@ on:
     - cron: "0 8 * * *"
 
 jobs:
-  get-docker-credentials:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      docker-username: ${{ steps.export.outputs.docker-username }}
-      docker-token: ${{ steps.export.outputs.docker-token }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: 'Get Docker token'
-        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
-        with:
-          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
-          ssm_parameter_pairs: '/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/gha-ro-token = DOCKER_TOKEN'
-      - name: Export masked credentials
-        id: export
-        run: |
-          echo "::add-mask::$DOCKER_USERNAME"
-          echo "::add-mask::$DOCKER_TOKEN"
-          echo "docker-username=$DOCKER_USERNAME" >> $GITHUB_OUTPUT
-          echo "docker-token=$DOCKER_TOKEN" >> $GITHUB_OUTPUT
-
   scan-relay:
-    needs: get-docker-credentials
     strategy:
       matrix:
         tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
@@ -45,5 +21,5 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
-          dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
+          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}

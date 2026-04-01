@@ -54,33 +54,8 @@ jobs:
       environment: "staging"
       go-version: ${{ needs.go-versions.outputs.latest }}
 
-  # Fetches Docker Hub credentials via OIDC/AWS in an isolated job so that
-  # the scanner job never has access to the OIDC token or AWS role.
-  get-docker-credentials:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      docker-username: ${{ steps.export.outputs.docker-username }}
-      docker-token: ${{ steps.export.outputs.docker-token }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: "Get Docker token"
-        uses: launchdarkly/gh-actions/actions/release-secrets@release-secrets-v1.2.0
-        with:
-          aws_assume_role: ${{ vars.AWS_ROLE_ARN }}
-          ssm_parameter_pairs: "/global/services/docker/public/username = DOCKER_USERNAME, /global/services/docker/public/token = DOCKER_TOKEN"
-      - name: Export masked credentials
-        id: export
-        run: |
-          echo "::add-mask::$DOCKER_USERNAME"
-          echo "::add-mask::$DOCKER_TOKEN"
-          echo "docker-username=$DOCKER_USERNAME" >> $GITHUB_OUTPUT
-          echo "docker-token=$DOCKER_TOKEN" >> $GITHUB_OUTPUT
-
   security-scan:
-    needs: [go-versions, get-docker-credentials]
+    needs: go-versions
     runs-on: ubuntu-latest
     name: "Docker Scout Scan"
     permissions:
@@ -117,8 +92,8 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
-          dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
+          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         id: scan-distroless
         continue-on-error: true
@@ -128,8 +103,8 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
-          dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
+          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
         continue-on-error: true
         id: scan-debug-distroless
@@ -139,8 +114,8 @@ jobs:
           exit-code: true
           only-fixed: true
           write-comment: false
-          dockerhub-user: ${{ needs.get-docker-credentials.outputs.docker-username }}
-          dockerhub-password: ${{ needs.get-docker-credentials.outputs.docker-token }}
+          dockerhub-user: ${{ vars.DOCKER_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_RO_TOKEN }}
       - name: Fail if any of scan-alpine, scan-distroless, or scan-distroless-debug failed
         if: ${{ steps.scan-alpine.outcome != 'success' || steps.scan-distroless.outcome != 'success' || steps.scan-debug-distroless.outcome != 'success' }}
         run: exit 1
