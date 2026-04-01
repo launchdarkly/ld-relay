@@ -215,9 +215,14 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 // and go-sdk-events, recording event processing metrics via OTEL instruments. It uses
 // environment-level attributes only (relayId, env) since event drops occur asynchronously,
 // detached from any specific HTTP request context.
+// EventMetricsRecorder implements the EventMetrics interface defined in both the events package
+// and go-sdk-events, recording event processing metrics via OTEL instruments. It uses
+// environment-level attributes only (relayId, env) since event drops occur asynchronously,
+// detached from any specific HTTP request context.
 type EventMetricsRecorder struct {
 	instruments *Instruments
-	envKVs      []attribute.KeyValue
+	envKVs      []attribute.KeyValue // private copy, safe for concurrent read
+	envAttrs    attribute.Set        // pre-computed to avoid concurrent sort in attribute.NewSet
 }
 
 // RecordDroppedEvents records the number of events dropped due to capacity overflow.
@@ -225,8 +230,7 @@ func (r *EventMetricsRecorder) RecordDroppedEvents(count int) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsDropped.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+	r.instruments.eventsDropped.Add(context.Background(), int64(count), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsSent records the number of events successfully delivered to the events service.
@@ -234,8 +238,7 @@ func (r *EventMetricsRecorder) RecordEventsSent(count int) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsSent.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+	r.instruments.eventsSent.Add(context.Background(), int64(count), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordPendingEvents records the current number of events pending delivery.
@@ -243,8 +246,7 @@ func (r *EventMetricsRecorder) RecordPendingEvents(depth int) {
 	if r.instruments == nil {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.pendingEvents.Record(context.Background(), int64(depth), metric.WithAttributeSet(attrs))
+	r.instruments.pendingEvents.Record(context.Background(), int64(depth), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsBytesSent records the size of event payloads successfully delivered.
@@ -252,8 +254,7 @@ func (r *EventMetricsRecorder) RecordEventsBytesSent(bytes int) {
 	if r.instruments == nil || bytes <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsBytesSent.Add(context.Background(), int64(bytes), metric.WithAttributeSet(attrs))
+	r.instruments.eventsBytesSent.Add(context.Background(), int64(bytes), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsFailedSend records the number of events that could not be delivered after all retries.

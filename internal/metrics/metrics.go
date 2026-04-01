@@ -294,8 +294,17 @@ func (em *EnvironmentManager) GetAttributes() attribute.Set {
 // NewEventMetricsRecorder creates an EventMetricsRecorder that records event processing metrics
 // with this environment's attributes. The returned recorder satisfies the EventMetrics interfaces
 // defined in both the events package and go-sdk-events.
+//
+// The recorder makes a private copy of the environment attributes to avoid data races with
+// attribute.NewSet's in-place sort.
 func (em *EnvironmentManager) NewEventMetricsRecorder(instruments *Instruments) *EventMetricsRecorder {
-	return &EventMetricsRecorder{instruments: instruments, envKVs: em.envKVs}
+	envKVsCopy := make([]attribute.KeyValue, len(em.envKVs))
+	copy(envKVsCopy, em.envKVs)
+	return &EventMetricsRecorder{
+		instruments: instruments,
+		envKVs:      envKVsCopy,
+		envAttrs:    attribute.NewSet(envKVsCopy...),
+	}
 }
 
 // FlushEventsExporter is used in testing to trigger the collector to post data to the event publisher.
