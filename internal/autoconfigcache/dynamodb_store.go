@@ -215,8 +215,10 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		}
 	}
 
-	// Step 4: Batch write in chunks of 25.
-	return s.batchWrite(ctx, writeRequests)
+	// Step 4: Batch write in chunks of 25. Individual batch failures are logged
+	// but do not abort — partial cache data is better than none for resilience.
+	s.batchWrite(ctx, writeRequests)
+	return nil
 }
 
 func (s *dynamoDBStore) buildItem(sortKey string, value interface{}) (map[string]types.AttributeValue, error) {
@@ -253,7 +255,7 @@ func (s *dynamoDBStore) checkSizeLimit(item map[string]types.AttributeValue, sor
 	return false
 }
 
-func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRequest) error {
+func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRequest) {
 	for i := 0; i < len(requests); i += dynamoDBMaxBatchSize {
 		end := i + dynamoDBMaxBatchSize
 		if end > len(requests) {
@@ -266,10 +268,9 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("AutoConfig cache DynamoDB batch write: %w", err)
+			s.loggers.Warnf("AutoConfig cache DynamoDB batch write failed (continuing): %v", err)
 		}
 	}
-	return nil
 }
 
 func (s *dynamoDBStore) Close() error {
