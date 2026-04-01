@@ -110,21 +110,21 @@ func NewManager(
 	return m, nil
 }
 
-func (m *Manager) UsageActivityCountMessage(envName, userAgent, platformCategory, instanceID string) {
+func (m *Manager) UsageActivityCountMessage(envName, userAgent, platformCategory, instanceID, tagsHeader string) {
 	m.usageChan <- &usageActivityMessage{
-		kind: UsageActivityKindCount, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+		kind: UsageActivityKindCount, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID, tagsHeader: tagsHeader,
 	}
 }
 
-func (m *Manager) UsageActivityStreamConnected(envName, userAgent, platformCategory, instanceID string) {
+func (m *Manager) UsageActivityStreamConnected(envName, userAgent, platformCategory, instanceID, tagsHeader string) {
 	m.usageChan <- &usageActivityMessage{
-		kind: UsageActivityKindStreamConnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+		kind: UsageActivityKindStreamConnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID, tagsHeader: tagsHeader,
 	}
 }
 
-func (m *Manager) UsageActivityStreamDisconnected(envName, userAgent, platformCategory, instanceID string) {
+func (m *Manager) UsageActivityStreamDisconnected(envName, userAgent, platformCategory, instanceID, tagsHeader string) {
 	m.usageChan <- &usageActivityMessage{
-		kind: UsageActivityKindStreamDisconnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID,
+		kind: UsageActivityKindStreamDisconnected, envName: envName, userAgent: userAgent, platformCategory: platformCategory, instanceID: instanceID, tagsHeader: tagsHeader,
 	}
 }
 
