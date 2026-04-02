@@ -26,13 +26,10 @@ type Store interface {
 }
 
 // NewStore creates a Store from the Relay config. Returns a Redis or DynamoDB-backed store when
-// InitFromStoreFirst is enabled and a backing store is configured; otherwise returns a noopStore.
+// CacheKey is set and a backing store is configured; otherwise returns a noopStore.
 func NewStore(c config.Config, loggers ldlog.Loggers) (Store, error) {
-	if !c.AutoConfig.Key.Defined() || !c.AutoConfig.InitFromStoreFirst {
-		return noopStore{}, nil
-	}
 	cacheKey := strings.TrimSpace(c.AutoConfig.CacheKey)
-	if cacheKey == "" {
+	if !c.AutoConfig.Key.Defined() || cacheKey == "" {
 		return noopStore{}, nil
 	}
 	if !c.Redis.URL.IsDefined() && !c.DynamoDB.Enabled {
