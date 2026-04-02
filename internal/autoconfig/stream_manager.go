@@ -81,6 +81,11 @@ type StreamManager struct {
 	halt              chan struct{}
 	closeOnce         sync.Once
 
+	// cacheCh receives the result of the async cache read started by Start().
+	// It is consumed by consumeStream and nilled out after use.
+	cacheCh     <-chan *PutContent
+	cacheCancel context.CancelFunc
+
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
 	filterReceiver *MessageReceiver[envfactory.FilterRep]
 }
@@ -134,26 +139,32 @@ func NewStreamManager(
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
 // receives nil for a successful connection, or an error if it has permanently failed.
 //
-// Before connecting, Start reads the cache. If cached data exists, it is processed through the normal
-// handlePut path so environments are available immediately while the stream connects.
+// The cache read and stream connection are started concurrently. If the cache returns first,
+// its data is applied so Relay can serve immediately. If the stream's first PUT arrives first,
+// the cache read is cancelled and its result discarded.
 func (s *StreamManager) Start() <-chan error {
-	s.loadFromCache()
+	// Start the cache read concurrently with the stream connection.
+	cacheCtx, cacheCancel := context.WithCancel(context.Background())
+	cacheCh := make(chan *PutContent, 1)
+	go func() {
+		defer close(cacheCh)
+		content, err := s.cache.GetAll(cacheCtx)
+		if err != nil {
+			if cacheCtx.Err() == nil {
+				s.loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+			}
+			return
+		}
+		if content != nil {
+			cacheCh <- content
+		}
+	}()
+	s.cacheCh = cacheCh
+	s.cacheCancel = cacheCancel
+
 	readyCh := make(chan error, 1)
 	go s.subscribe(readyCh)
 	return readyCh
-}
-
-func (s *StreamManager) loadFromCache() {
-	content, err := s.cache.GetAll(context.Background())
-	if err != nil {
-		s.loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
-		return
-	}
-	if content == nil {
-		return
-	}
-	s.handlePut(*content)
-	s.loggers.Info("AutoConfig loaded from persistent cache; Relay can serve while connecting to LaunchDarkly")
 }
 
 // Close permanently shuts down the stream.
@@ -161,6 +172,11 @@ func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
 	})
+}
+
+type streamResult struct {
+	stream *es.Stream
+	err    error
 }
 
 func (s *StreamManager) subscribe(readyCh chan<- error) {
@@ -203,22 +219,63 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	client := s.httpConfig.Client()
 	client.Timeout = 0
 
-	stream, err := es.SubscribeWithRequestAndOptions(req,
-		es.StreamOptionHTTPClient(client),
-		es.StreamOptionReadTimeout(streamReadTimeout),
-		es.StreamOptionInitialRetry(retry),
-		es.StreamOptionUseBackoff(streamMaxRetryDelay),
-		es.StreamOptionUseJitter(streamJitterRatio),
-		es.StreamOptionRetryResetInterval(streamRetryResetInterval),
-		es.StreamOptionErrorHandler(errorHandler),
-		es.StreamOptionCanRetryFirstConnection(-1),
-		es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
-	)
+	// Launch the SSE connection in a sub-goroutine so we can race it against the cache.
+	streamCh := make(chan streamResult, 1)
+	go func() {
+		stream, err := es.SubscribeWithRequestAndOptions(req,
+			es.StreamOptionHTTPClient(client),
+			es.StreamOptionReadTimeout(streamReadTimeout),
+			es.StreamOptionInitialRetry(retry),
+			es.StreamOptionUseBackoff(streamMaxRetryDelay),
+			es.StreamOptionUseJitter(streamJitterRatio),
+			es.StreamOptionRetryResetInterval(streamRetryResetInterval),
+			es.StreamOptionErrorHandler(errorHandler),
+			es.StreamOptionCanRetryFirstConnection(-1),
+			es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+		)
+		streamCh <- streamResult{stream, err}
+	}()
 
-	if err != nil {
-		s.loggers.Errorf(logMsgStreamOtherError, err)
-		signalReady(err)
-		return
+	// Race the cache read against the stream connection. Whichever returns first
+	// is applied. If the cache wins, its data is used until the stream catches up.
+	// If the stream wins, the cache is cancelled.
+	var stream *es.Stream
+	for stream == nil {
+		select {
+		case content, ok := <-s.cacheCh:
+			if ok && content != nil {
+				s.applyCachedContent(content)
+			}
+			s.cacheCancel = nil
+			s.cacheCh = nil
+
+		case result := <-streamCh:
+			if result.err != nil {
+				s.loggers.Errorf(logMsgStreamOtherError, result.err)
+				signalReady(result.err)
+				if s.cacheCancel != nil {
+					s.cacheCancel()
+					s.cacheCancel = nil
+					s.cacheCh = nil
+				}
+				return
+			}
+			stream = result.stream
+			// Stream connected — cancel any in-flight cache read.
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+				s.cacheCh = nil
+			}
+
+		case <-s.halt:
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+				s.cacheCh = nil
+			}
+			return
+		}
 	}
 
 	signalReady(nil)
@@ -390,6 +447,15 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	case ActionDelete:
 		s.handler.DeleteFilter(id)
 	}
+}
+
+func (s *StreamManager) applyCachedContent(content *PutContent) {
+	s.handlePut(PutContent{
+		Environments: content.Environments,
+		Filters:      content.Filters,
+		Persist:      false,
+	})
+	s.loggers.Info("AutoConfig loaded from persistent cache; Relay can serve while connecting to LaunchDarkly")
 }
 
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
