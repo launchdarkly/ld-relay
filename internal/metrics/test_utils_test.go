@@ -52,17 +52,8 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := meterProvider.Meter("ld-relay")
 
-	connections, _ := meter.Int64UpDownCounter(connMeasureName)
-	requests, _ := meter.Int64Counter(requestMeasureName)
-	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName)
-	eventsIngestedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName)
-
-	instruments := &Instruments{
-		connections:         connections,
-		requests:            requests,
-		requestDuration:     requestDuration,
-		eventsIngestedBytes: eventsIngestedBytes,
-	}
+	instruments, err := NewInstrumentsForTest(meter)
+	require.NoError(t, err)
 
 	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)

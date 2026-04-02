@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,6 +191,7 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 }
 
 type mockEventMetrics struct {
+	mu                 sync.Mutex
 	droppedCount       int
 	sentCount          int
 	failedSendCount    int
@@ -199,24 +201,70 @@ type mockEventMetrics struct {
 }
 
 func (m *mockEventMetrics) RecordDroppedEvents(count int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.droppedCount += count
 }
 
 func (m *mockEventMetrics) RecordEventsSent(count int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sentCount += count
 }
 
 func (m *mockEventMetrics) RecordEventsFailedSend(count int, metadata EventSendFailureMetadata) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.failedSendCount += count
 	m.lastFailedSendMeta = metadata
 }
 
 func (m *mockEventMetrics) RecordEventsBytesSent(bytes int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.bytesSent += bytes
 }
 
 func (m *mockEventMetrics) RecordPendingEvents(depth int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lastPendingEvents = depth
+}
+
+func (m *mockEventMetrics) getDroppedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.droppedCount
+}
+
+func (m *mockEventMetrics) getSentCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sentCount
+}
+
+func (m *mockEventMetrics) getFailedSendCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.failedSendCount
+}
+
+func (m *mockEventMetrics) getLastFailedSendMeta() EventSendFailureMetadata {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastFailedSendMeta
+}
+
+func (m *mockEventMetrics) getBytesSent() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bytesSent
+}
+
+func (m *mockEventMetrics) getLastPendingEvents() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastPendingEvents
 }
 
 func TestHTTPEventPublisherDroppedEventsMetric(t *testing.T) {
@@ -240,7 +288,7 @@ func TestHTTPEventPublisherDroppedEventsMetric(t *testing.T) {
 		assert.NoError(t, err)
 		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["a","b"]`))
 
-		assert.Equal(t, 3, metrics.droppedCount)
+		assert.Equal(t, 3, metrics.getDroppedCount())
 	})
 }
 
@@ -259,8 +307,8 @@ func TestHTTPEventPublisherEventsSentMetric(t *testing.T) {
 
 		_ = helpers.RequireValue(t, requestsCh, time.Second)
 		// Wait for the goroutine to record the metric after the send completes
-		assert.Eventually(t, func() bool { return metrics.sentCount == 3 }, time.Second, 10*time.Millisecond)
-		assert.Greater(t, metrics.bytesSent, 0)
+		assert.Eventually(t, func() bool { return metrics.getSentCount() == 3 }, time.Second, 10*time.Millisecond)
+		assert.Greater(t, metrics.getBytesSent(), 0)
 	})
 }
 
@@ -280,7 +328,7 @@ func TestHTTPEventPublisherPendingEventsMetric(t *testing.T) {
 		publisher.Flush()
 
 		_ = helpers.RequireValue(t, requestsCh, time.Second)
-		assert.Eventually(t, func() bool { return metrics.lastPendingEvents == 0 }, time.Second, 10*time.Millisecond)
+		assert.Eventually(t, func() bool { return metrics.getLastPendingEvents() == 0 }, time.Second, 10*time.Millisecond)
 	})
 }
 
@@ -307,9 +355,9 @@ func TestHTTPEventPublisherEventsFailedSendMetric(t *testing.T) {
 		_ = helpers.RequireValue(t, requestsCh, 5*time.Second)
 		_ = helpers.RequireValue(t, requestsCh, 5*time.Second)
 
-		assert.Eventually(t, func() bool { return metrics.failedSendCount == 2 }, 5*time.Second, 10*time.Millisecond)
-		assert.Equal(t, 0, metrics.sentCount)
-		assert.Equal(t, 503, metrics.lastFailedSendMeta.StatusCode)
+		assert.Eventually(t, func() bool { return metrics.getFailedSendCount() == 2 }, 5*time.Second, 10*time.Millisecond)
+		assert.Equal(t, 0, metrics.getSentCount())
+		assert.Equal(t, 503, metrics.getLastFailedSendMeta().StatusCode)
 	})
 }
 

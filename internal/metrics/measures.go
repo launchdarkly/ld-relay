@@ -15,12 +15,12 @@ type Instruments struct {
 	connections         metric.Int64UpDownCounter // active connections (+1/-1)
 	requests            metric.Int64Counter       // cumulative HTTP requests
 	requestDuration     metric.Float64Histogram   // request duration in seconds
-	eventsIngestedBytes metric.Int64Counter       // cumulative bytes of event data ingested
+	eventsReceivedBytes metric.Int64Counter       // cumulative bytes of event data received
 	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
 	eventsSent          metric.Int64Counter       // cumulative count of events successfully sent
 	eventsFailedSend    metric.Int64Counter       // cumulative count of events that failed to send
 	eventsBytesSent     metric.Int64Counter       // cumulative bytes of event payloads successfully sent
-	pendingEvents     metric.Int64Gauge         // current number of events pending delivery
+	pendingEvents       metric.Int64Gauge         // current number of events pending delivery
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -78,7 +78,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventsIngestedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
+	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
 	if err != nil {
 		return nil, err
 	}
@@ -106,12 +106,12 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 		connections:         connections,
 		requests:            requests,
 		requestDuration:     requestDuration,
-		eventsIngestedBytes: eventsIngestedBytes,
+		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
 		eventsSent:          eventsSent,
 		eventsFailedSend:    eventsFailedSend,
 		eventsBytesSent:     eventsBytesSent,
-		pendingEvents:     pendingEvents,
+		pendingEvents:       pendingEvents,
 	}, nil
 }
 
@@ -191,14 +191,14 @@ func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *In
 	f()
 }
 
-// RecordEventsIngestedBytes records the number of event bytes ingested.
-func RecordEventsIngestedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
+// RecordEventsReceivedBytes records the number of event bytes received.
+func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
 	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
-	instruments.eventsIngestedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
+	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
@@ -217,7 +217,8 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 // detached from any specific HTTP request context.
 type EventMetricsRecorder struct {
 	instruments *Instruments
-	envKVs      []attribute.KeyValue
+	envKVs      []attribute.KeyValue // private copy, safe for concurrent read
+	envAttrs    attribute.Set        // pre-computed to avoid concurrent sort in attribute.NewSet
 }
 
 // RecordDroppedEvents records the number of events dropped due to capacity overflow.
@@ -225,8 +226,7 @@ func (r *EventMetricsRecorder) RecordDroppedEvents(count int) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsDropped.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+	r.instruments.eventsDropped.Add(context.Background(), int64(count), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsSent records the number of events successfully delivered to the events service.
@@ -234,8 +234,7 @@ func (r *EventMetricsRecorder) RecordEventsSent(count int) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsSent.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
+	r.instruments.eventsSent.Add(context.Background(), int64(count), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordPendingEvents records the current number of events pending delivery.
@@ -243,8 +242,7 @@ func (r *EventMetricsRecorder) RecordPendingEvents(depth int) {
 	if r.instruments == nil {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.pendingEvents.Record(context.Background(), int64(depth), metric.WithAttributeSet(attrs))
+	r.instruments.pendingEvents.Record(context.Background(), int64(depth), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsBytesSent records the size of event payloads successfully delivered.
@@ -252,8 +250,7 @@ func (r *EventMetricsRecorder) RecordEventsBytesSent(bytes int) {
 	if r.instruments == nil || bytes <= 0 {
 		return
 	}
-	attrs := attribute.NewSet(r.envKVs...)
-	r.instruments.eventsBytesSent.Add(context.Background(), int64(bytes), metric.WithAttributeSet(attrs))
+	r.instruments.eventsBytesSent.Add(context.Background(), int64(bytes), metric.WithAttributeSet(r.envAttrs))
 }
 
 // RecordEventsFailedSend records the number of events that could not be delivered after all retries.

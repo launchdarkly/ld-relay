@@ -310,12 +310,13 @@ func newEventVerbatimRelay(
 	extraOptions ...OptionType,
 ) *eventVerbatimRelay {
 	eventsURI := getEventsURI(config)
-	opts := []OptionType{
+	opts := make([]OptionType, 0, 4+len(extraOptions))
+	opts = append(opts,
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionBaseURI(eventsURI),
 		OptionURIPath(remotePath),
 		OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)),
-	}
+	)
 	opts = append(opts, extraOptions...)
 
 	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, loggers, opts...)
