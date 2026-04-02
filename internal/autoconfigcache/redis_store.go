@@ -47,8 +47,7 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		}
 	}
 	client := redis.NewUniversalClient(uo)
-	hashKey := cacheKey
-	return &redisStore{client: client, hashKey: hashKey, encKey: encKey, loggers: loggers}, nil
+	return &redisStore{client: client, hashKey: cacheKey, encKey: encKey, loggers: loggers}, nil
 }
 
 func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error) {
@@ -72,22 +71,31 @@ func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error)
 			continue
 		}
 
-		if strings.HasPrefix(field, envItemPrefix) {
+		item, err := unmarshalCachedItem(plaintext)
+		if err != nil {
+			s.loggers.Warnf("AutoConfig cache: skipping field %q: %v", field, err)
+			continue
+		}
+
+		switch item.Kind {
+		case ModelKindEnvironment:
 			envID := config.EnvironmentID(strings.TrimPrefix(field, envItemPrefix))
 			var rep envfactory.EnvironmentRep
-			if err := json.Unmarshal(plaintext, &rep); err != nil {
+			if err := json.Unmarshal(item.Data, &rep); err != nil {
 				s.loggers.Warnf("AutoConfig cache: failed to unmarshal env %q: %v", envID, err)
 				continue
 			}
 			content.Environments[envID] = rep
-		} else if strings.HasPrefix(field, filterItemPrefix) {
+		case ModelKindFilter:
 			filterID := config.FilterID(strings.TrimPrefix(field, filterItemPrefix))
 			var rep envfactory.FilterRep
-			if err := json.Unmarshal(plaintext, &rep); err != nil {
+			if err := json.Unmarshal(item.Data, &rep); err != nil {
 				s.loggers.Warnf("AutoConfig cache: failed to unmarshal filter %q: %v", filterID, err)
 				continue
 			}
 			content.Filters[filterID] = rep
+		default:
+			s.loggers.Warnf("AutoConfig cache: skipping field %q with unknown kind %q", field, item.Kind)
 		}
 	}
 
@@ -105,7 +113,7 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 		if id != rep.EnvID {
 			continue
 		}
-		raw, err := json.Marshal(rep)
+		raw, err := marshalCachedItem(ModelKindEnvironment, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to marshal env %q: %v", id, err)
 			continue
@@ -119,7 +127,7 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 	}
 
 	for id, rep := range content.Filters {
-		raw, err := json.Marshal(rep)
+		raw, err := marshalCachedItem(ModelKindFilter, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to marshal filter %q: %v", id, err)
 			continue
@@ -148,7 +156,7 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 
 func (s *redisStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
 	field := cacheField(kind, id)
-	raw, err := json.Marshal(data)
+	raw, err := marshalCachedItem(modelKindFromCacheKind(kind), data)
 	if err != nil {
 		return fmt.Errorf("AutoConfig cache: failed to marshal %q: %w", field, err)
 	}

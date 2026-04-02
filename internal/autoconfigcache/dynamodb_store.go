@@ -95,22 +95,31 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 				continue
 			}
 
-			if strings.HasPrefix(sortKey, envItemPrefix) {
+			cached, err := unmarshalCachedItem(plaintext)
+			if err != nil {
+				s.loggers.Warnf("AutoConfig cache: skipping item %q: %v", sortKey, err)
+				continue
+			}
+
+			switch cached.Kind {
+			case ModelKindEnvironment:
 				envID := config.EnvironmentID(strings.TrimPrefix(sortKey, envItemPrefix))
 				var rep envfactory.EnvironmentRep
-				if err := json.Unmarshal(plaintext, &rep); err != nil {
+				if err := json.Unmarshal(cached.Data, &rep); err != nil {
 					s.loggers.Warnf("AutoConfig cache: failed to unmarshal env %q: %v", envID, err)
 					continue
 				}
 				content.Environments[envID] = rep
-			} else if strings.HasPrefix(sortKey, filterItemPrefix) {
+			case ModelKindFilter:
 				filterID := config.FilterID(strings.TrimPrefix(sortKey, filterItemPrefix))
 				var rep envfactory.FilterRep
-				if err := json.Unmarshal(plaintext, &rep); err != nil {
+				if err := json.Unmarshal(cached.Data, &rep); err != nil {
 					s.loggers.Warnf("AutoConfig cache: failed to unmarshal filter %q: %v", filterID, err)
 					continue
 				}
 				content.Filters[filterID] = rep
+			default:
+				s.loggers.Warnf("AutoConfig cache: skipping item %q with unknown kind %q", sortKey, cached.Kind)
 			}
 		}
 
@@ -169,7 +178,7 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 		}
 		sortKey := envItemPrefix + string(id)
 		newKeys[sortKey] = true
-		item, err := s.buildItem(sortKey, rep)
+		item, err := s.buildItem(sortKey, ModelKindEnvironment, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to build env item %q: %v", id, err)
 			continue
@@ -185,7 +194,7 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 	for id, rep := range content.Filters {
 		sortKey := filterItemPrefix + string(id)
 		newKeys[sortKey] = true
-		item, err := s.buildItem(sortKey, rep)
+		item, err := s.buildItem(sortKey, ModelKindFilter, rep)
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache: failed to build filter item %q: %v", id, err)
 			continue
@@ -218,8 +227,8 @@ func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutConten
 	return nil
 }
 
-func (s *dynamoDBStore) buildItem(sortKey string, value interface{}) (map[string]types.AttributeValue, error) {
-	raw, err := json.Marshal(value)
+func (s *dynamoDBStore) buildItem(sortKey string, kind ModelKind, value interface{}) (map[string]types.AttributeValue, error) {
+	raw, err := marshalCachedItem(kind, value)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
@@ -272,7 +281,7 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 
 func (s *dynamoDBStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
 	sortKey := cacheField(kind, id)
-	item, err := s.buildItem(sortKey, data)
+	item, err := s.buildItem(sortKey, modelKindFromCacheKind(kind), data)
 	if err != nil {
 		return fmt.Errorf("AutoConfig cache: failed to build item %q: %w", sortKey, err)
 	}
