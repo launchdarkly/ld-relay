@@ -18,6 +18,7 @@ type relayUsageEvent struct {
 	UserAgent        string `json:"userAgent"`
 	PlatformCategory string `json:"platformCategory"`
 	InstanceID       string `json:"instanceId,omitempty"`
+	TagsHeader       string `json:"tagsHeader,omitempty"`
 
 	FirstActive   ldtime.UnixMillisecondTime `json:"firstActive"`
 	LastActive    ldtime.UnixMillisecondTime `json:"lastActive"`
@@ -28,6 +29,7 @@ type usageKeyType struct {
 	userAgent        string
 	platformCategory string
 	instanceID       string
+	tagsHeader       string
 }
 
 type UsageActivityKind string
@@ -45,6 +47,7 @@ type usageActivityMessage struct {
 	userAgent        string
 	platformCategory string
 	instanceID       string
+	tagsHeader       string
 }
 
 type usageActivityFlush struct{}
@@ -178,7 +181,7 @@ func (e *environmentMetricUsage) run() {
 			case *usageActivityFlush:
 				e.flushInternal()
 			case *usageActivityMessage:
-				key := usageKeyType{userAgent: u.userAgent, platformCategory: u.platformCategory, instanceID: u.instanceID}
+				key := usageKeyType{userAgent: u.userAgent, platformCategory: u.platformCategory, instanceID: u.instanceID, tagsHeader: u.tagsHeader}
 				if e.publisher == nil {
 					continue
 				}
@@ -270,6 +273,7 @@ func (e *environmentMetricUsage) flushInternal() {
 			UserAgent:        key.userAgent,
 			PlatformCategory: key.platformCategory,
 			InstanceID:       key.instanceID,
+			TagsHeader:       key.tagsHeader,
 			FirstActive:      ldtime.UnixMillisFromTime(usage.firstActive),
 			LastActive:       ldtime.UnixMillisFromTime(lastActive),
 			TotalStreamMs:    (elapsedStreaming + usage.streamingDurationAdjustment).Milliseconds(),
