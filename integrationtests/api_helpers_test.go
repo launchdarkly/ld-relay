@@ -447,7 +447,6 @@ func (a *apiHelper) createBigSegment(
 	env environmentInfo,
 	segmentKey string,
 	userKeysIncluded []string,
-	userKeysExcluded []string,
 	userKeysIncludedViaRule []string,
 ) error {
 	userSegmentBody := ldapi.SegmentBody{
@@ -485,7 +484,6 @@ func (a *apiHelper) createBigSegment(
 
 	updates := ldapi.SegmentUserState{
 		Included: &ldapi.SegmentUserList{Add: userKeysIncluded},
-		Excluded: &ldapi.SegmentUserList{Add: userKeysExcluded},
 	}
 	_, err = a.apiClient.SegmentsApi.
 		UpdateBigSegmentTargets(a.apiContext, project.key, env.key, segmentKey).
