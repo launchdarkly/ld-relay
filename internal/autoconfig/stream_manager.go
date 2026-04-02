@@ -272,6 +272,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 					s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
 					break
 				}
+				putMessage.Data.Persist = true
 				s.handlePut(putMessage.Data)
 
 			case PatchEvent:
@@ -426,8 +427,10 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-	if err := s.cache.SetAll(context.Background(), content); err != nil {
-		s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+	if content.Persist {
+		if err := s.cache.SetAll(context.Background(), content); err != nil {
+			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+		}
 	}
 }
 
