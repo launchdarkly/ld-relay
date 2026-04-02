@@ -171,11 +171,8 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		var extraOpts []OptionType
-		if r.eventMetrics != nil {
-			extraOpts = append(extraOpts, OptionEventMetrics{EventMetrics: r.eventMetrics})
-		}
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath, extraOpts...)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath,
+			OptionEventMetrics{EventMetrics: r.eventMetrics})
 	}
 	return r.verbatimRelay
 }

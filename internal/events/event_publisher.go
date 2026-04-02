@@ -209,6 +209,9 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 		}
 	}
 
+	if p.eventMetrics == nil {
+		p.eventMetrics = NoOpEventMetrics{}
+	}
 	p.queues = make(map[EventPayloadMetadata]*publisherQueue)
 	p.wg.Add(1)
 
@@ -229,9 +232,7 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 					// Ensure we free up as much memory as we can by clearing any pending events
 					p.queues = make(map[EventPayloadMetadata]*publisherQueue)
 					p.disabled = true
-					if p.eventMetrics != nil {
-						p.eventMetrics.RecordPendingEvents(0)
-					}
+					p.eventMetrics.RecordPendingEvents(0)
 				case e := <-inputQueue:
 					if p.disabled {
 						continue
@@ -272,16 +273,14 @@ func (p *HTTPEventPublisher) append(batch eventBatch) {
 			p.overflowed = true
 		}
 		taken = available
-		if dropped := len(batch.events) - taken; dropped > 0 && p.eventMetrics != nil {
+		if dropped := len(batch.events) - taken; dropped > 0 {
 			p.eventMetrics.RecordDroppedEvents(dropped)
 		}
 	} else {
 		p.overflowed = false
 	}
 	queue.events = append(queue.events, batch.events[:taken]...)
-	if p.eventMetrics != nil {
-		p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
-	}
+	p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
 }
 
 func (p *HTTPEventPublisher) totalPendingEvents() int {
@@ -381,15 +380,13 @@ func (p *HTTPEventPublisher) flush() {
 				EnableCompression: true,
 			}
 			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)
-			if eventMetrics != nil {
-				if result.Success {
-					eventMetrics.RecordEventsSent(count)
-					eventMetrics.RecordEventsBytesSent(len(payload))
-				} else {
-					eventMetrics.RecordEventsFailedSend(count, EventSendFailureMetadata{
-						StatusCode: result.StatusCode,
-					})
-				}
+			if result.Success {
+				eventMetrics.RecordEventsSent(count)
+				eventMetrics.RecordEventsBytesSent(len(payload))
+			} else {
+				eventMetrics.RecordEventsFailedSend(count, EventSendFailureMetadata{
+					StatusCode: result.StatusCode,
+				})
 			}
 			p.wg.Done()
 			if result.MustShutDown {
@@ -397,9 +394,7 @@ func (p *HTTPEventPublisher) flush() {
 			}
 		}()
 	}
-	if p.eventMetrics != nil {
-		p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
-	}
+	p.eventMetrics.RecordPendingEvents(p.totalPendingEvents())
 }
 
 func (p *HTTPEventPublisher) Close() { //nolint:revive // method is already documented in interface

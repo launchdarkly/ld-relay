@@ -37,3 +37,14 @@ type EventMetrics interface {
 	// buffered awaiting delivery. The count parameter is the current total number of events pending.
 	RecordPendingEvents(count int)
 }
+
+// NoOpEventMetrics is a default implementation of EventMetrics that does nothing.
+// It is used when no EventMetrics is provided, eliminating the need for nil checks
+// at every call site.
+type NoOpEventMetrics struct{}
+
+func (NoOpEventMetrics) RecordDroppedEvents(int)                              {}
+func (NoOpEventMetrics) RecordEventsSent(int)                                 {}
+func (NoOpEventMetrics) RecordEventsFailedSend(int, EventSendFailureMetadata) {}
+func (NoOpEventMetrics) RecordEventsBytesSent(int)                            {}
+func (NoOpEventMetrics) RecordPendingEvents(int)                              {}
