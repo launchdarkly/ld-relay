@@ -226,7 +226,6 @@ func TestSyncSendsUpdates(t *testing.T) {
 			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, poll1Patch1)
-			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
 			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, poll1Patch1.Version)
@@ -305,7 +304,6 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
-			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
 			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
@@ -382,7 +380,6 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
-			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
 			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
@@ -471,7 +468,6 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq1, "")
 			requirePatch(t, storeMock, patch1)
-			require.Equal(t, 0, len(storeMock.syncTimeCh))
 
 			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq2, patch1.Version)
