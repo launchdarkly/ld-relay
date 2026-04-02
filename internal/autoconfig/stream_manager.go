@@ -46,6 +46,8 @@ const (
 
 // Cache provides read/write access to the AutoConfig persistent cache.
 // This is satisfied by autoconfigcache.Store (and its noopStore) but defined here to avoid import cycles.
+// Implementations manage their own context lifecycle; the caller's context is combined with the store's
+// internal context so that either cancellation terminates the operation.
 type Cache interface {
 	io.Closer
 	// GetAll returns the cached PutContent, or nil if the cache is empty.

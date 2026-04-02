@@ -16,6 +16,8 @@ import (
 
 type redisStore struct {
 	client  redis.UniversalClient
+	ctx     context.Context
+	cancel  context.CancelFunc
 	hashKey string
 	encKey  []byte
 	loggers ldlog.Loggers
@@ -47,10 +49,13 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		}
 	}
 	client := redis.NewUniversalClient(uo)
-	return &redisStore{client: client, hashKey: cacheKey, encKey: encKey, loggers: loggers}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	return &redisStore{client: client, ctx: ctx, cancel: cancel, hashKey: cacheKey, encKey: encKey, loggers: loggers}, nil
 }
 
 func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error) {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	fields, err := s.client.HGetAll(ctx, s.hashKey).Result()
 	if err != nil {
 		return nil, err
@@ -107,6 +112,8 @@ func (s *redisStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error)
 }
 
 func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	fields := make(map[string]interface{})
 
 	for id, rep := range content.Environments {
@@ -155,6 +162,8 @@ func (s *redisStore) SetAll(ctx context.Context, content autoconfig.PutContent) 
 }
 
 func (s *redisStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	field := cacheField(kind, id)
 	raw, err := marshalCachedItem(modelKindFromCacheKind(kind), data)
 	if err != nil {
@@ -168,9 +177,12 @@ func (s *redisStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id s
 }
 
 func (s *redisStore) Delete(ctx context.Context, kind autoconfig.CacheKind, id string) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	return s.client.HDel(ctx, s.hashKey, cacheField(kind, id)).Err()
 }
 
 func (s *redisStore) Close() error {
+	s.cancel()
 	return s.client.Close()
 }

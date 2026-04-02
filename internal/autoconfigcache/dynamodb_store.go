@@ -26,6 +26,8 @@ const (
 
 type dynamoDBStore struct {
 	client    *dynamodb.Client
+	ctx       context.Context
+	cancel    context.CancelFunc
 	table     string
 	namespace string
 	encKey    []byte
@@ -47,8 +49,11 @@ func newDynamoDBStore(dbConfig config.DynamoDBConfig, cacheKey string, encKey []
 		})
 	}
 	client := dynamodb.NewFromConfig(cfg, opts...)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &dynamoDBStore{
 		client:    client,
+		ctx:       ctx,
+		cancel:    cancel,
 		table:     dbConfig.TableName,
 		namespace: cacheKey,
 		encKey:    encKey,
@@ -57,6 +62,8 @@ func newDynamoDBStore(dbConfig config.DynamoDBConfig, cacheKey string, encKey []
 }
 
 func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, error) {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	content := &autoconfig.PutContent{
 		Environments: make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		Filters:      make(map[config.FilterID]envfactory.FilterRep),
@@ -136,6 +143,8 @@ func (s *dynamoDBStore) GetAll(ctx context.Context) (*autoconfig.PutContent, err
 }
 
 func (s *dynamoDBStore) SetAll(ctx context.Context, content autoconfig.PutContent) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	// Step 1: Query existing sort keys so we can delete stale items.
 	existingKeys := make(map[string]bool)
 	var exclusiveStartKey map[string]types.AttributeValue
@@ -280,6 +289,8 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 }
 
 func (s *dynamoDBStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, id string, data interface{}) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	sortKey := cacheField(kind, id)
 	item, err := s.buildItem(sortKey, modelKindFromCacheKind(kind), data)
 	if err != nil {
@@ -296,6 +307,8 @@ func (s *dynamoDBStore) Upsert(ctx context.Context, kind autoconfig.CacheKind, i
 }
 
 func (s *dynamoDBStore) Delete(ctx context.Context, kind autoconfig.CacheKind, id string) error {
+	ctx, cleanup := mergeContext(ctx, s.ctx)
+	defer cleanup()
 	sortKey := cacheField(kind, id)
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.table),
@@ -308,5 +321,6 @@ func (s *dynamoDBStore) Delete(ctx context.Context, kind autoconfig.CacheKind, i
 }
 
 func (s *dynamoDBStore) Close() error {
+	s.cancel()
 	return nil
 }
