@@ -65,6 +65,7 @@ func newEventSummarizingRelay(
 	loggers ldlog.Loggers,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
+	eventMetrics EventMetrics,
 ) *eventSummarizingRelay {
 	eventsConfig := ldevents.EventsConfiguration{
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
@@ -72,6 +73,7 @@ func newEventSummarizingRelay(
 		Loggers:               loggers,
 		UserKeysCapacity:      ldcomponents.DefaultContextKeysCapacity,
 		UserKeysFlushInterval: ldcomponents.DefaultContextKeysFlushInterval,
+		EventMetrics:          eventMetrics,
 	}
 	baseHeaders := make(http.Header)
 	for k, v := range httpConfig.SDKHTTPConfig.DefaultHeaders {

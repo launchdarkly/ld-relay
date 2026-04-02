@@ -45,6 +45,7 @@ type analyticsEventEndpointDispatcher struct {
 	summarizingRelay          *eventSummarizingRelay
 	wrapper                   *datadestination.DataDestinationWrapper
 	eventQueueCleanupInterval time.Duration
+	eventMetrics              EventMetrics
 	loggers                   ldlog.Loggers
 	mu                        sync.Mutex
 }
@@ -170,7 +171,8 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath)
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath,
+			OptionEventMetrics{EventMetrics: r.eventMetrics})
 	}
 	return r.verbatimRelay
 }
@@ -180,7 +182,7 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
 		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.wrapper,
-			r.loggers, r.remotePath, r.eventQueueCleanupInterval)
+			r.loggers, r.remotePath, r.eventQueueCleanupInterval, r.eventMetrics)
 	}
 	return r.summarizingRelay
 }
@@ -206,11 +208,12 @@ func NewEventDispatcher(
 	httpConfig httpconfig.HTTPConfig,
 	wrapper *datadestination.DataDestinationWrapper,
 	eventQueueCleanupInterval time.Duration, // normally zero to use the default; overridden in tests
+	eventMetrics EventMetrics,
 ) *EventDispatcher {
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
 			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, wrapper, loggers, "/bulk", eventQueueCleanupInterval),
+				config, httpConfig, wrapper, loggers, "/bulk", eventQueueCleanupInterval, eventMetrics),
 		},
 		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
 			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
@@ -218,12 +221,12 @@ func NewEventDispatcher(
 	}
 	if mobileKey.Defined() {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, wrapper, loggers, "/mobile", eventQueueCleanupInterval)
+			config, httpConfig, wrapper, loggers, "/mobile", eventQueueCleanupInterval, eventMetrics)
 		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
 	}
 	if envID.Defined() {
 		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, wrapper, loggers,
-			"/events/bulk/"+string(envID), eventQueueCleanupInterval)
+			"/events/bulk/"+string(envID), eventQueueCleanupInterval, eventMetrics)
 		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
 			"/events/diagnostic/"+string(envID))
 	}
@@ -280,6 +283,7 @@ func newAnalyticsEventEndpointDispatcher(
 	loggers ldlog.Loggers,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
+	eventMetrics EventMetrics,
 ) *analyticsEventEndpointDispatcher {
 	return &analyticsEventEndpointDispatcher{
 		authKey:                   authKey,
@@ -290,6 +294,7 @@ func newAnalyticsEventEndpointDispatcher(
 		loggers:                   loggers,
 		remotePath:                remotePath,
 		eventQueueCleanupInterval: eventQueueCleanupInterval,
+		eventMetrics:              eventMetrics,
 	}
 }
 
@@ -299,14 +304,17 @@ func newEventVerbatimRelay(
 	httpConfig httpconfig.HTTPConfig,
 	loggers ldlog.Loggers,
 	remotePath string,
+	extraOptions ...OptionType,
 ) *eventVerbatimRelay {
 	eventsURI := getEventsURI(config)
-	opts := []OptionType{
+	opts := make([]OptionType, 0, 4+len(extraOptions))
+	opts = append(opts,
 		OptionCapacity(config.Capacity.GetOrElse(c.DefaultEventCapacity)),
 		OptionBaseURI(eventsURI),
 		OptionURIPath(remotePath),
 		OptionFlushInterval(config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval)),
-	}
+	)
+	opts = append(opts, extraOptions...)
 
 	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, loggers, opts...)
 

@@ -168,7 +168,7 @@ func RequestMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 	}
 }
 
-// EventBytesMetrics is a middleware function that records the number of event bytes ingested.
+// EventBytesMetrics is a middleware function that records the number of event bytes received.
 // This should be applied after GzipMiddleware so that it measures decompressed bytes.
 func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
@@ -182,7 +182,7 @@ func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
 			next.ServeHTTP(w, req)
 			env := GetEnvContextInfo(req.Context()).Env
 			ri := requestInfoFromHTTP(req)
-			metrics.RecordEventsIngestedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, ri, cr.bytesRead.Load())
+			metrics.RecordEventsReceivedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, ri, cr.bytesRead.Load())
 		})
 	}
 }

@@ -198,8 +198,8 @@ func TestEventBytesMetrics(t *testing.T) {
 		router.ServeHTTP(httptest.NewRecorder(), req)
 
 		rm := p.collectMetrics(t)
-		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.ingested.bytes")
-		require.NotNil(t, bytesMetric, "events ingested bytes metric not found")
+		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.received.bytes")
+		require.NotNil(t, bytesMetric, "events received bytes metric not found")
 		assertMetricHasValue(t, bytesMetric, p.envName, "server", 35)
 	})
 }
