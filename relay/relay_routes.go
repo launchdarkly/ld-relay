@@ -60,7 +60,7 @@ func (r *Relay) makeRouter() *mux.Router {
 			mux.CORSMethodMiddleware(subrouter),
 			jsClientSelector, // selects an environment based on the client-side ID in the URL
 			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
-			middleware.UsageActivityCount(metrics.BrowserPlatformCategory),
+			middleware.TrackUsageActivity(metrics.BrowserPlatformCategory),
 			middleware.RequestMetrics(metrics.BrowserRequests),
 		)
 	}
@@ -78,38 +78,66 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
-		middleware.UsageActivityCount(metrics.ServerPlatformCategory),
+		middleware.TrackUsageActivity(metrics.ServerPlatformCategory),
 		middleware.RequestMetrics(metrics.ServerRequests),
 	)
 
-	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
+	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
 	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
-	// serverSideSdkRouter.Use(serverSideMiddlewareStack)
+	// sdkRouter.Use(sdkRouterMiddleware)
 
-	// FDv2 endpoints
-	serverSideSdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	// FDv2 server-side endpoints
+	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	serverSideSdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
 
-	serverSideEvalXRouter := serverSideSdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
+	// FDv2 client-side endpoints (unified mobile + JS client)
+	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
+
+	clientSideFDv2StreamRouter := sdkRouter.PathPrefix("/stream/eval").Subrouter()
+	clientSideFDv2StreamMiddleware := middleware.Chain(
+		mux.CORSMethodMiddleware(clientSideFDv2StreamRouter),
+		clientSideFDv2EnvAuth,
+		middleware.CORS,
+		middleware.DynamicTrackUsageActivity(),
+		middleware.DynamicRequestMetrics(),
+	)
+	clientSideFDv2StreamRouter.Use(clientSideFDv2StreamMiddleware, middleware.Streaming)
+	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider)
+	clientSideFDv2StreamRouter.Handle("/{context}", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("GET", "OPTIONS")
+	clientSideFDv2StreamRouter.Handle("", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("POST", "OPTIONS")
+
+	clientSideFDv2PollRouter := sdkRouter.PathPrefix("/poll/eval").Subrouter()
+	clientSideFDv2PollMiddleware := middleware.Chain(
+		mux.CORSMethodMiddleware(clientSideFDv2PollRouter),
+		clientSideFDv2EnvAuth,
+		middleware.CORS,
+		middleware.DynamicTrackUsageActivity(),
+		middleware.DynamicRequestMetrics(),
+	)
+	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
+	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("GET", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("POST", "OPTIONS")
+
+	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
 	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
 	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
 
 	// PHP SDK endpoints
-	serverSideSdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
-	serverSideSdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
-	serverSideSdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.PollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
+	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := middleware.Chain(
 		mobileKeySelector,
-		middleware.UsageActivityCount(metrics.MobilePlatformCategory),
+		middleware.TrackUsageActivity(metrics.MobilePlatformCategory),
 		middleware.RequestMetrics(metrics.MobileRequests))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()

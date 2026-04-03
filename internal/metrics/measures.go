@@ -45,8 +45,14 @@ var (
 	// ServerRequests is a Measure representing the number of HTTP requests from server-side SDKs.
 	ServerRequests = Measure{recordRequests: true, platformCategory: ServerPlatformCategory}
 
-	// PollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
-	PollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
+	// ServerPollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
+	ServerPollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
+
+	// MobilePollingRequests is a Measure representing the total number of polling requests from mobile SDKs.
+	MobilePollingRequests = Measure{recordPolling: true, platformCategory: MobilePlatformCategory}
+
+	// BrowserPollingRequests is a Measure representing the total number of polling requests from browser SDKs.
+	BrowserPollingRequests = Measure{recordPolling: true, platformCategory: BrowserPlatformCategory}
 )
 
 // NewInstrumentsForTest creates Instruments backed by the given OTel meter.
