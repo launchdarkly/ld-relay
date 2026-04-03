@@ -23,8 +23,8 @@ var (
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
-	errCacheKeyWithoutStore       = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
-	errCacheKeyWithoutDynamoTable = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
+	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
+	errCacheKeyWithoutDynamoTable              = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
