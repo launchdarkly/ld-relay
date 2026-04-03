@@ -144,7 +144,7 @@ func NewStreamManager(
 // the cache read is cancelled and its result discarded.
 func (s *StreamManager) Start() <-chan error {
 	// Start the cache read concurrently with the stream connection.
-	cacheCtx, cacheCancel := context.WithCancel(context.Background())
+	cacheCtx, cacheCancel := context.WithCancel(context.Background()) //nolint:gosec  // cancellation function is stored and called outside of this function.
 	cacheCh := make(chan *PutContent, 1)
 	go func() {
 		defer close(cacheCh)
