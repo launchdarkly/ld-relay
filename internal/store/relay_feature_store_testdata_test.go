@@ -122,12 +122,13 @@ func (f *mockStoreFactory) Build(
 	return f.instance, nil
 }
 
-func (m *mockEnvStreamsUpdates) SetBasis(events []subsystems.Change, selector subsystems.Selector, persist bool) {
-	m.allData = append(m.allData, events)
-}
-
-func (m *mockEnvStreamsUpdates) ApplyDelta(events []subsystems.Change, selector subsystems.Selector, persist bool) {
-	m.singleItem = append(m.singleItem, events...)
+func (m *mockEnvStreamsUpdates) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		m.allData = append(m.allData, changeSet.Changes())
+	case subsystems.IntentTransferChanges:
+		m.singleItem = append(m.singleItem, changeSet.Changes()...)
+	}
 }
 
 func (m *mockEnvStreamsUpdates) InvalidateClientSideState() {}

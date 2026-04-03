@@ -12,12 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
-	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
@@ -27,14 +29,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -86,7 +86,7 @@ func TestConstructorBasicProperties(t *testing.T) {
 	readyCh := make(chan EnvContext, 1)
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
 
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
@@ -118,7 +118,7 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	readyCh := make(chan EnvContext, 1)
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
 
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
@@ -238,7 +238,7 @@ func TestChangeSDKKey(t *testing.T) {
 	key2 := config.SDKKey("key2")
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
-	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
 
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
@@ -292,7 +292,6 @@ func TestChangeSDKKey(t *testing.T) {
 	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed") {
 		t.FailNow()
 	}
-
 }
 
 func TestSDKClientCreationFails(t *testing.T) {
@@ -545,13 +544,15 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
+	changeSetCh := make(chan subsystems.ChangeSet, 1)
+
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
 		EnvConfig:                     envConfig,
 		AllConfig:                     allConfig,
 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
-		ClientFactory:                 testclient.FakeLDClientFactory(true),
+		ClientFactory:                 testclient.FakeLDClientFactoryWithChannel(true, nil, changeSetCh),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
 			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
@@ -564,31 +565,50 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	require.NotNil(t, synchronizer)
 	assert.False(t, synchronizer.isStarted())
 
-	// Simulate receiving some data
-	updates := env.(*envContextImpl).wrapper.GetUpdates()
-
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
 	s1JSON, _ := json.Marshal(s1)
-	changes := []subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: s1JSON},
-	}
-	updates.SetBasis(changes, subsystems.NoSelector())
 
-	assert.False(t, synchronizer.isStarted())
+	changeSetBuilder := subsystems.NewChangeSetBuilder()
+	changeSetBuilder.Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "new-state",
+			Target: 1,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		},
+	})
+	changeSetBuilder.AddPut(subsystems.SegmentKind, s1.Key, s1.Version, s1JSON)
+	changeSet, err := changeSetBuilder.Finish(subsystems.NewSelector("new-state", 1))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	ensureSynchronizerState(t, synchronizer, false)
 
 	s2 := ldbuilders.NewSegmentBuilder("s2").Unbounded(true).Generation(1).Build()
 	s2JSON, _ := json.Marshal(s2)
-	changes = []subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: s1JSON},
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s2.Key, Object: s2JSON},
-	}
-	updates.SetBasis(changes, subsystems.NoSelector())
 
-	assert.True(t, synchronizer.isStarted())
+	changeSetBuilder = subsystems.NewChangeSetBuilder()
+	changeSetBuilder.Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "new-state",
+			Target: 2,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		},
+	})
+	changeSetBuilder.AddPut(subsystems.SegmentKind, s1.Key, s1.Version, s1JSON)
+	changeSetBuilder.AddPut(subsystems.SegmentKind, s2.Key, s2.Version, s2JSON)
+	changeSet, err = changeSetBuilder.Finish(subsystems.NewSelector("new-state", 2))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	ensureSynchronizerState(t, synchronizer, true)
 
 	// Now we should expose the big segment store so that Relay can include big segment status information
 	// in its status resource.
-	assert.NotNil(t, env.GetBigSegmentStore())
+	require.Eventually(t, func() bool {
+		return env.GetBigSegmentStore() != nil
+	}, time.Second, 10*time.Millisecond, "timed out waiting for big segment store to be available")
 }
 
 func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *testing.T) {
@@ -603,13 +623,14 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
+	changeSetCh := make(chan subsystems.ChangeSet, 1)
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
 		EnvConfig:                     envConfig,
 		AllConfig:                     allConfig,
 		BigSegmentStoreFactory:        fakeBigSegmentStoreFactory,
 		BigSegmentSynchronizerFactory: fakeSynchronizerFactory.create,
-		ClientFactory:                 testclient.FakeLDClientFactory(true),
+		ClientFactory:                 testclient.FakeLDClientFactoryWithChannel(true, nil, changeSetCh),
 		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
 			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
@@ -622,32 +643,44 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	require.NotNil(t, synchronizer)
 	assert.False(t, synchronizer.isStarted())
 
-	// Simulate receiving some data
-	updates := env.(*envContextImpl).wrapper.GetUpdates()
-
 	f1 := ldbuilders.NewFlagBuilder("f1").Build()
 	testFlag1JSON, _ := json.Marshal(f1)
-	updates.SetBasis([]subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: f1.Key, Object: testFlag1JSON},
-	}, subsystems.NoSelector())
 
-	assert.False(t, synchronizer.isStarted())
+	changeSetBuilder := subsystems.NewChangeSetBuilder()
+	changeSetBuilder.Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "new-state",
+			Target: 1,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		},
+	})
+	changeSetBuilder.AddPut(subsystems.FlagKind, f1.Key, f1.Version, testFlag1JSON)
+	changeSet, err := changeSetBuilder.Finish(subsystems.NewSelector("new-state", 1))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	ensureSynchronizerState(t, synchronizer, false)
 
 	s1 := ldbuilders.NewSegmentBuilder("s1").Build()
 	testSegment1JSON, _ := json.Marshal(s1)
-	updates.SetBasis([]subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s1.Key, Object: testSegment1JSON},
-	}, subsystems.NoSelector())
 
-	assert.False(t, synchronizer.isStarted())
+	changeSetBuilder.AddPut(subsystems.SegmentKind, s1.Key, s1.Version, testSegment1JSON)
+	changeSet, err = changeSetBuilder.Finish(subsystems.NewSelector("new-state", 2))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	ensureSynchronizerState(t, synchronizer, false)
 
 	s2 := ldbuilders.NewSegmentBuilder("s2").Unbounded(true).Generation(1).Build()
 	testSegment2JSON, _ := json.Marshal(s2)
-	updates.SetBasis([]subsystems.Change{
-		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: s2.Key, Object: testSegment2JSON},
-	}, subsystems.NoSelector())
 
-	assert.True(t, synchronizer.isStarted())
+	changeSetBuilder.AddPut(subsystems.SegmentKind, s2.Key, s2.Version, testSegment2JSON)
+	changeSet, err = changeSetBuilder.Finish(subsystems.NewSelector("new-state", 3))
+	require.NoError(t, err)
+
+	changeSetCh <- *changeSet
+	ensureSynchronizerState(t, synchronizer, true)
 }
 
 func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.T) {
@@ -769,4 +802,10 @@ func (s *mockBigSegmentSynchronizer) isClosed() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.closed
+}
+
+func ensureSynchronizerState(t *testing.T, synchronizer *mockBigSegmentSynchronizer, expectedState bool) {
+	require.Eventually(t, func() bool {
+		return synchronizer.isStarted() == expectedState
+	}, time.Second, 10*time.Millisecond, "timed out waiting for big segments synchronizer to start")
 }

@@ -14,7 +14,7 @@ func streamerEndpointHandler() http.Handler {
 		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
 			ID:     "fake-id",
 			Target: 0,
-			Code:   "xfer-full",
+			Code:   subsystems.IntentTransferFull,
 			Reason: "payload-missing",
 		}}).
 		WithPutObjects(initialData.ToPutObjects()).

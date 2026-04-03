@@ -14,10 +14,19 @@ func (d *FakeDataDestination) Selector() subsystems.Selector {
 	return d.store.Selector()
 }
 
+func (d *FakeDataDestination) Apply(changeSet subsystems.ChangeSet) {
+	switch changeSet.IntentCode() {
+	case subsystems.IntentTransferFull:
+		d.SetBasis(changeSet.Changes(), changeSet.Selector(), true)
+	case subsystems.IntentTransferChanges:
+		d.ApplyDelta(changeSet.Changes(), changeSet.Selector(), true)
+	}
+}
+
 func (d *FakeDataDestination) SetBasis(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
-	d.store.SetBasis(changes, selector, persist)
+	d.store.setBasis(changes, selector)
 }
 
 func (d *FakeDataDestination) ApplyDelta(changes []subsystems.Change, selector subsystems.Selector, persist bool) {
-	d.store.ApplyDelta(changes, selector, persist)
+	d.store.applyDelta(changes, selector)
 }

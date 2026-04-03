@@ -30,9 +30,7 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 )
 
-var (
-	errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
-)
+var errNoEnvironments = errors.New("you must specify at least one environment in your configuration")
 
 // The Relay Proxy Auto-Config Protocol has two major versions.
 // For Relay < v8, that was '1'.
@@ -293,7 +291,8 @@ func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
 }
 
 func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
-	filedata.ArchiveManagerInterface, error) {
+	filedata.ArchiveManagerInterface, error,
+) {
 	am, err := filedata.NewArchiveManager(filePath, handler, monitoringInterval, loggers)
 	return am, err
 }
@@ -345,9 +344,11 @@ func (r *Relay) allStreamProviders() []streams.StreamProvider {
 	}
 }
 
-var errRelayNotReady = errors.New("relay is not yet fully configured")
-var errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
-var errPayloadFilterNotFound = errors.New("credential corresponds to an environment but filter is unrecognized")
+var (
+	errRelayNotReady           = errors.New("relay is not yet fully configured")
+	errUnrecognizedEnvironment = errors.New("no environment corresponds to given credentials")
+	errPayloadFilterNotFound   = errors.New("credential corresponds to an environment but filter is unrecognized")
+)
 
 func IsNotReady(err error) bool {
 	return err == errRelayNotReady

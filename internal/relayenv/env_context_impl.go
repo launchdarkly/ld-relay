@@ -310,9 +310,6 @@ func NewEnvContext(
 	envContext.eventDispatcher = eventDispatcher
 
 	streamURI := allConfig.Main.StreamURI.String() // config.ValidateConfig has ensured that this has a value
-	//nolint:godox
-	// TODO(sdk-1231): Can we use baseURI here, or is that tool specific to
-	// clients?
 	baseURI := allConfig.Main.BaseURI.String()
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
@@ -371,9 +368,8 @@ func NewEnvContext(
 
 	config := ld.Config{
 		DataSystem: dataSystemBuilder,
-		LDRelayDataDestination: func(dd subsystems.DataDestination, ro subsystems.ReadOnlyDataStore) subsystems.DataDestination {
-			wrapper.SetDataSystemPieces(dd, ro)
-			return wrapper
+		LDRelayDataDestination: func(ro subsystems.ReadOnlyDataStore, changeSetUpdates <-chan subsystems.ChangeSet) {
+			wrapper.SetDataSystemPieces(ro, changeSetUpdates)
 		},
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents().EnableGzip(true),
@@ -382,10 +378,6 @@ func NewEnvContext(
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 		ServiceEndpoints: interfaces.ServiceEndpoints{
-			//nolint:godox
-			// TODO(sdk-1232): What is the optimized way to configure this now
-			// that polling and streaming are configured through the data
-			// system?
 			Events: eventsURI,
 		},
 	}
@@ -631,7 +623,7 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	return c.clients[c.keyRotator.SDKKey()]
 }
 
-func (c *envContextImpl) GetStore() subsystems.ReadOnlyStore {
+func (c *envContextImpl) GetStore() subsystems.ReadOnlyDataStore {
 	return c.wrapper.GetReadOnlyStore()
 }
 
@@ -822,7 +814,7 @@ func (q envContextStoreQueries) Snapshot() (map[ldstoretypes.DataKind][]ldstoret
 	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.Snapshot()
 	}
-	return nil, subsystems.NoSelector(), nil
+	return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{}, subsystems.NoSelector(), nil
 }
 
 func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
@@ -854,14 +846,9 @@ func (u *envContextStreamUpdates) handleBigSegments(events []subsystems.Change) 
 	}
 }
 
-func (u *envContextStreamUpdates) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
-	u.context.envStreams.SetBasis(events, selector)
-	u.handleBigSegments(events)
-}
-
-func (u *envContextStreamUpdates) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
-	u.context.envStreams.ApplyDelta(events, selector)
-	u.handleBigSegments(events)
+func (u *envContextStreamUpdates) Apply(changeSet subsystems.ChangeSet) {
+	u.context.envStreams.Apply(changeSet)
+	u.handleBigSegments(changeSet.Changes())
 }
 
 func (u *envContextStreamUpdates) InvalidateClientSideState() {
