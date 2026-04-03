@@ -11,15 +11,16 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
 // This is the standard implementation of the /flags stream for old server-side SDKs.
-
 type serverSideFlagsOnlyStreamProvider struct {
-	server    *eventsource.Server
-	closeOnce sync.Once
+	fdv1Server *eventsource.Server
+	fdv2Server *eventsource.Server
+	closeOnce  sync.Once
 }
 
 type serverSideFlagsOnlyEnvStreamProvider struct {
@@ -34,14 +35,21 @@ type serverSideFlagsOnlyEnvStreamRepository struct {
 	flightGroup singleflight.Group
 }
 
-func (s *serverSideFlagsOnlyStreamProvider) Handler(params sdkauth.ScopedCredential) http.HandlerFunc {
+func (s *serverSideFlagsOnlyStreamProvider) HandlerV1(params sdkauth.ScopedCredential) http.HandlerFunc {
 	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.server.Handler(params.String())
+	return s.fdv1Server.Handler(params.String())
 }
 
-func (s *serverSideFlagsOnlyStreamProvider) Register(
+func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params sdkauth.ScopedCredential) http.HandlerFunc {
+	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+		return nil
+	}
+	return s.fdv2Server.Handler(params.String())
+}
+
+func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
 	params sdkauth.ScopedCredential,
 	store EnvStoreQueries,
 	loggers ldlog.Loggers,
@@ -50,29 +58,56 @@ func (s *serverSideFlagsOnlyStreamProvider) Register(
 		return nil
 	}
 	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
-	s.server.Register(params.String(), repo)
-	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.server, channels: []string{params.String()}}
+	s.fdv1Server.Register(params.String(), repo)
+	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.fdv1Server, channels: []string{params.String()}}
+	return envStream
+}
+
+func (s *serverSideFlagsOnlyStreamProvider) RegisterV2(
+	params sdkauth.ScopedCredential,
+	store EnvStoreQueries,
+	loggers ldlog.Loggers,
+) EnvStreamProvider {
+	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
+		return nil
+	}
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
+	s.fdv2Server.Register(params.String(), repo)
+	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.fdv2Server, channels: []string{params.String()}}
 	return envStream
 }
 
 func (s *serverSideFlagsOnlyStreamProvider) Close() {
 	s.closeOnce.Do(func() {
-		s.server.Close()
+		s.fdv1Server.Close()
+		s.fdv2Server.Close()
 	})
 }
 
-func (e *serverSideFlagsOnlyEnvStreamProvider) SendAllDataUpdate(allData []ldstoretypes.Collection) {
+func (e *serverSideFlagsOnlyEnvStreamProvider) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
+	allData, err := subsystems.ToStorableItems(events)
+	if err != nil {
+		return
+	}
 	e.server.Publish(e.channels, MakeServerSideFlagsOnlyPutEvent(allData))
 }
 
-func (e *serverSideFlagsOnlyEnvStreamProvider) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
-	if kind != ldstoreimpl.Features() {
+func (e *serverSideFlagsOnlyEnvStreamProvider) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
+	allData, err := subsystems.ToStorableItems(events)
+	if err != nil {
 		return
 	}
-	if item.Item == nil {
-		e.server.Publish(e.channels, MakeServerSideFlagsOnlyDeleteEvent(key, item.Version))
-	} else {
-		e.server.Publish(e.channels, MakeServerSideFlagsOnlyPatchEvent(key, item))
+	for _, collection := range allData {
+		if collection.Kind != ldstoreimpl.Features() {
+			continue
+		}
+		for _, item := range collection.Items {
+			if item.Item.Item == nil {
+				e.server.Publish(e.channels, MakeServerSideFlagsOnlyDeleteEvent(item.Key, item.Item.Version))
+			} else {
+				e.server.Publish(e.channels, MakeServerSideFlagsOnlyPatchEvent(item.Key, item.Item))
+			}
+		}
 	}
 }
 
@@ -109,12 +144,12 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.E
 		if !r.store.IsInitialized() {
 			return nil, nil
 		}
-		flags, err := r.store.GetAll(ldstoreimpl.Features())
-
+		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
 			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
 			return nil, err
 		}
+		flags := snapshot[ldstoreimpl.Features()]
 
 		event := MakeServerSideFlagsOnlyPutEvent(
 			[]ldstoretypes.Collection{{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)}})

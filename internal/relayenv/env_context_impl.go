@@ -2,11 +2,13 @@ package relayenv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -17,13 +19,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
-	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
@@ -90,13 +90,14 @@ type EnvContextImplParams struct {
 type envContextImpl struct {
 	mu                        sync.RWMutex
 	clients                   map[config.SDKKey]sdks.LDClientContext
-	storeAdapter              *store.SSERelayDataStoreAdapter
 	loggers                   ldlog.Loggers
+	wrapper                   *datadestination.DataDestinationWrapper
 	identifiers               EnvIdentifiers
 	secureMode                bool
 	envStreams                *streams.EnvStreams
 	streamProviders           []streams.StreamProvider
-	handlers                  map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
+	handlersV1                map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
+	handlersV2                map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
 	jsContext                 JSClientContext
 	evaluator                 ldeval.Evaluator
 	eventDispatcher           *events.EventDispatcher
@@ -178,7 +179,8 @@ func NewEnvContext(
 		loggers:                   envLoggers,
 		secureMode:                envConfig.SecureMode,
 		streamProviders:           params.StreamProviders,
-		handlers:                  make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
+		handlersV1:                make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
+		handlersV2:                make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
 		jsContext:                 params.JSClientContext,
 		sdkClientFactory:          params.ClientFactory,
 		sdkInitTimeout:            allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
@@ -266,22 +268,24 @@ func NewEnvContext(
 		envStreams.AddCredential(c)
 	}
 	for _, sp := range params.StreamProviders {
-		handlers := make(map[credential.SDKCredential]http.Handler)
+		handlersV1 := make(map[credential.SDKCredential]http.Handler)
+		handlersV2 := make(map[credential.SDKCredential]http.Handler)
 		for _, c := range allCreds {
-			h := sp.Handler(sdkauth.NewScoped(envContext.filterKey, c))
-			if h != nil {
-				handlers[c] = h
+			hV1 := sp.HandlerV1(sdkauth.NewScoped(envContext.filterKey, c))
+			if hV1 != nil {
+				handlersV1[c] = hV1
+			}
+			hV2 := sp.HandlerV2(sdkauth.NewScoped(envContext.filterKey, c))
+			if hV2 != nil {
+				handlersV2[c] = hV2
 			}
 		}
-		envContext.handlers[sp] = handlers
+		envContext.handlersV1[sp] = handlersV1
+		envContext.handlersV2[sp] = handlersV2
 	}
 
-	dataStoreFactory := params.DataStoreFactory
-	if dataStoreFactory == nil {
-		dataStoreFactory = ldcomponents.InMemoryDataStore()
-	}
-	storeAdapter := store.NewSSERelayDataStoreAdapter(dataStoreFactory, envStreamUpdates)
-	envContext.storeAdapter = storeAdapter
+	wrapper := datadestination.NewDataDesinationWrapper(envStreamUpdates)
+	envContext.wrapper = wrapper
 
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
@@ -298,14 +302,18 @@ func NewEnvContext(
 				envLoggers,
 				allConfig.Events,
 				httpConfig,
-				storeAdapter,
+				wrapper,
 				0, // 0 here means "use the default interval for any periodic cleanup task you may need to run"
 			)
 		}
 	}
 	envContext.eventDispatcher = eventDispatcher
 
-	streamURI := allConfig.Main.StreamURI.String()   // config.ValidateConfig has ensured that this has a value
+	streamURI := allConfig.Main.StreamURI.String() // config.ValidateConfig has ensured that this has a value
+	//nolint:godox
+	// TODO(sdk-1231): Can we use baseURI here, or is that tool specific to
+	// clients?
+	baseURI := allConfig.Main.BaseURI.String()
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
 
 	// Unlike our SDKs, the relay proxy does not provide an option to disable
@@ -341,15 +349,32 @@ func NewEnvContext(
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
-	dataSource := ldcomponents.StreamingDataSource()
+	streamingBuilder := ldcomponents.StreamingDataSourceV2().BaseURI(streamURI)
+	pollingBuilder := ldcomponents.PollingDataSourceV2().BaseURI(baseURI)
+	fallbackBuilder := ldcomponents.FDv1PollingDataSourceV2().BaseURI(baseURI)
 
 	if params.EnvConfig.FilterKey != "" {
-		dataSource.PayloadFilter(string(params.EnvConfig.FilterKey))
+		streamingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
+		pollingBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
+		fallbackBuilder.PayloadFilter(string(params.EnvConfig.FilterKey))
 	}
 
-	envContext.sdkConfig = ld.Config{
-		DataSource:       dataSource,
-		DataStore:        storeAdapter,
+	dataSystemBuilder := ldcomponents.DataSystem().
+		Custom().
+		Initializers(pollingBuilder.AsInitializer()).
+		Synchronizers(streamingBuilder, pollingBuilder).
+		FDv1CompatibleSynchronizer(fallbackBuilder)
+
+	if params.DataStoreFactory != nil {
+		dataSystemBuilder.DataStore(params.DataStoreFactory, subsystems.DataStoreModeReadWrite)
+	}
+
+	config := ld.Config{
+		DataSystem: dataSystemBuilder,
+		LDRelayDataDestination: func(dd subsystems.DataDestination, ro subsystems.ReadOnlyDataStore) subsystems.DataDestination {
+			wrapper.SetDataSystemPieces(dd, ro)
+			return wrapper
+		},
 		DiagnosticOptOut: !enableDiagnostics,
 		Events:           ldcomponents.SendEvents().EnableGzip(true),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
@@ -357,10 +382,15 @@ func NewEnvContext(
 			Loggers(envLoggers).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 		ServiceEndpoints: interfaces.ServiceEndpoints{
-			Streaming: streamURI,
-			Events:    eventsURI,
+			//nolint:godox
+			// TODO(sdk-1232): What is the optimized way to configure this now
+			// that polling and streaming are configured through the data
+			// system?
+			Events: eventsURI,
 		},
 	}
+
+	envContext.sdkConfig = config
 
 	// If appropriate, create the SDK subcomponent that will be used for flag evaluations. We're
 	// creating and managing it separately from the full SDK instance that we'll be creating (in
@@ -430,8 +460,13 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.envStreams.AddCredential(newCredential)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+	for streamProvider, handlers := range c.handlersV1 {
+		if h := streamProvider.HandlerV1(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
+			handlers[newCredential] = h
+		}
+	}
+	for streamProvider, handlers := range c.handlersV2 {
+		if h := streamProvider.HandlerV2(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
 			handlers[newCredential] = h
 		}
 	}
@@ -470,7 +505,10 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	defer c.mu.Unlock()
 	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
 	c.envStreams.RemoveCredential(oldCredential)
-	for _, handlers := range c.handlers {
+	for _, handlers := range c.handlersV1 {
+		delete(handlers, oldCredential)
+	}
+	for _, handlers := range c.handlersV2 {
 		delete(handlers, oldCredential)
 	}
 	// See the comment in addCredential for more context. In offline mode, there's no need to close the SDK client
@@ -496,7 +534,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// The data store instance is created by the SDK when it creates the client. Now that
 		// we have a data store, we can finish setting up the Evaluator that we'll use for this
 		// environment.
-		store := c.storeAdapter.GetStore()
+		store := c.wrapper.GetReadOnlyStore()
 		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
 		evalOptions := []ldeval.EvaluatorOption{
 			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
@@ -593,8 +631,8 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	return c.clients[c.keyRotator.SDKKey()]
 }
 
-func (c *envContextImpl) GetStore() subsystems.DataStore {
-	return c.storeAdapter.GetStore()
+func (c *envContextImpl) GetStore() subsystems.ReadOnlyStore {
+	return c.wrapper.GetReadOnlyStore()
 }
 
 func (c *envContextImpl) GetEvaluator() ldeval.Evaluator {
@@ -619,10 +657,20 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
 
-func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
+func (c *envContextImpl) GetStreamHandlerV1(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	h := c.handlers[streamProvider][credential]
+	h := c.handlersV1[streamProvider][credential]
+	if h == nil {
+		return http.HandlerFunc(invalidStreamHandler)
+	}
+	return h
+}
+
+func (c *envContextImpl) GetStreamHandlerV2(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	h := c.handlersV2[streamProvider][credential]
 	if h == nil {
 		return http.HandlerFunc(invalidStreamHandler)
 	}
@@ -764,35 +812,40 @@ func (c *envContextImpl) setBigSegmentsExist() {
 }
 
 func (q envContextStoreQueries) IsInitialized() bool {
-	if s := q.context.storeAdapter.GetStore(); s != nil {
+	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.IsInitialized()
 	}
 	return false
 }
 
+func (q envContextStoreQueries) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
+		return s.Snapshot()
+	}
+	return nil, subsystems.NoSelector(), nil
+}
+
 func (q envContextStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	if s := q.context.storeAdapter.GetStore(); s != nil {
+	if s := q.context.wrapper.GetReadOnlyStore(); s != nil {
 		return s.GetAll(kind)
 	}
 	return nil, nil
 }
 
-func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Collection) {
-	// We use this delegator, rather than sending updates directory to context.envStreams, so that we
-	// can detect the presence of a big segment and turn on the big segment synchronizer as needed.
-	u.context.envStreams.SendAllDataUpdate(allData)
+func (u *envContextStreamUpdates) handleBigSegments(events []subsystems.Change) {
 	if u.context.bigSegmentSync == nil {
 		return
 	}
 
 	hasBigSegment := false
-	for _, coll := range allData {
-		if coll.Kind == ldstoreimpl.Segments() {
-			for _, keyedItem := range coll.Items {
-				if s, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok && s.Unbounded {
-					hasBigSegment = true
-					break
-				}
+	for _, event := range events {
+		if event.Kind == subsystems.SegmentKind {
+			var segment struct {
+				Unbounded bool `json:"unbounded,omitempty"`
+			}
+			if err := json.Unmarshal(event.Object, &segment); err == nil && segment.Unbounded {
+				hasBigSegment = true
+				break
 			}
 		}
 	}
@@ -801,21 +854,14 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 	}
 }
 
-func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
-	// See comments in SendAllDataUpdate.
-	u.context.envStreams.SendSingleItemUpdate(kind, key, item)
-	if u.context.bigSegmentSync == nil {
-		return
-	}
-	hasBigSegment := false
-	if kind == ldstoreimpl.Segments() {
-		if s, ok := item.Item.(*ldmodel.Segment); ok && s.Unbounded {
-			hasBigSegment = true
-		}
-	}
-	if hasBigSegment {
-		u.context.setBigSegmentsExist()
-	}
+func (u *envContextStreamUpdates) SetBasis(events []subsystems.Change, selector subsystems.Selector) {
+	u.context.envStreams.SetBasis(events, selector)
+	u.handleBigSegments(events)
+}
+
+func (u *envContextStreamUpdates) ApplyDelta(events []subsystems.Change, selector subsystems.Selector) {
+	u.context.envStreams.ApplyDelta(events, selector)
+	u.handleBigSegments(events)
 }
 
 func (u *envContextStreamUpdates) InvalidateClientSideState() {

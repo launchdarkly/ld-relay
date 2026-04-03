@@ -21,14 +21,31 @@ import (
 // streams. If the wrong kind of credential is passed, it should behave as it would for an unrecognized
 // key. It is important that there can be more than one StreamProvider for a given credential.
 type StreamProvider interface {
-	// Handler returns an HTTP request handler for the given scoped SDK credential.
+	// HandlerV1 returns an HTTP request handler for the given scoped SDK credential.
 	// It can return nil if it does not support this type of credential.
-	Handler(credential sdkauth.ScopedCredential) http.HandlerFunc
+	//
+	// This handler will service requests using the old FDv1 protocol.
+	HandlerV1(credential sdkauth.ScopedCredential) http.HandlerFunc
 
-	// Register tells the StreamProvider about an environment that it should support, and returns an
-	// implementation of EnvStreamsUpdates for pushing updates related to that environment. It can
+	// HandlerV2 returns an HTTP request handler for the given scoped SDK credential.
+	// It can return nil if it does not support this type of credential.
+	//
+	// This handler will service requests using the new FDv2 protocol.
+	HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc
+
+	// RegisterV1 tells the StreamProvider about an environment that it should support, and returns an
+	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
-	Register(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
+	//
+	// This method is used for the old FDv1 protocol.
+	RegisterV1(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
+
+	// RegisterV2 tells the StreamProvider about an environment that it should support, and returns an
+	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
+	// return nil if it does not support this type of credential.
+	//
+	// This method is used for the old FDv2 protocol.
+	RegisterV2(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
 
 	// Close tells the StreamProvider to release all of its resources and close all connections.
 	Close()
@@ -37,7 +54,7 @@ type StreamProvider interface {
 // EnvStreamProvider is an abstraction of publishing events to a stream for a specific environment.
 // Implementations of this interface are created by StreamProvider.Register().
 type EnvStreamProvider interface {
-	EnvStreamUpdates // SendAllDataUpdate, SendSingleItemUpdate
+	EnvStreamUpdates // SetBasis, ApplyDelta
 
 	// SendHeartbeat sends keep-alive data on the stream.
 	SendHeartbeat()
@@ -51,21 +68,25 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
-			server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServer(maxConnTime),
+			fdv2Server: newSSEServer(maxConnTime),
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv1Server: newSSEServer(maxConnTime),
+			fdv2Server: newSSEServer(maxConnTime),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			server:     newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv1Server: newSSEServer(maxConnTime),
+			fdv2Server: newSSEServer(maxConnTime),
 			isJSClient: true,
 		}
 	default:
 		return &serverSideStreamProvider{
-			server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServer(maxConnTime),
+			fdv2Server: newSSEServer(maxConnTime),
 		}
 	}
 }

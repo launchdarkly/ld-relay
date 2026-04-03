@@ -21,7 +21,7 @@ var (
 func TranslateFeatureEvent(
 	e FeatureEvent,
 	schemaVersion int,
-	dataStore subsystems.DataStore,
+	dataStore subsystems.ReadOnlyStore,
 ) (ldevents.EvaluationData, error) {
 	evalData := ldevents.EvaluationData{
 		BaseEvent: ldevents.BaseEvent{

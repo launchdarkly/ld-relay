@@ -11,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
@@ -25,7 +24,7 @@ func NewTestEnvContextWithClientFactory(
 	f sdks.ClientFactoryFunc,
 	store subsystems.DataStore,
 ) relayenv.EnvContext {
-	dataStoreFactory := ldcomponents.InMemoryDataStore()
+	var dataStoreFactory subsystems.ComponentConfigurer[subsystems.DataStore] = nil
 	if store != nil {
 		dataStoreFactory = sharedtest.ExistingInstance(store)
 	}

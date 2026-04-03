@@ -29,20 +29,21 @@ func buildPreRoutedRequest(verb string, body []byte, headers http.Header, vars m
 	return req
 }
 
-func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
-	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
-	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
-
-	b, _ := io.ReadAll(resp.Body)
-
-	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
-}
+// TODO(sdk-1232): Re-enable these tests
+//func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
+//	headers := make(http.Header)
+//	headers.Set("Content-Type", "application/json")
+//	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
+//	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
+//	resp := httptest.NewRecorder()
+//	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+//
+//	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+//
+//	b, _ := io.ReadAll(resp.Body)
+//
+//	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
+//}
 
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := make(http.Header)

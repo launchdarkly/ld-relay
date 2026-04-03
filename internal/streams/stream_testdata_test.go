@@ -7,9 +7,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
@@ -28,7 +28,11 @@ var (
 	testFlag1JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag1)
 	testFlag2JSON, _    = ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(testFlag2)
 	testSegment1JSON, _ = ldmodel.NewJSONDataModelSerialization().MarshalSegment(testSegment1)
-	allData             = []ldstoretypes.Collection{
+	fdv2AllData         = []subsystems.Change{
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
+		{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
+	}
+	allData = []ldstoretypes.Collection{
 		{
 			Kind: ldstoreimpl.Features(),
 			Items: []ldstoretypes.KeyedItemDescriptor{
@@ -46,8 +50,9 @@ var (
 
 type mockStoreQueries struct {
 	isInitializedFn func() bool
-	getAllFn        func(ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error)
-	lock            sync.Mutex
+	snapshotFn      func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error)
+
+	lock sync.Mutex
 }
 
 func newMockStoreQueries() *mockStoreQueries {
@@ -66,9 +71,9 @@ func (q *mockStoreQueries) setupIsInitializedFn(fn func() bool) {
 	q.lock.Unlock()
 }
 
-func (q *mockStoreQueries) setupGetAllFn(fn func(ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error)) {
+func (q *mockStoreQueries) setupSnapshotFn(fn func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error)) {
 	q.lock.Lock()
-	q.getAllFn = fn
+	q.snapshotFn = fn
 	q.lock.Unlock()
 }
 
@@ -82,14 +87,16 @@ func (q *mockStoreQueries) IsInitialized() bool {
 	return false
 }
 
-func (q *mockStoreQueries) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+func (q *mockStoreQueries) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
 	q.lock.Lock()
-	fn := q.getAllFn
+	fn := q.snapshotFn
 	q.lock.Unlock()
+
 	if fn != nil {
-		return fn(kind)
+		return fn()
 	}
-	return nil, nil
+
+	return nil, subsystems.NoSelector(), nil
 }
 
 type simpleMockStore struct {
@@ -111,6 +118,15 @@ func (s simpleMockStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.Keye
 	default:
 		return nil, nil
 	}
+}
+
+func (s simpleMockStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+	result := map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+		ldstoreimpl.Features(): s.flags,
+		ldstoreimpl.Segments(): s.segments,
+	}
+
+	return result, subsystems.NoSelector(), nil
 }
 
 func makeMockStore(
@@ -135,14 +151,6 @@ func makeMockStore(
 		ret.segments = append(ret.segments, ldstoretypes.KeyedItemDescriptor{
 			Key: s.Key, Item: ldstoretypes.ItemDescriptor{Version: s.Version, Item: item},
 		})
-	}
-	return ret
-}
-
-func readAllEvents(ch <-chan eventsource.Event) []eventsource.Event {
-	var ret []eventsource.Event
-	for e := range ch {
-		ret = append(ret, e)
 	}
 	return ret
 }

@@ -22,9 +22,7 @@ import (
 	consul "github.com/hashicorp/consul/api"
 )
 
-var (
-	errDynamoDBWithNoTableName = errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
-)
+var errDynamoDBWithNoTableName = errors.New("TableName property must be specified for DynamoDB, either globally or per environment")
 
 // DataStoreEnvironmentInfo encapsulates database-related configuration details that we will expose in the
 // status resource for a specific environment. Some of these are set on a per-environment basis and others
@@ -120,7 +118,7 @@ func ConfigureDataStore(
 			CacheTime(allConfig.DynamoDB.LocalTTL.GetOrElse(config.DefaultDatabaseCacheTTL)), storeInfo, nil
 	}
 
-	return ldcomponents.InMemoryDataStore(), DataStoreEnvironmentInfo{}, nil
+	return nil, DataStoreEnvironmentInfo{}, nil
 }
 
 // GetRedisBasicProperties transforms the configuration properties to the standard parameters
