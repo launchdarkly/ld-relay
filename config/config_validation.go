@@ -19,6 +19,8 @@ var (
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
+	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
@@ -82,6 +84,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
+	validateConfigMetrics(&result, c)
 
 	return result.GetError()
 }
@@ -269,6 +272,15 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 		if !strings.Contains(c.AutoConfig.EnvDatastorePrefix, AutoConfigEnvironmentIDPlaceholder) &&
 			(!c.DynamoDB.Enabled || !strings.Contains(c.AutoConfig.EnvDatastoreTableName, AutoConfigEnvironmentIDPlaceholder)) {
 			result.AddError(nil, errAutoConfWithoutDBDisambig)
+		}
+	}
+}
+
+func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
+	if c.OpenTelemetry.Enabled {
+		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
+		if protocol != "" && protocol != "grpc" && protocol != "http" {
+			result.AddError(nil, errOTLPInvalidProtocol)
 		}
 	}
 }

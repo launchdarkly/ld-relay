@@ -1,7 +1,6 @@
 package relayenv
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -681,11 +680,8 @@ func (c *envContextImpl) GetJSClientContext() JSClientContext {
 	return c.jsContext
 }
 
-func (c *envContextImpl) GetMetricsContext() context.Context {
-	if c.metricsEnv == nil {
-		return context.Background()
-	}
-	return c.metricsEnv.GetOpenCensusContext()
+func (c *envContextImpl) GetMetricsEnv() *metrics.EnvironmentManager {
+	return c.metricsEnv
 }
 
 func (c *envContextImpl) GetMetricsManager() *metrics.Manager {

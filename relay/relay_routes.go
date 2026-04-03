@@ -61,7 +61,7 @@ func (r *Relay) makeRouter() *mux.Router {
 			jsClientSelector, // selects an environment based on the client-side ID in the URL
 			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
 			middleware.UsageActivityCount(metrics.BrowserPlatformCategory),
-			middleware.RequestCount(metrics.BrowserRequests),
+			middleware.RequestMetrics(metrics.BrowserRequests),
 		)
 	}
 
@@ -79,7 +79,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
 		middleware.UsageActivityCount(metrics.ServerPlatformCategory),
-		middleware.RequestCount(metrics.ServerRequests),
+		middleware.RequestMetrics(metrics.ServerRequests),
 	)
 
 	serverSideSdkRouter := router.PathPrefix("/sdk/").Subrouter()
@@ -110,7 +110,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileMiddlewareStack := middleware.Chain(
 		mobileKeySelector,
 		middleware.UsageActivityCount(metrics.MobilePlatformCategory),
-		middleware.RequestCount(metrics.MobileRequests))
+		middleware.RequestMetrics(metrics.MobileRequests))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
 	msdkRouter.Use(mobileMiddlewareStack)
@@ -129,7 +129,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
 	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
-	router.Handle("/mping", mobileKeySelector(
+	router.Handle("/mping", mobileMiddlewareStack(
 		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandlerV1(r.mobileStreamProvider)))))).Methods("GET")
 
 	jsPing := pingStreamHandlerV1(r.jsClientStreamProvider)
@@ -146,18 +146,18 @@ func (r *Relay) makeRouter() *mux.Router {
 	clientSideStreamEvalRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPingWithUser))).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
-	mobileEventsRouter.Use(mobileMiddlewareStack, middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize))
+	mobileEventsRouter.Use(mobileMiddlewareStack, middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.MobilePlatformCategory))
 	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("/events", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
-	clientSideBulkEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize))
+	clientSideBulkEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
 	clientSideBulkEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
-	clientSideDiagnosticEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize))
+	clientSideDiagnosticEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
 	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
@@ -168,7 +168,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideRouter.Use(serverSideMiddlewareStack)
 
 	serverSideBulkEventsRouter := serverSideRouter.NewRoute().Subrouter()
-	serverSideBulkEventsRouter.Use(middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize))
+	serverSideBulkEventsRouter.Use(middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.ServerPlatformCategory))
 	serverSideBulkEventsRouter.Handle("/bulk", bulkEventHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	serverSideBulkEventsRouter.Handle("/diagnostic", bulkEventHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 

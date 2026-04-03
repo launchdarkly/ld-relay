@@ -83,7 +83,7 @@ type relayInternalOptions struct {
 
 // NewRelay creates a new Relay given a configuration and a method to create a client.
 //
-// If any metrics exporters are enabled in c.MetricsConfig, it also registers those in OpenCensus.
+// If OTLP metrics export is enabled in c.OpenTelemetry, it also sets up the metrics pipeline.
 //
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
@@ -135,7 +135,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
 	}
 
-	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
+	metricsManager, err := metrics.NewManager(c.OpenTelemetry, 0, loggers)
 	if err != nil {
 		return nil, errNewMetricsManagerFailed(err)
 	}

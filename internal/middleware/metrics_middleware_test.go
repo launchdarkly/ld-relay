@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +18,11 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 const (
@@ -23,26 +30,37 @@ const (
 )
 
 type metricsMiddlewareTestParams struct {
-	env      relayenv.EnvContext
-	envName  string
-	exporter *st.TestMetricsExporter
-	mockLog  *ldlogtest.MockLog
+	env     relayenv.EnvContext
+	envName string
+	reader  sdkmetric.Reader
+	mockLog *ldlogtest.MockLog
+}
+
+func (p metricsMiddlewareTestParams) collectMetrics(t *testing.T) *metricdata.ResourceMetrics {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	err := p.reader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+	return &rm
 }
 
 func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams)) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
-	manager, err := metrics.NewManager(config.MetricsConfig{}, time.Millisecond*10, mockLog.Loggers)
+	manager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
 	require.NoError(t, err)
 	defer manager.Close()
 
-	exporter := st.NewTestMetricsExporter()
+	// Set up OTel test infrastructure
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 
-	// Since the global OpenCensus state will accumulate metrics from different tests, we'll use a randomized
-	// environment name to isolate the data from this particular test.
-	envName := "testenv" // "env-" + uuid.New()
+	instruments, err := metrics.NewInstrumentsForTest(meterProvider.Meter("ld-relay"))
+	require.NoError(t, err)
+	manager.SetInstrumentsForTest(instruments)
 
+	envName := "testenv"
 	envConfig := config.EnvConfig{}
 	allConfig := config.Config{}
 
@@ -58,13 +76,11 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 	require.NoError(t, err)
 	defer env.Close()
 
-	exporter.WithExporter(func() {
-		action(metricsMiddlewareTestParams{
-			env:      env,
-			envName:  envName,
-			exporter: exporter,
-			mockLog:  mockLog,
-		})
+	action(metricsMiddlewareTestParams{
+		env:     env,
+		envName: envName,
+		reader:  reader,
+		mockLog: mockLog,
 	})
 }
 
@@ -75,46 +91,31 @@ func TestCountConnections(t *testing.T) {
 	t.Run("mobile", func(t *testing.T) {
 		testCountConnections(t, CountMobileConns, "mobile")
 	})
-	t.Run("browser", func(t *testing.T) {
+	t.Run("server", func(t *testing.T) {
 		testCountConnections(t, CountServerConns, "server")
 	})
 }
 
 func testCountConnections(t *testing.T, countFn func(http.Handler) http.Handler, category string) {
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
-		expectedTags := map[string]string{
-			"env":              p.envName,
-			"platformCategory": category,
-			"userAgent":        metricsTestUserAgent,
-			"sdkWrapper":       "not-provided",
-		}
-
 		req, _ := http.NewRequest("GET", "", nil)
 		req.Header.Set("User-Agent", metricsTestUserAgent)
 		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
 		rr := httptest.NewRecorder()
 
 		countFn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-				return d.HasRow("connections", st.TestMetricsRow{
-					Tags: expectedTags,
-					Sum:  1,
-				}) && d.HasRow("newconnections", st.TestMetricsRow{
-					Tags: expectedTags,
-					Sum:  1,
-				})
-			})
+			// While inside the handler, connections should be active
+			rm := p.collectMetrics(t)
+			connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
+			require.NotNil(t, connMetric, "connections metric not found")
+			assertMetricHasValue(t, connMetric, p.envName, category, 1)
 		})).ServeHTTP(rr, req)
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("connections", st.TestMetricsRow{
-				Tags: expectedTags,
-				Sum:  0,
-			}) && d.HasRow("newconnections", st.TestMetricsRow{
-				Tags: expectedTags,
-				Sum:  1,
-			})
-		})
+		// After handler returns, connection gauge should be 0
+		rm := p.collectMetrics(t)
+		connMetric := st.FindMetricByName(rm, "launchdarkly.relay.connections")
+		require.NotNil(t, connMetric, "connections metric not found")
+		assertMetricHasValue(t, connMetric, p.envName, category, 0)
 	})
 }
 
@@ -131,21 +132,12 @@ func TestCountRequests(t *testing.T) {
 }
 
 func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
-	// We need to build a router here because RequestCount expects mux.CurrentRoute() to work.
+	// We need to build a router here because RequestMetrics expects mux.CurrentRoute() to work.
 	router := mux.NewRouter()
-	router.Use(RequestCount(measure))
+	router.Use(RequestMetrics(measure))
 	router.Handle("/test-route", nullHandler()).Methods("GET")
 
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
-		expectedTags := map[string]string{
-			"env":              p.envName,
-			"method":           "GET",
-			"route":            "_test-route",
-			"platformCategory": category,
-			"userAgent":        metricsTestUserAgent,
-			"sdkWrapper":       "not-provided",
-		}
-
 		makeRequest := func() *http.Request {
 			req, _ := http.NewRequest("GET", "/test-route", nil)
 			req.Header.Set("User-Agent", metricsTestUserAgent)
@@ -154,20 +146,104 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("requests", st.TestMetricsRow{
-				Tags:  expectedTags,
-				Count: 1,
-			})
-		})
+		rm := p.collectMetrics(t)
+		reqMetric := st.FindMetricByName(rm, "launchdarkly.relay.requests")
+		require.NotNil(t, reqMetric, "requests metric not found")
+		assertMetricHasValue(t, reqMetric, p.envName, category, 1)
 
 		router.ServeHTTP(httptest.NewRecorder(), makeRequest())
 
-		p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
-			return d.HasRow("requests", st.TestMetricsRow{
-				Tags:  expectedTags,
-				Count: 2,
-			})
-		})
+		rm = p.collectMetrics(t)
+		reqMetric = st.FindMetricByName(rm, "launchdarkly.relay.requests")
+		require.NotNil(t, reqMetric, "requests metric not found")
+		assertMetricHasValue(t, reqMetric, p.envName, category, 2)
 	})
+}
+
+func TestRequestDuration(t *testing.T) {
+	router := mux.NewRouter()
+	router.Use(RequestMetrics(metrics.ServerRequests))
+	router.Handle("/test-route", nullHandler()).Methods("GET")
+
+	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+		req, _ := http.NewRequest("GET", "/test-route", nil)
+		req.Header.Set("User-Agent", metricsTestUserAgent)
+		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+		router.ServeHTTP(httptest.NewRecorder(), req)
+
+		rm := p.collectMetrics(t)
+		durMetric := st.FindMetricByName(rm, "launchdarkly.relay.request.duration")
+		require.NotNil(t, durMetric, "request duration metric not found")
+		hist, ok := durMetric.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "expected Histogram[float64] data")
+		require.NotEmpty(t, hist.DataPoints)
+		assert.Equal(t, uint64(1), hist.DataPoints[0].Count, "expected 1 duration recording")
+	})
+}
+
+func TestEventBytesMetrics(t *testing.T) {
+	router := mux.NewRouter()
+	router.Use(EventBytesMetrics(metrics.ServerPlatformCategory))
+	router.Handle("/events", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Consume the body so counting reader sees the bytes
+		_, _ = io.ReadAll(req.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})).Methods("POST")
+
+	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+		body := strings.NewReader(`[{"kind":"identify","key":"user1"}]`)
+		req, _ := http.NewRequest("POST", "/events", body)
+		req.Header.Set("User-Agent", metricsTestUserAgent)
+		req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+		router.ServeHTTP(httptest.NewRecorder(), req)
+
+		rm := p.collectMetrics(t)
+		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.ingested.bytes")
+		require.NotNil(t, bytesMetric, "events ingested bytes metric not found")
+		assertMetricHasValue(t, bytesMetric, p.envName, "server", 35)
+	})
+}
+
+func TestParseApplicationTags(t *testing.T) {
+	tests := []struct {
+		name    string
+		header  string
+		wantID  string
+		wantVer string
+	}{
+		{"both present", "application-id/my-app application-version/1.0.0", "my-app", "1.0.0"},
+		{"only id", "application-id/my-app", "my-app", ""},
+		{"only version", "application-version/2.0.0", "", "2.0.0"},
+		{"empty header", "", "", ""},
+		{"unknown keys ignored", "foo/bar application-id/my-app baz/qux", "my-app", ""},
+		{"extra spaces", "application-id/my-app  application-version/1.0.0", "my-app", "1.0.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "/", nil)
+			if tt.header != "" {
+				req.Header.Set("X-LaunchDarkly-Tags", tt.header)
+			}
+			gotID, gotVer := parseApplicationTags(req)
+			assert.Equal(t, tt.wantID, gotID)
+			assert.Equal(t, tt.wantVer, gotVer)
+		})
+	}
+}
+
+// assertMetricHasValue checks that a metric has the expected value for the given environment and platform.
+func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
+	t.Helper()
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+	found := false
+	for _, dp := range sum.DataPoints {
+		platVal, platOK := dp.Attributes.Value(attribute.Key("platformCategory"))
+		envVal, envOK := dp.Attributes.Value(attribute.Key("env"))
+		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
+			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
+			found = true
+		}
+	}
+	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
 }

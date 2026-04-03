@@ -1,7 +1,6 @@
 package relayenv
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -42,8 +41,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
 )
 
 const envName = "envname"
@@ -97,8 +94,8 @@ func TestConstructorBasicProperties(t *testing.T) {
 	assert.Equal(t, envName, env.GetIdentifiers().ConfiguredName)
 	assert.Equal(t, time.Hour, env.GetTTL())
 	assert.True(t, env.IsSecureMode())
-	assert.Nil(t, env.GetEventDispatcher())                        // events were not enabled
-	assert.Equal(t, context.Background(), env.GetMetricsContext()) // metrics aren't being used
+	assert.Nil(t, env.GetEventDispatcher()) // events were not enabled
+	assert.Nil(t, env.GetMetricsEnv())      // metrics aren't being used
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -322,10 +319,8 @@ func TestDisplayName(t *testing.T) {
 }
 
 func TestMetricsAreExportedForEnvironment(t *testing.T) {
-	// We already have tests for openCensusEventsExporter in the metrics package, but this test verifies that
+	// We already have tests for the relay metrics collector in the metrics package, but this test verifies that
 	// exporting is configured automatically for every environment that we add (if not disabled).
-	view.SetReportingPeriod(time.Millisecond * 10)
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
@@ -334,7 +329,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		var allConfig config.Config
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		metricsManager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
 		env, err := NewEnvContext(EnvContextImplParams{
 			Identifiers:    EnvIdentifiers{ConfiguredName: envName},
@@ -348,7 +343,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, "", func() {
+		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Eventually(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
@@ -382,8 +377,6 @@ func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
 }
 
 func testMetricsDisabled(t *testing.T, allConfig config.Config) {
-	view.SetReportingPeriod(time.Millisecond * 10)
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 	fakeUserAgent := "fake-user-agent"
@@ -391,7 +384,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-		metricsManager, err := metrics.NewManager(config.MetricsConfig{}, time.Minute, mockLog.Loggers)
+		metricsManager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Minute, mockLog.Loggers)
 		require.NoError(t, err)
 		env, err := NewEnvContext(EnvContextImplParams{
 			Identifiers:    EnvIdentifiers{ConfiguredName: envName},
@@ -404,7 +397,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 		require.NoError(t, err)
 		defer env.Close()
 		envImpl := env.(*envContextImpl)
-		metrics.WithCount(env.GetMetricsContext(), fakeUserAgent, "", func() {
+		metrics.WithGauge(env.GetMetricsEnv(), env.GetMetricsManager().GetInstruments(), metrics.RequestInfo{UserAgent: fakeUserAgent, Route: "/test", Method: "GET"}, func() {
 			require.Never(t, func() bool {
 				flushMetricsEvents(envImpl)
 				select {
