@@ -41,6 +41,12 @@ func (r *Relay) makeRouter() *mux.Router {
 		})
 	}
 	router.Handle("/status", statusHandler(r)).Methods("GET")
+	// Register more specific routes first (with /filters/ literal)
+	router.Handle("/status/{identifier}/filters/{filterKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
+	router.Handle("/status/{projKey}/{envKey}/filters/{filterKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
+	// Then register the general routes
+	router.Handle("/status/{projKey}/{envKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
+	router.Handle("/status/{identifier}", singleEnvironmentStatusHandler(r)).Methods("GET")
 
 	environmentGetters := relayEnvironmentGetters{r}
 	sdkKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, environmentGetters)
