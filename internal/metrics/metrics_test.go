@@ -33,7 +33,7 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requests)
 	assert.NotNil(t, instruments.requestDuration)
-	assert.NotNil(t, instruments.eventsIngestedBytes)
+	assert.NotNil(t, instruments.eventsReceivedBytes)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -177,14 +177,14 @@ func TestWithRouteCount(t *testing.T) {
 	})
 }
 
-func TestRecordEventsIngestedBytes(t *testing.T) {
+func TestRecordEventsReceivedBytes(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		RecordEventsIngestedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
+		RecordEventsReceivedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsIngestedBytesMeasureName)
-		require.NotNil(t, m, "events ingested bytes metric not found")
+		m := findMetric(rm, eventsReceivedBytesMeasureName)
+		require.NotNil(t, m, "events received bytes metric not found")
 		sum, ok := m.Data.(metricdata.Sum[int64])
 		require.True(t, ok, "expected Sum[int64] data")
 		require.NotEmpty(t, sum.DataPoints)
@@ -197,7 +197,33 @@ func TestRecordEventsIngestedBytes(t *testing.T) {
 				found = true
 			}
 		}
-		assert.True(t, found, "expected data point for events ingested bytes")
+		assert.True(t, found, "expected data point for events received bytes")
+	})
+}
+
+func TestEventMetricsRecorderViaTestHelper(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordDroppedEvents(5)
+		recorder.RecordEventsSent(10)
+		recorder.RecordEventsBytesSent(2048)
+		recorder.RecordPendingEvents(3)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+
+		droppedMetric := findMetric(rm, eventsSentDroppedMeasureName)
+		require.NotNil(t, droppedMetric, "events dropped metric not found")
+
+		sentMetric := findMetric(rm, eventsSentCountMeasureName)
+		require.NotNil(t, sentMetric, "events sent metric not found")
+
+		bytesMetric := findMetric(rm, eventsSentBytesMeasureName)
+		require.NotNil(t, bytesMetric, "events bytes sent metric not found")
+
+		pendingMetric := findMetric(rm, eventsSentPendingMeasureName)
+		require.NotNil(t, pendingMetric, "events pending metric not found")
 	})
 }
 

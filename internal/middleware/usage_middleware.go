@@ -15,10 +15,11 @@ func DynamicTrackUsageActivity() mux.MiddlewareFunc {
 			ctx := GetEnvContextInfo(req.Context())
 			userAgent := getUserAgent(req)
 			instanceID := getInstanceID(req)
+			tagsHeader := req.Header.Get(events.TagsHeader)
 			platformCategory := clientPlatformCategory(ctx.Credential)
 			mu := ctx.Env.GetMetricsManager()
 
-			mu.TrackUsageActivityMessage(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+			mu.UsageActivityCountMessage(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 
 			next.ServeHTTP(w, req)
 		})
@@ -32,15 +33,16 @@ func DynamicUsageActivityStreamMonitoring(next http.Handler) http.Handler {
 		ctx := GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
 		instanceID := getInstanceID(req)
+		tagsHeader := req.Header.Get(events.TagsHeader)
 		platformCategory := clientPlatformCategory(ctx.Credential)
 
 		if mu := ctx.Env.GetMetricsManager(); mu != nil {
-			mu.UsageActivityStreamConnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+			mu.UsageActivityStreamConnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 		}
 
 		defer func() {
 			if mu := ctx.Env.GetMetricsManager(); mu != nil {
-				mu.UsageActivityStreamDisconnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+				mu.UsageActivityStreamDisconnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 			}
 		}()
 

@@ -286,28 +286,6 @@ func NewEnvContext(
 	wrapper := datadestination.NewDataDesinationWrapper(envStreamUpdates)
 	envContext.wrapper = wrapper
 
-	var eventDispatcher *events.EventDispatcher
-	if allConfig.Events.SendEvents {
-		if offlineMode {
-			envLoggers.Info("Events will be accepted for this environment, but will be discarded, since offline mode is enabled")
-		} else {
-			envLoggers.Info("Proxying events for this environment")
-			eventLoggers := envLoggers
-			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
-			eventDispatcher = events.NewEventDispatcher(
-				envConfig.SDKKey,
-				envConfig.MobileKey,
-				envConfig.EnvID,
-				envLoggers,
-				allConfig.Events,
-				httpConfig,
-				wrapper,
-				0, // 0 here means "use the default interval for any periodic cleanup task you may need to run"
-			)
-		}
-	}
-	envContext.eventDispatcher = eventDispatcher
-
 	streamURI := allConfig.Main.StreamURI.String() // config.ValidateConfig has ensured that this has a value
 	baseURI := allConfig.Main.BaseURI.String()
 	eventsURI := allConfig.Events.EventsURI.String() // ditto
@@ -342,6 +320,37 @@ func NewEnvContext(
 	}
 
 	envContext.metricsEnv = em
+
+	// Create an EventMetrics recorder for the event dispatchers to use when reporting
+	// internal metrics like dropped events. This must be done after the EnvironmentManager
+	// is created so we have access to the environment-level OTEL attributes.
+	var eventMetrics events.EventMetrics
+	if em != nil {
+		eventMetrics = em.NewEventMetricsRecorder(params.MetricsManager.GetInstruments())
+	}
+
+	var eventDispatcher *events.EventDispatcher
+	if allConfig.Events.SendEvents {
+		if offlineMode {
+			envLoggers.Info("Events will be accepted for this environment, but will be discarded, since offline mode is enabled")
+		} else {
+			envLoggers.Info("Proxying events for this environment")
+			eventLoggers := envLoggers
+			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
+			eventDispatcher = events.NewEventDispatcher(
+				envConfig.SDKKey,
+				envConfig.MobileKey,
+				envConfig.EnvID,
+				envLoggers,
+				allConfig.Events,
+				httpConfig,
+				wrapper,
+				0, // 0 here means "use the default interval for any periodic cleanup task you may need to run"
+				eventMetrics,
+			)
+		}
+	}
+	envContext.eventDispatcher = eventDispatcher
 
 	disconnectedStatusTime := allConfig.Main.DisconnectedStatusTime.GetOrElse(config.DefaultDisconnectedStatusTime)
 
