@@ -87,12 +87,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigDynamoDBAll(),
 		makeValidConfigDynamoDBMultiEnvsWithTable(),
 		makeValidConfigDynamoDBOneEnvNoPrefixOrTable(),
-		makeValidConfigDatadogMinimal(),
-		makeValidConfigDatadogAll(),
-		makeValidConfigStackdriverMinimal(),
-		makeValidConfigStackdriverAll(),
-		makeValidConfigPrometheusMinimal(),
-		makeValidConfigPrometheusAll(),
+		makeValidConfigOTLPMinimal(),
+		makeValidConfigOTLPAll(),
 		makeValidConfigProxy(),
 	}
 }
@@ -739,130 +735,48 @@ Enabled = true
 	return c
 }
 
-func makeValidConfigDatadogMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Datadog - minimal parameters"}
+func makeValidConfigOTLPMinimal() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - minimal parameters"}
 	c.makeConfig = func(c *Config) {
-		c.Datadog = DatadogConfig{
+		c.OpenTelemetry = OpenTelemetryConfig{
 			Enabled: true,
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_DATADOG": "1",
+		"USE_OTLP": "1",
 	}
 	c.fileContent = `
-[Datadog]
+[OpenTelemetry]
 Enabled = true
 `
 	return c
 }
 
-func makeValidConfigDatadogAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Datadog - all parameters"}
+func makeValidConfigOTLPAll() testDataValidConfig {
+	c := testDataValidConfig{name: "OpenTelemetry - all parameters"}
 	c.makeConfig = func(c *Config) {
-		c.Datadog = DatadogConfig{
-			Enabled:   true,
-			Prefix:    "pre-",
-			TraceAddr: "trace",
-			StatsAddr: "stats",
-			Tag:       []string{"tag1:value1", "tag2:value2"},
+		c.OpenTelemetry = OpenTelemetryConfig{
+			Enabled:     true,
+			ServiceName: "my-relay",
+			Endpoint:    "http://otel-collector:4317",
+			Protocol:    "grpc",
+			Headers:     "api-key=secret,env=prod",
 		}
 	}
 	c.envVars = map[string]string{
-		"USE_DATADOG":        "1",
-		"DATADOG_PREFIX":     "pre-",
-		"DATADOG_TRACE_ADDR": "trace",
-		"DATADOG_STATS_ADDR": "stats",
-		"DATADOG_TAG_tag1":   "value1",
-		"DATADOG_TAG_tag2":   "value2",
+		"USE_OTLP":                    "1",
+		"OTEL_SERVICE_NAME":           "my-relay",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		"OTEL_EXPORTER_OTLP_HEADERS":  "api-key=secret,env=prod",
 	}
 	c.fileContent = `
-[Datadog]
+[OpenTelemetry]
 Enabled = true
-Prefix = "pre-"
-TraceAddr = "trace"
-StatsAddr = "stats"
-Tag = "tag1:value1"
-Tag = "tag2:value2"
-`
-	return c
-}
-
-func makeValidConfigStackdriverMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Stackdriver - minimal parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Stackdriver = StackdriverConfig{
-			Enabled: true,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_STACKDRIVER": "1",
-	}
-	c.fileContent = `
-[Stackdriver]
-Enabled = true
-`
-	return c
-}
-
-func makeValidConfigStackdriverAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Stackdriver - all parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Stackdriver = StackdriverConfig{
-			Enabled:   true,
-			Prefix:    "pre-",
-			ProjectID: "proj",
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_STACKDRIVER":        "1",
-		"STACKDRIVER_PREFIX":     "pre-",
-		"STACKDRIVER_PROJECT_ID": "proj",
-	}
-	c.fileContent = `
-[Stackdriver]
-Enabled = true
-Prefix = "pre-"
-ProjectID = "proj"
-`
-	return c
-}
-
-func makeValidConfigPrometheusMinimal() testDataValidConfig {
-	c := testDataValidConfig{name: "Prometheus - minimal parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Prometheus = PrometheusConfig{
-			Enabled: true,
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_PROMETHEUS": "1",
-	}
-	c.fileContent = `
-[Prometheus]
-Enabled = true
-`
-	return c
-}
-
-func makeValidConfigPrometheusAll() testDataValidConfig {
-	c := testDataValidConfig{name: "Prometheus - all parameters"}
-	c.makeConfig = func(c *Config) {
-		c.Prometheus = PrometheusConfig{
-			Enabled: true,
-			Prefix:  "pre-",
-			Port:    mustOptIntGreaterThanZero(8333),
-		}
-	}
-	c.envVars = map[string]string{
-		"USE_PROMETHEUS":    "1",
-		"PROMETHEUS_PREFIX": "pre-",
-		"PROMETHEUS_PORT":   "8333",
-	}
-	c.fileContent = `
-[Prometheus]
-Enabled = true
-Prefix = "pre-"
-Port = 8333
+ServiceName = my-relay
+Endpoint = http://otel-collector:4317
+Protocol = grpc
+Headers = api-key=secret,env=prod
 `
 	return c
 }

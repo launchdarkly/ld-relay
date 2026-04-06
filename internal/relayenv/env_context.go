@@ -1,7 +1,6 @@
 package relayenv
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -126,9 +125,9 @@ type EnvContext interface {
 	// GetJSClientContext returns the JSClientContext that is used for browser endpoints.
 	GetJSClientContext() JSClientContext
 
-	// GetMetricsContext returns the Context that should be used for OpenCensus operations related to this
-	// environment.
-	GetMetricsContext() context.Context
+	// GetMetricsEnv returns the EnvironmentManager for OpenTelemetry metrics operations related to this
+	// environment, or nil if metrics are not configured.
+	GetMetricsEnv() *metrics.EnvironmentManager
 
 	// GetMetricsManager returns the top-level object that controls all of our metrics exporter activity.
 	GetMetricsManager() *metrics.Manager

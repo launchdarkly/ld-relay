@@ -77,6 +77,9 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	}
 
 	env.SetIdentifiers(ae.Params.Identifiers)
+	// Refresh identifier-based indexes after identifiers change
+	a.r.envsByCredential.RefreshEnvironmentIndexes(env)
+
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 

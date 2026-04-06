@@ -11,20 +11,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 	c "github.com/launchdarkly/ld-relay/v8/config"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-
-	"github.com/launchdarkly/go-configtypes"
 )
 
 var basicRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(time.Minute)}
 var uncachedRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(0)}
 
 func TestRelayEndToEndRedisSuccessWithCache(t *testing.T) {
-	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
-	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
+	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
 	testEnv := st.EnvWithAllCredentials
 
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv), Redis: basicRedisConfig}
@@ -37,8 +47,17 @@ func TestRelayEndToEndRedisSuccessWithCache(t *testing.T) {
 func TestRelayEndToEndRedisSuccessWithoutCache(t *testing.T) {
 	// Turning off the cache isn't something that would be done in normal usage, but it lets us verify
 	// that Relay will read flags from the database as needed when servicing requests.
-	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
-	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
+	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
 	testEnv := st.EnvWithAllCredentials
 
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv), Redis: uncachedRedisConfig}
@@ -49,8 +68,17 @@ func TestRelayEndToEndRedisSuccessWithoutCache(t *testing.T) {
 }
 
 func TestRelayEndToEndRedisInitTimeoutWithInitializedDataStore(t *testing.T) {
-	putEvent := ldservices.NewServerSDKData().Flags(&testFlag).ToPutEvent()
-	streamHandler, _ := ldservices.ServerSideStreamingServiceHandler(putEvent)
+	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	streamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
 	hangingHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		<-req.Context().Done() // hang until the request is cancelled by the client or the server
 	})

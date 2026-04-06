@@ -67,16 +67,10 @@ func TestSummarizeEvents(t *testing.T) {
 
 					p.changeSetCh <- *changeSet
 
-					timeout := time.After(100 * time.Millisecond)
-					select {
-					case <-timeout:
-						t.Fatal("timed out waiting for change set to be processed")
-					default:
+					require.Eventually(t, func() bool {
 						item, err := p.wrapper.GetReadOnlyStore().Get(ldstoreimpl.Features(), ep.storedFlag.Key)
-						if err != nil && item.Item != nil {
-							break
-						}
-					}
+						return err == nil && item.Item != nil
+					}, 100*time.Millisecond, time.Millisecond, "timed out waiting for flag to appear in store")
 				}
 
 				headers := headersWithEventSchema(ep.schemaVersion)

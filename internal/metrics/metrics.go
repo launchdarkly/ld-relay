@@ -3,43 +3,39 @@ package metrics
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-
 	"github.com/pborman/uuid"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/tag"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-var (
-	errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
-)
-
-func errInitMetricsViews(err error) error { // COVERAGE: can't happen in unit tests (and should never happen at all)
-	return fmt.Errorf("error registering metrics views: %w", err)
-}
+var errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
 
 // Manager is the top-level object that controls all of our metrics exporter activity. It should be
 // created and retained by the Relay instance, and closed when the Relay instance is closed.
 type Manager struct {
-	openCensusCtx  context.Context
 	metricsRelayID string
-	exporters      exportersSet
-	environments   []*EnvironmentManager
+	instruments    *Instruments
+	meterProvider  *sdkmetric.MeterProvider
 	flushInterval  time.Duration
 	loggers        ldlog.Loggers
 	closeOnce      sync.Once
 	closed         bool
 	lock           sync.Mutex
+	environments   []*EnvironmentManager
 
-	usageChan            chan interface{}
+	usageChan            chan any
 	environmentsForUsage map[string]*environmentMetricUsage
 }
 
@@ -58,44 +54,70 @@ type shutdown struct {
 
 // EnvironmentManager controls the metrics exporter activity for a specific LD environment.
 type EnvironmentManager struct {
-	openCensusCtx  context.Context
-	eventsExporter *openCensusEventsExporter
-	closeOnce      sync.Once
+	envKVs    []attribute.KeyValue
+	collector *RelayMetricsCollector
+	closeOnce sync.Once
 }
 
 // NewManager creates a Manager instance.
 func NewManager(
-	metricsConfig config.MetricsConfig,
+	otlpConfig config.OpenTelemetryConfig,
 	flushInterval time.Duration,
 	loggers ldlog.Loggers,
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	exporters, err := registerExporters(allExporterTypes(), metricsConfig, loggers)
-	if err != nil { // COVERAGE: can't make this happen in unit tests
-		return nil, err
+	serviceName := otlpConfig.ServiceName
+	if serviceName == "" {
+		serviceName = "ld-relay"
+	}
+	// WithFromEnv allows OTEL_RESOURCE_ATTRIBUTES to add arbitrary resource attributes.
+	// The service name from config (or our default) is set last so it takes precedence.
+	res, _ := resource.New(context.Background(),
+		resource.WithFromEnv(),
+		resource.WithAttributes(semconv.ServiceName(serviceName)),
+	)
+
+	var meterProvider *sdkmetric.MeterProvider
+	var meter otelmetric.Meter
+	if otlpConfig.Enabled {
+		opts, err := newOTLPExporters(otlpConfig, loggers)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, sdkmetric.WithResource(res))
+		meterProvider = sdkmetric.NewMeterProvider(opts...)
+		meter = meterProvider.Meter("ld-relay")
+		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
+			loggers.Warnf("Failed to start Go runtime metrics: %s", err)
+		}
+	} else {
+		meter = noop.Meter{}
 	}
 
-	registerPublicViewsOnce.Do(func() {
-		err = view.Register(getPublicViews()...)
-	})
-	if err != nil { // COVERAGE: can't make this happen in unit tests
-		return nil, errInitMetricsViews(err)
-	}
-	registerPrivateViewsOnce.Do(func() {
-		err = view.Register(getPrivateViews()...)
-	})
-	if err != nil { // COVERAGE: can't make this happen in unit tests
-		return nil, errInitMetricsViews(err)
+	connections, _ := meter.Int64UpDownCounter(connMeasureName,
+		otelmetric.WithDescription("current number of connections"))
+	requests, _ := meter.Int64Counter(requestMeasureName,
+		otelmetric.WithDescription("number of hits to a route"))
+	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
+		otelmetric.WithDescription("request duration in seconds"),
+		otelmetric.WithUnit("s"))
+	eventsIngestedBytes, _ := meter.Int64Counter(eventsIngestedBytesMeasureName,
+		otelmetric.WithDescription("cumulative bytes of event data ingested"),
+		otelmetric.WithUnit("By"))
+
+	instruments := &Instruments{
+		connections:         connections,
+		requests:            requests,
+		requestDuration:     requestDuration,
+		eventsIngestedBytes: eventsIngestedBytes,
 	}
 
-	ctx, _ := tag.New(context.Background(), tag.Insert(relayIDTagKey, metricsRelayID))
-
-	usageChan := make(chan interface{})
+	usageChan := make(chan any, 256)
 	m := &Manager{
-		openCensusCtx:        ctx,
 		metricsRelayID:       metricsRelayID,
-		exporters:            exporters,
+		instruments:          instruments,
+		meterProvider:        meterProvider,
 		flushInterval:        flushInterval,
 		loggers:              loggers,
 		usageChan:            usageChan,
@@ -108,6 +130,16 @@ func NewManager(
 	go m.consumeUsageStats()
 
 	return m, nil
+}
+
+// GetInstruments returns the OTel instruments for recording metrics.
+func (m *Manager) GetInstruments() *Instruments {
+	return m.instruments
+}
+
+// SetInstrumentsForTest replaces the instruments on this Manager. Intended for testing only.
+func (m *Manager) SetInstrumentsForTest(instruments *Instruments) {
+	m.instruments = instruments
 }
 
 func (m *Manager) UsageActivityCountMessage(envName, userAgent, platformCategory, instanceID, tagsHeader string) {
@@ -167,22 +199,23 @@ func (m *Manager) Close() {
 		<-closed
 
 		m.lock.Lock()
-		exporters := m.exporters
 		environments := m.environments
-		m.exporters = nil
 		m.environments = nil
 		m.closed = true
 		m.lock.Unlock()
 
-		closeExporters(exporters, m.loggers)
 		for _, env := range environments {
 			env.close()
+		}
+
+		if m.meterProvider != nil {
+			_ = m.meterProvider.Shutdown(context.Background())
 		}
 	})
 }
 
-// AddEnvironment creates a new EnvironmentManager with its own OpenCensus context that includes
-// a tag for the environment name, and registers its exporter.
+// AddEnvironment creates a new EnvironmentManager with its own attribute set that includes
+// the environment name.
 func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher) (*EnvironmentManager, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -190,17 +223,19 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	ctx, _ := tag.New(m.openCensusCtx, tag.Insert(envNameTagKey, sanitizeTagValue(envName)))
+	envKVs := []attribute.KeyValue{
+		relayIDAttrKey.String(m.metricsRelayID),
+		envNameAttrKey.String(sanitizeTagValue(envName)),
+	}
 
-	var eventsExporter *openCensusEventsExporter
+	var collector *RelayMetricsCollector
 	if publisher != nil {
-		eventsExporter = newOpenCensusEventsExporter(m.metricsRelayID, envName, publisher, m.flushInterval)
-		view.RegisterExporter(eventsExporter)
+		collector = newRelayMetricsCollector(m.metricsRelayID, envName, publisher, m.flushInterval, m.loggers)
 	}
 
 	em := &EnvironmentManager{
-		openCensusCtx:  ctx,
-		eventsExporter: eventsExporter,
+		envKVs:    envKVs,
+		collector: collector,
 	}
 	m.environments = append(m.environments, em)
 	return em, nil
@@ -234,33 +269,22 @@ func (m *Manager) RemoveEnvironmentForUsage(envName string) {
 	m.usageChan <- removeEnvironment{envName: envName}
 }
 
-// GetOpenCensusContext returns the Context for this EnvironmentManager's OpenCensus operations.
-func (em *EnvironmentManager) GetOpenCensusContext() context.Context {
-	return em.openCensusCtx
+// GetAttributes returns the attribute set for this EnvironmentManager.
+func (em *EnvironmentManager) GetAttributes() attribute.Set {
+	return attribute.NewSet(em.envKVs...)
 }
 
-// FlushEventsExporter is used in testing to trigger the events exporter to post data to the event publisher.
+// FlushEventsExporter is used in testing to trigger the collector to post data to the event publisher.
 func (em *EnvironmentManager) FlushEventsExporter() {
-	if em.eventsExporter != nil {
-		em.eventsExporter.flush()
+	if em.collector != nil {
+		em.collector.flush()
 	}
 }
 
 func (em *EnvironmentManager) close() {
 	em.closeOnce.Do(func() {
-		if em.eventsExporter != nil {
-			view.UnregisterExporter(em.eventsExporter)
-			em.eventsExporter.close()
+		if em.collector != nil {
+			em.collector.close()
 		}
 	})
-}
-
-// sanitizeTagValue ensures tag values are valid for OpenCensus metrics.
-// OpenCensus drops empty tag values, which causes cardinality mismatches in views.
-// We use descriptive default values instead of generic placeholders.
-func sanitizeTagValue(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "not-provided"
-	}
-	return strings.ReplaceAll(v, "/", "_")
 }

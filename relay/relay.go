@@ -83,7 +83,7 @@ type relayInternalOptions struct {
 
 // NewRelay creates a new Relay given a configuration and a method to create a client.
 //
-// If any metrics exporters are enabled in c.MetricsConfig, it also registers those in OpenCensus.
+// If OTLP metrics export is enabled in c.OpenTelemetry, it also sets up the metrics pipeline.
 //
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
@@ -135,7 +135,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
 	}
 
-	metricsManager, err := metrics.NewManager(c.MetricsConfig, 0, loggers)
+	metricsManager, err := metrics.NewManager(c.OpenTelemetry, 0, loggers)
 	if err != nil {
 		return nil, errNewMetricsManagerFailed(err)
 	}
@@ -390,6 +390,40 @@ func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return r.envsByCredential.Environments()
+}
+
+// getEnvironmentByIdentifier returns the environment object corresponding to the given identifier
+// and optional filter key. The identifier can be:
+// - An environment ID (e.g., "507f1f77bcf86cd799439011")
+// - A project/environment key pair (e.g., "my-app/production")
+// - A configured name (e.g., "My Production Environment")
+//
+// The filterKey parameter specifies which filter variant to return. Use an empty string for the
+// unfiltered (base) environment.
+//
+// Returns an error if Relay is not fully configured, if the environment is not found, or if the
+// filter is not found for an otherwise valid environment.
+func (r *Relay) getEnvironmentByIdentifier(identifier string, filterKey config.FilterKey) (relayenv.EnvContext, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if !r.fullyConfigured {
+		return nil, errRelayNotReady
+	}
+
+	env, found := r.envsByCredential.LookupByIdentifier(identifier, filterKey)
+	if found {
+		return env, nil
+	}
+
+	// Check if the environment exists but the filter doesn't
+	if filterKey != "" {
+		if _, foundUnfiltered := r.envsByCredential.LookupByIdentifier(identifier, ""); foundUnfiltered {
+			return nil, errPayloadFilterNotFound
+		}
+	}
+
+	return nil, errUnrecognizedEnvironment
 }
 
 // addEnvironment attempts to add a new environment. It returns an error only if the configuration
