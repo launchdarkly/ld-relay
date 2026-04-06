@@ -263,11 +263,6 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 			if result.err != nil {
 				s.loggers.Errorf(logMsgStreamOtherError, result.err)
 				signalReady(result.err)
-				if s.cacheCancel != nil {
-					s.cacheCancel()
-					s.cacheCancel = nil
-					s.cacheCh = nil
-				}
 				return
 			}
 			stream = result.stream
