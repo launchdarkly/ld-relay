@@ -312,121 +312,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				return
 			}
 
-			shouldRestart := false
-
-			if s.loggers.IsDebugEnabled() {
-				s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
-			}
-
-			gotMalformedEvent := func(event es.Event, err error) {
-				s.loggers.Errorf(
-					logMsgMalformedData,
-					event.Event(),
-					err,
-				)
-				shouldRestart = true
-			}
-
-			switch event.Event() {
-			case PutEvent:
-				var putMessage PutMessageData
-				if err := json.Unmarshal([]byte(event.Data()), &putMessage); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-				if putMessage.Path != "/" {
-					s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
-					break
-				}
-				// The stream has authoritative data — cancel any in-flight cache read.
-				if s.cacheCancel != nil {
-					s.cacheCancel()
-					s.cacheCancel = nil
-					s.cacheCh = nil
-				}
-				putMessage.Data.Persist = true
-				s.handlePut(putMessage.Data)
-
-			case PatchEvent:
-				var patchMsg PatchMessageData
-
-				var err error
-				if err = json.Unmarshal([]byte(event.Data()), &patchMsg); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-
-				prefix, id := path.Split(patchMsg.Path)
-
-				switch prefix {
-				case environmentPathPrefix:
-					envRep := envfactory.EnvironmentRep{}
-					if err = json.Unmarshal(patchMsg.Data, &envRep); err != nil {
-						gotMalformedEvent(event, err)
-						break
-					}
-					if id != string(envRep.EnvID) {
-						s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
-						break
-					}
-					action := s.envReceiver.Upsert(id, envRep, envRep.Version)
-					s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
-					if action != ActionNoop {
-						s.cacheUpsert(CacheKindEnvironment, id, envRep)
-					}
-				case filterPathPrefix:
-					filterRep := envfactory.FilterRep{}
-					if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
-						gotMalformedEvent(event, err)
-						break
-					}
-					action := s.filterReceiver.Upsert(id, filterRep, filterRep.Version)
-					s.dispatchFilterAction(config.FilterID(id), filterRep, action)
-					if action != ActionNoop {
-						s.cacheUpsert(CacheKindFilter, id, filterRep)
-					}
-				default:
-					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
-					// entities are received. If new entities are added in the future, we don't want the log blowing
-					// up with warnings/errors/info.
-					s.loggers.Debugf(logMsgUnknownEntity, patchMsg.Path)
-				}
-
-			case DeleteEvent:
-				var deleteMessage DeleteMessageData
-				if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-				prefix, id := path.Split(deleteMessage.Path)
-				switch prefix {
-				case environmentPathPrefix:
-					action := s.envReceiver.Delete(id, deleteMessage.Version)
-					s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
-					if action == ActionDelete {
-						s.cacheDelete(CacheKindEnvironment, id)
-					}
-				case filterPathPrefix:
-					action := s.filterReceiver.Delete(id, deleteMessage.Version)
-					s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, action)
-					if action == ActionDelete {
-						s.cacheDelete(CacheKindFilter, id)
-					}
-				default:
-					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
-					// entities are received. If new entities are added in the future, we don't want the log blowing
-					// up with warnings/errors/info.
-					s.loggers.Debugf(logMsgUnknownEntity, deleteMessage.Path)
-				}
-			case ReconnectEvent:
-				s.loggers.Info(logMsgDeliberateReconnect)
-				shouldRestart = true
-
-			default:
-				s.loggers.Warnf(logMsgUnknownEvent, event.Event())
-			}
-
-			if shouldRestart {
+			if s.handleStreamEvent(event) {
 				stream.Restart()
 			}
 		case <-s.halt:
@@ -439,6 +325,120 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 			return
 		}
 	}
+}
+
+// handleStreamEvent processes a single SSE event. Returns true if the stream should be restarted.
+func (s *StreamManager) handleStreamEvent(event es.Event) bool {
+	if s.loggers.IsDebugEnabled() {
+		s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
+	}
+
+	shouldRestart := false
+	gotMalformedEvent := func(event es.Event, err error) {
+		s.loggers.Errorf(logMsgMalformedData, event.Event(), err)
+		shouldRestart = true
+	}
+
+	switch event.Event() {
+	case PutEvent:
+		var putMessage PutMessageData
+		if err := json.Unmarshal([]byte(event.Data()), &putMessage); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+		if putMessage.Path != "/" {
+			s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
+			break
+		}
+		// The stream has authoritative data — cancel any in-flight cache read.
+		if s.cacheCancel != nil {
+			s.cacheCancel()
+			s.cacheCancel = nil
+			s.cacheCh = nil
+		}
+		putMessage.Data.Persist = true
+		s.handlePut(putMessage.Data)
+
+	case PatchEvent:
+		var patchMsg PatchMessageData
+		var err error
+		if err = json.Unmarshal([]byte(event.Data()), &patchMsg); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+
+		prefix, id := path.Split(patchMsg.Path)
+
+		switch prefix {
+		case environmentPathPrefix:
+			envRep := envfactory.EnvironmentRep{}
+			if err = json.Unmarshal(patchMsg.Data, &envRep); err != nil {
+				gotMalformedEvent(event, err)
+				break
+			}
+			if id != string(envRep.EnvID) {
+				s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
+				break
+			}
+			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
+			s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
+			if action != ActionNoop {
+				s.cacheUpsert(CacheKindEnvironment, id, envRep)
+			}
+		case filterPathPrefix:
+			filterRep := envfactory.FilterRep{}
+			if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
+				gotMalformedEvent(event, err)
+				break
+			}
+			action := s.filterReceiver.Upsert(id, filterRep, filterRep.Version)
+			s.dispatchFilterAction(config.FilterID(id), filterRep, action)
+			if action != ActionNoop {
+				s.cacheUpsert(CacheKindFilter, id, filterRep)
+			}
+		default:
+			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
+			// entities are received. If new entities are added in the future, we don't want the log blowing
+			// up with warnings/errors/info.
+			s.loggers.Debugf(logMsgUnknownEntity, patchMsg.Path)
+		}
+
+	case DeleteEvent:
+		var deleteMessage DeleteMessageData
+		if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+		prefix, id := path.Split(deleteMessage.Path)
+		switch prefix {
+		case environmentPathPrefix:
+			action := s.envReceiver.Delete(id, deleteMessage.Version)
+			s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
+			if action == ActionDelete {
+				s.cacheDelete(CacheKindEnvironment, id)
+			}
+		case filterPathPrefix:
+			action := s.filterReceiver.Delete(id, deleteMessage.Version)
+			s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, action)
+			if action == ActionDelete {
+				s.cacheDelete(CacheKindFilter, id)
+			}
+		default:
+			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
+			// entities are received. If new entities are added in the future, we don't want the log blowing
+			// up with warnings/errors/info.
+			s.loggers.Debugf(logMsgUnknownEntity, deleteMessage.Path)
+		}
+
+	case ReconnectEvent:
+		s.loggers.Info(logMsgDeliberateReconnect)
+		shouldRestart = true
+
+	default:
+		s.loggers.Warnf(logMsgUnknownEvent, event.Event())
+	}
+
+	return shouldRestart
 }
 
 func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
