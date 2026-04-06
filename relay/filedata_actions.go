@@ -1,8 +1,6 @@
 package relay
 
 import (
-	"time"
-
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -13,9 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 
 	ld "github.com/launchdarkly/go-server-sdk/v7"
-	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
 const (
@@ -29,48 +25,43 @@ const (
 // methods on this object to let us know when environments have been read from the file for the
 // first time and also if environments have changed due to a file update.
 type relayFileDataActions struct {
-	r          *Relay
-	envUpdates map[config.EnvironmentID]subsystems.DataSourceUpdateSink
-}
-
-type dataSourceFactoryToCaptureUpdates struct {
-	updatesCh chan<- subsystems.DataSourceUpdateSink
-}
-
-type stubDataSourceToCaptureUpdates struct {
-	dataSourceUpdates subsystems.DataSourceUpdateSink
-	updatesCh         chan<- subsystems.DataSourceUpdateSink
+	r                *Relay
+	envSynchronizers map[config.EnvironmentID]*filedata.OfflineModeSynchronizer
 }
 
 func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
-	updatesCh := make(chan subsystems.DataSourceUpdateSink)
+	// Create the synchronizer with the initial archive data
+	synchronizer := filedata.NewOfflineModeSynchronizer(ae.SDKData)
+
 	transformConfig := func(baseConfig ld.Config) ld.Config {
 		config := baseConfig
-		config.DataSource = dataSourceFactoryToCaptureUpdates{updatesCh}
+		// In offline mode, replace the DataSystem with our custom offline synchronizer.
+		// This synchronizer loads data from the archive file without making network connections.
+		syncFactory := filedata.OfflineModeSynchronizerFactory{Synchronizer: synchronizer}
+		config.DataSystem = ldcomponents.DataSystem().
+			Custom().
+			Synchronizers(syncFactory, nil)
 		config.Events = ldcomponents.NoEvents()
 		return config
 	}
+
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
 	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
 	}
+
 	if ae.Params.ExpiringSDKKey.Defined() {
 		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
 		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
 	}
-	select {
-	case updates := <-updatesCh:
-		if a.envUpdates == nil {
-			a.envUpdates = make(map[config.EnvironmentID]subsystems.DataSourceUpdateSink)
-		}
-		a.envUpdates[ae.Params.EnvID] = updates
-		updates.Init(ae.SDKData)
-		updates.UpdateStatus(interfaces.DataSourceStateValid, interfaces.DataSourceErrorInfo{})
-	case <-time.After(time.Second * 2):
-		a.r.loggers.Errorf(logMsgOfflineEnvTimeoutError, ae.Params.Identifiers.GetDisplayName())
+
+	// Store the synchronizer so we can update it later when the file changes
+	if a.envSynchronizers == nil {
+		a.envSynchronizers = make(map[config.EnvironmentID]*filedata.OfflineModeSynchronizer)
 	}
+	a.envSynchronizers[ae.Params.EnvID] = synchronizer
 }
 
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
@@ -79,8 +70,8 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		return
 	}
-	updates := a.envUpdates[ae.Params.EnvID]
-	if updates == nil { // COVERAGE: this should never happen and can't be covered in unit tests
+	synchronizer := a.envSynchronizers[ae.Params.EnvID]
+	if synchronizer == nil { // COVERAGE: this should never happen and can't be covered in unit tests
 		a.r.loggers.Errorf(logMsgInternalErrorNoUpdatesForEnv, ae.Params.EnvID)
 		return
 	}
@@ -102,7 +93,9 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {
-		updates.Init(ae.SDKData)
+		if err := synchronizer.UpdateData(ae.SDKData); err != nil {
+			a.r.loggers.Errorf("Error updating offline environment data: %v", err)
+		}
 	}
 }
 
@@ -112,24 +105,5 @@ func (a *relayFileDataActions) EnvironmentFailed(id config.EnvironmentID, err er
 
 func (a *relayFileDataActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
 	a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
-	delete(a.envUpdates, id)
-}
-
-func (d dataSourceFactoryToCaptureUpdates) Build(
-	ctx subsystems.ClientContext,
-) (subsystems.DataSource, error) {
-	return stubDataSourceToCaptureUpdates{ctx.GetDataSourceUpdateSink(), d.updatesCh}, nil
-}
-
-func (s stubDataSourceToCaptureUpdates) Close() error {
-	return nil
-}
-
-func (s stubDataSourceToCaptureUpdates) IsInitialized() bool {
-	return true
-}
-
-func (s stubDataSourceToCaptureUpdates) Start(readyCh chan<- struct{}) {
-	s.updatesCh <- s.dataSourceUpdates
-	close(readyCh)
+	delete(a.envSynchronizers, id)
 }

@@ -153,14 +153,23 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			changes := []subsystems.Change{
-				{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
-				{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
-			}
+			changeSet, err := subsystems.NewChangeSetBuilder().
+				Start(subsystems.ServerIntent{
+					Payload: subsystems.Payload{
+						ID:     "state",
+						Target: 1,
+						Code:   subsystems.IntentTransferFull,
+						Reason: "cant-catchup",
+					},
+				}).
+				AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+				AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+				Finish(subsystems.NewSelector("state", 1))
+			require.NoError(t, err)
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
 				func() {
-					esp.SetBasis(changes, subsystems.Selector{})
+					esp.Apply(*changeSet)
 				},
 				MakePingEvent(),
 			)
@@ -175,21 +184,35 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
+			changeSetBuilder := subsystems.NewChangeSetBuilder()
+
+			changeSet, err := changeSetBuilder.
+				Start(subsystems.ServerIntent{
+					Payload: subsystems.Payload{
+						ID:     "state",
+						Target: 1,
+						Code:   subsystems.IntentTransferChanges,
+						Reason: "stale",
+					},
+				}).
+				AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+				Finish(subsystems.NewSelector("state", 1))
+			assert.NoError(t, err)
+
+			assert.NoError(t, changeSetBuilder.ExpectChanges())
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Object: testFlag1JSON},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*changeSet) },
 				MakePingEvent(),
 			)
 
+			segmentChangeSet, err := changeSetBuilder.
+				AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+				Finish(subsystems.NewSelector("state", 2))
+			assert.NoError(t, err)
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakePingEvent(),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Object: testSegment1JSON},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*segmentChangeSet) },
 				MakePingEvent(),
 			)
 		})

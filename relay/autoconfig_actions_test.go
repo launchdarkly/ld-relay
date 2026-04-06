@@ -5,6 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
+	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
+
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
@@ -32,7 +36,6 @@ type autoConfTestParams struct {
 	t                *testing.T
 	relay            *Relay
 	stream           httphelpers.SSEStreamControl
-	streamRequestsCh <-chan httphelpers.HTTPRequestInfo
 	eventRequestsCh  <-chan httphelpers.HTTPRequestInfo
 	clientsCreatedCh <-chan *testclient.FakeLDClient
 	mockLog          *ldlogtest.MockLog
@@ -49,7 +52,35 @@ func autoConfTest(
 
 	streamHandler, stream := httphelpers.SSEHandler(initialEvent)
 	defer stream.Close()
-	streamRequestsHandler, streamRequestsCh := httphelpers.RecordingHandler(streamHandler)
+
+	initialData := ldservicesv2.NewServerSDKData()
+	protocol := ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	client1StreamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
+
+	protocol = ldservicesv2.NewStreamingProtocol().
+		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
+			ID:     "fake-id",
+			Target: 0,
+			Code:   subsystems.IntentTransferFull,
+			Reason: "payload-missing",
+		}}).
+		WithPutObjects(initialData.ToPutObjects()).
+		WithTransferred("state", 1)
+	client2StreamHandler, _ := ldservices.ServerSideStreamingV2ServiceProtocolHandler(protocol)
+
+	streamRequestsHandler, _ := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		streamHandler,
+		client1StreamHandler,
+		client2StreamHandler,
+	))
 
 	eventRequestsHandler, eventRequestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 
@@ -59,7 +90,6 @@ func autoConfTest(
 		relayTestHelper:  relayTestHelper{t: t},
 		t:                t,
 		stream:           stream,
-		streamRequestsCh: streamRequestsCh,
 		eventRequestsCh:  eventRequestsCh,
 		clientsCreatedCh: clientsCreatedCh,
 		mockLog:          mockLog,
@@ -78,7 +108,7 @@ func autoConfTest(
 
 			relay, err := newRelayInternal(config, relayInternalOptions{
 				loggers:       mockLog.Loggers,
-				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
+				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh, nil),
 			})
 			if err != nil {
 				panic(err)

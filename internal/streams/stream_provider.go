@@ -54,7 +54,7 @@ type StreamProvider interface {
 // EnvStreamProvider is an abstraction of publishing events to a stream for a specific environment.
 // Implementations of this interface are created by StreamProvider.Register().
 type EnvStreamProvider interface {
-	EnvStreamUpdates // SetBasis, ApplyDelta
+	EnvStreamUpdates // Apply
 
 	// SendHeartbeat sends keep-alive data on the stream.
 	SendHeartbeat()

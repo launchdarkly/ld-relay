@@ -24,6 +24,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
@@ -146,13 +147,135 @@ func streamHandlerV2(streamProvider streams.StreamProvider, logMessage string) h
 	})
 }
 
+type pollingPayload struct {
+	Events []payloadEvent `json:"events"`
+}
+
+type payloadEvent struct {
+	Event     string `json:"event"`
+	EventData any    `json:"data"`
+}
+
+// Server-side SDK polling endpoint: app.ld.com/sdk/poll/
+func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
+	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
+	if err != nil {
+		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	} else if collection == nil || !selector.IsDefined() {
+		clientCtx.Env.GetLoggers().Error("Snapshot selector is not defined; no data to return")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	numItems := 2
+	if len(collection) > 0 {
+		for _, keyedItems := range collection {
+			numItems += len(keyedItems)
+		}
+	}
+
+	pollingPayload := pollingPayload{
+		Events: make([]payloadEvent, 0, numItems),
+	}
+
+	basis := req.URL.Query().Get("basis")
+	if selector.IsDefined() && basis != "" && selector.State() == basis {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentNone,
+				Reason: "up-to-date",
+			}},
+		})
+	} else {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
+			}},
+		})
+		for kind, keyedItems := range collection {
+			for _, keyedItem := range keyedItems {
+				if keyedItem.Item.Item == nil {
+					continue // this should not happen, but just in case
+				}
+				switch kind {
+				case ldstoreimpl.Features():
+					if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
+						writer := jwriter.NewWriter()
+						ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
+
+						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+							Event: "put-object",
+							EventData: subsystems.PutObject{
+								Version: keyedItem.Item.Version,
+								Kind:    subsystems.FlagKind,
+								Key:     keyedItem.Key,
+								Object:  writer.Bytes(),
+							},
+						})
+					} else {
+						clientCtx.Env.GetLoggers().Error("Error casting keyed item to feature flag")
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+				case ldstoreimpl.Segments():
+					if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
+						writer := jwriter.NewWriter()
+						ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
+
+						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+							Event: "put-object",
+							EventData: subsystems.PutObject{
+								Version: keyedItem.Item.Version,
+								Kind:    subsystems.SegmentKind,
+								Key:     keyedItem.Key,
+								Object:  writer.Bytes(),
+							},
+						})
+					} else {
+						clientCtx.Env.GetLoggers().Error("Error casting keyed item to feature segment")
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+				default:
+					clientCtx.Env.GetLoggers().Errorf("Unexpected data kind in store snapshot: %s", kind)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event:     "payload-transferred",
+			EventData: selector,
+		})
+	}
+
+	json, err := json.Marshal(pollingPayload)
+	if err != nil {
+		clientCtx.Env.GetLoggers().Errorf("Error marshaling polling response: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	writeCacheableJSONResponse(w, req, clientCtx.Env, json, selector.State())
+}
+
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	respData := serializeFlagsAsMap(data)

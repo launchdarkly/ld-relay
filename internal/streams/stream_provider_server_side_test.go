@@ -139,10 +139,19 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
-			changes := []subsystems.Change{
-				{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: 1, Object: testFlag1JSON},
-				{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: 1, Object: testSegment1JSON},
-			}
+			changeSet, err := subsystems.NewChangeSetBuilder().
+				Start(subsystems.ServerIntent{
+					Payload: subsystems.Payload{
+						ID:     "state",
+						Target: 1,
+						Code:   subsystems.IntentTransferFull,
+						Reason: "cant-catchup",
+					},
+				}).
+				AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+				AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+				Finish(subsystems.NewSelector("state", 1))
+			require.NoError(t, err)
 
 			newData := []ldstoretypes.Collection{
 				{Kind: ldstoreimpl.Features(), Items: []ldstoretypes.KeyedItemDescriptor{
@@ -154,9 +163,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			}
 
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.SetBasis(changes, subsystems.Selector{})
-				},
+				func() { esp.Apply(*changeSet) },
 				MakeServerSidePutEvent(newData),
 			)
 		})
@@ -170,39 +177,58 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.NotNil(t, esp)
 			defer esp.Close()
 
+			changeSetBuilder := subsystems.NewChangeSetBuilder()
+			flagChangeSet, err := changeSetBuilder.
+				Start(subsystems.ServerIntent{
+					Payload: subsystems.Payload{
+						ID:     "state",
+						Target: 1,
+						Code:   subsystems.IntentTransferChanges,
+						Reason: "stale",
+					},
+				}).
+				AddPut(subsystems.FlagKind, testFlag1.Key, 1, testFlag1JSON).
+				Finish(subsystems.NewSelector("state", 1))
+			require.NoError(t, err)
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypePut, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: testFlag1.Version, Object: testFlag1JSON},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*flagChangeSet) },
 				MakeServerSidePatchEvent(ldstoreimpl.Features(), testFlag1.Key, sharedtest.FlagDesc(testFlag1)),
 			)
 
+			assert.NoError(t, changeSetBuilder.ExpectChanges())
+
+			segmentChangeSet, err := changeSetBuilder.
+				AddPut(subsystems.SegmentKind, testSegment1.Key, 1, testSegment1JSON).
+				Finish(subsystems.NewSelector("state", 2))
+			require.NoError(t, err)
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypePut, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: testSegment1.Version, Object: testSegment1JSON},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*segmentChangeSet) },
 				MakeServerSidePatchEvent(ldstoreimpl.Segments(), testSegment1.Key, sharedtest.SegmentDesc(testSegment1)),
 			)
 
+			assert.NoError(t, changeSetBuilder.ExpectChanges())
+
+			deleteFlagChangeSet, err := changeSetBuilder.
+				AddDelete(subsystems.FlagKind, testFlag1.Key, testFlag1.Version).
+				Finish(subsystems.NewSelector("state", 3))
+			require.NoError(t, err)
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypeDelete, Kind: subsystems.FlagKind, Key: testFlag1.Key, Version: testFlag1.Version},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*deleteFlagChangeSet) },
 				MakeServerSideDeleteEvent(ldstoreimpl.Features(), testFlag1.Key, testFlag1.Version),
 			)
 
+			assert.NoError(t, changeSetBuilder.ExpectChanges())
+
+			deleteSegmentChangeSet, err := changeSetBuilder.
+				AddDelete(subsystems.SegmentKind, testSegment1.Key, testSegment1.Version).
+				Finish(subsystems.NewSelector("state", 4))
+			require.NoError(t, err)
+
 			verifyHandlerUpdateEvent(t, sp, validCredential, MakeServerSidePutEvent(nil),
-				func() {
-					esp.ApplyDelta([]subsystems.Change{
-						{Action: subsystems.ChangeTypeDelete, Kind: subsystems.SegmentKind, Key: testSegment1.Key, Version: testSegment1.Version},
-					}, subsystems.NoSelector())
-				},
+				func() { esp.Apply(*deleteSegmentChangeSet) },
 				MakeServerSideDeleteEvent(ldstoreimpl.Segments(), testSegment1.Key, testSegment1.Version),
 			)
 		})

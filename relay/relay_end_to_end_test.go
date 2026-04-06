@@ -103,7 +103,8 @@ func (p relayEndToEndTestParams) waitForLogMessage(level ldlog.LogLevel, pattern
 }
 
 func (p relayEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind basictypes.StreamKind) (
-	*eventsource.Stream, *eventsource.SubscriptionError) {
+	*eventsource.Stream, *eventsource.SubscriptionError,
+) {
 	req := st.MakeSDKStreamEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
 	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(p.singleLogger))
 	if err != nil {
@@ -183,7 +184,7 @@ func TestRelayEndToEndSuccess(t *testing.T) {
 		WithIntent(subsystems.ServerIntent{Payload: subsystems.Payload{
 			ID:     "fake-id",
 			Target: 0,
-			Code:   "xfer-full",
+			Code:   subsystems.IntentTransferFull,
 			Reason: "payload-missing",
 		}}).
 		WithPutObjects(initialData.ToPutObjects()).

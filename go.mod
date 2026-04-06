@@ -32,7 +32,7 @@ require (
 	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.0
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
 	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.14.1
+	github.com/launchdarkly/go-server-sdk/v7 v7.14.3
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.5
 	github.com/pborman/uuid v1.2.1
@@ -137,5 +137,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/launchdarkly/go-server-sdk/v7 => github.com/launchdarkly/go-server-sdk/v7 v7.10.2-0.20250519142312-7da817b0993a
