@@ -73,14 +73,14 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
 			isJSClient: true,
 		}
 	default:
