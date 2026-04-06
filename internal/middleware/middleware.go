@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/browser"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
@@ -161,6 +162,74 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			if sdkKind == basictypes.JSClientSDK {
 				req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
 			}
+			next.ServeHTTP(w, req)
+		})
+	}
+}
+
+// SelectEnvironmentByClientSideAuth creates a middleware function that authenticates the request
+// using either a mobile key or environment ID. The credential type is determined by inspecting the
+// token value: tokens starting with "mob-" are treated as mobile keys, otherwise as environment IDs.
+// The token is extracted from the Authorization header or the "auth" query parameter.
+func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			// OPTIONS preflight requests don't carry Authorization headers, so skip auth.
+			// The CORS middleware later in the chain will handle the response.
+			if req.Method == "OPTIONS" {
+				next.ServeHTTP(w, req)
+				return
+			}
+
+			token, err := sdks.FetchClientSideAuthToken(req)
+			if err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+				return
+			}
+
+			var cred credential.SDKCredential
+			if strings.HasPrefix(token, "mob-") {
+				cred = config.MobileKey(token)
+			} else {
+				cred = config.EnvironmentID(token)
+			}
+
+			queryValues := req.URL.Query()
+			filterKey := config.FilterKey(queryValues.Get("filter"))
+
+			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
+
+			if envs.IsNotReady(err) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
+				return
+			}
+
+			if envs.IsPayloadFilterNotFound(err) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
+				return
+			}
+
+			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
+				return
+			}
+
+			if clientCtx.GetClient() == nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
+				return
+			}
+
+			contextInfo := EnvContextInfo{
+				Env:        clientCtx,
+				Credential: cred,
+			}
+			req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
+			req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
 			next.ServeHTTP(w, req)
 		})
 	}

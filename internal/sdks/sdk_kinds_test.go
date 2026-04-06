@@ -53,3 +53,42 @@ func TestGetCredential(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, c)
 }
+
+func TestFetchClientSideAuthToken(t *testing.T) {
+	t.Run("from Authorization header", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://fake", nil)
+		req.Header.Set("Authorization", "my-token")
+		token, err := FetchClientSideAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "my-token", token)
+	})
+
+	t.Run("from Authorization header with api_key prefix", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://fake", nil)
+		req.Header.Set("Authorization", "api_key my-token")
+		token, err := FetchClientSideAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "my-token", token)
+	})
+
+	t.Run("from auth query param when no header", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://fake?auth=query-token", nil)
+		token, err := FetchClientSideAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "query-token", token)
+	})
+
+	t.Run("header takes precedence over query param", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://fake?auth=query-token", nil)
+		req.Header.Set("Authorization", "header-token")
+		token, err := FetchClientSideAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "header-token", token)
+	})
+
+	t.Run("error when neither header nor query param", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://fake", nil)
+		_, err := FetchClientSideAuthToken(req)
+		assert.Error(t, err)
+	})
+}
