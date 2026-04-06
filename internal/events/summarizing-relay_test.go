@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -46,7 +47,17 @@ func TestSummarizeEvents(t *testing.T) {
 			}
 			eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 				if ep.storedFlag.Key != "" {
-					_, _ = st.UpsertFlag(p.dataStore, ep.storedFlag)
+					raw, err := ep.storedFlag.MarshalJSON()
+					require.NoError(t, err)
+
+					change := subsystems.Change{
+						Action:  "put",
+						Kind:    "flag",
+						Key:     ep.storedFlag.Key,
+						Version: ep.storedFlag.Version,
+						Object:  raw,
+					}
+					p.wrapper.ApplyDelta([]subsystems.Change{change}, subsystems.NewSelector("state", 1), true)
 				}
 
 				headers := headersWithEventSchema(ep.schemaVersion)

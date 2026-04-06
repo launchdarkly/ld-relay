@@ -8,12 +8,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
-type ReceivedItemUpdate struct {
-	Kind ldstoretypes.DataKind
-	Key  string
-	Item ldstoretypes.ItemDescriptor
-}
-
 func NewInMemoryStore() subsystems.DataStore {
 	store, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
 	if err != nil {

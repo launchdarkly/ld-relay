@@ -43,3 +43,5 @@ _testservice/testservice
 _testservice/*.pid
 temp_ssh
 .DS_Store
+cover.cov
+coverage.out

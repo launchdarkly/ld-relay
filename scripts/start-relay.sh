@@ -14,6 +14,7 @@ shift
 
 export $@
 export STREAM_URI=http://localhost:${FAKE_LD_PORT}
+export BASE_URI=http://localhost:${FAKE_LD_PORT}
 touch ${OUT_FILE}
 ./ld-relay --from-env >>${OUT_FILE} 2>&1 &
 PID=$!
