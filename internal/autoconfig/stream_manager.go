@@ -246,7 +246,10 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 			if ok && content != nil {
 				s.applyCachedContent(content)
 			}
-			s.cacheCancel = nil
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+			}
 			s.cacheCh = nil
 
 		case result := <-streamCh:
