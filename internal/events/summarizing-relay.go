@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/datadestination"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/events/oldevents"
-	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/events/oldevents"
+	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"

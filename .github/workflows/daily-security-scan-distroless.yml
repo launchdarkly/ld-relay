@@ -8,7 +8,7 @@ jobs:
   scan-relay:
     strategy:
       matrix:
-        tag: ['latest-static-debian12-nonroot', 'v8-static-debian12-debug-nonroot']
+        tag: ['latest-static-debian12-nonroot', 'v9-static-debian12-debug-nonroot']
       fail-fast: false
     runs-on: ubuntu-latest
     permissions:

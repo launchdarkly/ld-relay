@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 
@@ -18,16 +18,26 @@ func TestEndpointsPHPPolling(t *testing.T) {
 	sdkKeyWithTTL := st.EnvWithTTL.Config.SDKKey
 
 	specs := []endpointTestParams{
-		{"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", st.Flag1ServerSide.Flag.Key), nil, sdkKeyMain,
-			http.StatusOK, st.ExpectJSONEntity(st.Flag1ServerSide.Flag)},
-		{"get unknown flag", "GET", "/sdk/flags/no-such-flag", nil, sdkKeyMain,
-			http.StatusNotFound, st.ExpectNoBody()},
-		{"get all flags", "GET", "/sdk/flags", nil, sdkKeyMain,
-			http.StatusOK, st.ExpectJSONEntity(st.FlagsMap(st.AllFlags))},
-		{"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", st.Segment1.Key), nil, sdkKeyMain,
-			http.StatusOK, st.ExpectJSONEntity(st.Segment1)},
-		{"get unknown segment", "GET", "/sdk/segments/no-such-segment", nil, sdkKeyMain,
-			http.StatusNotFound, st.ExpectNoBody()},
+		{
+			"get flag", "GET", fmt.Sprintf("/sdk/flags/%s", st.Flag1ServerSide.Flag.Key), nil, sdkKeyMain,
+			http.StatusOK, st.ExpectJSONEntity(st.Flag1ServerSide.Flag),
+		},
+		{
+			"get unknown flag", "GET", "/sdk/flags/no-such-flag", nil, sdkKeyMain,
+			http.StatusNotFound, st.ExpectNoBody(),
+		},
+		{
+			"get all flags", "GET", "/sdk/flags", nil, sdkKeyMain,
+			http.StatusOK, st.ExpectJSONEntity(st.FlagsMap(st.AllFlags)),
+		},
+		{
+			"get segment", "GET", fmt.Sprintf("/sdk/segments/%s", st.Segment1.Key), nil, sdkKeyMain,
+			http.StatusOK, st.ExpectJSONEntity(st.Segment1),
+		},
+		{
+			"get unknown segment", "GET", "/sdk/segments/no-such-segment", nil, sdkKeyMain,
+			http.StatusNotFound, st.ExpectNoBody(),
+		},
 	}
 
 	var config c.Config

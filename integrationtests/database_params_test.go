@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v8/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v9/internal/api"
 
 	"github.com/stretchr/testify/require"
 )

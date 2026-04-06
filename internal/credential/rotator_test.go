@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -68,7 +68,6 @@ func TestImmediateKeyExpiration(t *testing.T) {
 }
 
 func TestManyImmediateKeyExpirations(t *testing.T) {
-
 	kinds := []struct {
 		name    string
 		makeKey func(string) SDKCredential

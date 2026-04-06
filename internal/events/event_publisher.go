@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -25,9 +25,7 @@ const (
 	defaultEventsURIPath = "/bulk"
 )
 
-var (
-	defaultEventsBaseURI, _ = url.Parse("https://events.launchdarkly.com") //nolint:gochecknoglobals
-)
+var defaultEventsBaseURI, _ = url.Parse("https://events.launchdarkly.com") //nolint:gochecknoglobals
 
 // EventPublisher is the interface for the component that buffers events and delivers them to LaunchDarkly.
 // Events are treated as raw JSON data; the component does not do any parsing or transformation of them.

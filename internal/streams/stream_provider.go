@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

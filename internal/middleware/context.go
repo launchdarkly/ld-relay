@@ -3,9 +3,9 @@ package middleware
 import (
 	"context"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )
 
 type contextKeyType string

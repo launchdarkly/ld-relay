@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/relay"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/relay"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

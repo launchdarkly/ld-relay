@@ -6,8 +6,8 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,7 +78,6 @@ func TestEnvManager_NewManagerIsEmpty(t *testing.T) {
 }
 
 func TestEnvManager_AddFilters(t *testing.T) {
-
 	t.Run("adding filters is reflected in state", func(t *testing.T) {
 		mockLog := ldlogtest.NewMockLog()
 		defer mockLog.DumpIfTestFailed(t)
@@ -136,11 +135,10 @@ func TestEnvManager_AddFilters(t *testing.T) {
 			require.ElementsMatch(t, spy.added, expectedEnvs)
 		}
 	})
-
 }
+
 func TestEnvManager_DeleteFilters(t *testing.T) {
 	t.Run("after adding and removing same filters, state reflects no filters", func(t *testing.T) {
-
 		mockLog := ldlogtest.NewMockLog()
 		defer mockLog.DumpIfTestFailed(t)
 		mockLog.Loggers.SetMinLevel(ldlog.Debug)
@@ -209,7 +207,6 @@ func TestEnvManager_DeleteFilters(t *testing.T) {
 
 func TestEnvironmentManager_AddEnvironment(t *testing.T) {
 	t.Run("adding environments is reflected in state", func(t *testing.T) {
-
 		mockLog := ldlogtest.NewMockLog()
 		defer mockLog.DumpIfTestFailed(t)
 		mockLog.Loggers.SetMinLevel(ldlog.Debug)
@@ -392,7 +389,6 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 		m.UpdateEnvironment(makeEnv("unknown", "proj"))
 		require.Len(t, spy.updated, 0)
 	})
-
 }
 
 func TestEnvironmentManager_SimpleFilterCombination(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )
 
 // These representation types are used by both the autoconfig package and the filedata package,

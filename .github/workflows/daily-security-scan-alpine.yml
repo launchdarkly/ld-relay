@@ -8,7 +8,7 @@ jobs:
   scan-relay:
     strategy:
       matrix:
-        tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
+        tag: ["latest", "latest-alpine", "v9", "v9-alpine"]
       fail-fast: false
     runs-on: ubuntu-latest
     permissions:

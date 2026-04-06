@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
 func TestEnvironmentPutEvent(t *testing.T) {
@@ -393,7 +393,8 @@ func TestFilterPutEvent(t *testing.T) {
 			assert.ElementsMatch(t,
 				[]envfactory.FilterParams{
 					testFilter1.ToTestParams(),
-					testFilter2.ToTestParams()},
+					testFilter2.ToTestParams(),
+				},
 				[]envfactory.FilterParams{
 					*msg3.addFilter,
 					*msg4.addFilter,

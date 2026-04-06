@@ -6,10 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
 	"github.com/gorilla/mux"
 )

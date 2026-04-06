@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 
 	"github.com/launchdarkly/eventsource"
 	ct "github.com/launchdarkly/go-configtypes"
@@ -174,12 +174,18 @@ func TestEndpointsStreamingMobile(t *testing.T) {
 	userJSON := []byte(`{"key":"me"}`)
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"mobile ping", "GET", "/mping", nil, env.Config.MobileKey, 200, st.ExpectNoBody()},
-			"ping", nil},
-		{endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
-			"ping", nil},
-		{endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
-			"ping", nil},
+		{
+			endpointTestParams{"mobile ping", "GET", "/mping", nil, env.Config.MobileKey, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
+		{
+			endpointTestParams{"mobile stream GET", "GET", "/meval/$DATA", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
+		{
+			endpointTestParams{"mobile stream REPORT", "REPORT", "/meval", userJSON, env.Config.MobileKey, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
 	}
 
 	var config c.Config
@@ -198,12 +204,18 @@ func TestEndpointsStreamingJSClient(t *testing.T) {
 	userJSON, _ := json.Marshal(user)
 
 	specs := []streamEndpointTestParams{
-		{endpointTestParams{"client-side get ping", "GET", "/ping/$ENV", nil, envID, 200, st.ExpectNoBody()},
-			"ping", nil},
-		{endpointTestParams{"client-side get eval stream", "GET", "/eval/$ENV/$DATA", userJSON, envID, 200, st.ExpectNoBody()},
-			"ping", nil},
-		{endpointTestParams{"client-side report eval stream", "REPORT", "/eval/$ENV", userJSON, envID, 200, st.ExpectNoBody()},
-			"ping", nil},
+		{
+			endpointTestParams{"client-side get ping", "GET", "/ping/$ENV", nil, envID, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
+		{
+			endpointTestParams{"client-side get eval stream", "GET", "/eval/$ENV/$DATA", userJSON, envID, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
+		{
+			endpointTestParams{"client-side report eval stream", "REPORT", "/eval/$ENV", userJSON, envID, 200, st.ExpectNoBody()},
+			"ping", nil,
+		},
 	}
 
 	var config c.Config

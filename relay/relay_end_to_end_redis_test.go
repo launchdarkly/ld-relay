@@ -16,12 +16,14 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 )
 
-var basicRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(time.Minute)}
-var uncachedRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(0)}
+var (
+	basicRedisConfig    = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(time.Minute)}
+	uncachedRedisConfig = c.RedisConfig{Host: "localhost", LocalTTL: configtypes.NewOptDuration(0)}
+)
 
 func TestRelayEndToEndRedisSuccessWithCache(t *testing.T) {
 	initialData := ldservicesv2.NewServerSDKData().Flags(testFlag)

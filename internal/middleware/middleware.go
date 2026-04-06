@@ -9,15 +9,15 @@ import (
 
 	ct "github.com/launchdarkly/go-configtypes"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/browser"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/browser"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v7"

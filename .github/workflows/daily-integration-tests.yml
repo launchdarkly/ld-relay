@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         environment: ['staging', 'production']
-        branch: ['v8']
+        branch: ['v9']
 
     uses: ./.github/workflows/integration-test.yml
     permissions:

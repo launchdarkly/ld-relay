@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"

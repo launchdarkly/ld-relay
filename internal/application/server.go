@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/relay"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/relay"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )

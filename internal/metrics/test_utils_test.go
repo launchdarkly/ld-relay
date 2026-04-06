@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"

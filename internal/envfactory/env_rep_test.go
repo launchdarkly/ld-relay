@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
@@ -53,7 +53,8 @@ func TestEnvironmentRepToParams(t *testing.T) {
 			Expiring: ExpiringKeyRep{
 				Value:     config.SDKKey("oldkey"),
 				Timestamp: ldtime.UnixMillisecondTime(10000),
-			}},
+			},
+		},
 	}
 	params2 := env2.ToParams()
 	assert.Equal(t, EnvironmentParams{

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v8/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v9/internal/api"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 

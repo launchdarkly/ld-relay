@@ -2,10 +2,10 @@ name: Install Relay
 description: "Installs Relay's Go module using normal Go tooling."
 inputs:
   go-version:
-    description: 'Go version to use for installation.'
+    description: "Go version to use for installation."
     required: true
   relay-major:
-    description: "Relay major version to install, e.g. 'v8'."
+    description: "Relay major version to install, e.g. 'v9'."
     required: false
   relay-version:
     description: "Relay semver to install e.g. 'latest'."
@@ -26,7 +26,7 @@ runs:
         MAJOR: ${{ inputs.relay-major }}
         SEMVER: ${{ inputs.relay-version }}
       run: |
-        echo "major=${MAJOR:-v8}" >> $GITHUB_OUTPUT
+        echo "major=${MAJOR:-v9}" >> $GITHUB_OUTPUT
         echo "semver=${SEMVER:-latest}" >> $GITHUB_OUTPUT
 
     - name: Install Relay ${{ steps.rv.outputs.major }}/${{ steps.rv.outputs.semver }}

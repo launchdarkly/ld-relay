@@ -11,10 +11,10 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"

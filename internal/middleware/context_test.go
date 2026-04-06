@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
 	"github.com/stretchr/testify/assert"
 )

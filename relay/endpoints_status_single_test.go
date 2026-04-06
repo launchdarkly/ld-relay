@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/oshelpers"
 )
 
 const (

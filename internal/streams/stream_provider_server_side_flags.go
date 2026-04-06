@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
