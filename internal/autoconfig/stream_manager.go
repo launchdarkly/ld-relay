@@ -180,6 +180,16 @@ type streamResult struct {
 }
 
 func (s *StreamManager) subscribe(readyCh chan<- error) {
+	// Ensure the cache goroutine is cancelled if subscribe exits for any reason
+	// (URL error, permanent stream error, etc.) without entering consumeStream.
+	defer func() {
+		if s.cacheCancel != nil {
+			s.cacheCancel()
+			s.cacheCancel = nil
+			s.cacheCh = nil
+		}
+	}()
+
 	var readyOnce sync.Once
 	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
 
