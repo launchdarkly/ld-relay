@@ -184,6 +184,13 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
 
 	errorHandler := func(err error) es.StreamErrorHandlerResult {
+		// If Close() has been called, stop retrying so the SSE goroutine can exit.
+		select {
+		case <-s.halt:
+			return es.StreamErrorHandlerResult{CloseNow: true}
+		default:
+		}
+
 		if se, ok := err.(es.SubscriptionError); ok {
 			if se.Code == 401 || se.Code == 403 {
 				s.loggers.Error(logMsgBadKey)
