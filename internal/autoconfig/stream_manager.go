@@ -236,9 +236,9 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		streamCh <- streamResult{stream, err}
 	}()
 
-	// Race the cache read against the stream connection. Whichever returns first
-	// is applied. If the cache wins, its data is used until the stream catches up.
-	// If the stream wins, the cache is cancelled.
+	// Race the cache read against the stream connection. If the cache returns before
+	// the stream's first PUT, its data is applied so Relay can serve immediately.
+	// The cache is only cancelled when a PUT arrives with authoritative data.
 	var stream *es.Stream
 	for stream == nil {
 		select {
@@ -264,12 +264,6 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 				return
 			}
 			stream = result.stream
-			// Stream connected — cancel any in-flight cache read.
-			if s.cacheCancel != nil {
-				s.cacheCancel()
-				s.cacheCancel = nil
-				s.cacheCh = nil
-			}
 
 		case <-s.halt:
 			if s.cacheCancel != nil {
@@ -298,6 +292,16 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 	for {
 		select {
+		case content, ok := <-s.cacheCh:
+			if ok && content != nil {
+				s.applyCachedContent(content)
+			}
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+			}
+			s.cacheCh = nil
+
 		case event, ok := <-stream.Events:
 			if !ok {
 				// COVERAGE: stream.Events is only closed if the EventSource has been closed. However, that
@@ -333,6 +337,12 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				if putMessage.Path != "/" {
 					s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
 					break
+				}
+				// The stream has authoritative data — cancel any in-flight cache read.
+				if s.cacheCancel != nil {
+					s.cacheCancel()
+					s.cacheCancel = nil
+					s.cacheCh = nil
 				}
 				putMessage.Data.Persist = true
 				s.handlePut(putMessage.Data)
@@ -420,6 +430,11 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				stream.Restart()
 			}
 		case <-s.halt:
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+				s.cacheCh = nil
+			}
 			stream.Close()
 			return
 		}
