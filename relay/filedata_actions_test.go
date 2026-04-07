@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
@@ -65,7 +65,8 @@ func offlineModeTest(
 		loggers:       mockLog.Loggers,
 		clientFactory: testclient.RealLDClientFactoryWithChannel(true, clientsCreatedCh),
 		archiveManagerFactory: func(filename string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
-			filedata.ArchiveManagerInterface, error) {
+			filedata.ArchiveManagerInterface, error,
+		) {
 			p.updateHandler = handler
 			return stubArchiveManager{}, nil
 		},
@@ -208,7 +209,6 @@ func TestOfflineModeDeprecatedSDKKeyIsRespectedIfExpiryInFuture(t *testing.T) {
 	// would happen when Relay is starting up at time T if the key was deprecated at a time before T.
 
 	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
-
 		envData := RotateSDKKeyWithGracePeriod("primary-key", "deprecated-key", time.Now().Add(1*time.Hour))
 
 		p.updateHandler.AddEnvironment(envData)

@@ -1,15 +1,15 @@
 name: Check Supported Go Versions
 on:
   schedule:
-  - cron: "0 17 * * *"
+    - cron: "0 17 * * *"
   workflow_dispatch:
 
 jobs:
   check-go-eol:
     runs-on: ubuntu-latest
     outputs:
-        latest: ${{ steps.parse.outputs.latest }}
-        penultimate: ${{ steps.parse.outputs.penultimate }}
+      latest: ${{ steps.parse.outputs.latest }}
+      penultimate: ${{ steps.parse.outputs.penultimate }}
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,6 @@ jobs:
           echo "latest=${{ fromJSON(env.fetch-api-data)[0].latest }}" >> $GITHUB_OUTPUT
           echo "penultimate=${{ fromJSON(env.fetch-api-data)[1].latest }}" >> $GITHUB_OUTPUT
 
-
   create-prs:
     permissions:
       contents: write
@@ -41,11 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v8
+          ref: v9
 
       - name: Get current Go versions
         id: go-versions
-        run:  cat ./.github/variables/go-versions.env > $GITHUB_OUTPUT
+        run: cat ./.github/variables/go-versions.env > $GITHUB_OUTPUT
 
       - name: Run update script
         if: steps.go-versions.outputs.latest != env.officialLatestVersion
@@ -69,10 +68,10 @@ jobs:
           body: |
             It's time to update Relay's supported Go versions, due to a recent upstream Go release.
 
-            The Go major release cadence is ~every 6 months; the two most recent major versions are supported. 
-            Note that between major releases, the Go team often ships multiple minor versions. 
-            
-            
+            The Go major release cadence is ~every 6 months; the two most recent major versions are supported.
+            Note that between major releases, the Go team often ships multiple minor versions.
+
+
             |             | Current repo configuration         | Desired repo configuration                                                                                          |
             |-------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------|
             | Latest      | ${{ steps.go-versions.outputs.latest }}      | [${{ env.officialLatestVersion }}](https://go.dev/doc/devel/release#go${{ env.officialLatestVersion }})           |
@@ -83,5 +82,5 @@ jobs:
             ```bash
             ./scripts/update-go-release-version.sh ${{ env.officialLatestVersion }} ${{ env.officialPenultimateVersion }}
             ```
-            
+
             - [ ] I have triggered CI on this PR (either close & reopen this PR in Github UI, or `git commit -m "run ci" --allow-empty && git push`)

@@ -13,9 +13,9 @@ import (
 
 	es "github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 )
 
 const (
@@ -167,7 +167,6 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 		es.StreamOptionCanRetryFirstConnection(-1),
 		es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
 	)
-
 	if err != nil {
 		s.loggers.Errorf(logMsgStreamOtherError, err)
 		signalReady(err)

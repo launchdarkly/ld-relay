@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/browser"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/browser"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -217,8 +217,10 @@ func TestEndpointsEventProxyJSClient(t *testing.T) {
 
 	specs := []endpointTestParams{
 		{"post events", "POST", "/events/bulk/$ENV", eventData, envID, http.StatusAccepted, st.ExpectNoBody()},
-		{"get events image", "GET", "/a/$ENV.gif?d=$DATA", eventData, envID, http.StatusOK,
-			st.ExpectBody(string(browser.Transparent1PixelImageData))},
+		{
+			"get events image", "GET", "/a/$ENV.gif?d=$DATA", eventData, envID, http.StatusOK,
+			st.ExpectBody(string(browser.Transparent1PixelImageData)),
+		},
 	}
 
 	var config c.Config

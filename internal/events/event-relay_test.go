@@ -9,16 +9,16 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-	"github.com/launchdarkly/ld-relay/v8/internal/datadestination"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/datadestination"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"

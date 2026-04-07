@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -154,15 +154,15 @@ func withTestData(fn func(dirPath string), envs ...testEnv) {
 			if err != nil {
 				panic(err)
 			}
-			os.WriteFile(envMetadataFilePath(dirPath, te.rep.EnvID), fileData, 0600)
-			os.WriteFile(envSDKDataFilePath(dirPath, te.rep.EnvID), te.sdkDataJSON(), 0600)
+			os.WriteFile(envMetadataFilePath(dirPath, te.rep.EnvID), fileData, 0o600)
+			os.WriteFile(envSDKDataFilePath(dirPath, te.rep.EnvID), te.sdkDataJSON(), 0o600)
 			h.Write(fileData)
 		}
 		checksum, err := computeEnvironmentsChecksum(dirPath, envIDs)
 		if err != nil {
 			panic(err)
 		}
-		err = os.WriteFile(checksumFilePath(dirPath), checksum, 0600)
+		err = os.WriteFile(checksumFilePath(dirPath), checksum, 0o600)
 		if err != nil {
 			panic(err)
 		}
@@ -181,7 +181,7 @@ func writeAtomicArchive(t *testing.T, filePath string, compressed bool, modifyFn
 func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(dirPath string), envs ...testEnv) {
 	_ = os.Remove(filePath)
 
-	destFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0600)
+	destFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0o600)
 	require.NoError(t, err)
 
 	var tarWriter *tar.Writer
@@ -232,7 +232,7 @@ func writeArchive(t *testing.T, filePath string, compressed bool, modifyFn func(
 func writeMalformedArchive(filePath string) {
 	_ = os.Remove(filePath)
 	data := []byte("not valid")
-	err := os.WriteFile(filePath, data, 0600)
+	err := os.WriteFile(filePath, data, 0o600)
 	if err != nil {
 		panic(err)
 	}
@@ -247,7 +247,7 @@ func removeChecksumFileFromArchive(dirPath string) {
 }
 
 func makeChecksumFileInvalidInArchive(dirPath string) {
-	f, err := os.OpenFile(checksumFilePath(dirPath), os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(checksumFilePath(dirPath), os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		panic(err)
 	}
@@ -263,7 +263,7 @@ func rehash(dirPath string, envIDs ...config.EnvironmentID) {
 	if err != nil {
 		panic(err)
 	}
-	err = os.WriteFile(checksumFilePath(dirPath), newHash, 0660)
+	err = os.WriteFile(checksumFilePath(dirPath), newHash, 0o660)
 	if err != nil {
 		panic(err)
 	}

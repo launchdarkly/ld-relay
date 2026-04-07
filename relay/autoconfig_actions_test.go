@@ -9,10 +9,10 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"

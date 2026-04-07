@@ -3,7 +3,7 @@ name: Run Release Please
 on:
   push:
     branches:
-      - v8
+      - v9
 
 jobs:
   go-versions:

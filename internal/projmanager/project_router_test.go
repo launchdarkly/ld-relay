@@ -7,9 +7,9 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,7 +50,6 @@ type noopActions struct {
 }
 
 func (n *spyHandler) ReceivedAllEnvironments() {
-
 }
 
 func TestProjectRouter_NewIsEmpty(t *testing.T) {
@@ -68,7 +67,6 @@ func TestProjectRouter_NewIsEmpty(t *testing.T) {
 //  2. Every project currently managed by the router was a project that was seen by the router
 //     (either via adding environments, or filters.)
 func TestProjectRouter_VerifySetProperty(t *testing.T) {
-
 	// Makes a list of unique project keys.
 	makeProjects := func(count int) []string {
 		var projects []string
@@ -123,7 +121,6 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 				t.Errorf("project (%s) seen by router was not in expected list", g)
 				return false
 			}
-
 		}
 		return true
 	}
@@ -152,7 +149,6 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 	// Since it's impractical to exhaustively verify the property with large amounts of environments/projects,
 	// cherry-pick a few scenarios.
 	t.Run("spot checks", func(t *testing.T) {
-
 		type scenario struct {
 			environments int
 			projects     int

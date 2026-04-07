@@ -7,11 +7,11 @@ import (
 	"net/http/httptest"
 	"strconv"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/browser"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
-	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/browser"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )

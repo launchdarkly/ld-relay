@@ -7,7 +7,7 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
 
 type currentConnectionsMetric struct {

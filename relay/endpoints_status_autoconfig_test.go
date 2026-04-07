@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -86,7 +86,8 @@ func withStartedAutoConfigRelay(t *testing.T, configWithEnvs c.Config, action fu
 
 func transformEnvConfigsToAutoConfig(config c.Config) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep),
+	}}
 	for _, envConfig := range config.Environment {
 		env, ok := autoConfigTestEnvs[envConfig.EnvID]
 		if !ok {

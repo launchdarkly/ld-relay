@@ -4,10 +4,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 )
 
 // EnvironmentLookup is responsible for maintaining a mapping between incoming requests from SDKs, and

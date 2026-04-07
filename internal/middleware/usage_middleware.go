@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
 
 // DynamicTrackUsageActivity is like TrackUsageActivity but determines the platform category

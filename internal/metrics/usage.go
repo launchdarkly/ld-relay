@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
 
 const relayUsageKind = "relayUsage"
@@ -50,8 +50,10 @@ type usageActivityMessage struct {
 	tagsHeader       string
 }
 
-type usageActivityFlush struct{}
-type usageActivityShutdown struct{}
+type (
+	usageActivityFlush    struct{}
+	usageActivityShutdown struct{}
+)
 
 // metricUsage is used to track usage information for a single
 // user+platform+instance combination.

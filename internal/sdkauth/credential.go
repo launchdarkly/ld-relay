@@ -17,8 +17,8 @@ package sdkauth
 import (
 	"fmt"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 )
 
 // ScopedCredential scopes an SDKCredential to a filtered environment identified by FilterKey.

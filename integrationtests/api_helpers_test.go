@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -130,7 +130,6 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 		PostProject(a.apiContext).
 		ProjectPost(projectBody).
 		Execute()
-
 	if err != nil {
 		return projectInfo{}, nil, a.logResult("Create project", err)
 	}
@@ -178,6 +177,7 @@ func (f filterRules) ToOpaqueRep() []map[string]interface{} {
 	}
 	return opaqueRules
 }
+
 func (a *apiHelper) createSpecificFilter(projKey string, filterKey string, rules filterRules) (string, error) {
 	filterRep, _, err := a.apiClient.PayloadFiltersApi.PostPayloadFilters(a.apiContext, projKey).PostFilterRep(ldapi.PostFilterRep{
 		Key:         filterKey,
@@ -236,7 +236,6 @@ func (a *apiHelper) addEnvironment(project projectInfo) (environmentInfo, error)
 		PostEnvironment(a.apiContext, project.key).
 		EnvironmentPost(envBody).
 		Execute()
-
 	if err != nil {
 		return environmentInfo{}, a.logResult("Create environment", err)
 	}
@@ -256,7 +255,8 @@ func (a *apiHelper) deleteEnvironment(project projectInfo, env environmentInfo) 
 }
 
 func (a *apiHelper) rotateSDKKey(project projectInfo, env environmentInfo, expirationTime time.Time) (
-	config.SDKKey, error) {
+	config.SDKKey, error,
+) {
 	req := a.apiClient.EnvironmentsApi.ResetEnvironmentSDKKey(a.apiContext, project.key, env.key)
 	if !expirationTime.IsZero() {
 		req = req.Expiry(int64(ldtime.UnixMillisFromTime(expirationTime)))

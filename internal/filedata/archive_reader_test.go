@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
@@ -85,7 +85,7 @@ func TestEnvironmentHasMalformedMetadata(t *testing.T) {
 	helpers.WithTempFile(func(filePath string) {
 		writeArchive(t, filePath, false, func(dirPath string) {
 			badData := []byte("whatever")
-			require.NoError(t, os.WriteFile(envMetadataFilePath(dirPath, testEnv1.id()), badData, 0600))
+			require.NoError(t, os.WriteFile(envMetadataFilePath(dirPath, testEnv1.id()), badData, 0o600))
 			rehash(dirPath, testEnv1.id())
 		}, testEnv1)
 		ar, err := newArchiveReader(filePath)

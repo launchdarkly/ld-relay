@@ -13,14 +13,14 @@ import (
 
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
-	"github.com/launchdarkly/ld-relay/v8/internal/logging"
-	"github.com/launchdarkly/ld-relay/v8/internal/middleware"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
+	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"

@@ -3,9 +3,9 @@ package relay
 import (
 	"encoding/json"
 
-	c "github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
@@ -75,7 +75,8 @@ func (e testAutoConfEnv) params() envfactory.EnvironmentParams {
 
 func makeAutoConfPutEvent(envs ...testAutoConfEnv) httphelpers.SSEEvent {
 	data := autoconfig.PutMessageData{Path: "/", Data: autoconfig.PutContent{
-		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep)}}
+		Environments: make(map[c.EnvironmentID]envfactory.EnvironmentRep),
+	}}
 	for _, e := range envs {
 		data.Data.Environments[e.id] = e.toEnvironmentRep()
 	}

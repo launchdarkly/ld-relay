@@ -12,22 +12,22 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
-	"github.com/launchdarkly/ld-relay/v8/internal/events"
-	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
-	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
-	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v9/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -54,7 +54,8 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 }
 
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
-	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
+	loggers ldlog.Loggers, readyCh chan EnvContext,
+) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
 		EnvConfig:        envConfig,
@@ -66,14 +67,12 @@ func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.C
 	return env
 }
 
-type mockConnectionMapper struct {
-}
+type mockConnectionMapper struct{}
 
 func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, envContext EnvContext) {
-
 }
-func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
 
+func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
 }
 
 func TestConstructorBasicProperties(t *testing.T) {

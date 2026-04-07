@@ -1,7 +1,7 @@
 package streams
 
 import (
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"

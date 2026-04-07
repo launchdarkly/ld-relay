@@ -3,7 +3,7 @@ package streams
 import (
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -101,7 +101,6 @@ func TestServerSidePatchEvents(t *testing.T) {
 		assert.JSONEq(t, expectedJSON, event.Data())
 		assert.Equal(t, "", event.Id())
 	})
-
 }
 
 func TestServerSideDeleteEvents(t *testing.T) {

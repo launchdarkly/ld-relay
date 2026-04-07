@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/oshelpers"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
@@ -45,9 +45,7 @@ type Network struct {
 	host string
 }
 
-var (
-	defaultWriter = oshelpers.NewLogWriter(os.Stdout, "Docker") //nolint:gochecknoglobals
-)
+var defaultWriter = oshelpers.NewLogWriter(os.Stdout, "Docker") //nolint:gochecknoglobals
 
 func command(cmd string, args ...string) *oshelpers.CommandWrapper { //nolint:unparam
 	return oshelpers.Command(cmd, args...).OutputWriter(defaultWriter)

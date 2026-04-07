@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 

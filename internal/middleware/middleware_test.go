@@ -9,18 +9,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v9/config"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/browser"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
-	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testenv"
+	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/browser"
+	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
+	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 
@@ -59,9 +59,11 @@ type testEnvironments struct {
 	notInited bool
 }
 
-var errNotReady = errors.New("not ready")
-var errUnrecognized = errors.New("unrecognized environment")
-var errPayloadFilterNotFound = errors.New("unrecognized payload filter")
+var (
+	errNotReady              = errors.New("not ready")
+	errUnrecognized          = errors.New("unrecognized environment")
+	errPayloadFilterNotFound = errors.New("unrecognized payload filter")
+)
 
 func (t testEnvironments) GetEnvironment(c sdkauth.ScopedCredential) (relayenv.EnvContext, error) {
 	if t.notInited {

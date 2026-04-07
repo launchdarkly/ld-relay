@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/docker"
-	"github.com/launchdarkly/ld-relay/v8/integrationtests/oshelpers"
-	"github.com/launchdarkly/ld-relay/v8/internal/api"
+	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
+	"github.com/launchdarkly/ld-relay/v9/integrationtests/oshelpers"
+	"github.com/launchdarkly/ld-relay/v9/internal/api"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
 	ct "github.com/launchdarkly/go-configtypes"
@@ -143,7 +143,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(relaySharedDir, 0755); err != nil {
+	if err := os.Chmod(relaySharedDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -457,7 +457,8 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 // getFlagPrerequisites fetches a payload from the given URL, which is expected to be a Relay polling evaluation
 // endpoint, and returns the "prerequisites" field of the flags in the payload.
 func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, envKey string,
-	url *url.URL, auth credential.SDKCredential) ldvalue.Value {
+	url *url.URL, auth credential.SDKCredential,
+) ldvalue.Value {
 	req, err := http.NewRequest("GET", url.String(), nil)
 	require.NoError(t, err)
 	req.Header.Add("Authorization", auth.GetAuthorizationHeaderValue())
