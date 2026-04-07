@@ -390,3 +390,53 @@ func TestMultipleUserStreams(t *testing.T) {
 	assert.Equal(t, "instanceID2", event2.InstanceID)
 	assert.InDeltaf(t, 300, event2.TotalStreamMs, 50, "stream time should be approximately 300ms")
 }
+
+func TestTagsHeaderIsIncludedInUsageEvent(t *testing.T) {
+	publisher := newTestEventsPublisher()
+	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindCount,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+		tagsHeader:       "application-id/my-app application-version/1.0",
+	})
+	env.close()
+
+	event := publisher.expectUsageEvent(t, time.Second)
+	assert.Equal(t, "userAgent", event.UserAgent)
+	assert.Equal(t, "platform", event.PlatformCategory)
+	assert.Equal(t, "instanceID", event.InstanceID)
+	assert.Equal(t, "application-id/my-app application-version/1.0", event.TagsHeader)
+}
+
+func TestDifferentTagsHeadersProduceSeparateEvents(t *testing.T) {
+	publisher := newTestEventsPublisher()
+	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
+
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindCount,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+		tagsHeader:       "application-id/app1",
+	})
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindCount,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+		tagsHeader:       "application-id/app2",
+	})
+
+	env.flush()
+
+	firstEvent := publisher.expectUsageEvent(t, time.Second)
+	secondEvent := publisher.expectUsageEvent(t, time.Second)
+	if firstEvent.TagsHeader != "application-id/app1" {
+		firstEvent, secondEvent = secondEvent, firstEvent
+	}
+
+	assert.Equal(t, "application-id/app1", firstEvent.TagsHeader)
+	assert.Equal(t, "application-id/app2", secondEvent.TagsHeader)
+}

@@ -11,14 +11,17 @@ jobs:
         tag: ['latest', 'latest-alpine', 'v8', 'v8-alpine']
       fail-fast: false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@master
-        env:
-          # Avoid rate-limiting on ghcr.io (https://github.com/aquasecurity/trivy-action/issues/389)
-          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
-          image-ref: launchdarkly/ld-relay:${{ matrix.tag }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_RO_TOKEN }}
+      - uses: docker/scout-action@f8c776824083494ab0d56b8105ba2ca85c86e4de # v1.18.2
+        with:
+          command: cves
+          image: launchdarkly/ld-relay:${{ matrix.tag }}
+          exit-code: true
+          only-fixed: true
+          write-comment: false

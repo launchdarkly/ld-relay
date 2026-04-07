@@ -299,9 +299,10 @@ func TestOfflineModeSDKKeyCanExpire(t *testing.T) {
 			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
 			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
 
-			time.Sleep(minimumCleanupInterval)
+			assert.Eventually(t, func() bool {
+				return len(env.GetDeprecatedCredentials()) == 0
+			}, time.Second, 10*time.Millisecond, "deprecated credentials should be cleaned up after expiry")
 			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
-			assert.Empty(t, env.GetDeprecatedCredentials())
 		}
 	})
 }
