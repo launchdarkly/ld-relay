@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
 
@@ -53,7 +54,8 @@ func PollingRequestCount(handler http.Handler) http.Handler {
 	return withCount(handler, metrics.PollingRequests)
 }
 
-// RequestCount is a middleware function that increments the specified metric for each request.
+// RequestCount is a middleware function that increments the specified metric for each request
+// and records the request duration (excluding streaming responses).
 func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -62,9 +64,14 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 			sdkWrapper := getSDKWrapper(req)
 			// Ignoring internal routing error that would have been ignored anyway
 			route, _ := mux.CurrentRoute(req).GetPathTemplate()
+			start := time.Now()
 			metrics.WithRouteCount(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, route, req.Method, func() {
 				next.ServeHTTP(w, req)
 			}, measure)
+			// Don't record duration for streaming responses — their lifetime is unbounded
+			if w.Header().Get("X-Accel-Buffering") != "no" {
+				metrics.RecordRequestDuration(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, route, req.Method, time.Since(start), measure)
+			}
 		})
 	}
 }

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/logging"
 
@@ -21,7 +22,8 @@ var (
 	// specifically for this file in .golangci-lint.yml.
 	connMeasure    = stats.Int64(connMeasureName, "current number of connections", stats.UnitDimensionless)
 	newConnMeasure = stats.Int64(newConnMeasureName, "total number of connections", stats.UnitDimensionless)
-	requestMeasure = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
+	requestMeasure         = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
+	requestDurationMeasure = stats.Float64(requestDurationMeasureName, "request duration in microseconds", stats.UnitDimensionless)
 
 	// For internal event exporter
 	privateConnMeasure            = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
@@ -119,4 +121,23 @@ func WithRouteCount(ctx context.Context, userAgent, sdkWrapper, route, method st
 	defer span.End()
 
 	WithCount(ctx, userAgent, sdkWrapper, f, measure)
+}
+
+// RecordRequestDuration records a request duration measurement. The context must already contain
+// the environment and relay ID tags (from the EnvironmentManager's OpenCensus context). The route
+// and method tags are added here.
+func RecordRequestDuration(ctx context.Context, userAgent, sdkWrapper, route, method string, duration time.Duration, measure Measure) {
+	tagCtx, err := tag.New(ctx,
+		tag.Insert(userAgentTagKey, sanitizeTagValue(userAgent)),
+		tag.Insert(sdkWrapperTagKey, sanitizeTagValue(sdkWrapper)),
+		tag.Insert(routeTagKey, sanitizeTagValue(route)),
+		tag.Insert(methodTagKey, sanitizeTagValue(method)),
+	)
+	if err != nil {
+		return
+	}
+	for _, mut := range measure.tags {
+		tagCtx, _ = tag.New(tagCtx, mut)
+	}
+	stats.Record(tagCtx, requestDurationMeasure.M(float64(duration.Microseconds())))
 }
