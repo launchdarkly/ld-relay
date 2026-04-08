@@ -7,6 +7,8 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
+	ldevents "github.com/launchdarkly/go-sdk-events/v3"
+
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +33,6 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 	instruments := manager.GetInstruments()
 	assert.NotNil(t, instruments)
 	assert.NotNil(t, instruments.connections)
-	assert.NotNil(t, instruments.requests)
 	assert.NotNil(t, instruments.requestDuration)
 	assert.NotNil(t, instruments.eventsReceivedBytes)
 }
@@ -129,44 +130,21 @@ func TestConnectionMetrics(t *testing.T) {
 	}
 }
 
-func TestWithRouteCount(t *testing.T) {
+func TestRecordRequestDuration(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		WithRouteCount(context.Background(), p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, func() {}, ServerRequests)
+		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond, ServerDuration)
 
 		rm, err := p.collectMetrics()
-		require.NoError(t, err)
-		m := findMetric(rm, requestMeasureName)
-		require.NotNil(t, m, "requests metric not found")
-
-		// Verify the data has a data point with route and method attributes
-		sum, ok := m.Data.(metricdata.Sum[int64])
-		require.True(t, ok, "expected Sum[int64] data")
-		require.NotEmpty(t, sum.DataPoints)
-		found := false
-		for _, dp := range sum.DataPoints {
-			routeVal, routeOK := dp.Attributes.Value(routeAttrKey)
-			methodVal, methodOK := dp.Attributes.Value(methodAttrKey)
-			if routeOK && methodOK && routeVal.AsString() == "someRoute" && methodVal.AsString() == "GET" {
-				assert.Equal(t, int64(1), dp.Value)
-				found = true
-			}
-		}
-		assert.True(t, found, "expected data point with route=someRoute, method=GET")
-
-		// Verify RecordRequestDuration records to the histogram
-		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond, ServerRequests)
-
-		rm, err = p.collectMetrics()
 		require.NoError(t, err)
 		dm := findMetric(rm, requestDurationMeasureName)
 		require.NotNil(t, dm, "request duration metric not found")
 		hist, ok := dm.Data.(metricdata.Histogram[float64])
 		require.True(t, ok, "expected Histogram[float64] data")
 		require.NotEmpty(t, hist.DataPoints)
-		found = false
+		found := false
 		for _, dp := range hist.DataPoints {
-			routeVal, routeOK := dp.Attributes.Value(routeAttrKey)
-			methodVal, methodOK := dp.Attributes.Value(methodAttrKey)
+			routeVal, routeOK := dp.Attributes.Value(httpRouteAttrKey)
+			methodVal, methodOK := dp.Attributes.Value(httpRequestMethodAttrKey)
 			if routeOK && methodOK && routeVal.AsString() == "someRoute" && methodVal.AsString() == "GET" {
 				assert.Equal(t, uint64(1), dp.Count)
 				assert.InDelta(t, 0.05, dp.Sum, 0.01, "expected ~50ms duration")
@@ -183,7 +161,7 @@ func TestRecordEventsReceivedBytes(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsReceivedBytesMeasureName)
+		m := findMetric(rm, eventsReceivedMeasureName)
 		require.NotNil(t, m, "events received bytes metric not found")
 		sum, ok := m.Data.(metricdata.Sum[int64])
 		require.True(t, ok, "expected Sum[int64] data")
@@ -213,17 +191,191 @@ func TestEventMetricsRecorderViaTestHelper(t *testing.T) {
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
 
-		droppedMetric := findMetric(rm, eventsSentDroppedMeasureName)
+		droppedMetric := findMetric(rm, eventsDroppedMeasureName)
 		require.NotNil(t, droppedMetric, "events dropped metric not found")
 
-		sentMetric := findMetric(rm, eventsSentCountMeasureName)
+		sentMetric := findMetric(rm, eventsSentMeasureName)
 		require.NotNil(t, sentMetric, "events sent metric not found")
 
-		bytesMetric := findMetric(rm, eventsSentBytesMeasureName)
+		bytesMetric := findMetric(rm, eventsSentSizeMeasureName)
 		require.NotNil(t, bytesMetric, "events bytes sent metric not found")
 
-		pendingMetric := findMetric(rm, eventsSentPendingMeasureName)
+		pendingMetric := findMetric(rm, eventsPendingMeasureName)
 		require.NotNil(t, pendingMetric, "events pending metric not found")
+	})
+}
+
+func TestRecordRequestDurationWithAllAttributes(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		ri := RequestInfo{
+			UserAgent:       userAgentValue,
+			Route:           "/sdk/eval",
+			Method:          "GET",
+			URLScheme:       "https",
+			ProtocolVersion: "1.1",
+			StatusCode:      200,
+			ErrorType:       "",
+		}
+		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 100*time.Millisecond, ServerDuration)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		dm := findMetric(rm, requestDurationMeasureName)
+		require.NotNil(t, dm, "request duration metric not found")
+		hist, ok := dm.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "expected Histogram[float64] data")
+		require.NotEmpty(t, hist.DataPoints)
+
+		dp := hist.DataPoints[0]
+		assert.Equal(t, uint64(1), dp.Count)
+
+		schemeVal, ok := dp.Attributes.Value(urlSchemeAttrKey)
+		assert.True(t, ok, "url.scheme attribute missing")
+		assert.Equal(t, "https", schemeVal.AsString())
+
+		protoVal, ok := dp.Attributes.Value(networkProtoVersionAttrKey)
+		assert.True(t, ok, "network.protocol.version attribute missing")
+		assert.Equal(t, "1.1", protoVal.AsString())
+
+		statusVal, ok := dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.True(t, ok, "http.response.status_code attribute missing")
+		assert.Equal(t, int64(200), statusVal.AsInt64())
+	})
+}
+
+func TestRecordRequestDurationWithErrorType(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		ri := RequestInfo{
+			UserAgent:  userAgentValue,
+			Route:      "/sdk/eval",
+			Method:     "GET",
+			URLScheme:  "http",
+			StatusCode: 500,
+			ErrorType:  "500",
+		}
+		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 50*time.Millisecond, ServerDuration)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		dm := findMetric(rm, requestDurationMeasureName)
+		require.NotNil(t, dm)
+		hist, ok := dm.Data.(metricdata.Histogram[float64])
+		require.True(t, ok)
+		require.NotEmpty(t, hist.DataPoints)
+
+		dp := hist.DataPoints[0]
+		errVal, ok := dp.Attributes.Value(errorTypeAttrKey)
+		assert.True(t, ok, "error.type attribute missing")
+		assert.Equal(t, "500", errVal.AsString())
+
+		statusVal, ok := dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.True(t, ok, "http.response.status_code attribute missing")
+		assert.Equal(t, int64(500), statusVal.AsInt64())
+	})
+}
+
+func TestRecordRequestDurationSkipsWhenMeasureDoesNotRecordDuration(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		// ServerConns has recordDuration: false
+		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue}, 50*time.Millisecond, ServerConns)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		dm := findMetric(rm, requestDurationMeasureName)
+		if dm != nil {
+			hist, ok := dm.Data.(metricdata.Histogram[float64])
+			if ok {
+				assert.Empty(t, hist.DataPoints, "expected no duration data points for non-duration measure")
+			}
+		}
+	})
+}
+
+func TestRecordEventsFailedSend(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordEventsFailedSend(3, ldevents.EventSendFailureMetadata{StatusCode: 429})
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsSendErrorsMeasureName)
+		require.NotNil(t, m, "events send errors metric not found")
+
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data")
+		require.NotEmpty(t, sum.DataPoints)
+
+		dp := sum.DataPoints[0]
+		assert.Equal(t, int64(3), dp.Value)
+
+		// Verify the status_code attribute is an int, not a string
+		statusVal, ok := dp.Attributes.Value(statusCodeAttrKey)
+		assert.True(t, ok, "status_code attribute missing")
+		assert.Equal(t, int64(429), statusVal.AsInt64())
+	})
+}
+
+func TestRecordEventsFailedSendSkipsZeroCount(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordEventsFailedSend(0, ldevents.EventSendFailureMetadata{StatusCode: 500})
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsSendErrorsMeasureName)
+		if m != nil {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if ok {
+				for _, dp := range sum.DataPoints {
+					assert.Equal(t, int64(0), dp.Value, "expected no data recorded for zero count")
+				}
+			}
+		}
+	})
+}
+
+func TestWithCountRecordsPolling(t *testing.T) {
+	publisher := newTestEventsPublisher()
+
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, ldlog.NewDisabledLoggers())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("polling-test", publisher)
+	require.NoError(t, err)
+
+	called := false
+	WithCount(env, RequestInfo{UserAgent: "test-agent"}, func() {
+		called = true
+	}, ServerPollingRequests)
+
+	assert.True(t, called, "function should have been called")
+
+	env.FlushEventsExporter()
+	metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+	require.Len(t, metricsEvent.PollingCounts, 1)
+	assert.Equal(t, int64(1), metricsEvent.PollingCounts[0].Count)
+	assert.Equal(t, ServerPlatformCategory, metricsEvent.PollingCounts[0].PlatformCategory)
+}
+
+func TestWithCountCallsFunctionWhenEnvNil(t *testing.T) {
+	called := false
+	WithCount(nil, RequestInfo{UserAgent: "test-agent"}, func() {
+		called = true
+	}, ServerPollingRequests)
+	assert.True(t, called, "function should have been called even with nil env")
+}
+
+func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		called := false
+		// ServerDuration has recordPolling: false, so no polling metric should be recorded
+		WithCount(p.env, RequestInfo{UserAgent: userAgentValue}, func() {
+			called = true
+		}, ServerDuration)
+		assert.True(t, called, "function should have been called")
 	})
 }
 

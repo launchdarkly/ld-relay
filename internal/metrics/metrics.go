@@ -86,6 +86,10 @@ func NewManager(
 			return nil, err
 		}
 		opts = append(opts, sdkmetric.WithResource(res))
+		opts = append(opts, sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Name: requestDurationMeasureName},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
+		)))
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		meter = meterProvider.Meter("ld-relay")
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
@@ -96,31 +100,33 @@ func NewManager(
 	}
 
 	connections, _ := meter.Int64UpDownCounter(connMeasureName,
-		otelmetric.WithDescription("current number of connections"))
-	requests, _ := meter.Int64Counter(requestMeasureName,
-		otelmetric.WithDescription("number of hits to a route"))
+		otelmetric.WithDescription("Number of active HTTP server requests"),
+		otelmetric.WithUnit("{request}"))
 	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
-		otelmetric.WithDescription("request duration in seconds"),
+		otelmetric.WithDescription("Duration of HTTP server requests"),
 		otelmetric.WithUnit("s"))
-	eventsReceivedBytes, _ := meter.Int64Counter(eventsReceivedBytesMeasureName,
-		otelmetric.WithDescription("cumulative bytes of event data received"),
+	eventsReceivedBytes, _ := meter.Int64Counter(eventsReceivedMeasureName,
+		otelmetric.WithDescription("Bytes of event data received"),
 		otelmetric.WithUnit("By"))
 
-	eventsDropped, _ := meter.Int64Counter(eventsSentDroppedMeasureName,
-		otelmetric.WithDescription("cumulative count of events dropped due to capacity overflow"))
-	eventsSent, _ := meter.Int64Counter(eventsSentCountMeasureName,
-		otelmetric.WithDescription("cumulative count of events successfully sent"))
-	eventsFailedSend, _ := meter.Int64Counter(eventsSentFailuresMeasureName,
-		otelmetric.WithDescription("cumulative count of events that failed to send after all retries"))
-	eventsBytesSent, _ := meter.Int64Counter(eventsSentBytesMeasureName,
-		otelmetric.WithDescription("cumulative bytes of event payloads successfully sent"),
+	eventsDropped, _ := meter.Int64Counter(eventsDroppedMeasureName,
+		otelmetric.WithDescription("Events dropped due to capacity overflow"),
+		otelmetric.WithUnit("{event}"))
+	eventsSent, _ := meter.Int64Counter(eventsSentMeasureName,
+		otelmetric.WithDescription("Events successfully sent"),
+		otelmetric.WithUnit("{event}"))
+	eventsFailedSend, _ := meter.Int64Counter(eventsSendErrorsMeasureName,
+		otelmetric.WithDescription("Events that failed to send after all retries"),
+		otelmetric.WithUnit("{event}"))
+	eventsBytesSent, _ := meter.Int64Counter(eventsSentSizeMeasureName,
+		otelmetric.WithDescription("Bytes of event payloads successfully sent"),
 		otelmetric.WithUnit("By"))
-	pendingEvents, _ := meter.Int64Gauge(eventsSentPendingMeasureName,
-		otelmetric.WithDescription("current number of events buffered in the queue"))
+	pendingEvents, _ := meter.Int64Gauge(eventsPendingMeasureName,
+		otelmetric.WithDescription("Events buffered in the queue"),
+		otelmetric.WithUnit("{event}"))
 
 	instruments := &Instruments{
 		connections:         connections,
-		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,

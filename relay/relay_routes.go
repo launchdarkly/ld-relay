@@ -61,7 +61,7 @@ func (r *Relay) makeRouter() *mux.Router {
 			jsClientSelector, // selects an environment based on the client-side ID in the URL
 			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
 			middleware.TrackUsageActivity(metrics.BrowserPlatformCategory),
-			middleware.RequestMetrics(metrics.BrowserRequests),
+			middleware.DurationMetrics(metrics.BrowserDuration),
 		)
 	}
 
@@ -79,7 +79,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
 		middleware.TrackUsageActivity(metrics.ServerPlatformCategory),
-		middleware.RequestMetrics(metrics.ServerRequests),
+		middleware.DurationMetrics(metrics.ServerDuration),
 	)
 
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
@@ -102,7 +102,7 @@ func (r *Relay) makeRouter() *mux.Router {
 		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
-		middleware.DynamicRequestMetrics(),
+		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2StreamRouter.Use(clientSideFDv2StreamMiddleware, middleware.Streaming)
 	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider)
@@ -115,7 +115,7 @@ func (r *Relay) makeRouter() *mux.Router {
 		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
-		middleware.DynamicRequestMetrics(),
+		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
 	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("GET", "OPTIONS")
@@ -138,7 +138,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileMiddlewareStack := middleware.Chain(
 		mobileKeySelector,
 		middleware.TrackUsageActivity(metrics.MobilePlatformCategory),
-		middleware.RequestMetrics(metrics.MobileRequests))
+		middleware.DurationMetrics(metrics.MobileDuration))
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
 	msdkRouter.Use(mobileMiddlewareStack)
