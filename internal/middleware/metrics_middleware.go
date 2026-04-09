@@ -88,9 +88,11 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 		urlScheme = "https"
 	}
 
+	// Format per OTEL semconv: "1.0", "1.1", "2", "3"
+	// HTTP/2 and HTTP/3 use just the major version; HTTP/1.x includes the minor version.
 	protocolVersion := ""
 	if req.ProtoMajor > 0 {
-		if req.ProtoMinor > 0 {
+		if req.ProtoMajor == 1 {
 			protocolVersion = fmt.Sprintf("%d.%d", req.ProtoMajor, req.ProtoMinor)
 		} else {
 			protocolVersion = fmt.Sprintf("%d", req.ProtoMajor)
