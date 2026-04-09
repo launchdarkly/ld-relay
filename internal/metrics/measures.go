@@ -20,8 +20,8 @@ var (
 	//
 	// To avoid having to put nolint:gochecknoglobals on everything here, that linter is excluded
 	// specifically for this file in .golangci-lint.yml.
-	connMeasure    = stats.Int64(connMeasureName, "current number of connections", stats.UnitDimensionless)
-	newConnMeasure = stats.Int64(newConnMeasureName, "total number of connections", stats.UnitDimensionless)
+	connMeasure            = stats.Int64(connMeasureName, "current number of connections", stats.UnitDimensionless)
+	newConnMeasure         = stats.Int64(newConnMeasureName, "total number of connections", stats.UnitDimensionless)
 	requestMeasure         = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
 	requestDurationMeasure = stats.Float64(requestDurationMeasureName, "request duration in microseconds", stats.UnitDimensionless)
 
