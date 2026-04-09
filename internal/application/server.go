@@ -39,7 +39,7 @@ func StartHTTPServer(
 		}
 	}
 
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 
 	// Create a channel to listen for signals
 	sigCh := make(chan os.Signal, 1)
@@ -61,6 +61,7 @@ func StartHTTPServer(
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
+		close(errCh)
 	}()
 
 	// Handle graceful shutdown in a separate goroutine
@@ -83,7 +84,6 @@ func StartHTTPServer(
 		} else {
 			loggers.Info("Server gracefully stopped")
 		}
-		close(errCh) // Close the error channel after shutdown
 	}()
 
 	return srv, errCh
