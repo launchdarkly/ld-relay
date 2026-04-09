@@ -204,9 +204,9 @@ func TestRequestDuration(t *testing.T) {
 	t.Run("does not record duration for streaming request", func(t *testing.T) {
 		router := mux.NewRouter()
 		router.Use(RequestCount(metrics.ServerRequests))
-		// Handler that sets X-Accel-Buffering: no (like the streaming middleware does)
+		// Handler that sets Content-Type: text/event-stream (like the streaming middleware does)
 		router.Handle("/stream-route", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-Accel-Buffering", "no")
+			w.Header().Set("Content-Type", "text/event-stream")
 		})).Methods("GET")
 
 		metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {

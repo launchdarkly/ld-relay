@@ -69,7 +69,7 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 				next.ServeHTTP(w, req)
 			}, measure)
 			// Don't record duration for streaming responses — their lifetime is unbounded
-			if w.Header().Get("X-Accel-Buffering") != "no" {
+			if w.Header().Get("Content-Type") != "text/event-stream" {
 				metrics.RecordRequestDuration(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, route, req.Method, time.Since(start), measure)
 			}
 		})
