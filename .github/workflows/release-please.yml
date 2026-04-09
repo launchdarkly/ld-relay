@@ -24,6 +24,7 @@ jobs:
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           skip-github-pull-request: true
+          target-branch: ${{ github.ref_name }}
 
 
       # Need the repository content to be able to create and push a tag.
@@ -52,6 +53,7 @@ jobs:
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           skip-github-release: true
+          target-branch: ${{ github.ref_name }}
 
   release-relay:
     permissions:
