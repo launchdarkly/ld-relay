@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 const (
@@ -35,14 +36,14 @@ var (
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instance.id")         //nolint:gochecknoglobals
 
-	// OTEL HTTP semantic convention attribute keys
-	httpRouteAttrKey           = attribute.Key("http.route")                //nolint:gochecknoglobals
-	httpRequestMethodAttrKey   = attribute.Key("http.request.method")       //nolint:gochecknoglobals
-	httpResponseStatusAttrKey  = attribute.Key("http.response.status_code") //nolint:gochecknoglobals
-	urlSchemeAttrKey           = attribute.Key("url.scheme")                //nolint:gochecknoglobals
-	networkProtoVersionAttrKey = attribute.Key("network.protocol.version")  //nolint:gochecknoglobals
-	errorTypeAttrKey           = attribute.Key("error.type")                //nolint:gochecknoglobals
-	statusCodeAttrKey          = attribute.Key("status_code")               //nolint:gochecknoglobals
+	// OTEL HTTP semantic convention attribute keys (from semconv package)
+	httpRouteAttrKey           = semconv.HTTPRouteKey              //nolint:gochecknoglobals
+	httpRequestMethodAttrKey   = semconv.HTTPRequestMethodKey      //nolint:gochecknoglobals
+	httpResponseStatusAttrKey  = semconv.HTTPResponseStatusCodeKey //nolint:gochecknoglobals
+	urlSchemeAttrKey           = semconv.URLSchemeKey              //nolint:gochecknoglobals
+	networkProtoVersionAttrKey = semconv.NetworkProtocolVersionKey //nolint:gochecknoglobals
+	errorTypeAttrKey           = semconv.ErrorTypeKey              //nolint:gochecknoglobals
+	statusCodeAttrKey          = attribute.Key("status_code")      //nolint:gochecknoglobals
 )
 
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
