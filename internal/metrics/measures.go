@@ -243,3 +243,4 @@ func (r *EventMetricsRecorder) RecordEventsFailedSend(count int, metadata ldeven
 	attrs := attribute.NewSet(kvs...)
 	r.instruments.eventsFailedSend.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
 }
+
