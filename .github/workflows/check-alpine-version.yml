@@ -33,7 +33,7 @@ jobs:
 
       - name: Create pull request
         if: steps.update-alpine.outcome == 'success'
-        uses: peter-evans/create-pull-request@6d6857d36972b65feb161a90e484f2984215f83e # 6d6857d36972b65feb161a90e484f2984215f83e
+        uses: peter-evans/create-pull-request@6d6857d36972b65feb161a90e484f2984215f83e # v6.0.5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           add-paths: |
