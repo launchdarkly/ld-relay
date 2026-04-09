@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -207,7 +208,7 @@ func DurationMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 			start := time.Now()
 			next.ServeHTTP(recorder, req)
 			// Don't record duration for streaming responses — their lifetime is unbounded
-			if recorder.Header().Get("Content-Type") != "text/event-stream" {
+			if !strings.HasPrefix(strings.ToLower(recorder.Header().Get("Content-Type")), "text/event-stream") {
 				ri.StatusCode = recorder.statusCode
 				if recorder.statusCode >= 500 {
 					ri.ErrorType = fmt.Sprintf("%d", recorder.statusCode)
