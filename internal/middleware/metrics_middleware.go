@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/metrics"
@@ -69,7 +70,7 @@ func RequestCount(measure metrics.Measure) mux.MiddlewareFunc {
 				next.ServeHTTP(w, req)
 			}, measure)
 			// Don't record duration for streaming responses — their lifetime is unbounded
-			if w.Header().Get("Content-Type") != "text/event-stream" {
+			if !strings.HasPrefix(strings.ToLower(w.Header().Get("Content-Type")), "text/event-stream") {
 				metrics.RecordRequestDuration(ctx.Env.GetMetricsContext(), userAgent, sdkWrapper, route, req.Method, time.Since(start), measure)
 			}
 		})
