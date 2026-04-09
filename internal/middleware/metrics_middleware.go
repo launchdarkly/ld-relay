@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +15,35 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+// statusRecorder wraps http.ResponseWriter to capture the response status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+	written    bool
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	if !sr.written {
+		sr.statusCode = code
+		sr.written = true
+	}
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+func (sr *statusRecorder) Write(b []byte) (int, error) {
+	if !sr.written {
+		sr.statusCode = 200
+		sr.written = true
+	}
+	return sr.ResponseWriter.Write(b)
+}
+
+func (sr *statusRecorder) Flush() {
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
 
 // countingReader wraps an io.ReadCloser and counts the bytes read.
 type countingReader struct {
@@ -51,6 +82,23 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 		route, _ = r.GetPathTemplate()
 	}
 	appID, appVersion := parseApplicationTags(req)
+
+	urlScheme := "http"
+	if req.TLS != nil {
+		urlScheme = "https"
+	}
+
+	// Format per OTEL semconv: "1.0", "1.1", "2", "3"
+	// HTTP/2 and HTTP/3 use just the major version; HTTP/1.x includes the minor version.
+	protocolVersion := ""
+	if req.ProtoMajor > 0 {
+		if req.ProtoMajor == 1 {
+			protocolVersion = fmt.Sprintf("%d.%d", req.ProtoMajor, req.ProtoMinor)
+		} else {
+			protocolVersion = fmt.Sprintf("%d", req.ProtoMajor)
+		}
+	}
+
 	return metrics.RequestInfo{
 		UserAgent:          getUserAgent(req),
 		SDKWrapper:         getSDKWrapper(req),
@@ -59,6 +107,8 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 		ApplicationID:      appID,
 		ApplicationVersion: appVersion,
 		InstanceID:         getInstanceID(req),
+		URLScheme:          urlScheme,
+		ProtocolVersion:    protocolVersion,
 	}
 }
 
@@ -66,7 +116,7 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		env := GetEnvContextInfo(req.Context()).Env
 		ri := requestInfoFromHTTP(req)
-		metrics.WithCount(env.GetMetricsEnv(), getInstruments(env), ri, func() {
+		metrics.WithCount(env.GetMetricsEnv(), ri, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -133,35 +183,38 @@ func CountClientConns(handler http.Handler) http.Handler {
 	})
 }
 
-// DynamicRequestMetrics is a middleware function for FDv2 client-side endpoints that dynamically
-// determines the request metrics based on the credential type.
-func DynamicRequestMetrics() mux.MiddlewareFunc {
+// DynamicDurationMetrics is a middleware function for FDv2 client-side endpoints that dynamically
+// determines the duration metric platform based on the credential type.
+func DynamicDurationMetrics() mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			cred := GetEnvContextInfo(req.Context()).Credential
 			var measure metrics.Measure
 			if _, ok := cred.(config.MobileKey); ok {
-				measure = metrics.MobileRequests
+				measure = metrics.MobileDuration
 			} else {
-				measure = metrics.BrowserRequests
+				measure = metrics.BrowserDuration
 			}
-			RequestMetrics(measure)(next).ServeHTTP(w, req)
+			DurationMetrics(measure)(next).ServeHTTP(w, req)
 		})
 	}
 }
 
-// RequestMetrics is a middleware function that increments the request counter
-// and records the request duration for the specified metric.
-func RequestMetrics(measure metrics.Measure) mux.MiddlewareFunc {
+// DurationMetrics is a middleware function that records the request duration for the specified metric.
+func DurationMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			env := GetEnvContextInfo(req.Context()).Env
 			ri := requestInfoFromHTTP(req)
+			recorder := &statusRecorder{ResponseWriter: w, statusCode: 200}
 			start := time.Now()
-			metrics.WithRouteCount(req.Context(), env.GetMetricsEnv(), getInstruments(env), ri, func() {
-				next.ServeHTTP(w, req)
-			}, measure)
-			if w.Header().Get("X-Accel-Buffering") != "no" {
+			next.ServeHTTP(recorder, req)
+			// Don't record duration for streaming responses — their lifetime is unbounded
+			if !strings.HasPrefix(strings.ToLower(recorder.Header().Get("Content-Type")), "text/event-stream") {
+				ri.StatusCode = recorder.statusCode
+				if recorder.statusCode >= 500 {
+					ri.ErrorType = fmt.Sprintf("%d", recorder.statusCode)
+				}
 				metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start), measure)
 			}
 		})

@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -13,7 +12,6 @@ import (
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
 	connections         metric.Int64UpDownCounter // active connections (+1/-1)
-	requests            metric.Int64Counter       // cumulative HTTP requests
 	requestDuration     metric.Float64Histogram   // request duration in seconds
 	eventsReceivedBytes metric.Int64Counter       // cumulative bytes of event data received
 	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
@@ -27,7 +25,7 @@ type Instruments struct {
 // instruments should be incremented and what platform category to use.
 type Measure struct {
 	recordConnections bool
-	recordRequests    bool
+	recordDuration    bool
 	recordPolling     bool
 	platformCategory  string
 }
@@ -44,14 +42,14 @@ var (
 	// ServerConns is a Measure representing the current number of active stream connections from server-side SDKs.
 	ServerConns = Measure{recordConnections: true, platformCategory: ServerPlatformCategory}
 
-	// BrowserRequests is a Measure representing the number of HTTP requests from browsers.
-	BrowserRequests = Measure{recordRequests: true, platformCategory: BrowserPlatformCategory}
+	// BrowserDuration is a Measure for recording request duration from browsers.
+	BrowserDuration = Measure{recordDuration: true, platformCategory: BrowserPlatformCategory}
 
-	// MobileRequests is a Measure representing the number of HTTP requests from mobile SDKs.
-	MobileRequests = Measure{recordRequests: true, platformCategory: MobilePlatformCategory}
+	// MobileDuration is a Measure for recording request duration from mobile SDKs.
+	MobileDuration = Measure{recordDuration: true, platformCategory: MobilePlatformCategory}
 
-	// ServerRequests is a Measure representing the number of HTTP requests from server-side SDKs.
-	ServerRequests = Measure{recordRequests: true, platformCategory: ServerPlatformCategory}
+	// ServerDuration is a Measure for recording request duration from server-side SDKs.
+	ServerDuration = Measure{recordDuration: true, platformCategory: ServerPlatformCategory}
 
 	// ServerPollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
 	ServerPollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
@@ -70,41 +68,36 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	requests, err := meter.Int64Counter(requestMeasureName)
-	if err != nil {
-		return nil, err
-	}
 	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedBytesMeasureName)
+	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	eventsDropped, err := meter.Int64Counter(eventsSentDroppedMeasureName)
+	eventsDropped, err := meter.Int64Counter(eventsDroppedMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	eventsSent, err := meter.Int64Counter(eventsSentCountMeasureName)
+	eventsSent, err := meter.Int64Counter(eventsSentMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	eventsFailedSend, err := meter.Int64Counter(eventsSentFailuresMeasureName)
+	eventsFailedSend, err := meter.Int64Counter(eventsSendErrorsMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	eventsBytesSent, err := meter.Int64Counter(eventsSentBytesMeasureName)
+	eventsBytesSent, err := meter.Int64Counter(eventsSentSizeMeasureName)
 	if err != nil {
 		return nil, err
 	}
-	pendingEvents, err := meter.Int64Gauge(eventsSentPendingMeasureName)
+	pendingEvents, err := meter.Int64Gauge(eventsPendingMeasureName)
 	if err != nil {
 		return nil, err
 	}
 	return &Instruments{
 		connections:         connections,
-		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
@@ -124,6 +117,11 @@ type RequestInfo struct {
 	ApplicationID      string
 	ApplicationVersion string
 	InstanceID         string
+	// Semconv fields populated after handler execution
+	StatusCode      int
+	URLScheme       string
+	ProtocolVersion string
+	ErrorType       string
 }
 
 func (ri RequestInfo) sanitized() (ua, wrapper, route, method, appID, appVersion, instanceID string) {
@@ -145,7 +143,7 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 	}
 
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
+	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
 
 	if instruments != nil {
 		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
@@ -160,32 +158,11 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 	f()
 }
 
-// WithCount runs a function and records a single-unit increment for the specified metric.
-func WithCount(em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
-	if em == nil {
-		f()
-		return
-	}
-
-	ua, wrapper, _, _, _, _, _ := ri.sanitized()
-	attrs := buildAttributes(em.envKVs, measure.platformCategory, ua, wrapper)
-
-	if measure.recordRequests && instruments != nil {
-		instruments.requests.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
-	}
-	if measure.recordPolling && em.collector != nil {
+// WithCount runs a function and records polling metrics if applicable.
+func WithCount(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
+	if em != nil && measure.recordPolling && em.collector != nil {
+		ua, wrapper, _, _, _, _, _ := ri.sanitized()
 		em.collector.RecordPollingRequest(measure.platformCategory, ua, wrapper)
-	}
-
-	f()
-}
-
-// WithRouteCount records a route hit for the specified metric.
-func WithRouteCount(ctx context.Context, em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
-	if em != nil && instruments != nil && measure.recordRequests {
-		ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-		attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
-		instruments.requests.Add(ctx, 1, metric.WithAttributeSet(attrs))
 	}
 
 	f()
@@ -197,17 +174,18 @@ func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em
 		return
 	}
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
+	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
 	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
+// Duration is recorded in seconds per OTEL HTTP semantic conventions.
 func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration, measure Measure) {
-	if em == nil || instruments == nil || !measure.recordRequests {
+	if em == nil || instruments == nil || !measure.recordDuration {
 		return
 	}
 	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID)
+	attrs := buildDurationAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID, ri.URLScheme, ri.ProtocolVersion, ri.ErrorType, ri.StatusCode)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 
@@ -261,7 +239,7 @@ func (r *EventMetricsRecorder) RecordEventsFailedSend(count int, metadata ldeven
 	}
 	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+1)
 	copy(kvs, r.envKVs)
-	kvs = append(kvs, statusCodeAttrKey.String(strconv.Itoa(metadata.StatusCode)))
+	kvs = append(kvs, statusCodeAttrKey.Int(metadata.StatusCode))
 	attrs := attribute.NewSet(kvs...)
 	r.instruments.eventsFailedSend.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
 }
