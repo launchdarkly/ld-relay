@@ -238,10 +238,22 @@ To learn more, read [Metrics](./metrics.md).
 | Property in file | Environment var                |  Type   | Default | Description                                                                                                                                                                                                        |
 |------------------|--------------------------------|:-------:|:--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `enabled`        | `USE_OTLP`                     | Boolean | `false` | If true, enables exporting metrics via OTLP.                                                                                                                                                                       |
-| `serviceName`    | `OTEL_SERVICE_NAME`            | String  |         | The service name reported in exported telemetry. If not set, defaults to `ld-relay`.                                                                                                                               |
-| `endpoint`       | `OTEL_EXPORTER_OTLP_ENDPOINT` | String  |         | The OTLP endpoint to export metrics to. Example: `http://otel-collector:4317`                                                                                                                                      |
 | `protocol`       | `OTEL_EXPORTER_OTLP_PROTOCOL` | String  |         | The OTLP transport protocol. Must be `grpc` or `http`.                                                                                                                                                             |
-| `headers`        | `OTEL_EXPORTER_OTLP_HEADERS`  | String  |         | Headers to include in OTLP export requests, as a comma-delimited list of `key=value` pairs. Example: `api-key=secret,env=prod`                                                                                    |
+
+All other OTLP configuration — including endpoint, headers, TLS, compression, timeouts, and service name — is handled by standard [OpenTelemetry environment variables](https://opentelemetry.io/docs/specs/otel/protocol/exporter/). The OpenTelemetry SDK reads these directly from the environment. Commonly used variables include:
+
+| Environment var                          | Description                                                                                                    |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `OTEL_SERVICE_NAME`                      | The service name reported in exported telemetry. If not set, defaults to `ld-relay`.                           |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`           | The OTLP endpoint to export metrics to. Example: `http://otel-collector:4317`                                  |
+| `OTEL_EXPORTER_OTLP_HEADERS`            | Headers to include in OTLP export requests, as `key=value` pairs. Example: `api-key=secret,env=prod`          |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`            | Max time (in milliseconds) for each export. Default: `10000`.                                                  |
+| `OTEL_EXPORTER_OTLP_COMPRESSION`        | Compression type (`gzip` or `none`).                                                                           |
+| `OTEL_METRIC_EXPORT_INTERVAL`           | Time (in milliseconds) between metric exports. Default: `60000`.                                               |
+| `OTEL_METRIC_EXPORT_TIMEOUT`            | Max time (in milliseconds) allowed for each metric export. Default: `30000`.                                   |
+| `OTEL_RESOURCE_ATTRIBUTES`              | Additional resource attributes as `key=value` pairs.                                                           |
+
+Signal-specific overrides (e.g. `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) take precedence over the general variables. See the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/protocol/exporter/) for the full list.
 
 ### File section: `[Proxy]`
 

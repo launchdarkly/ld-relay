@@ -23,16 +23,15 @@ func newOTLPExporters(
 	}
 
 	ctx := context.Background()
-	headers := parseHeaders(otlpConfig.Headers)
 
 	var metricExporter sdkmetric.Exporter
 	var err error
 
 	switch protocol {
 	case "grpc":
-		metricExporter, err = otlpmetricgrpc.New(ctx, buildGRPCMetricOptions(otlpConfig, headers)...)
+		metricExporter, err = otlpmetricgrpc.New(ctx)
 	case "http":
-		metricExporter, err = otlpmetrichttp.New(ctx, buildHTTPMetricOptions(otlpConfig, headers)...)
+		metricExporter, err = otlpmetrichttp.New(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported OTLP protocol: %q (must be \"grpc\" or \"http\")", protocol)
 	}
@@ -43,44 +42,7 @@ func newOTLPExporters(
 
 	opts := []sdkmetric.Option{sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter))}
 
-	loggers.Infof("Successfully registered OTLP metrics exporter (protocol=%s, endpoint=%s)", protocol, otlpConfig.Endpoint)
+	loggers.Infof("Successfully registered OTLP metrics exporter (protocol=%s)", protocol)
 
 	return opts, nil
-}
-
-func parseHeaders(headers string) map[string]string {
-	result := make(map[string]string)
-	for _, pair := range strings.Split(headers, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		parts := strings.SplitN(pair, "=", 2)
-		if len(parts) == 2 {
-			result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-		}
-	}
-	return result
-}
-
-func buildGRPCMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlpmetricgrpc.Option {
-	var opts []otlpmetricgrpc.Option
-	if otlpConfig.Endpoint != "" {
-		opts = append(opts, otlpmetricgrpc.WithEndpointURL(otlpConfig.Endpoint))
-	}
-	if len(headers) > 0 {
-		opts = append(opts, otlpmetricgrpc.WithHeaders(headers))
-	}
-	return opts
-}
-
-func buildHTTPMetricOptions(otlpConfig config.OpenTelemetryConfig, headers map[string]string) []otlpmetrichttp.Option {
-	var opts []otlpmetrichttp.Option
-	if otlpConfig.Endpoint != "" {
-		opts = append(opts, otlpmetrichttp.WithEndpointURL(otlpConfig.Endpoint))
-	}
-	if len(headers) > 0 {
-		opts = append(opts, otlpmetrichttp.WithHeaders(headers))
-	}
-	return opts
 }

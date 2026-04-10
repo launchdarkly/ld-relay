@@ -49,6 +49,35 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http
 
 Prometheus converts OpenTelemetry metric names by replacing dots with underscores, so the metrics will appear as `http_server_active_requests`, `http_server_request_duration_seconds`, `launchdarkly_relay_events_received_size_total`, etc.
 
+### Datadog
+
+The [Datadog Agent](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/) can accept OTLP metrics directly, but OTLP ingestion must be enabled in the Agent's `datadog.yaml`:
+
+```yaml
+otlp_config:
+  receiver:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+```
+
+Then configure the Relay Proxy:
+
+```
+USE_OTLP=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+```
+
+**Important:** Datadog requires delta aggregation temporality. You must set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta` or Datadog may discard data points. The OpenTelemetry SDK defaults to cumulative temporality.
+
+The `service.name` resource attribute (set via `OTEL_SERVICE_NAME`) maps to Datadog's `service` tag. You can also set `deployment.environment.name` and `service.version` via `OTEL_RESOURCE_ATTRIBUTES` to populate Datadog's unified service tags:
+
+```
+OTEL_SERVICE_NAME=ld-relay
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production,service.version=9.0.0
+```
+
 ### OpenTelemetry Collector
 
 For more complex setups — such as routing metrics to multiple backends simultaneously — point the Relay Proxy at an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/):
