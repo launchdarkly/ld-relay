@@ -303,10 +303,11 @@ type HTTPConfig struct {
 // OpenTelemetryConfig configures the optional OTLP export integration, which is used only if Enabled is true.
 //
 // This corresponds to the [OpenTelemetry] section in the configuration file.
+//
+// Most standard OTEL environment variables (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS,
+// OTEL_SERVICE_NAME, etc.) are read directly by the OpenTelemetry SDK and should not be duplicated here.
+// Only Relay-specific settings belong in this struct.
 type OpenTelemetryConfig struct {
-	Enabled     bool   `conf:"USE_OTLP"`
-	ServiceName string `conf:"OTEL_SERVICE_NAME"`
-	Endpoint    string `conf:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	Protocol    string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
-	Headers     string `conf:"OTEL_EXPORTER_OTLP_HEADERS"`
+	Enabled  bool   `conf:"USE_OTLP"`
+	Protocol string `conf:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 }

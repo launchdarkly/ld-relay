@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"time"
 
@@ -67,16 +68,13 @@ func NewManager(
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	serviceName := otlpConfig.ServiceName
-	if serviceName == "" {
-		serviceName = "ld-relay"
+	// WithFromEnv picks up OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME from the environment.
+	// We only set a default service name when the user hasn't provided one via the standard env var.
+	resourceOpts := []resource.Option{resource.WithFromEnv()}
+	if os.Getenv("OTEL_SERVICE_NAME") == "" {
+		resourceOpts = append(resourceOpts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
 	}
-	// WithFromEnv allows OTEL_RESOURCE_ATTRIBUTES to add arbitrary resource attributes.
-	// The service name from config (or our default) is set last so it takes precedence.
-	res, _ := resource.New(context.Background(),
-		resource.WithFromEnv(),
-		resource.WithAttributes(semconv.ServiceName(serviceName)),
-	)
+	res, _ := resource.New(context.Background(), resourceOpts...)
 
 	var meterProvider *sdkmetric.MeterProvider
 	var meter otelmetric.Meter
