@@ -203,7 +203,9 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 			shouldRestart := false
 
-			s.logger.Debug("received SSE event", "event", event.Event(), "data", obfuscateEventData(event.Data()))
+			if s.logger.Enabled(nil, slog.LevelDebug) {
+				s.logger.Debug("received SSE event", "event", event.Event(), "data", obfuscateEventData(event.Data()))
+			}
 
 			gotMalformedEvent := func(event es.Event, err error) {
 				s.logger.Error("received streaming event with malformed JSON data; will restart stream",
