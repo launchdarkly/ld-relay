@@ -7,6 +7,8 @@ import (
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequestLogging(t *testing.T) {
@@ -19,7 +21,7 @@ func TestRequestLogging(t *testing.T) {
 		withStartedRelayCustom(t, config, relayTestBehavior{doNotEnableDebugLogging: true}, func(p relayTestParams) {
 			req, _ := http.NewRequest("GET", url, nil)
 			_, _ = st.DoRequest(req, p.relay)
-			// TODO: add slog-compatible log assertion
+			assert.False(t, p.mockHandler.HasMessage(slog.LevelDebug, "request completed"))
 		})
 	})
 
@@ -31,7 +33,7 @@ func TestRequestLogging(t *testing.T) {
 		withStartedRelay(t, config, func(p relayTestParams) {
 			req, _ := http.NewRequest("GET", url, nil)
 			_, _ = st.DoRequest(req, p.relay)
-			// TODO: add slog-compatible log assertion
+			assert.True(t, p.mockHandler.HasMessage(slog.LevelDebug, "request completed"))
 		})
 	})
 }

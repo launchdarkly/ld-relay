@@ -41,11 +41,15 @@ func withStartedRelay(t *testing.T, config c.Config, action func(relayTestParams
 // withStartedRelayCustom is the same as withStartedRelay but allows more customization of the
 // test setup.
 func withStartedRelayCustom(t *testing.T, config c.Config, behavior relayTestBehavior, action func(relayTestParams)) {
-	logger, mockHandler := logtest.NewMockLogger()
+	mockHandler := logtest.NewMockHandler()
 
 	if !config.Main.LogLevel.IsDefined() && !behavior.doNotEnableDebugLogging {
 		config.Main.LogLevel = c.NewOptLogLevel(slog.LevelDebug)
 	}
+	// Set the mock handler's level to match the configured level so that
+	// level-gated behavior (like request logging middleware) works correctly.
+	mockHandler.SetLevel(config.Main.LogLevel.GetOrElse(slog.LevelInfo))
+	logger := slog.New(mockHandler)
 	options := relayInternalOptions{logger: logger}
 	if !behavior.useRealSDKClient {
 		options.clientFactory = testclient.CreateDummyClient

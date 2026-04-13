@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  # Scrape the OTel Collector's Prometheus exporter, which receives
+  # OTLP metrics from relay and re-exports them as Prometheus format.
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Optionally scrape relay directly if it exposes a /metrics endpoint.
+  # Uncomment and adjust the port if needed.
+  # - job_name: "ld-relay"
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8030"]
+  #   metric_relabel_configs:
+  #     - source_labels: [route]
+  #       regex: '_(.*)'
+  #       replacement: '/${1}'
+  #       target_label: route
+  #     - source_labels: [route]
+  #       regex: '(.*)_(.+)'
+  #       replacement: '${1}/${2}'
+  #       target_label: route
+  #       action: replace
