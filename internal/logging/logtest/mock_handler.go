@@ -48,7 +48,6 @@ func (h *MockHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level.Level()
 }
 
-
 func (h *MockHandler) Handle(_ context.Context, r slog.Record) error {
 	attrs := make(map[string]any)
 	for _, a := range h.attrs {

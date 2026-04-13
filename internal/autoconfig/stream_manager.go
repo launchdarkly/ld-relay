@@ -1,6 +1,7 @@
 package autoconfig
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -203,7 +204,7 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 			shouldRestart := false
 
-			if s.logger.Enabled(nil, slog.LevelDebug) {
+			if s.logger.Enabled(context.TODO(), slog.LevelDebug) {
 				s.logger.Debug("received SSE event", "event", event.Event(), "data", obfuscateEventData(event.Data()))
 			}
 

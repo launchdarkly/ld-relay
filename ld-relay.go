@@ -15,6 +15,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	var c config.Config
 
 	// Create the initial logger with a shared LevelVar so the level can be
@@ -25,14 +29,14 @@ func main() {
 	opts, err := application.ReadOptions(os.Args, os.Stderr)
 	if err != nil {
 		logger.Error("error reading options", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	if opts.PrintVersion {
 		logger.Info("LaunchDarkly relay version",
 			"version", application.DescribeRelayVersion(version.Version),
 		)
-		os.Exit(0)
+		return 0
 	}
 
 	logger.Info("starting LaunchDarkly relay",
@@ -43,13 +47,13 @@ func main() {
 	if opts.ConfigFile != "" {
 		if err := config.LoadConfigFile(&c, opts.ConfigFile, logger); err != nil {
 			logger.Error("error loading config file", "error", err)
-			os.Exit(1)
+			return 1
 		}
 	}
 	if opts.UseEnvironment {
 		if err := config.LoadConfigFromEnvironment(&c, logger); err != nil {
 			logger.Error("configuration error", "error", err)
-			os.Exit(1)
+			return 1
 		}
 	}
 
@@ -66,7 +70,7 @@ func main() {
 		})
 		if err != nil {
 			logger.Error("failed to initialize OTLP log exporter", "error", err)
-			os.Exit(1)
+			return 1
 		}
 		defer otelLog.Shutdown(context.Background()) //nolint:errcheck
 
@@ -80,11 +84,11 @@ func main() {
 	r, err := relay.NewRelay(c, logger, nil)
 	if err != nil {
 		logger.Error("unable to create relay", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	if c.Main.ExitAlways {
-		os.Exit(0)
+		return 0
 	}
 
 	port := c.Main.Port.GetOrElse(config.DefaultPort)
@@ -102,6 +106,8 @@ func main() {
 
 	for err := range errs {
 		logger.Error("error starting http listener", "port", port, "error", err)
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }

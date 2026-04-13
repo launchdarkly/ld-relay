@@ -214,16 +214,16 @@ func NewEventDispatcher(
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
 			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, wrapper, logger,"/bulk", eventQueueCleanupInterval, eventMetrics),
+				config, httpConfig, wrapper, logger, "/bulk", eventQueueCleanupInterval, eventMetrics),
 		},
 		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
-			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, logger,"/diagnostic"),
+			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, logger, "/diagnostic"),
 		},
 	}
 	if mobileKey.Defined() {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, wrapper, logger,"/mobile", eventQueueCleanupInterval, eventMetrics)
-		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, logger,"/mobile/events/diagnostic")
+			config, httpConfig, wrapper, logger, "/mobile", eventQueueCleanupInterval, eventMetrics)
+		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, logger, "/mobile/events/diagnostic")
 	}
 	if envID.Defined() {
 		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, wrapper, logger,

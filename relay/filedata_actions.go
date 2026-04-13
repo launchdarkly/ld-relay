@@ -14,7 +14,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 )
 
-
 // relayFileDataActions is an implementation of the filedata.UpdateHandler interface. The low-level
 // filedata.ArchiveManager component, which manages the file data source, will call the interface
 // methods on this object to let us know when environments have been read from the file for the

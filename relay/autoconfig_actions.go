@@ -7,7 +7,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 )
 
-
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
 // interface methods on this object to let us know when environments have been added or changed.
