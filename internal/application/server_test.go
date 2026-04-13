@@ -254,6 +254,7 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 
 	// Verify shutdown messages were logged
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "received SIGTERM signal"))
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "Shutting down Relay Proxy"))
 	assert.True(t, handler.HasMessage(slog.LevelInfo, "server gracefully stopped"))
 
 	// Verify no errors were sent to error channel
