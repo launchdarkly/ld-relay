@@ -1,10 +1,10 @@
 package metrics
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/pborman/uuid"
@@ -19,16 +19,12 @@ func TestRelayMetricsCollector(t *testing.T) {
 
 	withCollector := func(publisher *testEventsPublisher, f func(c *RelayMetricsCollector, relayID string)) {
 		relayID := uuid.New()
-		mockLog := ldlogtest.NewMockLog()
-		c := newRelayMetricsCollector(relayID, "envName", publisher, testCollectorFlushInterval, mockLog.Loggers)
+		c := newRelayMetricsCollector(relayID, "envName", publisher, testCollectorFlushInterval, slog.Default())
 		defer c.close()
 		f(c, relayID)
 	}
 
 	t.Run("collector generates events", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-
 		publisher := newTestEventsPublisher()
 		start := ldtime.UnixMillisNow()
 		withCollector(publisher, func(c *RelayMetricsCollector, relayID string) {
@@ -44,7 +40,7 @@ func TestRelayMetricsCollector(t *testing.T) {
 				if !ok {
 					return false
 				}
-				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+				t.Logf("received metrics: %+v", metricsEvent)
 				assert.True(t, metricsEvent.StartDate >= start)
 				assert.True(t, metricsEvent.StartDate <= metricsEvent.EndDate)
 				assert.True(t, metricsEvent.EndDate <= ldtime.UnixMillisNow())
@@ -56,9 +52,6 @@ func TestRelayMetricsCollector(t *testing.T) {
 	})
 
 	t.Run("polling requests should not be cumulative across flushes", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-
 		publisher := newTestEventsPublisher()
 		withCollector(publisher, func(c *RelayMetricsCollector, relayID string) {
 			c.RecordPollingRequest(platformValue, userAgentValue, "")
@@ -68,7 +61,7 @@ func TestRelayMetricsCollector(t *testing.T) {
 			c.flush()
 			expectedPollingMetric := pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 3}
 			metricsEvent := publisher.expectMetricsEvent(t, time.Second)
-			mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+			t.Logf("received metrics: %+v", metricsEvent)
 			require.Len(t, metricsEvent.PollingCounts, 1)
 			assert.Equal(t, expectedPollingMetric, metricsEvent.PollingCounts[0])
 
@@ -81,16 +74,13 @@ func TestRelayMetricsCollector(t *testing.T) {
 			c.flush()
 			expectedPollingMetric = pollingMetric{UserAgent: userAgentValue, PlatformCategory: platformValue, Count: 4}
 			metricsEvent = publisher.expectMetricsEvent(t, time.Second)
-			mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+			t.Logf("received metrics: %+v", metricsEvent)
 			require.Len(t, metricsEvent.PollingCounts, 1)
 			assert.Equal(t, expectedPollingMetric, metricsEvent.PollingCounts[0])
 		})
 	})
 
 	t.Run("open connections keep metrics going", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-
 		publisher := newTestEventsPublisher()
 		withCollector(publisher, func(c *RelayMetricsCollector, relayID string) {
 			c.RecordConnectionChange(platformValue, userAgentValue, "", 1)
@@ -99,7 +89,7 @@ func TestRelayMetricsCollector(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				c.flush()
 				metricsEvent := publisher.expectMetricsEvent(t, time.Second)
-				mockLog.Loggers.Infof("received metrics: %+v", metricsEvent)
+				t.Logf("received metrics: %+v", metricsEvent)
 				require.Len(t, metricsEvent.Connections, 1)
 				assert.Equal(t, expectedConn, metricsEvent.Connections[0])
 			}

@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -13,8 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
@@ -83,7 +84,7 @@ type HTTPEventPublisher struct {
 	baseURI     string
 	uriPath     string
 	eventsURI   url.URL
-	loggers     ldlog.Loggers
+	logger      *slog.Logger
 	client      *http.Client
 	authKey     credential.SDKCredential
 	baseHeaders http.Header
@@ -170,7 +171,7 @@ func (o OptionEventMetrics) apply(p *HTTPEventPublisher) error {
 }
 
 // NewHTTPEventPublisher creates a new HTTPEventPublisher.
-func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconfig.HTTPConfig, loggers ldlog.Loggers, options ...OptionType) (*HTTPEventPublisher, error) {
+func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconfig.HTTPConfig, logger *slog.Logger, options ...OptionType) (*HTTPEventPublisher, error) {
 	closer := make(chan struct{})
 
 	client := httpConfig.Client()
@@ -190,7 +191,7 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 		capacity:     defaultCapacity,
 		inputQueue:   inputQueue,
 		disableQueue: disableQueue,
-		loggers:      loggers,
+		logger:       logger,
 	}
 
 	flushInterval := defaultFlushInterval
@@ -218,14 +219,14 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 	go func() {
 		for {
 			if err := recover(); err != nil { // COVERAGE: can't happen in unit tests
-				p.loggers.Errorf("Unexpected panic in event relay : %+v", err)
+				p.logger.Error("unexpected panic in event relay", "error", err)
 				continue
 			}
 		EventLoop:
 			for {
 				select {
 				case <-disableQueue:
-					p.loggers.Warnf("Discarding in-memory and all future events due to unrecoverable failure when sending events.")
+					p.logger.Warn("discarding in-memory and all future events due to unrecoverable failure when sending events")
 					ticker.Stop()
 					// Ensure we free up as much memory as we can by clearing any pending events
 					p.queues = make(map[EventPayloadMetadata]*publisherQueue)
@@ -267,7 +268,7 @@ func (p *HTTPEventPublisher) append(batch eventBatch) {
 	taken := len(batch.events)
 	if available < len(batch.events) {
 		if !p.overflowed {
-			p.loggers.Warnf("Exceeded event queue capacity of %d. Increase capacity to avoid dropping events.", p.capacity)
+			p.logger.Warn("exceeded event queue capacity; increase capacity to avoid dropping events", "capacity", p.capacity)
 			p.overflowed = true
 		}
 		taken = available
@@ -342,7 +343,7 @@ func (p *HTTPEventPublisher) flush() {
 			p.queues[metadata] = queue
 		}
 		if err != nil { // COVERAGE: can't happen in unit tests
-			p.loggers.Errorf("Unexpected error marshalling event json: %+v", err)
+			p.logger.Error("unexpected error marshalling event json", "error", err)
 			continue
 		}
 		p.wg.Add(1)
@@ -374,7 +375,7 @@ func (p *HTTPEventPublisher) flush() {
 				BaseURI:           p.baseURI,
 				BaseHeaders:       getBaseHeaders,
 				SchemaVersion:     schemaVersion,
-				Loggers:           p.loggers,
+				Loggers:           logging.NewLDLogBridge(p.logger),
 				EnableCompression: true,
 			}
 			result := ldevents.SendEventDataWithRetry(sendConfig, ldevents.AnalyticsEventDataKind, p.uriPath, payload, count)

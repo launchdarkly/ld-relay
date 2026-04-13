@@ -2,6 +2,7 @@ package relay
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -222,7 +223,7 @@ func TestRelayReturns503ForAllEnvironmentsUntilAutoConfigIsComplete(t *testing.T
 	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
 	r, err := newRelayInternal(entConfig, relayInternalOptions{
-		loggers:       mockLog.Loggers,
+		logger:        slog.Default(),
 		clientFactory: testclient.CreateDummyClient,
 	})
 	require.NoError(t, err)

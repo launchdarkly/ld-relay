@@ -85,7 +85,7 @@ func getClientSideContextProperties(
 func pingStreamHandlerV1(streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.Env.GetLogger().Debug("application requested client-side ping stream")
 		clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
@@ -105,7 +105,7 @@ func sdkKindFromCredential(cred credential.SDKCredential) basictypes.SDKKind {
 func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
+		clientCtx.Env.GetLogger().Debug("application requested client-side ping stream")
 
 		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
 			clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
@@ -118,7 +118,7 @@ func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider s
 func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream (FDv2)")
+		clientCtx.Env.GetLogger().Debug("application requested client-side ping stream (FDv2)")
 
 		sdkKind := sdkKindFromCredential(clientCtx.Credential)
 		var streamProvider streams.StreamProvider
@@ -139,7 +139,7 @@ func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.Str
 func streamHandlerV1(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-		clientCtx.Env.GetLoggers().Debug(logMessage)
+		clientCtx.Env.GetLogger().Debug(logMessage)
 		clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
@@ -149,7 +149,7 @@ func streamHandlerV1(streamProvider streams.StreamProvider, logMessage string) h
 func streamHandlerV2(streamProvider streams.StreamProvider, logMessage string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
-		clientCtx.Env.GetLoggers().Debug(logMessage)
+		clientCtx.Env.GetLogger().Debug(logMessage)
 		clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 	})
 }
@@ -168,11 +168,11 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
 	if err != nil {
-		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
+		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	} else if collection == nil || !selector.IsDefined() {
-		clientCtx.Env.GetLoggers().Error("Snapshot selector is not defined; no data to return")
+		clientCtx.Env.GetLogger().Error("snapshot selector is not defined; no data to return")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -230,7 +230,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 							},
 						})
 					} else {
-						clientCtx.Env.GetLoggers().Error("Error casting keyed item to feature flag")
+						clientCtx.Env.GetLogger().Error("error casting keyed item to feature flag")
 						w.WriteHeader(http.StatusInternalServerError)
 						return
 					}
@@ -249,12 +249,12 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 							},
 						})
 					} else {
-						clientCtx.Env.GetLoggers().Error("Error casting keyed item to feature segment")
+						clientCtx.Env.GetLogger().Error("error casting keyed item to feature segment")
 						w.WriteHeader(http.StatusInternalServerError)
 						return
 					}
 				default:
-					clientCtx.Env.GetLoggers().Errorf("Unexpected data kind in store snapshot: %s", kind)
+					clientCtx.Env.GetLogger().Error("unexpected data kind in store snapshot", "kind", kind)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -268,7 +268,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 
 	json, err := json.Marshal(pollingPayload)
 	if err != nil {
-		clientCtx.Env.GetLoggers().Errorf("Error marshaling polling response: %s", err)
+		clientCtx.Env.GetLogger().Error("error marshaling polling response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -281,7 +281,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
-	loggers := clientCtx.Env.GetLoggers()
+	logger := clientCtx.Env.GetLogger()
 
 	sdkKind := sdkKindFromCredential(clientCtx.Credential)
 
@@ -294,10 +294,10 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 
 	if !client.Initialized() {
 		if store.IsInitialized() {
-			loggers.Warn("Called before client initialization; using last known values from feature store")
+			logger.Warn("called before client initialization; using last known values from feature store")
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			loggers.Warn("Called before client initialization. Feature store not available")
+			logger.Warn("called before client initialization, feature store not available")
 			_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
 			return
 		}
@@ -311,11 +311,11 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 
 	collection, selector, err := store.Snapshot()
 	if err != nil {
-		loggers.Errorf("Error reading feature store: %s", err)
+		logger.Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	} else if collection == nil || !selector.IsDefined() {
-		loggers.Error("Snapshot selector is not defined; no data to return")
+		logger.Error("snapshot selector is not defined; no data to return")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -396,7 +396,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 
 	jsonData, err := json.Marshal(pollingPayload)
 	if err != nil {
-		loggers.Errorf("Error marshaling polling response: %s", err)
+		logger.Error("error marshaling polling response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -409,7 +409,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
-		clientCtx.Env.GetLoggers().Errorf("Error reading feature store: %s", err)
+		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -464,8 +464,8 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 			// be using a fixed set of Endpoint values that the dispatcher knows about.
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write(util.ErrorJSONMsg("Internal error in event proxy"))
-			logging.GetGlobalContextLoggers(req.Context()).Errorf("Tried to proxy %s events for %s but no handler was defined",
-				eventsKind, sdkKind)
+			logging.GetContextLogger(req.Context()).Error("tried to proxy events but no handler was defined",
+				"eventsKind", eventsKind, "sdkKind", sdkKind)
 			return
 		}
 		handler(w, req)
@@ -551,7 +551,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
-	loggers := clientCtx.Env.GetLoggers()
+	logger := clientCtx.Env.GetLogger()
 
 	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
 	if !ok {
@@ -564,10 +564,10 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	if !client.Initialized() {
 		if store.IsInitialized() {
-			loggers.Warn("Called before client initialization; using last known values from feature store")
+			logger.Warn("called before client initialization; using last known values from feature store")
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			loggers.Warn("Called before client initialization. Feature store not available")
+			logger.Warn("called before client initialization, feature store not available")
 			_, _ = w.Write(util.ErrorJSONMsg("Service not initialized"))
 			return
 		}
@@ -579,11 +579,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 		return
 	}
 
-	loggers.Debugf("Application requested client-side flags (%s) for context: %s", sdkKind, ldContext.Key())
+	logger.Debug("application requested client-side flags", "sdkKind", sdkKind, "contextKey", ldContext.Key())
 
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
-		loggers.Warnf("Unable to fetch flags from feature store. Returning nil map. Error: %s", err)
+		logger.Warn("unable to fetch flags from feature store, returning nil map", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write(util.ErrorJSONMsgf("Error fetching flags from feature store: %s", err))
 		return
@@ -621,7 +621,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		key := mux.Vars(req)["key"]
 		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {
-			clientContext.GetLoggers().Errorf("Error reading feature store: %s", err)
+			clientContext.GetLogger().Error("error reading feature store", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -632,7 +632,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 			if err == nil {
 				writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
 			} else {
-				clientContext.GetLoggers().Errorf("Error marshaling JSON: %s", err)
+				clientContext.GetLogger().Error("error marshaling JSON", "error", err)
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 		}

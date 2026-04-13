@@ -3,12 +3,12 @@ package bigsegments
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,7 +34,7 @@ type dynamoDBBigSegmentStore struct {
 	client        *dynamodb.Client
 	context       context.Context
 	cancelContext context.CancelFunc
-	loggers       ldlog.Loggers
+	logger        *slog.Logger
 	table         string
 	prefix        string
 }
@@ -58,7 +58,7 @@ func newDynamoDBBigSegmentStore(
 	dbConfig config.DynamoDBConfig,
 	envConfig config.EnvConfig,
 	optFns []func(*dynamodb.Options),
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (*dynamoDBBigSegmentStore, error) {
 	config, err := awsconfig.LoadDefaultConfig(context.Background())
 	if err != nil {
@@ -77,15 +77,14 @@ func newDynamoDBBigSegmentStore(
 
 	store := dynamoDBBigSegmentStore{
 		table:         table,
-		loggers:       loggers,
+		logger:        logger.With("component", "DynamoDBBigSegmentStore"),
 		prefix:        prefix,
 		client:        client,
 		context:       context,
 		cancelContext: cancelContext,
 	}
 
-	store.loggers.SetPrefix("DynamoDBBigSegmentStore:")
-	store.loggers.Infof(`Using DynamoDB table %s`, store.table)
+	store.logger.Info("using DynamoDB table", "table", store.table)
 
 	return &store, nil
 }

@@ -1,20 +1,20 @@
 package logging
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 )
 
 func TestRequestLoggerMiddlewareNonStreaming(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	handler := RequestLoggerMiddleware(mockLog.Loggers)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	logger, mockHandler := logtest.NewMockLogger()
+	handler := RequestLoggerMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ab"))
 		w.Write([]byte("c"))
 	}))
@@ -25,13 +25,26 @@ func TestRequestLoggerMiddlewareNonStreaming(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Result().StatusCode)
 	assert.Equal(t, "abc", string(rr.Body.Bytes()))
 
-	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=n/a status=200 bytes=3")
+	assert.True(t, mockHandler.HasMessage(slog.LevelDebug, "request completed"))
+	entries := mockHandler.EntriesForLevel(slog.LevelDebug)
+	require.NotEmpty(t, entries)
+	found := false
+	for _, e := range entries {
+		if e.Message == "request completed" {
+			assert.Equal(t, "GET", e.Attrs["method"])
+			assert.Equal(t, "/url", e.Attrs["url"])
+			assert.Equal(t, "n/a", e.Attrs["auth"])
+			assert.Equal(t, int64(200), e.Attrs["status"])
+			assert.Equal(t, uint64(3), e.Attrs["bytes"])
+			found = true
+		}
+	}
+	assert.True(t, found, "expected to find 'request completed' log entry")
 }
 
 func TestRequestLoggerMiddlewareStreaming(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	handler := RequestLoggerMiddleware(mockLog.Loggers)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	logger, mockHandler := logtest.NewMockLogger()
+	handler := RequestLoggerMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(200)
 		w.Write([]byte("ab"))
@@ -46,14 +59,34 @@ func TestRequestLoggerMiddlewareStreaming(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Result().StatusCode)
 	assert.Equal(t, "abc", string(rr.Body.Bytes()))
 
-	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=n/a status=200 \\(streaming\\)")
-	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Stream closed: url=/url auth=n/a bytes=3")
+	assert.True(t, mockHandler.HasMessage(slog.LevelDebug, "request started"))
+	assert.True(t, mockHandler.HasMessage(slog.LevelDebug, "stream closed"))
+
+	entries := mockHandler.EntriesForLevel(slog.LevelDebug)
+	var foundStart, foundClose bool
+	for _, e := range entries {
+		if e.Message == "request started" {
+			assert.Equal(t, "GET", e.Attrs["method"])
+			assert.Equal(t, "/url", e.Attrs["url"])
+			assert.Equal(t, "n/a", e.Attrs["auth"])
+			assert.Equal(t, int64(200), e.Attrs["status"])
+			assert.Equal(t, true, e.Attrs["streaming"])
+			foundStart = true
+		}
+		if e.Message == "stream closed" {
+			assert.Equal(t, "/url", e.Attrs["url"])
+			assert.Equal(t, "n/a", e.Attrs["auth"])
+			assert.Equal(t, uint64(3), e.Attrs["bytes"])
+			foundClose = true
+		}
+	}
+	assert.True(t, foundStart, "expected to find 'request started' log entry")
+	assert.True(t, foundClose, "expected to find 'stream closed' log entry")
 }
 
 func TestRequestLoggerMiddlewareAuth(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	handler := RequestLoggerMiddleware(mockLog.Loggers)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	logger, mockHandler := logtest.NewMockLogger()
+	handler := RequestLoggerMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Write([]byte("abc"))
 	}))
@@ -66,6 +99,18 @@ func TestRequestLoggerMiddlewareAuth(t *testing.T) {
 	req2.Header.Set("Authorization", "abcd")
 	handler.ServeHTTP(rr, req2)
 
-	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=\\*fghij status=200 bytes=3")
-	mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Request: method=GET url=/url auth=abcd status=200 bytes=3")
+	entries := mockHandler.EntriesForLevel(slog.LevelDebug)
+	var foundRedacted, foundShort bool
+	for _, e := range entries {
+		if e.Message == "request completed" {
+			if e.Attrs["auth"] == "*fghij" {
+				foundRedacted = true
+			}
+			if e.Attrs["auth"] == "abcd" {
+				foundShort = true
+			}
+		}
+	}
+	assert.True(t, foundRedacted, "expected to find log entry with redacted auth '*fghij'")
+	assert.True(t, foundShort, "expected to find log entry with short auth 'abcd'")
 }

@@ -3,10 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 var (
@@ -73,13 +73,13 @@ func warnEnvWithoutDBDisambiguation(envName string, canUseTableName bool) string
 // LoadConfigFromEnvironment and LoadConfigFromFile both call this method as a last step, but it is also
 // called again by the Relay constructor because it is possible for application code that uses Relay as a
 // library to construct a Config programmatically.
-func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
+func ValidateConfig(c *Config, logger *slog.Logger) error {
 	var result ct.ValidationResult
 
 	validateConfigDefaultURLs(c)
 	validateConfigTLS(&result, c)
 	validateConfigEnvironments(&result, c)
-	validateConfigDatabases(&result, c, loggers)
+	validateConfigDatabases(&result, c, logger)
 	validateConfigFilters(&result, c)
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
@@ -221,7 +221,7 @@ func validateMaxInboundPayloadSize(result *ct.ValidationResult, c *Config) {
 	}
 }
 
-func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldlog.Loggers) {
+func validateConfigDatabases(result *ct.ValidationResult, c *Config, logger *slog.Logger) {
 	normalizeRedisConfig(result, c)
 
 	databases := []string{}
@@ -256,7 +256,7 @@ func validateConfigDatabases(result *ct.ValidationResult, c *Config, loggers ldl
 	case len(c.Environment) == 1:
 		for name, e := range c.Environment {
 			if e.Prefix == "" && (!c.DynamoDB.Enabled || e.TableName == "") {
-				loggers.Warn(warnEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
+				logger.Warn(warnEnvWithoutDBDisambiguation(name, c.DynamoDB.Enabled))
 			}
 		}
 

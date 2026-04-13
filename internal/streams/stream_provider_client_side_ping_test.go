@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -8,7 +9,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
@@ -52,10 +52,10 @@ func TestStreamProviderMobilePing(t *testing.T) {
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, slog.Default()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, slog.Default()))
 
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
@@ -96,10 +96,10 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, slog.Default()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, slog.Default()))
 
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &clientSidePingEnvStreamProvider{}, esp)
@@ -124,7 +124,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore([]ldmodel.FeatureFlag{testFlag1, testFlag2}, []ldmodel.Segment{testSegment1})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -137,7 +137,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -149,7 +149,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -180,7 +180,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -222,7 +222,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 

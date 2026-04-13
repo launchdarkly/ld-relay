@@ -13,8 +13,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
@@ -166,7 +165,7 @@ type streamManagerTestParams struct {
 	messageHandler *testMessageHandler
 	stream         httphelpers.SSEStreamControl
 	requestsCh     <-chan httphelpers.HTTPRequestInfo
-	mockLog        *ldlogtest.MockLog
+	mockLog        *logtest.MockHandler
 }
 
 type testMessage struct {
@@ -219,12 +218,10 @@ func streamManagerTestWithStreamHandler(
 	stream httphelpers.SSEStreamControl,
 	action func(p streamManagerTestParams),
 ) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	logger, mockHandler := logtest.NewMockLogger()
 
 	handler, requestsCh := httphelpers.RecordingHandler(autoConfigEndpointHandler(streamHandler))
-	httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", mockLog.Loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", logger)
 	if err != nil {
 		panic(err)
 	}
@@ -235,7 +232,7 @@ func streamManagerTestWithStreamHandler(
 			stream:         stream,
 			messageHandler: testMessageHandler,
 			requestsCh:     requestsCh,
-			mockLog:        mockLog,
+			mockLog:        mockHandler,
 		}
 		p.streamManager = NewStreamManager(
 			testConfigKey,
@@ -244,7 +241,7 @@ func streamManagerTestWithStreamHandler(
 			httpConfig,
 			time.Millisecond,
 			rpacProtocolVersion,
-			mockLog.Loggers,
+			logger,
 		)
 		defer p.streamManager.Close()
 

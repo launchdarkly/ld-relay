@@ -3,6 +3,7 @@ package events
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sync"
@@ -15,10 +16,10 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
@@ -46,7 +47,7 @@ type analyticsEventEndpointDispatcher struct {
 	wrapper                   *datadestination.DataDestinationWrapper
 	eventQueueCleanupInterval time.Duration
 	eventMetrics              EventMetrics
-	loggers                   ldlog.Loggers
+	logger                    *slog.Logger
 	mu                        sync.Mutex
 }
 
@@ -55,7 +56,7 @@ type diagnosticEventEndpointDispatcher struct {
 	httpConfig httpconfig.HTTPConfig
 	baseURI    string
 	uriPath    string
-	loggers    ldlog.Loggers
+	logger     *slog.Logger
 }
 
 // GetHandler returns the HTTP handler for an endpoint, or nil if none is defined
@@ -73,17 +74,17 @@ func (r *EventDispatcher) GetHandler(sdkKind basictypes.SDKKind, eventsKind ldev
 }
 
 func (r *analyticsEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *http.Request) {
-	consumeEvents(w, req, r.loggers, func(body []byte) {
+	consumeEvents(w, req, r.logger, func(body []byte) {
 		evts := make([]json.RawMessage, 0)
 		err := json.Unmarshal(body, &evts)
 		if err != nil {
-			r.loggers.Errorf("Error unmarshaling event post body: %+v", err)
+			r.logger.Error("error unmarshaling event post body", "error", err)
 			return
 		}
 
 		metadata := GetEventPayloadMetadata(req)
 
-		r.loggers.Debugf("Received %d events (v%d) to be proxied to %s", len(evts), metadata.SchemaVersion, r.remotePath)
+		r.logger.Debug("received events to be proxied", "count", len(evts), "schemaVersion", metadata.SchemaVersion, "remotePath", r.remotePath)
 		if metadata.SchemaVersion < SummaryEventsSchemaVersion {
 			r.getSummarizingRelay().enqueue(metadata, evts)
 			return
@@ -124,27 +125,27 @@ func (r *analyticsEventEndpointDispatcher) close() {
 }
 
 func (d *diagnosticEventEndpointDispatcher) dispatch(w http.ResponseWriter, req *http.Request) {
-	consumeEvents(w, req, d.loggers, func(body []byte) {
+	consumeEvents(w, req, d.logger, func(body []byte) {
 		// We are just operating as a reverse proxy and passing the request on verbatim to LD; we do not
 		// need to parse the JSON.
-		d.loggers.Debugf("Received diagnostic event to be proxied to %s%s", d.baseURI, d.uriPath)
+		d.logger.Debug("received diagnostic event to be proxied", "baseURI", d.baseURI, "uriPath", d.uriPath)
 
 		sendConfig := ldevents.EventSenderConfiguration{
 			Client:            d.httpClient,
 			BaseURI:           d.baseURI,
 			BaseHeaders:       func() http.Header { return req.Header },
-			Loggers:           d.loggers,
+			Loggers:           logging.NewLDLogBridge(d.logger),
 			EnableCompression: true,
 		}
 		_ = ldevents.SendEventDataWithRetry(sendConfig, ldevents.DiagnosticEventDataKind, d.uriPath, body, 1)
 	})
 }
 
-func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Loggers, thenExecute func([]byte)) {
+func consumeEvents(w http.ResponseWriter, req *http.Request, logger *slog.Logger, thenExecute func([]byte)) {
 	body, bodyErr := io.ReadAll(req.Body)
 
 	if bodyErr != nil { // COVERAGE: can't make this happen in unit tests
-		loggers.Errorf("Error reading event post body: %+v", bodyErr)
+		logger.Error("error reading event post body", "error", bodyErr)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(util.ErrorJSONMsg("unable to read request body"))
 		return
@@ -161,7 +162,7 @@ func consumeEvents(w http.ResponseWriter, req *http.Request, loggers ldlog.Logge
 
 	defer func() {
 		if err := recover(); err != nil { // COVERAGE: can't make this happen in unit tests
-			loggers.Errorf("Unexpected panic in event relay: %+v", err)
+			logger.Error("unexpected panic in event relay", "error", err)
 		}
 	}()
 	thenExecute(body)
@@ -171,7 +172,7 @@ func (r *analyticsEventEndpointDispatcher) getVerbatimRelay() *eventVerbatimRela
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.verbatimRelay == nil {
-		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.loggers, r.remotePath,
+		r.verbatimRelay = newEventVerbatimRelay(r.authKey, r.config, r.httpConfig, r.logger, r.remotePath,
 			OptionEventMetrics{EventMetrics: r.eventMetrics})
 	}
 	return r.verbatimRelay
@@ -182,7 +183,7 @@ func (r *analyticsEventEndpointDispatcher) getSummarizingRelay() *eventSummarizi
 	defer r.mu.Unlock()
 	if r.summarizingRelay == nil {
 		r.summarizingRelay = newEventSummarizingRelay(r.config, r.httpConfig, r.authKey, r.wrapper,
-			r.loggers, r.remotePath, r.eventQueueCleanupInterval, r.eventMetrics)
+			r.logger, r.remotePath, r.eventQueueCleanupInterval, r.eventMetrics)
 	}
 	return r.summarizingRelay
 }
@@ -203,7 +204,7 @@ func NewEventDispatcher(
 	sdkKey c.SDKKey,
 	mobileKey c.MobileKey,
 	envID c.EnvironmentID,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	wrapper *datadestination.DataDestinationWrapper,
@@ -213,21 +214,21 @@ func NewEventDispatcher(
 	ep := &EventDispatcher{
 		analyticsEndpoints: map[basictypes.SDKKind]*analyticsEventEndpointDispatcher{
 			basictypes.ServerSDK: newAnalyticsEventEndpointDispatcher(sdkKey,
-				config, httpConfig, wrapper, loggers, "/bulk", eventQueueCleanupInterval, eventMetrics),
+				config, httpConfig, wrapper, logger,"/bulk", eventQueueCleanupInterval, eventMetrics),
 		},
 		diagnosticEndpoints: map[basictypes.SDKKind]*diagnosticEventEndpointDispatcher{
-			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/diagnostic"),
+			basictypes.ServerSDK: newDiagnosticEventEndpointDispatcher(config, httpConfig, logger,"/diagnostic"),
 		},
 	}
 	if mobileKey.Defined() {
 		ep.analyticsEndpoints[basictypes.MobileSDK] = newAnalyticsEventEndpointDispatcher(mobileKey,
-			config, httpConfig, wrapper, loggers, "/mobile", eventQueueCleanupInterval, eventMetrics)
-		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers, "/mobile/events/diagnostic")
+			config, httpConfig, wrapper, logger,"/mobile", eventQueueCleanupInterval, eventMetrics)
+		ep.diagnosticEndpoints[basictypes.MobileSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, logger,"/mobile/events/diagnostic")
 	}
 	if envID.Defined() {
-		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, wrapper, loggers,
+		ep.analyticsEndpoints[basictypes.JSClientSDK] = newAnalyticsEventEndpointDispatcher(envID, config, httpConfig, wrapper, logger,
 			"/events/bulk/"+string(envID), eventQueueCleanupInterval, eventMetrics)
-		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, loggers,
+		ep.diagnosticEndpoints[basictypes.JSClientSDK] = newDiagnosticEventEndpointDispatcher(config, httpConfig, logger,
 			"/events/diagnostic/"+string(envID))
 	}
 	return ep
@@ -262,7 +263,7 @@ func (r *EventDispatcher) ReplaceCredential(newCredential credential.SDKCredenti
 func newDiagnosticEventEndpointDispatcher(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	remotePath string,
 ) *diagnosticEventEndpointDispatcher {
 	eventsURI := getEventsURI(config)
@@ -271,7 +272,7 @@ func newDiagnosticEventEndpointDispatcher(
 		httpConfig: httpConfig,
 		baseURI:    eventsURI,
 		uriPath:    remotePath,
-		loggers:    loggers,
+		logger:     logger,
 	}
 }
 
@@ -280,7 +281,7 @@ func newAnalyticsEventEndpointDispatcher(
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
 	wrapper *datadestination.DataDestinationWrapper,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
 	eventMetrics EventMetrics,
@@ -291,7 +292,7 @@ func newAnalyticsEventEndpointDispatcher(
 		httpClient:                httpConfig.Client(),
 		httpConfig:                httpConfig,
 		wrapper:                   wrapper,
-		loggers:                   loggers,
+		logger:                    logger,
 		remotePath:                remotePath,
 		eventQueueCleanupInterval: eventQueueCleanupInterval,
 		eventMetrics:              eventMetrics,
@@ -302,7 +303,7 @@ func newEventVerbatimRelay(
 	authKey credential.SDKCredential,
 	config c.EventsConfig,
 	httpConfig httpconfig.HTTPConfig,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	remotePath string,
 	extraOptions ...OptionType,
 ) *eventVerbatimRelay {
@@ -316,7 +317,7 @@ func newEventVerbatimRelay(
 	)
 	opts = append(opts, extraOptions...)
 
-	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, loggers, opts...)
+	publisher, _ := NewHTTPEventPublisher(authKey, httpConfig, logger, opts...)
 
 	res := &eventVerbatimRelay{
 		config:    config,

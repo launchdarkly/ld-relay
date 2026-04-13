@@ -2,11 +2,10 @@ package config
 
 import (
 	"crypto/tls"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 func TestSDKCredential(t *testing.T) {
@@ -17,21 +16,21 @@ func TestSDKCredential(t *testing.T) {
 }
 
 func TestOptLogLevel(t *testing.T) {
-	validLevel := ldlog.Warn
+	validLevel := slog.LevelWarn
 	validString := "wArN"
 	badString := "wrong"
 
 	t.Run("zero value", func(t *testing.T) {
 		o := OptLogLevel{}
 		assert.False(t, o.IsDefined())
-		assert.Equal(t, ldlog.Error, o.GetOrElse(ldlog.Error))
+		assert.Equal(t, slog.LevelError, o.GetOrElse(slog.LevelError))
 	})
 
 	t.Run("new from valid string", func(t *testing.T) {
 		o, err := NewOptLogLevelFromString(validString)
 		assert.NoError(t, err)
 		assert.True(t, o.IsDefined())
-		assert.Equal(t, validLevel, o.GetOrElse(ldlog.Error))
+		assert.Equal(t, validLevel, o.GetOrElse(slog.LevelError))
 	})
 
 	t.Run("new from empty string", func(t *testing.T) {

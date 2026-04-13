@@ -2,22 +2,22 @@ package logging
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGlobalContextLoggers(t *testing.T) {
-	assert.Equal(t, ldlog.NewDisabledLoggers(), GetGlobalContextLoggers(context.Background()))
+	assert.Equal(t, slog.Default(), GetContextLogger(context.Background()))
 
-	mockLog := ldlogtest.NewMockLog()
+	logger, _ := logtest.NewMockLogger()
 	req, _ := http.NewRequest("GET", "", nil)
-	GlobalContextLoggersMiddleware(mockLog.Loggers)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, mockLog.Loggers, GetGlobalContextLoggers(r.Context()))
+	ContextLoggerMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, logger, GetContextLogger(r.Context()))
 	})).ServeHTTP(&httptest.ResponseRecorder{}, req)
 }

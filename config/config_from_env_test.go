@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -10,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 )
 
 func TestConfigFromEnvironmentWithValidProperties(t *testing.T) {
@@ -52,7 +53,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		}
 		withEnvironment(vars, func() {
 			c := startingConfig
-			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			err := LoadConfigFromEnvironment(&c, slog.Default())
 			require.NoError(t, err)
 
 			assert.Equal(t, expectedConfig, c)
@@ -69,7 +70,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
 		withEnvironment(vars, func() {
 			c := startingConfig
-			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			err := LoadConfigFromEnvironment(&c, slog.Default())
 			require.NoError(t, err)
 
 			assert.Equal(t, expectedConfig, c)
@@ -87,7 +88,7 @@ func TestConfigFromEnvironmentOverridesExistingSettings(t *testing.T) {
 		expectedConfig.Redis.URL = newOptURLAbsoluteMustBeValid("redis://redishost:2222")
 		withEnvironment(vars, func() {
 			c := startingConfig
-			err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+			err := LoadConfigFromEnvironment(&c, slog.Default())
 			require.NoError(t, err)
 
 			assert.Equal(t, expectedConfig, c)
@@ -232,11 +233,11 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 
 	t.Run("parses valid log level", func(t *testing.T) {
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(slog.LevelWarn) },
 			envVars:    map[string]string{"LOG_LEVEL": "warn"},
 		})
 		testValidConfigVars(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(slog.LevelError) },
 			envVars:    map[string]string{"LOG_LEVEL": "eRrOr"},
 		})
 	})
@@ -249,20 +250,20 @@ func TestConfigFromEnvironmentFieldValidation(t *testing.T) {
 	})
 }
 
-func testValidConfigVars(t *testing.T, tdc testDataValidConfig) { //} buildConfig func(c *Config), vars map[string]string) {
+func testValidConfigVars(t *testing.T, tdc testDataValidConfig) {
 	withEnvironment(tdc.envVars, func() {
 		var c Config
-		mockLog := ldlogtest.NewMockLog()
-		err := LoadConfigFromEnvironment(&c, mockLog.Loggers)
+		logger, mockHandler := logtest.NewMockLogger()
+		err := LoadConfigFromEnvironment(&c, logger)
 		require.NoError(t, err)
-		tdc.assertResult(t, c, mockLog)
+		tdc.assertResult(t, c, mockHandler)
 	})
 }
 
 func testInvalidConfigVars(t *testing.T, vars map[string]string, errMessage string) {
 	withEnvironment(vars, func() {
 		var c Config
-		err := LoadConfigFromEnvironment(&c, ldlog.NewDisabledLoggers())
+		err := LoadConfigFromEnvironment(&c, slog.Default())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), errMessage)
 	})

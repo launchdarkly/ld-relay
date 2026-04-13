@@ -1,10 +1,11 @@
 package sharedtest
 
 import (
+	"log/slog"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
@@ -21,7 +22,7 @@ func ExistingInstance[T any](instance T) subsystems.ComponentConfigurer[T] {
 }
 
 func MakeBasicHTTPConfig() httpconfig.HTTPConfig {
-	ret, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
+	ret, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", slog.Default())
 	if err != nil {
 		panic(err)
 	}

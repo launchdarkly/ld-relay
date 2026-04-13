@@ -3,9 +3,10 @@ package config
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 )
 
 func errBadLogLevel(s string) error {
@@ -139,16 +140,17 @@ func (k AutoConfigKey) Defined() bool {
 }
 
 // OptLogLevel represents an optional log level parameter. It must match one of the level names "debug",
-// "info", "warn", or "error" (case-insensitive).
+// "info", "warn", "error", or "none" (case-insensitive).
 //
 // The zero value OptLogLevel{} is valid and undefined (IsDefined() is false).
 type OptLogLevel struct {
-	level ldlog.LogLevel
+	level   slog.Level
+	defined bool
 }
 
 // NewOptLogLevel creates an OptLogLevel that wraps the given value.
-func NewOptLogLevel(level ldlog.LogLevel) OptLogLevel {
-	return OptLogLevel{level: level}
+func NewOptLogLevel(level slog.Level) OptLogLevel {
+	return OptLogLevel{level: level, defined: true}
 }
 
 // NewOptLogLevelFromString creates an OptLogLevel from a string that must either be a valid log level
@@ -157,22 +159,21 @@ func NewOptLogLevelFromString(levelName string) (OptLogLevel, error) {
 	if levelName == "" {
 		return OptLogLevel{}, nil
 	}
-	for _, level := range []ldlog.LogLevel{ldlog.Debug, ldlog.Info, ldlog.Warn, ldlog.Error, ldlog.None} {
-		if strings.EqualFold(level.Name(), levelName) {
-			return NewOptLogLevel(level), nil
-		}
+	level, ok := logging.SlogLevelFromString(strings.TrimSpace(levelName))
+	if !ok {
+		return OptLogLevel{}, errBadLogLevel(levelName)
 	}
-	return OptLogLevel{}, errBadLogLevel(levelName)
+	return NewOptLogLevel(level), nil
 }
 
 // IsDefined returns true if the instance contains a value.
 func (o OptLogLevel) IsDefined() bool {
-	return o.level != 0
+	return o.defined
 }
 
 // GetOrElse returns the wrapped value, or the alternative value if there is no value.
-func (o OptLogLevel) GetOrElse(orElseValue ldlog.LogLevel) ldlog.LogLevel {
-	if o.level == 0 {
+func (o OptLogLevel) GetOrElse(orElseValue slog.Level) slog.Level {
+	if !o.defined {
 		return orElseValue
 	}
 	return o.level

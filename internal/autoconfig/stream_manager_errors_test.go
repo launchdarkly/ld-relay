@@ -2,6 +2,7 @@ package autoconfig
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"testing"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 )
@@ -23,7 +23,7 @@ func eventShouldCauseStreamRestart(t *testing.T, event httphelpers.SSEEvent) {
 		case <-p.messageHandler.received:
 			require.Fail(t, "received unexpected message")
 		case <-p.requestsCh: // got expected stream restart
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "malformed JSON")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelError, "malformed JSON"))
 		case <-time.After(time.Second):
 			require.Fail(t, "timed out waiting for stream restart")
 		}
@@ -93,7 +93,7 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 		p.startStream()
 		<-p.requestsCh // first request
 		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, expectedWarning)
+		assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, expectedWarning))
 		msg := p.requireMessage()
 		assert.NotNil(t, msg.add)
 		p.requireReceivedAllMessage()
@@ -103,13 +103,13 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 func TestReconnectAfterRecoverableHTTPError(t *testing.T) {
 	for _, status := range []int{400, 500, 503} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
-			errorShouldCauseReconnect(t, httphelpers.HandlerWithStatus(status), fmt.Sprintf("HTTP error %d", status))
+			errorShouldCauseReconnect(t, httphelpers.HandlerWithStatus(status), fmt.Sprintf("HTTP error"))
 		})
 	}
 }
 
 func TestReconnectAfterNetworkError(t *testing.T) {
-	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "Unexpected error")
+	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "unexpected error")
 }
 
 func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
@@ -132,7 +132,7 @@ func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
 				case <-p.messageHandler.received:
 					require.Fail(t, "got unexpected event")
 				case <-time.After(time.Millisecond * 200):
-					p.mockLog.AssertMessageMatch(t, true, ldlog.Error, "Invalid auto-configuration key")
+					assert.True(t, p.mockLog.HasMessage(slog.LevelError, "invalid auto-configuration key"))
 				}
 			})
 		})

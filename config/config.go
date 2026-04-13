@@ -4,7 +4,6 @@ import (
 	"time"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 )
 
 const (
@@ -93,11 +92,6 @@ const (
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumCredentialCleanupInterval = 100 * time.Millisecond
 )
-
-// DefaultLoggers is the default logging configuration used by Relay.
-//
-// Output goes to stdout, except Error level which goes to stderr. Debug level is disabled.
-var DefaultLoggers = logging.MakeDefaultLoggers() //nolint:gochecknoglobals
 
 // Config describes the configuration for a relay instance.
 //

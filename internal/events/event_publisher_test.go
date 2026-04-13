@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -14,7 +15,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
@@ -26,7 +26,7 @@ import (
 const testSDKKey = config.SDKKey("my-key")
 
 func defaultHTTPConfig() httpconfig.HTTPConfig {
-	hc, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
+	hc, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", slog.Default())
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +38,7 @@ func TestHTTPEventPublisherSimple(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionBaseURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(), OptionBaseURI(server.URL))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello again"`))
@@ -59,7 +59,7 @@ func TestHTTPEventPublisherMultiQueuesWithMetadata(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionBaseURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(), OptionBaseURI(server.URL))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{Tags: "a"}, json.RawMessage(`"hello"`))
 		publisher.Publish(EventPayloadMetadata{Tags: "b"}, json.RawMessage(`"ok"`))
@@ -112,7 +112,7 @@ func TestHTTPEventPublisherOptionURIPath(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionURIPath("/special-path"))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -129,7 +129,7 @@ func TestHTTPEventPublisherOptionURIPath(t *testing.T) {
 }
 
 func TestHTTPEventPublisherClosesImmediatelyAndOnlyOnce(t *testing.T) {
-	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), ldlog.NewDisabledLoggers())
+	publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default())
 	timeout := time.After(time.Second)
 	publisher.Close()
 	publisher.Close()
@@ -141,7 +141,7 @@ func TestHTTPPublisherAutomaticFlush(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionFlushInterval(time.Millisecond))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -160,7 +160,7 @@ func TestHTTPEventPublisherFlushDoesNothingIfThereAreNoEvents(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionFlushInterval(time.Millisecond))
 		defer publisher.Close()
 		publisher.Flush()
@@ -173,7 +173,7 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionCapacity(1))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -273,7 +273,7 @@ func TestHTTPEventPublisherDroppedEventsMetric(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		metrics := &mockEventMetrics{}
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionCapacity(2), OptionEventMetrics{EventMetrics: metrics})
 		defer publisher.Close()
 
@@ -298,7 +298,7 @@ func TestHTTPEventPublisherEventsSentMetric(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		metrics := &mockEventMetrics{}
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
 		defer publisher.Close()
 
@@ -318,7 +318,7 @@ func TestHTTPEventPublisherPendingEventsMetric(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		metrics := &mockEventMetrics{}
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
 		defer publisher.Close()
 
@@ -344,7 +344,7 @@ func TestHTTPEventPublisherEventsFailedSendMetric(t *testing.T) {
 	)
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		metrics := &mockEventMetrics{}
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionEventMetrics{EventMetrics: metrics})
 		defer publisher.Close()
 
@@ -367,7 +367,7 @@ func TestHTTPEventPublisherDroppedEventsMetricNilIsNoOp(t *testing.T) {
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
 		// No EventMetrics option — should not panic
-		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL), OptionCapacity(1))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`), json.RawMessage(`"goodbye"`))
@@ -388,7 +388,7 @@ func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 			httphelpers.SequentialHandler(errorHandler, errorHandler, successHandler),
 		)
 		httphelpers.WithServer(handler, func(server *httptest.Server) {
-			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+			publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(),
 				OptionBaseURI(server.URL))
 			defer publisher.Close()
 			publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -426,7 +426,7 @@ func TestHTTPEventPublisherUnrecoverableError(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -444,7 +444,7 @@ func TestHTTPEventPublisherUnrecoverableErrorDoesNotBlockFutureProcessing(t *tes
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(401))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers,
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(),
 			OptionBaseURI(server.URL))
 		defer publisher.Close()
 		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"hello"`))
@@ -468,7 +468,7 @@ func TestHTTPEventPublisherReplaceCredential(t *testing.T) {
 	defer mockLog.DumpIfTestFailed(t)
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
-		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), mockLog.Loggers, OptionBaseURI(server.URL))
+		publisher, _ := NewHTTPEventPublisher(testSDKKey, defaultHTTPConfig(), slog.Default(), OptionBaseURI(server.URL))
 		defer publisher.Close()
 
 		publisher.ReplaceCredential(newSDKKey)

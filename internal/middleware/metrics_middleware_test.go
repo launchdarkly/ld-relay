@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,8 +15,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +32,6 @@ type metricsMiddlewareTestParams struct {
 	env     relayenv.EnvContext
 	envName string
 	reader  sdkmetric.Reader
-	mockLog *ldlogtest.MockLog
 }
 
 func (p metricsMiddlewareTestParams) collectMetrics(t *testing.T) *metricdata.ResourceMetrics {
@@ -45,10 +43,7 @@ func (p metricsMiddlewareTestParams) collectMetrics(t *testing.T) *metricdata.Re
 }
 
 func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams)) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	manager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
+	manager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -71,7 +66,7 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 		ClientFactory:  testclient.FakeLDClientFactory(true),
 		MetricsManager: manager,
 		LogNameMode:    relayenv.LogNameIsEnvID,
-		Loggers:        mockLog.Loggers,
+		Logger:         slog.Default(),
 	}, nil)
 	require.NoError(t, err)
 	defer env.Close()
@@ -80,7 +75,6 @@ func metricsMiddlewareTest(t *testing.T, action func(metricsMiddlewareTestParams
 		env:     env,
 		envName: envName,
 		reader:  reader,
-		mockLog: mockLog,
 	})
 }
 

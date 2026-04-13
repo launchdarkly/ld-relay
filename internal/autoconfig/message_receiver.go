@@ -1,6 +1,6 @@
 package autoconfig
 
-import "github.com/launchdarkly/go-sdk-common/v3/ldlog"
+import "log/slog"
 
 // MessageReceiver is responsible for transforming a potentially unreliable stream of SSE message from LaunchDarkly
 // into a reliable sequence of commands for other components. It serves to isolate the state needed for those operations
@@ -14,8 +14,8 @@ import "github.com/launchdarkly/go-sdk-common/v3/ldlog"
 // This component must discard Message 2, since its version number is <= than a previous message. The final result
 // is that XYZ should not exist in the system.
 type MessageReceiver[T Item] struct {
-	seen    map[string]*versioned[T]
-	loggers ldlog.Loggers
+	seen   map[string]*versioned[T]
+	logger *slog.Logger
 }
 
 // An Item is anything that can report its own ID and a human-readable description of itself.
@@ -75,10 +75,10 @@ func (v *versioned[T]) update(item T, version int) bool {
 	return resurrected
 }
 
-func NewMessageReceiver[T Item](loggers ldlog.Loggers) *MessageReceiver[T] {
+func NewMessageReceiver[T Item](logger *slog.Logger) *MessageReceiver[T] {
 	return &MessageReceiver[T]{
-		seen:    make(map[string]*versioned[T]),
-		loggers: loggers,
+		seen:   make(map[string]*versioned[T]),
+		logger: logger,
 	}
 }
 
@@ -89,23 +89,23 @@ func (v *MessageReceiver[T]) Upsert(id string, item T, version int) Action {
 	// Never-before-seen items should be inserted.
 	if !seen {
 		v.seen[id] = newVersioned(item, version)
-		v.loggers.Infof(logMsgAddEnv, item.Describe())
+		v.logger.Info("added item", "item", item.Describe())
 		return ActionInsert
 	}
 
 	// Out-of-order messages have no effect, but could indicate something odd.
 	if version <= current.version {
-		v.loggers.Debugf(logMsgUpdateBadVersion, item.Describe())
+		v.logger.Debug("ignoring out-of-order update", "item", item.Describe())
 		return ActionNoop
 	}
 
 	// If the item was previously a tombstone, then this is really an insert - rather than an update - since we've
 	// had an intervening delete.
 	if resurrected := current.update(item, version); resurrected {
-		v.loggers.Infof(logMsgAddEnv, item.Describe())
+		v.logger.Info("added item", "item", item.Describe())
 		return ActionInsert
 	} else {
-		v.loggers.Infof(logMsgUpdateEnv, item.Describe())
+		v.logger.Info("properties have changed", "item", item.Describe())
 		return ActionUpdate
 	}
 }
@@ -126,7 +126,7 @@ func (v *MessageReceiver[T]) Delete(id string, version int) Action {
 	if version <= current.version {
 		// Not using current.item.Describe() because if this was constructed using newTombstone,
 		// then item will be zero-valued.
-		v.loggers.Debugf(logMsgDeleteBadVersion, id)
+		v.logger.Debug("ignoring out-of-order delete", "id", id)
 		return ActionNoop
 	}
 
@@ -135,7 +135,7 @@ func (v *MessageReceiver[T]) Delete(id string, version int) Action {
 	// increase the existing tombstone's version number.
 
 	if !current.entombed {
-		v.loggers.Infof(logMsgDeleteEnv, current.item.Describe())
+		v.logger.Info("removed item", "item", current.item.Describe())
 		current.entomb(version)
 		return ActionDelete
 	}
@@ -150,7 +150,7 @@ func (v *MessageReceiver[T]) Forget(id string) Action {
 	action := ActionNoop
 	if current, seen := v.seen[id]; seen {
 		if !current.entombed {
-			v.loggers.Infof(logMsgDeleteEnv, current.item.Describe())
+			v.logger.Info("removed item", "item", current.item.Describe())
 			action = ActionDelete
 		}
 		delete(v.seen, id)

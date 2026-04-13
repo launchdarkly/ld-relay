@@ -5,8 +5,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 )
@@ -236,11 +235,9 @@ func TestMessageReceiver_CommandSequences(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			mockLog := ldlogtest.NewMockLog()
-			defer mockLog.DumpIfTestFailed(t)
-			mockLog.Loggers.SetMinLevel(ldlog.Debug)
+			mockLog, _ := logtest.NewMockLogger()
 
-			rec := NewMessageReceiver[testItem](mockLog.Loggers)
+			rec := NewMessageReceiver[testItem](mockLog)
 
 			const id = "id"
 			const value = testItem("value")
@@ -265,9 +262,7 @@ func TestMessageReceiver_CommandSequences(t *testing.T) {
 }
 
 func TestMessageReceiver_Purge(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	mockLog, _ := logtest.NewMockLogger()
 
 	type scenario struct {
 		name     string
@@ -311,7 +306,7 @@ func TestMessageReceiver_Purge(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			rec := NewMessageReceiver[testItem](mockLog.Loggers)
+			rec := NewMessageReceiver[testItem](mockLog)
 
 			for _, id := range scenario.upsert {
 				rec.Upsert(id, "arbitrary", 0)
@@ -333,9 +328,7 @@ func TestMessageReceiver_Purge(t *testing.T) {
 // into two MessageReceivers, and then Purge and Retain (w/ an inverted predicate) are called.
 // The list of deleted elements reported by the functions should match.
 func TestNewMessageReceiver_RetainAndPurgeAreInverse(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	mockLog, _ := logtest.NewMockLogger()
 
 	subset := func(items []string, probability float64) []string {
 		var selected []string
@@ -349,8 +342,8 @@ func TestNewMessageReceiver_RetainAndPurgeAreInverse(t *testing.T) {
 
 	inverseProperty := func(ids []string) bool {
 
-		purge := NewMessageReceiver[testItem](mockLog.Loggers)
-		retain := NewMessageReceiver[testItem](mockLog.Loggers)
+		purge := NewMessageReceiver[testItem](mockLog)
+		retain := NewMessageReceiver[testItem](mockLog)
 
 		for _, id := range ids {
 			purge.Upsert(id, "arbitrary", 0)

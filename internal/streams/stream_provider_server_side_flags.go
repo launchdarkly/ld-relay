@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -10,7 +11,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -29,8 +29,8 @@ type serverSideFlagsOnlyEnvStreamProvider struct {
 }
 
 type serverSideFlagsOnlyEnvStreamRepository struct {
-	store   EnvStoreQueries
-	loggers ldlog.Loggers
+	store  EnvStoreQueries
+	logger *slog.Logger
 
 	flightGroup singleflight.Group
 }
@@ -52,12 +52,12 @@ func (s *serverSideFlagsOnlyStreamProvider) HandlerV2(params sdkauth.ScopedCrede
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
 	params sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) EnvStreamProvider {
 	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, logger: logger}
 	s.fdv1Server.Register(params.String(), repo)
 	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.fdv1Server, channels: []string{params.String()}}
 	return envStream
@@ -66,12 +66,12 @@ func (s *serverSideFlagsOnlyStreamProvider) RegisterV1(
 func (s *serverSideFlagsOnlyStreamProvider) RegisterV2(
 	params sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) EnvStreamProvider {
 	if _, ok := params.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, loggers: loggers}
+	repo := &serverSideFlagsOnlyEnvStreamRepository{store: store, logger: logger}
 	s.fdv2Server.Register(params.String(), repo)
 	envStream := &serverSideFlagsOnlyEnvStreamProvider{server: s.fdv2Server, channels: []string{params.String()}}
 	return envStream
@@ -155,7 +155,7 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) getReplayEvent() (eventsource.E
 		}
 		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
-			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			r.logger.Error("error getting all flags", "error", err)
 			return nil, err
 		}
 		flags := snapshot[ldstoreimpl.Features()]

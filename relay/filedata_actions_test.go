@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/stretchr/testify/assert"
@@ -62,9 +62,9 @@ func offlineModeTest(
 	config.OfflineMode.FileDataSource = "filename is ignored in these tests"
 
 	relay, err := newRelayInternal(config, relayInternalOptions{
-		loggers:       mockLog.Loggers,
+		logger:        slog.Default(),
 		clientFactory: testclient.RealLDClientFactoryWithChannel(true, clientsCreatedCh),
-		archiveManagerFactory: func(filename string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
+		archiveManagerFactory: func(filename string, monitoringInterval time.Duration, handler filedata.UpdateHandler, logger *slog.Logger) (
 			filedata.ArchiveManagerInterface, error,
 		) {
 			p.updateHandler = handler

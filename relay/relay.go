@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -26,7 +27,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 	"github.com/launchdarkly/ld-relay/v9/relay/version"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 )
 
@@ -66,7 +66,7 @@ type Relay struct {
 	autoConfigStream              *autoconfig.StreamManager
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
-	loggers                       ldlog.Loggers
+	logger                        *slog.Logger
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -76,9 +76,9 @@ type ClientFactoryFunc func(sdkKey config.SDKKey, config ld.Config) (*ld.LDClien
 // Using a struct type for this instead of adding parameters to newRelayInternal helps to minimize
 // changes to test code whenever we make more things configurable.
 type relayInternalOptions struct {
-	loggers               ldlog.Loggers
+	logger                *slog.Logger
 	clientFactory         sdks.ClientFactoryFunc
-	archiveManagerFactory func(path string, monitoringInterval time.Duration, environmentUpdates filedata.UpdateHandler, loggers ldlog.Loggers) (filedata.ArchiveManagerInterface, error)
+	archiveManagerFactory func(path string, monitoringInterval time.Duration, environmentUpdates filedata.UpdateHandler, logger *slog.Logger) (filedata.ArchiveManagerInterface, error)
 }
 
 // NewRelay creates a new Relay given a configuration and a method to create a client.
@@ -87,7 +87,7 @@ type relayInternalOptions struct {
 //
 // The clientFactory parameter can be nil and is only needed if you want to customize how Relay
 // creates the Go SDK client instance.
-func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactoryFunc) (*Relay, error) {
+func NewRelay(c config.Config, logger *slog.Logger, clientFactory ClientFactoryFunc) (*Relay, error) {
 	realClientFactory := sdks.DefaultClientFactory()
 	if clientFactory != nil {
 		// There's a function signature mismatch here because we didn't originally include the timeout in the
@@ -99,7 +99,7 @@ func NewRelay(c config.Config, loggers ldlog.Loggers, clientFactory ClientFactor
 			})
 	}
 	return newRelayInternal(c, relayInternalOptions{
-		loggers:       loggers,
+		logger:        logger,
 		clientFactory: realClientFactory,
 	})
 }
@@ -108,10 +108,10 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	var thingsToCleanUp util.CleanupTasks // keeps track of partially constructed things in case we exit early
 	defer thingsToCleanUp.Run()
 
-	loggers := options.loggers
+	logger := options.logger
 	clientFactory := options.clientFactory
 
-	if err := config.ValidateConfig(&c, loggers); err != nil { // in case a not-yet-validated Config was passed to NewRelay
+	if err := config.ValidateConfig(&c, logger); err != nil { // in case a not-yet-validated Config was passed to NewRelay
 		return nil, err
 	}
 
@@ -131,11 +131,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		clientFactory = sdks.DefaultClientFactory()
 	}
 
-	if c.Main.LogLevel.IsDefined() {
-		loggers.SetMinLevel(c.Main.LogLevel.GetOrElse(ldlog.Info))
-	}
-
-	metricsManager, err := metrics.NewManager(c.OpenTelemetry, 0, loggers)
+	metricsManager, err := metrics.NewManager(c.OpenTelemetry, 0, logger)
 	if err != nil {
 		return nil, errNewMetricsManagerFailed(err)
 	}
@@ -161,7 +157,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		userAgent:                     userAgent,
 		envLogNameMode:                logNameMode,
 		config:                        c,
-		loggers:                       loggers,
+		logger:                        logger,
 	}
 
 	thingsToCleanUp.AddCloser(r)
@@ -190,7 +186,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			c.HTTP,
 			c.AutoConfig.Key,
 			userAgent,
-			loggers,
+			logger,
 		)
 		if err != nil {
 			return nil, err
@@ -198,11 +194,11 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
-			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, loggers),
+			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, logger),
 			httpConfig,
 			0,
 			rpacProtocolVersion,
-			loggers,
+			logger,
 		)
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
@@ -227,7 +223,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			c.OfflineMode.FileDataSource,
 			c.OfflineMode.FileDataSourceMonitoringInterval.GetOrElse(0),
 			&relayFileDataActions{r: r},
-			loggers,
+			logger,
 		)
 		if err != nil {
 			return nil, err
@@ -237,7 +233,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	}
 
 	if c.Main.ExitAlways {
-		options.loggers.Info("Running in one-shot mode - will exit immediately after initializing environments")
+		logger.Info("running in one-shot mode - will exit immediately after initializing environments")
 		// Just wait until all clients have either started or failed, then exit without bothering
 		// to set up HTTP handlers.
 		err := r.waitForAllClients(0)
@@ -290,10 +286,10 @@ func makeFilteredEnvironments(c *config.Config) map[string]*config.EnvConfig {
 	return out
 }
 
-func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, loggers ldlog.Loggers) (
+func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Duration, handler filedata.UpdateHandler, logger *slog.Logger) (
 	filedata.ArchiveManagerInterface, error,
 ) {
-	am, err := filedata.NewArchiveManager(filePath, handler, monitoringInterval, loggers)
+	am, err := filedata.NewArchiveManager(filePath, handler, monitoringInterval, logger)
 	return am, err
 }
 
@@ -303,7 +299,7 @@ func defaultArchiveManagerFactory(filePath string, monitoringInterval time.Durat
 // closing database connections if any, and stopping all Relay port listeners, goroutines,
 // and OpenCensus exporters.
 func (r *Relay) Close() error {
-	r.loggers.Info("Shutting down Relay Proxy")
+	r.logger.Info("Shutting down Relay Proxy")
 	r.lock.Lock()
 	if r.closed {
 		r.lock.Unlock()
@@ -324,7 +320,7 @@ func (r *Relay) Close() error {
 
 	for _, env := range r.envsByCredential.Environments() {
 		if err := env.Close(); err != nil {
-			r.loggers.Warnf("unexpected error when closing environment: %s", err)
+			r.logger.Warn("unexpected error when closing environment", "error", err)
 		}
 	}
 
@@ -440,7 +436,7 @@ func (r *Relay) addEnvironment(
 		return nil, nil, errAlreadyClosed
 	}
 
-	dataStoreFactory, dataStoreInfo, err := sdks.ConfigureDataStore(r.config, envConfig, r.loggers)
+	dataStoreFactory, dataStoreInfo, err := sdks.ConfigureDataStore(r.config, envConfig, r.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -490,7 +486,7 @@ func (r *Relay) addEnvironment(
 		MetricsManager:                   r.metricsManager,
 		UserAgent:                        r.userAgent,
 		LogNameMode:                      r.envLogNameMode,
-		Loggers:                          r.loggers,
+		Logger:                           r.logger,
 		ConnectionMapper:                 r,
 		ExpiredCredentialCleanupInterval: r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
 	}, resultCh)
@@ -517,7 +513,7 @@ func (r *Relay) removeEnvironment(params sdkauth.ScopedCredential) bool {
 	// be rejected, since it's already been removed from all of our maps above. Now, calling Close()
 	// on the environment will do the rest of the cleanup and disconnect any current clients.
 	if err := env.Close(); err != nil {
-		r.loggers.Warnf("unexpected error when closing environment: %s", err)
+		r.logger.Warn("unexpected error when closing environment", "error", err)
 	}
 
 	return true

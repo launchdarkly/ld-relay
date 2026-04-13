@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -9,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
@@ -159,12 +160,12 @@ HeartbeatInterval = "x"`,
 
 	t.Run("parses valid log level", func(t *testing.T) {
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Warn) },
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(slog.LevelWarn) },
 			fileContent: `[Main]
 LogLevel = "warn"`,
 		})
 		testFileWithValidConfig(t, testDataValidConfig{
-			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(ldlog.Error) },
+			makeConfig: func(c *Config) { c.Main.LogLevel = NewOptLogLevel(slog.LevelError) },
 			fileContent: `[Main]
 LogLevel = "eRrOr"`,
 		})
@@ -184,10 +185,10 @@ func testFileWithValidConfig(t *testing.T, tdc testDataValidConfig) {
 		require.NoError(t, os.WriteFile(filename, []byte(tdc.fileContent), 0))
 
 		var c Config
-		mockLog := ldlogtest.NewMockLog()
-		err := LoadConfigFile(&c, filename, mockLog.Loggers)
+		logger, mockHandler := logtest.NewMockLogger()
+		err := LoadConfigFile(&c, filename, logger)
 		require.NoError(t, err)
-		tdc.assertResult(t, c, mockLog)
+		tdc.assertResult(t, c, mockHandler)
 	})
 }
 
@@ -196,7 +197,7 @@ func testFileWithInvalidConfig(t *testing.T, fileContent string, errMessage stri
 		require.NoError(t, os.WriteFile(filename, []byte(fileContent), 0))
 
 		var c Config
-		err := LoadConfigFile(&c, filename, ldlog.NewDisabledLoggers())
+		err := LoadConfigFile(&c, filename, slog.Default())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), errMessage)
 	})

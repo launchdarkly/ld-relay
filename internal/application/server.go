@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,8 +13,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/relay"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 // StartHTTPServer starts the server, with or without TLS. It returns immediately, starting the server
@@ -25,7 +24,7 @@ func StartHTTPServer(
 	tlsCertFile, tlsKeyFile string,
 	tlsMinVersion uint16,
 	gracefulShutdownTimeout time.Duration,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (*http.Server, <-chan error) {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
@@ -47,13 +46,13 @@ func StartHTTPServer(
 
 	go func() {
 		var err error
-		loggers.Infof("Starting server listening on port %d\n", port)
+		logger.Info("starting server", "port", port)
 		if tlsEnabled {
-			message := "TLS enabled for server"
 			if tlsMinVersion != 0 {
-				message += fmt.Sprintf(" (minimum TLS version: %s)", config.NewOptTLSVersion(tlsMinVersion).String())
+				logger.Info("TLS enabled for server", "minTLSVersion", config.NewOptTLSVersion(tlsMinVersion).String())
+			} else {
+				logger.Info("TLS enabled for server")
 			}
-			loggers.Info(message)
 			err = srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
 		} else {
 			err = srv.ListenAndServe()
@@ -67,11 +66,11 @@ func StartHTTPServer(
 	// Handle graceful shutdown in a separate goroutine
 	go func() {
 		<-sigCh
-		loggers.Info("Received SIGTERM signal, initiating graceful shutdown...")
+		logger.Info("received SIGTERM signal, initiating graceful shutdown")
 
 		if relay, ok := handler.(*relay.Relay); ok {
 			if err := relay.Close(); err != nil {
-				loggers.Errorf("Error closing relay: %v", err)
+				logger.Error("error closing relay", "error", err)
 			}
 		}
 
@@ -80,9 +79,9 @@ func StartHTTPServer(
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			loggers.Errorf("Error during server shutdown: %v", err)
+			logger.Error("error during server shutdown", "error", err)
 		} else {
-			loggers.Info("Server gracefully stopped")
+			logger.Info("server gracefully stopped")
 		}
 	}()
 

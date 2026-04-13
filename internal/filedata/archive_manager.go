@@ -2,11 +2,11 @@ package filedata
 
 import (
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
@@ -29,7 +29,7 @@ type ArchiveManager struct {
 	monitoringInterval time.Duration
 	handler            UpdateHandler
 	lastKnownEnvs      map[config.EnvironmentID]environmentMetadata
-	loggers            ldlog.Loggers
+	logger             *slog.Logger
 	closeCh            chan struct{}
 	closeOnce          sync.Once
 }
@@ -48,7 +48,7 @@ func NewArchiveManager(
 	filePath string,
 	handler UpdateHandler,
 	monitoringInterval time.Duration, // zero = use the default; we set a nonzero brief interval in unit tests
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (*ArchiveManager, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -60,13 +60,12 @@ func NewArchiveManager(
 		handler:            handler,
 		monitoringInterval: monitoringInterval,
 		lastKnownEnvs:      make(map[config.EnvironmentID]environmentMetadata),
-		loggers:            loggers,
+		logger:             logger.With("component", "FileDataSource"),
 		closeCh:            make(chan struct{}),
 	}
 	if am.monitoringInterval == 0 {
 		am.monitoringInterval = defaultMonitoringInterval
 	}
-	am.loggers.SetPrefix("[FileDataSource]")
 
 	ar, err := newArchiveReader(filePath)
 	if err != nil {
@@ -94,7 +93,7 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 
 	prevInfo := original
 
-	am.loggers.Infof(logMsgMonitoringStarted, am.filePath, am.monitoringInterval, original.Size(), original.ModTime())
+	am.logger.Info("monitoring data file for changes", "file", am.filePath, "interval", am.monitoringInterval, "size", original.Size(), "mtime", original.ModTime())
 
 	for {
 		select {
@@ -104,26 +103,26 @@ func (am *ArchiveManager) monitorForChanges(original os.FileInfo) {
 			nextInfo, err := os.Stat(am.filePath)
 			if err != nil {
 				if os.IsNotExist(err) {
-					am.loggers.Errorf(logMsgReloadFileStatNotFound, am.filePath)
+					am.logger.Error("data file stat failed; file not found", "file", am.filePath)
 				} else {
-					am.loggers.Errorf(logMsgReloadFileStatUnknownError, err)
+					am.logger.Error("data file stat failed", "error", err)
 				}
 				continue
 			}
 			if fileMayHaveChanged(prevInfo, nextInfo) {
-				am.loggers.Infof(logMsgFileChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				am.logger.Info("data file has changed", "file", am.filePath, "size", nextInfo.Size(), "mtime", nextInfo.ModTime())
 				reader, err := newArchiveReader(am.filePath)
 				if err != nil {
 					// A failure here might be a real failure, or it might be that the file is being copied
 					// over non-atomically so that we're seeing an invalid partial state.
-					am.loggers.Warnf(logMsgReloadError, err.Error())
+					am.logger.Warn("data file reload failed; file is invalid or possibly incomplete", "error", err)
 					continue
 				}
-				am.loggers.Warnf(logMsgReloadedData, am.filePath)
+				am.logger.Warn("reloaded data from file", "file", am.filePath)
 				am.updatedArchive(reader)
 				reader.Close()
 			} else {
-				am.loggers.Debugf(logMsgFileNotChanged, am.filePath, nextInfo.Size(), nextInfo.ModTime())
+				am.logger.Debug("data file has not changed", "file", am.filePath, "size", nextInfo.Size(), "mtime", nextInfo.ModTime())
 			}
 
 			prevInfo = nextInfo
@@ -138,12 +137,12 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 	}
 	envIDs := ar.GetEnvironmentIDs()
 	if len(envIDs) == 0 {
-		am.loggers.Warn(logMsgNoEnvs)
+		am.logger.Warn("the data file does not contain any environments; check your configuration")
 	}
 	for _, envID := range envIDs {
 		envMetadata, err := ar.GetEnvironmentMetadata(envID)
 		if err != nil {
-			am.loggers.Errorf(logMsgBadEnvData, envID)
+			am.logger.Error("found invalid data for environment; skipping this environment", "envID", envID)
 			continue
 		}
 		envName := envMetadata.params.Identifiers.GetDisplayName()
@@ -159,28 +158,28 @@ func (am *ArchiveManager) updatedArchive(ar *archiveReader) {
 				// Reload the SDK data only if it has changed
 				ae.SDKData, err = ar.GetEnvironmentSDKData(envID)
 				if err != nil {
-					am.loggers.Errorf(logMsgBadEnvData, envID)
+					am.logger.Error("found invalid data for environment; skipping this environment", "envID", envID)
 					continue
 				}
 			}
-			am.loggers.Infof(logMsgUpdateEnv, envID, envName)
+			am.logger.Info("updated environment", "envID", envID, "envName", envName)
 			am.handler.UpdateEnvironment(ae)
 		} else {
 			// Adding a new environment
 			ae := ArchiveEnvironment{Params: envMetadata.params}
 			ae.SDKData, err = ar.GetEnvironmentSDKData(envID)
 			if err != nil {
-				am.loggers.Errorf(logMsgBadEnvData, envID)
+				am.logger.Error("found invalid data for environment; skipping this environment", "envID", envID)
 				continue
 			}
-			am.loggers.Infof(logMsgAddEnv, envID, envName)
+			am.logger.Info("added environment", "envID", envID, "envName", envName)
 			am.handler.AddEnvironment(ae)
 		}
 		am.lastKnownEnvs[envID] = envMetadata
 	}
 	for envID, envData := range unusedEnvs {
 		// Delete any environments that are no longer in the file
-		am.loggers.Infof(logMsgDeleteEnv, envID, envData.params.Identifiers.GetDisplayName())
+		am.logger.Info("removed environment", "envID", envID, "envName", envData.params.Identifiers.GetDisplayName())
 		delete(am.lastKnownEnvs, envID)
 		am.handler.DeleteEnvironment(envID, envData.params.Identifiers.FilterKey)
 	}

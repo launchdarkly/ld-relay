@@ -2,6 +2,7 @@ package relay
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,11 +15,11 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservices"
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -37,11 +38,10 @@ var testFlag = ldbuilders.NewFlagBuilder("test-flag").Version(1).
 
 type relayEndToEndTestParams struct {
 	relayTestParams
-	t            *testing.T
-	requestsCh   <-chan httphelpers.HTTPRequestInfo
-	relayURL     string
-	loggers      ldlog.Loggers
-	singleLogger ldlog.BaseLogger
+	t          *testing.T
+	requestsCh <-chan httphelpers.HTTPRequestInfo
+	relayURL   string
+	logger     *slog.Logger
 }
 
 func relayEndToEndTest(
@@ -51,9 +51,6 @@ func relayEndToEndTest(
 	ldStreamHandler http.Handler,
 	action func(p relayEndToEndTestParams),
 ) {
-	relayMockLog := ldlogtest.NewMockLog()
-	defer relayMockLog.DumpIfTestFailed(t)
-
 	pollHandler := httphelpers.HandlerWithStatus(404)
 	streamHandler, requestsCh := httphelpers.RecordingHandler(ldStreamHandler)
 	eventsHandler := httphelpers.HandlerWithStatus(202)
@@ -73,16 +70,13 @@ func relayEndToEndTest(
 					}
 
 					httphelpers.WithServer(p.relay, func(relayServer *httptest.Server) {
-						mockLog := ldlogtest.NewMockLog()
-						mockLog.Loggers.SetPrefix("TestClient:")
-						defer mockLog.DumpIfTestFailed(t)
+						clientLogger := slog.Default().With("component", "TestClient")
 						p1 := relayEndToEndTestParams{
 							relayTestParams: p,
 							t:               t,
 							requestsCh:      requestsCh,
 							relayURL:        relayServer.URL,
-							loggers:         mockLog.Loggers,
-							singleLogger:    mockLog.Loggers.ForLevel(ldlog.Info),
+							logger:          clientLogger,
 						}
 						action(p1)
 					})
@@ -93,12 +87,12 @@ func relayEndToEndTest(
 }
 
 func (p relayEndToEndTestParams) waitForSuccessfulInit() {
-	p.waitForLogMessage(ldlog.Info, "Initialized LaunchDarkly client for", "Relay initialization")
+	p.waitForLogMessage(slog.LevelInfo, "initialized LaunchDarkly client", "Relay initialization")
 }
 
-func (p relayEndToEndTestParams) waitForLogMessage(level ldlog.LogLevel, pattern, conditionDesc string) {
+func (p relayEndToEndTestParams) waitForLogMessage(level slog.Level, substr, conditionDesc string) {
 	require.Eventually(p.t, func() bool {
-		return p.mockLog.HasMessageMatch(level, pattern)
+		return p.mockHandler.HasMessage(level, substr)
 	}, time.Second*2, time.Millisecond*50, "timed out waiting for %s", conditionDesc)
 }
 
@@ -106,7 +100,8 @@ func (p relayEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind basict
 	*eventsource.Stream, *eventsource.SubscriptionError,
 ) {
 	req := st.MakeSDKStreamEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
-	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(p.singleLogger))
+	bridged := logging.NewLDLogBridge(p.logger)
+	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(bridged.ForLevel(ldlog.Info)))
 	if err != nil {
 		require.IsType(p.t, eventsource.SubscriptionError{}, err)
 		se := err.(eventsource.SubscriptionError)
@@ -206,7 +201,7 @@ func TestRelayEndToEndPermanentFailure(t *testing.T) {
 	config := c.Config{Environment: st.MakeEnvConfigs(testEnv)}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, streamHandler, func(p relayEndToEndTestParams) {
-		p.waitForLogMessage(ldlog.Error, "Error initializing LaunchDarkly client for", "initialization failure")
+		p.waitForLogMessage(slog.LevelError, "error initializing LaunchDarkly client", "initialization failure")
 		p.expectStreamError(testEnv, basictypes.ServerSideStream, 401)
 		p.expectStreamError(testEnv, basictypes.ServerSideFlagsOnlyStream, 401)
 		p.expectStreamError(testEnv, basictypes.MobilePingStream, 401)
@@ -240,7 +235,7 @@ func TestRelayCoreEndToEndInitTimeoutWithUninitializedDataStore(t *testing.T) {
 	}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, delayBeforeStreamHandler, func(p relayEndToEndTestParams) {
-		p.waitForLogMessage(ldlog.Error, "timeout encountered waiting for LaunchDarkly client initialization",
+		p.waitForLogMessage(slog.LevelError, "error initializing LaunchDarkly client",
 			"initialization timeout")
 		p.expectStreamWithNoEvent(testEnv, basictypes.ServerSideStream)
 		p.expectStreamWithNoEvent(testEnv, basictypes.ServerSideFlagsOnlyStream)

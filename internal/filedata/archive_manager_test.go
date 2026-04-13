@@ -1,7 +1,6 @@
 package filedata
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -12,8 +11,9 @@ import (
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"log/slog"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 )
 
 func TestStartWithValidFile(t *testing.T) {
@@ -54,7 +54,7 @@ func TestStartWithFileWithNoEnvironments(t *testing.T) {
 		writeArchive(t, filePath, false, nil)
 	}, func(p archiveManagerTestParams) {
 		require.NoError(t, p.archiveManagerError)
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, logMsgNoEnvs)
+		assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, "does not contain any environments"))
 	})
 }
 
@@ -67,7 +67,7 @@ func TestStartWithFileWithOneBadEnvironment(t *testing.T) {
 		}, testEnv1, testEnv2)
 	}, func(p archiveManagerTestParams) {
 		require.NoError(t, p.archiveManagerError)
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Error, fmt.Sprintf(logMsgBadEnvData, testEnv1.rep.EnvID))
+		assert.True(t, p.mockLog.HasMessage(slog.LevelError, "found invalid data for environment"))
 		p.expectEnvironmentsAdded(testEnv2)
 	})
 }
@@ -76,8 +76,7 @@ func TestDefaultRetryInterval(t *testing.T) {
 	helpers.WithTempFile(func(filePath string) {
 		writeArchive(t, filePath, false, nil)
 
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
+		logger, _ := logtest.NewMockLogger()
 
 		messageHandler := newTestMessageHandler()
 
@@ -85,7 +84,7 @@ func TestDefaultRetryInterval(t *testing.T) {
 			filePath,
 			messageHandler,
 			0,
-			mockLog.Loggers,
+			logger,
 		)
 		require.NoError(t, err)
 		defer archiveManager.Close()
@@ -186,7 +185,7 @@ func TestFileUpdatedWithInvalidDataAndDoesNotBecomeValid(t *testing.T) {
 
 		writeMalformedArchive(p.filePath)
 
-		requireLogMessage(t, p.mockLog, ldlog.Warn, "Data file reload failed")
+		requireLogMessage(t, p.mockLog, slog.LevelWarn, "data file reload failed")
 
 		p.requireNoMoreMessages()
 	})
@@ -202,7 +201,7 @@ func TestFileUpdatedWithInvalidDataAndThenValidData(t *testing.T) {
 
 		writeMalformedArchive(p.filePath)
 
-		requireLogMessage(t, p.mockLog, ldlog.Warn, "file is invalid")
+		requireLogMessage(t, p.mockLog, slog.LevelWarn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
@@ -226,7 +225,7 @@ func TestFileDeletedAndThenRecreatedWithValidData(t *testing.T) {
 
 		require.NoError(t, os.Remove(p.filePath))
 
-		requireLogMessage(t, p.mockLog, ldlog.Error, "not found")
+		requireLogMessage(t, p.mockLog, slog.LevelError, "not found")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
@@ -246,11 +245,11 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 
 		require.NoError(t, os.Remove(p.filePath))
 
-		requireLogMessage(t, p.mockLog, ldlog.Error, "not found")
+		requireLogMessage(t, p.mockLog, slog.LevelError, "not found")
 
 		writeMalformedArchive(p.filePath)
 
-		requireLogMessage(t, p.mockLog, ldlog.Warn, "file is invalid")
+		requireLogMessage(t, p.mockLog, slog.LevelWarn, "file is invalid")
 
 		testEnv1a := testEnv1.withMetadataChange().withSDKDataChange()
 		writeArchive(t, p.filePath, false, nil, testEnv1a, testEnv2)
@@ -260,9 +259,9 @@ func TestFileDeletedAndThenRecreatedWithInvalidDataAndThenValidData(t *testing.T
 	})
 }
 
-func requireLogMessage(t *testing.T, mockLog *ldlogtest.MockLog, level ldlog.LogLevel, expectedSubstring string) {
+func requireLogMessage(t *testing.T, mockLog *logtest.MockHandler, level slog.Level, expectedSubstring string) {
 	require.Eventuallyf(t, func() bool {
-		warnings := mockLog.GetOutput(level)
+		warnings := mockLog.Messages(level)
 		for _, w := range warnings {
 			if strings.Contains(w, expectedSubstring) {
 				return true

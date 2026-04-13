@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNewRotator(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
 	assert.NotNil(t, rotator)
 }
 
@@ -41,8 +41,8 @@ func TestImmediateKeyExpiration(t *testing.T) {
 
 	for _, c := range kinds {
 		t.Run(c.name, func(t *testing.T) {
-			mockLog := ldlogtest.NewMockLog()
-			rotator := NewRotator(mockLog.Loggers)
+			logger, _ := logtest.NewMockLogger()
+			rotator := NewRotator(logger)
 
 			// The first rotation shouldn't trigger any expirations because there was no previous key.
 			rotator.Rotate(c.keys[0])
@@ -92,8 +92,8 @@ func TestManyImmediateKeyExpirations(t *testing.T) {
 
 	for _, c := range kinds {
 		t.Run(c.name, func(t *testing.T) {
-			mockLog := ldlogtest.NewMockLog()
-			rotator := NewRotator(mockLog.Loggers)
+			logger, _ := logtest.NewMockLogger()
+			rotator := NewRotator(logger)
 
 			const numKeys = 100
 			for i := 0; i < numKeys; i++ {
@@ -111,8 +111,8 @@ func TestManyImmediateKeyExpirations(t *testing.T) {
 }
 
 func TestImmediateSDKKeyDeprecationEvenIfGracePeriodIsPresent(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
 
 	key0 := config.SDKKey("key0")
 	key1 := config.SDKKey("key1")
@@ -145,8 +145,8 @@ func TestImmediateSDKKeyDeprecationEvenIfGracePeriodIsPresent(t *testing.T) {
 }
 
 func TestSDKKeyDeprecation(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
 
 	const (
 		key1 = config.SDKKey("key1")
@@ -175,8 +175,8 @@ func TestSDKKeyDeprecation(t *testing.T) {
 }
 
 func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
 
 	makeKey := func(i int) config.SDKKey {
 		return config.SDKKey(fmt.Sprintf("key%v", i))
@@ -216,8 +216,8 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 }
 
 func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	rotator := NewRotator(mockLog.Loggers)
+	logger, _ := logtest.NewMockLogger()
+	rotator := NewRotator(logger)
 
 	primaryKey := config.SDKKey("primary")
 	obsoleteKey := config.SDKKey("obsolete")

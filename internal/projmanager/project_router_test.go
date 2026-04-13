@@ -5,10 +5,9 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/stretchr/testify/require"
 )
@@ -53,11 +52,9 @@ func (n *spyHandler) ReceivedAllEnvironments() {
 }
 
 func TestProjectRouter_NewIsEmpty(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	logger, _ := logtest.NewMockLogger()
 
-	router := NewProjectRouter(&noopActions{}, mockLog.Loggers)
+	router := NewProjectRouter(&noopActions{}, logger)
 	require.Empty(t, router.Projects())
 }
 
@@ -88,11 +85,9 @@ func TestProjectRouter_VerifySetProperty(t *testing.T) {
 	// Returns false if the properties under test fail. For debugging purposes, add log statements
 	// when a property fails to make debugging easier.
 	checkProperty := func(t *testing.T, nEnvironments, nProjects, nFilters int) bool {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		logger, _ := logtest.NewMockLogger()
 
-		router := NewProjectRouter(newHandlerSpy(), mockLog.Loggers)
+		router := NewProjectRouter(newHandlerSpy(), logger)
 
 		expectedProjects := makeProjects(nProjects)
 

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,10 +19,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/relay"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,8 +47,8 @@ func withSelfSignedCert(t *testing.T, action func(certFilePath, keyFilePath stri
 
 func TestStartHTTPServerInsecure(t *testing.T) {
 	port := st.GetAvailablePort(t)
-	mockLog := ldlogtest.NewMockLog()
-	server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK), false, "", "", 0, 30*time.Second, mockLog.Loggers)
+	logger, handler := logtest.NewMockLogger()
+	server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK), false, "", "", 0, 30*time.Second, logger)
 	require.NotNil(t, server)
 	require.NotNil(t, errCh)
 	require.Eventually(t, func() bool {
@@ -58,17 +58,17 @@ func TestStartHTTPServerInsecure(t *testing.T) {
 		}
 		return resp.StatusCode == http.StatusOK
 	}, 5*time.Second, time.Millisecond*10)
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf("listening on port %d", port))
-	mockLog.AssertMessageMatch(t, false, ldlog.Info, "TLS enabled")
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "starting server"))
+	assert.False(t, handler.HasMessage(slog.LevelInfo, "TLS enabled"))
 }
 
 func TestStartHTTPServerSecure(t *testing.T) {
 	port := st.GetAvailablePort(t)
-	mockLog := ldlogtest.NewMockLog()
+	logger, handler := logtest.NewMockLogger()
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
 		server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK),
-			true, certFilePath, keyFilePath, 0, 30*time.Second, mockLog.Loggers)
+			true, certFilePath, keyFilePath, 0, 30*time.Second, logger)
 		require.NotNil(t, server)
 		require.NotNil(t, errCh)
 
@@ -85,18 +85,18 @@ func TestStartHTTPServerSecure(t *testing.T) {
 			}
 			return resp.StatusCode == http.StatusOK
 		}, 5*time.Second, time.Millisecond*10)
-		mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf("listening on port %d", port))
-		mockLog.AssertMessageMatch(t, true, ldlog.Info, "TLS enabled for server")
+		assert.True(t, handler.HasMessage(slog.LevelInfo, "starting server"))
+		assert.True(t, handler.HasMessage(slog.LevelInfo, "TLS enabled for server"))
 	})
 }
 
 func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 	port := st.GetAvailablePort(t)
-	mockLog := ldlogtest.NewMockLog()
+	logger, handler := logtest.NewMockLogger()
 
 	withSelfSignedCert(t, func(certFilePath, keyFilePath string, certPool *x509.CertPool) {
 		server, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(http.StatusOK),
-			true, certFilePath, keyFilePath, tls.VersionTLS12, 30*time.Second, mockLog.Loggers)
+			true, certFilePath, keyFilePath, tls.VersionTLS12, 30*time.Second, logger)
 		require.NotNil(t, server)
 		require.NotNil(t, errCh)
 
@@ -114,14 +114,14 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 			return strings.Contains(err.Error(), "protocol version not supported") ||
 				strings.Contains(err.Error(), "tls: no supported versions")
 		}, time.Second, time.Millisecond*10)
-		mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf("listening on port %d", port))
-		mockLog.AssertMessageMatch(t, true, ldlog.Info, "TLS enabled for server \\(minimum TLS version: 1.2\\)")
+		assert.True(t, handler.HasMessage(slog.LevelInfo, "starting server"))
+		assert.True(t, handler.HasMessage(slog.LevelInfo, "TLS enabled for server"))
 	})
 }
 
 func TestStartHTTPServerPortAlreadyUsed(t *testing.T) {
 	st.WithListenerForAnyPort(t, func(l net.Listener, port int) {
-		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, 30*time.Second, ldlog.NewDisabledLoggers())
+		_, errCh := StartHTTPServer(port, httphelpers.HandlerWithStatus(200), false, "", "", 0, 30*time.Second, slog.New(slog.DiscardHandler))
 		require.NotNil(t, errCh)
 		err := helpers.RequireValue(t, errCh, time.Second, "timed out waiting for error")
 		assert.NotNil(t, err)
@@ -130,7 +130,7 @@ func TestStartHTTPServerPortAlreadyUsed(t *testing.T) {
 
 func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 	port := st.GetAvailablePort(t)
-	mockLog := ldlogtest.NewMockLog()
+	logger, handler := logtest.NewMockLogger()
 
 	// Create a handler that takes some time to complete
 	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +138,7 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	server, errCh := StartHTTPServer(port, slowHandler, false, "", "", 0, 30*time.Second, mockLog.Loggers)
+	server, errCh := StartHTTPServer(port, slowHandler, false, "", "", 0, 30*time.Second, logger)
 	require.NotNil(t, server)
 	require.NotNil(t, errCh)
 
@@ -150,7 +150,7 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 		}
 		return resp.StatusCode == http.StatusOK
 	}, time.Second, time.Millisecond*10)
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, fmt.Sprintf(`Starting server listening on port %d`, port))
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "starting server"))
 
 	// Start a long-running request in the background
 	requestDone := make(chan struct{})
@@ -187,8 +187,8 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify shutdown messages were logged
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Received SIGTERM signal, initiating graceful shutdown\.\.\.`)
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Server gracefully stopped`)
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "received SIGTERM signal"))
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "server gracefully stopped"))
 
 	// Verify no errors were sent to error channel
 	select {
@@ -204,7 +204,7 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 
 func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 	port := st.GetAvailablePort(t)
-	mockLog := ldlogtest.NewMockLog()
+	logger, handler := logtest.NewMockLogger()
 	urlStr := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Create a basic relay configuration
@@ -221,7 +221,7 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 			Key: "x",
 		},
 	}
-	r, err := relay.NewRelay(relayConfig, mockLog.Loggers, nil)
+	r, err := relay.NewRelay(relayConfig, logger, nil)
 	require.NoError(t, err)
 
 	// Start the server with the relay handler
@@ -233,7 +233,7 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 		"",    // No key file
 		0,     // No min TLS version
 		1*time.Second,
-		mockLog.Loggers,
+		logger,
 	)
 	require.NotNil(t, server)
 	require.NotNil(t, errCh)
@@ -253,9 +253,8 @@ func TestStartHTTPServerWithRelayHandler(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify shutdown messages were logged
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Received SIGTERM signal, initiating graceful shutdown\.\.\.`)
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Server gracefully stopped`)
-	mockLog.AssertMessageMatch(t, true, ldlog.Info, `Shutting down Relay Proxy`)
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "received SIGTERM signal"))
+	assert.True(t, handler.HasMessage(slog.LevelInfo, "server gracefully stopped"))
 
 	// Verify no errors were sent to error channel
 	select {

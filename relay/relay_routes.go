@@ -3,6 +3,9 @@ package relay
 import (
 	"net/http"
 
+	"context"
+	"log/slog"
+
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
@@ -11,7 +14,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 
 	"github.com/gorilla/mux"
@@ -31,9 +33,9 @@ const (
 // docs/endpoints.md.
 func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
-	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
-	if r.loggers.GetMinLevel() == ldlog.Debug {
-		router.Use(logging.RequestLoggerMiddleware(r.loggers))
+	router.Use(logging.ContextLoggerMiddleware(r.logger))
+	if r.logger.Enabled(context.Background(), slog.LevelDebug) {
+		router.Use(logging.RequestLoggerMiddleware(r.logger))
 	}
 	if r.config.HTTP.EnableCompression {
 		router.Use(func(next http.Handler) http.Handler {

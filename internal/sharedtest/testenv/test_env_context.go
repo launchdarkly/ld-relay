@@ -3,6 +3,7 @@
 package testenv
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
@@ -10,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
@@ -34,7 +34,7 @@ func NewTestEnvContextWithClientFactory(
 		ClientFactory:    f,
 		DataStoreFactory: dataStoreFactory,
 		UserAgent:        "fake-user-agent",
-		Loggers:          ldlog.NewDisabledLoggers(),
+		Logger:           slog.Default(),
 	}, readyCh)
 	if err != nil {
 		panic(err)
