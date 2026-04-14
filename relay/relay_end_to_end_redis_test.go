@@ -105,7 +105,7 @@ func TestRelayEndToEndRedisInitTimeoutWithInitializedDataStore(t *testing.T) {
 	}
 	behavior := relayTestBehavior{skipWaitForEnvironments: true}
 	relayEndToEndTest(t, config, behavior, hangingHandler, func(p relayEndToEndTestParams) {
-		p.waitForLogMessage(slog.LevelError, "timeout encountered waiting for LaunchDarkly client initialization",
+		p.waitForLogMessage(slog.LevelError, "error initializing LaunchDarkly client",
 			"initialization timeout")
 		p.expectSuccessFromAllEndpoints(testEnv)
 	})

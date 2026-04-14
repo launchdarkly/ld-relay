@@ -30,7 +30,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
@@ -83,9 +82,6 @@ func TestConstructorBasicProperties(t *testing.T) {
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
 	env := makeBasicEnv(t, envConfig, clientFactory, slog.Default(), readyCh)
 	defer env.Close()
 
@@ -114,9 +110,6 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, slog.Default(), readyCh)
 	defer env.Close()
@@ -162,8 +155,7 @@ func TestLogPrefix(t *testing.T) {
 func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
@@ -191,8 +183,7 @@ func TestAddRemoveCredential(t *testing.T) {
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
@@ -221,9 +212,6 @@ func TestChangeSDKKey(t *testing.T) {
 
 	clientCh := make(chan *testclient.FakeLDClient, 1)
 	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh, nil)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
 
 	env := makeBasicEnv(t, envConfig, clientFactory, slog.Default(), readyCh)
 	defer env.Close()
@@ -284,8 +272,7 @@ func TestSDKClientCreationFails(t *testing.T) {
 
 	fakeError := errors.New("sorry")
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	env := makeBasicEnv(t, envConfig, testclient.ClientFactoryThatFails(fakeError), slog.Default(), readyCh)
 	defer env.Close()
@@ -306,8 +293,7 @@ func TestDisplayName(t *testing.T) {
 func TestMetricsAreExportedForEnvironment(t *testing.T) {
 	// We already have tests for the relay metrics collector in the metrics package, but this test verifies that
 	// exporting is configured automatically for every environment that we add (if not disabled).
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 	fakeUserAgent := "fake-user-agent"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
@@ -362,8 +348,7 @@ func TestMetricsAreNotExportedForEnvironmentInOfflineMode(t *testing.T) {
 }
 
 func testMetricsDisabled(t *testing.T, allConfig config.Config) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 	fakeUserAgent := "fake-user-agent"
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
@@ -398,8 +383,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 }
 
 func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
@@ -444,8 +428,7 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 }
 
 func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
@@ -479,8 +462,7 @@ func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
@@ -519,8 +501,7 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	changeSetCh := make(chan subsystems.ChangeSet, 1)
 
@@ -598,8 +579,7 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	changeSetCh := make(chan subsystems.ChangeSet, 1)
 	env, err := NewEnvContext(EnvContextImplParams{
@@ -670,8 +650,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+
 
 	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
 	sdkStartedCh := make(chan EnvContext)
