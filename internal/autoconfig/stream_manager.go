@@ -79,6 +79,7 @@ type StreamManager struct {
 	initialRetryDelay time.Duration
 	loggers           ldlog.Loggers
 	halt              chan struct{}
+	done              chan struct{} // closed when the subscribe goroutine exits
 	closeOnce         sync.Once
 
 	// cacheCh receives the result of the async cache read started by Start().
@@ -118,6 +119,7 @@ func NewStreamManager(
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
 		halt:              make(chan struct{}),
+		done:              make(chan struct{}),
 	}
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
@@ -163,15 +165,21 @@ func (s *StreamManager) Start() <-chan error {
 	s.cacheCancel = cacheCancel
 
 	readyCh := make(chan error, 1)
-	go s.subscribe(readyCh)
+	go func() {
+		defer close(s.done)
+		s.subscribe(readyCh)
+	}()
 	return readyCh
 }
 
-// Close permanently shuts down the stream.
+// Close permanently shuts down the stream and waits for the subscribe goroutine
+// to exit before closing the cache, ensuring no in-flight cache writes are interrupted.
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
 	})
+	<-s.done
+	_ = s.cache.Close()
 }
 
 type streamResult struct {

@@ -67,7 +67,6 @@ type Relay struct {
 	closed                        bool
 	lock                          sync.RWMutex
 	autoConfigStream              *autoconfig.StreamManager
-	autoConfigCache               autoconfigcache.Store
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
 	loggers                       ldlog.Loggers
@@ -231,7 +230,6 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 				os.Exit(1)
 			}
 		}()
-		r.autoConfigCache = autoConfigCache
 	}
 
 	if hasFileDataSource {
@@ -332,9 +330,6 @@ func (r *Relay) Close() error {
 
 	if r.autoConfigStream != nil {
 		r.autoConfigStream.Close()
-	}
-	if r.autoConfigCache != nil {
-		_ = r.autoConfigCache.Close()
 	}
 	if r.archiveManager != nil {
 		_ = r.archiveManager.Close()
