@@ -14,6 +14,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/ldhttp"
 	"github.com/launchdarkly/go-server-sdk/v7/ldntlm"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var (
@@ -94,7 +96,11 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 	return ret, err
 }
 
-// Client creates a new HTTP client instance that isn't for SDK use.
+// Client creates a new HTTP client instance that isn't for SDK use. The
+// returned client's transport is wrapped with OpenTelemetry instrumentation
+// so that outgoing requests propagate trace context when a span is active.
 func (c HTTPConfig) Client() *http.Client {
-	return c.SDKHTTPConfig.CreateHTTPClient()
+	client := c.SDKHTTPConfig.CreateHTTPClient()
+	client.Transport = otelhttp.NewTransport(client.Transport)
+	return client
 }

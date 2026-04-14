@@ -10,6 +10,7 @@ import (
 	ct "github.com/launchdarkly/go-configtypes"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -23,6 +24,8 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -113,8 +116,15 @@ func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx, span := otel.Tracer("ld-relay").Start(req.Context(), "relay.auth")
+			defer span.End()
+			span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
+			req = req.WithContext(ctx)
+
 			credential, err := sdks.GetCredential(sdkKind, req)
 			if err != nil {
+				span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
+				span.SetStatus(codes.Error, "invalid credential")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -125,18 +135,24 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
 
 			if envs.IsNotReady(err) {
+				span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
+				span.SetStatus(codes.Error, "not ready")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
 				return
 			}
 
 			if envs.IsPayloadFilterNotFound(err) {
+				span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
+				span.SetStatus(codes.Error, "filter not found")
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
 				return
 			}
 
 			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				span.SetAttributes(tracing.AuthResultKey.String("not_found"))
+				span.SetStatus(codes.Error, "environment not found")
 				// ErrInitializationFailed is what the SDK returns if it got a 401 error from LD.
 				// Our error behavior here is slightly different for JS/browser clients
 				if sdkKind == basictypes.JSClientSDK {
@@ -150,6 +166,8 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			}
 
 			if clientCtx.GetClient() == nil {
+				span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
+				span.SetStatus(codes.Error, "client not initialized")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
 				return
@@ -158,6 +176,8 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
 				w.Header().Set(ldEnvIDHeader, string(envID))
 			}
+
+			span.SetAttributes(tracing.AuthResultKey.String("success"))
 
 			contextInfo := EnvContextInfo{
 				Env:        clientCtx,
@@ -186,8 +206,14 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				return
 			}
 
+			ctx, span := otel.Tracer("ld-relay").Start(req.Context(), "relay.auth")
+			defer span.End()
+			req = req.WithContext(ctx)
+
 			token, err := sdks.FetchClientSideAuthToken(req)
 			if err != nil {
+				span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
+				span.SetStatus(codes.Error, "invalid credential")
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
 				return
@@ -196,8 +222,10 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 			var cred credential.SDKCredential
 			if strings.HasPrefix(token, "mob-") {
 				cred = config.MobileKey(token)
+				span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.MobileSDK)))
 			} else {
 				cred = config.EnvironmentID(token)
+				span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.JSClientSDK)))
 			}
 
 			queryValues := req.URL.Query()
@@ -206,24 +234,32 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 			clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
 
 			if envs.IsNotReady(err) {
+				span.SetAttributes(tracing.AuthResultKey.String("not_ready"))
+				span.SetStatus(codes.Error, "not ready")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
 				return
 			}
 
 			if envs.IsPayloadFilterNotFound(err) {
+				span.SetAttributes(tracing.AuthResultKey.String("filter_not_found"))
+				span.SetStatus(codes.Error, "filter not found")
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
 				return
 			}
 
 			if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
+				span.SetAttributes(tracing.AuthResultKey.String("not_found"))
+				span.SetStatus(codes.Error, "environment not found")
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
 				return
 			}
 
 			if clientCtx.GetClient() == nil {
+				span.SetAttributes(tracing.AuthResultKey.String("client_not_initialized"))
+				span.SetStatus(codes.Error, "client not initialized")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
 				return
@@ -232,6 +268,8 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
 				w.Header().Set(ldEnvIDHeader, string(envID))
 			}
+
+			span.SetAttributes(tracing.AuthResultKey.String("success"))
 
 			contextInfo := EnvContextInfo{
 				Env:        clientCtx,

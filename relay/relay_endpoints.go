@@ -20,6 +20,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
@@ -32,6 +33,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 func getClientSideContextProperties(
@@ -166,7 +169,15 @@ type payloadEvent struct {
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+
+	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.snapshot")
 	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
+	if err != nil {
+		storeSpan.RecordError(err)
+		storeSpan.SetStatus(codes.Error, err.Error())
+	}
+	storeSpan.End()
+
 	if err != nil {
 		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -309,7 +320,14 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.snapshot")
 	collection, selector, err := store.Snapshot()
+	if err != nil {
+		storeSpan.RecordError(err)
+		storeSpan.SetStatus(codes.Error, err.Error())
+	}
+	storeSpan.End()
+
 	if err != nil {
 		logger.Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -357,7 +375,10 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		_, evalSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.evaluate_flags")
 		evalResults := evaluateFlags(evaluator, allItems, sdkKind, ldContext)
+		evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
+		evalSpan.End()
 		for _, er := range evalResults {
 			evalWriter := jwriter.NewWriter()
 			evalObj := evalWriter.Object()
@@ -407,7 +428,15 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+
+	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get_all")
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
+	if err != nil {
+		storeSpan.RecordError(err)
+		storeSpan.SetStatus(codes.Error, err.Error())
+	}
+	storeSpan.End()
+
 	if err != nil {
 		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -468,7 +497,11 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 				"eventsKind", eventsKind, "sdkKind", sdkKind)
 			return
 		}
+
+		_, eventSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.events.dispatch")
+		eventSpan.SetAttributes(tracing.EventsKindKey.String(string(eventsKind)))
 		handler(w, req)
+		eventSpan.End()
 	})
 }
 
@@ -581,7 +614,14 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	logger.Debug("application requested client-side flags", "sdkKind", sdkKind, "contextKey", ldContext.Key())
 
+	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get_all")
 	items, err := store.GetAll(ldstoreimpl.Features())
+	if err != nil {
+		storeSpan.RecordError(err)
+		storeSpan.SetStatus(codes.Error, err.Error())
+	}
+	storeSpan.End()
+
 	if err != nil {
 		logger.Warn("unable to fetch flags from feature store, returning nil map", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -590,7 +630,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 	}
 
 	evaluator := clientCtx.Env.GetEvaluator()
+
+	_, evalSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.evaluate_flags")
 	evalResults := evaluateFlags(evaluator, items, sdkKind, ldContext)
+	evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
+	evalSpan.End()
 
 	responseWriter := jwriter.NewWriter()
 	responseObj := responseWriter.Object()
@@ -619,7 +663,16 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
+
+		_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get")
+		storeSpan.SetAttributes(tracing.StoreKeyKey.String(key))
 		item, err := clientContext.GetStore().Get(kind, key)
+		if err != nil {
+			storeSpan.RecordError(err)
+			storeSpan.SetStatus(codes.Error, err.Error())
+		}
+		storeSpan.End()
+
 		if err != nil {
 			clientContext.GetLogger().Error("error reading feature store", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
