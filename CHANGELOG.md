@@ -2,6 +2,33 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.18.0](https://github.com/launchdarkly/ld-relay/compare/v8.17.8...v8.18.0) (2026-04-09)
+
+
+### Features
+
+* Add request_duration metric for each endpoint ([#634](https://github.com/launchdarkly/ld-relay/issues/634)) ([fb309fc](https://github.com/launchdarkly/ld-relay/commit/fb309fcafe7434894cd99a451c19926aa7d7896f))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.26.2 and 1.25.9 ([#633](https://github.com/launchdarkly/ld-relay/issues/633)) ([08bbc9e](https://github.com/launchdarkly/ld-relay/commit/08bbc9e1fd2820a593e6ed4c76b87ff270f1ddeb))
+* remove racy syncTimeCh length assertions in big segment sync tests ([#624](https://github.com/launchdarkly/ld-relay/issues/624)) ([2c43bda](https://github.com/launchdarkly/ld-relay/commit/2c43bda0e6492dd0d932fa5706ffe74dea9214c7))
+
+## [8.17.8](https://github.com/launchdarkly/ld-relay/compare/v8.17.7...v8.17.8) (2026-04-01)
+
+
+### Bug Fixes
+
+* Include tags header in `relayUsage` metadata ([#618](https://github.com/launchdarkly/ld-relay/issues/618)) ([41152b1](https://github.com/launchdarkly/ld-relay/commit/41152b1cab0b78c8eacf4823ebc788aab6a98f8d))
+
+## [8.17.7](https://github.com/launchdarkly/ld-relay/compare/v8.17.6...v8.17.7) (2026-04-01)
+
+
+### Bug Fixes
+
+* **deps:** bump google.golang.org/grpc from 1.61.0 to 1.79.3 ([2ebb357](https://github.com/launchdarkly/ld-relay/commit/2ebb357971092aa82e0d617767505ba96fcaa7de))
+
 ## [8.17.6](https://github.com/launchdarkly/ld-relay/compare/v8.17.5...v8.17.6) (2026-03-30)
 
 

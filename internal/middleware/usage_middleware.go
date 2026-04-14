@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/launchdarkly/ld-relay/v8/internal/events"
 )
 
 func UsageActivityCount(platformCategory string) mux.MiddlewareFunc {
@@ -12,9 +13,10 @@ func UsageActivityCount(platformCategory string) mux.MiddlewareFunc {
 			ctx := GetEnvContextInfo(req.Context())
 			userAgent := getUserAgent(req)
 			instanceID := getInstanceID(req)
+			tagsHeader := req.Header.Get(events.TagsHeader)
 			mu := ctx.Env.GetMetricsManager()
 
-			mu.UsageActivityCountMessage(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+			mu.UsageActivityCountMessage(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 
 			next.ServeHTTP(w, req)
 		})
@@ -26,14 +28,15 @@ func UsageActivityStreamMonitoring(platformCategory string, next http.Handler) h
 		ctx := GetEnvContextInfo(req.Context())
 		userAgent := getUserAgent(req)
 		instanceID := getInstanceID(req)
+		tagsHeader := req.Header.Get(events.TagsHeader)
 
 		if mu := ctx.Env.GetMetricsManager(); mu != nil {
-			mu.UsageActivityStreamConnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+			mu.UsageActivityStreamConnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 		}
 
 		defer func() {
 			if mu := ctx.Env.GetMetricsManager(); mu != nil {
-				mu.UsageActivityStreamDisconnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID)
+				mu.UsageActivityStreamDisconnected(ctx.Env.GetIdentifiers().GetDisplayName(), userAgent, platformCategory, instanceID, tagsHeader)
 			}
 		}()
 

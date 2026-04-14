@@ -171,3 +171,72 @@ func testCountRequests(t *testing.T, measure metrics.Measure, category string) {
 		})
 	})
 }
+
+func TestRequestDuration(t *testing.T) {
+	t.Run("records duration for non-streaming request", func(t *testing.T) {
+		router := mux.NewRouter()
+		router.Use(RequestCount(metrics.ServerRequests))
+		router.Handle("/duration-test", nullHandler()).Methods("GET")
+
+		metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+			expectedTags := map[string]string{
+				"env":              p.envName,
+				"method":           "GET",
+				"route":            "_duration-test",
+				"platformCategory": "server",
+				"userAgent":        metricsTestUserAgent,
+				"sdkWrapper":       "not-provided",
+			}
+
+			req, _ := http.NewRequest("GET", "/duration-test", nil)
+			req.Header.Set("User-Agent", metricsTestUserAgent)
+			req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+			router.ServeHTTP(httptest.NewRecorder(), req)
+
+			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+				return d.HasRowMatching("request_duration", expectedTags, func(row st.TestMetricsRow) bool {
+					return row.DistributionCount >= 1
+				})
+			})
+		})
+	})
+
+	t.Run("does not record duration for streaming request", func(t *testing.T) {
+		router := mux.NewRouter()
+		router.Use(RequestCount(metrics.ServerRequests))
+		// Handler that sets Content-Type: text/event-stream (like the streaming middleware does)
+		router.Handle("/stream-route", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+		})).Methods("GET")
+
+		metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
+			streamTags := map[string]string{
+				"env":              p.envName,
+				"method":           "GET",
+				"route":            "_stream-route",
+				"platformCategory": "server",
+				"userAgent":        metricsTestUserAgent,
+				"sdkWrapper":       "not-provided",
+			}
+
+			req, _ := http.NewRequest("GET", "/stream-route", nil)
+			req.Header.Set("User-Agent", metricsTestUserAgent)
+			req = req.WithContext(WithEnvContextInfo(req.Context(), EnvContextInfo{Env: p.env}))
+			router.ServeHTTP(httptest.NewRecorder(), req)
+
+			// The request count should still be recorded
+			p.exporter.AwaitData(t, time.Second, p.mockLog.Loggers, func(d st.TestMetricsData) bool {
+				return d.HasRow("requests", st.TestMetricsRow{
+					Tags:  streamTags,
+					Count: 1,
+				})
+			})
+
+			// But there should be no duration data for this specific route
+			lastData := p.exporter.GetLastData()
+			require.False(t, lastData.HasRowMatching("request_duration", streamTags, func(st.TestMetricsRow) bool {
+				return true
+			}), "streaming request should not have duration recorded")
+		})
+	})
+}

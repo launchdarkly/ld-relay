@@ -21,7 +21,8 @@ const (
 
 	privatePollingRequestsMeasureName = "internal_polling_requests"
 
-	requestMeasureName = "requests"
+	requestMeasureName         = "requests"
+	requestDurationMeasureName = "request_duration"
 
 	defaultFlushInterval = time.Minute
 
