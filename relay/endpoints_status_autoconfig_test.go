@@ -16,8 +16,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
@@ -217,10 +215,6 @@ func TestRelayReturns503ForAllEnvironmentsUntilAutoConfigIsComplete(t *testing.T
 	entConfig.AutoConfig.Key = testAutoConfKey
 	entConfig.Environment = nil
 	entConfig.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
 
 	r, err := newRelayInternal(entConfig, relayInternalOptions{
 		logger:        slog.Default(),

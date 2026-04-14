@@ -5,15 +5,14 @@ package integrationtests
 import (
 	"bytes"
 	"io"
+	"log/slog"
 	"net/http"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 type requestLogger struct {
 	transport http.RoundTripper
 	enabled   bool
-	loggers   ldlog.Loggers
+	logger    *slog.Logger
 }
 
 func (r *requestLogger) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -27,12 +26,12 @@ func (r *requestLogger) logRequest(request *http.Request) {
 	if !r.enabled || request == nil {
 		return
 	}
-	r.loggers.Infof("%s %s", request.Method, request.URL)
-	r.loggers.Infof("    headers: %s", request.Header)
+	r.logger.Info("request", "method", request.Method, "url", request.URL)
+	r.logger.Info("request headers", "headers", request.Header)
 	if request.Body != nil {
 		bodyCopy := copyBody(&request.Body)
 		if len(bodyCopy) != 0 {
-			r.loggers.Infof("    body: %s", string(bodyCopy))
+			r.logger.Info("request body", "body", string(bodyCopy))
 		}
 	}
 }
@@ -41,12 +40,12 @@ func (r *requestLogger) logResponse(resp *http.Response, withBody bool) {
 	if !r.enabled || resp == nil {
 		return
 	}
-	r.loggers.Infof("  response status %d", resp.StatusCode)
-	r.loggers.Infof("    headers: %s", resp.Header)
+	r.logger.Info("response", "status", resp.StatusCode)
+	r.logger.Info("response headers", "headers", resp.Header)
 	if withBody && resp.Body != nil {
 		bodyCopy := copyBody(&resp.Body)
 		if len(bodyCopy) != 0 {
-			r.loggers.Infof("    body: %s", string(bodyCopy))
+			r.logger.Info("response body", "body", string(bodyCopy))
 		}
 	}
 }

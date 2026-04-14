@@ -128,22 +128,22 @@ func verifyEvaluationWithBigSegment(
 	}, time.Second*20, time.Millisecond*100, "Did not see expected flag values from Relay")
 
 	if !success {
-		manager.loggers.Infof("EXPLANATION OF TEST FAILURE FOLLOWS:")
-		manager.loggers.Infof("I evaluated the flag %q, which tests membership in the segment %q, for multiple users in each test environment...",
-			flagKey, segmentKey)
+		manager.logger.Info("EXPLANATION OF TEST FAILURE FOLLOWS")
+		manager.logger.Info("evaluated flag for segment membership",
+			"flag", flagKey, "segment", segmentKey)
 		for envKey, testData := range testDataByEnv {
 			actualValues := latestValuesByEnv[envKey]
 			expectedValues := testData.expectedFlagValuesForUser
 			if !reflect.DeepEqual(actualValues, expectedValues) {
 				env := envsByKey[envKey]
-				manager.loggers.Infof("Got wrong results for the following users in environment ID %q (SDK key %q, shown as [env: ...%s] in logs):",
-					env.id, env.sdkKey, env.sdkKey[len(env.sdkKey)-4:])
+				manager.logger.Info("got wrong results for users in environment",
+					"envID", env.id, "sdkKey", env.sdkKey, "sdkKeySuffix", env.sdkKey[len(env.sdkKey)-4:])
 				for userKey, expectedValue := range expectedValues {
 					actualValue := actualValues[userKey]
 					if !actualValue.Equal(expectedValue) {
 						userHash := hashForUserKey(userKey)
-						manager.loggers.Infof("--- User %q (hash value %q): expected value %s, actual value %s. Explanation: %s",
-							userKey, userHash, expectedValue, actualValue, testData.explanationForUser[userKey])
+						manager.logger.Info("unexpected user result",
+							"user", userKey, "hash", userHash, "expected", expectedValue.String(), "actual", actualValue.String(), "explanation", testData.explanationForUser[userKey])
 					}
 				}
 			}

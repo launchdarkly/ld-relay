@@ -19,7 +19,6 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -100,8 +99,7 @@ func (p relayEndToEndTestParams) subscribeStream(testEnv st.TestEnv, kind basict
 	*eventsource.Stream, *eventsource.SubscriptionError,
 ) {
 	req := st.MakeSDKStreamEndpointRequest(p.relayURL, kind, testEnv, st.SimpleUserJSON, 0)
-	bridged := logging.NewLDLogBridge(p.logger)
-	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(bridged.ForLevel(ldlog.Info)))
+	stream, err := eventsource.SubscribeWithRequestAndOptions(req, eventsource.StreamOptionLogger(logging.NewEventSourceLogger(p.logger)))
 	if err != nil {
 		require.IsType(p.t, eventsource.SubscriptionError{}, err)
 		se := err.(eventsource.SubscriptionError)
