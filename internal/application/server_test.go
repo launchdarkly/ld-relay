@@ -116,6 +116,16 @@ func TestStartHTTPServerSecureWithMinTLSVersion(t *testing.T) {
 		}, time.Second, time.Millisecond*10)
 		assert.True(t, handler.HasMessage(slog.LevelInfo, "starting server"))
 		assert.True(t, handler.HasMessage(slog.LevelInfo, "TLS enabled for server"))
+		// Verify the min TLS version attribute is present and correct
+		found := false
+		for _, entry := range handler.EntriesForLevel(slog.LevelInfo) {
+			if entry.Message == "TLS enabled for server" {
+				assert.Equal(t, "1.2", entry.Attrs["minTLSVersion"])
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected to find 'TLS enabled for server' log entry with minTLSVersion attribute")
 	})
 }
 
