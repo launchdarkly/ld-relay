@@ -68,5 +68,5 @@ func SetCORSHeaders(w http.ResponseWriter, origin string, extraAllowedHeaders []
 		allAllowedHeaders = allAllowedHeaders + "," + strings.Join(extraAllowedHeaders, ",")
 	}
 	w.Header().Set("Access-Control-Allow-Headers", allAllowedHeaders)
-	w.Header().Set("Access-Control-Expose-Headers", "Date")
+	w.Header().Set("Access-Control-Expose-Headers", "Date,X-LD-EnvId")
 }

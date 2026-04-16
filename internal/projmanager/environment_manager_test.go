@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
-	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/stretchr/testify/require"
 )
 

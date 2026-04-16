@@ -43,7 +43,7 @@ func TestCORSContext(t *testing.T) {
 		assert.Equal(t, "false", rr.Header().Get("Access-Control-Allow-Credentials"))
 		assert.Equal(t, maxAge, rr.Header().Get("Access-Control-Max-Age"))
 		assert.Equal(t, DefaultAllowedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
-		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
+		assert.Equal(t, "Date,X-LD-EnvId", rr.Header().Get("Access-Control-Expose-Headers"))
 	})
 
 	t.Run("SetCORSHeaders with additionalHeaders", func(t *testing.T) {
@@ -56,6 +56,6 @@ func TestCORSContext(t *testing.T) {
 		assert.Equal(t, "false", rr.Header().Get("Access-Control-Allow-Credentials"))
 		assert.Equal(t, maxAge, rr.Header().Get("Access-Control-Max-Age"))
 		assert.Equal(t, expectedHeaders, rr.Header().Get("Access-Control-Allow-Headers"))
-		assert.Equal(t, "Date", rr.Header().Get("Access-Control-Expose-Headers"))
+		assert.Equal(t, "Date,X-LD-EnvId", rr.Header().Get("Access-Control-Expose-Headers"))
 	})
 }

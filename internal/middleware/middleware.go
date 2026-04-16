@@ -31,6 +31,7 @@ const (
 	ldInstanceIDHeader = "X-LaunchDarkly-Instance-Id"
 	ldWrapperHeader    = "X-LaunchDarkly-Wrapper"
 	ldTagsHeader       = "X-LaunchDarkly-Tags"
+	ldEnvIDHeader      = "X-LD-EnvId"
 
 	httpStatusMessageInvalidEnvCredential  = "Relay Proxy does not recognize the client credential (missing or invalid Authorization header)"
 	httpStatusMessageNotFullyConfigured    = "Relay Proxy is not yet fully initialized, does not have list of environments yet"
@@ -154,6 +155,10 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				return
 			}
 
+			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
+				w.Header().Set(ldEnvIDHeader, string(envID))
+			}
+
 			contextInfo := EnvContextInfo{
 				Env:        clientCtx,
 				Credential: credential,
@@ -222,6 +227,10 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
 				return
+			}
+
+			if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
+				w.Header().Set(ldEnvIDHeader, string(envID))
 			}
 
 			contextInfo := EnvContextInfo{
