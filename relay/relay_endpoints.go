@@ -652,7 +652,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		// will all see the same expiration time.
 	}
 
-	etag := fmt.Sprintf("relay-%s", etagValue) // just to make it extra clear that these are relay-specific etags
+	etag := fmt.Sprintf("W/\"%s\"", etagValue) // just to make it extra clear that these are relay-specific etags
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return

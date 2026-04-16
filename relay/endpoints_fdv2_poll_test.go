@@ -63,5 +63,25 @@ func TestFDv2PollingEndpoint(t *testing.T) {
 				st.AssertNonStreamingHeaders(t, result.Header)
 			})
 		}
+
+		t.Run("ETag caching", func(t *testing.T) {
+			spec := specs[0]
+
+			result, _ := st.DoRequest(spec.request(), p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			etag := result.Header.Get("Etag")
+			assert.NotEmpty(t, etag)
+
+			r := spec.request()
+			r.Header.Set("If-None-Match", etag)
+			result, _ = st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusNotModified, result.StatusCode)
+
+			r = spec.request()
+			r.Header.Set("If-None-Match", "wrong-etag")
+			result, _ = st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			assert.NotEmpty(t, result.Header.Get("Etag"))
+		})
 	})
 }
