@@ -1,7 +1,6 @@
 package autoconfigcache
 
 import (
-	"crypto/sha256"
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -10,28 +9,27 @@ import (
 )
 
 func TestEncryptDecryptRoundtrip(t *testing.T) {
-	key := sha256.Sum256([]byte("test-key"))
+	key := deriveKey([]byte("test-key"))
 	plaintext := []byte("hello, world")
 
-	ciphertext, err := encrypt(plaintext, key[:])
+	ciphertext, err := encrypt(plaintext, key)
 	require.NoError(t, err)
 
-	// Ciphertext should differ from plaintext.
 	assert.NotEqual(t, plaintext, ciphertext)
 
-	decrypted, err := decrypt(ciphertext, key[:])
+	decrypted, err := decrypt(ciphertext, key)
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decrypted)
 }
 
 func TestEncryptProducesDifferentCiphertextEachTime(t *testing.T) {
-	key := sha256.Sum256([]byte("test-key"))
+	key := deriveKey([]byte("test-key"))
 	plaintext := []byte("same input")
 
-	ct1, err := encrypt(plaintext, key[:])
+	ct1, err := encrypt(plaintext, key)
 	require.NoError(t, err)
 
-	ct2, err := encrypt(plaintext, key[:])
+	ct2, err := encrypt(plaintext, key)
 	require.NoError(t, err)
 
 	// Each encryption uses a random nonce, so ciphertexts should differ.
@@ -39,20 +37,37 @@ func TestEncryptProducesDifferentCiphertextEachTime(t *testing.T) {
 }
 
 func TestDecryptFailsWithWrongKey(t *testing.T) {
-	key1 := sha256.Sum256([]byte("key-1"))
-	key2 := sha256.Sum256([]byte("key-2"))
+	key1 := deriveKey([]byte("key-1"))
+	key2 := deriveKey([]byte("key-2"))
 
-	ciphertext, err := encrypt([]byte("secret"), key1[:])
+	ciphertext, err := encrypt([]byte("secret"), key1)
 	require.NoError(t, err)
 
-	_, err = decrypt(ciphertext, key2[:])
+	_, err = decrypt(ciphertext, key2)
 	assert.Error(t, err)
 }
 
 func TestDecryptFailsWithTruncatedCiphertext(t *testing.T) {
-	key := sha256.Sum256([]byte("key"))
-	_, err := decrypt([]byte("short"), key[:])
+	key := deriveKey([]byte("key"))
+	_, err := decrypt([]byte("short"), key)
 	assert.Error(t, err)
+}
+
+func TestDeriveKeyProducesCorrectLength(t *testing.T) {
+	key := deriveKey([]byte("any input"))
+	assert.Len(t, key, aesKeySize)
+}
+
+func TestDeriveKeyIsDeterministic(t *testing.T) {
+	k1 := deriveKey([]byte("same-input"))
+	k2 := deriveKey([]byte("same-input"))
+	assert.Equal(t, k1, k2)
+}
+
+func TestDeriveKeyDiffersForDifferentInputs(t *testing.T) {
+	k1 := deriveKey([]byte("input-a"))
+	k2 := deriveKey([]byte("input-b"))
+	assert.NotEqual(t, k1, k2)
 }
 
 func TestResolveEncryptionKeyUsesCacheEncryptionKey(t *testing.T) {
@@ -62,8 +77,8 @@ func TestResolveEncryptionKeyUsesCacheEncryptionKey(t *testing.T) {
 
 	key := resolveEncryptionKey(c)
 
-	expected := sha256.Sum256([]byte("my-custom-key"))
-	assert.Equal(t, expected[:], key)
+	expected := deriveKey([]byte("my-custom-key"))
+	assert.Equal(t, expected, key)
 }
 
 func TestResolveEncryptionKeyFallsBackToAutoConfigKey(t *testing.T) {
@@ -72,6 +87,6 @@ func TestResolveEncryptionKeyFallsBackToAutoConfigKey(t *testing.T) {
 
 	key := resolveEncryptionKey(c)
 
-	expected := sha256.Sum256([]byte("auto-config-key"))
-	assert.Equal(t, expected[:], key)
+	expected := deriveKey([]byte("auto-config-key"))
+	assert.Equal(t, expected, key)
 }

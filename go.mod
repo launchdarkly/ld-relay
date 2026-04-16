@@ -62,6 +62,7 @@ require (
 	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9
 	github.com/klauspost/compress v1.18.0
 	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+	golang.org/x/crypto v0.46.0
 )
 
 require (
@@ -118,7 +119,6 @@ require (
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
