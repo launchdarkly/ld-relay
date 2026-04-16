@@ -97,7 +97,7 @@ This section is only applicable if [automatic configuration](https://docs.launch
 
 _(6)_ When using a database store, if there are multiple environments, it is necessary to have a different prefix for each environment (or, if using DynamoDB, a different table name). The `envDataStorePrefix` and `envDatastoreTableName` properties support this by recognizing the special symbol `$CID` as a placeholder for the environment's client-side ID. For instance, if an environment's ID is `1234567890abcdef` and you set `envDatastorePrefix` to `ld-flags-$CID`, the actual prefix used for that environment will be `ld-flags-1234567890abcdef`.
 
-_(7)_ When `cacheKey` is set, Relay races a cache read against the LaunchDarkly stream connection at startup. If the cache returns first, Relay can serve traffic immediately while the stream connects. Stream updates are persisted to the cache as they arrive. Cached data is encrypted with `cacheEncryptionKey` (or the AutoConfig key if omitted). For the security goals and limits of that encryption, read [AutoConfig cache threat model](./autoconfig-cache-threat-model.md).
+_(7)_ When `cacheKey` is set, Relay races a cache read against the LaunchDarkly stream connection at startup. If the cache returns first, Relay can serve traffic immediately while the stream connects. Stream updates are persisted to the cache as they arrive. Cached data is encrypted with `cacheEncryptionKey` (or the AutoConfig key if omitted). 
 
 
 ### File section: `[OfflineMode]`
