@@ -50,6 +50,18 @@ func TestFDv2ClientSideStreamingWithMobileKey(t *testing.T) {
 			})
 		})
 
+		t.Run("REPORT with context in body", func(t *testing.T) {
+			h := make(http.Header)
+			h.Set("Authorization", string(mobileKey))
+			h.Set("Content-Type", "application/json")
+			req := st.BuildRequest("REPORT", "/sdk/stream/eval", contextJSON, h)
+			st.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+				event := helpers.RequireValue(t, eventCh, 3*time.Second, "timed out waiting for event")
+				require.NotNil(t, event)
+				assert.Equal(t, "ping", event.Event())
+			})
+		})
+
 		t.Run("auth via query param", func(t *testing.T) {
 			req := st.BuildRequest("GET", "/sdk/stream/eval/"+contextBase64+"?auth="+string(mobileKey), nil, nil)
 			st.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
@@ -104,6 +116,18 @@ func TestFDv2ClientSideStreamingWithEnvironmentID(t *testing.T) {
 			h.Set("Authorization", string(envID))
 			h.Set("Content-Type", "application/json")
 			req := st.BuildRequest("POST", "/sdk/stream/eval", contextJSON, h)
+			st.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+				event := helpers.RequireValue(t, eventCh, 3*time.Second, "timed out waiting for event")
+				require.NotNil(t, event)
+				assert.Equal(t, "ping", event.Event())
+			})
+		})
+
+		t.Run("REPORT with context in body", func(t *testing.T) {
+			h := make(http.Header)
+			h.Set("Authorization", string(envID))
+			h.Set("Content-Type", "application/json")
+			req := st.BuildRequest("REPORT", "/sdk/stream/eval", contextJSON, h)
 			st.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
 				event := helpers.RequireValue(t, eventCh, 3*time.Second, "timed out waiting for event")
 				require.NotNil(t, event)
@@ -182,8 +206,9 @@ func TestFDv2ClientSideStreamingCORSPreflight(t *testing.T) {
 			st.AssertEndpointSupportsOptionsRequest(t, p.relay, "http://localhost/sdk/stream/eval/"+contextBase64, "GET")
 		})
 
-		t.Run("OPTIONS on POST path succeeds without auth", func(t *testing.T) {
-			st.AssertEndpointSupportsOptionsRequest(t, p.relay, "http://localhost/sdk/stream/eval", "POST")
+		t.Run("OPTIONS on POST/REPORT path succeeds without auth", func(t *testing.T) {
+			st.AssertEndpointSupportsOptionsRequestMethods(t, p.relay, "http://localhost/sdk/stream/eval",
+				[]string{"POST", "REPORT", "OPTIONS"})
 		})
 	})
 }
@@ -201,8 +226,9 @@ func TestFDv2ClientSidePollingCORSPreflight(t *testing.T) {
 			st.AssertEndpointSupportsOptionsRequest(t, p.relay, "http://localhost/sdk/poll/eval/"+contextBase64, "GET")
 		})
 
-		t.Run("OPTIONS on POST path succeeds without auth", func(t *testing.T) {
-			st.AssertEndpointSupportsOptionsRequest(t, p.relay, "http://localhost/sdk/poll/eval", "POST")
+		t.Run("OPTIONS on POST/REPORT path succeeds without auth", func(t *testing.T) {
+			st.AssertEndpointSupportsOptionsRequestMethods(t, p.relay, "http://localhost/sdk/poll/eval",
+				[]string{"POST", "REPORT", "OPTIONS"})
 		})
 	})
 }

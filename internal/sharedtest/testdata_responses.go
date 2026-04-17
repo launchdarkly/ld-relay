@@ -70,6 +70,32 @@ func AssertExpectedCORSHeaders(t *testing.T, resp *http.Response, endpointMethod
 	assert.Equal(t, host, resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
+func AssertEndpointSupportsOptionsRequestMethods(
+	t *testing.T,
+	handler http.Handler,
+	url string,
+	expectedMethods []string,
+) {
+	host := "my-host.com"
+
+	r1, _ := http.NewRequest("OPTIONS", url, nil)
+	result1, _ := DoRequest(r1, handler)
+	if assert.Equal(t, http.StatusOK, result1.StatusCode) {
+		assert.ElementsMatch(t, expectedMethods,
+			strings.Split(result1.Header.Get("Access-Control-Allow-Methods"), ","))
+		assert.Equal(t, "*", result1.Header.Get("Access-Control-Allow-Origin"))
+	}
+
+	r2, _ := http.NewRequest("OPTIONS", url, nil)
+	r2.Header.Set("Origin", host)
+	result2, _ := DoRequest(r2, handler)
+	if assert.Equal(t, http.StatusOK, result2.StatusCode) {
+		assert.ElementsMatch(t, expectedMethods,
+			strings.Split(result2.Header.Get("Access-Control-Allow-Methods"), ","))
+		assert.Equal(t, host, result2.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
+
 func MakeEvalBody(flags []TestFlag, reasons bool) string {
 	obj := make(map[string]interface{})
 	for _, f := range flags {

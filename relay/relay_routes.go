@@ -109,7 +109,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	clientSideFDv2StreamRouter.Use(clientSideFDv2StreamMiddleware, middleware.Streaming)
 	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider)
 	clientSideFDv2StreamRouter.Handle("/{context}", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("GET", "OPTIONS")
-	clientSideFDv2StreamRouter.Handle("", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("POST", "OPTIONS")
+	clientSideFDv2StreamRouter.Handle("", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("POST", "REPORT", "OPTIONS")
 
 	clientSideFDv2PollRouter := sdkRouter.PathPrefix("/poll/eval").Subrouter()
 	clientSideFDv2PollMiddleware := middleware.Chain(
@@ -121,7 +121,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
 	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("GET", "OPTIONS")
-	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("POST", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("POST", "REPORT", "OPTIONS")
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")

@@ -66,6 +66,21 @@ func TestFDv2ClientSidePollingWithMobileKey(t *testing.T) {
 			assert.Equal(t, "server-intent", payload.Events[0].Event)
 		})
 
+		t.Run("REPORT with context in body", func(t *testing.T) {
+			h := make(http.Header)
+			h.Set("Authorization", string(mobileKey))
+			h.Set("Content-Type", "application/json")
+			req := st.BuildRequest("REPORT", "/sdk/poll/eval", contextJSON, h)
+			result, body := st.DoRequest(req, p.relay)
+
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+
+			var payload pollingPayload
+			require.NoError(t, json.Unmarshal(body, &payload))
+			assert.NotEmpty(t, payload.Events)
+			assert.Equal(t, "server-intent", payload.Events[0].Event)
+		})
+
 		t.Run("auth via query param", func(t *testing.T) {
 			req := st.BuildRequest("GET", "/sdk/poll/eval/"+contextBase64+"?auth="+string(mobileKey), nil, nil)
 			result, body := st.DoRequest(req, p.relay)
@@ -143,6 +158,20 @@ func TestFDv2ClientSidePollingWithEnvironmentID(t *testing.T) {
 			h.Set("Authorization", string(envID))
 			h.Set("Content-Type", "application/json")
 			req := st.BuildRequest("POST", "/sdk/poll/eval", contextJSON, h)
+			result, body := st.DoRequest(req, p.relay)
+
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+
+			var payload pollingPayload
+			require.NoError(t, json.Unmarshal(body, &payload))
+			assert.NotEmpty(t, payload.Events)
+		})
+
+		t.Run("REPORT with context in body", func(t *testing.T) {
+			h := make(http.Header)
+			h.Set("Authorization", string(envID))
+			h.Set("Content-Type", "application/json")
+			req := st.BuildRequest("REPORT", "/sdk/poll/eval", contextJSON, h)
 			result, body := st.DoRequest(req, p.relay)
 
 			assert.Equal(t, http.StatusOK, result.StatusCode)
