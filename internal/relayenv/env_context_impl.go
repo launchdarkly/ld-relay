@@ -3,11 +3,13 @@ package relayenv
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/datadestination"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
@@ -21,7 +23,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
@@ -81,7 +82,7 @@ type EnvContextImplParams struct {
 	SDKBigSegmentsConfigFactory      subsystems.ComponentConfigurer[subsystems.BigSegmentsConfiguration] // set only in tests
 	UserAgent                        string
 	LogNameMode                      LogNameMode
-	Loggers                          ldlog.Loggers
+	Logger                           *slog.Logger
 	ConnectionMapper                 ConnectionMapper
 	ExpiredCredentialCleanupInterval time.Duration
 }
@@ -89,7 +90,7 @@ type EnvContextImplParams struct {
 type envContextImpl struct {
 	mu                        sync.RWMutex
 	clients                   map[config.SDKKey]sdks.LDClientContext
-	loggers                   ldlog.Loggers
+	logger                    *slog.Logger
 	wrapper                   *datadestination.DataDestinationWrapper
 	identifiers               EnvIdentifiers
 	secureMode                bool
@@ -111,7 +112,7 @@ type envContextImpl struct {
 	metricsEnv                *metrics.EnvironmentManager
 	metricsEventPub           events.EventPublisher
 	dataStoreInfo             sdks.DataStoreEnvironmentInfo
-	globalLoggers             ldlog.Loggers
+	globalLogger              *slog.Logger
 	ttl                       time.Duration
 	initErr                   error
 	creationTime              time.Time
@@ -158,16 +159,10 @@ func NewEnvContext(
 	envConfig := params.EnvConfig
 	allConfig := params.AllConfig
 
-	envLoggers := params.Loggers
 	logPrefix := makeLogPrefix(params.LogNameMode, envConfig.SDKKey, envConfig.EnvID)
-	envLoggers.SetPrefix(logPrefix)
-	envLoggers.SetMinLevel(
-		envConfig.LogLevel.GetOrElse(
-			allConfig.Main.LogLevel.GetOrElse(ldlog.Info),
-		),
-	)
+	envLogger := params.Logger.With("env", logPrefix)
 
-	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, allConfig.HTTP, envConfig.SDKKey, params.UserAgent, params.Loggers)
+	httpConfig, err := httpconfig.NewHTTPConfig(allConfig.Proxy, allConfig.HTTP, envConfig.SDKKey, params.UserAgent, params.Logger)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +170,7 @@ func NewEnvContext(
 	envContext := &envContextImpl{
 		identifiers:               params.Identifiers,
 		clients:                   make(map[config.SDKKey]sdks.LDClientContext),
-		loggers:                   envLoggers,
+		logger:                    envLogger,
 		secureMode:                envConfig.SecureMode,
 		streamProviders:           params.StreamProviders,
 		handlersV1:                make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
@@ -184,12 +179,12 @@ func NewEnvContext(
 		sdkClientFactory:          params.ClientFactory,
 		sdkInitTimeout:            allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
 		metricsManager:            params.MetricsManager,
-		globalLoggers:             params.Loggers,
+		globalLogger:              params.Logger,
 		ttl:                       envConfig.TTL.GetOrElse(0),
 		dataStoreInfo:             params.DataStoreInfo,
 		creationTime:              time.Now(),
 		filterKey:                 params.EnvConfig.FilterKey,
-		keyRotator:                credential.NewRotator(params.Loggers),
+		keyRotator:                credential.NewRotator(params.Logger),
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
@@ -206,7 +201,7 @@ func NewEnvContext(
 	if bigSegmentStoreFactory == nil {
 		bigSegmentStoreFactory = bigsegments.DefaultBigSegmentStoreFactory
 	}
-	bigSegmentStore, err := bigSegmentStoreFactory(envConfig, allConfig, envLoggers)
+	bigSegmentStore, err := bigSegmentStoreFactory(envConfig, allConfig, envLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +215,7 @@ func NewEnvContext(
 		}
 		envContext.bigSegmentSync = factory(
 			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
-			envConfig.EnvID, envConfig.SDKKey, envLoggers, logPrefix)
+			envConfig.EnvID, envConfig.SDKKey, envLogger, logPrefix)
 		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
 		segmentUpdateCh := envContext.bigSegmentSync.SegmentUpdatesCh()
 		if segmentUpdateCh != nil {
@@ -253,7 +248,7 @@ func NewEnvContext(
 		envContextStoreQueries{envContext},
 		allConfig.Main.HeartbeatInterval.GetOrElse(config.DefaultHeartbeatInterval),
 		envContext.filterKey,
-		envLoggers,
+		envLogger,
 	)
 	envContext.envStreams = envStreams
 	thingsToCleanUp.AddCloser(envStreams)
@@ -297,9 +292,7 @@ func NewEnvContext(
 	var em *metrics.EnvironmentManager
 	if params.MetricsManager != nil {
 		if enableDiagnostics {
-			pubLoggers := envLoggers
-			pubLoggers.SetPrefix(logPrefix + " (usage metrics)")
-			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, pubLoggers,
+			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLogger,
 				events.OptionBaseURI(eventsURI))
 			if err != nil {
 				return nil, errInitPublisher(err)
@@ -332,16 +325,14 @@ func NewEnvContext(
 	var eventDispatcher *events.EventDispatcher
 	if allConfig.Events.SendEvents {
 		if offlineMode {
-			envLoggers.Info("Events will be accepted for this environment, but will be discarded, since offline mode is enabled")
+			envLogger.Info("events will be accepted for this environment, but will be discarded, since offline mode is enabled")
 		} else {
-			envLoggers.Info("Proxying events for this environment")
-			eventLoggers := envLoggers
-			eventLoggers.SetPrefix(logPrefix + " (event proxy)")
+			envLogger.Info("proxying events for this environment")
 			eventDispatcher = events.NewEventDispatcher(
 				envConfig.SDKKey,
 				envConfig.MobileKey,
 				envConfig.EnvID,
-				envLoggers,
+				envLogger,
 				allConfig.Events,
 				httpConfig,
 				wrapper,
@@ -383,7 +374,7 @@ func NewEnvContext(
 		Events:           ldcomponents.SendEvents().EnableGzip(true),
 		HTTP:             httpConfig.SDKHTTPConfigFactory,
 		Logging: ldcomponents.Logging().
-			Loggers(envLoggers).
+			Loggers(logging.NewLDLogBridge(envLogger)).
 			LogDataSourceOutageAsErrorAfter(disconnectedStatusTime),
 		ServiceEndpoints: interfaces.ServiceEndpoints{
 			Events: eventsURI,
@@ -401,7 +392,7 @@ func NewEnvContext(
 	if bigSegmentStore != nil {
 		configFactory := params.SDKBigSegmentsConfigFactory
 		if configFactory == nil {
-			configFactory, err = sdks.ConfigureBigSegments(allConfig, envConfig, params.Loggers)
+			configFactory, err = sdks.ConfigureBigSegments(allConfig, envConfig, params.Logger)
 			if err != nil {
 				return nil, err
 			}
@@ -422,7 +413,7 @@ func NewEnvContext(
 					StartPolling:       false, // we will start it later if we see a big segment
 				},
 				nil,
-				envLoggers,
+				logging.NewLDLogBridge(envLogger),
 			)
 			thingsToCleanUp.AddFunc(envContext.sdkBigSegments.Close)
 		}
@@ -535,7 +526,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		// we have a data store, we can finish setting up the Evaluator that we'll use for this
 		// environment.
 		store := c.wrapper.GetReadOnlyStore()
-		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, logging.NewLDLogBridge(c.logger))
 		evalOptions := []ldeval.EvaluatorOption{
 			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
 			// are sending old-style user data with the "secondary" attribute. This option doesn't affect
@@ -552,18 +543,16 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 
 	if err != nil {
 		if suppressErrors {
-			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
-				name, err)
+			c.globalLogger.Warn("ignoring error initializing LaunchDarkly client", "env", name, "error", err)
 		} else {
-			c.globalLoggers.Errorf("Error initializing LaunchDarkly client for %q: %+v",
-				name, err)
+			c.globalLogger.Error("error initializing LaunchDarkly client", "env", name, "error", err)
 			if readyCh != nil {
 				readyCh <- c
 			}
 			return
 		}
 	} else {
-		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q (SDK key %s)", name, sdkKey.Masked())
+		c.globalLogger.Info("initialized LaunchDarkly client", "env", name, "sdkKey", sdkKey.Masked())
 	}
 	if readyCh != nil {
 		readyCh <- c
@@ -653,8 +642,8 @@ func (c *envContextImpl) GetBigSegmentStore() bigsegments.BigSegmentStore {
 	return nil
 }
 
-func (c *envContextImpl) GetLoggers() ldlog.Loggers {
-	return c.loggers
+func (c *envContextImpl) GetLogger() *slog.Logger {
+	return c.logger
 }
 
 func (c *envContextImpl) GetStreamHandlerV1(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {

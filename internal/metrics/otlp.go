@@ -3,9 +3,9 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/config"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -15,7 +15,7 @@ import (
 
 func newOTLPExporters(
 	otlpConfig config.OpenTelemetryConfig,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) ([]sdkmetric.Option, error) {
 	protocol := strings.ToLower(otlpConfig.Protocol)
 	if protocol == "" {
@@ -42,7 +42,7 @@ func newOTLPExporters(
 
 	opts := []sdkmetric.Option{sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter))}
 
-	loggers.Infof("Successfully registered OTLP metrics exporter (protocol=%s)", protocol)
+	logger.Info("successfully registered OTLP metrics exporter", "protocol", protocol)
 
 	return opts, nil
 }

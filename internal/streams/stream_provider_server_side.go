@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -11,7 +12,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -32,9 +32,9 @@ type serverSideEnvStreamProvider struct {
 }
 
 type serverSideEnvStreamRepository struct {
-	store   EnvStoreQueries
-	loggers ldlog.Loggers
-	isV2    bool
+	store  EnvStoreQueries
+	logger *slog.Logger
+	isV2   bool
 
 	flightGroup singleflight.Group
 }
@@ -72,12 +72,12 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) EnvStreamProvider {
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, loggers: loggers, isV2: false}
+	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: false}
 	s.fdv1Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv1Server, channels: []string{credential.String()}, isV2: false}
 	return envStream
@@ -86,12 +86,12 @@ func (s *serverSideStreamProvider) RegisterV1(
 func (s *serverSideStreamProvider) RegisterV2(
 	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) EnvStreamProvider {
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, loggers: loggers, isV2: true}
+	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: true}
 	s.fdv2Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv2Server, channels: []string{credential.String()}, isV2: true}
 	return envStream
@@ -201,7 +201,7 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 	data, err, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
 		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
-			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			r.logger.Error("error getting all flags", "error", err)
 			return nil, err
 		}
 
@@ -230,7 +230,7 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]event
 	data, err, _ := r.flightGroup.Do("getReplayEventV2", func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
-			r.loggers.Errorf("Error getting all flags: %s\n", err.Error())
+			r.logger.Error("error getting all flags", "error", err)
 			return nil, err
 		}
 

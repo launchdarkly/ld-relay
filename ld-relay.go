@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"log/slog"
 	"os"
 
 	_ "github.com/kardianos/minwinsvc"
@@ -13,50 +15,80 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	var c config.Config
-	loggers := logging.MakeDefaultLoggers()
+
+	// Create the initial logger with a shared LevelVar so the level can be
+	// adjusted after config is loaded.
+	levelVar := new(slog.LevelVar)
+	logger := logging.NewLogger(logging.WithLevel(levelVar))
 
 	opts, err := application.ReadOptions(os.Args, os.Stderr)
 	if err != nil {
-		loggers.Errorf("Error: %s", err)
-		os.Exit(1)
+		logger.Error("error reading options", "error", err)
+		return 1
 	}
 
 	if opts.PrintVersion {
-		loggers.Infof(
-			"LaunchDarkly relay version %s\n",
-			application.DescribeRelayVersion(version.Version),
+		logger.Info("LaunchDarkly relay version",
+			"version", application.DescribeRelayVersion(version.Version),
 		)
-		os.Exit(0)
+		return 0
 	}
 
-	loggers.Infof(
-		"Starting LaunchDarkly relay version %s with %s\n",
-		application.DescribeRelayVersion(version.Version),
-		opts.DescribeConfigSource(),
+	logger.Info("starting LaunchDarkly relay",
+		"version", application.DescribeRelayVersion(version.Version),
+		"configSource", opts.DescribeConfigSource(),
 	)
 
 	if opts.ConfigFile != "" {
-		if err := config.LoadConfigFile(&c, opts.ConfigFile, loggers); err != nil {
-			loggers.Errorf("Error loading config file: %s", err)
-			os.Exit(1)
+		if err := config.LoadConfigFile(&c, opts.ConfigFile, logger); err != nil {
+			logger.Error("error loading config file", "error", err)
+			return 1
 		}
 	}
 	if opts.UseEnvironment {
-		if err := config.LoadConfigFromEnvironment(&c, loggers); err != nil {
-			loggers.Errorf("Configuration error: %s", err)
-			os.Exit(1)
+		if err := config.LoadConfigFromEnvironment(&c, logger); err != nil {
+			logger.Error("configuration error", "error", err)
+			return 1
 		}
 	}
 
-	r, err := relay.NewRelay(c, loggers, nil)
+	// Apply log level from configuration
+	if c.Main.LogLevel.IsDefined() {
+		levelVar.Set(c.Main.LogLevel.GetOrElse(slog.LevelInfo))
+	}
+
+	// If OTLP is enabled, recreate the logger with an OTel handler so that
+	// log records are exported alongside metrics.
+	if c.OpenTelemetry.Enabled {
+		otelLog, err := logging.NewOTelLogProvider(logging.OTelLogConfig{
+			Protocol: c.OpenTelemetry.Protocol,
+		})
+		if err != nil {
+			logger.Error("failed to initialize OTLP log exporter", "error", err)
+			return 1
+		}
+		defer otelLog.Shutdown(context.Background()) //nolint:errcheck
+
+		logger = logging.NewLogger(
+			logging.WithLevel(levelVar),
+			logging.WithOTelHandler(otelLog.Handler),
+		)
+		logger.Info("OTLP log export enabled", "protocol", c.OpenTelemetry.Protocol)
+	}
+
+	r, err := relay.NewRelay(c, logger, nil)
 	if err != nil {
-		loggers.Errorf("Unable to create relay: %s", err)
-		os.Exit(1)
+		logger.Error("unable to create relay", "error", err)
+		return 1
 	}
 
 	if c.Main.ExitAlways {
-		os.Exit(0)
+		return 0
 	}
 
 	port := c.Main.Port.GetOrElse(config.DefaultPort)
@@ -69,11 +101,13 @@ func main() {
 		c.Main.TLSKey,
 		c.Main.TLSMinVersion.Get(),
 		c.Main.GracefulShutdownTimeout.GetOrElse(config.DefaultGracefulShutdownTimeout),
-		loggers,
+		logger,
 	)
 
 	for err := range errs {
-		loggers.Errorf("Error starting http listener on port: %d  %s", port, err)
-		os.Exit(1)
+		logger.Error("error starting http listener", "port", port, "error", err)
+		return 1
 	}
+
+	return 0
 }

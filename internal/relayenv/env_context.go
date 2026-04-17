@@ -3,6 +3,7 @@ package relayenv
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
@@ -103,9 +103,8 @@ type EnvContext interface {
 	// segment store is not configured this returns nil.
 	GetBigSegmentStore() bigsegments.BigSegmentStore
 
-	// GetLoggers returns a Loggers instance that is specific to this environment. We configure each of these to
-	// have its own prefix string and, optionally, its own log level.
-	GetLoggers() ldlog.Loggers
+	// GetLogger returns a *slog.Logger that is specific to this environment.
+	GetLogger() *slog.Logger
 
 	// GetStreamHandlerV1 returns the HTTP handler for the specified kind of stream requests and credential for this
 	// environment. If there is none, it returns a handler for a 404 status (not nil).

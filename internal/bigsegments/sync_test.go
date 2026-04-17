@@ -10,8 +10,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"log/slog"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
@@ -107,9 +108,7 @@ func requireUpdates(t *testing.T, ch <-chan UpdatesSummary, expectedKeys []strin
 }
 
 func TestBasicSync(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
+	mockLogger, mockLog := logtest.NewMockLogger()
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").
 		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
@@ -134,7 +133,7 @@ func TestBasicSync(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -173,10 +172,10 @@ func TestBasicSync(t *testing.T) {
 			requireNoMorePatches(t, storeMock)
 
 			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-			}, mockLog.GetOutput(ldlog.Info))
-			assert.Len(t, mockLog.GetOutput(ldlog.Warn), 0)
+				"applied updates",
+				"applied updates",
+			}, mockLog.Messages(slog.LevelInfo))
+			assert.Len(t, mockLog.Messages(slog.LevelWarn), 0)
 		})
 	})
 }
@@ -187,9 +186,7 @@ func TestSyncSendsUpdates(t *testing.T) {
 	// - Then the stream returns 1 more patch which generates another UpdatesSummary
 	// We're also testing that segment IDs are aggregated into segment keys, i.e. "segment1.g1" and
 	// "segment1.g2" together are reported as one update to "segment1".
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
+	mockLogger, _ := logtest.NewMockLogger()
 
 	poll1Patch1 := newPatchBuilder("segment1.g1", "1", "").
 		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
@@ -217,7 +214,7 @@ func TestSyncSendsUpdates(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -265,9 +262,7 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 	// - We apply the first patch
 	// - Second patch causes a warning and causes remainder of list to be skipped
 	// - Then we proceed with stream request as usual
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
+	mockLogger, mockLog := logtest.NewMockLogger()
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").
 		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
@@ -297,7 +292,7 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
 			defer segmentSync.Close()
 			segmentSync.Start()
 
@@ -330,18 +325,16 @@ func TestSyncSkipsOutOfOrderUpdateFromPoll(t *testing.T) {
 			requireNoMorePatches(t, storeMock)
 
 			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-			}, mockLog.GetOutput(ldlog.Info))
-			mockLog.AssertMessageMatch(t, true, ldlog.Warn, `"non-matching-previous-version" which was not the latest`)
+				"applied updates",
+				"applied updates",
+			}, mockLog.Messages(slog.LevelInfo))
+			assert.True(t, mockLog.HasMessage(slog.LevelWarn, "not the latest known version"))
 		})
 	})
 }
 
 func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
+	mockLogger, mockLog := logtest.NewMockLogger()
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").
 		addIncludes("included1", "included2").addExcludes("excluded1", "excluded2").build()
@@ -372,7 +365,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
 			segmentSync.streamRetryInterval = time.Millisecond
 			defer segmentSync.Close()
 			segmentSync.Start()
@@ -415,10 +408,10 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 			requireNoMorePatches(t, storeMock)
 
 			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-			}, mockLog.GetOutput(ldlog.Info))
-			mockLog.AssertMessageMatch(t, true, ldlog.Warn, `"non-matching-previous-version" which was not the latest`)
+				"applied updates",
+				"applied updates",
+			}, mockLog.Messages(slog.LevelInfo))
+			assert.True(t, mockLog.HasMessage(slog.LevelWarn, "not the latest known version"))
 		})
 	})
 }
@@ -426,9 +419,7 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 func TestSyncRetryIfStreamFails(t *testing.T) {
 	// In this test, we set up a successful poll and stream. Then we force the stream to close.
 	// The synchronizer should start over with a new poll and stream.
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
+	mockLogger, mockLog := logtest.NewMockLogger()
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").build()
 	patch2 := newPatchBuilder("segment.g1", "2", "1").build()
@@ -460,7 +451,7 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			defer storeMock.Close()
 
 			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
-				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLog.Loggers, "")
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
 			segmentSync.streamRetryInterval = time.Millisecond
 			defer segmentSync.Close()
 			segmentSync.Start()
@@ -516,17 +507,17 @@ func TestSyncRetryIfStreamFails(t *testing.T) {
 			requireNoMorePatches(t, storeMock)
 
 			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-				"BigSegmentSynchronizer: Applied 1 update",
-			}, mockLog.GetOutput(ldlog.Info))
+				"applied updates",
+				"applied updates",
+				"applied updates",
+				"applied updates",
+			}, mockLog.Messages(slog.LevelInfo))
 			assert.Equal(t, []string{
-				"BigSegmentSynchronizer: Stream connection failed: EOF",
-				"BigSegmentSynchronizer: Will retry",
-				"BigSegmentSynchronizer: Re-established connection",
-			}, mockLog.GetOutput(ldlog.Warn))
-			assert.Len(t, mockLog.GetOutput(ldlog.Error), 0)
+				"stream connection failed",
+				"will retry",
+				"re-established connection",
+			}, mockLog.Messages(slog.LevelWarn))
+			assert.Len(t, mockLog.Messages(slog.LevelError), 0)
 		})
 	})
 }

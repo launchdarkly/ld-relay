@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
@@ -45,7 +45,7 @@ type EnvStreams struct {
 	streamProviders []StreamProvider
 	storeQueries    EnvStoreQueries
 	activeStreams   []streamInfo
-	loggers         ldlog.Loggers
+	logger          *slog.Logger
 	lock            sync.RWMutex
 	closeCh         chan struct{}
 	heartbeatsDone  chan struct{} // used in testing only
@@ -70,12 +70,12 @@ func NewEnvStreams(
 	storeQueries EnvStoreQueries,
 	heartbeatInterval time.Duration,
 	filterKey config.FilterKey,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) *EnvStreams {
 	es := &EnvStreams{
 		streamProviders: streamProviders,
 		storeQueries:    storeQueries,
-		loggers:         loggers,
+		logger:          logger,
 		closeCh:         make(chan struct{}),
 		filterKey:       filterKey,
 	}
@@ -110,12 +110,12 @@ func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	}
 	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
 	for _, sp := range es.streamProviders {
-		if esp := sp.RegisterV1(scopedCred, es.storeQueries, es.loggers); esp != nil {
+		if esp := sp.RegisterV1(scopedCred, es.storeQueries, es.logger); esp != nil {
 			es.lock.Lock()
 			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
 			es.lock.Unlock()
 		}
-		if esp := sp.RegisterV2(scopedCred, es.storeQueries, es.loggers); esp != nil {
+		if esp := sp.RegisterV2(scopedCred, es.storeQueries, es.logger); esp != nil {
 			es.lock.Lock()
 			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
 			es.lock.Unlock()

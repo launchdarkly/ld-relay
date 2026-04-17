@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"log/slog"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -107,7 +108,7 @@ func autoConfTest(
 			config.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(time.Millisecond * 100)
 
 			relay, err := newRelayInternal(config, relayInternalOptions{
-				loggers:       mockLog.Loggers,
+				logger:        slog.Default(),
 				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh, nil),
 			})
 			if err != nil {

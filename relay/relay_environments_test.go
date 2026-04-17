@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	c "github.com/launchdarkly/ld-relay/v9/config"
@@ -27,7 +27,7 @@ import (
 func makeBasicRelay(config c.Config) (*Relay, error) {
 	return newRelayInternal(config, relayInternalOptions{
 		clientFactory: testclient.FakeLDClientFactory(true),
-		loggers:       ldlog.NewDisabledLoggers(),
+		logger:        slog.Default(),
 	})
 }
 
@@ -232,7 +232,7 @@ func TestRelayWaitForAllEnvironments(t *testing.T) {
 	t.Run("returns error if any environment does not initialize successfully", func(t *testing.T) {
 		relay, err := newRelayInternal(config, relayInternalOptions{
 			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, false, nil),
-			loggers:       ldlog.NewDisabledLoggers(),
+			logger:        slog.Default(),
 		})
 		require.NoError(t, err)
 		defer relay.Close()
@@ -254,7 +254,7 @@ func TestRelayUninitializedEnvironment(t *testing.T) {
 
 		relay, err := newRelayInternal(config, relayInternalOptions{
 			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, true, gateCh),
-			loggers:       ldlog.NewDisabledLoggers(),
+			logger:        slog.Default(),
 		})
 		require.NoError(t, err)
 		defer relay.Close()
@@ -274,7 +274,7 @@ func TestRelayUninitializedEnvironment(t *testing.T) {
 	t.Run("handlers accept requests for environment that failed to initialize", func(t *testing.T) {
 		relay, err := newRelayInternal(config, relayInternalOptions{
 			clientFactory: oneEnvFails(st.EnvMobile.Config.SDKKey, true, nil),
-			loggers:       ldlog.NewDisabledLoggers(),
+			logger:        slog.Default(),
 		})
 		require.NoError(t, err)
 		defer relay.Close()

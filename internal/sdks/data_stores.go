@@ -3,12 +3,12 @@ package sdks
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
@@ -50,7 +50,7 @@ type DataStoreEnvironmentInfo struct {
 func ConfigureDataStore(
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (subsystems.ComponentConfigurer[subsystems.DataStore], DataStoreEnvironmentInfo, error) {
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
@@ -58,7 +58,7 @@ func ConfigureDataStore(
 		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
 		redactedURL := util.RedactURL(redisURL)
 
-		loggers.Infof("Using Redis data store: %s with prefix: %s", redactedURL, envConfig.Prefix)
+		logger.Info("using Redis data store", "url", redactedURL, "prefix", envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "redis",
@@ -75,7 +75,7 @@ func ConfigureDataStore(
 
 	if allConfig.Consul.Host != "" {
 		dbConfig := allConfig.Consul
-		loggers.Infof("Using Consul data store: %s with prefix: %s", dbConfig.Host, envConfig.Prefix)
+		logger.Info("using Consul data store", "host", dbConfig.Host, "prefix", envConfig.Prefix)
 
 		builder := ldconsul.DataStore().
 			Prefix(envConfig.Prefix)
@@ -105,7 +105,7 @@ func ConfigureDataStore(
 			return nil, DataStoreEnvironmentInfo{}, err
 		}
 
-		loggers.Infof("Using DynamoDB data store: %s with prefix: %s", tableName, envConfig.Prefix)
+		logger.Info("using DynamoDB data store", "table", tableName, "prefix", envConfig.Prefix)
 
 		storeInfo := DataStoreEnvironmentInfo{
 			DBType:   "dynamodb",

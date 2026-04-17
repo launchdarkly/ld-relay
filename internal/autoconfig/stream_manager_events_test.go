@@ -1,12 +1,11 @@
 package autoconfig
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,11 +31,10 @@ func TestEnvironmentPutEvent(t *testing.T) {
 			assert.Equal(t, testEnv1.ToParams(), *msg1.add)
 			assert.Equal(t, testEnv2.ToParams(), *msg2.add)
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Received configuration for 2")
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment "+string(testEnv1.EnvID))
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment "+string(testEnv2.EnvID))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "received configuration"))
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -58,9 +56,9 @@ func TestEnvironmentPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment "+string(testEnv2.EnvID))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -85,9 +83,9 @@ func TestEnvironmentPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Properties have changed for environment "+string(testEnv1.EnvID))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "properties have changed"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -108,9 +106,9 @@ func TestEnvironmentPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order update")
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order update"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -131,9 +129,9 @@ func TestEnvironmentPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Removed environment "+string(testEnv1.EnvID))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "removed item"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -144,7 +142,7 @@ func TestEnvironmentPutEvent(t *testing.T) {
 			p.startStream()
 
 			p.requireNoMoreMessages()
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, `Ignoring "put" event for unknown path`)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "ignoring event for unknown path"))
 		})
 	})
 
@@ -160,7 +158,7 @@ func TestEnvironmentPutEvent(t *testing.T) {
 			p.requireReceivedAllMessage()
 
 			p.requireNoMoreMessages()
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Ignoring environment data whose envId")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, "ignoring environment data whose envId"))
 		})
 	})
 }
@@ -210,7 +208,7 @@ func TestEnvironmentPatchEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order update")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order update"))
 		})
 	})
 
@@ -234,7 +232,7 @@ func TestEnvironmentPatchEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order update")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order update"))
 		})
 	})
 
@@ -265,7 +263,7 @@ func TestEnvironmentPatchEvent(t *testing.T) {
 			p.stream.Enqueue(event)
 
 			p.requireNoMoreMessages()
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring unknown entity")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring unknown entity"))
 		})
 	})
 
@@ -277,7 +275,7 @@ func TestEnvironmentPatchEvent(t *testing.T) {
 			p.stream.Enqueue(event)
 
 			p.requireNoMoreMessages()
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Ignoring environment data")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, "ignoring environment data"))
 		})
 	})
 }
@@ -313,7 +311,7 @@ func TestEnvironmentDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order delete")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
 		})
 	})
 
@@ -336,7 +334,7 @@ func TestEnvironmentDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order delete")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
 		})
 	})
 
@@ -360,7 +358,7 @@ func TestEnvironmentDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring unknown entity")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring unknown entity"))
 		})
 	})
 }
@@ -401,14 +399,11 @@ func TestFilterPutEvent(t *testing.T) {
 				},
 			)
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Received configuration for 2")
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment ")
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added environment ")
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added filter ")
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added filter ")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "received configuration"))
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
 
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -430,9 +425,9 @@ func TestFilterPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Added filter "+string(testFilter2.FilterKey))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added item"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 
@@ -453,9 +448,9 @@ func TestFilterPutEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Removed filter "+string(testFilter1.FilterKey))
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Warn), 0)
-			assert.Len(t, p.mockLog.GetOutput(ldlog.Error), 0)
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "removed item"))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelWarn))
+			assert.Empty(t, p.mockLog.Messages(slog.LevelError))
 		})
 	})
 }
@@ -494,7 +489,7 @@ func TestFilterPatchEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order update")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order update"))
 		})
 	})
 
@@ -552,7 +547,7 @@ func TestFilterDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order delete")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
 		})
 	})
 
@@ -575,7 +570,7 @@ func TestFilterDeleteEvent(t *testing.T) {
 
 			p.requireNoMoreMessages()
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "Ignoring out-of-order delete")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "ignoring out-of-order delete"))
 		})
 	})
 
@@ -602,7 +597,7 @@ func TestReconnectEvent(t *testing.T) {
 		case <-p.messageHandler.received:
 			require.Fail(t, "received unexpected message")
 		case <-p.requestsCh: // got expected stream restart
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info, "Will restart auto-configuration stream")
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "will restart auto-configuration stream"))
 		case <-time.After(time.Second):
 			require.Fail(t, "timed out waiting for stream restart")
 		}
@@ -615,7 +610,7 @@ func TestUnknownEventIsIgnored(t *testing.T) {
 		p.startStream()
 
 		p.requireNoMoreMessages()
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Ignoring unrecognized stream event")
-		p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, `Received "magic" event: {}`)
+		assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, "ignoring unrecognized stream event"))
+		assert.True(t, p.mockLog.HasMessage(slog.LevelDebug, "received SSE event"))
 	})
 }

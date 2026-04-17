@@ -3,11 +3,11 @@ package metrics
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 
@@ -30,7 +30,7 @@ type Manager struct {
 	instruments    *Instruments
 	meterProvider  *sdkmetric.MeterProvider
 	flushInterval  time.Duration
-	loggers        ldlog.Loggers
+	logger         *slog.Logger
 	closeOnce      sync.Once
 	closed         bool
 	lock           sync.Mutex
@@ -64,7 +64,7 @@ type EnvironmentManager struct {
 func NewManager(
 	otlpConfig config.OpenTelemetryConfig,
 	flushInterval time.Duration,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
@@ -79,7 +79,7 @@ func NewManager(
 	var meterProvider *sdkmetric.MeterProvider
 	var meter otelmetric.Meter
 	if otlpConfig.Enabled {
-		opts, err := newOTLPExporters(otlpConfig, loggers)
+		opts, err := newOTLPExporters(otlpConfig, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +91,7 @@ func NewManager(
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
 		meter = meterProvider.Meter("ld-relay")
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
-			loggers.Warnf("Failed to start Go runtime metrics: %s", err)
+			logger.Warn("failed to start Go runtime metrics", "error", err)
 		}
 	} else {
 		meter = noop.Meter{}
@@ -140,7 +140,7 @@ func NewManager(
 		instruments:          instruments,
 		meterProvider:        meterProvider,
 		flushInterval:        flushInterval,
-		loggers:              loggers,
+		logger:               logger,
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
 	}
@@ -251,7 +251,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 
 	var collector *RelayMetricsCollector
 	if publisher != nil {
-		collector = newRelayMetricsCollector(m.metricsRelayID, envName, publisher, m.flushInterval, m.loggers)
+		collector = newRelayMetricsCollector(m.metricsRelayID, envName, publisher, m.flushInterval, m.logger)
 	}
 
 	em := &EnvironmentManager{

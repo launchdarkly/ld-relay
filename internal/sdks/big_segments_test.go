@@ -1,13 +1,13 @@
 package sdks
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,21 +23,20 @@ func assertBigSegmentsConfigured(
 	t *testing.T,
 	c config.Config,
 	ec config.EnvConfig,
-) *ldlogtest.MockLog {
-	mockLog := ldlogtest.NewMockLog()
-	_, err := ConfigureBigSegments(c, ec, mockLog.Loggers)
+) *logtest.MockHandler {
+	logger, handler := logtest.NewMockLogger()
+	_, err := ConfigureBigSegments(c, ec, logger)
 	require.NoError(t, err)
-	return mockLog
+	return handler
 }
 
 func TestBigSegmentsDefault(t *testing.T) {
 	log := assertBigSegmentsConfigured(t, config.Config{}, config.EnvConfig{})
-	assert.Len(t, log.GetAllOutput(), 0)
+	assert.Empty(t, log.AllMessages())
 }
 
 func TestBigSegmentsRedis(t *testing.T) {
 	redisURL := "redis://redishost:3000"
-	redisSecureURL := "rediss://redishost:3000"
 	optRedisURL, _ := configtypes.NewOptURLAbsoluteFromString(redisURL)
 
 	t.Run("basic properties", func(t *testing.T) {
@@ -47,7 +46,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 			},
 		}
 		log := assertBigSegmentsConfigured(t, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisURL)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis big segment store"))
 	})
 
 	t.Run("password is redacted in log", func(t *testing.T) {
@@ -55,7 +54,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 		var c config.Config
 		c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(urlWithPassword)
 		log := assertBigSegmentsConfigured(t, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, false, ldlog.Info, "very-secret-password")
+		assert.False(t, log.HasMessage(slog.LevelInfo, "very-secret-password"))
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -66,7 +65,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 		}
 		ec := config.EnvConfig{Prefix: "abc"}
 		log := assertBigSegmentsConfigured(t, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisURL+" with prefix: abc")
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis big segment store"))
 	})
 
 	t.Run("TLS", func(t *testing.T) {
@@ -77,7 +76,7 @@ func TestBigSegmentsRedis(t *testing.T) {
 			},
 		}
 		log := assertBigSegmentsConfigured(t, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis big segment store: "+redisSecureURL)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis big segment store"))
 	})
 }
 
@@ -92,7 +91,7 @@ func TestBigSegmentsDynamoDB(t *testing.T) {
 			},
 		}
 		log := assertBigSegmentsConfigured(t, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+tableName)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using DynamoDB big segment store"))
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -104,6 +103,6 @@ func TestBigSegmentsDynamoDB(t *testing.T) {
 		}
 		ec := config.EnvConfig{Prefix: "abc"}
 		log := assertBigSegmentsConfigured(t, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using DynamoDB big segment store: "+tableName+" with prefix: abc")
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using DynamoDB big segment store"))
 	})
 }

@@ -2,8 +2,8 @@ package projmanager
 
 import (
 	"fmt"
+	"log/slog"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 )
@@ -31,18 +31,18 @@ type EnvironmentManager struct {
 	defaults map[config.EnvironmentID]envfactory.EnvironmentParams
 	filtered map[config.FilterID]*filterMapping
 	project  string
-	loggers  ldlog.Loggers
+	logger   *slog.Logger
 	handler  EnvironmentActions
 }
 
-func NewEnvironmentManager(project string, handler EnvironmentActions, loggers ldlog.Loggers) *EnvironmentManager {
-	loggers.SetPrefix(fmt.Sprintf("[EnvironmentManager(%s)]", project))
+func NewEnvironmentManager(project string, handler EnvironmentActions, logger *slog.Logger) *EnvironmentManager {
+	logger = logger.With("component", fmt.Sprintf("EnvironmentManager(%s)", project))
 
 	return &EnvironmentManager{
 		project:  project,
 		defaults: make(map[config.EnvironmentID]envfactory.EnvironmentParams),
 		filtered: make(map[config.FilterID]*filterMapping),
-		loggers:  loggers,
+		logger:   logger,
 		handler:  handler,
 	}
 }

@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sync"
@@ -10,12 +11,12 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/datadestination"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/events/oldevents"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
@@ -39,7 +40,7 @@ type eventSummarizingRelay struct {
 	eventsConfig ldevents.EventsConfiguration
 	baseURI      string
 	remotePath   string
-	loggers      ldlog.Loggers
+	logger       *slog.Logger
 	closer       chan struct{}
 	lock         sync.Mutex
 	closeOnce    sync.Once
@@ -62,7 +63,7 @@ func newEventSummarizingRelay(
 	httpConfig httpconfig.HTTPConfig,
 	credential credential.SDKCredential,
 	wrapper *datadestination.DataDestinationWrapper,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	remotePath string,
 	eventQueueCleanupInterval time.Duration,
 	eventMetrics EventMetrics,
@@ -70,7 +71,7 @@ func newEventSummarizingRelay(
 	eventsConfig := ldevents.EventsConfiguration{
 		Capacity:              config.Capacity.GetOrElse(c.DefaultEventCapacity),
 		FlushInterval:         config.FlushInterval.GetOrElse(c.DefaultEventsFlushInterval),
-		Loggers:               loggers,
+		Loggers:               logging.NewLDLogBridge(logger),
 		UserKeysCapacity:      ldcomponents.DefaultContextKeysCapacity,
 		UserKeysFlushInterval: ldcomponents.DefaultContextKeysFlushInterval,
 		EventMetrics:          eventMetrics,
@@ -89,7 +90,7 @@ func newEventSummarizingRelay(
 		eventsConfig: eventsConfig,
 		baseURI:      getEventsURI(config),
 		remotePath:   remotePath,
-		loggers:      loggers,
+		logger:       logger,
 		closer:       make(chan struct{}),
 	}
 	go er.runPeriodicCleanupTaskUntilClosed(eventQueueCleanupInterval)
@@ -106,7 +107,7 @@ func (er *eventSummarizingRelay) enqueue(metadata EventPayloadMetadata, rawEvent
 	queue := er.queues[metadata]
 	if queue == nil {
 		sender := &delegatingEventSender{
-			wrapped: makeEventSender(er.httpClient, er.baseURI, er.remotePath, er.baseHeaders, er.authKey, metadata, er.loggers),
+			wrapped: makeEventSender(er.httpClient, er.baseURI, er.remotePath, er.baseHeaders, er.authKey, metadata, er.logger),
 		}
 		eventsConfig := er.eventsConfig
 		eventsConfig.EventSender = sender
@@ -123,7 +124,7 @@ func (er *eventSummarizingRelay) enqueue(metadata EventPayloadMetadata, rawEvent
 	for _, rawEvent := range rawEvents {
 		oldEvent, err := oldevents.UnmarshalEvent(rawEvent)
 		if err != nil {
-			er.loggers.Errorf("Error in event processing, event was discarded: %s", err)
+			er.logger.Error("error in event processing, event was discarded", "error", err)
 			continue
 		}
 		_ = er.dispatchEvent(queue.eventProcessor, oldEvent, rawEvent, metadata.SchemaVersion)
@@ -148,7 +149,7 @@ func (er *eventSummarizingRelay) replaceCredential(newCredential credential.SDKC
 		er.authKey = newCredential
 		for metadata, queue := range er.queues {
 			// See comment on makeEventSender() about why we create a new one in this situation.
-			sender := makeEventSender(er.httpClient, er.baseURI, er.remotePath, er.baseHeaders, newCredential, metadata, er.loggers)
+			sender := makeEventSender(er.httpClient, er.baseURI, er.remotePath, er.baseHeaders, newCredential, metadata, er.logger)
 			queue.eventSender.setWrapped(sender)
 		}
 	}
@@ -242,7 +243,7 @@ func (er *eventSummarizingRelay) runPeriodicCleanupTaskUntilClosed(cleanupInterv
 			er.lock.Unlock()
 
 			for _, queue := range unused {
-				er.loggers.Debugf("Shutting down inactive summarizing relay for %+v", queue.metadata)
+				er.logger.Debug("shutting down inactive summarizing relay", "metadata", queue.metadata)
 				_ = queue.eventProcessor.Close()
 			}
 		}
@@ -283,7 +284,7 @@ func makeEventSender(
 	baseHeaders http.Header,
 	authKey credential.SDKCredential,
 	metadata EventPayloadMetadata,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) ldevents.EventSender {
 	headers := make(http.Header)
 	for k, v := range baseHeaders {
@@ -300,7 +301,7 @@ func makeEventSender(
 			Client:            httpClient,
 			BaseURI:           eventsURI,
 			BaseHeaders:       func() http.Header { return headers },
-			Loggers:           loggers,
+			Loggers:           logging.NewLDLogBridge(logger),
 			EnableCompression: true,
 		},
 		remotePath: remotePath,

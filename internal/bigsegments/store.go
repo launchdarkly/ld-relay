@@ -2,10 +2,10 @@ package bigsegments
 
 import (
 	"io"
+	"log/slog"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 )
 
@@ -37,7 +37,7 @@ type BigSegmentStore interface {
 type BigSegmentStoreFactory func(
 	envConfig config.EnvConfig,
 	allConfig config.Config,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (BigSegmentStore, error)
 
 // DefaultBigSegmentStoreFactory implements our standard logic for optionally creating a
@@ -45,18 +45,18 @@ type BigSegmentStoreFactory func(
 func DefaultBigSegmentStoreFactory(
 	envConfig config.EnvConfig,
 	allConfig config.Config,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (BigSegmentStore, error) {
 	// Currently, the only supported store type is Redis, and if Redis is enabled then big segments
 	// are enabled.
 	if allConfig.Redis.URL.IsDefined() {
-		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis, envConfig, false, loggers)
+		bigSegmentRedis, err := newRedisBigSegmentStore(allConfig.Redis, envConfig, false, logger)
 		if err != nil {
 			return nil, err
 		}
 		return bigSegmentRedis, nil
 	} else if allConfig.DynamoDB.Enabled {
-		return newDynamoDBBigSegmentStore(allConfig.DynamoDB, envConfig, nil, loggers)
+		return newDynamoDBBigSegmentStore(allConfig.DynamoDB, envConfig, nil, logger)
 	}
 	return nil, nil
 }

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v9/config"
+	"log/slog"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/ld-relay/v9/config"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -80,7 +80,7 @@ func withDynamoDBStoreGeneric(prefix string) func(*testing.T, func(BigSegmentSto
 			config.DynamoDBConfig{TableName: testTableName},
 			config.EnvConfig{Prefix: prefix},
 			[]func(*dynamodb.Options){setTestDynamoDBOptions},
-			ldlog.NewDisabledLoggers(),
+			slog.Default(),
 		)
 		require.NoError(t, err)
 		require.NotNil(t, store)

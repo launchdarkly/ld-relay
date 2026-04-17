@@ -7,14 +7,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 )
 
-const (
-	logMsgAutoConfEnvInitError            = "Unable to initialize auto-configured environment %q: %s"
-	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
-	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
-	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
-	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
-)
-
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
 // interface methods on this object to let us know when environments have been added or changed.
@@ -30,7 +22,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
-		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+		a.r.logger.Error("unable to initialize auto-configured environment", "env", params.Identifiers.GetDisplayName(), "error", err)
 	}
 
 	if params.ExpiringSDKKey.Defined() {
@@ -42,7 +34,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	env, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.EnvID))
 	if err != nil {
-		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
+		a.r.logger.Warn("got auto-configuration update for unknown environment, will add", "env", params.Identifiers.GetDisplayName())
 		return
 	}
 
@@ -68,11 +60,11 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {
 	removed := a.r.removeEnvironment(sdkauth.NewScoped(filter, id))
 	if !removed {
-		a.r.loggers.Warnf(logMsgAutoConfDeleteUnknownEnv, id)
+		a.r.logger.Warn("got auto-configuration delete message for unknown environment, ignoring", "envID", id)
 	}
 }
 
 func (a *relayAutoConfigActions) ReceivedAllEnvironments() {
-	a.r.loggers.Info(logMsgAutoConfReceivedAllEnvironments)
+	a.r.logger.Info("finished processing auto-configuration data")
 	a.r.setFullyConfigured(true)
 }

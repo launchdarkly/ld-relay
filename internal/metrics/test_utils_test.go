@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -33,7 +33,6 @@ type testWithOTelParams struct {
 	env         *EnvironmentManager
 	instruments *Instruments
 	reader      sdkmetric.Reader
-	mockLog     *ldlogtest.MockLog
 }
 
 // collectMetrics reads the current metrics from the test reader.
@@ -44,9 +43,6 @@ func (p testWithOTelParams) collectMetrics() (*metricdata.ResourceMetrics, error
 }
 
 func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
 	// Create a ManualReader for the test
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -55,7 +51,7 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	instruments, err := NewInstrumentsForTest(meter)
 	require.NoError(t, err)
 
-	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, mockLog.Loggers)
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -76,7 +72,6 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 		env:         env,
 		instruments: instruments,
 		reader:      reader,
-		mockLog:     mockLog,
 	})
 }
 

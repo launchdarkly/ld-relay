@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -16,7 +17,6 @@ import (
 	c "github.com/launchdarkly/ld-relay/v9/config"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
 	"github.com/klauspost/compress/gzhttp"
@@ -26,7 +26,7 @@ import (
 
 func TestNewRelayRejectsConfigWithNoEnvironmentsInManualConfigMode(t *testing.T) {
 	config := c.Config{}
-	relay, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+	relay, err := NewRelay(config, slog.Default(), nil)
 	require.Error(t, err)
 	assert.Equal(t, errNoEnvironments, err)
 	assert.Nil(t, relay)
@@ -45,7 +45,7 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfAutoConfigKeyIsSet(t *testing.T
 				Key: "x",
 			},
 		}
-		relay, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+		relay, err := NewRelay(config, slog.Default(), nil)
 		require.NoError(t, err)
 		defer relay.Close()
 	})
@@ -57,7 +57,7 @@ func TestNewRelayAllowsConfigWithNoEnvironmentsIfFileDataSourceIsSet(t *testing.
 			FileDataSource: "x",
 		},
 	}
-	_, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+	_, err := NewRelay(config, slog.Default(), nil)
 
 	// There will be an error, since we don't actually have a data file, but it should not be a
 	// configuration error.
@@ -73,7 +73,7 @@ func TestNewRelayDisallowsFiltersWhenNoEnvironmentsSpecified(t *testing.T) {
 			},
 		},
 	}
-	_, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+	_, err := NewRelay(config, slog.Default(), nil)
 	require.Error(t, err)
 }
 
@@ -95,7 +95,7 @@ func TestNewRelayDisallowsFiltersWhenProjKeyNotSpecified(t *testing.T) {
 			},
 		},
 	}
-	_, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+	_, err := NewRelay(config, slog.Default(), nil)
 	require.Error(t, err)
 }
 
@@ -113,7 +113,7 @@ func TestNewRelayDisallowsFiltersWithUnmatchedProjects(t *testing.T) {
 			},
 		},
 	}
-	_, err := NewRelay(config, ldlog.NewDisabledLoggers(), nil)
+	_, err := NewRelay(config, slog.Default(), nil)
 	require.Error(t, err)
 }
 

@@ -2,15 +2,15 @@ package config
 
 import (
 	"crypto/tls"
-	"regexp"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 )
 
 type testDataValidConfig struct {
@@ -32,12 +32,13 @@ var configDefaults = Config{
 	},
 }
 
-func (tdc testDataValidConfig) assertResult(t *testing.T, actualConfig Config, mockLog *ldlogtest.MockLog) {
+func (tdc testDataValidConfig) assertResult(t *testing.T, actualConfig Config, mockHandler *logtest.MockHandler) {
 	expectedConfig := configDefaults
 	tdc.makeConfig(&expectedConfig)
 	assert.Equal(t, expectedConfig, actualConfig)
 	for _, message := range tdc.warnings {
-		mockLog.AssertMessageMatch(t, true, ldlog.Warn, regexp.QuoteMeta(message))
+		assert.True(t, mockHandler.HasMessage(slog.LevelWarn, message),
+			"expected warning message containing %q", message)
 	}
 }
 
@@ -111,7 +112,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			TLSCert:                          "cert",
 			TLSKey:                           "key",
 			TLSMinVersion:                    NewOptTLSVersion(tls.VersionTLS12),
-			LogLevel:                         NewOptLogLevel(ldlog.Warn),
+			LogLevel:                         NewOptLogLevel(slog.LevelWarn),
 			BigSegmentsStaleAsDegraded:       true,
 			BigSegmentsStaleThreshold:        ct.NewOptDuration(10 * time.Minute),
 			ExpiredCredentialCleanupInterval: ct.NewOptDuration(1 * time.Minute),
@@ -132,7 +133,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 				EnvID:     "earth-env",
 				Prefix:    "earth-",
 				TableName: "earth-table",
-				LogLevel:  NewOptLogLevel(ldlog.Debug),
+				LogLevel:  NewOptLogLevel(slog.LevelDebug),
 			},
 			"krypton": {
 				SDKKey:        "krypton-sdk",

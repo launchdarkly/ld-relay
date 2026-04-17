@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/go-redis/redis/v8"
@@ -37,9 +37,9 @@ func redisSynchronizedKey(prefix string) string {
 
 // redisBigSegmentStore implements BigSegmentStore for redis.
 type redisBigSegmentStore struct {
-	client  redis.UniversalClient
-	prefix  string
-	loggers ldlog.Loggers
+	client redis.UniversalClient
+	prefix string
+	logger *slog.Logger
 }
 
 // newRedisBigSegmentStore creates an instance of RedisBigSegmentStore.
@@ -47,7 +47,7 @@ func newRedisBigSegmentStore(
 	redisConfig config.RedisConfig,
 	envConfig config.EnvConfig,
 	checkOnStartup bool,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 ) (*redisBigSegmentStore, error) {
 	redisURL, prefix := sdks.GetRedisBasicProperties(redisConfig, envConfig)
 
@@ -80,9 +80,9 @@ func newRedisBigSegmentStore(
 	}
 
 	store := redisBigSegmentStore{
-		client:  redis.NewUniversalClient(&opts),
-		prefix:  prefix,
-		loggers: loggers,
+		client: redis.NewUniversalClient(&opts),
+		prefix: prefix,
+		logger: logger.With("component", "RedisBigSegmentStore"),
 	}
 
 	if checkOnStartup {
@@ -91,8 +91,6 @@ func newRedisBigSegmentStore(
 			return nil, err
 		}
 	}
-
-	store.loggers.SetPrefix("RedisBigSegmentStore:")
 
 	return &store, nil
 }

@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
@@ -24,12 +24,12 @@ type apiHelper struct {
 	apiClient  *ldapi.APIClient
 	apiContext context.Context
 	apiBaseURL string
-	loggers    ldlog.Loggers
+	logger     *slog.Logger
 }
 
 func (a *apiHelper) logResult(desc string, err error) error {
 	if err == nil {
-		a.loggers.Infof("%s: OK", desc)
+		a.logger.Info("API call succeeded", "operation", desc)
 		return nil
 	}
 	addInfo := ""
@@ -38,7 +38,7 @@ func (a *apiHelper) logResult(desc string, err error) error {
 		body := string(gse.Body())
 		addInfo = " - " + string(body)
 	}
-	a.loggers.Errorf("%s: FAILED - %s%s", desc, err, addInfo)
+	a.logger.Error("API call failed", "operation", desc, "error", fmt.Sprintf("%s%s", err, addInfo))
 	return err
 }
 
@@ -144,7 +144,7 @@ func (a *apiHelper) createProject(numEnvironments int) (projectInfo, []environme
 			projKey:   projKey,
 		})
 	}
-	a.loggers.Infof("Created project %q\n", projKey)
+	a.logger.Info("created project", "key", projKey)
 	return projectInfo{key: projKey, name: projName}, envInfos, nil
 }
 
@@ -188,7 +188,7 @@ func (a *apiHelper) createSpecificFilter(projKey string, filterKey string, rules
 	if err != nil {
 		return "", a.logResult("postPayloadFilter", err)
 	}
-	a.loggers.Infof("Created filter %q\n", filterRep.Key)
+	a.logger.Info("created filter", "key", filterRep.Key)
 	return filterRep.Key, nil
 }
 
@@ -208,7 +208,7 @@ func (a *apiHelper) createFilters(projKey string, numFilters int) ([]string, err
 		if err != nil {
 			return filterKeys, a.logResult("postPayloadFilter", err)
 		}
-		a.loggers.Infof("Created filter %q\n", filterRep.Key)
+		a.logger.Info("created filter", "key", filterRep.Key)
 		filterKeys = append(filterKeys, filterRep.Key)
 	}
 
@@ -239,7 +239,7 @@ func (a *apiHelper) addEnvironment(project projectInfo) (environmentInfo, error)
 	if err != nil {
 		return environmentInfo{}, a.logResult("Create environment", err)
 	}
-	a.loggers.Infof("created environment %q\n", envKey)
+	a.logger.Info("created environment", "key", envKey)
 	return environmentInfo{
 		id:        config.EnvironmentID(env.Id),
 		key:       env.Key,

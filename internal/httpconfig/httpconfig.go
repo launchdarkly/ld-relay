@@ -3,13 +3,13 @@ package httpconfig
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/ldhttp"
 	"github.com/launchdarkly/go-server-sdk/v7/ldntlm"
@@ -29,7 +29,7 @@ type HTTPConfig struct {
 }
 
 // NewHTTPConfig validates all of the HTTP-related options and returns an HTTPConfig if successful.
-func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig, authKey credential.SDKCredential, userAgent string, loggers ldlog.Loggers) (HTTPConfig, error) {
+func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig, authKey credential.SDKCredential, userAgent string, logger *slog.Logger) (HTTPConfig, error) {
 	transportOpts := []ldhttp.TransportOption{
 		ldhttp.ConnectTimeoutOption(ldcomponents.DefaultConnectTimeout),
 		ldhttp.MaxIdleConnsPerHostOption(httpConfig.MaxIdleConnsPerHost),
@@ -68,7 +68,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 		return ret, errProxyAuthWithoutProxyURL
 	}
 	if proxyConfig.URL.IsDefined() {
-		loggers.Infof("Using proxy server at %s", proxyConfig.URL.Get().Redacted())
+		logger.Info("using proxy server", "url", proxyConfig.URL.Get().Redacted())
 	}
 
 	if proxyConfig.NTLMAuth {
@@ -83,7 +83,7 @@ func NewHTTPConfig(proxyConfig config.ProxyConfig, httpConfig config.HTTPConfig,
 		}
 
 		configBuilder.HTTPClientFactory(factory)
-		loggers.Info("NTLM proxy authentication enabled")
+		logger.Info("NTLM proxy authentication enabled")
 	} else if proxyConfig.URL.IsDefined() {
 		configBuilder.ProxyURL(proxyConfig.URL.String())
 	}

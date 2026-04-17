@@ -3,11 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"gopkg.in/gcfg.v1"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 func errLoadingConfigFile(path string, err error) error {
@@ -17,12 +16,12 @@ func errLoadingConfigFile(path string, err error) error {
 // LoadConfigFile reads a configuration file into a Config struct and performs basic validation.
 //
 // The Config parameter should be initialized with default values first.
-func LoadConfigFile(c *Config, path string, loggers ldlog.Loggers) error {
+func LoadConfigFile(c *Config, path string, logger *slog.Logger) error {
 	if err := gcfg.ReadFileInto(c, path); err != nil {
 		return errLoadingConfigFile(path, FilterGcfgError(err))
 	}
 
-	return ValidateConfig(c, loggers)
+	return ValidateConfig(c, logger)
 }
 
 // FilterGcfgError transforms errors returned by gcfg to our preferred format.

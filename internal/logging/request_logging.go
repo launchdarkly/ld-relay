@@ -1,17 +1,16 @@
 package logging
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 // RequestLoggerMiddleware decorates a Handler with debug-level logging of all requests.
-func RequestLoggerMiddleware(loggers ldlog.Loggers) func(http.Handler) http.Handler {
+func RequestLoggerMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			wrappedWriter := loggingHTTPResponseWriter{loggers: loggers, writer: w, request: req}
+			wrappedWriter := loggingHTTPResponseWriter{logger: logger, writer: w, request: req}
 			next.ServeHTTP(&wrappedWriter, req)
 			wrappedWriter.logRequest()
 		})
@@ -19,7 +18,7 @@ func RequestLoggerMiddleware(loggers ldlog.Loggers) func(http.Handler) http.Hand
 }
 
 type loggingHTTPResponseWriter struct {
-	loggers      ldlog.Loggers
+	logger       *slog.Logger
 	writer       http.ResponseWriter
 	request      *http.Request
 	statusCode   int
@@ -60,27 +59,28 @@ func (w *loggingHTTPResponseWriter) logRequest() {
 	if w.streaming {
 		if w.bytesWritten == 0 {
 			// starting stream
-			w.loggers.Debugf("Request: method=%s url=%s auth=%s status=%d (streaming)",
-				w.request.Method,
-				w.request.URL,
-				authStr,
-				w.statusCode,
+			w.logger.Debug("request started",
+				"method", w.request.Method,
+				"url", w.request.URL.String(),
+				"auth", authStr,
+				"status", w.statusCode,
+				"streaming", true,
 			)
 		} else {
 			// ending stream
-			w.loggers.Debugf("Stream closed: url=%s auth=%s bytes=%d",
-				w.request.URL,
-				authStr,
-				w.bytesWritten,
+			w.logger.Debug("stream closed",
+				"url", w.request.URL.String(),
+				"auth", authStr,
+				"bytes", w.bytesWritten,
 			)
 		}
 	} else {
-		w.loggers.Debugf("Request: method=%s url=%s auth=%s status=%d bytes=%d",
-			w.request.Method,
-			w.request.URL,
-			authStr,
-			w.statusCode,
-			w.bytesWritten,
+		w.logger.Debug("request completed",
+			"method", w.request.Method,
+			"url", w.request.URL.String(),
+			"auth", authStr,
+			"status", w.statusCode,
+			"bytes", w.bytesWritten,
 		)
 	}
 }

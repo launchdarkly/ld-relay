@@ -1,13 +1,14 @@
 package relay
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequestLogging(t *testing.T) {
@@ -20,21 +21,19 @@ func TestRequestLogging(t *testing.T) {
 		withStartedRelayCustom(t, config, relayTestBehavior{doNotEnableDebugLogging: true}, func(p relayTestParams) {
 			req, _ := http.NewRequest("GET", url, nil)
 			_, _ = st.DoRequest(req, p.relay)
-
-			p.mockLog.AssertMessageMatch(t, false, ldlog.Debug, "method=GET url="+url)
+			assert.False(t, p.mockHandler.HasMessage(slog.LevelDebug, "request completed"))
 		})
 	})
 
 	t.Run("requests are logged when debug logging is enabled", func(t *testing.T) {
 		config := c.Config{
-			Main:        c.MainConfig{LogLevel: c.NewOptLogLevel(ldlog.Debug)},
+			Main:        c.MainConfig{LogLevel: c.NewOptLogLevel(slog.LevelDebug)},
 			Environment: st.MakeEnvConfigs(st.EnvMain),
 		}
 		withStartedRelay(t, config, func(p relayTestParams) {
 			req, _ := http.NewRequest("GET", url, nil)
 			_, _ = st.DoRequest(req, p.relay)
-
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Debug, "method=GET url="+url)
+			assert.True(t, p.mockHandler.HasMessage(slog.LevelDebug, "request completed"))
 		})
 	})
 }

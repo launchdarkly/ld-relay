@@ -2,10 +2,10 @@ package metrics
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
@@ -54,7 +54,7 @@ type RelayMetricsCollector struct {
 	relayID           string
 	envName           string
 	publisher         events.EventPublisher
-	loggers           ldlog.Loggers
+	logger            *slog.Logger
 	intervalStartTime time.Time
 
 	currentConnections map[connectionsKeyType]int64
@@ -65,12 +65,12 @@ type RelayMetricsCollector struct {
 	closer             chan struct{}
 }
 
-func newRelayMetricsCollector(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration, loggers ldlog.Loggers) *RelayMetricsCollector {
+func newRelayMetricsCollector(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration, logger *slog.Logger) *RelayMetricsCollector {
 	c := &RelayMetricsCollector{
 		relayID:            relayID,
 		envName:            envName,
 		publisher:          publisher,
-		loggers:            loggers,
+		logger:             logger,
 		closer:             make(chan struct{}),
 		intervalStartTime:  time.Now(),
 		pollingDataIsDirty: false,
@@ -177,7 +177,7 @@ func (c *RelayMetricsCollector) flush() {
 
 	jsonData, err := json.Marshal(event)
 	if err != nil {
-		c.loggers.Errorf("Failed to marshal relay metrics event: %s", err)
+		c.logger.Error("failed to marshal relay metrics event", "error", err)
 		return
 	}
 	c.publisher.Publish(events.EventPayloadMetadata{}, jsonData)

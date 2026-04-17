@@ -3,11 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
 var (
@@ -21,19 +21,19 @@ func errObsoleteVariableWithReplacement(preferredName string) error {
 // LoadConfigFromEnvironment sets parameters in a Config struct from environment variables.
 //
 // The Config parameter should be initialized with default values first.
-func LoadConfigFromEnvironment(c *Config, loggers ldlog.Loggers) error {
-	result := LoadConfigFromEnvironmentBase(c, loggers)
+func LoadConfigFromEnvironment(c *Config, logger *slog.Logger) error {
+	result := LoadConfigFromEnvironmentBase(c)
 
 	if !result.OK() {
 		return result.GetError()
 	}
 
-	return ValidateConfig(c, loggers)
+	return ValidateConfig(c, logger)
 }
 
 // LoadConfigFromEnvironmentBase performs the initial steps of reading Config fields from
 // environment variables, but returns the intermediate result before fully validating it.
-func LoadConfigFromEnvironmentBase(c *Config, loggers ldlog.Loggers) ct.ValidationResult {
+func LoadConfigFromEnvironmentBase(c *Config) ct.ValidationResult {
 	reader := ct.NewVarReaderFromEnvironment()
 
 	reader.ReadStruct(&c.Main, false)

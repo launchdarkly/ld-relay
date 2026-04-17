@@ -1,6 +1,7 @@
 package events
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -21,8 +22,6 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
@@ -75,7 +74,6 @@ type eventRelayTestOptions struct {
 type eventRelayTestParams struct {
 	dispatcher  *EventDispatcher
 	requestsCh  <-chan httphelpers.HTTPRequestInfo
-	mockLog     *ldlogtest.MockLog
 	wrapper     *datadestination.DataDestinationWrapper
 	changeSetCh chan subsystems.ChangeSet
 }
@@ -96,11 +94,7 @@ func eventRelayTestWithOptions(
 	opts eventRelayTestOptions,
 	fn func(eventRelayTestParams),
 ) {
-	mockLog := ldlogtest.NewMockLog()
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
-	defer mockLog.DumpIfTestFailed(t)
-
-	httpConfig, _ := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", mockLog.Loggers)
+	httpConfig, _ := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", slog.Default())
 
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(handler, func(server *httptest.Server) {
@@ -117,7 +111,7 @@ func eventRelayTestWithOptions(
 			testEnv.Config.SDKKey,
 			testEnv.Config.MobileKey,
 			testEnv.Config.EnvID,
-			mockLog.Loggers,
+			slog.Default(),
 			eventsConfig,
 			httpConfig,
 			wrapper,
@@ -131,7 +125,6 @@ func eventRelayTestWithOptions(
 			requestsCh:  requestsCh,
 			wrapper:     wrapper,
 			changeSetCh: changeSetCh,
-			mockLog:     mockLog,
 		}
 		fn(p)
 	})

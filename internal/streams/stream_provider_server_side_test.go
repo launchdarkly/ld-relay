@@ -2,6 +2,7 @@ package streams
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
@@ -55,10 +55,10 @@ func TestStreamProviderServerSide(t *testing.T) {
 	t.Run("Register", func(t *testing.T) {
 		store := makeMockStore(nil, nil)
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, ldlog.NewDisabledLoggers()))
-			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, ldlog.NewDisabledLoggers()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential1, store, slog.Default()))
+			assert.Nil(t, sp.RegisterV1(invalidCredential2, store, slog.Default()))
 
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 			require.IsType(t, &serverSideEnvStreamProvider{}, esp)
@@ -72,7 +72,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			{Kind: ldstoreimpl.Segments(), Items: store.segments},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -95,7 +95,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 			{Kind: ldstoreimpl.Segments(), Items: storeWithoutDeleted.segments},
 		}
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -108,7 +108,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store.initialized = false
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -123,7 +123,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		})
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -135,7 +135,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -173,7 +173,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -238,7 +238,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		store := makeMockStore(nil, nil)
 
 		withStreamProvider(t, 0, func(sp StreamProvider) {
-			esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+			esp := sp.RegisterV1(validCredential, store, slog.Default())
 			require.NotNil(t, esp)
 			defer esp.Close()
 
@@ -290,7 +290,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 		t.Run("second client connects after first computation is done", func(t *testing.T) {
 			store := newMockStoreQueries()
 			store.setupSnapshotFn(queryThatIncrementsFlagVersionOnEachCall())
-			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default()}
 
 			eventCh1 := repo.Replay("", "")
 			events1 := expectReplayedEvents(t, eventCh1)
@@ -325,7 +325,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 
 				return ret, selector, err
 			})
-			repo := &serverSideEnvStreamRepository{store: store, loggers: ldlog.NewDisabledLoggers()}
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default()}
 
 			eventCh1 := repo.Replay("", "")
 			<-replayStarted

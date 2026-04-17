@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
@@ -38,14 +38,14 @@ type StreamProvider interface {
 	// return nil if it does not support this type of credential.
 	//
 	// This method is used for the old FDv1 protocol.
-	RegisterV1(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
+	RegisterV1(credential sdkauth.ScopedCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
 
 	// RegisterV2 tells the StreamProvider about an environment that it should support, and returns an
 	// implementation of EnvStreamProvider for pushing updates related to that environment. It can
 	// return nil if it does not support this type of credential.
 	//
 	// This method is used for the old FDv2 protocol.
-	RegisterV2(credential sdkauth.ScopedCredential, store EnvStoreQueries, loggers ldlog.Loggers) EnvStreamProvider
+	RegisterV2(credential sdkauth.ScopedCredential, store EnvStoreQueries, logger *slog.Logger) EnvStreamProvider
 
 	// Close tells the StreamProvider to release all of its resources and close all connections.
 	Close()

@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -30,7 +30,7 @@ func TestPingStreamJitterDelaysPings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -85,7 +85,7 @@ func TestPingStreamJitterCoalescesMultiplePings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -169,7 +169,7 @@ func TestPingStreamNoJitterSendsPingsImmediately(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -217,7 +217,7 @@ func TestPingStreamNoJitterSendsMultiplePings(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -281,7 +281,7 @@ func TestJSClientPingStreamJitter(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -340,7 +340,7 @@ func TestServerSideStreamNoJitter(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore([]ldmodel.FeatureFlag{testFlag1}, []ldmodel.Segment{testSegment1})
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 
@@ -391,7 +391,7 @@ func TestPingStreamJitterSubsequentUpdatesAfterDelay(t *testing.T) {
 	defer sp.Close()
 
 	store := makeMockStore(nil, nil)
-	esp := sp.RegisterV1(validCredential, store, ldlog.NewDisabledLoggers())
+	esp := sp.RegisterV1(validCredential, store, slog.Default())
 	require.NotNil(t, esp)
 	defer esp.Close()
 

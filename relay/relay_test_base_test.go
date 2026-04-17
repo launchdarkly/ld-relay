@@ -1,14 +1,13 @@
 package relay
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/stretchr/testify/require"
 )
@@ -23,14 +22,14 @@ type relayTestBehavior struct {
 
 // Components that are passed from withStartedRelay/withStartedRelayCustom to the test logic.
 type relayTestParams struct {
-	relay   *Relay
-	mockLog *ldlogtest.MockLog
+	relay       *Relay
+	mockHandler *logtest.MockHandler
 }
 
 // withStartedRelay initializes a Relay instance, runs a block of test code against it, and then
 // ensures that everything is cleaned up.
 //
-// Log output is redirected to a MockLog which can be read by tests.
+// Log output is redirected to a MockHandler which can be read by tests.
 //
 // Normally, the Relay instance will use testclient.CreateDummyClient to substitute a test
 // fixture for the SDK client. However, for tests that really want to do HTTP, if you set any
@@ -42,14 +41,16 @@ func withStartedRelay(t *testing.T, config c.Config, action func(relayTestParams
 // withStartedRelayCustom is the same as withStartedRelay but allows more customization of the
 // test setup.
 func withStartedRelayCustom(t *testing.T, config c.Config, behavior relayTestBehavior, action func(relayTestParams)) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
+	mockHandler := logtest.NewMockHandler()
 
 	if !config.Main.LogLevel.IsDefined() && !behavior.doNotEnableDebugLogging {
-		config.Main.LogLevel = c.NewOptLogLevel(ldlog.Debug)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		config.Main.LogLevel = c.NewOptLogLevel(slog.LevelDebug)
 	}
-	options := relayInternalOptions{loggers: mockLog.Loggers}
+	// Set the mock handler's level to match the configured level so that
+	// level-gated behavior (like request logging middleware) works correctly.
+	mockHandler.SetLevel(config.Main.LogLevel.GetOrElse(slog.LevelInfo))
+	logger := slog.New(mockHandler)
+	options := relayInternalOptions{logger: logger}
 	if !behavior.useRealSDKClient {
 		options.clientFactory = testclient.CreateDummyClient
 	}
@@ -61,7 +62,7 @@ func withStartedRelayCustom(t *testing.T, config c.Config, behavior relayTestBeh
 	}
 
 	action(relayTestParams{
-		relay:   relay,
-		mockLog: mockLog,
+		relay:       relay,
+		mockHandler: mockHandler,
 	})
 }

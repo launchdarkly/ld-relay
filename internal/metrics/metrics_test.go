@@ -2,14 +2,13 @@ package metrics
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +17,7 @@ import (
 )
 
 func TestNewManagerWithNoExporters(t *testing.T) {
-	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -26,7 +25,7 @@ func TestNewManagerWithNoExporters(t *testing.T) {
 }
 
 func TestNewManagerReturnsInstruments(t *testing.T) {
-	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -38,7 +37,7 @@ func TestNewManagerReturnsInstruments(t *testing.T) {
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
-	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -52,7 +51,7 @@ func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
 func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 	publisher := newTestEventsPublisher()
 
-	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -73,7 +72,7 @@ func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 }
 
 func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
-	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	manager.Close()
 	env, err := manager.AddEnvironment("name", nil)
@@ -82,7 +81,7 @@ func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
 }
 
 func TestRemoveEnvironment(t *testing.T) {
-	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -339,7 +338,7 @@ func TestRecordEventsFailedSendSkipsZeroCount(t *testing.T) {
 func TestWithCountRecordsPolling(t *testing.T) {
 	publisher := newTestEventsPublisher()
 
-	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, ldlog.NewDisabledLoggers())
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 

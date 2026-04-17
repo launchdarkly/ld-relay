@@ -1,14 +1,14 @@
 package sdks
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
@@ -34,20 +34,20 @@ func assertFactoryConfigured(
 	expectedInfo DataStoreEnvironmentInfo,
 	c config.Config,
 	ec config.EnvConfig,
-) *ldlogtest.MockLog {
-	mockLog := ldlogtest.NewMockLog()
-	factory, info, err := ConfigureDataStore(c, ec, mockLog.Loggers)
+) *logtest.MockHandler {
+	logger, handler := logtest.NewMockLogger()
+	factory, info, err := ConfigureDataStore(c, ec, logger)
 	assert.NoError(t, err)
 	if expected != nil {
 		assert.Equal(t, expected, factory)
 	}
 	assert.Equal(t, expectedInfo, info)
-	return mockLog
+	return handler
 }
 
 func TestConfigureDataStoreDefault(t *testing.T) {
 	log := assertFactoryConfigured(t, nil, DataStoreEnvironmentInfo{}, config.Config{}, config.EnvConfig{})
-	assert.Len(t, log.GetAllOutput(), 0)
+	assert.Empty(t, log.AllMessages())
 }
 
 func TestConfigureDataStoreRedis(t *testing.T) {
@@ -63,7 +63,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		}
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: ldredis.DefaultPrefix}
 		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis data store"))
 	})
 
 	t.Run("password is redacted in log", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		c.Redis.URL, _ = configtypes.NewOptURLAbsoluteFromString(urlWithPassword)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redactedURL, DBPrefix: ldredis.DefaultPrefix}
 		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redactedURL)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis data store"))
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		ec := config.EnvConfig{Prefix: "abc"}
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisURL, DBPrefix: "abc"}
 		log := assertFactoryConfigured(t, nil, expectedInfo, c, ec)
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisURL+" with prefix: abc")
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis data store"))
 	})
 
 	t.Run("TTL", func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestConfigureDataStoreRedis(t *testing.T) {
 		}
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "redis", DBServer: redisSecureURL, DBPrefix: ldredis.DefaultPrefix}
 		log := assertFactoryConfigured(t, nil, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Redis data store: "+redisSecureURL)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Redis data store"))
 	})
 }
 
@@ -126,7 +126,7 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		).CacheTime(config.DefaultDatabaseCacheTTL)
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: ldconsul.DefaultPrefix}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, config.EnvConfig{})
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host)
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Consul data store"))
 	})
 
 	t.Run("prefix", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestConfigureDataStoreConsul(t *testing.T) {
 		expectedInfo := DataStoreEnvironmentInfo{DBType: "consul", DBServer: host, DBPrefix: "abc"}
 		log := assertFactoryConfigured(t, expected, expectedInfo, c, ec)
 
-		log.AssertMessageMatch(t, true, ldlog.Info, "Using Consul data store: "+host+" with prefix: abc")
+		assert.True(t, log.HasMessage(slog.LevelInfo, "using Consul data store"))
 	})
 
 	t.Run("TTL", func(t *testing.T) {
@@ -201,7 +201,7 @@ func TestConfigureDataStoreDynamoDB(t *testing.T) {
 				Enabled: true,
 			},
 		}
-		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, ldlog.NewDisabledLoggers())
+		factory, _, err := ConfigureDataStore(c, config.EnvConfig{}, slog.New(slog.DiscardHandler))
 		assert.Nil(t, factory)
 		assert.Error(t, err)
 	})

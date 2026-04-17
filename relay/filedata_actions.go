@@ -14,12 +14,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 )
 
-const (
-	logMsgOfflineEnvTimeoutError          = "Unable to initialize offline environment %q: timed out waiting for client creation"
-	logMsgInternalErrorUpdatedEnvNotFound = "Unexpected error in file data processing: environment ID %s not found when updating"
-	logMsgInternalErrorNoUpdatesForEnv    = "Unexpected error in file data processing: environment ID %s not found in envUpdates"
-)
-
 // relayFileDataActions is an implementation of the filedata.UpdateHandler interface. The low-level
 // filedata.ArchiveManager component, which manages the file data source, will call the interface
 // methods on this object to let us know when environments have been read from the file for the
@@ -48,7 +42,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	envConfig := envfactory.NewEnvConfigFactoryForOfflineMode(a.r.config.OfflineMode).MakeEnvironmentConfig(ae.Params)
 	env, _, err := a.r.addEnvironment(ae.Params.Identifiers, envConfig, transformConfig)
 	if err != nil {
-		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
+		a.r.logger.Error("unable to initialize offline environment", "env", ae.Params.Identifiers.GetDisplayName(), "error", err)
 		return
 	}
 
@@ -67,12 +61,12 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment) {
 	env, _ := a.r.getEnvironment(sdkauth.NewScoped(ae.Params.Identifiers.FilterKey, ae.Params.EnvID))
 	if env == nil { // COVERAGE: this should never happen and can't be covered in unit tests
-		a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
+		a.r.logger.Error("unexpected error in file data processing: environment not found when updating", "envID", ae.Params.EnvID)
 		return
 	}
 	synchronizer := a.envSynchronizers[ae.Params.EnvID]
 	if synchronizer == nil { // COVERAGE: this should never happen and can't be covered in unit tests
-		a.r.loggers.Errorf(logMsgInternalErrorNoUpdatesForEnv, ae.Params.EnvID)
+		a.r.logger.Error("unexpected error in file data processing: environment not found in envUpdates", "envID", ae.Params.EnvID)
 		return
 	}
 
@@ -97,7 +91,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {
 		if err := synchronizer.UpdateData(ae.SDKData); err != nil {
-			a.r.loggers.Errorf("Error updating offline environment data: %v", err)
+			a.r.logger.Error("error updating offline environment data", "error", err)
 		}
 	}
 }

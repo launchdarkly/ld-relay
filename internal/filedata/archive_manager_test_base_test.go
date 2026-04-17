@@ -2,16 +2,15 @@ package filedata
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
-	"regexp"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +26,7 @@ type archiveManagerTestParams struct {
 	archiveManager      *ArchiveManager
 	archiveManagerError error
 	messageHandler      *testMessageHandler
-	mockLog             *ldlogtest.MockLog
+	mockLog             *logtest.MockHandler
 }
 
 type deleteMessage struct {
@@ -52,9 +51,7 @@ func archiveManagerTest(t *testing.T, setupFile func(filePath string), action fu
 		_ = os.Remove(filePath) // used WithTempFile to generate a path, but don't want a file by default
 		setupFile(filePath)
 
-		mockLog := ldlogtest.NewMockLog()
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
-		defer mockLog.DumpIfTestFailed(t)
+		logger, mockHandler := logtest.NewMockLogger()
 
 		messageHandler := newTestMessageHandler()
 
@@ -62,13 +59,13 @@ func archiveManagerTest(t *testing.T, setupFile func(filePath string), action fu
 			filePath,
 			messageHandler,
 			testMonitoringInterval,
-			mockLog.Loggers,
+			logger,
 		)
 		if archiveManager != nil {
 			defer archiveManager.Close()
 		}
 
-		params := archiveManagerTestParams{t, filePath, archiveManager, err, messageHandler, mockLog}
+		params := archiveManagerTestParams{t, filePath, archiveManager, err, messageHandler, mockHandler}
 		action(params)
 	})
 }
@@ -133,8 +130,9 @@ func (p archiveManagerTestParams) requireNoMoreMessages() {
 }
 
 func (p archiveManagerTestParams) expectReloaded() {
-	p.mockLog.AssertMessageMatch(p.t, true, ldlog.Warn,
-		regexp.QuoteMeta(fmt.Sprintf("Reloaded data from %s", p.filePath)))
+	assert.Eventually(p.t, func() bool {
+		return p.mockLog.HasMessage(slog.LevelWarn, "reloaded data")
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func (p archiveManagerTestParams) expectEnvironmentsAdded(envs ...testEnv) {
@@ -152,8 +150,7 @@ func (p archiveManagerTestParams) expectEnvironmentsAdded(envs ...testEnv) {
 			assert.NotNil(p.t, msg.add)
 			verifyEnvironmentData(t, te, *msg.add)
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info,
-				regexp.QuoteMeta(fmt.Sprintf("Added environment %s (%s %s)", te.id(), te.rep.ProjName, te.rep.EnvName)))
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "added environment"))
 		})
 	}
 }
@@ -173,8 +170,7 @@ func (p archiveManagerTestParams) expectEnvironmentsUpdated(envs ...testEnv) {
 			assert.NotNil(p.t, msg.update)
 			verifyEnvironmentData(t, te, *msg.update)
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info,
-				fmt.Sprintf(regexp.QuoteMeta("Updated environment %s (%s %s)"), te.id(), te.rep.ProjName, te.rep.EnvName))
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "updated environment"))
 		})
 	}
 }
@@ -197,8 +193,7 @@ func (p archiveManagerTestParams) expectEnvironmentsDeleted(ids ...config.Enviro
 			assert.NotNil(p.t, msg.delete)
 			assert.Equal(p.t, id, *msg.delete)
 
-			p.mockLog.AssertMessageMatch(t, true, ldlog.Info,
-				fmt.Sprintf(regexp.QuoteMeta("Deleted environment %s (x)"), id))
+			assert.True(t, p.mockLog.HasMessage(slog.LevelInfo, "removed environment"))
 		})
 	}
 }

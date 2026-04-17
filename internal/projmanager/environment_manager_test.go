@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v9/config"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
 	"github.com/stretchr/testify/require"
 )
@@ -67,11 +66,9 @@ func (n *spyHandler) KeyExpired(id config.EnvironmentID, filter config.FilterKey
 }
 
 func TestEnvManager_NewManagerIsEmpty(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	mockLog, _ := logtest.NewMockLogger()
 
-	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 	require.Len(t, m.Filters(), 0, "new manager should not be managing any filters")
 	require.Len(t, m.Environments(), 0, "new manager should not be managing any environments")
@@ -79,11 +76,9 @@ func TestEnvManager_NewManagerIsEmpty(t *testing.T) {
 
 func TestEnvManager_AddFilters(t *testing.T) {
 	t.Run("adding filters is reflected in state", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		keys := []config.FilterKey{"a", "b"}
 
@@ -97,11 +92,9 @@ func TestEnvManager_AddFilters(t *testing.T) {
 	})
 
 	t.Run("no duplicates are allowed", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		for i := 0; i < 10; i++ {
 			m.AddFilter(makeFilter("a", "proj"))
@@ -113,13 +106,11 @@ func TestEnvManager_AddFilters(t *testing.T) {
 	})
 
 	t.Run("adds a new environment for each existing environment", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		for i := 0; i < 10; i++ {
 			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+			m := NewEnvironmentManager("foo", spy, mockLog)
 
 			envs := makeEnvs(i, []string{"foo"})
 
@@ -139,11 +130,9 @@ func TestEnvManager_AddFilters(t *testing.T) {
 
 func TestEnvManager_DeleteFilters(t *testing.T) {
 	t.Run("after adding and removing same filters, state reflects no filters", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		in := []string{"a", "b"}
 		for _, f := range in {
@@ -162,13 +151,11 @@ func TestEnvManager_DeleteFilters(t *testing.T) {
 	})
 
 	t.Run("deleting filters deletes filtered environments", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		for i := 0; i < 10; i++ {
 			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+			m := NewEnvironmentManager("foo", spy, mockLog)
 			filters := makeFilters(i, []string{"foo"})
 			for _, f := range filters {
 				m.AddFilter(f)
@@ -192,12 +179,10 @@ func TestEnvManager_DeleteFilters(t *testing.T) {
 	})
 
 	t.Run("delete unknown filter has no effect", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		spy := newHandlerSpy()
-		m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+		m := NewEnvironmentManager("foo", spy, mockLog)
 		m.AddEnvironment(makeEnv("proj", "foo"))
 		m.AddFilter(makeFilter("known", "foo"))
 		m.DeleteFilter("unknown")
@@ -207,11 +192,9 @@ func TestEnvManager_DeleteFilters(t *testing.T) {
 
 func TestEnvironmentManager_AddEnvironment(t *testing.T) {
 	t.Run("adding environments is reflected in state", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		in := []envfactory.EnvironmentParams{
 			{EnvID: config.EnvironmentID("a")},
@@ -228,11 +211,9 @@ func TestEnvironmentManager_AddEnvironment(t *testing.T) {
 	})
 
 	t.Run("no duplicate environments", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		e := makeEnv("env", "foo")
 
@@ -246,13 +227,11 @@ func TestEnvironmentManager_AddEnvironment(t *testing.T) {
 	})
 
 	t.Run("adds n environments", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		for i := 0; i < 10; i++ {
 			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+			m := NewEnvironmentManager("foo", spy, mockLog)
 
 			envs := makeEnvs(i, []string{"foo"})
 			for _, e := range envs {
@@ -265,11 +244,9 @@ func TestEnvironmentManager_AddEnvironment(t *testing.T) {
 
 func TestEnvironmentManager_DeleteEnvironment(t *testing.T) {
 	t.Run("environment state is correct", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		in := []envfactory.EnvironmentParams{
 			{EnvID: config.EnvironmentID("a")},
@@ -288,13 +265,11 @@ func TestEnvironmentManager_DeleteEnvironment(t *testing.T) {
 	})
 
 	t.Run("deletes n environments", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		for i := 0; i < 10; i++ {
 			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+			m := NewEnvironmentManager("foo", spy, mockLog)
 
 			envs := makeEnvs(i, []string{"foo"})
 			for _, e := range envs {
@@ -308,12 +283,10 @@ func TestEnvironmentManager_DeleteEnvironment(t *testing.T) {
 	})
 
 	t.Run("delete unknown environment has no effect", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		spy := newHandlerSpy()
-		m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+		m := NewEnvironmentManager("foo", spy, mockLog)
 		m.AddEnvironment(makeEnv("known", "foo"))
 		m.DeleteEnvironment("unknown")
 		require.Len(t, spy.deleted, 0)
@@ -322,11 +295,9 @@ func TestEnvironmentManager_DeleteEnvironment(t *testing.T) {
 
 func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 	t.Run("updating should not modify environment or filter state", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
-		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+		m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 		envs := makeEnvs(2, []string{"foo"})
 		filters := makeFilters(2, []string{"foo"})
@@ -349,13 +320,11 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 	})
 
 	t.Run("n filters dispatches to n+1 environments", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		for i := 0; i < 10; i++ {
 			spy := newHandlerSpy()
-			m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+			m := NewEnvironmentManager("foo", spy, mockLog)
 
 			env := makeEnv("env1", "foo")
 
@@ -379,12 +348,10 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 	})
 
 	t.Run("update unknown environment has no effect", func(t *testing.T) {
-		mockLog := ldlogtest.NewMockLog()
-		defer mockLog.DumpIfTestFailed(t)
-		mockLog.Loggers.SetMinLevel(ldlog.Debug)
+		mockLog, _ := logtest.NewMockLogger()
 
 		spy := newHandlerSpy()
-		m := NewEnvironmentManager("foo", spy, mockLog.Loggers)
+		m := NewEnvironmentManager("foo", spy, mockLog)
 		m.AddEnvironment(makeEnv("known", "proj"))
 		m.UpdateEnvironment(makeEnv("unknown", "proj"))
 		require.Len(t, spy.updated, 0)
@@ -392,11 +359,9 @@ func TestEnvironmentManager_UpdateEnvironment(t *testing.T) {
 }
 
 func TestEnvironmentManager_SimpleFilterCombination(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	mockLog, _ := logtest.NewMockLogger()
 
-	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+	m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 
 	envs := []envfactory.EnvironmentParams{
 		{
@@ -451,9 +416,7 @@ type scenario struct {
 }
 
 func TestEnvironmentManager_TableDriven(t *testing.T) {
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-	mockLog.Loggers.SetMinLevel(ldlog.Debug)
+	mockLog, _ := logtest.NewMockLogger()
 
 	scenarios := []scenario{
 		{
@@ -553,7 +516,7 @@ func TestEnvironmentManager_TableDriven(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog.Loggers)
+			m := NewEnvironmentManager("foo", newHandlerSpy(), mockLog)
 			for _, cmd := range scenario.commands {
 				t.Logf("%s (%v), expecting envs (%v)", cmd.op, cmd.value, cmd.expectedEnvs)
 				vals := cmd.parseVals()

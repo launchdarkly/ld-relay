@@ -2,32 +2,27 @@ package logging
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
-
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 )
 
-type contextLoggersName string
+type contextLoggerKey struct{}
 
-const globalContextLoggersName contextLoggersName = "GlobalContextLoggers"
-
-// GetGlobalContextLoggers returns the Loggers associated with this HTTP request for Relay's global logging.
-// If no such context information was added to the request, it returns disabled loggers.
-func GetGlobalContextLoggers(ctx context.Context) ldlog.Loggers {
-	if value := ctx.Value(globalContextLoggersName); value != nil {
-		if l, ok := value.(ldlog.Loggers); ok {
-			return l
-		}
+// GetContextLogger returns the *slog.Logger associated with this HTTP request.
+// If no logger was added to the request context, it returns slog.Default().
+func GetContextLogger(ctx context.Context) *slog.Logger {
+	if logger, ok := ctx.Value(contextLoggerKey{}).(*slog.Logger); ok {
+		return logger
 	}
-	return ldlog.NewDisabledLoggers()
+	return slog.Default()
 }
 
-// GlobalContextLoggersMiddleware attaches global logging context to each HTTP request.
-func GlobalContextLoggersMiddleware(loggers ldlog.Loggers) func(http.Handler) http.Handler {
+// ContextLoggerMiddleware attaches the given logger to each HTTP request's context.
+func ContextLoggerMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r1 := r.WithContext(context.WithValue(r.Context(), globalContextLoggersName, loggers))
-			next.ServeHTTP(w, r1)
+			r = r.WithContext(context.WithValue(r.Context(), contextLoggerKey{}, logger))
+			next.ServeHTTP(w, r)
 		})
 	}
 }

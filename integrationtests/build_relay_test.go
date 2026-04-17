@@ -4,11 +4,11 @@ package integrationtests
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strings"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/integrationtests/docker"
 	"github.com/launchdarkly/ld-relay/v9/integrationtests/oshelpers"
 )
@@ -26,9 +26,9 @@ const (
 // 3. a Git commit SHA in the private Relay repository.
 //
 // The function returns the name of the container.
-func getRelayDockerImage(relayTagOrSHA string, loggers ldlog.Loggers) (*docker.Image, error) {
+func getRelayDockerImage(relayTagOrSHA string, logger *slog.Logger) (*docker.Image, error) {
 	if relayTagOrSHA == "" {
-		loggers.Info("Building Relay Docker image from current working copy")
+		logger.Info("building Relay Docker image from current working copy")
 		dir, err := getGitRepoBaseDir()
 		if err != nil {
 			return nil, err
@@ -38,13 +38,13 @@ func getRelayDockerImage(relayTagOrSHA string, loggers ldlog.Loggers) (*docker.I
 
 	if matched, _ := regexp.MatchString("[0-9]+\\.[0-9]+\\.[0-9]+.*", relayTagOrSHA); matched {
 		// Try to get a published image tagged with this version.
-		loggers.Infof("Using published Relay Docker image for version %s", relayTagOrSHA)
+		logger.Info("using published Relay Docker image", "version", relayTagOrSHA)
 		tag := fmt.Sprintf("%s:%s", relayDockerImageName, relayTagOrSHA)
 		return docker.PullImage(tag)
 	}
 
 	// Assume it is the SHA of a Git commit - try to check it out in a temporary directory
-	loggers.Infof("Building Relay Docker image from private tag or branch: %s", relayTagOrSHA)
+	logger.Info("building Relay Docker image from private tag or branch", "ref", relayTagOrSHA)
 	path, err := os.MkdirTemp("", "relay-integration-test-")
 	if err != nil {
 		return nil, err

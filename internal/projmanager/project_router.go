@@ -1,7 +1,8 @@
 package projmanager
 
 import (
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"log/slog"
+
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
 	"github.com/launchdarkly/ld-relay/v9/internal/envfactory"
@@ -20,7 +21,7 @@ type AutoConfigActions interface {
 type ProjectRouter struct {
 	managers map[string]*EnvironmentManager
 	actions  AutoConfigActions
-	loggers  ldlog.Loggers
+	logger   *slog.Logger
 }
 
 func (e *ProjectRouter) Manager(projKey string) *EnvironmentManager {
@@ -36,9 +37,9 @@ func (e *ProjectRouter) Projects() []string {
 }
 
 // NewProjectRouter creates a new router which is ready to accept commands.
-func NewProjectRouter(handler AutoConfigActions, loggers ldlog.Loggers) *ProjectRouter {
-	loggers.SetPrefix("[ProjectRouter]")
-	return &ProjectRouter{managers: make(map[string]*EnvironmentManager), actions: handler, loggers: loggers}
+func NewProjectRouter(handler AutoConfigActions, logger *slog.Logger) *ProjectRouter {
+	logger = logger.With("component", "ProjectRouter")
+	return &ProjectRouter{managers: make(map[string]*EnvironmentManager), actions: handler, logger: logger}
 }
 
 // AddEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its project key, or instantiates
@@ -47,7 +48,7 @@ func (e *ProjectRouter) AddEnvironment(params envfactory.EnvironmentParams) {
 	proj := params.Identifiers.ProjKey
 	manager, ok := e.managers[proj]
 	if !ok {
-		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.loggers)
+		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.logger)
 		manager = e.managers[proj]
 	}
 	manager.AddEnvironment(params)
@@ -61,7 +62,7 @@ func (e *ProjectRouter) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	if ok {
 		manager.UpdateEnvironment(params)
 	} else {
-		e.loggers.Errorf("precondition violation: received updated config for (%s), but environment was never added", params.Identifiers.GetDisplayName())
+		e.logger.Error("precondition violation: received updated config, but environment was never added", "environment", params.Identifiers.GetDisplayName())
 	}
 }
 
@@ -75,9 +76,9 @@ func (e *ProjectRouter) DeleteEnvironment(id config.EnvironmentID) {
 		}
 	}
 	if deleteCount == 0 {
-		e.loggers.Errorf("precondition violation: received delete request for environment (%s), but it is not under management", id)
+		e.logger.Error("precondition violation: received delete request for environment, but it is not under management", "envID", id)
 	} else if deleteCount > 1 {
-		e.loggers.Errorf("precondition violation: received delete request for environment (%s), which was associated with more than one project", id)
+		e.logger.Error("precondition violation: received delete request for environment, which was associated with more than one project", "envID", id)
 	}
 }
 
@@ -92,7 +93,7 @@ func (e *ProjectRouter) AddFilter(params envfactory.FilterParams) {
 	proj := params.ProjKey
 	manager, ok := e.managers[proj]
 	if !ok {
-		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.loggers)
+		e.managers[proj] = NewEnvironmentManager(proj, e.actions, e.logger)
 		manager = e.managers[proj]
 	}
 	manager.AddFilter(params)
@@ -108,8 +109,8 @@ func (e *ProjectRouter) DeleteFilter(id config.FilterID) {
 		}
 	}
 	if deleteCount == 0 {
-		e.loggers.Errorf("precondition violation: received delete request for filter (%s), but it is not under management", id)
+		e.logger.Error("precondition violation: received delete request for filter, but it is not under management", "filterID", id)
 	} else if deleteCount > 1 {
-		e.loggers.Errorf("precondition violation: received delete request for filter (%s), which was associated with more than one project", id)
+		e.logger.Error("precondition violation: received delete request for filter, which was associated with more than one project", "filterID", id)
 	}
 }

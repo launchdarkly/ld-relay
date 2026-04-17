@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,9 +12,9 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 
 	es "github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 )
 
@@ -76,7 +77,7 @@ type BigSegmentSynchronizerFactory func(
 	streamURI string,
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	logPrefix string,
 ) BigSegmentSynchronizer
 
@@ -95,7 +96,7 @@ type defaultBigSegmentSynchronizer struct {
 	startOnce           sync.Once
 	closeChan           chan struct{}
 	closeOnce           sync.Once
-	loggers             ldlog.Loggers
+	logger              *slog.Logger
 }
 
 type segmentChangesSummary map[string]struct{}
@@ -114,10 +115,10 @@ func DefaultBigSegmentSynchronizerFactory(
 	streamURI string,
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	logPrefix string,
 ) BigSegmentSynchronizer {
-	return newDefaultBigSegmentSynchronizer(httpConfig, store, pollURI, streamURI, envID, sdkKey, loggers, logPrefix)
+	return newDefaultBigSegmentSynchronizer(httpConfig, store, pollURI, streamURI, envID, sdkKey, logger, logPrefix)
 }
 
 func newDefaultBigSegmentSynchronizer(
@@ -127,9 +128,13 @@ func newDefaultBigSegmentSynchronizer(
 	streamURI string,
 	envID config.EnvironmentID,
 	sdkKey config.SDKKey,
-	loggers ldlog.Loggers,
+	logger *slog.Logger,
 	logPrefix string,
 ) *defaultBigSegmentSynchronizer {
+	component := "BigSegmentSynchronizer"
+	if logPrefix != "" {
+		component = logPrefix + " " + component
+	}
 	s := defaultBigSegmentSynchronizer{
 		httpConfig:          httpConfig,
 		store:               store,
@@ -140,14 +145,8 @@ func newDefaultBigSegmentSynchronizer(
 		streamRetryInterval: defaultStreamRetryInterval,
 		segmentUpdatesChan:  make(chan UpdatesSummary, segmentUpdatesChannelBufferSize),
 		closeChan:           make(chan struct{}),
-		loggers:             loggers,
+		logger:              logger.With("component", component),
 	}
-
-	if logPrefix != "" {
-		logPrefix += " "
-	}
-	logPrefix += "BigSegmentSynchronizer:"
-	s.loggers.SetPrefix(logPrefix)
 
 	return &s
 }
@@ -195,14 +194,14 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 	for {
 		err := s.sync(isRetry)
 		if err != nil {
-			s.loggers.Error("Synchronization failed:", err)
+			s.logger.Error("synchronization failed", "error", err)
 			if statusError, ok := err.(httpStatusError); ok {
 				if !isHTTPErrorRecoverable(statusError.statusCode) {
 					return
 				}
 			}
 		}
-		s.loggers.Warn("Will retry")
+		s.logger.Warn("will retry")
 		timer := time.NewTimer(s.streamRetryInterval)
 		defer timer.Stop()
 		select {
@@ -216,7 +215,7 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 }
 
 func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
-	s.loggers.Debug("Polling for big segment updates")
+	s.logger.Debug("polling for big segment updates")
 	segmentsUpdated := make(segmentChangesSummary)
 	for {
 	SyncLoop:
@@ -230,7 +229,7 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 					return err
 				}
 				if isRetry {
-					s.loggers.Warn("Re-established connection")
+					s.logger.Warn("re-established connection")
 					isRetry = false
 				}
 				segmentsUpdated.addAll(updates)
@@ -255,10 +254,10 @@ func (s *defaultBigSegmentSynchronizer) sync(isRetry bool) error {
 			continue
 		}
 
-		s.loggers.Debug("Marking store as synchronized")
+		s.logger.Debug("marking store as synchronized")
 		err = s.setSynced()
 		if err != nil {
-			s.loggers.Error("Updating store timestamp failed:", err)
+			s.logger.Error("updating store timestamp failed", "error", err)
 			return err
 		}
 
@@ -320,7 +319,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, err
 		request.URL.RawQuery = query.Encode()
 	}
 
-	s.loggers.Debugf("Polling %s", request.URL)
+	s.logger.Debug("polling", "url", request.URL)
 	response, err := client.Do(request)
 	if err != nil {
 		return false, segmentChangesSummary{}, err
@@ -344,7 +343,7 @@ func (s *defaultBigSegmentSynchronizer) poll() (bool, segmentChangesSummary, err
 }
 
 func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
-	s.loggers.Debugf("Making stream request to %s", s.streamURI)
+	s.logger.Debug("making stream request", "url", s.streamURI)
 	request, err := http.NewRequest("GET", s.streamURI, nil)
 	if err != nil {
 		return nil, err
@@ -358,9 +357,9 @@ func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 	stream, err := es.SubscribeWithRequestAndOptions(request,
 		es.StreamOptionHTTPClient(client),
 		es.StreamOptionReadTimeout(streamReadTimeout),
-		es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+		es.StreamOptionLogger(logging.NewEventSourceLogger(s.logger)),
 		es.StreamOptionErrorHandler(func(err error) es.StreamErrorHandlerResult {
-			s.loggers.Warnf("Stream connection failed: %s", err)
+			s.logger.Warn("stream connection failed", "error", err)
 			return es.StreamErrorHandlerResult{CloseNow: true}
 		}),
 	)
@@ -381,11 +380,11 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 		case event, ok := <-stream.Events:
 			timer.Stop()
 			if !ok {
-				s.loggers.Debug("Stream ended")
+				s.logger.Debug("stream ended")
 				return nil
 			}
 
-			s.loggers.Debug("Received update(s) from stream")
+			s.logger.Debug("received update(s) from stream")
 			applyPatchResult, err := s.applyPatches([]byte(event.Data()))
 			if err != nil {
 				return err
@@ -424,27 +423,23 @@ func (s *defaultBigSegmentSynchronizer) applyPatches(jsonData []byte) (applyPatc
 	}
 	for _, patch := range patches {
 		if enableTraceLogging {
-			s.loggers.Debugf("Received patch: %+v", patch)
+			s.logger.Debug("received patch", "patch", fmt.Sprintf("%+v", patch))
 		} else {
-			s.loggers.Debugf("Received patch for version %q (from previous version %q)", patch.Version, patch.PreviousVersion)
+			s.logger.Debug("received patch", "version", patch.Version, "previousVersion", patch.PreviousVersion)
 		}
 		success, err := s.store.applyPatch(patch)
 		if err != nil {
 			return ret, err
 		}
 		if !success {
-			s.loggers.Warnf("Received a patch to previous version %q which was not the latest known version; skipping", patch.PreviousVersion)
+			s.logger.Warn("received a patch to previous version which was not the latest known version; skipping", "previousVersion", patch.PreviousVersion)
 			break
 		}
 		ret.patchesAppliedCount++
 		ret.segmentsUpdated.addSegmentID(patch.SegmentID)
 	}
 	if ret.patchesAppliedCount > 0 {
-		updatesDesc := "updates"
-		if ret.patchesAppliedCount == 1 {
-			updatesDesc = "update"
-		}
-		s.loggers.Infof("Applied %d %s", ret.patchesAppliedCount, updatesDesc)
+		s.logger.Info("applied updates", "count", ret.patchesAppliedCount)
 	}
 	return ret, nil
 }

@@ -1,16 +1,16 @@
 package credential
 
 import (
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/ld-relay/v9/config"
 )
 
 type Rotator struct {
-	loggers ldlog.Loggers
+	logger *slog.Logger
 
 	// There is only one mobile key active at a given time; it does not support a deprecation period.
 	primaryMobileKey config.MobileKey
@@ -38,11 +38,11 @@ type InitialCredentials struct {
 	EnvironmentID config.EnvironmentID
 }
 
-// NewRotator constructs a rotator with the provided loggers. A new rotator
+// NewRotator constructs a rotator with the provided logger. A new rotator
 // contains no credentials and can optionally be initialized via Initialize.
-func NewRotator(loggers ldlog.Loggers) *Rotator {
+func NewRotator(logger *slog.Logger) *Rotator {
 	r := &Rotator{
-		loggers:           loggers,
+		logger:            logger,
 		deprecatedSdkKeys: make(map[config.SDKKey]time.Time),
 	}
 	return r
@@ -187,10 +187,10 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 	r.primaryEnvironmentID = envID
 	r.additions = append(r.additions, envID)
 	if previous.Defined() {
-		r.loggers.Infof("Environment ID %s was rotated, new environment ID is %s", r.primaryEnvironmentID, envID)
+		r.logger.Info("environment ID was rotated", "previous", previous, "new", envID)
 		r.expirations = append(r.expirations, previous)
 	} else {
-		r.loggers.Infof("New environment ID is %s", envID)
+		r.logger.Info("new environment ID", "envID", envID)
 	}
 }
 
@@ -205,9 +205,9 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
 	r.additions = append(r.additions, mobileKey)
 	if previous.Defined() {
 		r.expirations = append(r.expirations, previous)
-		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
+		r.logger.Info("mobile key was rotated", "previous", previous.Masked(), "new", mobileKey.Masked())
 	} else {
-		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+		r.logger.Info("new primary mobile key", "key", mobileKey.Masked())
 	}
 }
 
@@ -219,7 +219,7 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
 	r.additions = append(r.additions, newKey)
-	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
+	r.logger.Info("new primary SDK key", "key", newKey.Masked())
 
 	return previous
 }
@@ -227,7 +227,7 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 func (r *Rotator) immediatelyRevoke(key config.SDKKey) {
 	if key.Defined() {
 		r.expirations = append(r.expirations, key)
-		r.loggers.Infof("SDK key %s has been immediately revoked", key.Masked())
+		r.logger.Info("SDK key has been immediately revoked", "key", key.Masked())
 	}
 }
 
@@ -248,7 +248,7 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 
 	if previousExpiry, ok := r.deprecatedSdkKeys[grace.key]; ok {
 		if previousExpiry != grace.expiry {
-			r.loggers.Warnf("SDK key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used. ", grace.key.Masked(), grace.expiry, previousExpiry)
+			r.logger.Warn("SDK key deprecation expiry mismatch; using previous expiry", "key", grace.key.Masked(), "newExpiry", grace.expiry, "previousExpiry", previousExpiry)
 		}
 		// When a key is deprecated by LD, it will stick around in the deprecated field of the message until something
 		// else is deprecated. This means that if a key is rotated *without* a deprecation period set for the previous key,
@@ -260,21 +260,21 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	}
 
 	if grace.Expired() {
-		r.loggers.Infof("Deprecated SDK key %s already expired at %v; ignoring", grace.key.Masked(), grace.expiry)
+		r.logger.Info("deprecated SDK key already expired; ignoring", "key", grace.key.Masked(), "expiry", grace.expiry)
 		return
 	}
 
-	r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+	r.logger.Info("SDK key marked for deprecation", "key", grace.key.Masked(), "expiry", grace.expiry)
 	r.deprecatedSdkKeys[grace.key] = grace.expiry
 
 	if grace.key != previous {
-		r.loggers.Infof("Deprecated SDK key %s was not previously managed by Relay", grace.key.Masked())
+		r.logger.Info("deprecated SDK key was not previously managed by relay", "key", grace.key.Masked())
 		r.additions = append(r.additions, grace.key)
 	}
 }
 
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
-	r.loggers.Infof("Deprecated SDK key %s has expired and is no longer valid for authentication", sdkKey.Masked())
+	r.logger.Info("deprecated SDK key has expired and is no longer valid for authentication", "key", sdkKey.Masked())
 	delete(r.deprecatedSdkKeys, sdkKey)
 	r.expirations = append(r.expirations, sdkKey)
 }

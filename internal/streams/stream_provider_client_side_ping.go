@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 )
 
@@ -64,7 +64,7 @@ func (s *clientSidePingStreamProvider) HandlerV2(credential sdkauth.ScopedCreden
 func (s *clientSidePingStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	_ *slog.Logger,
 ) EnvStreamProvider {
 	if !s.validateCredential(credential.SDKCredential) {
 		return nil
@@ -78,7 +78,7 @@ func (s *clientSidePingStreamProvider) RegisterV1(
 func (s *clientSidePingStreamProvider) RegisterV2(
 	credential sdkauth.ScopedCredential,
 	store EnvStoreQueries,
-	loggers ldlog.Loggers,
+	_ *slog.Logger,
 ) EnvStreamProvider {
 	if !s.validateCredential(credential.SDKCredential) {
 		return nil

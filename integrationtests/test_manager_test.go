@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,7 +26,6 @@ import (
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/pborman/uuid"
@@ -77,7 +76,7 @@ type integrationTestManager struct {
 	relaySharedDir     string
 	statusPollTimeout  time.Duration
 	statusPollInterval time.Duration
-	loggers            ldlog.Loggers
+	logger             *slog.Logger
 	requestLogger      *requestLogger
 	relayLog           []string
 	relayLogLock       sync.Mutex
@@ -86,8 +85,7 @@ type integrationTestManager struct {
 func newIntegrationTestManager() (*integrationTestManager, error) {
 	var params integrationTestParams
 
-	var loggers ldlog.Loggers
-	loggers.SetBaseLogger(log.New(os.Stdout, "[IntegrationTests] ", log.LstdFlags))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "IntegrationTests")
 
 	reader := ct.NewVarReaderFromEnvironment()
 	reader.ReadStruct(&params, false)
@@ -100,12 +98,11 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 	sdkURL := params.LDSDKBaseURL.GetOrElse(defaultSDKBaseURL)
 	clientSDKURL := params.LDClientSDKURL.GetOrElse(defaultClientSDKBaseURL)
 
-	requestLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, loggers: loggers}
-	requestLogger.loggers.SetPrefix("[HTTP]")
+	reqLogger := &requestLogger{transport: &http.Transport{}, enabled: params.HTTPLogging, logger: slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "HTTP")}
 
 	hc := *http.DefaultClient
 	httpClient := &hc
-	httpClient.Transport = requestLogger
+	httpClient.Transport = reqLogger
 
 	apiConfig := ldapi.NewConfiguration()
 	apiConfig.Servers = []ldapi.ServerConfiguration{
@@ -134,7 +131,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		return nil, err
 	}
 
-	dockerImage, err := getRelayDockerImage(params.RelayTagOrSHA, loggers)
+	dockerImage, err := getRelayDockerImage(params.RelayTagOrSHA, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +148,7 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		apiClient:  apiClient,
 		apiContext: apiContext,
 		apiBaseURL: apiBaseURL,
-		loggers:    loggers,
+		logger:     logger,
 	}
 
 	return &integrationTestManager{
@@ -167,8 +164,8 @@ func newIntegrationTestManager() (*integrationTestManager, error) {
 		relaySharedDir:     relaySharedDir,
 		statusPollTimeout:  defaultStatusPollTimeout,
 		statusPollInterval: defaultStatusPollInterval,
-		loggers:            loggers,
-		requestLogger:      requestLogger,
+		logger:             logger,
+		requestLogger:      reqLogger,
 	}, nil
 }
 
@@ -293,7 +290,7 @@ func (m *integrationTestManager) awaitRelayStatus(t *testing.T, fn func(api.Stat
 		output := string(outData)
 		if output != lastOutput {
 			if !m.params.HTTPLogging {
-				m.loggers.Infof("Got status: %s", output)
+				m.logger.Info("got status", "body", output)
 			}
 			lastOutput = output
 		}
@@ -357,10 +354,9 @@ func (m *integrationTestManager) verifyFlagValues(t *testing.T, projsAndEnvs pro
 		valuesObject := m.getFlagValues(t, proj, env, userJSON)
 		expectedValue := flagValueForEnv(env)
 		if expectedValue.Equal(valuesObject.GetByKey(flagKeyForProj(proj))) {
-			m.loggers.Infof("Got expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
+			m.logger.Info("got expected flag values", "environment", env.key, "sdkKey", env.sdkKey)
 		} else {
-			m.loggers.Errorf("Did not get expected flag values for environment %s with SDK key %s", env.key, env.sdkKey)
-			m.loggers.Errorf("Response was: %s", valuesObject)
+			m.logger.Error("did not get expected flag values", "environment", env.key, "sdkKey", env.sdkKey, "response", valuesObject)
 			t.Fail()
 		}
 	})
@@ -378,10 +374,9 @@ func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnv
 			expectedValue := flagValueForEnv(env)
 			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) &&
 				expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) {
-				m.loggers.Infof("Got expected flag values for environment %s (no filter) with SDK key %s", env.key, env.sdkKey)
+				m.logger.Info("got expected flag values", "environment", env.key, "filter", "none", "sdkKey", env.sdkKey)
 			} else {
-				m.loggers.Errorf("Did not get expected flag values for environment %s (no filter) with SDK key %s", env.key, env.sdkKey)
-				m.loggers.Errorf("Response was: %s", valuesObject)
+				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", "none", "sdkKey", env.sdkKey, "response", valuesObject)
 				t.Fail()
 			}
 		case "even-flags":
@@ -390,10 +385,9 @@ func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnv
 			valuesObject := m.getFlagValues(t, proj, env, userJSON)
 			expectedValue := flagValueForEnv(env)
 			if expectedValue.Equal(valuesObject.GetByKey(evenFlagKeyForProj(proj))) && valuesObject.GetByKey(oddFlagKeyForProj(proj)).IsNull() {
-				m.loggers.Infof("Got expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+				m.logger.Info("got expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey)
 			} else {
-				m.loggers.Errorf("Did not get expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
-				m.loggers.Errorf("Response was: %s", valuesObject)
+				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey, "response", valuesObject)
 				t.Fail()
 			}
 		case "odd-flags":
@@ -402,10 +396,9 @@ func (m *integrationTestManager) verifyEvenOddFlagKeys(t *testing.T, projsAndEnv
 			valuesObject := m.getFlagValues(t, proj, env, userJSON)
 			expectedValue := flagValueForEnv(env)
 			if expectedValue.Equal(valuesObject.GetByKey(oddFlagKeyForProj(proj))) && valuesObject.GetByKey(evenFlagKeyForProj(proj)).IsNull() {
-				m.loggers.Infof("Got expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
+				m.logger.Info("got expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey)
 			} else {
-				m.loggers.Errorf("Did not get expected flag values for environment %s (%s) with SDK key %s", env.key, env.filterKey, env.sdkKey)
-				m.loggers.Errorf("Response was: %s", valuesObject)
+				m.logger.Error("did not get expected flag values", "environment", env.key, "filter", env.filterKey, "sdkKey", env.sdkKey, "response", valuesObject)
 				t.Fail()
 			}
 		}
@@ -443,12 +436,12 @@ func (m *integrationTestManager) getFlagValues(t *testing.T, proj projectInfo, e
 			}
 			return valuesObject.Build()
 		}
-		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with SDK key %s: %s",
-			env.key, env.sdkKey, string(data))
+		m.logger.Error("flags poll request returned invalid response",
+			"environment", env.key, "sdkKey", env.sdkKey, "response", string(data))
 		t.FailNow()
 	} else {
-		m.loggers.Errorf("Flags poll request for environment %s with SDK key %s failed with status %d",
-			env.key, env.sdkKey, resp.StatusCode)
+		m.logger.Error("flags poll request failed",
+			"environment", env.key, "sdkKey", env.sdkKey, "status", resp.StatusCode)
 		t.FailNow()
 	}
 	return ldvalue.Null()
@@ -476,12 +469,12 @@ func (m *integrationTestManager) getFlagPrerequisites(t *testing.T, envKey strin
 			}
 			return valuesObject.Build()
 		}
-		m.loggers.Errorf("Flags poll request returned invalid response for environment %s with credential %s: %s",
-			envKey, auth.Masked(), string(data))
+		m.logger.Error("flags poll request returned invalid response",
+			"environment", envKey, "credential", auth.Masked(), "response", string(data))
 		t.FailNow()
 	} else {
-		m.loggers.Errorf("Flags poll request for environment %s with credential %s failed with status %d",
-			envKey, auth.Masked(), resp.StatusCode)
+		m.logger.Error("flags poll request failed",
+			"environment", envKey, "credential", auth.Masked(), "status", resp.StatusCode)
 		t.FailNow()
 	}
 	return ldvalue.Null()
