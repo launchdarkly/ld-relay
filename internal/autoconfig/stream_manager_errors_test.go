@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +82,11 @@ func TestWellFormedJSONThatIsNotWellFormedEventDataCausesStreamRestart(t *testin
 	})
 }
 
-func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler, expectedWarning string) {
+// errorShouldCauseReconnect verifies that the given handler's error response causes the stream
+// to reconnect and that a warning log entry with the expected message is emitted. If
+// expectedStatusCode is non-zero, it also verifies that the entry has a "statusCode" attribute
+// matching that value.
+func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler, expectedWarning string, expectedStatusCode int) {
 	initialEvent := makeEnvPutEvent(testEnv1)
 	streamHandler, stream := httphelpers.SSEHandler(&initialEvent)
 	defer stream.Close()
@@ -93,7 +98,20 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 		p.startStream()
 		<-p.requestsCh // first request
 		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
-		assert.True(t, p.mockLog.HasMessage(slog.LevelWarn, expectedWarning))
+
+		found := false
+		for _, e := range p.mockLog.EntriesForLevel(slog.LevelWarn) {
+			if !strings.Contains(e.Message, expectedWarning) {
+				continue
+			}
+			if expectedStatusCode != 0 {
+				assert.EqualValues(t, expectedStatusCode, e.Attrs["statusCode"], "statusCode attribute mismatch")
+			}
+			found = true
+			break
+		}
+		assert.True(t, found, "expected warn-level log entry containing %q", expectedWarning)
+
 		msg := p.requireMessage()
 		assert.NotNil(t, msg.add)
 		p.requireReceivedAllMessage()
@@ -103,13 +121,13 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 func TestReconnectAfterRecoverableHTTPError(t *testing.T) {
 	for _, status := range []int{400, 500, 503} {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
-			errorShouldCauseReconnect(t, httphelpers.HandlerWithStatus(status), fmt.Sprintf("HTTP error"))
+			errorShouldCauseReconnect(t, httphelpers.HandlerWithStatus(status), "HTTP error", status)
 		})
 	}
 }
 
 func TestReconnectAfterNetworkError(t *testing.T) {
-	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "unexpected error")
+	errorShouldCauseReconnect(t, httphelpers.BrokenConnectionHandler(), "unexpected error", 0)
 }
 
 func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
