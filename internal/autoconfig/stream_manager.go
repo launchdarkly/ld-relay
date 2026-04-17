@@ -118,7 +118,7 @@ func NewStreamManager(
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
-		halt: make(chan struct{}),
+		halt:              make(chan struct{}),
 	}
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
