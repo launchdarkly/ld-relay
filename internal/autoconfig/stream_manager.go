@@ -118,8 +118,7 @@ func NewStreamManager(
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
 		loggers:           loggers,
-		halt:              make(chan struct{}),
-		done:              make(chan struct{}),
+		halt: make(chan struct{}),
 	}
 
 	// Enforces ordering constraints on the SSE messages that are sent from the server, allowing the MessageHandler
@@ -164,6 +163,7 @@ func (s *StreamManager) Start() <-chan error {
 	s.cacheCh = cacheCh
 	s.cacheCancel = cacheCancel
 
+	s.done = make(chan struct{})
 	readyCh := make(chan error, 1)
 	go func() {
 		defer close(s.done)
@@ -174,11 +174,14 @@ func (s *StreamManager) Start() <-chan error {
 
 // Close permanently shuts down the stream and waits for the subscribe goroutine
 // to exit before closing the cache, ensuring no in-flight cache writes are interrupted.
+// Safe to call even if Start() was never called.
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
 	})
-	<-s.done
+	if s.done != nil {
+		<-s.done
+	}
 	_ = s.cache.Close()
 }
 
