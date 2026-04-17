@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
@@ -32,6 +33,29 @@ func NewTestEnvContextWithClientFactory(
 	_, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
 		Identifiers:      relayenv.EnvIdentifiers{ConfiguredName: name},
 		ClientFactory:    f,
+		DataStoreFactory: dataStoreFactory,
+		UserAgent:        "fake-user-agent",
+		Logger:           slog.Default(),
+	}, readyCh)
+	if err != nil {
+		panic(err)
+	}
+	if c, ok, _ := helpers.TryReceive(readyCh, time.Second); ok {
+		return c
+	}
+	panic("timed out waiting for client initialization")
+}
+
+func NewTestEnvContextWithEnvConfig(name string, envConfig config.EnvConfig, shouldBeInitialized bool, store subsystems.DataStore) relayenv.EnvContext {
+	var dataStoreFactory subsystems.ComponentConfigurer[subsystems.DataStore] = nil
+	if store != nil {
+		dataStoreFactory = sharedtest.ExistingInstance(store)
+	}
+	readyCh := make(chan relayenv.EnvContext)
+	_, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+		Identifiers:      relayenv.EnvIdentifiers{ConfiguredName: name},
+		EnvConfig:        envConfig,
+		ClientFactory:    testclient.FakeLDClientFactory(shouldBeInitialized),
 		DataStoreFactory: dataStoreFactory,
 		UserAgent:        "fake-user-agent",
 		Logger:           slog.Default(),

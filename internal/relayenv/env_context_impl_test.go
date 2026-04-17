@@ -129,7 +129,7 @@ func TestConstructorWithJSClientContext(t *testing.T) {
 		EnvConfig:       envConfig,
 		ClientFactory:   testclient.FakeLDClientFactory(true),
 		JSClientContext: jsClientContext,
-		Logger:         slog.Default(),
+		Logger:          slog.Default(),
 	}, nil)
 	require.NoError(t, err)
 	defer env.Close()
@@ -154,8 +154,6 @@ func TestLogPrefix(t *testing.T) {
 
 func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
-
-
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
@@ -182,8 +180,6 @@ func TestAddRemoveCredential(t *testing.T) {
 
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
-
-
 
 	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), slog.Default(), nil)
 	defer env.Close()
@@ -276,8 +272,6 @@ func TestSDKClientCreationFails(t *testing.T) {
 
 	fakeError := errors.New("sorry")
 
-
-
 	env := makeBasicEnv(t, envConfig, testclient.ClientFactoryThatFails(fakeError), slog.Default(), readyCh)
 	defer env.Close()
 
@@ -313,7 +307,7 @@ func TestMetricsAreExportedForEnvironment(t *testing.T) {
 			ClientFactory:  testclient.FakeLDClientFactory(true),
 			MetricsManager: metricsManager,
 			UserAgent:      fakeUserAgent,
-			Logger:        slog.Default(),
+			Logger:         slog.Default(),
 		}, nil)
 		require.NoError(t, err)
 		defer env.Close()
@@ -366,7 +360,7 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 			AllConfig:      allConfig,
 			ClientFactory:  testclient.FakeLDClientFactory(true),
 			MetricsManager: metricsManager,
-			Logger:        slog.Default(),
+			Logger:         slog.Default(),
 		}, nil)
 		require.NoError(t, err)
 		defer env.Close()
@@ -388,7 +382,6 @@ func testMetricsDisabled(t *testing.T, allConfig config.Config) {
 
 func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
 
-
 	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
@@ -400,7 +393,7 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 			EnvConfig:     st.EnvMain.Config,
 			AllConfig:     allConfig,
 			ClientFactory: testclient.FakeLDClientFactory(true),
-			Logger:       slog.Default(),
+			Logger:        slog.Default(),
 		}, nil)
 		require.NoError(t, err)
 		defer env.Close()
@@ -433,7 +426,6 @@ func TestEventDispatcherIsCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testin
 
 func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *testing.T) {
 
-
 	eventRecorderHandler, _ := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
 	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
 		var allConfig config.Config
@@ -446,7 +438,7 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 			EnvConfig:     st.EnvMain.Config,
 			AllConfig:     allConfig,
 			ClientFactory: testclient.FakeLDClientFactory(true),
-			Logger:       slog.Default(),
+			Logger:        slog.Default(),
 		}, nil)
 		require.NoError(t, err)
 		defer env.Close()
@@ -465,8 +457,6 @@ func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 		return bigsegments.NewNullBigSegmentStore(), nil
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
-
-
 
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
@@ -504,8 +494,6 @@ func TestBigSegmentsSynchronizerIsStartedByFullDataUpdateWithBigSegment(t *testi
 		return bigsegments.NewNullBigSegmentStore(), nil
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
-
-
 
 	changeSetCh := make(chan subsystems.ChangeSet, 1)
 
@@ -583,8 +571,6 @@ func TestBigSegmentsSynchronizerIsStartedBySingleItemUpdateWithBigSegment(t *tes
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-
-
 	changeSetCh := make(chan subsystems.ChangeSet, 1)
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
@@ -654,8 +640,6 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-
-
 	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
 	sdkStartedCh := make(chan EnvContext)
 	env, err := NewEnvContext(EnvContextImplParams{
@@ -669,7 +653,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
 		),
 		StreamProviders: []streams.StreamProvider{jsClientStreams},
-		Logger:         slog.Default(),
+		Logger:          slog.Default(),
 	}, sdkStartedCh)
 	require.NoError(t, err)
 	defer env.Close()

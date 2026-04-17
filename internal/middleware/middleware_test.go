@@ -402,6 +402,206 @@ func TestSelectEnvironmentByAuthorizationKey(t *testing.T) {
 	})
 }
 
+func TestSelectEnvironmentByClientSideAuth(t *testing.T) {
+	envWithAllCreds := testenv.NewTestEnvContextWithEnvConfig("env-all", st.EnvWithAllCredentials.Config, false, nil)
+
+	t.Run("finds by environment ID", func(t *testing.T) {
+		envs := testEnvironments{
+			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+				sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithAllCreds,
+			},
+		}
+		selector := SelectEnvironmentByClientSideAuth(envs)
+
+		headers := make(http.Header)
+		headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.EnvID))
+		req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("finds by mobile key", func(t *testing.T) {
+		envs := testEnvironments{
+			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+				sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithAllCreds,
+			},
+		}
+		selector := SelectEnvironmentByClientSideAuth(envs)
+
+		headers := make(http.Header)
+		headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.MobileKey))
+		req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("skips auth for OPTIONS preflight", func(t *testing.T) {
+		envs := testEnvironments{envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{}}
+		selector := SelectEnvironmentByClientSideAuth(envs)
+
+		req := buildPreRoutedRequest("OPTIONS", nil, nil, nil, nil)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("rejects unknown credential", func(t *testing.T) {
+		envs := testEnvironments{
+			envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+				sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithAllCreds,
+			},
+		}
+		selector := SelectEnvironmentByClientSideAuth(envs)
+
+		headers := make(http.Header)
+		headers.Set("Authorization", string(st.UndefinedEnvID))
+		req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("returns 503 if Relay has not been initialized", func(t *testing.T) {
+		envs := testEnvironments{notInited: true}
+		selector := SelectEnvironmentByClientSideAuth(envs)
+
+		headers := make(http.Header)
+		headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.EnvID))
+		req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+		resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	})
+}
+
+func TestEnvIDHeader(t *testing.T) {
+	const testEnvID = config.EnvironmentID("507f1f77bcf86cd79943902a")
+
+	envWithEnvID := testenv.NewTestEnvContextWithEnvConfig("env-with-id", config.EnvConfig{
+		EnvID: testEnvID,
+	}, false, nil)
+
+	envWithoutEnvID := testenv.NewTestEnvContext("env-without-id", false, nil)
+
+	t.Run("SelectEnvironmentByAuthorizationKey", func(t *testing.T) {
+		t.Run("sets header for server-side SDK when env has env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvMain.Config.SDKKey): envWithEnvID,
+				},
+			}
+			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
+
+			req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, string(testEnvID), resp.Header.Get(ldEnvIDHeader))
+		})
+
+		t.Run("sets header for mobile SDK when env has env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvMobile.Config.MobileKey): envWithEnvID,
+				},
+			}
+			selector := SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, envs)
+
+			req := buildPreRoutedRequestWithAuth(st.EnvMobile.Config.MobileKey)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, string(testEnvID), resp.Header.Get(ldEnvIDHeader))
+		})
+
+		t.Run("sets header for JS client SDK when env has env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvClientSide.Config.EnvID): envWithEnvID,
+				},
+			}
+			selector := SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, envs)
+
+			vars := map[string]string{"envId": string(st.EnvClientSide.Config.EnvID)}
+			req := buildPreRoutedRequest("GET", nil, nil, vars, nil)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, string(testEnvID), resp.Header.Get(ldEnvIDHeader))
+		})
+
+		t.Run("does not set header when env has no env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvMain.Config.SDKKey): envWithoutEnvID,
+				},
+			}
+			selector := SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, envs)
+
+			req := buildPreRoutedRequestWithAuth(st.EnvMain.Config.SDKKey)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, "", resp.Header.Get(ldEnvIDHeader))
+		})
+	})
+
+	t.Run("SelectEnvironmentByClientSideAuth", func(t *testing.T) {
+		t.Run("sets header when authenticating with env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvWithAllCredentials.Config.EnvID): envWithEnvID,
+				},
+			}
+			selector := SelectEnvironmentByClientSideAuth(envs)
+
+			headers := make(http.Header)
+			headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.EnvID))
+			req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, string(testEnvID), resp.Header.Get(ldEnvIDHeader))
+		})
+
+		t.Run("sets header when authenticating with mobile key", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithEnvID,
+				},
+			}
+			selector := SelectEnvironmentByClientSideAuth(envs)
+
+			headers := make(http.Header)
+			headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.MobileKey))
+			req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, string(testEnvID), resp.Header.Get(ldEnvIDHeader))
+		})
+
+		t.Run("does not set header when env has no env ID", func(t *testing.T) {
+			envs := testEnvironments{
+				envs: map[sdkauth.ScopedCredential]relayenv.EnvContext{
+					sdkauth.New(st.EnvWithAllCredentials.Config.MobileKey): envWithoutEnvID,
+				},
+			}
+			selector := SelectEnvironmentByClientSideAuth(envs)
+
+			headers := make(http.Header)
+			headers.Set("Authorization", string(st.EnvWithAllCredentials.Config.MobileKey))
+			req := buildPreRoutedRequest("GET", nil, headers, nil, nil)
+			resp, _ := st.DoRequest(req, selector(nullHandler()))
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, "", resp.Header.Get(ldEnvIDHeader))
+		})
+	})
+}
+
 func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	req := buildPreRoutedRequest("GET", nil, nil, nil, nil)
 	resp := httptest.NewRecorder()
@@ -412,7 +612,7 @@ func TestCORSMiddlewareSetsCorrectDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "false", resp.Result().Header.Get("Access-Control-Allow-Credentials"))
 	assert.Equal(t, "300", resp.Result().Header.Get("Access-Control-Max-Age"))
 	assert.Equal(t, browser.DefaultAllowedHeaders, resp.Result().Header.Get("Access-Control-Allow-Headers"))
-	assert.Equal(t, "Date", resp.Result().Header.Get("Access-Control-Expose-Headers"))
+	assert.Equal(t, "Date,X-LD-EnvId", resp.Result().Header.Get("Access-Control-Expose-Headers"))
 }
 
 func TestCORSMiddlewareSetsCorrectDefaultHeadersWhenRequestHasOrigin(t *testing.T) {
