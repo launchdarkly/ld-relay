@@ -74,7 +74,10 @@ func NewManager(
 	if os.Getenv("OTEL_SERVICE_NAME") == "" {
 		resourceOpts = append(resourceOpts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
 	}
-	res, _ := resource.New(context.Background(), resourceOpts...)
+	res, err := resource.New(context.Background(), resourceOpts...)
+	if err != nil || res == nil {
+		res = resource.Default()
+	}
 
 	var meterProvider *sdkmetric.MeterProvider
 	var meter otelmetric.Meter

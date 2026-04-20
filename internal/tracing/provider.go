@@ -37,7 +37,10 @@ func NewTracingProvider(cfg TracingConfig) (*TracingProvider, error) {
 	if os.Getenv("OTEL_SERVICE_NAME") == "" {
 		resourceOpts = append(resourceOpts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
 	}
-	res, _ := resource.New(context.Background(), resourceOpts...)
+	res, resErr := resource.New(context.Background(), resourceOpts...)
+	if resErr != nil || res == nil {
+		res = resource.Default()
+	}
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
