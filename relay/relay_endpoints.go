@@ -635,11 +635,10 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	evaluator := clientCtx.Env.GetEvaluator()
 
-	ctx, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
+	_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
 	evalResults := evaluateFlags(evaluator, items, sdkKind, ldContext)
 	evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 	evalSpan.End()
-	req = req.WithContext(ctx)
 
 	responseWriter := jwriter.NewWriter()
 	responseObj := responseWriter.Object()
