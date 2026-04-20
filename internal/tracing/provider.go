@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"go.opentelemetry.io/otel"
@@ -27,7 +28,7 @@ type TracingProvider struct {
 // NewTracingProvider creates a TracerProvider with an OTLP exporter and
 // registers it as the global provider. It also sets the global text-map
 // propagator to support W3C Trace Context and Baggage.
-func NewTracingProvider(cfg TracingConfig) (*TracingProvider, error) {
+func NewTracingProvider(cfg TracingConfig, logger *slog.Logger) (*TracingProvider, error) {
 	exporter, err := newOTLPTraceExporter(cfg.Protocol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
@@ -39,6 +40,7 @@ func NewTracingProvider(cfg TracingConfig) (*TracingProvider, error) {
 	}
 	res, resErr := resource.New(context.Background(), resourceOpts...)
 	if resErr != nil || res == nil {
+		logger.Warn("failed to create OTel resource, falling back to default", "error", resErr)
 		res = resource.Default()
 	}
 

@@ -83,7 +83,7 @@ func run() int {
 
 		tp, err := tracing.NewTracingProvider(tracing.TracingConfig{
 			Protocol: c.OpenTelemetry.Protocol,
-		})
+		}, logger)
 		if err != nil {
 			logger.Error("failed to initialize OTLP trace exporter", "error", err)
 			return 1

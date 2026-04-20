@@ -76,6 +76,7 @@ func NewManager(
 	}
 	res, err := resource.New(context.Background(), resourceOpts...)
 	if err != nil || res == nil {
+		logger.Warn("failed to create OTel resource, falling back to default", "error", err)
 		res = resource.Default()
 	}
 
