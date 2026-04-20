@@ -100,6 +100,25 @@ func TestFDv2ClientSidePollingWithMobileKey(t *testing.T) {
 			assert.Len(t, payload.Events, 1)
 			assert.Equal(t, "server-intent", payload.Events[0].Event)
 		})
+
+		t.Run("ETag caching", func(t *testing.T) {
+			req := st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
+			result, _ := st.DoRequest(req, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			etag := result.Header.Get("Etag")
+			assert.NotEmpty(t, etag)
+
+			req = st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
+			req.Header.Set("If-None-Match", etag)
+			result, _ = st.DoRequest(req, p.relay)
+			assert.Equal(t, http.StatusNotModified, result.StatusCode)
+
+			req = st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
+			req.Header.Set("If-None-Match", "wrong-etag")
+			result, _ = st.DoRequest(req, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			assert.NotEmpty(t, result.Header.Get("Etag"))
+		})
 	})
 }
 

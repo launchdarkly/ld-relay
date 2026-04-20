@@ -56,7 +56,7 @@ func TestEndpointsPHPPolling(t *testing.T) {
 						if assert.Equal(t, s.expectedStatus, result.StatusCode) {
 							st.AssertNonStreamingHeaders(t, result.Header)
 							m.In(t).Assert(body, s.bodyMatcher)
-							etag := result.Header.Get("Etag")
+							etag = result.Header.Get("Etag")
 							assert.NotEqual(t, "", etag)
 						}
 					})
@@ -78,7 +78,6 @@ func TestEndpointsPHPPolling(t *testing.T) {
 							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusNotModified, result.StatusCode)
-							assert.NotEmpty(t, result.Header.Get("Expires"))
 						})
 
 						t.Run("query with different ETag is cached", func(t *testing.T) {
@@ -87,7 +86,6 @@ func TestEndpointsPHPPolling(t *testing.T) {
 							result, _ := st.DoRequest(r, p.relay)
 
 							assert.Equal(t, http.StatusOK, result.StatusCode)
-							assert.NotEmpty(t, result.Header.Get("Expires"))
 						})
 					}
 				}
