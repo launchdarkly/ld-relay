@@ -33,7 +33,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
 	"github.com/gorilla/mux"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -170,7 +169,7 @@ type payloadEvent struct {
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 
-	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.snapshot")
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -320,7 +319,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.snapshot")
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := store.Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -375,7 +374,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
-		_, evalSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.evaluate_flags")
+		_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
 		evalResults := evaluateFlags(evaluator, allItems, sdkKind, ldContext)
 		evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 		evalSpan.End()
@@ -429,7 +428,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 
-	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get_all")
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -498,7 +497,7 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 			return
 		}
 
-		_, eventSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.events.dispatch")
+		_, eventSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEventsDispatch)
 		eventSpan.SetAttributes(tracing.EventsKindKey.String(string(eventsKind)))
 		handler(w, req)
 		eventSpan.End()
@@ -614,7 +613,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	logger.Debug("application requested client-side flags", "sdkKind", sdkKind, "contextKey", ldContext.Key())
 
-	_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get_all")
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -631,7 +630,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	evaluator := clientCtx.Env.GetEvaluator()
 
-	_, evalSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.evaluate_flags")
+	_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
 	evalResults := evaluateFlags(evaluator, items, sdkKind, ldContext)
 	evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 	evalSpan.End()
@@ -664,7 +663,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
 
-		_, storeSpan := otel.Tracer("ld-relay").Start(req.Context(), "relay.store.get")
+		_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGet)
 		storeSpan.SetAttributes(tracing.StoreKeyKey.String(key))
 		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {

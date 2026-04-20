@@ -24,7 +24,6 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 
 	"github.com/gorilla/mux"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -116,7 +115,7 @@ func Chain(middlewares ...mux.MiddlewareFunc) mux.MiddlewareFunc {
 func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayEnvironments) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx, span := otel.Tracer("ld-relay").Start(req.Context(), "relay.auth")
+			ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
 			defer span.End()
 			span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
 			req = req.WithContext(ctx)
@@ -206,7 +205,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				return
 			}
 
-			ctx, span := otel.Tracer("ld-relay").Start(req.Context(), "relay.auth")
+			ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
 			defer span.End()
 			req = req.WithContext(ctx)
 

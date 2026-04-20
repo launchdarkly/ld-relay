@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/mux"
 	h "github.com/klauspost/compress/gzhttp"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
@@ -38,7 +39,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	if r.logger.Enabled(context.Background(), slog.LevelDebug) {
 		router.Use(logging.RequestLoggerMiddleware(r.logger))
 	}
-	router.Use(otelmux.Middleware("ld-relay"))
+	router.Use(otelmux.Middleware(tracing.TracerName))
 	if r.config.HTTP.EnableCompression {
 		router.Use(func(next http.Handler) http.Handler {
 			return h.GzipHandler(next)
