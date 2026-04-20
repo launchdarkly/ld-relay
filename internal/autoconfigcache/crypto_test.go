@@ -53,6 +53,65 @@ func TestDecryptFailsWithTruncatedCiphertext(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
+	key := deriveKey([]byte("test-key"))
+	plaintext := []byte("sensitive environment data including SDK keys")
+
+	ciphertext, err := encrypt(plaintext, key)
+	require.NoError(t, err)
+
+	// Ciphertext layout: nonce (12 bytes) || encrypted body || GCM tag (16 bytes).
+	// Flipping a bit anywhere in that blob must cause Open() to fail.
+	const nonceSize = 12
+	const tagSize = 16
+	bodyStart := nonceSize
+	bodyEnd := len(ciphertext) - tagSize
+	require.Greater(t, bodyEnd, bodyStart, "ciphertext should have a non-empty body")
+
+	cases := []struct {
+		name  string
+		index int
+	}{
+		{"flip bit in nonce", 0},
+		{"flip bit in nonce (last byte)", nonceSize - 1},
+		{"flip bit in encrypted body", bodyStart},
+		{"flip bit in middle of body", bodyStart + (bodyEnd-bodyStart)/2},
+		{"flip bit in GCM auth tag", bodyEnd},
+		{"flip bit in last byte of tag", len(ciphertext) - 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tampered := append([]byte(nil), ciphertext...)
+			tampered[tc.index] ^= 0x01
+
+			_, err := decrypt(tampered, key)
+			assert.Error(t, err, "decrypt must reject tampered ciphertext at index %d", tc.index)
+		})
+	}
+}
+
+func TestDecryptRejectsAppendedBytes(t *testing.T) {
+	key := deriveKey([]byte("test-key"))
+	ciphertext, err := encrypt([]byte("payload"), key)
+	require.NoError(t, err)
+
+	tampered := append(append([]byte(nil), ciphertext...), 0x00, 0x01, 0x02)
+	_, err = decrypt(tampered, key)
+	assert.Error(t, err)
+}
+
+func TestDecryptRejectsTruncatedTag(t *testing.T) {
+	key := deriveKey([]byte("test-key"))
+	ciphertext, err := encrypt([]byte("payload"), key)
+	require.NoError(t, err)
+
+	// Lop off the last byte of the GCM tag — auth must fail.
+	tampered := ciphertext[:len(ciphertext)-1]
+	_, err = decrypt(tampered, key)
+	assert.Error(t, err)
+}
+
 func TestDeriveKeyProducesCorrectLength(t *testing.T) {
 	key := deriveKey([]byte("any input"))
 	assert.Len(t, key, aesKeySize)
