@@ -1,16 +1,11 @@
-// The cache stores environment metadata including SDK keys, mobile keys, and project
-// configuration. These credentials could be used to connect to LaunchDarkly or receive
-// flag data if exposed.
+// AutoConfig cache encryption.
 //
-// The persistent store (Redis or DynamoDB) should already be access-controlled, but
-// encrypting cached data at rest provides defense in depth: if an attacker gains read
-// access to the store (e.g. via a misconfigured security group, leaked DB credentials,
-// or a shared multi-tenant database), they cannot extract SDK keys or other secrets
-// without also knowing the encryption key.
+// The cache stores environment metadata (including SDK keys and mobile keys) in Redis
+// or DynamoDB. Encryption at rest provides defense in depth against unauthorized read
+// access to the persistent store.
 //
-// Encryption uses AES-256-GCM with a random nonce per item, providing both
-// confidentiality and integrity. The encryption key is derived using HKDF (RFC 5869)
-// from either a user-provided CacheEncryptionKey or the AutoConfig key.
+// Uses AES-256-GCM with a random nonce per item and HKDF-SHA256 for key derivation
+// from the configured CacheEncryptionKey (or the AutoConfig key as a fallback).
 package autoconfigcache
 
 import (
