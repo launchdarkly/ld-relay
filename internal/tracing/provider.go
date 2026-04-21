@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 // TracingConfig holds configuration for OTel trace export.
@@ -34,15 +31,7 @@ func NewTracingProvider(cfg TracingConfig, logger *slog.Logger) (*TracingProvide
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}
 
-	resourceOpts := []resource.Option{resource.WithFromEnv()}
-	if os.Getenv("OTEL_SERVICE_NAME") == "" {
-		resourceOpts = append(resourceOpts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
-	}
-	res, resErr := resource.New(context.Background(), resourceOpts...)
-	if resErr != nil || res == nil {
-		logger.Warn("failed to create OTel resource, falling back to default", "error", resErr)
-		res = resource.Default()
-	}
+	res := NewResource(logger)
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),

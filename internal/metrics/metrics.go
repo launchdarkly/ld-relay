@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"github.com/pborman/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -17,8 +17,6 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 var errAddEnvironmentAfterClosed = errors.New("tried to add new environment after closing metrics.Manager")
@@ -68,17 +66,7 @@ func NewManager(
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	// WithFromEnv picks up OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME from the environment.
-	// We only set a default service name when the user hasn't provided one via the standard env var.
-	resourceOpts := []resource.Option{resource.WithFromEnv()}
-	if os.Getenv("OTEL_SERVICE_NAME") == "" {
-		resourceOpts = append(resourceOpts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
-	}
-	res, err := resource.New(context.Background(), resourceOpts...)
-	if err != nil || res == nil {
-		logger.Warn("failed to create OTel resource, falling back to default", "error", err)
-		res = resource.Default()
-	}
+	res := tracing.NewResource(logger)
 
 	var meterProvider *sdkmetric.MeterProvider
 	var meter otelmetric.Meter
