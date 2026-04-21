@@ -294,6 +294,14 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 				s.cacheCancel = nil
 				s.cacheCh = nil
 			}
+			// The SSE goroutine may still be running. Drain its result in the
+			// background: if it produced a stream, close it so nothing leaks.
+			go func() {
+				result := <-streamCh
+				if result.stream != nil {
+					result.stream.Close()
+				}
+			}()
 			return
 		}
 	}
