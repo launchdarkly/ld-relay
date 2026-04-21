@@ -276,14 +276,19 @@ func (s *dynamoDBStore) batchWrite(ctx context.Context, requests []types.WriteRe
 		if end > len(requests) {
 			end = len(requests)
 		}
-		batch := requests[i:end]
-		_, err := s.client.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]types.WriteRequest{
-				s.table: batch,
-			},
+		out, err := s.client.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]types.WriteRequest{s.table: requests[i:end]},
 		})
 		if err != nil {
 			s.loggers.Warnf("AutoConfig cache DynamoDB batch write failed (continuing): %v", err)
+			continue
+		}
+		unprocessed := 0
+		for _, reqs := range out.UnprocessedItems {
+			unprocessed += len(reqs)
+		}
+		if unprocessed > 0 {
+			s.loggers.Warnf("AutoConfig cache DynamoDB: %d items were unprocessed and dropped", unprocessed)
 		}
 	}
 }
