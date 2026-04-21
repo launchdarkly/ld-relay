@@ -169,14 +169,13 @@ type payloadEvent struct {
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 
-	ctx, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
 	}
 	storeSpan.End()
-	req = req.WithContext(ctx)
 
 	if err != nil {
 		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
@@ -320,14 +319,13 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := store.Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
 	}
 	storeSpan.End()
-	req = req.WithContext(ctx)
 
 	if err != nil {
 		logger.Error("error reading feature store", "error", err)
@@ -376,11 +374,11 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
-		ctx, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
+		_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
 		evalResults := evaluateFlags(evaluator, allItems, sdkKind, ldContext)
 		evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 		evalSpan.End()
-		req = req.WithContext(ctx)
+
 		for _, er := range evalResults {
 			evalWriter := jwriter.NewWriter()
 			evalObj := evalWriter.Object()
@@ -431,14 +429,13 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 
-	ctx, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
 	}
 	storeSpan.End()
-	req = req.WithContext(ctx)
 
 	if err != nil {
 		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
@@ -617,14 +614,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	logger.Debug("application requested client-side flags", "sdkKind", sdkKind, "contextKey", ldContext.Key())
 
-	ctx, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
+	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
 	}
 	storeSpan.End()
-	req = req.WithContext(ctx)
 
 	if err != nil {
 		logger.Warn("unable to fetch flags from feature store, returning nil map", "error", err)
@@ -668,7 +664,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
 
-		ctx, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGet)
+		_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGet)
 		storeSpan.SetAttributes(tracing.StoreKeyKey.String(key))
 		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {
@@ -676,7 +672,6 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 			storeSpan.SetStatus(codes.Error, err.Error())
 		}
 		storeSpan.End()
-		req = req.WithContext(ctx)
 
 		if err != nil {
 			clientContext.GetLogger().Error("error reading feature store", "error", err)
