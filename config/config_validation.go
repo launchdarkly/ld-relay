@@ -23,6 +23,8 @@ var (
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
+	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
+	errCacheKeyWithoutDynamoTable              = errors.New("AUTO_CONFIG_CACHE_KEY with DynamoDB requires DYNAMODB_TABLE to be set")
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
@@ -79,6 +81,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateConfigEnvironments(&result, c)
 	validateConfigDatabases(&result, c, loggers)
 	validateConfigFilters(&result, c)
+	validateAutoConfigCache(&result, c)
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
@@ -188,6 +191,19 @@ func validateConfigFilters(result *ct.ValidationResult, c *Config) {
 				}
 			}
 		}
+	}
+}
+
+func validateAutoConfigCache(result *ct.ValidationResult, c *Config) {
+	if !c.AutoConfig.Key.Defined() || strings.TrimSpace(c.AutoConfig.CacheKey) == "" {
+		return
+	}
+	hasStore := c.Redis.URL.IsDefined() || c.DynamoDB.Enabled
+	if !hasStore {
+		result.AddError(nil, errCacheKeyWithoutStore)
+	}
+	if c.DynamoDB.Enabled && strings.TrimSpace(c.DynamoDB.TableName) == "" {
+		result.AddError(nil, errCacheKeyWithoutDynamoTable)
 	}
 }
 
