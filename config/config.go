@@ -182,7 +182,6 @@ type EventsConfig struct {
 	SendEvents            bool                     `conf:"USE_EVENTS"`
 	FlushInterval         ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
 	Capacity              ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
-	InlineUsers           bool                     `conf:"EVENTS_INLINE_USERS"`
 	MaxInboundPayloadSize ct.OptBase2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
 }
 
