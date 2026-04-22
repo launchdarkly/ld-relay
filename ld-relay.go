@@ -10,6 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/application"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"github.com/launchdarkly/ld-relay/v9/relay"
 	"github.com/launchdarkly/ld-relay/v9/relay/version"
 )
@@ -79,6 +80,17 @@ func run() int {
 			logging.WithOTelHandler(otelLog.Handler),
 		)
 		logger.Info("OTLP log export enabled", "protocol", c.OpenTelemetry.Protocol)
+
+		tp, err := tracing.NewTracingProvider(tracing.TracingConfig{
+			Protocol: c.OpenTelemetry.Protocol,
+		}, logger)
+		if err != nil {
+			logger.Error("failed to initialize OTLP trace exporter", "error", err)
+			return 1
+		}
+		defer tp.Shutdown(context.Background()) //nolint:errcheck
+
+		logger.Info("OTLP trace export enabled", "protocol", c.OpenTelemetry.Protocol)
 	}
 
 	r, err := relay.NewRelay(c, logger, nil)
