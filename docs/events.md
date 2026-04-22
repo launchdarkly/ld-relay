@@ -27,7 +27,7 @@ EVENTS_CAPACITY=1000
 
 This configuration buffers events for all environments specified in the configuration. The events are flushed every `flushIntervalSecs`. 
 
-To point our SDKs to the Relay Proxy for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance, or the host and port of a load balancer fronting your relay instances. Setting `inlineUsers` to `true` preserves full user details in every event. The default is to send them only once per user in an `"index"` event.
+To point our SDKs to the Relay Proxy for event forwarding, set the `eventsUri` in the SDK to the host and port of your relay instance, or the host and port of a load balancer fronting your relay instances.
 
 ## Events in offline mode
 
