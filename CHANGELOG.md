@@ -2,6 +2,19 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.19.0](https://github.com/launchdarkly/ld-relay/compare/v8.18.0...v8.19.0) (2026-04-22)
+
+
+### Features
+
+* cache autoconfig in store, init from store ([#593](https://github.com/launchdarkly/ld-relay/issues/593)) ([3b16c8e](https://github.com/launchdarkly/ld-relay/commit/3b16c8e9248b3a6c7b24302f1c5904ab2bade1e5))
+
+
+### Bug Fixes
+
+* avoid double-close of AutoConfig cache on init error ([#652](https://github.com/launchdarkly/ld-relay/issues/652)) ([1599a68](https://github.com/launchdarkly/ld-relay/commit/1599a68cb7051fabbea17a74b14a6367f593a43f))
+* **deps:** update Dockerfiles from 3.23.3 to alpine:3.23.4 ([#645](https://github.com/launchdarkly/ld-relay/issues/645)) ([08ac7c2](https://github.com/launchdarkly/ld-relay/commit/08ac7c2f293c783276d65f0ee62a50dbefe618ed))
+
 ## [8.18.0](https://github.com/launchdarkly/ld-relay/compare/v8.17.8...v8.18.0) (2026-04-09)
 
 
