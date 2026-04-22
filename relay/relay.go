@@ -203,7 +203,6 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		if err != nil {
 			return nil, err
 		}
-		thingsToCleanUp.AddCloser(autoConfigCache)
 
 		projectRouter := projmanager.NewProjectRouter(&relayAutoConfigActions{r: r}, loggers)
 
