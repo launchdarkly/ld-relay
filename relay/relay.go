@@ -17,6 +17,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v9/internal/autoconfigcache"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v9/internal/httpconfig"
@@ -191,6 +192,12 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		if err != nil {
 			return nil, err
 		}
+
+		autoConfigCache, err := autoconfigcache.NewStore(c, logger)
+		if err != nil {
+			return nil, err
+		}
+
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
@@ -199,7 +206,9 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 			0,
 			rpacProtocolVersion,
 			logger,
+			autoConfigCache,
 		)
+
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
 			err := <-autoConfigResult

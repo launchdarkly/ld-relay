@@ -160,6 +160,8 @@ type AutoConfigConfig struct {
 	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
 	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
 	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	CacheKey              string           `conf:"AUTO_CONFIG_CACHE_KEY"`
+	CacheEncryptionKey    string           `conf:"AUTO_CONFIG_CACHE_ENCRYPTION_KEY"`
 }
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
