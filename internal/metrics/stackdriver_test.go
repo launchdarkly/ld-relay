@@ -16,7 +16,10 @@ import (
 const (
 	fakeGoogleCredentials = `{
   "type": "authorized_user",
-  "projectId": "test-project-id"
+  "projectId": "test-project-id",
+  "client_id": "fake-client-id",
+  "client_secret": "fake-client-secret",
+  "refresh_token": "fake-refresh-token"
 }`
 
 	fakeInvalidGoogleCredentials = `{
