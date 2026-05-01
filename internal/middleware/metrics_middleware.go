@@ -209,7 +209,7 @@ func DurationMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 			recorder := &statusRecorder{ResponseWriter: w, statusCode: 200}
 			start := time.Now()
 			next.ServeHTTP(recorder, req)
-			// Don't record duration for streaming responses — their lifetime is unbounded
+			// Don't record duration for streaming responses -- their lifetime is unbounded
 			if !strings.HasPrefix(strings.ToLower(recorder.Header().Get("Content-Type")), "text/event-stream") {
 				ri.StatusCode = recorder.statusCode
 				if recorder.statusCode >= 500 {
