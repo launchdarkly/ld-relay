@@ -1,7 +1,9 @@
-# This is a Dockerfile used for release (published to dockerhub by goreleaser)
+# This is a Dockerfile used for release (published to dockerhub)
 
 FROM alpine:3.23.4
 # See "Runtime platform versions" in CONTRIBUTING.md
+
+ARG BINARY=ld-relay
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -9,7 +11,7 @@ RUN apk add --no-cache \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
-COPY ld-relay /usr/bin/ldr
+COPY ${BINARY} /usr/bin/ldr
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
