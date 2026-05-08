@@ -44,13 +44,16 @@ done
 for entry in "${ARCHS[@]}"; do
   IFS=':' read -r nfpm_arch arch_label <<< "$entry"
 
+  # nfpm doesn't expand env vars in contents[].src paths, so we use envsubst
+  export NFPM_ARCH="$nfpm_arch" NFPM_ARCH_LABEL="$arch_label" VERSION="$VERSION"
+  expanded_config=$(envsubst < "$PROJECT_ROOT/nfpm.yml")
+
   for format in deb rpm; do
     echo "  ${format} (${arch_label})..."
-    NFPM_ARCH="$nfpm_arch" NFPM_ARCH_LABEL="$arch_label" VERSION="$VERSION" \
-      nfpm package \
-        --config "$PROJECT_ROOT/nfpm.yml" \
-        --packager "$format" \
-        --target "$DIST_DIR/"
+    nfpm package \
+      --config /dev/stdin \
+      --packager "$format" \
+      --target "$DIST_DIR/" <<< "$expanded_config"
   done
 done
 
