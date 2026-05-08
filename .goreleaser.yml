@@ -7,9 +7,8 @@ builds:
   - CGO_ENABLED=0
   main: .
   binary: ld-relay
-  # Default is `-s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}`.
   ldflags:
-  - -s -w -X internal.version.Version={{.Version}}
+  - -s -w
   goos:
     - darwin
     - linux
@@ -21,7 +20,7 @@ builds:
     - arm64
   goarm:
     - "7"
-  ignore: # Go 1.15+ doesn't support 32-bit Darwin
+  ignore:
     - goos: darwin
       goarch: '386'
     - goos: windows
@@ -54,7 +53,6 @@ nfpms:
         dst: /usr/lib/systemd/system/ld-relay.service
         packager: rpm
 
-
     overrides:
       deb:
         dependencies:
@@ -64,465 +62,56 @@ nfpms:
         - systemd
 
 release:
-  disable: true # this disables releasing *to GitHub*; it will still push to Docker
-  # (we want Releaser to be responsible for doing all the GitHub release manipulations)
+  disable: true
 
-dockers:
-  #
-  # The following templates are for the Alpine-based image.
-  #
-
-  # i386
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-i386"
-    use: buildx
-    goos: linux
-    goarch: "386"
+# dockers_v2 replaces the legacy dockers + docker_manifests sections.
+# It uses docker buildx natively to build multi-arch manifests in a single step,
+# eliminating the need for per-architecture image entries and separate manifest wiring.
+dockers_v2:
+  # Alpine-based image (default tags + "-alpine" alias for future deprecation of bare tags)
+  - id: alpine
     dockerfile: Dockerfile.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/386"
+    images:
+      - "launchdarkly/ld-relay"
+    tags:
+      - "{{ .Version }}"
+      - "{{ .Version }}-alpine"
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_MAJOR "true" }}v{{ .Major }}{{ end }}'
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_MAJOR "true" }}v{{ .Major }}-alpine{{ end }}'
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_LATEST "true" }}latest{{ end }}'
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_LATEST "true" }}latest-alpine{{ end }}'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v7
+      - linux/386
+    extra_files:
+      - linux/etc/ld-relay.conf
 
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-i386"
-    use: buildx
-    goos: linux
-    goarch: "386"
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/386"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:latest-i386"
-    use: buildx
-    goos: linux
-    goarch: "386"
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/386"
-
-  # AMD64
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  # ARMv7
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  # ARM64v8
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  #
-  # The following image templates are for the nonroot debian12 distroless image.
-  #
-
-  # AMD64
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
+  # Distroless static debian12 nonroot
+  - id: static-debian12-nonroot
     dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
+    images:
+      - "launchdarkly/ld-relay"
+    tags:
+      - "{{ .Version }}-static-debian12-nonroot"
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_MAJOR "true" }}v{{ .Major }}-static-debian12-nonroot{{ end }}'
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_LATEST "true" }}latest-static-debian12-nonroot{{ end }}'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v7
 
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  # ARMv7
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  # ARM64v8
-  - image_templates:
-    - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-    - "launchdarkly/ld-relay:latest-static-debian12-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  #
-  # The following image templates are for the debug nonroot debian12 distroless image. This image is
-  # necessary to get a shell in the container for debugging purposes.
-  #
-
-  # AMD64
-  - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
+  # Distroless static debian12 debug nonroot (includes shell for debugging)
+  - id: static-debian12-debug-nonroot
     dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/amd64"
-
-  # ARMv7
-  - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: 7
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm/v7"
-
-  # ARM64v8
-  - image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: false
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-  - image_templates:
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
-    use: buildx
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile-static-debian12-debug-nonroot.goreleaser
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    build_flag_templates:
-      - "--pull"
-      - "--platform=linux/arm64/v8"
-
-docker_manifests:
-  # For backwards compatibility, we publish the :latest, :vX, and :x.y.z tags for Alpine without any suffix
-  # indicating that the image is Alpine based (unlike the debian12 images). This is because it's what was done historically,
-  # and we cannot change it yet without breaking existing users.
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}"
-    skip_push: false
-    image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-amd64"
-      - "launchdarkly/ld-relay:{{ .Version }}-armv7"
-      - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
-      - "launchdarkly/ld-relay:{{ .Version }}-i386"
-
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
-      - "launchdarkly/ld-relay:v{{ .Major }}-i386"
-
-  - name_template: "launchdarkly/ld-relay:latest"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:latest-amd64"
-      - "launchdarkly/ld-relay:latest-armv7"
-      - "launchdarkly/ld-relay:latest-arm64v8"
-      - "launchdarkly/ld-relay:latest-i386"
-
-  # We'll also create aliases for the Alpine-based image with the suffix "-alpine" to make it easier to distinguish
-  # from the debian12 image. This will also allow us to eventually deprecate the non-suffixed tags in a future major version.
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}-alpine"
-    skip_push: false
-    image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-amd64"
-      - "launchdarkly/ld-relay:{{ .Version }}-armv7"
-      - "launchdarkly/ld-relay:{{ .Version }}-arm64v8"
-      - "launchdarkly/ld-relay:{{ .Version }}-i386"
-
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-alpine"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-arm64v8"
-      - "launchdarkly/ld-relay:v{{ .Major }}-i386"
-
-  - name_template: "launchdarkly/ld-relay:latest-alpine"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:latest-amd64"
-      - "launchdarkly/ld-relay:latest-armv7"
-      - "launchdarkly/ld-relay:latest-arm64v8"
-      - "launchdarkly/ld-relay:latest-i386"
-
-  # For the static debian12 image
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}-static-debian12-nonroot"
-    skip_push: false
-    image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-amd64"
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-armv7"
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-nonroot-arm64v8"
-
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-nonroot-arm64v8"
-
-  - name_template: "launchdarkly/ld-relay:latest-static-debian12-nonroot"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-amd64"
-      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-armv7"
-      - "launchdarkly/ld-relay:latest-static-debian12-nonroot-arm64v8"
-  # For the debug static debian12 image
-  - name_template: "launchdarkly/ld-relay:{{ .Version}}-static-debian12-debug-nonroot"
-    skip_push: false
-    image_templates:
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-amd64"
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-armv7"
-      - "launchdarkly/ld-relay:{{ .Version }}-static-debian12-debug-nonroot-arm64v8"
-
-  - name_template: "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_MAJOR "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-amd64"
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-armv7"
-      - "launchdarkly/ld-relay:v{{ .Major }}-static-debian12-debug-nonroot-arm64v8"
-
-  - name_template: "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot"
-    skip_push: '{{ ne .Env.LD_RELEASER_UPDATE_LATEST "true" }}'
-    image_templates:
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-amd64"
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-armv7"
-      - "launchdarkly/ld-relay:latest-static-debian12-debug-nonroot-arm64v8"
+    images:
+      - "launchdarkly/ld-relay"
+    tags:
+      - "{{ .Version }}-static-debian12-debug-nonroot"
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_MAJOR "true" }}v{{ .Major }}-static-debian12-debug-nonroot{{ end }}'
+      - '{{ if eq .Env.LD_RELEASER_UPDATE_LATEST "true" }}latest-static-debian12-debug-nonroot{{ end }}'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v7

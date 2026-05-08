@@ -3,13 +3,15 @@
 FROM alpine:3.23.4
 # See "Runtime platform versions" in CONTRIBUTING.md
 
+ARG TARGETPLATFORM
+
 RUN apk add --no-cache \
     ca-certificates \
  && apk add --upgrade libcrypto3 libssl3 \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
 
-COPY ld-relay /usr/bin/ldr
+COPY ${TARGETPLATFORM}/ld-relay /usr/bin/ldr
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
