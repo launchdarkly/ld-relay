@@ -67,6 +67,7 @@ publish:
 products-for-release:
 	./scripts/cross-compile.sh --keep-build
 	./scripts/build-packages.sh
+	./scripts/docker-build.sh --dry-run
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 

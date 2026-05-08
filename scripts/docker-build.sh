@@ -62,8 +62,9 @@ declare -A BINARY_ARCH_LABELS=(
   ["linux/386"]="386"
 )
 
-PUSH_FLAG=""
-if [[ "$DRY_RUN" == "false" ]]; then
+if [[ "$DRY_RUN" == "true" ]]; then
+  PUSH_FLAG="--load"
+else
   PUSH_FLAG="--push"
 fi
 

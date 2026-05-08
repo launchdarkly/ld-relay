@@ -74,6 +74,8 @@ echo "Generating checksums..."
 cd "$DIST_DIR"
 shasum -a 256 *.tar.gz > checksums.txt
 
+echo "{\"version\":\"$VERSION\"}" > "$DIST_DIR/metadata.json"
+
 if [[ "$KEEP_BUILD" == "false" ]]; then
   rm -rf "$DIST_DIR/build"
 fi
