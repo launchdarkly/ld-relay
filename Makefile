@@ -63,7 +63,7 @@ publish:
 	./scripts/run-goreleaser.sh
 
 products-for-release:
-	./scripts/run-goreleaser.sh --snapshot
+	LD_RELEASER_UPDATE_MAJOR=false LD_RELEASER_UPDATE_LATEST=false ./scripts/run-goreleaser.sh --snapshot
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
