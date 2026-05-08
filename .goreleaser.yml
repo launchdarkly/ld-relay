@@ -2,6 +2,9 @@ version: 2
 
 project_name: ld-relay
 
+snapshot:
+  version_template: "{{ .Version }}"
+
 builds:
 - env:
   - CGO_ENABLED=0
