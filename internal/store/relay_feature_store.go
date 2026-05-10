@@ -182,23 +182,21 @@ func (sw *streamUpdatesStoreWrapper) updateSnapshotItem(
 
 	for i, coll := range sw.snapshot {
 		if coll.Kind.GetName() == kind.GetName() {
-			found := false
 			for j, existing := range coll.Items {
 				if existing.Key == key {
-					sw.snapshot[i].Items[j] = ldstoretypes.KeyedItemDescriptor{
-						Key:  key,
-						Item: item,
+					if item.Version >= existing.Item.Version {
+						sw.snapshot[i].Items[j] = ldstoretypes.KeyedItemDescriptor{
+							Key:  key,
+							Item: item,
+						}
 					}
-					found = true
-					break
+					return
 				}
 			}
-			if !found {
-				sw.snapshot[i].Items = append(sw.snapshot[i].Items, ldstoretypes.KeyedItemDescriptor{
-					Key:  key,
-					Item: item,
-				})
-			}
+			sw.snapshot[i].Items = append(sw.snapshot[i].Items, ldstoretypes.KeyedItemDescriptor{
+				Key:  key,
+				Item: item,
+			})
 			return
 		}
 	}

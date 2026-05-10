@@ -436,6 +436,34 @@ func TestSnapshotUpsertSegment(t *testing.T) {
 	assert.True(t, found, "updated segment should be in snapshot")
 }
 
+func TestSnapshotUpsertIgnoresOlderVersion(t *testing.T) {
+	_, wrappedStore, _ := makeTestComponents()
+	err := wrappedStore.Init(allData)
+	require.NoError(t, err)
+
+	newerFlag := ldbuilders.NewFlagBuilder(testFlag1.Key).Version(testFlag1.Version + 10).On(false).Build()
+	_, _ = sharedtest.UpsertFlag(wrappedStore, newerFlag)
+
+	olderFlag := ldbuilders.NewFlagBuilder(testFlag1.Key).Version(testFlag1.Version + 1).On(true).Build()
+	_, _ = sharedtest.UpsertFlag(wrappedStore, olderFlag)
+
+	snapshot := wrappedStore.GetSnapshot()
+	require.NotNil(t, snapshot)
+
+	for _, coll := range snapshot {
+		if coll.Kind == ldstoreimpl.Features() {
+			for _, item := range coll.Items {
+				if item.Key == testFlag1.Key {
+					assert.Equal(t, newerFlag.Version, item.Item.Version,
+						"snapshot should retain the newer version, not regress to older")
+					return
+				}
+			}
+		}
+	}
+	t.Fatal("flag not found in snapshot")
+}
+
 // Circuit breaker tests
 
 func TestCircuitBreakerOpensOnGetError(t *testing.T) {

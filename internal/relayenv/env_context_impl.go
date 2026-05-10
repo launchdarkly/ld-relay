@@ -441,7 +441,6 @@ func (c *envContextImpl) deferredHealthCheckStart(
 	loggers ldlog.Loggers,
 ) {
 	go func() {
-		// Wait for the store adapter to build the actual store (happens during SDK client init)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -452,13 +451,18 @@ func (c *envContextImpl) deferredHealthCheckStart(
 					continue
 				}
 				hc := store.NewStoreHealthCheck(ss, initChecker, interval, loggers)
-				if hc != nil {
-					c.mu.Lock()
-					c.storeHealthCheck = hc
-					c.mu.Unlock()
-					hc.Start()
-					loggers.Info("Data store health check started")
+				if hc == nil {
+					return
 				}
+				c.mu.Lock()
+				if c.closed {
+					c.mu.Unlock()
+					return
+				}
+				c.storeHealthCheck = hc
+				c.mu.Unlock()
+				hc.Start()
+				loggers.Info("Data store health check started")
 				return
 			case <-c.stopMonitoringCredentials:
 				return
@@ -803,8 +807,11 @@ func (c *envContextImpl) Close() error {
 	if c.sdkBigSegments != nil {
 		c.sdkBigSegments.Close()
 	}
-	if c.storeHealthCheck != nil {
-		c.storeHealthCheck.Stop()
+	c.mu.RLock()
+	hc := c.storeHealthCheck
+	c.mu.RUnlock()
+	if hc != nil {
+		hc.Stop()
 	}
 	if c.storeInitChecker != nil {
 		_ = c.storeInitChecker.Close()
