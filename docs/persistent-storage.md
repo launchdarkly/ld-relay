@@ -129,6 +129,41 @@ note over Relay Proxy: TTL fresh, serve from memory
 Relay Proxy-->>SDK2: Streaming response
 ```
 
+## Data Store Health Check and Automatic Repopulation
+
+The Relay Proxy includes a health check mechanism that detects when a persistent store loses its data (for example, when Redis restarts without persistence enabled). Without this, SDKs using daemon mode (such as PHP) would receive empty flag evaluations until the Relay Proxy is manually restarted.
+
+### How it works
+
+When using Redis, the Relay Proxy periodically checks for the presence of a sentinel key (`$inited`) that the SDK writes when it first populates the store. If this key is missing but the Relay has valid data in memory, it automatically repopulates the store.
+
+The health check also includes a **circuit breaker**: if a read from the persistent store fails with a connection error, subsequent reads are served directly from an in-memory snapshot, avoiding connection pool exhaustion and timeout cascades. The circuit breaker is cleared automatically when the health check confirms the store is available again.
+
+### Configuration
+
+The health check interval is configurable via the `REDIS_HEALTH_CHECK_INTERVAL` environment variable or the `healthCheckInterval` option in the `[Redis]` configuration section. The default is 30 seconds.
+
+```
+# Configuration file
+[Redis]
+    host = "localhost"
+    port = 6379
+    localTtl = 30s
+    healthCheckInterval = 30s
+```
+
+```
+# Environment variable
+REDIS_HEALTH_CHECK_INTERVAL=30s
+```
+
+### Behavior summary
+
+- **Store read error (e.g. connection failure):** Circuit breaker activates immediately. Proxy-mode SDKs are served from the in-memory snapshot. The health check probes for recovery at the configured interval.
+- **Store data loss (e.g. Redis restart):** Detected within one health check interval. The store is automatically repopulated from the in-memory snapshot.
+- **Store recovered:** Circuit breaker is cleared. Normal read path resumes.
+- **No snapshot available (e.g. Relay just started):** Health check cannot repopulate. Errors pass through normally.
+
 ## Example: Persistent Store during LaunchDarkly Outage - Cold Relay
 
 In this example, LaunchDarkly SaaS is down. Additionally, the Relay in this diagram is starting up **during** the 

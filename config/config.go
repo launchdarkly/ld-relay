@@ -50,6 +50,11 @@ const (
 	// DefaultDatabaseCacheTTL is the default value for the LocalTTL parameter for databases if not specified.
 	DefaultDatabaseCacheTTL = time.Second * 30
 
+	// DefaultDataStoreHealthCheckInterval is the default interval for checking whether the persistent
+	// data store still contains its initialization data. If data loss is detected (e.g. after a Redis
+	// restart), the relay will automatically repopulate the store from its in-memory snapshot.
+	DefaultDataStoreHealthCheckInterval = time.Second * 30
+
 	// DefaultPrometheusPort is the default value for PrometheusConfig.Port if not specified.
 	DefaultPrometheusPort = 8031
 
@@ -212,13 +217,14 @@ type EventsConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type RedisConfig struct {
-	Host     string `conf:"REDIS_HOST"`
-	Port     ct.OptIntGreaterThanZero
-	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
-	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
-	TLS      bool              `conf:"REDIS_TLS"`
-	Username string            `conf:"REDIS_USERNAME"`
-	Password string            `conf:"REDIS_PASSWORD"`
+	Host               string `conf:"REDIS_HOST"`
+	Port               ct.OptIntGreaterThanZero
+	URL                ct.OptURLAbsolute `conf:"REDIS_URL"`
+	LocalTTL           ct.OptDuration    `conf:"CACHE_TTL"`
+	TLS                bool              `conf:"REDIS_TLS"`
+	Username           string            `conf:"REDIS_USERNAME"`
+	Password           string            `conf:"REDIS_PASSWORD"`
+	HealthCheckInterval ct.OptDuration   `conf:"REDIS_HEALTH_CHECK_INTERVAL"`
 }
 
 // ConsulConfig configures the optional Consul integration.

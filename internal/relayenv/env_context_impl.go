@@ -30,6 +30,8 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
+
+	redigo "github.com/gomodule/redigo/redis"
 )
 
 // LogNameMode is used in NewEnvContext to determine whether the environment's log messages should be
@@ -120,6 +122,8 @@ type envContextImpl struct {
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
+	storeHealthCheck          *store.StoreHealthCheck
+	storeInitChecker          *store.RedisInitChecker
 	offline                   bool
 	closed                    bool
 }
@@ -401,6 +405,25 @@ func NewEnvContext(
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
+	// Start the persistent store health check if using Redis
+	if allConfig.Redis.URL.IsDefined() {
+		healthCheckInterval := allConfig.Redis.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		redisURL, prefix := sdks.GetRedisBasicProperties(allConfig.Redis, envConfig)
+		var dialOptions []redigo.DialOption
+		if allConfig.Redis.Password != "" {
+			dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
+		}
+		if allConfig.Redis.Username != "" {
+			dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+		}
+		initChecker := store.NewRedisInitChecker(redisURL, prefix, dialOptions)
+		envContext.storeInitChecker = initChecker
+		thingsToCleanUp.AddFunc(func() { _ = initChecker.Close() })
+		// Health check is started later after the store adapter builds the actual store.
+		// We defer this to startStoreHealthCheck which is called after the SDK client is ready.
+		envContext.deferredHealthCheckStart(initChecker, healthCheckInterval, envLoggers)
+	}
+
 	cleanupInterval := params.ExpiredCredentialCleanupInterval
 	if cleanupInterval == 0 { // 0 means it wasn't specified; the config system disallows 0 as a valid value.
 		cleanupInterval = defaultCredentialCleanupInterval
@@ -410,6 +433,38 @@ func NewEnvContext(
 	thingsToCleanUp.Clear() // we've succeeded so we do not want to throw away these things
 
 	return envContext, nil
+}
+
+func (c *envContextImpl) deferredHealthCheckStart(
+	initChecker *store.RedisInitChecker,
+	interval time.Duration,
+	loggers ldlog.Loggers,
+) {
+	go func() {
+		// Wait for the store adapter to build the actual store (happens during SDK client init)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ss := c.storeAdapter.GetSnapshotStore()
+				if ss == nil {
+					continue
+				}
+				hc := store.NewStoreHealthCheck(ss, initChecker, interval, loggers)
+				if hc != nil {
+					c.mu.Lock()
+					c.storeHealthCheck = hc
+					c.mu.Unlock()
+					hc.Start()
+					loggers.Info("Data store health check started")
+				}
+				return
+			case <-c.stopMonitoringCredentials:
+				return
+			}
+		}
+	}()
 }
 
 func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
@@ -747,6 +802,12 @@ func (c *envContextImpl) Close() error {
 	}
 	if c.sdkBigSegments != nil {
 		c.sdkBigSegments.Close()
+	}
+	if c.storeHealthCheck != nil {
+		c.storeHealthCheck.Stop()
+	}
+	if c.storeInitChecker != nil {
+		_ = c.storeInitChecker.Close()
 	}
 	return nil
 }

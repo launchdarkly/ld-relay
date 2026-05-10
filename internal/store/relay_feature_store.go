@@ -46,6 +46,21 @@ func (a *SSERelayDataStoreAdapter) GetStore() subsystems.DataStore {
 	return store
 }
 
+// GetSnapshotStore returns the current data store as a SnapshotStore (for health check use),
+// or nil if the store has not been created.
+func (a *SSERelayDataStoreAdapter) GetSnapshotStore() SnapshotStore {
+	a.mu.RLock()
+	s := a.store
+	a.mu.RUnlock()
+	if s == nil {
+		return nil
+	}
+	if ss, ok := s.(SnapshotStore); ok {
+		return ss
+	}
+	return nil
+}
+
 // GetUpdates returns the EnvStreamUpdates that will receive all updates sent to this store. This is
 // exposed for testing so that we can simulate receiving updates from LaunchDarkly to this component.
 func (a *SSERelayDataStoreAdapter) GetUpdates() streams.EnvStreamUpdates {
@@ -89,10 +104,19 @@ func (a *SSERelayDataStoreAdapter) Build(
 
 // A DataStore implementation that delegates to an underlying store
 // but also publishes stream updates when the store is modified.
+// It also maintains an in-memory snapshot of the latest dataset for resilience
+// against data store failures (e.g., Redis restart causing data loss).
 type streamUpdatesStoreWrapper struct {
 	store   subsystems.DataStore
 	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
+
+	snapshotMu      sync.RWMutex
+	snapshot        []ldstoretypes.Collection
+	snapshotHasData bool
+
+	storeDownMu sync.RWMutex
+	storeDown   bool
 }
 
 func newStreamUpdatesStoreWrapper(
@@ -108,6 +132,101 @@ func newStreamUpdatesStoreWrapper(
 	return relayStore
 }
 
+// HasSnapshot returns true if the wrapper has a valid snapshot with data.
+func (sw *streamUpdatesStoreWrapper) HasSnapshot() bool {
+	sw.snapshotMu.RLock()
+	defer sw.snapshotMu.RUnlock()
+	return sw.snapshotHasData
+}
+
+// GetSnapshot returns a deep copy of the current snapshot, or nil if none exists.
+func (sw *streamUpdatesStoreWrapper) GetSnapshot() []ldstoretypes.Collection {
+	sw.snapshotMu.RLock()
+	defer sw.snapshotMu.RUnlock()
+	if !sw.snapshotHasData {
+		return nil
+	}
+	return deepCopyCollections(sw.snapshot)
+}
+
+func (sw *streamUpdatesStoreWrapper) saveSnapshot(allData []ldstoretypes.Collection) {
+	hasData := false
+	for _, coll := range allData {
+		if len(coll.Items) > 0 {
+			hasData = true
+			break
+		}
+	}
+
+	sw.snapshotMu.Lock()
+	defer sw.snapshotMu.Unlock()
+	if hasData {
+		sw.snapshot = deepCopyCollections(allData)
+		sw.snapshotHasData = true
+	} else {
+		sw.snapshot = nil
+		sw.snapshotHasData = false
+	}
+}
+
+func (sw *streamUpdatesStoreWrapper) updateSnapshotItem(
+	kind ldstoretypes.DataKind,
+	key string,
+	item ldstoretypes.ItemDescriptor,
+) {
+	sw.snapshotMu.Lock()
+	defer sw.snapshotMu.Unlock()
+	if !sw.snapshotHasData {
+		return
+	}
+
+	for i, coll := range sw.snapshot {
+		if coll.Kind.GetName() == kind.GetName() {
+			found := false
+			for j, existing := range coll.Items {
+				if existing.Key == key {
+					sw.snapshot[i].Items[j] = ldstoretypes.KeyedItemDescriptor{
+						Key:  key,
+						Item: item,
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				sw.snapshot[i].Items = append(sw.snapshot[i].Items, ldstoretypes.KeyedItemDescriptor{
+					Key:  key,
+					Item: item,
+				})
+			}
+			return
+		}
+	}
+
+	sw.snapshot = append(sw.snapshot, ldstoretypes.Collection{
+		Kind: kind,
+		Items: []ldstoretypes.KeyedItemDescriptor{
+			{Key: key, Item: item},
+		},
+	})
+}
+
+func deepCopyCollections(src []ldstoretypes.Collection) []ldstoretypes.Collection {
+	if src == nil {
+		return nil
+	}
+	dst := make([]ldstoretypes.Collection, len(src))
+	for i, coll := range src {
+		items := make([]ldstoretypes.KeyedItemDescriptor, len(coll.Items))
+		copy(items, coll.Items)
+		dst[i] = ldstoretypes.Collection{
+			Kind:  coll.Kind,
+			Items: items,
+		}
+	}
+	return dst
+}
+
 func (sw *streamUpdatesStoreWrapper) Close() error {
 	return sw.store.Close()
 }
@@ -116,17 +235,95 @@ func (sw *streamUpdatesStoreWrapper) IsStatusMonitoringEnabled() bool {
 	return sw.store.IsStatusMonitoringEnabled()
 }
 
+// IsStoreDown returns true if the circuit breaker is open (store is considered unavailable).
+func (sw *streamUpdatesStoreWrapper) IsStoreDown() bool {
+	sw.storeDownMu.RLock()
+	defer sw.storeDownMu.RUnlock()
+	return sw.storeDown
+}
+
+// SetStoreDown sets or clears the circuit breaker state.
+func (sw *streamUpdatesStoreWrapper) SetStoreDown(down bool) {
+	sw.storeDownMu.Lock()
+	defer sw.storeDownMu.Unlock()
+	sw.storeDown = down
+}
+
 func (sw *streamUpdatesStoreWrapper) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.ItemDescriptor, error) {
-	return sw.store.Get(kind, key)
+	if sw.IsStoreDown() && sw.HasSnapshot() {
+		return sw.getFromSnapshot(kind, key), nil
+	}
+
+	item, err := sw.store.Get(kind, key)
+	if err != nil {
+		if sw.HasSnapshot() {
+			sw.openCircuitBreaker()
+			return sw.getFromSnapshot(kind, key), nil
+		}
+		return item, err
+	}
+	return item, nil
 }
 
 func (sw *streamUpdatesStoreWrapper) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
-	return sw.store.GetAll(kind)
+	if sw.IsStoreDown() && sw.HasSnapshot() {
+		return sw.getAllFromSnapshot(kind), nil
+	}
+
+	items, err := sw.store.GetAll(kind)
+	if err != nil {
+		if sw.HasSnapshot() {
+			sw.openCircuitBreaker()
+			return sw.getAllFromSnapshot(kind), nil
+		}
+		return nil, err
+	}
+	return items, nil
+}
+
+func (sw *streamUpdatesStoreWrapper) openCircuitBreaker() {
+	sw.storeDownMu.Lock()
+	alreadyDown := sw.storeDown
+	sw.storeDown = true
+	sw.storeDownMu.Unlock()
+	if !alreadyDown {
+		sw.loggers.Warn("Data store read error, activating circuit breaker and serving from in-memory snapshot")
+	}
+}
+
+func (sw *streamUpdatesStoreWrapper) getFromSnapshot(kind ldstoretypes.DataKind, key string) ldstoretypes.ItemDescriptor {
+	sw.snapshotMu.RLock()
+	defer sw.snapshotMu.RUnlock()
+	for _, coll := range sw.snapshot {
+		if coll.Kind.GetName() == kind.GetName() {
+			for _, item := range coll.Items {
+				if item.Key == key {
+					return item.Item
+				}
+			}
+		}
+	}
+	return ldstoretypes.ItemDescriptor{}.NotFound()
+}
+
+func (sw *streamUpdatesStoreWrapper) getAllFromSnapshot(kind ldstoretypes.DataKind) []ldstoretypes.KeyedItemDescriptor {
+	sw.snapshotMu.RLock()
+	defer sw.snapshotMu.RUnlock()
+	for _, coll := range sw.snapshot {
+		if coll.Kind.GetName() == kind.GetName() {
+			items := make([]ldstoretypes.KeyedItemDescriptor, len(coll.Items))
+			copy(items, coll.Items)
+			return items
+		}
+	}
+	return nil
 }
 
 func (sw *streamUpdatesStoreWrapper) Init(allData []ldstoretypes.Collection) error {
 	sw.loggers.Debug("Received all feature flags")
 	err := sw.store.Init(allData)
+
+	sw.saveSnapshot(allData)
 
 	// See comments in Upsert for why we call SendAllDataUpdate here even if Init returned an error.
 	sw.updates.SendAllDataUpdate(allData)
@@ -162,6 +359,8 @@ func (sw *streamUpdatesStoreWrapper) Upsert(
 	// Similarly, even if Relay's data store updated failed (err != nil), we should still notify any
 	// connected clients, because they may be using the stream rather than the database as their source of
 	// truth.
+
+	sw.updateSnapshotItem(kind, key, item)
 
 	sw.updates.SendSingleItemUpdate(kind, key, item)
 
