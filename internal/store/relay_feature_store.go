@@ -317,6 +317,13 @@ func (sw *streamUpdatesStoreWrapper) getAllFromSnapshot(kind ldstoretypes.DataKi
 	return nil
 }
 
+// RepopulateStore writes data directly to the underlying store, bypassing snapshot
+// updates and SSE broadcasting. Used by the health check to restore Redis after data loss
+// without risking snapshot regression from concurrent streaming Upserts.
+func (sw *streamUpdatesStoreWrapper) RepopulateStore(allData []ldstoretypes.Collection) error {
+	return sw.store.Init(allData)
+}
+
 func (sw *streamUpdatesStoreWrapper) Init(allData []ldstoretypes.Collection) error {
 	sw.loggers.Debug("Received all feature flags")
 	err := sw.store.Init(allData)

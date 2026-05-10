@@ -26,7 +26,7 @@ type SnapshotStore interface {
 	GetSnapshot() []ldstoretypes.Collection
 	IsStoreDown() bool
 	SetStoreDown(bool)
-	Init([]ldstoretypes.Collection) error
+	RepopulateStore([]ldstoretypes.Collection) error
 	IsInitialized() bool
 }
 
@@ -128,7 +128,7 @@ func (hc *StoreHealthCheck) repopulate() {
 
 	hc.loggers.Warn("Repopulating data store from in-memory snapshot")
 
-	err := hc.store.Init(snapshot)
+	err := hc.store.RepopulateStore(snapshot)
 	if err != nil {
 		hc.loggers.Errorf("Failed to repopulate data store from snapshot: %s", err)
 		return
