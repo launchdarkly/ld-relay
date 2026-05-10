@@ -237,10 +237,11 @@ type RedisConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type ConsulConfig struct {
-	Host      string         `conf:"CONSUL_HOST"`
-	LocalTTL  ct.OptDuration `conf:"CACHE_TTL"`
-	Token     string         `conf:"CONSUL_TOKEN"`
-	TokenFile string         `conf:"CONSUL_TOKEN_FILE"`
+	Host                string         `conf:"CONSUL_HOST"`
+	LocalTTL            ct.OptDuration `conf:"CACHE_TTL"`
+	Token               string         `conf:"CONSUL_TOKEN"`
+	TokenFile           string         `conf:"CONSUL_TOKEN_FILE"`
+	HealthCheckInterval ct.OptDuration `conf:"CONSUL_HEALTH_CHECK_INTERVAL"`
 }
 
 // DynamoDBConfig configures the optional DynamoDB integration, which is used only if Enabled is true.
@@ -251,10 +252,11 @@ type ConsulConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type DynamoDBConfig struct {
-	Enabled   bool              `conf:"USE_DYNAMODB"`
-	TableName string            `conf:"DYNAMODB_TABLE"`
-	URL       ct.OptURLAbsolute `conf:"DYNAMODB_URL"`
-	LocalTTL  ct.OptDuration    `conf:"CACHE_TTL"`
+	Enabled             bool              `conf:"USE_DYNAMODB"`
+	TableName           string            `conf:"DYNAMODB_TABLE"`
+	URL                 ct.OptURLAbsolute `conf:"DYNAMODB_URL"`
+	LocalTTL            ct.OptDuration    `conf:"CACHE_TTL"`
+	HealthCheckInterval ct.OptDuration    `conf:"DYNAMODB_HEALTH_CHECK_INTERVAL"`
 }
 
 // EnvConfig describes an environment to be relayed. There may be any number of these.

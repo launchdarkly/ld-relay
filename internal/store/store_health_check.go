@@ -9,7 +9,7 @@ import (
 )
 
 // StoreInitChecker abstracts the ability to check whether a persistent store still
-// contains its initialization marker (e.g. the Redis $inited key). Implementations
+// contains its initialization marker (e.g. the $inited sentinel key). Implementations
 // should query the store directly, bypassing any SDK-level caching.
 type StoreInitChecker interface {
 	// CheckInitialized returns:
@@ -17,6 +17,12 @@ type StoreInitChecker interface {
 	//   available=true, initialized=false → store is up but data is missing (needs repopulation)
 	//   available=false with err          → store is unreachable (retry later)
 	CheckInitialized() (available bool, initialized bool, err error)
+}
+
+// StoreInitCheckerCloser extends StoreInitChecker with a Close method for resource cleanup.
+type StoreInitCheckerCloser interface {
+	StoreInitChecker
+	Close() error
 }
 
 // SnapshotStore is the interface that StoreHealthCheck uses to interact with the store wrapper.

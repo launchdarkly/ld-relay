@@ -31,6 +31,7 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
+	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	redigo "github.com/gomodule/redigo/redis"
 )
 
@@ -123,7 +124,7 @@ type envContextImpl struct {
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
 	storeHealthCheck          *store.StoreHealthCheck
-	storeInitChecker          *store.RedisInitChecker
+	storeInitChecker          store.StoreInitCheckerCloser
 	offline                   bool
 	closed                    bool
 }
@@ -405,23 +406,14 @@ func NewEnvContext(
 	// Connecting may take time, so do this in parallel
 	go envContext.startSDKClient(envConfig.SDKKey, readyCh, allConfig.Main.IgnoreConnectionErrors)
 
-	// Start the persistent store health check if using Redis
-	if allConfig.Redis.URL.IsDefined() {
-		healthCheckInterval := allConfig.Redis.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
-		redisURL, prefix := sdks.GetRedisBasicProperties(allConfig.Redis, envConfig)
-		var dialOptions []redigo.DialOption
-		if allConfig.Redis.Password != "" {
-			dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
-		}
-		if allConfig.Redis.Username != "" {
-			dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
-		}
-		initChecker := store.NewRedisInitChecker(redisURL, prefix, dialOptions)
+	// Start the persistent store health check for any configured persistent store.
+	// A health check interval of 0 disables the check.
+	if initChecker, interval, err := createInitChecker(allConfig, envConfig); err != nil {
+		envLoggers.Errorf("Failed to create data store health checker: %s", err)
+	} else if initChecker != nil && interval > 0 {
 		envContext.storeInitChecker = initChecker
 		thingsToCleanUp.AddFunc(func() { _ = initChecker.Close() })
-		// Health check is started later after the store adapter builds the actual store.
-		// We defer this to startStoreHealthCheck which is called after the SDK client is ready.
-		envContext.deferredHealthCheckStart(initChecker, healthCheckInterval, envLoggers)
+		envContext.deferredHealthCheckStart(initChecker, interval, envLoggers)
 	}
 
 	cleanupInterval := params.ExpiredCredentialCleanupInterval
@@ -435,8 +427,57 @@ func NewEnvContext(
 	return envContext, nil
 }
 
+func createInitChecker(
+	allConfig config.Config,
+	envConfig config.EnvConfig,
+) (store.StoreInitCheckerCloser, time.Duration, error) {
+	if allConfig.Redis.URL.IsDefined() {
+		interval := allConfig.Redis.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		redisURL, prefix := sdks.GetRedisBasicProperties(allConfig.Redis, envConfig)
+		var dialOptions []redigo.DialOption
+		if allConfig.Redis.Password != "" {
+			dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
+		}
+		if allConfig.Redis.Username != "" {
+			dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+		}
+		checker := store.NewRedisInitChecker(redisURL, prefix, dialOptions)
+		return checker, interval, nil
+	}
+
+	if allConfig.Consul.Host != "" {
+		interval := allConfig.Consul.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		prefix := envConfig.Prefix
+		if prefix == "" {
+			prefix = ldconsul.DefaultPrefix
+		}
+		checker, err := store.NewConsulInitChecker(
+			allConfig.Consul.Host, allConfig.Consul.Token, allConfig.Consul.TokenFile, prefix,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		return checker, interval, nil
+	}
+
+	if allConfig.DynamoDB.Enabled {
+		interval := allConfig.DynamoDB.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		endpoint, tableName, prefix := sdks.GetDynamoDBBasicProperties(allConfig.DynamoDB, envConfig)
+		if tableName == "" {
+			return nil, 0, nil
+		}
+		checker, err := store.NewDynamoDBInitChecker(tableName, prefix, endpoint)
+		if err != nil {
+			return nil, 0, err
+		}
+		return checker, interval, nil
+	}
+
+	return nil, 0, nil
+}
+
 func (c *envContextImpl) deferredHealthCheckStart(
-	initChecker *store.RedisInitChecker,
+	initChecker store.StoreInitChecker,
 	interval time.Duration,
 	loggers ldlog.Loggers,
 ) {
