@@ -139,14 +139,16 @@ func (sw *streamUpdatesStoreWrapper) HasSnapshot() bool {
 	return sw.snapshotHasData
 }
 
-// GetSnapshot returns a deep copy of the current snapshot, or nil if none exists.
+// GetSnapshot returns a structural copy of the current snapshot, or nil if none exists.
+// The returned slices are independent but ItemDescriptor.Item pointers are shared (safe
+// because flag/segment objects are immutable in the SDK).
 func (sw *streamUpdatesStoreWrapper) GetSnapshot() []ldstoretypes.Collection {
 	sw.snapshotMu.RLock()
 	defer sw.snapshotMu.RUnlock()
 	if !sw.snapshotHasData {
 		return nil
 	}
-	return deepCopyCollections(sw.snapshot)
+	return copyCollectionStructure(sw.snapshot)
 }
 
 func (sw *streamUpdatesStoreWrapper) saveSnapshot(allData []ldstoretypes.Collection) {
@@ -161,7 +163,7 @@ func (sw *streamUpdatesStoreWrapper) saveSnapshot(allData []ldstoretypes.Collect
 	sw.snapshotMu.Lock()
 	defer sw.snapshotMu.Unlock()
 	if hasData {
-		sw.snapshot = deepCopyCollections(allData)
+		sw.snapshot = copyCollectionStructure(allData)
 		sw.snapshotHasData = true
 	} else {
 		sw.snapshot = nil
@@ -209,7 +211,11 @@ func (sw *streamUpdatesStoreWrapper) updateSnapshotItem(
 	})
 }
 
-func deepCopyCollections(src []ldstoretypes.Collection) []ldstoretypes.Collection {
+// copyCollectionStructure copies the collection and item slices so that
+// modifications to the returned structure (appending, replacing items) do not
+// affect the source. The ItemDescriptor.Item pointers are shared, which is safe
+// because the LaunchDarkly SDK treats flag/segment objects as immutable.
+func copyCollectionStructure(src []ldstoretypes.Collection) []ldstoretypes.Collection {
 	if src == nil {
 		return nil
 	}
