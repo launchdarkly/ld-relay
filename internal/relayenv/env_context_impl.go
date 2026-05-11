@@ -433,6 +433,9 @@ func createInitChecker(
 ) (store.StoreInitCheckerCloser, time.Duration, error) {
 	if allConfig.Redis.URL.IsDefined() {
 		interval := allConfig.Redis.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		if interval <= 0 {
+			return nil, 0, nil
+		}
 		redisURL, prefix := sdks.GetRedisBasicProperties(allConfig.Redis, envConfig)
 		var dialOptions []redigo.DialOption
 		if allConfig.Redis.Password != "" {
@@ -447,6 +450,9 @@ func createInitChecker(
 
 	if allConfig.Consul.Host != "" {
 		interval := allConfig.Consul.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		if interval <= 0 {
+			return nil, 0, nil
+		}
 		prefix := envConfig.Prefix
 		if prefix == "" {
 			prefix = ldconsul.DefaultPrefix
@@ -462,6 +468,9 @@ func createInitChecker(
 
 	if allConfig.DynamoDB.Enabled {
 		interval := allConfig.DynamoDB.HealthCheckInterval.GetOrElse(config.DefaultDataStoreHealthCheckInterval)
+		if interval <= 0 {
+			return nil, 0, nil
+		}
 		endpoint, tableName, prefix := sdks.GetDynamoDBBasicProperties(allConfig.DynamoDB, envConfig)
 		if tableName == "" {
 			return nil, 0, nil
