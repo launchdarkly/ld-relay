@@ -23,7 +23,7 @@ ENV GOPATH=/go
 
 RUN go build -a -o ldr .
 
-FROM alpine:3.22.2
+FROM alpine:3.22.4
 
 RUN addgroup -g 1000 -S ldr-user && \
     adduser -u 1000 -S ldr-user -G ldr-user && \
@@ -32,6 +32,7 @@ RUN addgroup -g 1000 -S ldr-user && \
 
 RUN apk add --no-cache \
     ca-certificates \
+    jq \
  && apk add --upgrade libcrypto3 libssl3 \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
