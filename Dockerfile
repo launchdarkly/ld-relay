@@ -32,6 +32,7 @@ RUN addgroup -g 1000 -S ldr-user && \
 
 RUN apk add --no-cache \
     ca-certificates \
+    jq \
  && apk add --upgrade libcrypto3 libssl3 \
  && update-ca-certificates \
  && rm -rf /var/cache/apk/*
