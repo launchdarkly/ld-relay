@@ -1,8 +1,10 @@
 package autoconfig
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -34,6 +36,30 @@ var (
 	mobKeyJSONRegex = regexp.MustCompile(`"mobKey": *"[^"]*([^"][^"][^"][^"])"`)
 )
 
+// CacheKind identifies the type of item being cached.
+type CacheKind int
+
+const (
+	CacheKindEnvironment CacheKind = iota
+	CacheKindFilter
+)
+
+// Cache provides read/write access to the AutoConfig persistent cache.
+// This is satisfied by autoconfigcache.Store (and its noopStore) but defined here to avoid import cycles.
+// Implementations manage their own context lifecycle; the caller's context is combined with the store's
+// internal context so that either cancellation terminates the operation.
+type Cache interface {
+	io.Closer
+	// GetAll returns the cached PutContent, or nil if the cache is empty.
+	GetAll(ctx context.Context) (*PutContent, error)
+	// SetAll writes the full PutContent to the cache, removing stale items.
+	SetAll(ctx context.Context, content PutContent) error
+	// Upsert writes a single item to the cache.
+	Upsert(ctx context.Context, kind CacheKind, id string, data interface{}) error
+	// Delete removes a single item from the cache.
+	Delete(ctx context.Context, kind CacheKind, id string) error
+}
+
 // StreamManager manages the auto-configuration SSE stream.
 //
 // That includes managing the stream connection itself (reconnecting as needed, the same as the SDK streams),
@@ -47,18 +73,26 @@ type StreamManager struct {
 	key               config.AutoConfigKey
 	uri               *url.URL
 	handler           MessageHandler
+	cache             Cache
 	lastKnownEnvs     map[config.EnvironmentID]envfactory.EnvironmentRep
 	httpConfig        httpconfig.HTTPConfig
 	initialRetryDelay time.Duration
 	loggers           ldlog.Loggers
 	halt              chan struct{}
+	done              chan struct{} // closed when the subscribe goroutine exits
 	closeOnce         sync.Once
+
+	// cacheCh receives the result of the async cache read started by Start().
+	// It is consumed by consumeStream and nilled out after use.
+	cacheCh     <-chan *PutContent
+	cacheCancel context.CancelFunc
 
 	envReceiver    *MessageReceiver[envfactory.EnvironmentRep]
 	filterReceiver *MessageReceiver[envfactory.FilterRep]
 }
 
 // NewStreamManager creates a StreamManager, but does not start the connection.
+// The cache is used to read cached PutContent on startup and persist it after each PUT event.
 func NewStreamManager(
 	key config.AutoConfigKey,
 	streamURI *url.URL,
@@ -67,6 +101,7 @@ func NewStreamManager(
 	initialRetryDelay time.Duration,
 	protocolVersion int,
 	loggers ldlog.Loggers,
+	cache Cache,
 ) *StreamManager {
 	loggers.SetPrefix("AutoConfiguration")
 	if protocolVersion > 1 {
@@ -78,6 +113,7 @@ func NewStreamManager(
 		key:               key,
 		uri:               streamURI,
 		handler:           handler,
+		cache:             cache,
 		lastKnownEnvs:     make(map[config.EnvironmentID]envfactory.EnvironmentRep),
 		httpConfig:        httpConfig,
 		initialRetryDelay: initialRetryDelay,
@@ -103,24 +139,79 @@ func NewStreamManager(
 
 // Start causes the StreamManager to start trying to connect to the auto-config stream. The returned channel
 // receives nil for a successful connection, or an error if it has permanently failed.
+//
+// The cache read and stream connection are started concurrently. If the cache returns first,
+// its data is applied so Relay can serve immediately. If the stream's first PUT arrives first,
+// the cache read is cancelled and its result discarded.
 func (s *StreamManager) Start() <-chan error {
+	// Start the cache read concurrently with the stream connection.
+	cacheCtx, cacheCancel := context.WithCancel(context.Background())
+	cacheCh := make(chan *PutContent, 1)
+	go func() {
+		defer close(cacheCh)
+		content, err := s.cache.GetAll(cacheCtx)
+		if err != nil {
+			if cacheCtx.Err() == nil {
+				s.loggers.Warnf("AutoConfig cache read failed (will rely on stream): %v", err)
+			}
+			return
+		}
+		if content != nil {
+			cacheCh <- content
+		}
+	}()
+	s.cacheCh = cacheCh
+	s.cacheCancel = cacheCancel
+
+	s.done = make(chan struct{})
 	readyCh := make(chan error, 1)
-	go s.subscribe(readyCh)
+	go func() {
+		defer close(s.done)
+		s.subscribe(readyCh)
+	}()
 	return readyCh
 }
 
-// Close permanently shuts down the stream.
+// Close permanently shuts down the stream and waits for the subscribe goroutine
+// to exit before closing the cache, ensuring no in-flight cache writes are interrupted.
+// Safe to call even if Start() was never called.
 func (s *StreamManager) Close() {
 	s.closeOnce.Do(func() {
 		close(s.halt)
 	})
+	if s.done != nil {
+		<-s.done
+	}
+	_ = s.cache.Close()
+}
+
+type streamResult struct {
+	stream *es.Stream
+	err    error
 }
 
 func (s *StreamManager) subscribe(readyCh chan<- error) {
+	// Ensure the cache goroutine is cancelled if subscribe exits for any reason
+	// (URL error, permanent stream error, etc.) without entering consumeStream.
+	defer func() {
+		if s.cacheCancel != nil {
+			s.cacheCancel()
+			s.cacheCancel = nil
+			s.cacheCh = nil
+		}
+	}()
+
 	var readyOnce sync.Once
 	signalReady := func(err error) { readyOnce.Do(func() { readyCh <- err }) }
 
 	errorHandler := func(err error) es.StreamErrorHandlerResult {
+		// If Close() has been called, stop retrying so the SSE goroutine can exit.
+		select {
+		case <-s.halt:
+			return es.StreamErrorHandlerResult{CloseNow: true}
+		default:
+		}
+
 		if se, ok := err.(es.SubscriptionError); ok {
 			if se.Code == 401 || se.Code == 403 {
 				s.loggers.Error(logMsgBadKey)
@@ -156,22 +247,63 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 	client := s.httpConfig.Client()
 	client.Timeout = 0
 
-	stream, err := es.SubscribeWithRequestAndOptions(req,
-		es.StreamOptionHTTPClient(client),
-		es.StreamOptionReadTimeout(streamReadTimeout),
-		es.StreamOptionInitialRetry(retry),
-		es.StreamOptionUseBackoff(streamMaxRetryDelay),
-		es.StreamOptionUseJitter(streamJitterRatio),
-		es.StreamOptionRetryResetInterval(streamRetryResetInterval),
-		es.StreamOptionErrorHandler(errorHandler),
-		es.StreamOptionCanRetryFirstConnection(-1),
-		es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
-	)
+	// Launch the SSE connection in a sub-goroutine so we can race it against the cache.
+	streamCh := make(chan streamResult, 1)
+	go func() {
+		stream, err := es.SubscribeWithRequestAndOptions(req,
+			es.StreamOptionHTTPClient(client),
+			es.StreamOptionReadTimeout(streamReadTimeout),
+			es.StreamOptionInitialRetry(retry),
+			es.StreamOptionUseBackoff(streamMaxRetryDelay),
+			es.StreamOptionUseJitter(streamJitterRatio),
+			es.StreamOptionRetryResetInterval(streamRetryResetInterval),
+			es.StreamOptionErrorHandler(errorHandler),
+			es.StreamOptionCanRetryFirstConnection(-1),
+			es.StreamOptionLogger(s.loggers.ForLevel(ldlog.Info)),
+		)
+		streamCh <- streamResult{stream, err}
+	}()
 
-	if err != nil {
-		s.loggers.Errorf(logMsgStreamOtherError, err)
-		signalReady(err)
-		return
+	// Race the cache read against the stream connection. If the cache returns before
+	// the stream's first PUT, its data is applied so Relay can serve immediately.
+	// The cache is only cancelled when a PUT arrives with authoritative data.
+	var stream *es.Stream
+	for stream == nil {
+		select {
+		case content, ok := <-s.cacheCh:
+			if ok && content != nil {
+				s.applyCachedContent(content)
+			}
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+			}
+			s.cacheCh = nil
+
+		case result := <-streamCh:
+			if result.err != nil {
+				s.loggers.Errorf(logMsgStreamOtherError, result.err)
+				signalReady(result.err)
+				return
+			}
+			stream = result.stream
+
+		case <-s.halt:
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+				s.cacheCh = nil
+			}
+			// The SSE goroutine may still be running. Drain its result in the
+			// background: if it produced a stream, close it so nothing leaks.
+			go func() {
+				result := <-streamCh
+				if result.stream != nil {
+					result.stream.Close()
+				}
+			}()
+			return
+		}
 	}
 
 	signalReady(nil)
@@ -191,6 +323,16 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 
 	for {
 		select {
+		case content, ok := <-s.cacheCh:
+			if ok && content != nil {
+				s.applyCachedContent(content)
+			}
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+			}
+			s.cacheCh = nil
+
 		case event, ok := <-stream.Events:
 			if !ok {
 				// COVERAGE: stream.Events is only closed if the EventSource has been closed. However, that
@@ -201,105 +343,133 @@ func (s *StreamManager) consumeStream(stream *es.Stream) {
 				return
 			}
 
-			shouldRestart := false
-
-			if s.loggers.IsDebugEnabled() {
-				s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
-			}
-
-			gotMalformedEvent := func(event es.Event, err error) {
-				s.loggers.Errorf(
-					logMsgMalformedData,
-					event.Event(),
-					err,
-				)
-				shouldRestart = true
-			}
-
-			switch event.Event() {
-			case PutEvent:
-				var putMessage PutMessageData
-				if err := json.Unmarshal([]byte(event.Data()), &putMessage); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-				if putMessage.Path != "/" {
-					s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
-					break
-				}
-				s.handlePut(putMessage.Data)
-
-			case PatchEvent:
-				var patchMsg PatchMessageData
-
-				var err error
-				if err = json.Unmarshal([]byte(event.Data()), &patchMsg); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-
-				prefix, id := path.Split(patchMsg.Path)
-
-				switch prefix {
-				case environmentPathPrefix:
-					envRep := envfactory.EnvironmentRep{}
-					if err = json.Unmarshal(patchMsg.Data, &envRep); err != nil {
-						gotMalformedEvent(event, err)
-						break
-					}
-					if id != string(envRep.EnvID) {
-						s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
-						break
-					}
-					s.dispatchEnvAction(config.EnvironmentID(id), envRep, s.envReceiver.Upsert(id, envRep, envRep.Version))
-				case filterPathPrefix:
-					filterRep := envfactory.FilterRep{}
-					if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
-						gotMalformedEvent(event, err)
-						break
-					}
-					s.dispatchFilterAction(config.FilterID(id), filterRep, s.filterReceiver.Upsert(id, filterRep, filterRep.Version))
-				default:
-					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
-					// entities are received. If new entities are added in the future, we don't want the log blowing
-					// up with warnings/errors/info.
-					s.loggers.Debugf(logMsgUnknownEntity, patchMsg.Path)
-				}
-
-			case DeleteEvent:
-				var deleteMessage DeleteMessageData
-				if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
-					gotMalformedEvent(event, err)
-					break
-				}
-				prefix, id := path.Split(deleteMessage.Path)
-				switch prefix {
-				case environmentPathPrefix:
-					s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, s.envReceiver.Delete(id, deleteMessage.Version))
-				case filterPathPrefix:
-					s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, s.filterReceiver.Delete(id, deleteMessage.Version))
-				default:
-					// It's important for this to be a debug message, so that it is effectively silent when unrecognized
-					// entities are received. If new entities are added in the future, we don't want the log blowing
-					// up with warnings/errors/info.
-					s.loggers.Debugf(logMsgUnknownEntity, deleteMessage.Path)
-				}
-			case ReconnectEvent:
-				s.loggers.Info(logMsgDeliberateReconnect)
-				shouldRestart = true
-
-			default:
-				s.loggers.Warnf(logMsgUnknownEvent, event.Event())
-			}
-
-			if shouldRestart {
+			if s.handleStreamEvent(event) {
 				stream.Restart()
 			}
 		case <-s.halt:
+			if s.cacheCancel != nil {
+				s.cacheCancel()
+				s.cacheCancel = nil
+				s.cacheCh = nil
+			}
 			stream.Close()
 			return
 		}
 	}
+}
+
+// handleStreamEvent processes a single SSE event. Returns true if the stream should be restarted.
+func (s *StreamManager) handleStreamEvent(event es.Event) bool {
+	if s.loggers.IsDebugEnabled() {
+		s.loggers.Debugf("Received %q event: %s", event.Event(), obfuscateEventData(event.Data()))
+	}
+
+	shouldRestart := false
+	gotMalformedEvent := func(event es.Event, err error) {
+		s.loggers.Errorf(logMsgMalformedData, event.Event(), err)
+		shouldRestart = true
+	}
+
+	switch event.Event() {
+	case PutEvent:
+		var putMessage PutMessageData
+		if err := json.Unmarshal([]byte(event.Data()), &putMessage); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+		if putMessage.Path != "/" {
+			s.loggers.Infof(logMsgWrongPath, PutEvent, putMessage.Path)
+			break
+		}
+		// The stream has authoritative data — cancel any in-flight cache read.
+		if s.cacheCancel != nil {
+			s.cacheCancel()
+			s.cacheCancel = nil
+			s.cacheCh = nil
+		}
+		putMessage.Data.Persist = true
+		s.handlePut(putMessage.Data)
+
+	case PatchEvent:
+		var patchMsg PatchMessageData
+		var err error
+		if err = json.Unmarshal([]byte(event.Data()), &patchMsg); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+
+		prefix, id := path.Split(patchMsg.Path)
+
+		switch prefix {
+		case environmentPathPrefix:
+			envRep := envfactory.EnvironmentRep{}
+			if err = json.Unmarshal(patchMsg.Data, &envRep); err != nil {
+				gotMalformedEvent(event, err)
+				break
+			}
+			if id != string(envRep.EnvID) {
+				s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
+				break
+			}
+			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
+			s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
+			if action != ActionNoop {
+				s.cacheUpsert(CacheKindEnvironment, id, envRep)
+			}
+		case filterPathPrefix:
+			filterRep := envfactory.FilterRep{}
+			if err = json.Unmarshal(patchMsg.Data, &filterRep); err != nil {
+				gotMalformedEvent(event, err)
+				break
+			}
+			action := s.filterReceiver.Upsert(id, filterRep, filterRep.Version)
+			s.dispatchFilterAction(config.FilterID(id), filterRep, action)
+			if action != ActionNoop {
+				s.cacheUpsert(CacheKindFilter, id, filterRep)
+			}
+		default:
+			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
+			// entities are received. If new entities are added in the future, we don't want the log blowing
+			// up with warnings/errors/info.
+			s.loggers.Debugf(logMsgUnknownEntity, patchMsg.Path)
+		}
+
+	case DeleteEvent:
+		var deleteMessage DeleteMessageData
+		if err := json.Unmarshal([]byte(event.Data()), &deleteMessage); err != nil {
+			gotMalformedEvent(event, err)
+			break
+		}
+		prefix, id := path.Split(deleteMessage.Path)
+		switch prefix {
+		case environmentPathPrefix:
+			action := s.envReceiver.Delete(id, deleteMessage.Version)
+			s.dispatchEnvAction(config.EnvironmentID(id), envfactory.EnvironmentRep{}, action)
+			if action == ActionDelete {
+				s.cacheDelete(CacheKindEnvironment, id)
+			}
+		case filterPathPrefix:
+			action := s.filterReceiver.Delete(id, deleteMessage.Version)
+			s.dispatchFilterAction(config.FilterID(id), envfactory.FilterRep{}, action)
+			if action == ActionDelete {
+				s.cacheDelete(CacheKindFilter, id)
+			}
+		default:
+			// It's important for this to be a debug message, so that it is effectively silent when unrecognized
+			// entities are received. If new entities are added in the future, we don't want the log blowing
+			// up with warnings/errors/info.
+			s.loggers.Debugf(logMsgUnknownEntity, deleteMessage.Path)
+		}
+
+	case ReconnectEvent:
+		s.loggers.Info(logMsgDeliberateReconnect)
+		shouldRestart = true
+
+	default:
+		s.loggers.Warnf(logMsgUnknownEvent, event.Event())
+	}
+
+	return shouldRestart
 }
 
 func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
@@ -326,6 +496,15 @@ func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.
 	case ActionDelete:
 		s.handler.DeleteFilter(id)
 	}
+}
+
+func (s *StreamManager) applyCachedContent(content *PutContent) {
+	s.handlePut(PutContent{
+		Environments: content.Environments,
+		Filters:      content.Filters,
+		Persist:      false,
+	})
+	s.loggers.Info("AutoConfig loaded from persistent cache; Relay can serve while connecting to LaunchDarkly")
 }
 
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
@@ -365,6 +544,23 @@ func (s *StreamManager) handlePut(content PutContent) {
 	}
 
 	s.handler.ReceivedAllEnvironments()
+	if content.Persist {
+		if err := s.cache.SetAll(context.Background(), content); err != nil {
+			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+		}
+	}
+}
+
+func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {
+	if err := s.cache.Upsert(context.Background(), kind, id, data); err != nil {
+		s.loggers.Warnf("Failed to upsert AutoConfig cache item %q: %v", id, err)
+	}
+}
+
+func (s *StreamManager) cacheDelete(kind CacheKind, id string) {
+	if err := s.cache.Delete(context.Background(), kind, id); err != nil {
+		s.loggers.Warnf("Failed to delete AutoConfig cache item %q: %v", id, err)
+	}
 }
 
 func obfuscateEventData(data string) string {

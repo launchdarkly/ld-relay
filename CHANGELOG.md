@@ -2,6 +2,164 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.19.1](https://github.com/launchdarkly/ld-relay/compare/v8.19.0...v8.19.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* Bump opencensus-go-exporter-stackdriver to address CVE-2026-40179 ([#655](https://github.com/launchdarkly/ld-relay/issues/655)) ([cd062ad](https://github.com/launchdarkly/ld-relay/commit/cd062adf64f521716b5ce357365cf4458e3a3818))
+
+## [8.19.0](https://github.com/launchdarkly/ld-relay/compare/v8.18.0...v8.19.0) (2026-04-22)
+
+
+### Features
+
+* cache autoconfig in store, init from store ([#593](https://github.com/launchdarkly/ld-relay/issues/593)) ([3b16c8e](https://github.com/launchdarkly/ld-relay/commit/3b16c8e9248b3a6c7b24302f1c5904ab2bade1e5))
+
+
+### Bug Fixes
+
+* avoid double-close of AutoConfig cache on init error ([#652](https://github.com/launchdarkly/ld-relay/issues/652)) ([1599a68](https://github.com/launchdarkly/ld-relay/commit/1599a68cb7051fabbea17a74b14a6367f593a43f))
+* **deps:** update Dockerfiles from 3.23.3 to alpine:3.23.4 ([#645](https://github.com/launchdarkly/ld-relay/issues/645)) ([08ac7c2](https://github.com/launchdarkly/ld-relay/commit/08ac7c2f293c783276d65f0ee62a50dbefe618ed))
+
+## [8.18.0](https://github.com/launchdarkly/ld-relay/compare/v8.17.8...v8.18.0) (2026-04-09)
+
+
+### Features
+
+* Add request_duration metric for each endpoint ([#634](https://github.com/launchdarkly/ld-relay/issues/634)) ([fb309fc](https://github.com/launchdarkly/ld-relay/commit/fb309fcafe7434894cd99a451c19926aa7d7896f))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.26.2 and 1.25.9 ([#633](https://github.com/launchdarkly/ld-relay/issues/633)) ([08bbc9e](https://github.com/launchdarkly/ld-relay/commit/08bbc9e1fd2820a593e6ed4c76b87ff270f1ddeb))
+* remove racy syncTimeCh length assertions in big segment sync tests ([#624](https://github.com/launchdarkly/ld-relay/issues/624)) ([2c43bda](https://github.com/launchdarkly/ld-relay/commit/2c43bda0e6492dd0d932fa5706ffe74dea9214c7))
+
+## [8.17.8](https://github.com/launchdarkly/ld-relay/compare/v8.17.7...v8.17.8) (2026-04-01)
+
+
+### Bug Fixes
+
+* Include tags header in `relayUsage` metadata ([#618](https://github.com/launchdarkly/ld-relay/issues/618)) ([41152b1](https://github.com/launchdarkly/ld-relay/commit/41152b1cab0b78c8eacf4823ebc788aab6a98f8d))
+
+## [8.17.7](https://github.com/launchdarkly/ld-relay/compare/v8.17.6...v8.17.7) (2026-04-01)
+
+
+### Bug Fixes
+
+* **deps:** bump google.golang.org/grpc from 1.61.0 to 1.79.3 ([2ebb357](https://github.com/launchdarkly/ld-relay/commit/2ebb357971092aa82e0d617767505ba96fcaa7de))
+
+## [8.17.6](https://github.com/launchdarkly/ld-relay/compare/v8.17.5...v8.17.6) (2026-03-30)
+
+
+### Bug Fixes
+
+* Manually create tag on release ([#611](https://github.com/launchdarkly/ld-relay/issues/611)) ([d217e67](https://github.com/launchdarkly/ld-relay/commit/d217e678a17d76d4cd816726306c3a25cd1cb3ca))
+
+## [8.17.5](https://github.com/launchdarkly/ld-relay/compare/v8.17.4...v8.17.5) (2026-03-27)
+
+
+### Bug Fixes
+
+* Include server evalx routes in polling metrics ([#601](https://github.com/launchdarkly/ld-relay/issues/601)) ([3e78c23](https://github.com/launchdarkly/ld-relay/commit/3e78c234662e6ed1f8e2dbe60236634e108fa245))
+
+## [8.17.4](https://github.com/launchdarkly/ld-relay/compare/v8.17.3...v8.17.4) (2026-03-12)
+
+
+### Bug Fixes
+
+* Remove deprecated big segment excluded usage from integration tests ([#591](https://github.com/launchdarkly/ld-relay/issues/591)) ([81c53aa](https://github.com/launchdarkly/ld-relay/commit/81c53aa43b074010d9d7cbc76d1ac06520862db9))
+
+## [8.17.3](https://github.com/launchdarkly/ld-relay/compare/v8.17.2...v8.17.3) (2026-03-11)
+
+
+### Bug Fixes
+
+* Drop windows/arm support ([#588](https://github.com/launchdarkly/ld-relay/issues/588)) ([34e80af](https://github.com/launchdarkly/ld-relay/commit/34e80afa4cf522fcc1a7780fc6769438db01b470))
+
+## [8.17.2](https://github.com/launchdarkly/ld-relay/compare/v8.17.1...v8.17.2) (2026-03-11)
+
+
+### Bug Fixes
+
+* Set timeout for big segment revisions poll ([#584](https://github.com/launchdarkly/ld-relay/issues/584)) ([2b3051e](https://github.com/launchdarkly/ld-relay/commit/2b3051e98e92003f1c4f23d136e732efb9d2a45e))
+
+## [8.17.1](https://github.com/launchdarkly/ld-relay/compare/v8.17.0...v8.17.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.7 and 1.24.13 ([#579](https://github.com/launchdarkly/ld-relay/issues/579)) ([9f99a49](https://github.com/launchdarkly/ld-relay/commit/9f99a4946e79ea038d97d21ff92672e6f55fd789))
+* **deps:** bump supported Go versions to 1.26.1 and 1.25.8 ([#585](https://github.com/launchdarkly/ld-relay/issues/585)) ([49aa16e](https://github.com/launchdarkly/ld-relay/commit/49aa16e533e8ea0186e59f28db8866ba9a35e38b))
+* **deps:** update Dockerfiles from 3.23.2 to alpine:3.23.3 ([#577](https://github.com/launchdarkly/ld-relay/issues/577)) ([f6b4e48](https://github.com/launchdarkly/ld-relay/commit/f6b4e485fe9bfa90831590d5f0cff9947c41ac81))
+
+## [8.17.0](https://github.com/launchdarkly/ld-relay/compare/v8.16.4...v8.17.0) (2026-01-26)
+
+
+### Features
+
+* Add support for structured JSON logging ([#572](https://github.com/launchdarkly/ld-relay/issues/572)) ([9afcc4d](https://github.com/launchdarkly/ld-relay/commit/9afcc4d74310df8c6abef181f695829d3aaf22b1))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.6 and 1.24.12 ([#575](https://github.com/launchdarkly/ld-relay/issues/575)) ([5b4810a](https://github.com/launchdarkly/ld-relay/commit/5b4810a4985b47f3ddf2cff6536c108dd13aaf79))
+
+## [8.16.4](https://github.com/launchdarkly/ld-relay/compare/v8.16.3...v8.16.4) (2025-12-18)
+
+
+### Bug Fixes
+
+* **deps:** update Dockerfiles from 3.23.0 to alpine:3.23.2 ([#569](https://github.com/launchdarkly/ld-relay/issues/569)) ([4bb745d](https://github.com/launchdarkly/ld-relay/commit/4bb745d9aa823b64bfeaa46a7f2281ead70e8c04))
+
+## [8.16.3](https://github.com/launchdarkly/ld-relay/compare/v8.16.2...v8.16.3) (2025-12-18)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.5 and 1.24.11 ([#560](https://github.com/launchdarkly/ld-relay/issues/560)) ([c986132](https://github.com/launchdarkly/ld-relay/commit/c9861325faaf7a0ce72c5e4601de0105fd5f3229))
+* **deps:** update Dockerfiles from 3.22.2 to alpine:3.23.0 ([#566](https://github.com/launchdarkly/ld-relay/issues/566)) ([090e7b0](https://github.com/launchdarkly/ld-relay/commit/090e7b0e7be13ae3fa2cfa91f04a1bc4cd9ec24d))
+
+## [8.16.2](https://github.com/launchdarkly/ld-relay/compare/v8.16.1...v8.16.2) (2025-12-03)
+
+
+### Bug Fixes
+
+* Remove double slash in diagnostic url debug message ([#558](https://github.com/launchdarkly/ld-relay/issues/558)) ([b7c3a58](https://github.com/launchdarkly/ld-relay/commit/b7c3a585acb6066ce5f54ca909ab44f02159e71e))
+
+## [8.16.1](https://github.com/launchdarkly/ld-relay/compare/v8.16.0...v8.16.1) (2025-11-24)
+
+
+### Bug Fixes
+
+* Redact Redis password from Big Segment logs ([#555](https://github.com/launchdarkly/ld-relay/issues/555)) ([e9dc1b9](https://github.com/launchdarkly/ld-relay/commit/e9dc1b9bf147fea087b73cccea0913a21d863090)), closes [#550](https://github.com/launchdarkly/ld-relay/issues/550)
+
+## [8.16.0](https://github.com/launchdarkly/ld-relay/compare/v8.15.0...v8.16.0) (2025-11-21)
+
+
+### Features
+
+* Support jitter for client/mobile ping stream connections ([#551](https://github.com/launchdarkly/ld-relay/issues/551)) ([ab1b945](https://github.com/launchdarkly/ld-relay/commit/ab1b945c8e9a3f851b448bdb283baddf8a6ede6a))
+
+
+### Bug Fixes
+
+* Bump github.com/launchdarkly/go-server-sdk/v7 from v7.14.0 -&gt; v7.14.1 ([#553](https://github.com/launchdarkly/ld-relay/issues/553)) ([ea8df17](https://github.com/launchdarkly/ld-relay/commit/ea8df1743d14651028d5821763b6e88451d659f9))
+* Bump minimum go to 1.24 ([#552](https://github.com/launchdarkly/ld-relay/issues/552)) ([7f622ac](https://github.com/launchdarkly/ld-relay/commit/7f622acb7aea99c6a2c4e42b03448bec14460440))
+
+## [8.15.0](https://github.com/launchdarkly/ld-relay/compare/v8.14.0...v8.15.0) (2025-11-13)
+
+
+### Features
+
+* Add HTTP client transport configuration options ([#545](https://github.com/launchdarkly/ld-relay/issues/545)) ([cab095a](https://github.com/launchdarkly/ld-relay/commit/cab095aebbae0f24ab3c76e049163177cebaa272))
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.25.3 and 1.24.9 ([#541](https://github.com/launchdarkly/ld-relay/issues/541)) ([1f37eac](https://github.com/launchdarkly/ld-relay/commit/1f37eac501b1ca9994b3ca26a6128b70365035de))
+* **deps:** bump supported Go versions to 1.25.4 and 1.24.10 ([#548](https://github.com/launchdarkly/ld-relay/issues/548)) ([91cf12f](https://github.com/launchdarkly/ld-relay/commit/91cf12fa2facd3f754aeb13d731373e4552ef812))
+
 ## [8.14.0](https://github.com/launchdarkly/ld-relay/compare/v8.13.3...v8.14.0) (2025-10-22)
 
 

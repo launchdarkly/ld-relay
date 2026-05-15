@@ -16,6 +16,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/autoconfigcache"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
@@ -146,15 +147,16 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	clientInitCh := make(chan relayenv.EnvContext, len(c.Environment))
 
 	maxConnTime := c.Main.MaxClientConnectionTime.GetOrElse(0)
+	pingStreamJitterTime := c.Main.PingStreamJitterTime.GetOrElse(0)
 
 	userAgent := "LDRelay/" + version.Version
 
 	r := &Relay{
 		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime),
-		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime),
-		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime),
-		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),
 		metricsManager:                metricsManager,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,
@@ -188,6 +190,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	if hasAutoConfigKey {
 		httpConfig, err := httpconfig.NewHTTPConfig(
 			c.Proxy,
+			c.HTTP,
 			c.AutoConfig.Key,
 			userAgent,
 			loggers,
@@ -195,15 +198,25 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		if err != nil {
 			return nil, err
 		}
+
+		autoConfigCache, err := autoconfigcache.NewStore(c, loggers)
+		if err != nil {
+			return nil, err
+		}
+
+		projectRouter := projmanager.NewProjectRouter(&relayAutoConfigActions{r: r}, loggers)
+
 		r.autoConfigStream = autoconfig.NewStreamManager(
 			c.AutoConfig.Key,
 			c.Main.StreamURI.Get(),
-			projmanager.NewProjectRouter(&relayAutoConfigActions{r}, loggers),
+			projectRouter,
 			httpConfig,
 			0,
 			rpacProtocolVersion,
 			loggers,
+			autoConfigCache,
 		)
+
 		autoConfigResult := r.autoConfigStream.Start()
 		go func() {
 			err := <-autoConfigResult

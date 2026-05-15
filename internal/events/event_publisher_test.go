@@ -25,7 +25,7 @@ import (
 const testSDKKey = config.SDKKey("my-key")
 
 func defaultHTTPConfig() httpconfig.HTTPConfig {
-	hc, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, nil, "", ldlog.NewDisabledLoggers())
+	hc, err := httpconfig.NewHTTPConfig(config.ProxyConfig{}, config.HTTPConfig{}, nil, "", ldlog.NewDisabledLoggers())
 	if err != nil {
 		panic(err)
 	}

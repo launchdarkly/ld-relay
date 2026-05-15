@@ -153,6 +153,7 @@ type MainConfig struct {
 	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	PingStreamJitterTime             ct.OptDuration           `conf:"PING_STREAM_JITTER_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`
 	TLSCert                          string                   `conf:"TLS_CERT"`
@@ -171,6 +172,8 @@ type AutoConfigConfig struct {
 	EnvDatastoreTableName string           `conf:"ENV_DATASTORE_TABLE_NAME"`
 	EnvAllowedOrigin      ct.OptStringList `conf:"ENV_ALLOWED_ORIGIN"`
 	EnvAllowedHeader      ct.OptStringList `conf:"ENV_ALLOWED_HEADER"`
+	CacheKey              string           `conf:"AUTO_CONFIG_CACHE_KEY"`
+	CacheEncryptionKey    string           `conf:"AUTO_CONFIG_CACHE_ENCRYPTION_KEY"`
 }
 
 // OfflineModeConfig contains configuration parameters for the offline/file data source feature.
@@ -298,7 +301,11 @@ type ProxyConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type HTTPConfig struct {
-	EnableCompression bool `conf:"HTTP_ENABLE_COMPRESSION"`
+	EnableCompression   bool           `conf:"HTTP_ENABLE_COMPRESSION"`
+	IdleConnTimeout     ct.OptDuration `conf:"HTTP_IDLE_CONN_TIMEOUT"`
+	MaxIdleConns        ct.OptInt      `conf:"HTTP_MAX_IDLE_CONNS"`
+	MaxIdleConnsPerHost int            `conf:"HTTP_MAX_IDLE_CONNS_PER_HOST"`
+	DisableKeepAlives   bool           `conf:"HTTP_DISABLE_KEEPALIVE"`
 }
 
 // MetricsConfig contains configurations for optional metrics integrations.

@@ -29,7 +29,7 @@ func TestStreamProviderServerSide(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.ServerSideStream, maxConnTime)
+		sp := NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)

@@ -36,11 +36,23 @@ func (d TestMetricsData) HasRow(viewName string, expectedRow TestMetricsRow) boo
 	return false
 }
 
+// HasRowMatching returns true if any row for the specified view name has matching tags
+// and satisfies the predicate function.
+func (d TestMetricsData) HasRowMatching(viewName string, tags map[string]string, predicate func(TestMetricsRow) bool) bool {
+	for _, r := range d[viewName] {
+		if reflect.DeepEqual(r.Tags, tags) && predicate(r) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestMetricsRow is a simplified version of an OpenCensus view row.
 type TestMetricsRow struct {
-	Tags  map[string]string
-	Count int64
-	Sum   float64
+	Tags              map[string]string
+	Count             int64
+	Sum               float64
+	DistributionCount int64
 }
 
 // NewTestMetricsExporter creates a TestMetricsExporter.
@@ -75,7 +87,7 @@ func (e *TestMetricsExporter) ExportView(viewData *view.Data) {
 	defer e.lock.Unlock()
 
 	viewName := viewData.View.Name
-	rows := []TestMetricsRow{}
+	rows := make([]TestMetricsRow, 0, len(viewData.Rows))
 	for _, vr := range viewData.Rows {
 		tr := TestMetricsRow{Tags: make(map[string]string, len(vr.Tags))}
 		for _, t := range vr.Tags {
@@ -88,6 +100,9 @@ func (e *TestMetricsExporter) ExportView(viewData *view.Data) {
 		if countData, ok := vr.Data.(*view.CountData); ok {
 			tr.Count = countData.Value
 		}
+		if distData, ok := vr.Data.(*view.DistributionData); ok {
+			tr.DistributionCount = distData.Count
+		}
 		rows = append(rows, tr)
 	}
 
@@ -99,6 +114,17 @@ func (e *TestMetricsExporter) ExportView(viewData *view.Data) {
 		}
 		e.dataCh <- dataCopy
 	}
+}
+
+// GetLastData returns a snapshot of the most recently received metrics data.
+func (e *TestMetricsExporter) GetLastData() TestMetricsData {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	dataCopy := make(TestMetricsData)
+	for k, v := range e.lastData {
+		dataCopy[k] = v
+	}
+	return dataCopy
 }
 
 // AwaitData waits until matching view data is received.

@@ -119,6 +119,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			BigSegmentsStaleAsDegraded:       true,
 			BigSegmentsStaleThreshold:        ct.NewOptDuration(10 * time.Minute),
 			ExpiredCredentialCleanupInterval: ct.NewOptDuration(1 * time.Minute),
+			PingStreamJitterTime:             ct.NewOptDuration(5 * time.Minute),
 		}
 		c.Events = EventsConfig{
 			SendEvents:            true,
@@ -189,6 +190,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"LD_ALLOWED_HEADER_krypton":           "Timestamp-Valid,Random-Id-Valid",
 		"LD_TTL_krypton":                      "5m",
 		"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL": "1m",
+		"PING_STREAM_JITTER_TIME":             "5m",
 	}
 	c.fileContent = `
 [Main]
@@ -201,6 +203,7 @@ ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
+PingStreamJitterTime = 5m
 DisconnectedStatusTime = 3m
 TLSEnabled = 1
 TLSCert = "cert"
@@ -550,13 +553,12 @@ Host = "localhost"
 
 func makeValidConfigConsulAll() testDataValidConfig {
 	c := testDataValidConfig{name: "Consul - all parameters"}
-	c.makeConfig =
-		func(c *Config) {
-			c.Consul = ConsulConfig{
-				Host:     "consulhost",
-				LocalTTL: ct.NewOptDuration(3 * time.Second),
-			}
+	c.makeConfig = func(c *Config) {
+		c.Consul = ConsulConfig{
+			Host:     "consulhost",
+			LocalTTL: ct.NewOptDuration(3 * time.Second),
 		}
+	}
 	c.envVars = map[string]string{
 		"USE_CONSUL":  "1",
 		"CONSUL_HOST": "consulhost",
