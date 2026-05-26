@@ -10,7 +10,7 @@ import (
 )
 
 // slogBaseLogger implements ldlog.BaseLogger by delegating to a *slog.Logger.
-// The ldlog library prepends level prefixes ("DEBUG: ", "INFO: ", etc.) to messages
+// The ldlog library prepends level prefixes ("DEBUG:", "INFO:", etc.) to messages
 // before calling Println/Printf, so we parse those back out to determine the slog level.
 type slogBaseLogger struct {
 	logger *slog.Logger
@@ -29,16 +29,19 @@ func (b *slogBaseLogger) Printf(format string, values ...interface{}) {
 }
 
 // parseLDLogPrefix extracts the log level from an ldlog-formatted message.
-// ldlog prepends "DEBUG: ", "INFO: ", "WARN: ", or "ERROR: " to messages.
+// ldlog builds the prefix as "LEVEL:" (no trailing space) and applies it via
+// either Printf (which inserts " " between prefix and format) or Println via
+// fmt.Sprint (which inserts no separator between two string operands). Match
+// on the colon-terminated prefix and let TrimSpace deal with whatever follows.
 func parseLDLogPrefix(message string) (slog.Level, string) {
 	prefixes := []struct {
 		prefix string
 		level  slog.Level
 	}{
-		{"DEBUG: ", slog.LevelDebug},
-		{"INFO: ", slog.LevelInfo},
-		{"WARN: ", slog.LevelWarn},
-		{"ERROR: ", slog.LevelError},
+		{"DEBUG:", slog.LevelDebug},
+		{"INFO:", slog.LevelInfo},
+		{"WARN:", slog.LevelWarn},
+		{"ERROR:", slog.LevelError},
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(message, p.prefix) {
