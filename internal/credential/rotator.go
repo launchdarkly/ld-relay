@@ -22,8 +22,18 @@ type Rotator struct {
 	// There can be multiple SDK keys active at a given time, but only one is primary.
 	primarySdkKey config.SDKKey
 
-	// Deprecated keys are stored in a map with a started timer for each key representing the deprecation period.
-	// Upon expiration, they are removed.
+	// additionalSdkKeys is the set of concurrent SDK keys that authenticate to the same environment
+	// as primarySdkKey but never open an upstream LD connection. Entries with a per-key expiry are
+	// tracked in expiringAdditionalSdkKeys instead.
+	additionalSdkKeys map[config.SDKKey]struct{}
+
+	// expiringAdditionalSdkKeys tracks concurrent SDK keys that have a per-key expiry. Separate
+	// from deprecatedSdkKeys so the SetAdditionalSDKKeys diff logic cannot accidentally remove the
+	// predecessor of primarySdkKey.
+	expiringAdditionalSdkKeys map[config.SDKKey]time.Time
+
+	// deprecatedSdkKeys holds the predecessor of primarySdkKey during a rotation grace period. Upon
+	// expiration, entries are removed. This map is owned by the RotateWithGrace path.
 	deprecatedSdkKeys map[config.SDKKey]time.Time
 
 	expirations []SDKCredential
@@ -42,8 +52,10 @@ type InitialCredentials struct {
 // contains no credentials and can optionally be initialized via Initialize.
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
-		loggers:           loggers,
-		deprecatedSdkKeys: make(map[config.SDKKey]time.Time),
+		loggers:                   loggers,
+		additionalSdkKeys:         make(map[config.SDKKey]struct{}),
+		expiringAdditionalSdkKeys: make(map[config.SDKKey]time.Time),
+		deprecatedSdkKeys:         make(map[config.SDKKey]time.Time),
 	}
 	return r
 }
@@ -98,18 +110,134 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 }
 
 func (r *Rotator) primaryCredentials() []SDKCredential {
-	return slices.DeleteFunc([]SDKCredential{
+	creds := slices.DeleteFunc([]SDKCredential{
 		r.primarySdkKey,
 		r.primaryMobileKey,
 		r.primaryEnvironmentID,
 	}, func(cred SDKCredential) bool {
 		return !cred.Defined()
 	})
+	for key := range r.additionalSdkKeys {
+		creds = append(creds, key)
+	}
+	return creds
+}
+
+// ActiveSDKKeys returns the primary SDK key plus all additional non-deprecated SDK keys.
+func (r *Rotator) ActiveSDKKeys() []config.SDKKey {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	keys := make([]config.SDKKey, 0, 1+len(r.additionalSdkKeys))
+	if r.primarySdkKey.Defined() {
+		keys = append(keys, r.primarySdkKey)
+	}
+	for k := range r.additionalSdkKeys {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// SetAdditionalSDKKeys synchronizes the set of concurrent SDK keys for this environment.
+//
+// active contains keys that are present and have no per-key expiry. expiring maps each key with a
+// per-key expiry to its absolute expiration timestamp.
+//
+// Keys new to active or expiring are queued as additions. Keys previously tracked that are absent
+// from both sets are queued as expirations immediately, without a grace period -- omission from a
+// patch is treated as deletion. A key transitioning between active and expiring stays mapped; only
+// its grace state changes. An expiring key whose timestamp changes across calls accepts the new
+// value as authoritative.
+//
+// The primary SDK key is filtered out of the additional set defensively. This method does not
+// touch deprecatedSdkKeys, which is owned by the RotateWithGrace path for the predecessor of
+// primarySdkKey during a rotation.
+func (r *Rotator) SetAdditionalSDKKeys(active []config.SDKKey, expiring map[config.SDKKey]time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	nextActive := make(map[config.SDKKey]struct{}, len(active))
+	for _, k := range active {
+		if !k.Defined() || k == r.primarySdkKey {
+			continue
+		}
+		nextActive[k] = struct{}{}
+	}
+	nextExpiring := make(map[config.SDKKey]time.Time, len(expiring))
+	for k, t := range expiring {
+		if !k.Defined() || k == r.primarySdkKey {
+			continue
+		}
+		// If the same key shows up in both sets, treat the expiring entry as authoritative -- the
+		// platform explicitly attached an expiry to it.
+		delete(nextActive, k)
+		nextExpiring[k] = t
+	}
+
+	// Track all currently-tracked additional keys (active + expiring) so we can detect removals.
+	current := make(map[config.SDKKey]struct{})
+	for k := range r.additionalSdkKeys {
+		current[k] = struct{}{}
+	}
+	for k := range r.expiringAdditionalSdkKeys {
+		current[k] = struct{}{}
+	}
+
+	for k := range nextActive {
+		_, wasAdditional := r.additionalSdkKeys[k]
+		_, wasExpiring := r.expiringAdditionalSdkKeys[k]
+		switch {
+		case wasAdditional:
+			// Already active.
+		case wasExpiring:
+			// Was expiring, now active -- move state without re-queuing (still mapped).
+			delete(r.expiringAdditionalSdkKeys, k)
+			r.additionalSdkKeys[k] = struct{}{}
+		default:
+			r.additionalSdkKeys[k] = struct{}{}
+			r.additions = append(r.additions, k)
+			r.loggers.Infof("Additional SDK key %s is now active", k.Masked())
+		}
+		delete(current, k)
+	}
+
+	for k, t := range nextExpiring {
+		_, wasAdditional := r.additionalSdkKeys[k]
+		previousExpiry, wasExpiring := r.expiringAdditionalSdkKeys[k]
+		switch {
+		case wasAdditional:
+			// Was active, now has an expiry -- move into expiring, stay mapped.
+			delete(r.additionalSdkKeys, k)
+			r.expiringAdditionalSdkKeys[k] = t
+			r.loggers.Infof("Additional SDK key %s is now expiring at %v", k.Masked(), t)
+		case wasExpiring:
+			// Already expiring -- accept the new timestamp (platform is authoritative).
+			if previousExpiry != t {
+				r.loggers.Infof("Additional SDK key %s expiry updated from %v to %v", k.Masked(), previousExpiry, t)
+				r.expiringAdditionalSdkKeys[k] = t
+			}
+		default:
+			r.expiringAdditionalSdkKeys[k] = t
+			r.additions = append(r.additions, k)
+			r.loggers.Infof("Additional SDK key %s registered with expiry %v", k.Masked(), t)
+		}
+		delete(current, k)
+	}
+
+	// Anything still in current was previously tracked but absent from the new patch -- revoke now.
+	for k := range current {
+		delete(r.additionalSdkKeys, k)
+		delete(r.expiringAdditionalSdkKeys, k)
+		r.expirations = append(r.expirations, k)
+		r.loggers.Infof("Additional SDK key %s has been revoked", k.Masked())
+	}
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
-	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys))
+	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys)+len(r.expiringAdditionalSdkKeys))
 	for key := range r.deprecatedSdkKeys {
+		deprecated = append(deprecated, key)
+	}
+	for key := range r.expiringAdditionalSdkKeys {
 		deprecated = append(deprecated, key)
 	}
 	return deprecated
@@ -288,6 +416,13 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	for key, expiry := range r.deprecatedSdkKeys {
 		if now.After(expiry) {
 			r.expireSDKKey(key)
+		}
+	}
+	for key, expiry := range r.expiringAdditionalSdkKeys {
+		if now.After(expiry) {
+			r.loggers.Infof("Additional SDK key %s has expired and is no longer valid for authentication", key.Masked())
+			delete(r.expiringAdditionalSdkKeys, key)
+			r.expirations = append(r.expirations, key)
 		}
 	}
 

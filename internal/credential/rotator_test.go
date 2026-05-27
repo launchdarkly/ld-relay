@@ -216,6 +216,206 @@ func TestManyConcurrentSDKKeyDeprecation(t *testing.T) {
 	assert.ElementsMatch(t, keysDeprecated, expirations)
 }
 
+func TestSetAdditionalSDKKeysAddsActiveKeys(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra1", "extra2"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra1"), config.SDKKey("extra2")}, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary", "extra1", "extra2"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysAddsExpiringKeys(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	expiry := time.Unix(2000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{
+		"expiring1": expiry,
+	})
+	additions, expirations := rotator.StepTime(time.Unix(1000, 0))
+
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("expiring1")}, additions)
+	assert.Empty(t, expirations)
+	// Expiring keys are not "active" in the ActiveSDKKeys sense.
+	assert.ElementsMatch(t, []config.SDKKey{"primary"}, rotator.ActiveSDKKeys())
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("expiring1")}, rotator.DeprecatedCredentials())
+}
+
+func TestSetAdditionalSDKKeysOmissionRevokesImmediately(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra1", "extra2"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra1"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra2")}, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary", "extra1"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysActiveToExpiringStaysMapped(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"k"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k")}, additions)
+	assert.Empty(t, expirations)
+
+	// Now mark the same key as expiring; it should stay mapped (no churn in additions/expirations).
+	expiry := time.Unix(5000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{"k": expiry})
+	additions, expirations = rotator.StepTime(time.Unix(1000, 0))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary"}, rotator.ActiveSDKKeys())
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k")}, rotator.DeprecatedCredentials())
+}
+
+func TestSetAdditionalSDKKeysExpiringToActiveStaysMapped(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	expiry := time.Unix(5000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{"k": expiry})
+	additions, expirations := rotator.StepTime(time.Unix(1000, 0))
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k")}, additions)
+	assert.Empty(t, expirations)
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"k"}, nil)
+	additions, expirations = rotator.StepTime(time.Unix(2000, 0))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary", "k"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysAcceptsUpdatedExpiry(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	earlyExpiry := time.Unix(2000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{"k": earlyExpiry})
+	additions, _ := rotator.StepTime(time.Unix(1000, 0))
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k")}, additions)
+
+	// Extend the expiry.
+	lateExpiry := time.Unix(10000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{"k": lateExpiry})
+
+	// At a time after the original expiry but before the new one, the key should still be alive.
+	additions, expirations := rotator.StepTime(time.Unix(5000, 0))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+
+	// After the new expiry, the key should be revoked via StepTime.
+	additions, expirations = rotator.StepTime(time.Unix(11000, 0))
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k")}, expirations)
+}
+
+func TestSetAdditionalSDKKeysIdempotent(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"k1", "k2"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"k1", "k2"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+}
+
+func TestSetAdditionalSDKKeysFiltersPrimary(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	expiry := time.Unix(5000, 0)
+	rotator.SetAdditionalSDKKeys(
+		[]config.SDKKey{"primary", "extra"},
+		map[config.SDKKey]time.Time{"primary": expiry},
+	)
+	additions, expirations := rotator.StepTime(time.Unix(1000, 0))
+
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra")}, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary", "extra"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysPrefersExpiringWhenKeyAppearsInBoth(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	expiry := time.Unix(5000, 0)
+	rotator.SetAdditionalSDKKeys(
+		[]config.SDKKey{"shared"},
+		map[config.SDKKey]time.Time{"shared": expiry},
+	)
+	additions, _ := rotator.StepTime(time.Unix(1000, 0))
+
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("shared")}, additions)
+	// Should be expiring, not active.
+	assert.ElementsMatch(t, []config.SDKKey{"primary"}, rotator.ActiveSDKKeys())
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("shared")}, rotator.DeprecatedCredentials())
+}
+
+func TestSetAdditionalSDKKeysSurvivesPrimaryRotation(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"k1", "k2"}, nil)
+	additions, _ := rotator.StepTime(time.Now())
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("k1"), config.SDKKey("k2")}, additions)
+
+	// Rotate the primary -- the additional set should stay intact.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(config.SDKKey("primary-v2"), NewGracePeriod(config.SDKKey("primary"), start.Add(1*time.Hour), start))
+	additions, expirations := rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("primary-v2")}, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.SDKKey{"primary-v2", "k1", "k2"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysDoesNotDisturbRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary-v1")})
+
+	// Rotate primary, putting primary-v1 into the rotation grace map.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("primary-v2"),
+		NewGracePeriod(config.SDKKey("primary-v1"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+
+	// Now set an additional key. The rotation predecessor must NOT be revoked.
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra"}, nil)
+	additions, expirations := rotator.StepTime(start.Add(1 * time.Minute))
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra")}, additions)
+	assert.Empty(t, expirations)
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.SDKKey("primary-v1"))
+}
+
 func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	rotator := NewRotator(mockLog.Loggers)
