@@ -15,11 +15,15 @@ import (
 // or the other of those contexts should be in the appropriate package instead of here.
 
 // EnvironmentRep is a representation of an environment that is being added or updated.
+//
+// MobKey is the legacy single-mobile-key field. When MobileKey is non-nil it takes precedence;
+// MobKey is retained so older relays reading newer payloads continue to function.
 type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
 	EnvName    string               `json:"envName"`
-	MobKey     config.MobileKey     `json:"mobKey"`
+	MobKey     config.MobileKey     `json:"mobKey,omitempty"`
+	MobileKey  *MobileKeyRep        `json:"mobileKey,omitempty"`
 	ProjKey    string               `json:"projKey"`
 	ProjName   string               `json:"projName"`
 	SDKKey     SDKKeyRep            `json:"sdkKey"`
@@ -50,16 +54,48 @@ func (f FilterRep) ToTestParams() FilterParams {
 	return f.ToParams(config.FilterID(fmt.Sprintf("%s.%s", f.ProjKey, f.FilterKey)))
 }
 
-// SDKKeyRep describes an SDK key optionally accompanied by an old expiring key.
+// SDKKeyRep describes an SDK key, an optional predecessor that is rotating out with a grace period,
+// and an optional list of additional concurrent SDK keys.
+//
+// Each additional key may carry its own ExpiresAt. Entries without ExpiresAt are active; entries
+// with ExpiresAt are in a per-key grace period and stop being honored after the timestamp.
+// Omission of a previously-listed additional key indicates immediate revocation.
 type SDKKeyRep struct {
-	Value    config.SDKKey  `json:"value"`
-	Expiring ExpiringKeyRep `json:"expiring"`
+	Value      config.SDKKey         `json:"value"`
+	Expiring   ExpiringKeyRep        `json:"expiring"`
+	Additional []AdditionalSDKKeyRep `json:"additional,omitempty"`
 }
 
 // ExpiringKeyRep describes an old key that will expire at the specified date/time.
 type ExpiringKeyRep struct {
 	Value     config.SDKKey              `json:"value"`
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
+}
+
+// AdditionalSDKKeyRep describes a concurrent SDK key with an optional per-key expiry.
+type AdditionalSDKKeyRep struct {
+	Value     config.SDKKey               `json:"value"`
+	ExpiresAt *ldtime.UnixMillisecondTime `json:"expiresAt,omitempty"`
+}
+
+// MobileKeyRep describes a mobile key, an optional predecessor that is rotating out with a grace
+// period, and an optional list of additional concurrent mobile keys. Semantics mirror SDKKeyRep.
+type MobileKeyRep struct {
+	Value      config.MobileKey         `json:"value"`
+	Expiring   ExpiringMobileKeyRep     `json:"expiring"`
+	Additional []AdditionalMobileKeyRep `json:"additional,omitempty"`
+}
+
+// ExpiringMobileKeyRep describes an old mobile key that will expire at the specified date/time.
+type ExpiringMobileKeyRep struct {
+	Value     config.MobileKey           `json:"value"`
+	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
+}
+
+// AdditionalMobileKeyRep describes a concurrent mobile key with an optional per-key expiry.
+type AdditionalMobileKeyRep struct {
+	Value     config.MobileKey            `json:"value"`
+	ExpiresAt *ldtime.UnixMillisecondTime `json:"expiresAt,omitempty"`
 }
 
 func (e ExpiringKeyRep) ToParams() ExpiringSDKKey {
@@ -73,13 +109,35 @@ func (e ExpiringKeyRep) ToParams() ExpiringSDKKey {
 	}
 }
 
+func (e ExpiringMobileKeyRep) ToParams() ExpiringMobileKey {
+	if e.Value.Defined() {
+		return ExpiringMobileKey{
+			Key:        e.Value,
+			Expiration: ToTime(e.Timestamp),
+		}
+	}
+	return ExpiringMobileKey{}
+}
+
 func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
 	return time.UnixMilli(int64(millisecondTime)) //nolint: gosec
 }
 
 // ToParams converts the JSON properties for an environment into our internal parameter type.
 func (r EnvironmentRep) ToParams() EnvironmentParams {
-	params := EnvironmentParams{
+	activeSDK, expiringAdditionalSDK := splitAdditionalSDKKeys(r.SDKKey.Additional)
+
+	mobileKey := r.MobKey
+	var expiringMobile ExpiringMobileKey
+	var activeMobile []config.MobileKey
+	var expiringAdditionalMobile map[config.MobileKey]time.Time
+	if r.MobileKey != nil {
+		mobileKey = r.MobileKey.Value
+		expiringMobile = r.MobileKey.Expiring.ToParams()
+		activeMobile, expiringAdditionalMobile = splitAdditionalMobileKeys(r.MobileKey.Additional)
+	}
+
+	return EnvironmentParams{
 		EnvID: r.EnvID,
 		Identifiers: relayenv.EnvIdentifiers{
 			EnvKey:   r.EnvKey,
@@ -87,14 +145,51 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			ProjKey:  r.ProjKey,
 			ProjName: r.ProjName,
 		},
-		SDKKey:         r.SDKKey.Value,
-		ExpiringSDKKey: r.SDKKey.Expiring.ToParams(),
-		MobileKey:      r.MobKey,
-		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
-		SecureMode:     r.SecureMode,
+		SDKKey:                       r.SDKKey.Value,
+		ExpiringSDKKey:               r.SDKKey.Expiring.ToParams(),
+		AdditionalSDKKeys:            activeSDK,
+		ExpiringAdditionalSDKKeys:    expiringAdditionalSDK,
+		MobileKey:                    mobileKey,
+		ExpiringMobileKey:            expiringMobile,
+		AdditionalMobileKeys:         activeMobile,
+		ExpiringAdditionalMobileKeys: expiringAdditionalMobile,
+		TTL:                          time.Duration(r.DefaultTTL) * time.Minute,
+		SecureMode:                   r.SecureMode,
 	}
+}
 
-	return params
+func splitAdditionalSDKKeys(additional []AdditionalSDKKeyRep) (active []config.SDKKey, expiring map[config.SDKKey]time.Time) {
+	for _, a := range additional {
+		if !a.Value.Defined() {
+			continue
+		}
+		if a.ExpiresAt != nil {
+			if expiring == nil {
+				expiring = make(map[config.SDKKey]time.Time)
+			}
+			expiring[a.Value] = ToTime(*a.ExpiresAt)
+		} else {
+			active = append(active, a.Value)
+		}
+	}
+	return active, expiring
+}
+
+func splitAdditionalMobileKeys(additional []AdditionalMobileKeyRep) (active []config.MobileKey, expiring map[config.MobileKey]time.Time) {
+	for _, a := range additional {
+		if !a.Value.Defined() {
+			continue
+		}
+		if a.ExpiresAt != nil {
+			if expiring == nil {
+				expiring = make(map[config.MobileKey]time.Time)
+			}
+			expiring[a.Value] = ToTime(*a.ExpiresAt)
+		} else {
+			active = append(active, a.Value)
+		}
+	}
+	return active, expiring
 }
 
 func (r EnvironmentRep) Describe() string {

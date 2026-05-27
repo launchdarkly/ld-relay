@@ -20,15 +20,31 @@ type EnvironmentParams struct {
 	// Identifiers contains the project and environment names and keys.
 	Identifiers relayenv.EnvIdentifiers
 
-	// SDKKey is the environment's SDK key; if there is more than one active key, it is the latest.
+	// SDKKey is the environment's primary SDK key. Additional concurrent SDK keys are carried in
+	// AdditionalSDKKeys and ExpiringAdditionalSDKKeys.
 	SDKKey config.SDKKey
 
-	// MobileKey is the environment's mobile key.
+	// MobileKey is the environment's primary mobile key. Additional concurrent mobile keys are
+	// carried in AdditionalMobileKeys and ExpiringAdditionalMobileKeys.
 	MobileKey config.MobileKey
 
-	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
-	// the canonical one).
+	// ExpiringSDKKey is the predecessor of SDKKey during a rotation grace period, if any.
 	ExpiringSDKKey ExpiringSDKKey
+
+	// ExpiringMobileKey is the predecessor of MobileKey during a rotation grace period, if any.
+	ExpiringMobileKey ExpiringMobileKey
+
+	// AdditionalSDKKeys is the set of concurrent SDK keys with no per-key expiry.
+	AdditionalSDKKeys []config.SDKKey
+
+	// ExpiringAdditionalSDKKeys is the subset of concurrent SDK keys that carry a per-key expiry.
+	ExpiringAdditionalSDKKeys map[config.SDKKey]time.Time
+
+	// AdditionalMobileKeys is the set of concurrent mobile keys with no per-key expiry.
+	AdditionalMobileKeys []config.MobileKey
+
+	// ExpiringAdditionalMobileKeys is the subset of concurrent mobile keys that carry a per-key expiry.
+	ExpiringAdditionalMobileKeys map[config.MobileKey]time.Time
 
 	// TTL is the cache TTL for PHP clients.
 	TTL time.Duration
@@ -43,6 +59,15 @@ type ExpiringSDKKey struct {
 }
 
 func (e ExpiringSDKKey) Defined() bool {
+	return e.Key.Defined()
+}
+
+type ExpiringMobileKey struct {
+	Key        config.MobileKey
+	Expiration time.Time
+}
+
+func (e ExpiringMobileKey) Defined() bool {
 	return e.Key.Defined()
 }
 

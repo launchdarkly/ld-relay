@@ -73,6 +73,113 @@ func TestEnvironmentRepToParams(t *testing.T) {
 	}, params2)
 }
 
+func TestEnvironmentRepToParamsAdditionalSDKKeys(t *testing.T) {
+	expiresAt := ldtime.UnixMillisecondTime(20000)
+	env := EnvironmentRep{
+		EnvID:   config.EnvironmentID("envid"),
+		MobKey:  config.MobileKey("mob"),
+		SDKKey: SDKKeyRep{
+			Value: config.SDKKey("primary"),
+			Additional: []AdditionalSDKKeyRep{
+				{Value: config.SDKKey("active1")},
+				{Value: config.SDKKey("active2")},
+				{Value: config.SDKKey("expiring1"), ExpiresAt: &expiresAt},
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, []config.SDKKey{"active1", "active2"}, params.AdditionalSDKKeys)
+	assert.Equal(t, map[config.SDKKey]time.Time{
+		"expiring1": time.UnixMilli(int64(expiresAt)),
+	}, params.ExpiringAdditionalSDKKeys)
+}
+
+func TestEnvironmentRepToParamsAdditionalSDKKeysSkipsUndefinedEntries(t *testing.T) {
+	env := EnvironmentRep{
+		SDKKey: SDKKeyRep{
+			Value: config.SDKKey("primary"),
+			Additional: []AdditionalSDKKeyRep{
+				{Value: config.SDKKey("")},
+				{Value: config.SDKKey("active")},
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, []config.SDKKey{"active"}, params.AdditionalSDKKeys)
+	assert.Nil(t, params.ExpiringAdditionalSDKKeys)
+}
+
+func TestEnvironmentRepToParamsMobileKeyPrefersNewField(t *testing.T) {
+	env := EnvironmentRep{
+		EnvID:  config.EnvironmentID("envid"),
+		MobKey: config.MobileKey("legacy"),
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey("primary"),
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, config.MobileKey("primary"), params.MobileKey)
+}
+
+func TestEnvironmentRepToParamsMobileKeyFallsBackToLegacyField(t *testing.T) {
+	env := EnvironmentRep{
+		EnvID:  config.EnvironmentID("envid"),
+		MobKey: config.MobileKey("legacy"),
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, config.MobileKey("legacy"), params.MobileKey)
+	assert.False(t, params.ExpiringMobileKey.Defined())
+	assert.Nil(t, params.AdditionalMobileKeys)
+	assert.Nil(t, params.ExpiringAdditionalMobileKeys)
+}
+
+func TestEnvironmentRepToParamsExpiringMobileKey(t *testing.T) {
+	env := EnvironmentRep{
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey("primary"),
+			Expiring: ExpiringMobileKeyRep{
+				Value:     config.MobileKey("oldprimary"),
+				Timestamp: ldtime.UnixMillisecondTime(30000),
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, ExpiringMobileKey{
+		Key:        config.MobileKey("oldprimary"),
+		Expiration: time.UnixMilli(30000),
+	}, params.ExpiringMobileKey)
+}
+
+func TestEnvironmentRepToParamsAdditionalMobileKeys(t *testing.T) {
+	expiresAt := ldtime.UnixMillisecondTime(40000)
+	env := EnvironmentRep{
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey("primary"),
+			Additional: []AdditionalMobileKeyRep{
+				{Value: config.MobileKey("active1")},
+				{Value: config.MobileKey("expiring1"), ExpiresAt: &expiresAt},
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, []config.MobileKey{"active1"}, params.AdditionalMobileKeys)
+	assert.Equal(t, map[config.MobileKey]time.Time{
+		"expiring1": time.UnixMilli(int64(expiresAt)),
+	}, params.ExpiringAdditionalMobileKeys)
+}
+
 func TestEnvironmentRepJSONFormat(t *testing.T) {
 	jsonStr := `{
 		"envID": "envid1",
@@ -103,5 +210,67 @@ func TestEnvironmentRepJSONFormat(t *testing.T) {
 		},
 		DefaultTTL: 2,
 		SecureMode: true,
+	}, rep)
+}
+
+func TestEnvironmentRepJSONFormatWithAdditionalKeys(t *testing.T) {
+	jsonStr := `{
+		"envID": "envid",
+		"envKey": "envkey",
+		"envName": "envname",
+		"mobKey": "mob-legacy",
+		"mobileKey": {
+			"value": "mob-primary",
+			"expiring": { "value": "mob-old", "timestamp": 5000 },
+			"additional": [
+				{ "value": "mob-extra-1" },
+				{ "value": "mob-extra-2", "expiresAt": 9000 }
+			]
+		},
+		"projKey": "projkey",
+		"projName": "projname",
+		"sdkKey": {
+			"value": "sdk-primary",
+			"expiring": { "value": "sdk-old", "timestamp": 6000 },
+			"additional": [
+				{ "value": "sdk-extra-1" },
+				{ "value": "sdk-extra-2", "expiresAt": 8000 }
+			]
+		}
+	  }`
+	var rep EnvironmentRep
+	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
+
+	expiresMob := ldtime.UnixMillisecondTime(9000)
+	expiresSDK := ldtime.UnixMillisecondTime(8000)
+	assert.Equal(t, EnvironmentRep{
+		EnvID:    config.EnvironmentID("envid"),
+		EnvKey:   "envkey",
+		EnvName:  "envname",
+		MobKey:   config.MobileKey("mob-legacy"),
+		ProjKey:  "projkey",
+		ProjName: "projname",
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey("mob-primary"),
+			Expiring: ExpiringMobileKeyRep{
+				Value:     config.MobileKey("mob-old"),
+				Timestamp: ldtime.UnixMillisecondTime(5000),
+			},
+			Additional: []AdditionalMobileKeyRep{
+				{Value: config.MobileKey("mob-extra-1")},
+				{Value: config.MobileKey("mob-extra-2"), ExpiresAt: &expiresMob},
+			},
+		},
+		SDKKey: SDKKeyRep{
+			Value: config.SDKKey("sdk-primary"),
+			Expiring: ExpiringKeyRep{
+				Value:     config.SDKKey("sdk-old"),
+				Timestamp: ldtime.UnixMillisecondTime(6000),
+			},
+			Additional: []AdditionalSDKKeyRep{
+				{Value: config.SDKKey("sdk-extra-1")},
+				{Value: config.SDKKey("sdk-extra-2"), ExpiresAt: &expiresSDK},
+			},
+		},
 	}, rep)
 }
