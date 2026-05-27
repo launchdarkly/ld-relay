@@ -34,6 +34,18 @@ func errEnvironmentWithNoSDKKey(envName string) error {
 	return fmt.Errorf("SDK key is required for environment %q", envName)
 }
 
+func errAdditionalKeyEmpty(envName, fieldName string) error {
+	return fmt.Errorf("%s for environment %q contains an empty entry", fieldName, envName)
+}
+
+func errAdditionalKeyDuplicatesPrimary(envName, fieldName string) error {
+	return fmt.Errorf("%s for environment %q must not duplicate the primary key", fieldName, envName)
+}
+
+func errAdditionalKeyDuplicate(envName, fieldName string) error {
+	return fmt.Errorf("%s for environment %q contains duplicate entries", fieldName, envName)
+}
+
 func errMultipleDatabases(databases []string) error {
 	return fmt.Errorf("multiple databases are enabled (%s); only one is allowed", strings.Join(databases, ", "))
 }
@@ -147,6 +159,29 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 		if envConfig.SDKKey == "" {
 			result.AddError(nil, errEnvironmentWithNoSDKKey(envName))
 		}
+		validateAdditionalKeyList(result, envName, "additionalSdkKeys",
+			envConfig.AdditionalSDKKeys.Values(), string(envConfig.SDKKey))
+		validateAdditionalKeyList(result, envName, "additionalMobileKeys",
+			envConfig.AdditionalMobileKeys.Values(), string(envConfig.MobileKey))
+	}
+}
+
+func validateAdditionalKeyList(result *ct.ValidationResult, envName, fieldName string, keys []string, primary string) {
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if k == "" {
+			result.AddError(nil, errAdditionalKeyEmpty(envName, fieldName))
+			continue
+		}
+		if primary != "" && k == primary {
+			result.AddError(nil, errAdditionalKeyDuplicatesPrimary(envName, fieldName))
+			continue
+		}
+		if _, dup := seen[k]; dup {
+			result.AddError(nil, errAdditionalKeyDuplicate(envName, fieldName))
+			continue
+		}
+		seen[k] = struct{}{}
 	}
 }
 

@@ -43,7 +43,82 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBNoPrefixOrTableName(),
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
+		makeInvalidConfigAdditionalSDKKeyDuplicatesPrimary(),
+		makeInvalidConfigAdditionalMobileKeyDuplicatesPrimary(),
+		makeInvalidConfigAdditionalSDKKeyDuplicates(),
+		makeInvalidConfigAdditionalMobileKeyDuplicates(),
 	}
+}
+
+func makeInvalidConfigAdditionalSDKKeyDuplicatesPrimary() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "additional SDK key duplicates primary"}
+	c.envVarsError = errAdditionalKeyDuplicatesPrimary("envname", "additionalSdkKeys").Error()
+	c.envVars = map[string]string{
+		"LD_ENV_envname":                 "sdk-key",
+		"LD_ADDITIONAL_SDK_KEYS_envname": "sdk-key,other-key",
+	}
+	c.fileContent = `
+[Environment "envname"]
+SdkKey = sdk-key
+AdditionalSdkKeys = sdk-key
+AdditionalSdkKeys = other-key
+`
+	c.fileError = c.envVarsError
+	return c
+}
+
+func makeInvalidConfigAdditionalMobileKeyDuplicatesPrimary() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "additional mobile key duplicates primary"}
+	c.envVarsError = errAdditionalKeyDuplicatesPrimary("envname", "additionalMobileKeys").Error()
+	c.envVars = map[string]string{
+		"LD_ENV_envname":                    "sdk-key",
+		"LD_MOBILE_KEY_envname":             "mob-key",
+		"LD_ADDITIONAL_MOBILE_KEYS_envname": "mob-key",
+	}
+	c.fileContent = `
+[Environment "envname"]
+SdkKey = sdk-key
+MobileKey = mob-key
+AdditionalMobileKeys = mob-key
+`
+	c.fileError = c.envVarsError
+	return c
+}
+
+func makeInvalidConfigAdditionalSDKKeyDuplicates() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "additional SDK keys contain duplicate"}
+	c.envVarsError = errAdditionalKeyDuplicate("envname", "additionalSdkKeys").Error()
+	c.envVars = map[string]string{
+		"LD_ENV_envname":                 "sdk-primary",
+		"LD_ADDITIONAL_SDK_KEYS_envname": "sdk-extra,sdk-extra",
+	}
+	c.fileContent = `
+[Environment "envname"]
+SdkKey = sdk-primary
+AdditionalSdkKeys = sdk-extra
+AdditionalSdkKeys = sdk-extra
+`
+	c.fileError = c.envVarsError
+	return c
+}
+
+func makeInvalidConfigAdditionalMobileKeyDuplicates() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "additional mobile keys contain duplicate"}
+	c.envVarsError = errAdditionalKeyDuplicate("envname", "additionalMobileKeys").Error()
+	c.envVars = map[string]string{
+		"LD_ENV_envname":                    "sdk-primary",
+		"LD_MOBILE_KEY_envname":             "mob-primary",
+		"LD_ADDITIONAL_MOBILE_KEYS_envname": "mob-extra,mob-extra",
+	}
+	c.fileContent = `
+[Environment "envname"]
+SdkKey = sdk-primary
+MobileKey = mob-primary
+AdditionalMobileKeys = mob-extra
+AdditionalMobileKeys = mob-extra
+`
+	c.fileError = c.envVarsError
+	return c
 }
 
 func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {

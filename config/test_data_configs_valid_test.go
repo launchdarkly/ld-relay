@@ -94,7 +94,37 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigPrometheusMinimal(),
 		makeValidConfigPrometheusAll(),
 		makeValidConfigProxy(),
+		makeValidConfigAdditionalKeys(),
 	}
+}
+
+func makeValidConfigAdditionalKeys() testDataValidConfig {
+	c := testDataValidConfig{name: "environment with additional SDK and mobile keys"}
+	c.makeConfig = func(c *Config) {
+		c.Environment = map[string]*EnvConfig{
+			"earth": {
+				SDKKey:               "earth-sdk",
+				MobileKey:            "earth-mob",
+				AdditionalSDKKeys:    ct.NewOptStringList([]string{"earth-sdk-2", "earth-sdk-3"}),
+				AdditionalMobileKeys: ct.NewOptStringList([]string{"earth-mob-2"}),
+			},
+		}
+	}
+	c.envVars = map[string]string{
+		"LD_ENV_earth":                    "earth-sdk",
+		"LD_MOBILE_KEY_earth":             "earth-mob",
+		"LD_ADDITIONAL_SDK_KEYS_earth":    "earth-sdk-2,earth-sdk-3",
+		"LD_ADDITIONAL_MOBILE_KEYS_earth": "earth-mob-2",
+	}
+	c.fileContent = `
+[Environment "earth"]
+SdkKey = "earth-sdk"
+MobileKey = "earth-mob"
+AdditionalSdkKeys = earth-sdk-2
+AdditionalSdkKeys = earth-sdk-3
+AdditionalMobileKeys = earth-mob-2
+`
+	return c
 }
 
 func makeValidConfigAllBaseProperties() testDataValidConfig {

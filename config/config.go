@@ -260,19 +260,21 @@ type DynamoDBConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type EnvConfig struct {
-	SDKKey        SDKKey           // set from env var LD_ENV_envname
-	MobileKey     MobileKey        `conf:"LD_MOBILE_KEY_"`
-	EnvID         EnvironmentID    `conf:"LD_CLIENT_SIDE_ID_"`
-	Prefix        string           `conf:"LD_PREFIX_"`     // used only if Redis, Consul, or DynamoDB is enabled
-	TableName     string           `conf:"LD_TABLE_NAME_"` // used only if DynamoDB is enabled
-	AllowedOrigin ct.OptStringList `conf:"LD_ALLOWED_ORIGIN_"`
-	AllowedHeader ct.OptStringList `conf:"LD_ALLOWED_HEADER_"`
-	SecureMode    bool             `conf:"LD_SECURE_MODE_"`
-	LogLevel      OptLogLevel      `conf:"LD_LOG_LEVEL_"`
-	TTL           ct.OptDuration   `conf:"LD_TTL_"`
-	ProjKey       string           `conf:"LD_PROJ_KEY_"`
-	FilterKey     FilterKey        // injected based on [filters] section
-	Offline       bool             // set to true if this environment was created in offline mode
+	SDKKey               SDKKey           // set from env var LD_ENV_envname
+	MobileKey            MobileKey        `conf:"LD_MOBILE_KEY_"`
+	EnvID                EnvironmentID    `conf:"LD_CLIENT_SIDE_ID_"`
+	Prefix               string           `conf:"LD_PREFIX_"`     // used only if Redis, Consul, or DynamoDB is enabled
+	TableName            string           `conf:"LD_TABLE_NAME_"` // used only if DynamoDB is enabled
+	AllowedOrigin        ct.OptStringList `conf:"LD_ALLOWED_ORIGIN_"`
+	AllowedHeader        ct.OptStringList `conf:"LD_ALLOWED_HEADER_"`
+	AdditionalSDKKeys    ct.OptStringList `conf:"LD_ADDITIONAL_SDK_KEYS_"`
+	AdditionalMobileKeys ct.OptStringList `conf:"LD_ADDITIONAL_MOBILE_KEYS_"`
+	SecureMode           bool             `conf:"LD_SECURE_MODE_"`
+	LogLevel             OptLogLevel      `conf:"LD_LOG_LEVEL_"`
+	TTL                  ct.OptDuration   `conf:"LD_TTL_"`
+	ProjKey              string           `conf:"LD_PROJ_KEY_"`
+	FilterKey            FilterKey        // injected based on [filters] section
+	Offline              bool             // set to true if this environment was created in offline mode
 }
 
 type FiltersConfig struct {

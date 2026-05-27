@@ -46,24 +46,51 @@ func NewEnvConfigFactoryForOfflineMode(c config.OfflineModeConfig) EnvConfigFact
 
 // MakeEnvironmentConfig creates an EnvConfig based on both the individual EnvironmentParams and the
 // properties of the EnvConfigFactory.
+//
+// EnvConfig only carries the active (non-expiring) additional keys. Expiring additional keys flow
+// directly from EnvironmentParams to the rotator, the same way ExpiringSDKKey does today.
 func (f EnvConfigFactory) MakeEnvironmentConfig(params EnvironmentParams) config.EnvConfig {
 	ret := config.EnvConfig{
-		SDKKey:        params.SDKKey,
-		MobileKey:     params.MobileKey,
-		EnvID:         params.EnvID,
-		Prefix:        maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID, params.Identifiers.FilterKey),
-		TableName:     maybeSubstituteEnvironmentID(f.TableName, params.EnvID, params.Identifiers.FilterKey),
-		AllowedOrigin: f.AllowedOrigin,
-		AllowedHeader: f.AllowedHeader,
-		SecureMode:    params.SecureMode,
-		FilterKey:     params.Identifiers.FilterKey,
-		Offline:       f.Offline,
+		SDKKey:               params.SDKKey,
+		MobileKey:            params.MobileKey,
+		EnvID:                params.EnvID,
+		Prefix:               maybeSubstituteEnvironmentID(f.DataStorePrefix, params.EnvID, params.Identifiers.FilterKey),
+		TableName:            maybeSubstituteEnvironmentID(f.TableName, params.EnvID, params.Identifiers.FilterKey),
+		AllowedOrigin:        f.AllowedOrigin,
+		AllowedHeader:        f.AllowedHeader,
+		AdditionalSDKKeys:    sdkKeysToOptStringList(params.AdditionalSDKKeys),
+		AdditionalMobileKeys: mobileKeysToOptStringList(params.AdditionalMobileKeys),
+		SecureMode:           params.SecureMode,
+		FilterKey:            params.Identifiers.FilterKey,
+		Offline:              f.Offline,
 	}
 	if params.TTL != 0 {
 		ret.TTL = ct.NewOptDuration(params.TTL)
 	}
 
 	return ret
+}
+
+func sdkKeysToOptStringList(keys []config.SDKKey) ct.OptStringList {
+	if len(keys) == 0 {
+		return ct.OptStringList{}
+	}
+	vals := make([]string, len(keys))
+	for i, k := range keys {
+		vals[i] = string(k)
+	}
+	return ct.NewOptStringList(vals)
+}
+
+func mobileKeysToOptStringList(keys []config.MobileKey) ct.OptStringList {
+	if len(keys) == 0 {
+		return ct.OptStringList{}
+	}
+	vals := make([]string, len(keys))
+	for i, k := range keys {
+		vals[i] = string(k)
+	}
+	return ct.NewOptStringList(vals)
 }
 
 func maybeSubstituteEnvironmentID(s string, envID config.EnvironmentID, filterKey config.FilterKey) string {
