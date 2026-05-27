@@ -31,12 +31,12 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+		return
 	}
 
-	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
-	}
+	applyExpiringPrimaries(env, params)
+	env.SetAdditionalSDKKeys(params.AdditionalSDKKeys, params.ExpiringAdditionalSDKKeys)
+	env.SetAdditionalMobileKeys(params.AdditionalMobileKeys, params.ExpiringAdditionalMobileKeys)
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
@@ -50,15 +50,35 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
-	}
 	if params.SDKKey.Defined() {
 		update := relayenv.NewCredentialUpdate(params.SDKKey)
 		if params.ExpiringSDKKey.Defined() {
 			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
 		}
 		env.UpdateCredential(update)
+	}
+	if params.MobileKey.Defined() {
+		update := relayenv.NewCredentialUpdate(params.MobileKey)
+		if params.ExpiringMobileKey.Defined() {
+			update = update.WithGracePeriod(params.ExpiringMobileKey.Key, params.ExpiringMobileKey.Expiration)
+		}
+		env.UpdateCredential(update)
+	}
+	env.SetAdditionalSDKKeys(params.AdditionalSDKKeys, params.ExpiringAdditionalSDKKeys)
+	env.SetAdditionalMobileKeys(params.AdditionalMobileKeys, params.ExpiringAdditionalMobileKeys)
+}
+
+// applyExpiringPrimaries handles the optional grace periods on the primary SDK and mobile keys when
+// a freshly-added environment already arrives mid-rotation. The primary keys themselves are set via
+// the EnvConfig during construction; this function only applies the deprecated predecessors.
+func applyExpiringPrimaries(env relayenv.EnvContext, params envfactory.EnvironmentParams) {
+	if params.ExpiringSDKKey.Defined() {
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+	}
+	if params.ExpiringMobileKey.Defined() {
+		update := relayenv.NewCredentialUpdate(params.MobileKey)
+		env.UpdateCredential(update.WithGracePeriod(params.ExpiringMobileKey.Key, params.ExpiringMobileKey.Expiration))
 	}
 }
 

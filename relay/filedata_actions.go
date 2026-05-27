@@ -56,10 +56,9 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
 	}
-	if ae.Params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
-	}
+	applyExpiringPrimaries(env, ae.Params)
+	env.SetAdditionalSDKKeys(ae.Params.AdditionalSDKKeys, ae.Params.ExpiringAdditionalSDKKeys)
+	env.SetAdditionalMobileKeys(ae.Params.AdditionalMobileKeys, ae.Params.ExpiringAdditionalMobileKeys)
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
@@ -89,9 +88,6 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	if ae.Params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(ae.Params.MobileKey))
-	}
 	if ae.Params.SDKKey.Defined() {
 		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
 		if ae.Params.ExpiringSDKKey.Defined() {
@@ -99,6 +95,15 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 		}
 		env.UpdateCredential(update)
 	}
+	if ae.Params.MobileKey.Defined() {
+		update := relayenv.NewCredentialUpdate(ae.Params.MobileKey)
+		if ae.Params.ExpiringMobileKey.Defined() {
+			update = update.WithGracePeriod(ae.Params.ExpiringMobileKey.Key, ae.Params.ExpiringMobileKey.Expiration)
+		}
+		env.UpdateCredential(update)
+	}
+	env.SetAdditionalSDKKeys(ae.Params.AdditionalSDKKeys, ae.Params.ExpiringAdditionalSDKKeys)
+	env.SetAdditionalMobileKeys(ae.Params.AdditionalMobileKeys, ae.Params.ExpiringAdditionalMobileKeys)
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.
 	if ae.SDKData != nil {

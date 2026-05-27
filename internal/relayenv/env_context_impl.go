@@ -560,10 +560,26 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 }
 
 func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
-	if !update.deprecated.Defined() {
-		c.keyRotator.Rotate(update.primary)
-	} else {
-		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
+	hasGrace := update.deprecated != nil && update.deprecated.Defined()
+	switch primary := update.primary.(type) {
+	case config.SDKKey:
+		if hasGrace {
+			if deprecated, ok := update.deprecated.(config.SDKKey); ok {
+				c.keyRotator.RotateWithGrace(primary, credential.NewGracePeriod(deprecated, update.expiry, update.now))
+				break
+			}
+		}
+		c.keyRotator.Rotate(primary)
+	case config.MobileKey:
+		if hasGrace {
+			if deprecated, ok := update.deprecated.(config.MobileKey); ok {
+				c.keyRotator.RotateMobileKeyWithGrace(primary, credential.NewMobileGracePeriod(deprecated, update.expiry, update.now))
+				break
+			}
+		}
+		c.keyRotator.Rotate(primary)
+	default:
+		c.keyRotator.Rotate(primary)
 	}
 	c.triggerCredentialChanges(update.now)
 }
