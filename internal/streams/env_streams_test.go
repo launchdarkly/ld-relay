@@ -95,9 +95,11 @@ func TestAddCredential(t *testing.T) {
 	es := NewEnvStreams([]StreamProvider{sp1, sp2}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
 	defer es.Close()
 
-	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key1")
+	sdkKey1, sdkKey2 := config.SDKKey("sdk-key1"), config.SDKKey("sdk-key2")
 	es.AddCredential(sdkKey1)
 	es.AddCredential(sdkKey2)
+	// Re-adding sdkKey1 should be a no-op; AddCredential is idempotent.
+	es.AddCredential(sdkKey1)
 
 	mobileKey := config.MobileKey("mobile-key")
 	es.AddCredential(mobileKey)

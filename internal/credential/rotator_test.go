@@ -432,6 +432,69 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.Empty(t, expirations)
 }
 
+func TestPromotingAdditionalSDKKeyToPrimaryRemovesFromAdditionalSet(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra1", "extra2"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	// Promote "extra1" to primary. The old primary deprecates with a grace period.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("extra1"),
+		NewGracePeriod(config.SDKKey("primary"), start.Add(1*time.Hour), start),
+	)
+
+	// The new primary must report as the primary.
+	assert.Equal(t, config.SDKKey("extra1"), rotator.SDKKey())
+
+	// The promoted key is no longer in the additional set; extra2 still is.
+	active := rotator.ActiveSDKKeys()
+	assert.Contains(t, active, config.SDKKey("extra1"))
+	assert.Contains(t, active, config.SDKKey("extra2"))
+	assert.NotContains(t, active, config.SDKKey("primary"))
+
+	// The old primary is in the deprecation map.
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.SDKKey("primary"))
+
+	// Drain the additions queued by the rotation. The new primary (extra1) is queued so the env
+	// context can start its upstream SDK client; downstream operations on it are idempotent.
+	additions, _ := rotator.StepTime(start)
+	assert.Contains(t, additions, config.SDKKey("extra1"))
+
+	// After the grace expiry, the old primary should be revoked.
+	additions, expirations := rotator.StepTime(start.Add(1*time.Hour + time.Millisecond))
+	assert.Empty(t, additions)
+	assert.Contains(t, expirations, config.SDKKey("primary"))
+}
+
+func TestPromotingExpiringAdditionalSDKKeyToPrimaryRemovesFromExpiringSet(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	expiry := time.Unix(100000, 0)
+	rotator.SetAdditionalSDKKeys(nil, map[config.SDKKey]time.Time{"expiring1": expiry})
+	_, _ = rotator.StepTime(time.Unix(1000, 0))
+
+	// Now the platform decides to promote the expiring additional key to primary -- it stops
+	// being deprecated and becomes the new primary.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("expiring1"),
+		NewGracePeriod(config.SDKKey("primary"), start.Add(1*time.Hour), start),
+	)
+
+	assert.Equal(t, config.SDKKey("expiring1"), rotator.SDKKey())
+	// The previously-expiring entry should no longer appear in the deprecated list as an additional;
+	// only the old primary should be there now.
+	deprecated := rotator.DeprecatedCredentials()
+	assert.Contains(t, deprecated, config.SDKKey("primary"))
+	assert.NotContains(t, deprecated, config.SDKKey("expiring1"))
+}
+
 // --- Mobile-key additional-set tests (parallel to the SDK suite above) ---
 
 func TestSetAdditionalMobileKeysAddsActiveKeys(t *testing.T) {

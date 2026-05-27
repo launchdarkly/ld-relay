@@ -463,6 +463,9 @@ func (r *Rotator) swapPrimaryMobileKey(newKey config.MobileKey) config.MobileKey
 	}
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = newKey
+	// Mirror the SDK-key logic: a promoted additional mobile key drops out of the additional sets.
+	delete(r.additionalMobileKeys, newKey)
+	delete(r.expiringAdditionalMobileKeys, newKey)
 	r.additions = append(r.additions, newKey)
 	if previous.Defined() {
 		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), newKey.Masked())
@@ -573,6 +576,13 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	}
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
+	// If the new primary was previously tracked as an additional key (active or expiring), drop
+	// those entries -- it is the primary now. The additions-queue path below still re-fires
+	// addCredential for newKey so the env context can start its upstream SDK client; downstream
+	// operations (envStreams, lookup mapping, handlers) are idempotent for an already-registered
+	// credential.
+	delete(r.additionalSdkKeys, newKey)
+	delete(r.expiringAdditionalSdkKeys, newKey)
 	r.additions = append(r.additions, newKey)
 	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
 

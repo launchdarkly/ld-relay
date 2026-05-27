@@ -106,12 +106,21 @@ func NewEnvStreams(
 }
 
 // AddCredential adds an environment keyed off the combination of credential and payload filter,
-// and creates a corresponding EnvStreamProvider.
+// and creates a corresponding EnvStreamProvider. Calling AddCredential a second time with the same
+// credential is a no-op -- the registration is already in place.
 func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
 		return
 	}
 	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
+	es.lock.Lock()
+	for _, s := range es.activeStreams {
+		if s.credential == scopedCred {
+			es.lock.Unlock()
+			return
+		}
+	}
+	es.lock.Unlock()
 	for _, sp := range es.streamProviders {
 		if esp := sp.Register(scopedCred, es.storeQueries, es.loggers); esp != nil {
 			es.lock.Lock()
