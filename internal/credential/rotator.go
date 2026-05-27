@@ -112,6 +112,26 @@ func (r *Rotator) SeedAdditionalMobileKeys(keys []config.MobileKey) {
 	}
 }
 
+// IsSDKKeyRotationPredecessor reports whether the given SDK key is the previous primary that is
+// currently in its rotation grace period. Used by callers (e.g. envContextImpl) that need to give
+// rotation-predecessor keys the same treatment as the primary -- specifically, keeping their
+// upstream SDK client alive during the grace window. Returns false for additional SDK keys (which
+// are auth-only and never had an upstream client).
+func (r *Rotator) IsSDKKeyRotationPredecessor(key config.SDKKey) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.deprecatedSdkKeys[key]
+	return ok
+}
+
+// IsMobileKeyRotationPredecessor is the mobile-key analog of IsSDKKeyRotationPredecessor.
+func (r *Rotator) IsMobileKeyRotationPredecessor(key config.MobileKey) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.deprecatedMobileKeys[key]
+	return ok
+}
+
 // MobileKey returns the primary mobile key.
 func (r *Rotator) MobileKey() config.MobileKey {
 	r.mu.RLock()

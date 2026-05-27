@@ -449,13 +449,16 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		// Only the primary/upstream SDK key drives the SDK client and event-forwarder lifecycle.
-		// Additional SDK keys are auth-only -- they get mapped in for incoming requests but never
-		// open an upstream stream to LaunchDarkly.
-		if key == c.keyRotator.SDKKey() {
-			if !c.offline {
-				go c.startSDKClient(key, nil, false)
-			}
+		// The primary SDK key and the predecessor primary during a rotation grace both need a
+		// running upstream SDK client (the predecessor stays connected until its expiry to bridge
+		// the rotation cleanly). Additional SDK keys are auth-only -- they get mapped in for
+		// incoming requests but never open an upstream stream.
+		isPrimary := key == c.keyRotator.SDKKey()
+		needsUpstreamClient := isPrimary || c.keyRotator.IsSDKKeyRotationPredecessor(key)
+		if needsUpstreamClient && !c.offline {
+			go c.startSDKClient(key, nil, false)
+		}
+		if isPrimary {
 			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
 				c.metricsEventPub.ReplaceCredential(key)
 			}
@@ -464,9 +467,11 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 			}
 		}
 	case config.MobileKey:
-		// Only the primary mobile key drives the event-forwarder lifecycle. Additional mobile keys
-		// are auth-only.
-		if key == c.keyRotator.MobileKey() && c.eventDispatcher != nil {
+		// Only the primary mobile key (and its rotation predecessor) drive the event-forwarder
+		// lifecycle. Additional mobile keys are auth-only.
+		isPrimary := key == c.keyRotator.MobileKey()
+		needsDispatcher := isPrimary || c.keyRotator.IsMobileKeyRotationPredecessor(key)
+		if needsDispatcher && c.eventDispatcher != nil {
 			c.eventDispatcher.ReplaceCredential(key)
 		}
 	}
