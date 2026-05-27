@@ -431,3 +431,179 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
 	assert.Empty(t, expirations)
 }
+
+// --- Mobile-key additional-set tests (parallel to the SDK suite above) ---
+
+func TestSetAdditionalMobileKeysAddsActiveKeys(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"extra1", "extra2"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("extra1"), config.MobileKey("extra2")}, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.MobileKey{"primary", "extra1", "extra2"}, rotator.ActiveMobileKeys())
+}
+
+func TestSetAdditionalMobileKeysAddsExpiringKeys(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	expiry := time.Unix(2000, 0)
+	rotator.SetAdditionalMobileKeys(nil, map[config.MobileKey]time.Time{"expiring1": expiry})
+	additions, expirations := rotator.StepTime(time.Unix(1000, 0))
+
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("expiring1")}, additions)
+	assert.Empty(t, expirations)
+	assert.ElementsMatch(t, []config.MobileKey{"primary"}, rotator.ActiveMobileKeys())
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("expiring1")}, rotator.DeprecatedCredentials())
+}
+
+func TestSetAdditionalMobileKeysOmissionRevokesImmediately(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"extra1", "extra2"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"extra1"}, nil)
+	additions, expirations := rotator.StepTime(time.Now())
+
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("extra2")}, expirations)
+}
+
+func TestSetAdditionalMobileKeysActiveToExpiringStaysMapped(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"k"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	expiry := time.Unix(5000, 0)
+	rotator.SetAdditionalMobileKeys(nil, map[config.MobileKey]time.Time{"k": expiry})
+	additions, expirations := rotator.StepTime(time.Unix(1000, 0))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+}
+
+func TestSetAdditionalMobileKeysAcceptsUpdatedExpiry(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+
+	earlyExpiry := time.Unix(2000, 0)
+	rotator.SetAdditionalMobileKeys(nil, map[config.MobileKey]time.Time{"k": earlyExpiry})
+	_, _ = rotator.StepTime(time.Unix(1000, 0))
+
+	lateExpiry := time.Unix(10000, 0)
+	rotator.SetAdditionalMobileKeys(nil, map[config.MobileKey]time.Time{"k": lateExpiry})
+
+	additions, expirations := rotator.StepTime(time.Unix(5000, 0))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+
+	additions, expirations = rotator.StepTime(time.Unix(11000, 0))
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("k")}, expirations)
+}
+
+func TestSetAdditionalMobileKeysFiltersPrimary(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"primary", "extra"}, nil)
+	additions, _ := rotator.StepTime(time.Now())
+
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("extra")}, additions)
+	assert.ElementsMatch(t, []config.MobileKey{"primary", "extra"}, rotator.ActiveMobileKeys())
+}
+
+// --- RotateMobileKeyWithGrace tests ---
+
+func TestRotateMobileKeyWithGraceDeprecatesPrevious(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	key1 := config.MobileKey("mob-v1")
+	key2 := config.MobileKey("mob-v2")
+
+	start := time.Unix(10000, 0)
+	halftime := start.Add(30 * time.Minute)
+	deprecationTime := start.Add(1 * time.Hour)
+
+	rotator.Initialize([]SDKCredential{key1})
+	rotator.RotateMobileKeyWithGrace(key2, NewMobileGracePeriod(key1, deprecationTime, start))
+
+	additions, expirations := rotator.StepTime(halftime)
+	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
+	assert.Empty(t, expirations)
+
+	// Before expiry: still valid.
+	additions, expirations = rotator.StepTime(deprecationTime)
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+
+	// After expiry: predecessor gets revoked.
+	additions, expirations = rotator.StepTime(deprecationTime.Add(1 * time.Millisecond))
+	assert.Empty(t, additions)
+	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
+}
+
+func TestRotateMobileKeyWithGraceNilImmediatelyRevokes(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	key1 := config.MobileKey("mob-v1")
+	key2 := config.MobileKey("mob-v2")
+
+	rotator.Initialize([]SDKCredential{key1})
+	rotator.RotateMobileKeyWithGrace(key2, nil)
+
+	additions, expirations := rotator.StepTime(time.Now())
+	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
+	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
+}
+
+func TestRotateMobileKeyWithGraceExpiredInThePastIsNotAdded(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	primary := config.MobileKey("primary")
+	obsolete := config.MobileKey("obsolete")
+	obsoleteExpiry := time.Unix(1000000, 0)
+	now := obsoleteExpiry.Add(1 * time.Hour)
+
+	rotator.RotateMobileKeyWithGrace(primary, NewMobileGracePeriod(obsolete, obsoleteExpiry, now))
+
+	additions, expirations := rotator.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{primary}, additions)
+	assert.Empty(t, expirations)
+}
+
+func TestSetAdditionalMobileKeysDoesNotDisturbRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary-v1")})
+
+	start := time.Unix(10000, 0)
+	rotator.RotateMobileKeyWithGrace(
+		config.MobileKey("primary-v2"),
+		NewMobileGracePeriod(config.MobileKey("primary-v1"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"extra"}, nil)
+	additions, expirations := rotator.StepTime(start.Add(1 * time.Minute))
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("extra")}, additions)
+	assert.Empty(t, expirations)
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.MobileKey("primary-v1"))
+}

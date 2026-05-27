@@ -12,9 +12,6 @@ import (
 type Rotator struct {
 	loggers ldlog.Loggers
 
-	// There is only one mobile key active at a given time; it does not support a deprecation period.
-	primaryMobileKey config.MobileKey
-
 	// There is only one environment ID active at a given time, and it won't actually be rotated. The mechanism is
 	// here to allow setting it in a deferred manner.
 	primaryEnvironmentID config.EnvironmentID
@@ -36,6 +33,12 @@ type Rotator struct {
 	// expiration, entries are removed. This map is owned by the RotateWithGrace path.
 	deprecatedSdkKeys map[config.SDKKey]time.Time
 
+	// Mobile key state mirrors the SDK key state above.
+	primaryMobileKey             config.MobileKey
+	additionalMobileKeys         map[config.MobileKey]struct{}
+	expiringAdditionalMobileKeys map[config.MobileKey]time.Time
+	deprecatedMobileKeys         map[config.MobileKey]time.Time
+
 	expirations []SDKCredential
 	additions   []SDKCredential
 
@@ -52,10 +55,13 @@ type InitialCredentials struct {
 // contains no credentials and can optionally be initialized via Initialize.
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
-		loggers:                   loggers,
-		additionalSdkKeys:         make(map[config.SDKKey]struct{}),
-		expiringAdditionalSdkKeys: make(map[config.SDKKey]time.Time),
-		deprecatedSdkKeys:         make(map[config.SDKKey]time.Time),
+		loggers:                      loggers,
+		additionalSdkKeys:            make(map[config.SDKKey]struct{}),
+		expiringAdditionalSdkKeys:    make(map[config.SDKKey]time.Time),
+		deprecatedSdkKeys:            make(map[config.SDKKey]time.Time),
+		additionalMobileKeys:         make(map[config.MobileKey]struct{}),
+		expiringAdditionalMobileKeys: make(map[config.MobileKey]time.Time),
+		deprecatedMobileKeys:         make(map[config.MobileKey]time.Time),
 	}
 	return r
 }
@@ -118,6 +124,9 @@ func (r *Rotator) primaryCredentials() []SDKCredential {
 		return !cred.Defined()
 	})
 	for key := range r.additionalSdkKeys {
+		creds = append(creds, key)
+	}
+	for key := range r.additionalMobileKeys {
 		creds = append(creds, key)
 	}
 	return creds
@@ -233,11 +242,19 @@ func (r *Rotator) SetAdditionalSDKKeys(active []config.SDKKey, expiring map[conf
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
-	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys)+len(r.expiringAdditionalSdkKeys))
+	total := len(r.deprecatedSdkKeys) + len(r.expiringAdditionalSdkKeys) +
+		len(r.deprecatedMobileKeys) + len(r.expiringAdditionalMobileKeys)
+	deprecated := make([]SDKCredential, 0, total)
 	for key := range r.deprecatedSdkKeys {
 		deprecated = append(deprecated, key)
 	}
 	for key := range r.expiringAdditionalSdkKeys {
+		deprecated = append(deprecated, key)
+	}
+	for key := range r.deprecatedMobileKeys {
+		deprecated = append(deprecated, key)
+	}
+	for key := range r.expiringAdditionalMobileKeys {
 		deprecated = append(deprecated, key)
 	}
 	return deprecated
@@ -328,14 +345,179 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	previous := r.primaryMobileKey
-	r.primaryMobileKey = mobileKey
-	r.additions = append(r.additions, mobileKey)
+	previous := r.swapPrimaryMobileKey(mobileKey)
 	if previous.Defined() {
 		r.expirations = append(r.expirations, previous)
-		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
+		r.loggers.Infof("Mobile key %s has been immediately revoked", previous.Masked())
+	}
+}
+
+// MobileGracePeriod represents a grace period within which a particular mobile key is still valid,
+// pending revocation. Parallel to GracePeriod for SDK keys.
+type MobileGracePeriod struct {
+	key    config.MobileKey
+	expiry time.Time
+	now    time.Time
+}
+
+// Expired reports whether the key has already expired.
+func (g *MobileGracePeriod) Expired() bool {
+	return g.now.After(g.expiry)
+}
+
+// NewMobileGracePeriod constructs a new grace period for a mobile key being deprecated. The current
+// time must be provided in order to determine if the credential is already expired.
+func NewMobileGracePeriod(key config.MobileKey, expiry time.Time, now time.Time) *MobileGracePeriod {
+	return &MobileGracePeriod{key, expiry, now}
+}
+
+// RotateMobileKeyWithGrace sets a new primary mobile key, optionally deprecating the previous
+// primary with a grace period. Pass grace == nil for immediate revocation of the predecessor.
+func (r *Rotator) RotateMobileKeyWithGrace(primary config.MobileKey, grace *MobileGracePeriod) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	previous := r.swapPrimaryMobileKey(primary)
+
+	if grace == nil {
+		if previous.Defined() {
+			r.expirations = append(r.expirations, previous)
+			r.loggers.Infof("Mobile key %s has been immediately revoked", previous.Masked())
+		}
+		return
+	}
+
+	if previousExpiry, ok := r.deprecatedMobileKeys[grace.key]; ok {
+		if previousExpiry != grace.expiry {
+			r.loggers.Warnf("Mobile key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used.", grace.key.Masked(), grace.expiry, previousExpiry)
+		}
+		if previous.Defined() {
+			r.expirations = append(r.expirations, previous)
+			r.loggers.Infof("Mobile key %s has been immediately revoked", previous.Masked())
+		}
+		return
+	}
+
+	if grace.Expired() {
+		r.loggers.Infof("Deprecated mobile key %s already expired at %v; ignoring", grace.key.Masked(), grace.expiry)
+		return
+	}
+
+	r.loggers.Infof("Mobile key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+	r.deprecatedMobileKeys[grace.key] = grace.expiry
+
+	if grace.key != previous {
+		r.loggers.Infof("Deprecated mobile key %s was not previously managed by Relay", grace.key.Masked())
+		r.additions = append(r.additions, grace.key)
+	}
+}
+
+func (r *Rotator) swapPrimaryMobileKey(newKey config.MobileKey) config.MobileKey {
+	if newKey == r.primaryMobileKey {
+		return ""
+	}
+	previous := r.primaryMobileKey
+	r.primaryMobileKey = newKey
+	r.additions = append(r.additions, newKey)
+	if previous.Defined() {
+		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), newKey.Masked())
 	} else {
-		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+		r.loggers.Infof("New primary mobile key is %s", newKey.Masked())
+	}
+	return previous
+}
+
+// ActiveMobileKeys returns the primary mobile key plus all additional non-deprecated mobile keys.
+func (r *Rotator) ActiveMobileKeys() []config.MobileKey {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	keys := make([]config.MobileKey, 0, 1+len(r.additionalMobileKeys))
+	if r.primaryMobileKey.Defined() {
+		keys = append(keys, r.primaryMobileKey)
+	}
+	for k := range r.additionalMobileKeys {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// SetAdditionalMobileKeys synchronizes the set of concurrent mobile keys for this environment.
+// Semantics mirror SetAdditionalSDKKeys: keys new to active/expiring are queued as additions;
+// transitions between active and expiring leave the key mapped; updated ExpiresAt timestamps are
+// accepted as authoritative; omitted keys are revoked immediately without grace.
+//
+// The primary mobile key is filtered out of the additional set defensively. This method does not
+// touch deprecatedMobileKeys, which is owned by the RotateMobileKeyWithGrace path.
+func (r *Rotator) SetAdditionalMobileKeys(active []config.MobileKey, expiring map[config.MobileKey]time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	nextActive := make(map[config.MobileKey]struct{}, len(active))
+	for _, k := range active {
+		if !k.Defined() || k == r.primaryMobileKey {
+			continue
+		}
+		nextActive[k] = struct{}{}
+	}
+	nextExpiring := make(map[config.MobileKey]time.Time, len(expiring))
+	for k, t := range expiring {
+		if !k.Defined() || k == r.primaryMobileKey {
+			continue
+		}
+		delete(nextActive, k)
+		nextExpiring[k] = t
+	}
+
+	current := make(map[config.MobileKey]struct{})
+	for k := range r.additionalMobileKeys {
+		current[k] = struct{}{}
+	}
+	for k := range r.expiringAdditionalMobileKeys {
+		current[k] = struct{}{}
+	}
+
+	for k := range nextActive {
+		_, wasAdditional := r.additionalMobileKeys[k]
+		_, wasExpiring := r.expiringAdditionalMobileKeys[k]
+		switch {
+		case wasAdditional:
+		case wasExpiring:
+			delete(r.expiringAdditionalMobileKeys, k)
+			r.additionalMobileKeys[k] = struct{}{}
+		default:
+			r.additionalMobileKeys[k] = struct{}{}
+			r.additions = append(r.additions, k)
+			r.loggers.Infof("Additional mobile key %s is now active", k.Masked())
+		}
+		delete(current, k)
+	}
+
+	for k, t := range nextExpiring {
+		_, wasAdditional := r.additionalMobileKeys[k]
+		previousExpiry, wasExpiring := r.expiringAdditionalMobileKeys[k]
+		switch {
+		case wasAdditional:
+			delete(r.additionalMobileKeys, k)
+			r.expiringAdditionalMobileKeys[k] = t
+			r.loggers.Infof("Additional mobile key %s is now expiring at %v", k.Masked(), t)
+		case wasExpiring:
+			if previousExpiry != t {
+				r.loggers.Infof("Additional mobile key %s expiry updated from %v to %v", k.Masked(), previousExpiry, t)
+				r.expiringAdditionalMobileKeys[k] = t
+			}
+		default:
+			r.expiringAdditionalMobileKeys[k] = t
+			r.additions = append(r.additions, k)
+			r.loggers.Infof("Additional mobile key %s registered with expiry %v", k.Masked(), t)
+		}
+		delete(current, k)
+	}
+
+	for k := range current {
+		delete(r.additionalMobileKeys, k)
+		delete(r.expiringAdditionalMobileKeys, k)
+		r.expirations = append(r.expirations, k)
+		r.loggers.Infof("Additional mobile key %s has been revoked", k.Masked())
 	}
 }
 
@@ -422,6 +604,20 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 		if now.After(expiry) {
 			r.loggers.Infof("Additional SDK key %s has expired and is no longer valid for authentication", key.Masked())
 			delete(r.expiringAdditionalSdkKeys, key)
+			r.expirations = append(r.expirations, key)
+		}
+	}
+	for key, expiry := range r.deprecatedMobileKeys {
+		if now.After(expiry) {
+			r.loggers.Infof("Deprecated mobile key %s has expired and is no longer valid for authentication", key.Masked())
+			delete(r.deprecatedMobileKeys, key)
+			r.expirations = append(r.expirations, key)
+		}
+	}
+	for key, expiry := range r.expiringAdditionalMobileKeys {
+		if now.After(expiry) {
+			r.loggers.Infof("Additional mobile key %s has expired and is no longer valid for authentication", key.Masked())
+			delete(r.expiringAdditionalMobileKeys, key)
 			r.expirations = append(r.expirations, key)
 		}
 	}
