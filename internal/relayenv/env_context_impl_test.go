@@ -207,6 +207,121 @@ func TestAddRemoveCredential(t *testing.T) {
 	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
 }
 
+// recordingConnectionMapper tracks Add/Remove calls so tests can assert mapping changes.
+type recordingConnectionMapper struct {
+	mu       sync.Mutex
+	mappings map[sdkauth.ScopedCredential]struct{}
+}
+
+func newRecordingConnectionMapper() *recordingConnectionMapper {
+	return &recordingConnectionMapper{mappings: make(map[sdkauth.ScopedCredential]struct{})}
+}
+
+func (m *recordingConnectionMapper) AddConnectionMapping(sc sdkauth.ScopedCredential, env EnvContext) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mappings[sc] = struct{}{}
+}
+
+func (m *recordingConnectionMapper) RemoveConnectionMapping(sc sdkauth.ScopedCredential) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.mappings, sc)
+}
+
+func (m *recordingConnectionMapper) hasMapping(cred credential.SDKCredential) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.mappings[sdkauth.NewScoped("", cred)]
+	return ok
+}
+
+func TestEnvContextSeedsAdditionalKeysFromConfig(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	envConfig.AdditionalSDKKeys = configtypes.NewOptStringList([]string{"sdk-extra-1", "sdk-extra-2"})
+	envConfig.AdditionalMobileKeys = configtypes.NewOptStringList([]string{"mob-extra-1"})
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
+	defer env.Close()
+
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.Contains(t, creds, config.SDKKey("sdk-extra-1"))
+	assert.Contains(t, creds, config.SDKKey("sdk-extra-2"))
+	assert.Contains(t, creds, config.MobileKey("mob-extra-1"))
+}
+
+func TestEnvContextAdditionalSDKKeysDoNotSpawnExtraClients(t *testing.T) {
+	envConfig := st.EnvMain.Config
+
+	clientCh := make(chan *testclient.FakeLDClient, 8)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// One client is created for the primary SDK key.
+	requireEnvReady(t, readyCh)
+	_ = requireClientReady(t, clientCh)
+
+	env.SetAdditionalSDKKeys([]config.SDKKey{"extra-1", "extra-2", "extra-3"}, nil)
+	env.SetAdditionalMobileKeys([]config.MobileKey{"mob-extra-1"}, nil)
+
+	// No additional clients should have been spawned for the extra keys.
+	if !helpers.AssertChannelNotClosed(t, clientCh, 100*time.Millisecond, "expected no additional SDK clients") {
+		// AssertChannelNotClosed only complains on close; check there's no extra value either.
+	}
+	select {
+	case extra := <-clientCh:
+		t.Fatalf("expected no additional SDK client, but got one: %v", extra)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// The active credential set should include the additionals.
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, config.SDKKey("extra-1"))
+	assert.Contains(t, creds, config.SDKKey("extra-2"))
+	assert.Contains(t, creds, config.SDKKey("extra-3"))
+	assert.Contains(t, creds, config.MobileKey("mob-extra-1"))
+}
+
+func TestEnvContextSetAdditionalKeysPropagatesToLookup(t *testing.T) {
+	envConfig := st.EnvMain.Config
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	mapper := newRecordingConnectionMapper()
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:        envConfig,
+		ClientFactory:    testclient.FakeLDClientFactory(true),
+		Loggers:          mockLog.Loggers,
+		ConnectionMapper: mapper,
+	}, nil)
+	require.NoError(t, err)
+	defer env.Close()
+
+	env.SetAdditionalSDKKeys([]config.SDKKey{"sdk-extra"}, nil)
+	env.SetAdditionalMobileKeys([]config.MobileKey{"mob-extra"}, nil)
+
+	assert.True(t, mapper.hasMapping(config.SDKKey("sdk-extra")))
+	assert.True(t, mapper.hasMapping(config.MobileKey("mob-extra")))
+
+	// Omit them in the next patch; the mappings should be removed.
+	env.SetAdditionalSDKKeys(nil, nil)
+	env.SetAdditionalMobileKeys(nil, nil)
+
+	assert.False(t, mapper.hasMapping(config.SDKKey("sdk-extra")))
+	assert.False(t, mapper.hasMapping(config.MobileKey("mob-extra")))
+}
+
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	envConfig := st.EnvMain.Config
 

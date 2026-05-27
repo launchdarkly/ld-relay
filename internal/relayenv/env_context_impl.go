@@ -200,6 +200,8 @@ func NewEnvContext(
 		envConfig.MobileKey,
 		envConfig.EnvID,
 	})
+	envContext.keyRotator.SeedAdditionalSDKKeys(toSDKKeys(envConfig.AdditionalSDKKeys.Values()))
+	envContext.keyRotator.SeedAdditionalMobileKeys(toMobileKeys(envConfig.AdditionalMobileKeys.Values()))
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {
@@ -447,17 +449,24 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		if !c.offline {
-			go c.startSDKClient(key, nil, false)
-		}
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		// Only the primary/upstream SDK key drives the SDK client and event-forwarder lifecycle.
+		// Additional SDK keys are auth-only -- they get mapped in for incoming requests but never
+		// open an upstream stream to LaunchDarkly.
+		if key == c.keyRotator.SDKKey() {
+			if !c.offline {
+				go c.startSDKClient(key, nil, false)
+			}
+			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+				c.metricsEventPub.ReplaceCredential(key)
+			}
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	case config.MobileKey:
-		if c.eventDispatcher != nil {
+		// Only the primary mobile key drives the event-forwarder lifecycle. Additional mobile keys
+		// are auth-only.
+		if key == c.keyRotator.MobileKey() && c.eventDispatcher != nil {
 			c.eventDispatcher.ReplaceCredential(key)
 		}
 	}
@@ -557,6 +566,16 @@ func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
 		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
 	}
 	c.triggerCredentialChanges(update.now)
+}
+
+func (c *envContextImpl) SetAdditionalSDKKeys(active []config.SDKKey, expiring map[config.SDKKey]time.Time) {
+	c.keyRotator.SetAdditionalSDKKeys(active, expiring)
+	c.triggerCredentialChanges(time.Now())
+}
+
+func (c *envContextImpl) SetAdditionalMobileKeys(active []config.MobileKey, expiring map[config.MobileKey]time.Time) {
+	c.keyRotator.SetAdditionalMobileKeys(active, expiring)
+	c.triggerCredentialChanges(time.Now())
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
@@ -820,6 +839,32 @@ func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKin
 
 func (u *envContextStreamUpdates) InvalidateClientSideState() {
 	u.context.envStreams.InvalidateClientSideState()
+}
+
+func toSDKKeys(values []string) []config.SDKKey {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]config.SDKKey, 0, len(values))
+	for _, v := range values {
+		if v != "" {
+			keys = append(keys, config.SDKKey(v))
+		}
+	}
+	return keys
+}
+
+func toMobileKeys(values []string) []config.MobileKey {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]config.MobileKey, 0, len(values))
+	for _, v := range values {
+		if v != "" {
+			keys = append(keys, config.MobileKey(v))
+		}
+	}
+	return keys
 }
 
 func makeLogPrefix(logNameMode LogNameMode, sdkKey config.SDKKey, envID config.EnvironmentID) string {

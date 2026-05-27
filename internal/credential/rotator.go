@@ -87,6 +87,31 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 	}
 }
 
+// SeedAdditionalSDKKeys populates the additional SDK key set during initial construction. Unlike
+// SetAdditionalSDKKeys, this does NOT queue additions; the caller is responsible for the initial
+// credential registration (e.g. via PrimaryCredentials feeding into the stream / lookup
+// initialization in NewEnvContext).
+func (r *Rotator) SeedAdditionalSDKKeys(keys []config.SDKKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range keys {
+		if k.Defined() && k != r.primarySdkKey {
+			r.additionalSdkKeys[k] = struct{}{}
+		}
+	}
+}
+
+// SeedAdditionalMobileKeys is the mobile-key analog of SeedAdditionalSDKKeys.
+func (r *Rotator) SeedAdditionalMobileKeys(keys []config.MobileKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range keys {
+		if k.Defined() && k != r.primaryMobileKey {
+			r.additionalMobileKeys[k] = struct{}{}
+		}
+	}
+}
+
 // MobileKey returns the primary mobile key.
 func (r *Rotator) MobileKey() config.MobileKey {
 	r.mu.RLock()

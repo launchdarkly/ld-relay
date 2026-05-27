@@ -81,6 +81,14 @@ type EnvContext interface {
 	// with a grace period.
 	UpdateCredential(update *CredentialUpdate)
 
+	// SetAdditionalSDKKeys synchronizes the set of concurrent SDK keys for this environment. Keys
+	// not previously seen are mapped in for auth; keys absent from active and expiring are revoked
+	// immediately. Keys with a per-key expiry stay mapped until the timestamp passes.
+	SetAdditionalSDKKeys(active []config.SDKKey, expiring map[config.SDKKey]time.Time)
+
+	// SetAdditionalMobileKeys is the mobile-key analog of SetAdditionalSDKKeys.
+	SetAdditionalMobileKeys(active []config.MobileKey, expiring map[config.MobileKey]time.Time)
+
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 
