@@ -139,8 +139,10 @@ The Relay Proxy allows you to proxy any number of LaunchDarkly environments; the
 
 | Property in file | Environment var               |   Type   | Description                                                                                                                                                                                                                                  |
 |------------------|-------------------------------|:--------:|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `sdkKey`         | `LD_ENV_MyEnvName`            |  String  | Server-side SDK key for the environment. Required.                                                                                                                                                                                           |
-| `mobileKey`      | `LD_MOBILE_KEY_MyEnvName`     |  String  | Mobile key for the environment. Required if you are proxying mobile SDK functionality.                                                                                                                                                       |
+| `sdkKey`               | `LD_ENV_MyEnvName`                     |  String  | Server-side SDK key for the environment. Required.                                                                                                                                                                                           |
+| `mobileKey`            | `LD_MOBILE_KEY_MyEnvName`              |  String  | Mobile key for the environment. Required if you are proxying mobile SDK functionality.                                                                                                                                                       |
+| `additionalSdkKeys`    | `LD_ADDITIONAL_SDK_KEYS_MyEnvName`     |  String  | Additional concurrent server-side SDK keys for this environment. Each key authenticates to the same environment as `sdkKey`. Can be repeated in the file or supplied as a comma-delimited list in the env var.                               |
+| `additionalMobileKeys` | `LD_ADDITIONAL_MOBILE_KEYS_MyEnvName`  |  String  | Additional concurrent mobile keys for this environment. Same semantics as `additionalSdkKeys`.                                                                                                                                               |
 | `envId`          | `LD_CLIENT_SIDE_ID_MyEnvName` |  String  | Client-side ID for the environment. Required if you are proxying client-side JavaScript-based SDK functionality.                                                                                                                             |
 | `secureMode`     | `LD_SECURE_MODE_MyEnvName`    | Boolean  | True if [secure mode](https://docs.launchdarkly.com/sdk/client-side/javascript#secure-mode) should be required for client-side JS SDK connections.                                                                                           |
 | `prefix`         | `LD_PREFIX_MyEnvName`         |  String  | If using a Redis, Consul, or DynamoDB feature store, this string will be added to all database keys to distinguish them from any other environments that are using the database.                                                             |
@@ -174,6 +176,30 @@ LD_MOBILE_KEY_Spree_Project_Production=SPREE_PROD_MOBILE_KEY
 LD_ENV_Spree_Project_Test=SPREE_TEST_SDK_KEY
 LD_MOBILE_KEY_Spree_Project_Test=SPREE_TEST_MOBILE_KEY
 ```
+
+To support concurrent SDK or mobile keys -- for example, while migrating SDK consumers off a leaked key without an outage -- list additional keys for an environment:
+
+```
+# Configuration file example
+
+[Environment "Spree Project Production"]
+    sdkKey = "SPREE_PROD_SDK_KEY"
+    mobileKey = "SPREE_PROD_MOBILE_KEY"
+    additionalSdkKeys = "SPREE_PROD_SDK_KEY_BACKUP_1"
+    additionalSdkKeys = "SPREE_PROD_SDK_KEY_BACKUP_2"
+    additionalMobileKeys = "SPREE_PROD_MOBILE_KEY_BACKUP"
+```
+
+```
+# Environment variables example
+
+LD_ENV_Spree_Project_Production=SPREE_PROD_SDK_KEY
+LD_MOBILE_KEY_Spree_Project_Production=SPREE_PROD_MOBILE_KEY
+LD_ADDITIONAL_SDK_KEYS_Spree_Project_Production=SPREE_PROD_SDK_KEY_BACKUP_1,SPREE_PROD_SDK_KEY_BACKUP_2
+LD_ADDITIONAL_MOBILE_KEYS_Spree_Project_Production=SPREE_PROD_MOBILE_KEY_BACKUP
+```
+
+Additional keys cannot duplicate the primary `sdkKey` / `mobileKey`, and the same key cannot appear twice within a list. Only the primary key opens an upstream connection to LaunchDarkly; the additional keys are accepted for inbound SDK authentication only.
 
 ### File section: `[Filters "PROJECT-KEY"]`
 
