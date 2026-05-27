@@ -17,14 +17,15 @@ var testAutoConfDefaultConfig = c.Config{
 }
 
 type testAutoConfEnv struct {
-	id       c.EnvironmentID
-	envKey   string
-	envName  string
-	mobKey   c.MobileKey
-	projKey  string
-	projName string
-	sdkKey   envfactory.SDKKeyRep
-	version  int
+	id        c.EnvironmentID
+	envKey    string
+	envName   string
+	mobKey    c.MobileKey
+	mobileKey *envfactory.MobileKeyRep
+	projKey   string
+	projName  string
+	sdkKey    envfactory.SDKKeyRep
+	version   int
 }
 
 func (e testAutoConfEnv) SDKKey() c.SDKKey {
@@ -57,14 +58,15 @@ var (
 
 func (e testAutoConfEnv) toEnvironmentRep() envfactory.EnvironmentRep {
 	rep := envfactory.EnvironmentRep{
-		EnvID:    e.id,
-		EnvKey:   e.envKey,
-		EnvName:  e.envName,
-		MobKey:   e.mobKey,
-		ProjKey:  e.projKey,
-		ProjName: e.projName,
-		SDKKey:   e.sdkKey,
-		Version:  e.version,
+		EnvID:     e.id,
+		EnvKey:    e.envKey,
+		EnvName:   e.envName,
+		MobKey:    e.mobKey,
+		MobileKey: e.mobileKey,
+		ProjKey:   e.projKey,
+		ProjName:  e.projName,
+		SDKKey:    e.sdkKey,
+		Version:   e.version,
 	}
 	return rep
 }

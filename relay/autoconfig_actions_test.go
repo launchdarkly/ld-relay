@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -151,6 +152,83 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 		paramsWithOldKey := envWithKeys.params()
 		paramsWithOldKey.SDKKey = oldKey
 		p.assertEnvLookup(env, paramsWithOldKey)
+	})
+}
+
+func TestAutoConfigInitWithAdditionalSDKKeys(t *testing.T) {
+	primaryKey := c.SDKKey("primary-sdk")
+	extra1 := c.SDKKey("extra-sdk-1")
+	extra2 := c.SDKKey("extra-sdk-2")
+
+	env := testAutoConfEnv1
+	env.sdkKey = envfactory.SDKKeyRep{
+		Value: primaryKey,
+		Additional: []envfactory.AdditionalSDKKeyRep{
+			{Value: extra1},
+			{Value: extra2},
+		},
+	}
+
+	initialEvent := makeAutoConfPutEvent(env)
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		client := p.awaitClient()
+		assert.Equal(t, primaryKey, client.Key)
+
+		envCtx := p.awaitEnvironment(env.id)
+
+		// All three SDK keys should authenticate to the same environment.
+		paramsPrimary := env.params()
+		paramsPrimary.SDKKey = primaryKey
+		p.assertEnvLookup(envCtx, paramsPrimary)
+
+		paramsExtra1 := env.params()
+		paramsExtra1.SDKKey = extra1
+		p.assertEnvLookup(envCtx, paramsExtra1)
+
+		paramsExtra2 := env.params()
+		paramsExtra2.SDKKey = extra2
+		p.assertEnvLookup(envCtx, paramsExtra2)
+
+		// But only one SDK client should have been spawned (the primary).
+		p.shouldNotCreateClient(100 * time.Millisecond)
+	})
+}
+
+func TestAutoConfigPatchRemovingAdditionalSDKKeyRevokesIt(t *testing.T) {
+	primaryKey := c.SDKKey("primary-sdk")
+	extra := c.SDKKey("extra-sdk")
+
+	env := testAutoConfEnv1
+	env.sdkKey = envfactory.SDKKeyRep{
+		Value:      primaryKey,
+		Additional: []envfactory.AdditionalSDKKeyRep{{Value: extra}},
+	}
+
+	initialEvent := makeAutoConfPutEvent(env)
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		_ = p.awaitClient()
+		envCtx := p.awaitEnvironment(env.id)
+
+		paramsExtra := env.params()
+		paramsExtra.SDKKey = extra
+		p.assertEnvLookup(envCtx, paramsExtra)
+
+		// Patch with the additional key omitted -- should be revoked immediately.
+		envWithoutExtra := env
+		envWithoutExtra.sdkKey = envfactory.SDKKeyRep{Value: primaryKey}
+		envWithoutExtra.version = env.version + 1
+		p.stream.Enqueue(makeAutoConfPatchEvent(envWithoutExtra))
+
+		// Wait for the revoke to propagate; the env lookup for `extra` should start failing.
+		require.Eventually(t, func() bool {
+			_, err := p.relay.getEnvironment(sdkauth.New(extra))
+			return err != nil
+		}, time.Second, 5*time.Millisecond, "extra key should no longer authenticate")
+
+		// Primary still works.
+		paramsPrimary := env.params()
+		paramsPrimary.SDKKey = primaryKey
+		p.assertEnvLookup(envCtx, paramsPrimary)
 	})
 }
 
