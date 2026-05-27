@@ -599,6 +599,14 @@ func (c *envContextImpl) SetAdditionalMobileKeys(active []config.MobileKey, expi
 	c.triggerCredentialChanges(time.Now())
 }
 
+func (c *envContextImpl) PrimarySDKKey() config.SDKKey {
+	return c.keyRotator.SDKKey()
+}
+
+func (c *envContextImpl) PrimaryMobileKey() config.MobileKey {
+	return c.keyRotator.MobileKey()
+}
+
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {

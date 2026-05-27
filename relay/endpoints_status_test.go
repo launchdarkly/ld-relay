@@ -58,6 +58,44 @@ func TestEndpointsStatus(t *testing.T) {
 		})
 	})
 
+	t.Run("additional SDK and mobile keys are surfaced", func(t *testing.T) {
+		envConfig := st.EnvMobile.Config
+		envConfig.AdditionalSDKKeys = ct.NewOptStringList([]string{"sdk-extra-1", "sdk-extra-2"})
+		envConfig.AdditionalMobileKeys = ct.NewOptStringList([]string{"mob-extra-1"})
+		envMobileWithExtras := st.EnvMobile
+		envMobileWithExtras.Config = envConfig
+
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(envMobileWithExtras)
+
+		withStartedRelay(t, config, func(p relayTestParams) {
+			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			status := ldvalue.Parse(body)
+
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.SDKKey)),
+				status, "environments", envMobileWithExtras.Name, "sdkKey")
+			st.AssertJSONPathMatch(t, sdks.ObscureKey(string(envConfig.MobileKey)),
+				status, "environments", envMobileWithExtras.Name, "mobileKey")
+
+			additionalSDKKeys := status.GetByKey("environments").GetByKey(envMobileWithExtras.Name).GetByKey("additionalSdkKeys")
+			require.Equal(t, 2, additionalSDKKeys.Count())
+			masked1 := sdks.ObscureKey("sdk-extra-1")
+			masked2 := sdks.ObscureKey("sdk-extra-2")
+			seen := map[string]bool{}
+			for i := 0; i < additionalSDKKeys.Count(); i++ {
+				seen[additionalSDKKeys.GetByIndex(i).StringValue()] = true
+			}
+			assert.True(t, seen[masked1])
+			assert.True(t, seen[masked2])
+
+			additionalMobileKeys := status.GetByKey("environments").GetByKey(envMobileWithExtras.Name).GetByKey("additionalMobileKeys")
+			require.Equal(t, 1, additionalMobileKeys.Count())
+			assert.Equal(t, sdks.ObscureKey("mob-extra-1"), additionalMobileKeys.GetByIndex(0).StringValue())
+		})
+	})
+
 	t.Run("connection interruption - less than DisconnectedStatusTime", func(t *testing.T) {
 		var config c.Config
 		config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)

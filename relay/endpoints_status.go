@@ -46,12 +46,24 @@ func statusHandler(relay *Relay) http.Handler {
 				ProjName: identifiers.ProjName,
 			}
 
+			primarySDKKey := clientCtx.PrimarySDKKey()
+			primaryMobileKey := clientCtx.PrimaryMobileKey()
 			for _, c := range clientCtx.GetCredentials() {
 				switch c := c.(type) {
 				case config.SDKKey:
-					status.SDKKey = sdks.ObscureKey(string(c))
+					obscured := sdks.ObscureKey(string(c))
+					if c == primarySDKKey {
+						status.SDKKey = obscured
+					} else {
+						status.AdditionalSDKKeys = append(status.AdditionalSDKKeys, obscured)
+					}
 				case config.MobileKey:
-					status.MobileKey = sdks.ObscureKey(string(c))
+					obscured := sdks.ObscureKey(string(c))
+					if c == primaryMobileKey {
+						status.MobileKey = obscured
+					} else {
+						status.AdditionalMobileKeys = append(status.AdditionalMobileKeys, obscured)
+					}
 				case config.EnvironmentID:
 					status.EnvID = string(c)
 				}

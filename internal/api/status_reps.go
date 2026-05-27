@@ -19,18 +19,20 @@ type StatusRep struct {
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	SDKKey           string               `json:"sdkKey"`
-	EnvID            string               `json:"envId,omitempty"`
-	EnvKey           string               `json:"envKey,omitempty"`
-	EnvName          string               `json:"envName,omitempty"`
-	ProjKey          string               `json:"projKey,omitempty"`
-	ProjName         string               `json:"projName,omitempty"`
-	MobileKey        string               `json:"mobileKey,omitempty"`
-	ExpiringSDKKey   string               `json:"expiringSdkKey,omitempty"`
-	Status           string               `json:"status"`
-	ConnectionStatus ConnectionStatusRep  `json:"connectionStatus"`
-	DataStoreStatus  DataStoreStatusRep   `json:"dataStoreStatus"`
-	BigSegmentStatus *BigSegmentStatusRep `json:"bigSegmentStatus,omitempty"`
+	SDKKey               string               `json:"sdkKey"`
+	EnvID                string               `json:"envId,omitempty"`
+	EnvKey               string               `json:"envKey,omitempty"`
+	EnvName              string               `json:"envName,omitempty"`
+	ProjKey              string               `json:"projKey,omitempty"`
+	ProjName             string               `json:"projName,omitempty"`
+	MobileKey            string               `json:"mobileKey,omitempty"`
+	ExpiringSDKKey       string               `json:"expiringSdkKey,omitempty"`
+	AdditionalSDKKeys    []string             `json:"additionalSdkKeys,omitempty"`
+	AdditionalMobileKeys []string             `json:"additionalMobileKeys,omitempty"`
+	Status               string               `json:"status"`
+	ConnectionStatus     ConnectionStatusRep  `json:"connectionStatus"`
+	DataStoreStatus      DataStoreStatusRep   `json:"dataStoreStatus"`
+	BigSegmentStatus     *BigSegmentStatusRep `json:"bigSegmentStatus,omitempty"`
 }
 
 // BigSegmentStatusRep is the big segment status representation returned by the status endpoint.

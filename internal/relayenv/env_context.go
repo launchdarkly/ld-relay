@@ -90,6 +90,14 @@ type EnvContext interface {
 	// SetAdditionalMobileKeys is the mobile-key analog of SetAdditionalSDKKeys.
 	SetAdditionalMobileKeys(active []config.MobileKey, expiring map[config.MobileKey]time.Time)
 
+	// PrimarySDKKey returns the environment's primary (upstream) SDK key. Returns the empty key if
+	// no SDK key has been set.
+	PrimarySDKKey() config.SDKKey
+
+	// PrimaryMobileKey returns the environment's primary mobile key. Returns the empty key if no
+	// mobile key has been set.
+	PrimaryMobileKey() config.MobileKey
+
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 
