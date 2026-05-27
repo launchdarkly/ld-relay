@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/stretchr/testify/assert"
 )

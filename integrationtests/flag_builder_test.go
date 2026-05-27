@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
 )
 
 type flagBuilder struct {

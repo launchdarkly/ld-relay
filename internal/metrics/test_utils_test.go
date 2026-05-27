@@ -14,8 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 )
 

@@ -12,8 +12,8 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 
 	helpers "github.com/launchdarkly/go-test-helpers/v3"

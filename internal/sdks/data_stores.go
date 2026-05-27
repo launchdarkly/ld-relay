@@ -8,7 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 	ldconsul "github.com/launchdarkly/go-server-sdk-consul/v3"
 	lddynamodb "github.com/launchdarkly/go-server-sdk-dynamodb/v4"
 	ldredis "github.com/launchdarkly/go-server-sdk-redis-redigo/v3"
