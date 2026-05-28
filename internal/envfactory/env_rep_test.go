@@ -76,8 +76,8 @@ func TestEnvironmentRepToParams(t *testing.T) {
 func TestEnvironmentRepToParamsAdditionalSDKKeys(t *testing.T) {
 	expiresAt := ldtime.UnixMillisecondTime(20000)
 	env := EnvironmentRep{
-		EnvID:   config.EnvironmentID("envid"),
-		MobKey:  config.MobileKey("mob"),
+		EnvID:  config.EnvironmentID("envid"),
+		MobKey: config.MobileKey("mob"),
 		SDKKey: SDKKeyRep{
 			Value: config.SDKKey("primary"),
 			Additional: []AdditionalSDKKeyRep{
@@ -125,6 +125,21 @@ func TestEnvironmentRepToParamsMobileKeyPrefersNewField(t *testing.T) {
 	params := env.ToParams()
 
 	assert.Equal(t, config.MobileKey("primary"), params.MobileKey)
+}
+
+func TestEnvironmentRepToParamsMobileKeyEmptyValueFallsBackToLegacy(t *testing.T) {
+	// Regression test for the F11 finding: a partially-populated MobileKey struct (e.g., during a
+	// platform rollout where the new field exists but the value isn't filled in) must not clobber
+	// the legacy MobKey field.
+	env := EnvironmentRep{
+		MobKey: config.MobileKey("legacy"),
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey(""), // not defined
+		},
+	}
+
+	params := env.ToParams()
+	assert.Equal(t, config.MobileKey("legacy"), params.MobileKey)
 }
 
 func TestEnvironmentRepToParamsMobileKeyFallsBackToLegacyField(t *testing.T) {

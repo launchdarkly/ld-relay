@@ -132,7 +132,11 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 	var activeMobile []config.MobileKey
 	var expiringAdditionalMobile map[config.MobileKey]time.Time
 	if r.MobileKey != nil {
-		mobileKey = r.MobileKey.Value
+		// Defensive: a partially-populated MobileKey struct with an empty Value should not clobber
+		// the legacy MobKey field that an older platform serializer might have populated.
+		if r.MobileKey.Value.Defined() {
+			mobileKey = r.MobileKey.Value
+		}
 		expiringMobile = r.MobileKey.Expiring.ToParams()
 		activeMobile, expiringAdditionalMobile = splitAdditionalMobileKeys(r.MobileKey.Additional)
 	}
