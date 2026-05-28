@@ -609,6 +609,69 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 	})
 }
 
+// Regression test for the F1 finding from multi-agent review: when a mobile-key rotation arrives
+// with grace.key != previous primary (the "stale deprecation message" case), the event
+// dispatcher's outbound authKey must remain the new primary -- it must not be clobbered by the
+// rotation predecessor flowing through addCredential.
+func TestEventDispatcherMobileAuthIsPrimaryAfterRotationGrace(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	envConfig := st.EnvMobile.Config
+	primaryMobileKey := envConfig.MobileKey
+	require.NotEmpty(t, primaryMobileKey)
+	staleDeprecatedKey := config.MobileKey("stale-deprecated-mobile-key")
+
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(EnvContextImplParams{
+			Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+			EnvConfig:        envConfig,
+			AllConfig:        allConfig,
+			ClientFactory:    testclient.FakeLDClientFactory(true),
+			ConnectionMapper: mockConnectionMapper{},
+			Loggers:          mockLog.Loggers,
+		}, nil)
+		require.NoError(t, err)
+		defer env.Close()
+
+		// Mimic the autoconfig applyExpiringPrimaries call: a rotation arrives with the current
+		// mobile key as the new primary and an unrelated key as the deprecated predecessor.
+		// In the rotator, swapPrimaryMobileKey returns "" (newKey already matches primary), but
+		// the predecessor still gets enqueued into additions. Without F1's fix, the addCredential
+		// path for the predecessor would call dispatcher.ReplaceCredential(staleDeprecatedKey),
+		// silently overwriting the primary's outbound auth.
+		expiry := time.Now().Add(time.Hour)
+		env.UpdateCredential(
+			NewCredentialUpdate(primaryMobileKey).WithGracePeriod(staleDeprecatedKey, expiry),
+		)
+
+		envImpl := env.(*envContextImpl)
+		ed := envImpl.GetEventDispatcher()
+		require.NotNil(t, ed)
+		eventDispatchHandler := ed.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, eventDispatchHandler)
+
+		rr := httptest.NewRecorder()
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", string(primaryMobileKey))
+		headers.Set("X-LaunchDarkly-Event-Schema", strconv.Itoa(events.SummaryEventsSchemaVersion))
+		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+		req := st.BuildRequest("POST", server.URL+"/mobile", []byte(body), headers)
+		eventDispatchHandler(rr, req)
+		require.Equal(t, 202, rr.Result().StatusCode)
+
+		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
+		// The outbound auth must be the primary mobile key, NOT the stale deprecated one.
+		assert.Equal(t, string(primaryMobileKey), eventPost.Request.Header.Get("Authorization"))
+	})
+}
+
 func TestBigSegmentsSynchronizerIsCreatedIfBigSegmentStoreExists(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	allConfig := config.Config{}

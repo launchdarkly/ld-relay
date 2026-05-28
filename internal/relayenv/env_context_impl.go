@@ -468,11 +468,12 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 			}
 		}
 	case config.MobileKey:
-		// Only the primary mobile key (and its rotation predecessor) drive the event-forwarder
-		// lifecycle. Additional mobile keys are auth-only.
-		isPrimary := key == c.keyRotator.MobileKey()
-		needsDispatcher := isPrimary || c.keyRotator.IsMobileKeyRotationPredecessor(key)
-		if needsDispatcher && c.eventDispatcher != nil {
+		// Only the primary mobile key drives the event dispatcher's authKey. The rotation
+		// predecessor must be registered for inbound auth (streams, handlers, lookup mapping) but
+		// must NOT clobber the dispatcher -- ReplaceCredential is replace-semantics, and the
+		// predecessor would otherwise overwrite the new primary's outbound forwarding credential.
+		// Additional mobile keys are auth-only and also do not touch the dispatcher.
+		if key == c.keyRotator.MobileKey() && c.eventDispatcher != nil {
 			c.eventDispatcher.ReplaceCredential(key)
 		}
 	}
