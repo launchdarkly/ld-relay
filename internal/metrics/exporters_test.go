@@ -32,7 +32,7 @@ func TestRegisterExporters(t *testing.T) {
 		mc.Prometheus.Enabled = true
 		mockLog := ldlogtest.NewMockLog()
 
-		exporters, err := registerExporters([]exporterType{fakeDatadogType, fakePrometheusType},
+		exporters, _, err := registerExporters([]exporterType{fakeDatadogType, fakePrometheusType},
 			mc, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 1)
@@ -53,14 +53,16 @@ func TestRegisterExporters(t *testing.T) {
 		}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
+		exporters, _, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.NotNil(t, err)
 		assert.Len(t, exporters, 0)
 
 		require.Len(t, fakeTypeThatSucceeds.created, 1)
 		require.Len(t, fakeTypeThatFails.created, 0)
-		assert.True(t, fakeTypeThatSucceeds.created[0].registered)
+		// register() runs only after every exporter is created; a create failure means the
+		// successful exporter is closed before it was ever registered.
+		assert.False(t, fakeTypeThatSucceeds.created[0].registered)
 		assert.True(t, fakeTypeThatSucceeds.created[0].closed)
 
 		assert.Equal(t, []string{"Error creating BAD metrics exporter: MESSAGE"}, mockLog.GetOutput(ldlog.Error))
@@ -76,7 +78,7 @@ func TestRegisterExporters(t *testing.T) {
 		}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
+		exporters, _, err := registerExporters([]exporterType{fakeTypeThatSucceeds, fakeTypeThatFails},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.NotNil(t, err)
 		assert.Len(t, exporters, 0)
@@ -97,7 +99,7 @@ func TestCloseExporters(t *testing.T) {
 		fakeType2 := &testExporterTypeImpl{name: "B"}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]exporterType{fakeType1, fakeType2},
+		exporters, _, err := registerExporters([]exporterType{fakeType1, fakeType2},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 2)
@@ -117,7 +119,7 @@ func TestCloseExporters(t *testing.T) {
 		fakeType2 := &testExporterTypeImpl{name: "B"}
 
 		mockLog := ldlogtest.NewMockLog()
-		exporters, err := registerExporters([]exporterType{fakeType1, fakeType2},
+		exporters, _, err := registerExporters([]exporterType{fakeType1, fakeType2},
 			config.MetricsConfig{}, mockLog.Loggers)
 		require.Nil(t, err)
 		assert.Len(t, exporters, 2)

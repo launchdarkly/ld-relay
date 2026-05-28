@@ -53,7 +53,7 @@ func TestPrometheusExporterType(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, e)
 		defer e.close()
-		assert.NoError(t, e.register())
+		assert.NoError(t, e.register(ldlog.NewDisabledLoggers()))
 	})
 
 	verifyPrometheusEndpointIsReachable := func(t *testing.T, port int, timeout time.Duration) {
@@ -81,7 +81,7 @@ func TestPrometheusExporterType(t *testing.T) {
 		require.NotNil(t, e)
 
 		defer e.close()
-		require.NoError(t, e.register())
+		require.NoError(t, e.register(ldlog.NewDisabledLoggers()))
 
 		verifyPrometheusEndpointIsReachable(t, config.DefaultPrometheusPort, time.Second)
 	})
@@ -96,7 +96,7 @@ func TestPrometheusExporterType(t *testing.T) {
 		require.NotNil(t, e)
 
 		defer e.close()
-		require.NoError(t, e.register())
+		require.NoError(t, e.register(ldlog.NewDisabledLoggers()))
 
 		verifyPrometheusEndpointIsReachable(t, availablePort, time.Second)
 	})
@@ -111,7 +111,7 @@ func TestPrometheusExporterType(t *testing.T) {
 			require.NotNil(t, e)
 
 			defer e.close()
-			assert.Error(t, e.register())
+			assert.Error(t, e.register(ldlog.NewDisabledLoggers()))
 		})
 	})
 }

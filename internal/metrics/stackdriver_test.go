@@ -78,7 +78,7 @@ func TestStackdriverExporterType(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, e)
 			defer e.close()
-			assert.NoError(t, e.register())
+			assert.NoError(t, e.register(ldlog.NewDisabledLoggers()))
 		})
 	})
 }

@@ -32,6 +32,7 @@ type Manager struct {
 	openCensusCtx  context.Context
 	metricsRelayID string
 	exporters      exportersSet
+	providers      *telemetryProviders
 	environments   []*EnvironmentManager
 	flushInterval  time.Duration
 	loggers        ldlog.Loggers
@@ -71,7 +72,7 @@ func NewManager(
 ) (*Manager, error) {
 	metricsRelayID := uuid.New()
 
-	exporters, err := registerExporters(allExporterTypes(), metricsConfig, loggers)
+	exporters, providers, err := registerExporters(allExporterTypes(), metricsConfig, loggers)
 	if err != nil { // COVERAGE: can't make this happen in unit tests
 		return nil, err
 	}
@@ -96,6 +97,7 @@ func NewManager(
 		openCensusCtx:        ctx,
 		metricsRelayID:       metricsRelayID,
 		exporters:            exporters,
+		providers:            providers,
 		flushInterval:        flushInterval,
 		loggers:              loggers,
 		usageChan:            usageChan,
@@ -168,13 +170,16 @@ func (m *Manager) Close() {
 
 		m.lock.Lock()
 		exporters := m.exporters
+		providers := m.providers
 		environments := m.environments
 		m.exporters = nil
+		m.providers = nil
 		m.environments = nil
 		m.closed = true
 		m.lock.Unlock()
 
 		closeExporters(exporters, m.loggers)
+		shutdownProviders(providers, m.loggers)
 		for _, env := range environments {
 			env.close()
 		}

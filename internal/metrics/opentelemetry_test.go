@@ -80,7 +80,7 @@ func TestOpenTelemetryExporterType(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, e)
 		defer func() { _ = e.close() }()
-		assert.NoError(t, e.register())
+		assert.NoError(t, e.register(ldlog.NewDisabledLoggers()))
 	})
 }
 

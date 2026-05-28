@@ -5,9 +5,13 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
-	stackdriver "github.com/launchdarkly/opencensus-go-exporter-stackdriver"
-	"go.opencensus.io/stats/view"
-	"go.opencensus.io/trace"
+	gcpmetric "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric"
+	gcptrace "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
+	"go.opentelemetry.io/otel/bridge/opencensus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{} //nolint:gochecknoglobals
@@ -15,7 +19,8 @@ var stackdriverExporterType exporterType = stackdriverExporterTypeImpl{} //nolin
 type stackdriverExporterTypeImpl struct{}
 
 type stackdriverExporterImpl struct {
-	exporter *stackdriver.Exporter
+	reader    sdkmetric.Reader
+	processor sdktrace.SpanProcessor
 }
 
 func (s stackdriverExporterTypeImpl) getName() string {
@@ -24,32 +29,57 @@ func (s stackdriverExporterTypeImpl) getName() string {
 
 func (s stackdriverExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
-	loggers ldlog.Loggers,
+	_ ldlog.Loggers,
 ) (exporter, error) {
 	if !mc.Stackdriver.Enabled {
 		return nil, nil
 	}
 
-	options := stackdriver.Options{
-		MetricPrefix: getPrefix(mc.Stackdriver.Prefix),
-		ProjectID:    mc.Stackdriver.ProjectID,
+	metricExp, err := gcpmetric.New(gcpmetricOptions(mc)...)
+	if err != nil {
+		return nil, err
 	}
-	exporter, err := stackdriver.NewExporter(options)
+	traceExp, err := gcptrace.New(gcptraceOptions(mc)...)
 	if err != nil {
 		return nil, err
 	}
 
-	return &stackdriverExporterImpl{exporter: exporter}, nil
+	// The OpenCensus producer surfaces OC stats (Relay's existing measurements) to the GCP metric
+	// exporter, preserving the metrics customers see in Google Cloud Monitoring during the
+	// migration off the deprecated OC stackdriver exporter.
+	reader := sdkmetric.NewPeriodicReader(metricExp,
+		sdkmetric.WithProducer(opencensus.NewMetricProducer()),
+	)
+
+	return &stackdriverExporterImpl{
+		reader:    reader,
+		processor: sdktrace.NewBatchSpanProcessor(traceExp),
+	}, nil
 }
 
-func (s *stackdriverExporterImpl) register() error {
-	view.RegisterExporter(s.exporter)
-	trace.RegisterExporter(s.exporter)
-	return nil
+func gcpmetricOptions(mc config.MetricsConfig) []gcpmetric.Option {
+	opts := []gcpmetric.Option{}
+	if mc.Stackdriver.ProjectID != "" {
+		opts = append(opts, gcpmetric.WithProjectID(mc.Stackdriver.ProjectID))
+	}
+	if prefix := getPrefix(mc.Stackdriver.Prefix); prefix != "" {
+		opts = append(opts, gcpmetric.WithMetricDescriptorTypeFormatter(func(m metricdata.Metrics) string {
+			return prefix + "/" + m.Name
+		}))
+	}
+	return opts
 }
 
-func (s *stackdriverExporterImpl) close() error {
-	view.UnregisterExporter(s.exporter)
-	trace.UnregisterExporter(s.exporter)
-	return nil
+func gcptraceOptions(mc config.MetricsConfig) []gcptrace.Option {
+	opts := []gcptrace.Option{}
+	if mc.Stackdriver.ProjectID != "" {
+		opts = append(opts, gcptrace.WithProjectID(mc.Stackdriver.ProjectID))
+	}
+	return opts
 }
+
+func (s *stackdriverExporterImpl) metricReaders() []sdkmetric.Reader     { return []sdkmetric.Reader{s.reader} }
+func (s *stackdriverExporterImpl) spanProcessors() []sdktrace.SpanProcessor { return []sdktrace.SpanProcessor{s.processor} }
+func (s *stackdriverExporterImpl) resourceAttributes() *sdkresource.Resource { return nil }
+func (s *stackdriverExporterImpl) register(ldlog.Loggers) error           { return nil }
+func (s *stackdriverExporterImpl) close() error                           { return nil }

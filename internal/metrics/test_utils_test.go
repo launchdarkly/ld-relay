@@ -17,6 +17,9 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 const (
@@ -96,7 +99,11 @@ func (t *testExporterTypeImpl) createExporterIfEnabled(
 	return impl, nil
 }
 
-func (t *testExporterImpl) register() error {
+func (t *testExporterImpl) metricReaders() []sdkmetric.Reader       { return nil }
+func (t *testExporterImpl) spanProcessors() []sdktrace.SpanProcessor { return nil }
+func (t *testExporterImpl) resourceAttributes() *sdkresource.Resource { return nil }
+
+func (t *testExporterImpl) register(ldlog.Loggers) error {
 	if t.exporterType.errorOnRegister == nil {
 		t.registered = true
 	}

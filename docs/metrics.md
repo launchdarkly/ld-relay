@@ -2,7 +2,13 @@
 
 [(Back to README)](../README.md)
 
-You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, Prometheus, or any OpenTelemetry-compatible backend via OTLP. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
+You can configure the Relay Proxy to export statistics and route traces to Datadog, Google Cloud (formerly Stackdriver), Prometheus, or any OpenTelemetry-compatible backend via OTLP. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
+
+> **Breaking change in v8.20+**: The Relay Proxy now uses the OpenTelemetry SDK as the single export pipeline for all backends. The deprecated OpenCensus exporter modules (`DataDog/opencensus-go-exporter-datadog`, `launchdarkly/opencensus-go-exporter-stackdriver`, and `contrib.go.opencensus.io/exporter/prometheus`) have been removed. This affects how each backend is wired up:
+>
+> - **Datadog**: Metrics and traces now flow as OTLP into a local Datadog Agent's OTLP receiver. Requires Datadog Agent v7.43+ with `otlp_config` enabled (`OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317` or equivalent). `DATADOG_TRACE_ADDR` is now the host:port of the Agent's OTLP gRPC receiver (default `localhost:4317`). `DATADOG_STATS_ADDR` (DogStatsD UDP) is logged as deprecated and ignored. `DATADOG_TAG_*` values become OpenTelemetry resource attributes — the `service` tag, if present, becomes `service.name`.
+> - **Google Cloud (Stackdriver)**: Uses the official Google Cloud OpenTelemetry exporters. Existing `STACKDRIVER_PROJECT_ID` and `STACKDRIVER_PREFIX` settings still apply. The metric type format is `${prefix}/${metric_name}` and the cardinality limits of Google Cloud Monitoring still apply. Review your dashboards after upgrading.
+> - **Prometheus**: Same `/metrics` HTTP endpoint on the same port. The exposition format is now produced by the OpenTelemetry Prometheus exporter, which may add `_total` suffixes on counters and `target_info`/`otel_scope_info` metadata. Existing scrape configs continue to work, but PromQL queries that hard-code legacy metric names may need updates.
 
 The Relay Proxy supports the following metrics:
 

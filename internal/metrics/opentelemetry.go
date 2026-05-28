@@ -11,7 +11,6 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/bridge/opencensus"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -19,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -30,7 +28,7 @@ const (
 	otelProtocolGRPC         = "grpc"
 	otelProtocolHTTPProtobuf = "http/protobuf"
 	otelDefaultServiceName   = "ld-relay"
-	otelShutdownTimeout      = 5 * time.Second
+	otelInstrumentationName  = "github.com/launchdarkly/ld-relay/v8"
 )
 
 var otelExporterType exporterType = otelExporterTypeImpl{} //nolint:gochecknoglobals
@@ -38,12 +36,9 @@ var otelExporterType exporterType = otelExporterTypeImpl{} //nolint:gochecknoglo
 type otelExporterTypeImpl struct{}
 
 type otelExporterImpl struct {
-	tracerProvider  *sdktrace.TracerProvider
-	meterProvider   *sdkmetric.MeterProvider
-	previousTextMap propagation.TextMapPropagator
-	tracesEnabled   bool
-	metricsEnabled  bool
-	loggers         ldlog.Loggers
+	readers    []sdkmetric.Reader
+	processors []sdktrace.SpanProcessor
+	resource   *sdkresource.Resource
 }
 
 func (o otelExporterTypeImpl) getName() string {
@@ -83,29 +78,19 @@ func (o otelExporterTypeImpl) createExporterIfEnabled(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	impl := &otelExporterImpl{
-		tracesEnabled:  !oc.DisableTraces,
-		metricsEnabled: !oc.DisableMetrics,
-		loggers:        loggers,
-	}
+	impl := &otelExporterImpl{resource: res}
 
-	if impl.tracesEnabled {
-		traceExp, err := newOTLPTraceExporter(ctx, protocol, oc, headers)
+	if !oc.DisableTraces {
+		traceExp, err := newOTLPTraceExporter(ctx, protocol, oc.Endpoint, oc.Insecure, headers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}
-		impl.tracerProvider = sdktrace.NewTracerProvider(
-			sdktrace.WithBatcher(traceExp),
-			sdktrace.WithResource(res),
-		)
+		impl.processors = append(impl.processors, sdktrace.NewBatchSpanProcessor(traceExp))
 	}
 
-	if impl.metricsEnabled {
-		metricExp, err := newOTLPMetricExporter(ctx, protocol, oc, headers)
+	if !oc.DisableMetrics {
+		metricExp, err := newOTLPMetricExporter(ctx, protocol, oc.Endpoint, oc.Insecure, headers)
 		if err != nil {
-			if impl.tracerProvider != nil {
-				_ = impl.tracerProvider.Shutdown(context.Background())
-			}
 			return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
 		}
 		// The OpenCensus metric producer surfaces OpenCensus stats views as OpenTelemetry metrics so
@@ -113,66 +98,30 @@ func (o otelExporterTypeImpl) createExporterIfEnabled(
 		reader := sdkmetric.NewPeriodicReader(metricExp,
 			sdkmetric.WithProducer(opencensus.NewMetricProducer()),
 		)
-		impl.meterProvider = sdkmetric.NewMeterProvider(
-			sdkmetric.WithReader(reader),
-			sdkmetric.WithResource(res),
-		)
+		impl.readers = append(impl.readers, reader)
 	}
 
 	return impl, nil
 }
 
-func (o *otelExporterImpl) register() error {
-	if o.tracerProvider != nil {
-		otel.SetTracerProvider(o.tracerProvider)
-		o.previousTextMap = otel.GetTextMapPropagator()
-		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-			propagation.TraceContext{},
-			propagation.Baggage{},
-		))
-		// Route OpenCensus spans through the OpenTelemetry tracer so existing OC instrumentation
-		// inside Relay and its dependencies is exported via OTLP.
-		opencensus.InstallTraceBridge(opencensus.WithTracerProvider(o.tracerProvider))
-	}
-	if o.meterProvider != nil {
-		otel.SetMeterProvider(o.meterProvider)
-	}
-	return nil
-}
-
-func (o *otelExporterImpl) close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
-	defer cancel()
-
-	var errs []error
-	if o.tracerProvider != nil {
-		if o.previousTextMap != nil {
-			otel.SetTextMapPropagator(o.previousTextMap)
-		}
-		if err := o.tracerProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("tracer provider shutdown: %w", err))
-		}
-	}
-	if o.meterProvider != nil {
-		if err := o.meterProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("meter provider shutdown: %w", err))
-		}
-	}
-	return errors.Join(errs...)
-}
+func (o *otelExporterImpl) metricReaders() []sdkmetric.Reader     { return o.readers }
+func (o *otelExporterImpl) spanProcessors() []sdktrace.SpanProcessor { return o.processors }
+func (o *otelExporterImpl) resourceAttributes() *sdkresource.Resource { return o.resource }
+func (o *otelExporterImpl) register(ldlog.Loggers) error           { return nil }
+func (o *otelExporterImpl) close() error                           { return nil }
 
 func newOTLPTraceExporter(
 	ctx context.Context,
-	protocol string,
-	oc config.OpenTelemetryConfig,
+	protocol, endpoint string,
+	insecure bool,
 	headers map[string]string,
 ) (*otlptrace.Exporter, error) {
 	if protocol == otelProtocolHTTPProtobuf {
 		opts := []otlptracehttp.Option{}
-		if oc.Endpoint != "" {
-			opts = append(opts, otlptracehttp.WithEndpointURL(oc.Endpoint))
+		if endpoint != "" {
+			opts = append(opts, otlptracehttp.WithEndpointURL(endpoint))
 		}
-		if oc.Insecure {
+		if insecure {
 			opts = append(opts, otlptracehttp.WithInsecure())
 		}
 		if len(headers) > 0 {
@@ -182,10 +131,10 @@ func newOTLPTraceExporter(
 	}
 
 	opts := []otlptracegrpc.Option{}
-	if oc.Endpoint != "" {
-		opts = append(opts, otlptracegrpc.WithEndpoint(stripScheme(oc.Endpoint)))
+	if endpoint != "" {
+		opts = append(opts, otlptracegrpc.WithEndpoint(stripScheme(endpoint)))
 	}
-	if oc.Insecure {
+	if insecure {
 		opts = append(opts, otlptracegrpc.WithInsecure())
 	}
 	if len(headers) > 0 {
@@ -196,16 +145,16 @@ func newOTLPTraceExporter(
 
 func newOTLPMetricExporter(
 	ctx context.Context,
-	protocol string,
-	oc config.OpenTelemetryConfig,
+	protocol, endpoint string,
+	insecure bool,
 	headers map[string]string,
 ) (sdkmetric.Exporter, error) {
 	if protocol == otelProtocolHTTPProtobuf {
 		opts := []otlpmetrichttp.Option{}
-		if oc.Endpoint != "" {
-			opts = append(opts, otlpmetrichttp.WithEndpointURL(oc.Endpoint))
+		if endpoint != "" {
+			opts = append(opts, otlpmetrichttp.WithEndpointURL(endpoint))
 		}
-		if oc.Insecure {
+		if insecure {
 			opts = append(opts, otlpmetrichttp.WithInsecure())
 		}
 		if len(headers) > 0 {
@@ -215,10 +164,10 @@ func newOTLPMetricExporter(
 	}
 
 	opts := []otlpmetricgrpc.Option{}
-	if oc.Endpoint != "" {
-		opts = append(opts, otlpmetricgrpc.WithEndpoint(stripScheme(oc.Endpoint)))
+	if endpoint != "" {
+		opts = append(opts, otlpmetricgrpc.WithEndpoint(stripScheme(endpoint)))
 	}
-	if oc.Insecure {
+	if insecure {
 		opts = append(opts, otlpmetricgrpc.WithInsecure())
 	}
 	if len(headers) > 0 {
@@ -236,10 +185,7 @@ func buildOTelResource(oc config.OpenTelemetryConfig) (*sdkresource.Resource, er
 	if prefix := strings.TrimSpace(oc.Prefix); prefix != "" {
 		attrs = append(attrs, semconv.ServiceNamespace(prefix))
 	}
-	// Merge with the SDK default resource so OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME are
-	// still honored when set in the environment. Use NewSchemaless to avoid forcing a schema URL
-	// onto the merge result, which would conflict with the default resource's schema URL.
-	return sdkresource.Merge(sdkresource.Default(), sdkresource.NewSchemaless(attrs...))
+	return sdkresource.NewSchemaless(attrs...), nil
 }
 
 func parseOTLPHeaders(raw string) (map[string]string, error) {
@@ -274,8 +220,4 @@ func stripScheme(endpoint string) string {
 		}
 	}
 	return endpoint
-}
-
-func otelInstrumentationName() string {
-	return "github.com/launchdarkly/ld-relay/v8"
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	h "github.com/klauspost/compress/gzhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
 const (
@@ -31,6 +32,10 @@ const (
 // docs/endpoints.md.
 func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
+	// Emit an OpenTelemetry span for every inbound HTTP request, named after the matched mux route
+	// template so spans group by endpoint (e.g. /sdk/evalx/{envId}/contexts/{context}) rather than by
+	// the request URL.
+	router.Use(otelmux.Middleware("ld-relay"))
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if r.loggers.GetMinLevel() == ldlog.Debug {
 		router.Use(logging.RequestLoggerMiddleware(r.loggers))
