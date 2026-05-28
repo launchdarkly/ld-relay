@@ -98,6 +98,12 @@ type EnvContext interface {
 	// mobile key has been set.
 	PrimaryMobileKey() config.MobileKey
 
+	// CredentialSnapshot returns the environment's full credential state under a single lock
+	// acquisition so the returned partitioning (primary, additional, deprecated) is internally
+	// consistent. Callers that need a coherent view across multiple credential roles -- the
+	// /status endpoint, for one -- should use this instead of chaining per-attribute accessors.
+	CredentialSnapshot() credential.CredentialSnapshot
+
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 

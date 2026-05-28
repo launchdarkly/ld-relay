@@ -153,6 +153,53 @@ func (r *Rotator) EnvironmentID() config.EnvironmentID {
 	return r.primaryEnvironmentID
 }
 
+// CredentialSnapshot captures the full credential state of the rotator at a single point in time,
+// partitioned by kind. Callers that need an internally-consistent view (e.g., the /status
+// endpoint deciding which credentials are primary vs additional vs deprecated) should use
+// Snapshot rather than chaining multiple per-attribute accessors.
+type CredentialSnapshot struct {
+	PrimarySDKKey        config.SDKKey
+	PrimaryMobileKey     config.MobileKey
+	PrimaryEnvironmentID config.EnvironmentID
+	AdditionalSDKKeys    []config.SDKKey
+	AdditionalMobileKeys []config.MobileKey
+	DeprecatedSDKKeys    []config.SDKKey
+	DeprecatedMobileKeys []config.MobileKey
+}
+
+// Snapshot returns the rotator's full credential state under a single RLock so the returned
+// partitioning is internally consistent (no concurrent rotation can move a key between the
+// primary slot and an additional or deprecated slot mid-read).
+func (r *Rotator) Snapshot() CredentialSnapshot {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	snap := CredentialSnapshot{
+		PrimarySDKKey:        r.primarySdkKey,
+		PrimaryMobileKey:     r.primaryMobileKey,
+		PrimaryEnvironmentID: r.primaryEnvironmentID,
+	}
+	for k := range r.additionalSdkKeys {
+		snap.AdditionalSDKKeys = append(snap.AdditionalSDKKeys, k)
+	}
+	for k := range r.additionalMobileKeys {
+		snap.AdditionalMobileKeys = append(snap.AdditionalMobileKeys, k)
+	}
+	for k := range r.deprecatedSdkKeys {
+		snap.DeprecatedSDKKeys = append(snap.DeprecatedSDKKeys, k)
+	}
+	for k := range r.expiringAdditionalSdkKeys {
+		snap.DeprecatedSDKKeys = append(snap.DeprecatedSDKKeys, k)
+	}
+	for k := range r.deprecatedMobileKeys {
+		snap.DeprecatedMobileKeys = append(snap.DeprecatedMobileKeys, k)
+	}
+	for k := range r.expiringAdditionalMobileKeys {
+		snap.DeprecatedMobileKeys = append(snap.DeprecatedMobileKeys, k)
+	}
+	return snap
+}
+
 // PrimaryCredentials returns the primary (non-deprecated) credentials.
 func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	r.mu.RLock()

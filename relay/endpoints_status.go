@@ -46,49 +46,43 @@ func statusHandler(relay *Relay) http.Handler {
 				ProjName: identifiers.ProjName,
 			}
 
-			primarySDKKey := clientCtx.PrimarySDKKey()
-			primaryMobileKey := clientCtx.PrimaryMobileKey()
-			for _, c := range clientCtx.GetCredentials() {
-				switch c := c.(type) {
-				case config.SDKKey:
-					obscured := sdks.ObscureKey(string(c))
-					if c == primarySDKKey {
-						status.SDKKey = obscured
-					} else {
-						status.AdditionalSDKKeys = append(status.AdditionalSDKKeys, obscured)
-					}
-				case config.MobileKey:
-					obscured := sdks.ObscureKey(string(c))
-					if c == primaryMobileKey {
-						status.MobileKey = obscured
-					} else {
-						status.AdditionalMobileKeys = append(status.AdditionalMobileKeys, obscured)
-					}
-				case config.EnvironmentID:
-					status.EnvID = string(c)
-				}
+			// Take an atomic snapshot of all credentials so the primary / additional / deprecated
+			// partitioning is internally consistent. Chaining separate accessors would let a
+			// concurrent rotation slip between calls and mis-classify keys.
+			snap := clientCtx.CredentialSnapshot()
+			if snap.PrimarySDKKey.Defined() {
+				status.SDKKey = sdks.ObscureKey(string(snap.PrimarySDKKey))
 			}
-
+			if snap.PrimaryMobileKey.Defined() {
+				status.MobileKey = sdks.ObscureKey(string(snap.PrimaryMobileKey))
+			}
+			if snap.PrimaryEnvironmentID.Defined() {
+				status.EnvID = string(snap.PrimaryEnvironmentID)
+			}
+			for _, k := range snap.AdditionalSDKKeys {
+				status.AdditionalSDKKeys = append(status.AdditionalSDKKeys, sdks.ObscureKey(string(k)))
+			}
+			for _, k := range snap.AdditionalMobileKeys {
+				status.AdditionalMobileKeys = append(status.AdditionalMobileKeys, sdks.ObscureKey(string(k)))
+			}
 			// Surface every deprecated credential the rotator knows about, partitioned by kind.
 			// The scalar ExpiringSDKKey / ExpiringMobileKey fields are retained for back-compat
 			// with existing dashboards and carry the first key of each kind seen; the array
 			// fields carry the full set so callers can inspect every grace-period entry (which is
 			// possible now that additional keys can each carry their own ExpiresAt).
-			for _, c := range clientCtx.GetDeprecatedCredentials() {
-				switch key := c.(type) {
-				case config.SDKKey:
-					obscured := sdks.ObscureKey(string(key))
-					if status.ExpiringSDKKey == "" {
-						status.ExpiringSDKKey = obscured
-					}
-					status.ExpiringSDKKeys = append(status.ExpiringSDKKeys, obscured)
-				case config.MobileKey:
-					obscured := sdks.ObscureKey(string(key))
-					if status.ExpiringMobileKey == "" {
-						status.ExpiringMobileKey = obscured
-					}
-					status.ExpiringMobileKeys = append(status.ExpiringMobileKeys, obscured)
+			for _, k := range snap.DeprecatedSDKKeys {
+				obscured := sdks.ObscureKey(string(k))
+				if status.ExpiringSDKKey == "" {
+					status.ExpiringSDKKey = obscured
 				}
+				status.ExpiringSDKKeys = append(status.ExpiringSDKKeys, obscured)
+			}
+			for _, k := range snap.DeprecatedMobileKeys {
+				obscured := sdks.ObscureKey(string(k))
+				if status.ExpiringMobileKey == "" {
+					status.ExpiringMobileKey = obscured
+				}
+				status.ExpiringMobileKeys = append(status.ExpiringMobileKeys, obscured)
 			}
 
 			client := clientCtx.GetClient()

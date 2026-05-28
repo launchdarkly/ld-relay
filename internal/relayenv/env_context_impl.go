@@ -609,6 +609,10 @@ func (c *envContextImpl) PrimaryMobileKey() config.MobileKey {
 	return c.keyRotator.MobileKey()
 }
 
+func (c *envContextImpl) CredentialSnapshot() credential.CredentialSnapshot {
+	return c.keyRotator.Snapshot()
+}
+
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
