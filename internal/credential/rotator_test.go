@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/stretchr/testify/assert"
@@ -357,6 +358,79 @@ func TestSetAdditionalSDKKeysFiltersPrimary(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra")}, additions)
 	assert.Empty(t, expirations)
 	assert.ElementsMatch(t, []config.SDKKey{"primary", "extra"}, rotator.ActiveSDKKeys())
+}
+
+func TestSetAdditionalSDKKeysFiltersRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	// Rotate to put "old" in the deprecatedSdkKeys map.
+	rotator.Initialize([]SDKCredential{config.SDKKey("old")})
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("new"),
+		NewGracePeriod(config.SDKKey("old"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+
+	// Now the platform mistakenly includes "old" in the additional list. The rotator should
+	// ignore it -- the rotation flow is in charge of old's lifecycle.
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"old", "extra"}, nil)
+
+	// Only "extra" should have been queued; "old" stays in the deprecated map only.
+	additions, expirations := rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{config.SDKKey("extra")}, additions)
+	assert.Empty(t, expirations)
+	assert.NotContains(t, rotator.ActiveSDKKeys(), config.SDKKey("old"))
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.SDKKey("old"))
+
+	// And the next patch omitting "old" from the additional list must NOT revoke it -- the
+	// rotation grace timer still owns it.
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"extra"}, nil)
+	additions, expirations = rotator.StepTime(start.Add(1 * time.Minute))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.SDKKey("old"))
+
+	// Confirm a warning was logged.
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "already in a rotation grace period")
+}
+
+func TestSetAdditionalSDKKeysWarnsOnPrimaryInList(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+
+	rotator.SetAdditionalSDKKeys(
+		[]config.SDKKey{"primary", "extra"},
+		map[config.SDKKey]time.Time{"primary": time.Unix(5000, 0)},
+	)
+
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Primary SDK key .* appeared in additional-key list")
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "Primary SDK key .* appeared in additional-key list with an expiry")
+}
+
+func TestSetAdditionalMobileKeysFiltersRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	rotator.Initialize([]SDKCredential{config.MobileKey("old")})
+	start := time.Unix(10000, 0)
+	rotator.RotateMobileKeyWithGrace(
+		config.MobileKey("new"),
+		NewMobileGracePeriod(config.MobileKey("old"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"old", "extra"}, nil)
+
+	additions, expirations := rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{config.MobileKey("extra")}, additions)
+	assert.Empty(t, expirations)
+	assert.NotContains(t, rotator.ActiveMobileKeys(), config.MobileKey("old"))
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.MobileKey("old"))
+
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "already in a rotation grace period")
 }
 
 func TestSetAdditionalSDKKeysPrefersExpiringWhenKeyAppearsInBoth(t *testing.T) {

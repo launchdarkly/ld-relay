@@ -211,14 +211,32 @@ func (r *Rotator) SetAdditionalSDKKeys(active []config.SDKKey, expiring map[conf
 
 	nextActive := make(map[config.SDKKey]struct{}, len(active))
 	for _, k := range active {
-		if !k.Defined() || k == r.primarySdkKey {
+		if !k.Defined() {
+			continue
+		}
+		if k == r.primarySdkKey {
+			r.loggers.Warnf("Primary SDK key %s appeared in additional-key list; ignoring", k.Masked())
+			continue
+		}
+		if _, ok := r.deprecatedSdkKeys[k]; ok {
+			// This key is already being managed as a rotation predecessor with its own grace
+			// timer. Leave that flow in charge of its lifecycle.
+			r.loggers.Warnf("SDK key %s is already in a rotation grace period; ignoring its appearance in additional-key list", k.Masked())
 			continue
 		}
 		nextActive[k] = struct{}{}
 	}
 	nextExpiring := make(map[config.SDKKey]time.Time, len(expiring))
 	for k, t := range expiring {
-		if !k.Defined() || k == r.primarySdkKey {
+		if !k.Defined() {
+			continue
+		}
+		if k == r.primarySdkKey {
+			r.loggers.Warnf("Primary SDK key %s appeared in additional-key list with an expiry; ignoring (primary-key expiry must be communicated via the Expiring slot in a rotation)", k.Masked())
+			continue
+		}
+		if _, ok := r.deprecatedSdkKeys[k]; ok {
+			r.loggers.Warnf("SDK key %s is already in a rotation grace period; ignoring its appearance in additional-key list", k.Masked())
 			continue
 		}
 		// If the same key shows up in both sets, treat the expiring entry as authoritative -- the
@@ -502,14 +520,30 @@ func (r *Rotator) SetAdditionalMobileKeys(active []config.MobileKey, expiring ma
 
 	nextActive := make(map[config.MobileKey]struct{}, len(active))
 	for _, k := range active {
-		if !k.Defined() || k == r.primaryMobileKey {
+		if !k.Defined() {
+			continue
+		}
+		if k == r.primaryMobileKey {
+			r.loggers.Warnf("Primary mobile key %s appeared in additional-key list; ignoring", k.Masked())
+			continue
+		}
+		if _, ok := r.deprecatedMobileKeys[k]; ok {
+			r.loggers.Warnf("Mobile key %s is already in a rotation grace period; ignoring its appearance in additional-key list", k.Masked())
 			continue
 		}
 		nextActive[k] = struct{}{}
 	}
 	nextExpiring := make(map[config.MobileKey]time.Time, len(expiring))
 	for k, t := range expiring {
-		if !k.Defined() || k == r.primaryMobileKey {
+		if !k.Defined() {
+			continue
+		}
+		if k == r.primaryMobileKey {
+			r.loggers.Warnf("Primary mobile key %s appeared in additional-key list with an expiry; ignoring (primary-key expiry must be communicated via the Expiring slot in a rotation)", k.Masked())
+			continue
+		}
+		if _, ok := r.deprecatedMobileKeys[k]; ok {
+			r.loggers.Warnf("Mobile key %s is already in a rotation grace period; ignoring its appearance in additional-key list", k.Masked())
 			continue
 		}
 		delete(nextActive, k)
