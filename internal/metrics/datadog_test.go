@@ -39,8 +39,6 @@ func TestDatadogExporterType(t *testing.T) {
 	})
 
 	t.Run("ignores deprecated stats address", func(t *testing.T) {
-		// DATADOG_STATS_ADDR is no longer used now that Relay ships metrics via OTLP into
-		// the Datadog Agent. The exporter logs a warning and continues.
 		var mc config.MetricsConfig
 		mc.Datadog.Enabled = true
 		mc.Datadog.StatsAddr = "127.0.0.1:8125"

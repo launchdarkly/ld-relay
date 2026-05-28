@@ -28,7 +28,6 @@ const (
 	otelProtocolGRPC         = "grpc"
 	otelProtocolHTTPProtobuf = "http/protobuf"
 	otelDefaultServiceName   = "ld-relay"
-	otelInstrumentationName  = "github.com/launchdarkly/ld-relay/v8"
 )
 
 var otelExporterType exporterType = otelExporterTypeImpl{} //nolint:gochecknoglobals
@@ -93,8 +92,7 @@ func (o otelExporterTypeImpl) createExporterIfEnabled(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
 		}
-		// The OpenCensus metric producer surfaces OpenCensus stats views as OpenTelemetry metrics so
-		// existing Relay measurements (connections, requests, events) are reported via OTLP.
+		// OC producer surfaces Relay's existing OpenCensus stats views as OTel metrics.
 		reader := sdkmetric.NewPeriodicReader(metricExp,
 			sdkmetric.WithProducer(opencensus.NewMetricProducer()),
 		)

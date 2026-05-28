@@ -60,8 +60,8 @@ func TestRegisterExporters(t *testing.T) {
 
 		require.Len(t, fakeTypeThatSucceeds.created, 1)
 		require.Len(t, fakeTypeThatFails.created, 0)
-		// register() runs only after every exporter is created; a create failure means the
-		// successful exporter is closed before it was ever registered.
+		// register runs only after every exporter is created, so a create failure closes the
+		// successful exporter without ever registering it.
 		assert.False(t, fakeTypeThatSucceeds.created[0].registered)
 		assert.True(t, fakeTypeThatSucceeds.created[0].closed)
 

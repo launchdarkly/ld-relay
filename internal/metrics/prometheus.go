@@ -28,10 +28,7 @@ var prometheusExporterType exporterType = prometheusExporterTypeImpl{} //nolint:
 type prometheusExporterTypeImpl struct{}
 
 type prometheusExporterImpl struct {
-	registry *prometheus.Registry
 	reader   sdkmetric.Reader
-	port     int
-	prefix   string
 	server   *http.Server
 	listener net.Listener
 }
@@ -66,10 +63,7 @@ func (p prometheusExporterTypeImpl) createExporterIfEnabled(
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{Registry: registry}))
 
 	return &prometheusExporterImpl{
-		registry: registry,
-		reader:   reader,
-		port:     port,
-		prefix:   getPrefix(mc.Prometheus.Prefix),
+		reader: reader,
 		server: &http.Server{
 			Addr:              fmt.Sprintf(":%d", port),
 			Handler:           mux,

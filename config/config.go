@@ -361,13 +361,10 @@ type PrometheusConfig struct {
 }
 
 // OpenTelemetryConfig configures the optional OpenTelemetry integration, which is used only if
-// Enabled is true. When enabled, OpenCensus stats views and trace spans collected internally by
-// Relay are bridged into the OpenTelemetry SDK and exported via OTLP.
+// Enabled is true.
 //
-// This corresponds to the [OpenTelemetry] section in the configuration file.
-//
-// If an OTLP endpoint or other transport parameter is left blank, the underlying OpenTelemetry SDK
-// falls back to the standard OTEL_EXPORTER_OTLP_* environment variables.
+// This corresponds to the [OpenTelemetry] section in the configuration file. Standard
+// OTEL_EXPORTER_OTLP_* environment variables are honored when individual fields are left blank.
 //
 // Since configuration options can be set either programmatically, or from a file, or from environment
 // variables, individual fields are not documented here; instead, see the `README.md` section on

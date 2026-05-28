@@ -36,10 +36,9 @@ func (d datadogExporterTypeImpl) getName() string {
 	return "Datadog"
 }
 
-// createExporterIfEnabled wires Datadog by exporting OTLP into a local Datadog Agent's OTLP
-// receiver. This requires Datadog Agent v7.43+ with `otlp_config` enabled. The endpoint defaults
-// to localhost:4317; the legacy DATADOG_TRACE_ADDR field is honored as an override for the gRPC
-// host:port. DATADOG_STATS_ADDR (DogStatsD UDP) is no longer used and is logged as deprecated.
+// createExporterIfEnabled ships telemetry as OTLP into a local Datadog Agent (requires Agent
+// v7.43+ with otlp_config enabled). DATADOG_TRACE_ADDR overrides the gRPC endpoint;
+// DATADOG_STATS_ADDR is ignored.
 func (d datadogExporterTypeImpl) createExporterIfEnabled(
 	mc config.MetricsConfig,
 	loggers ldlog.Loggers,
@@ -87,9 +86,9 @@ func (d datadogExporterTypeImpl) createExporterIfEnabled(
 	}, nil
 }
 
-// datadogResourceAttributes converts the legacy DATADOG_TAG_* tag list and DATADOG_PREFIX into OTel
-// resource attributes. The Datadog Agent's OTLP receiver maps these onto Datadog tags. The "name"
-// or "service" tag is mapped to service.name when present.
+// datadogResourceAttributes maps DATADOG_TAG_* values onto OTel resource attributes; the Datadog
+// Agent's OTLP receiver turns these back into Datadog tags. A "service" tag, if present, becomes
+// service.name.
 func datadogResourceAttributes(mc config.MetricsConfig) *sdkresource.Resource {
 	attrs := []attribute.KeyValue{}
 	serviceName := getPrefix(mc.Datadog.Prefix)

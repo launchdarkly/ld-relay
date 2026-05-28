@@ -19,37 +19,18 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// exporterType represents one of the kinds of OpenTelemetry exporter backends Relay supports.
 type exporterType interface {
-	// Returns the human-readable name, like "Datadog".
 	getName() string
-
-	// Checks the MetricsConfig and *if* this type of exporter is enabled in it, constructs an
-	// implementation of the exporter interface containing the relevant configuration (but does not
-	// register it yet). If this type of exporter is not enabled, returns (nil, nil).
 	createExporterIfEnabled(config.MetricsConfig, ldlog.Loggers) (exporter, error)
 }
 
-// exporter is one configured destination for Relay's telemetry. Each exporter contributes zero or
-// more OTel metric Readers and Span Processors to the shared providers built by the Manager.
 type exporter interface {
-	// Metric readers (e.g. an OTLP PeriodicReader, a Prometheus pull reader) to attach to the
-	// shared MeterProvider. May be empty if the exporter only handles traces.
 	metricReaders() []sdkmetric.Reader
-
-	// Span processors to attach to the shared TracerProvider. May be empty if the exporter only
-	// handles metrics.
 	spanProcessors() []sdktrace.SpanProcessor
-
-	// Additional resource attributes specific to this exporter (e.g. Datadog tags).
 	resourceAttributes() *sdkresource.Resource
-
-	// Called after the shared providers have been built and globals set. Use this for side
-	// effects like binding an HTTP listener (Prometheus) — the providers themselves are already
-	// active by the time this runs.
+	// register runs after the shared providers exist; use it for side effects like opening the
+	// Prometheus listener.
 	register(loggers ldlog.Loggers) error
-
-	// Release any resources held by this exporter. Provider shutdown is handled by the Manager.
 	close() error
 }
 
@@ -59,18 +40,15 @@ func allExporterTypes() []exporterType {
 	return []exporterType{datadogExporterType, prometheusExporterType, stackdriverExporterType, otelExporterType}
 }
 
-// telemetryProviders holds the OTel SDK providers built by registerExporters, along with the
-// OpenCensus->OpenTelemetry bridge that forwards OC stats and spans into them.
 type telemetryProviders struct {
 	tracerProvider  *sdktrace.TracerProvider
 	meterProvider   *sdkmetric.MeterProvider
 	previousTextMap propagation.TextMapPropagator
 }
 
-// registerExporters constructs each enabled exporter, then builds a single shared TracerProvider
-// and MeterProvider that fans telemetry out to all of them. The OpenCensus bridge is installed once
-// so that Relay's existing OC-based instrumentation (measures, views, trace spans) is forwarded to
-// every configured backend.
+// registerExporters builds one shared TracerProvider and MeterProvider that fans telemetry out to
+// every enabled backend, then installs the OpenCensus bridge so Relay's existing OC instrumentation
+// reaches them all.
 func registerExporters(
 	exporterTypes []exporterType,
 	c config.MetricsConfig,
@@ -152,8 +130,6 @@ func registerExporters(
 	return created, providers, nil
 }
 
-// closeExporters attempts to close a set of exporters. Errors are logged but do not stop the
-// operation.
 func closeExporters(exporters exportersSet, loggers ldlog.Loggers) {
 	for t, e := range exporters {
 		if err := e.close(); err != nil {

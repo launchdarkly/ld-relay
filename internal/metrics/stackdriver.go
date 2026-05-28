@@ -44,9 +44,7 @@ func (s stackdriverExporterTypeImpl) createExporterIfEnabled(
 		return nil, err
 	}
 
-	// The OpenCensus producer surfaces OC stats (Relay's existing measurements) to the GCP metric
-	// exporter, preserving the metrics customers see in Google Cloud Monitoring during the
-	// migration off the deprecated OC stackdriver exporter.
+	// OC producer surfaces Relay's existing OpenCensus stats views as OTel metrics.
 	reader := sdkmetric.NewPeriodicReader(metricExp,
 		sdkmetric.WithProducer(opencensus.NewMetricProducer()),
 	)

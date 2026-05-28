@@ -37,8 +37,7 @@ func TestOpenTelemetryExporterType(t *testing.T) {
 		e, err := exporterType.createExporterIfEnabled(mc, ldlog.NewDisabledLoggers())
 		require.NoError(t, err)
 		require.NotNil(t, e)
-		// close() may surface a "connection refused" error because no OTLP collector is running
-		// in unit tests; the exporter object was constructed successfully which is what we assert.
+		// close may surface connection-refused since no OTLP collector runs in unit tests.
 		_ = e.close()
 	})
 

@@ -32,9 +32,7 @@ const (
 // docs/endpoints.md.
 func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
-	// Emit an OpenTelemetry span for every inbound HTTP request, named after the matched mux route
-	// template so spans group by endpoint (e.g. /sdk/evalx/{envId}/contexts/{context}) rather than by
-	// the request URL.
+	// Span name is the mux route template, so spans group by endpoint rather than URL.
 	router.Use(otelmux.Middleware("ld-relay"))
 	router.Use(logging.GlobalContextLoggersMiddleware(r.loggers))
 	if r.loggers.GetMinLevel() == ldlog.Debug {
