@@ -569,6 +569,52 @@ func TestPromotingExpiringAdditionalSDKKeyToPrimaryRemovesFromExpiringSet(t *tes
 	assert.NotContains(t, deprecated, config.SDKKey("expiring1"))
 }
 
+// Regression test for the F4 finding: a self-rotation -- RotateWithGrace(P, grace{P, ...}) --
+// must NOT enter the deprecation flow. The unconditional addCredential -> startSDKClient that
+// would otherwise result overwrites c.clients[P] and leaks the running upstream client.
+func TestRotateWithGraceIgnoresSelfRotation(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	// Rotate the primary to itself with a grace period for itself.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("primary"),
+		NewGracePeriod(config.SDKKey("primary"), start.Add(1*time.Hour), start),
+	)
+
+	// Nothing should be queued -- the rotation is a no-op.
+	additions, expirations := rotator.StepTime(start)
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	// Primary remains the same and is NOT in the deprecated set.
+	assert.Equal(t, config.SDKKey("primary"), rotator.SDKKey())
+	assert.NotContains(t, rotator.DeprecatedCredentials(), config.SDKKey("primary"))
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "matches the current primary key")
+}
+
+func TestRotateMobileKeyWithGraceIgnoresSelfRotation(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary")})
+	_, _ = rotator.StepTime(time.Now())
+
+	start := time.Unix(10000, 0)
+	rotator.RotateMobileKeyWithGrace(
+		config.MobileKey("primary"),
+		NewMobileGracePeriod(config.MobileKey("primary"), start.Add(1*time.Hour), start),
+	)
+
+	additions, expirations := rotator.StepTime(start)
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	assert.Equal(t, config.MobileKey("primary"), rotator.MobileKey())
+	assert.NotContains(t, rotator.DeprecatedCredentials(), config.MobileKey("primary"))
+	mockLog.AssertMessageMatch(t, true, ldlog.Warn, "matches the current primary key")
+}
+
 // Regression test for the F2 finding from multi-agent review: a SetAdditional patch that omits a
 // key currently in rotation grace must NOT revoke that key. The rotation grace flow owns the
 // key's lifecycle; the diff loop must leave it alone.

@@ -450,6 +450,16 @@ func (r *Rotator) RotateMobileKeyWithGrace(primary config.MobileKey, grace *Mobi
 		return
 	}
 
+	// Self-rotation defense (see updateSDKKey for the SDK analog): a rotation grace whose key
+	// matches the current primary is malformed input. Entering the deprecation flow would queue
+	// the primary through addCredential again with no upstream client to leak (mobile keys never
+	// open an upstream stream), but it would still clobber the dispatcher and leave a phantom
+	// entry in deprecatedMobileKeys that StepTime would eventually revoke.
+	if grace.key == r.primaryMobileKey {
+		r.loggers.Warnf("Ignoring rotation grace for mobile key %s: it matches the current primary key", grace.key.Masked())
+		return
+	}
+
 	if previousExpiry, ok := r.deprecatedMobileKeys[grace.key]; ok {
 		if previousExpiry != grace.expiry {
 			r.loggers.Warnf("Mobile key %s was marked for deprecation with an expiry at %v, but it was previously deprecated with an expiry at %v. The previous expiry will be used.", grace.key.Masked(), grace.expiry, previousExpiry)
@@ -647,6 +657,16 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	// in order to find out if immediate revocation is necessary.
 	if grace == nil {
 		r.immediatelyRevoke(previous)
+		return
+	}
+
+	// Self-rotation defense: if the grace key is the current primary, do NOT enter the deprecation
+	// flow. Doing so would mark the primary as deprecated AND queue it through addCredential again,
+	// which would unconditionally overwrite c.clients[primary] and leak the running upstream SDK
+	// client. This case is malformed input (a rotation that grants a grace period to a key that is
+	// still the active primary); log a warning and ignore the grace.
+	if grace.key == r.primarySdkKey {
+		r.loggers.Warnf("Ignoring rotation grace for SDK key %s: it matches the current primary key", grace.key.Masked())
 		return
 	}
 
