@@ -86,6 +86,12 @@ type EnvContextImplParams struct {
 	Loggers                          ldlog.Loggers
 	ConnectionMapper                 ConnectionMapper
 	ExpiredCredentialCleanupInterval time.Duration
+	// InitialExpiringAdditionalSDKKeys / InitialExpiringAdditionalMobileKeys seed the rotator's
+	// expiring-additional maps before the env is registered with the lookup. Without these, the
+	// expiring entries arrive only after construction via env.SetAdditional*, leaving a brief
+	// window where requests authenticated with an expiring additional key would 401.
+	InitialExpiringAdditionalSDKKeys    map[config.SDKKey]time.Time
+	InitialExpiringAdditionalMobileKeys map[config.MobileKey]time.Time
 }
 
 type envContextImpl struct {
@@ -203,6 +209,8 @@ func NewEnvContext(
 	})
 	envContext.keyRotator.SeedAdditionalSDKKeys(toSDKKeys(envConfig.AdditionalSDKKeys.Values()))
 	envContext.keyRotator.SeedAdditionalMobileKeys(toMobileKeys(envConfig.AdditionalMobileKeys.Values()))
+	envContext.keyRotator.SeedExpiringAdditionalSDKKeys(params.InitialExpiringAdditionalSDKKeys)
+	envContext.keyRotator.SeedExpiringAdditionalMobileKeys(params.InitialExpiringAdditionalMobileKeys)
 
 	bigSegmentStoreFactory := params.BigSegmentStoreFactory
 	if bigSegmentStoreFactory == nil {

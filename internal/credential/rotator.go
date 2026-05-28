@@ -112,6 +112,37 @@ func (r *Rotator) SeedAdditionalMobileKeys(keys []config.MobileKey) {
 	}
 }
 
+// SeedExpiringAdditionalSDKKeys populates the expiring additional SDK key map during initial
+// construction. Like SeedAdditionalSDKKeys, this does NOT queue additions; the caller is
+// responsible for the initial credential registration via the AllCredentials iteration in
+// NewEnvContext.
+func (r *Rotator) SeedExpiringAdditionalSDKKeys(expiring map[config.SDKKey]time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, t := range expiring {
+		if !k.Defined() || k == r.primarySdkKey {
+			continue
+		}
+		// Defensive: if the caller seeded the same key as active, the expiring entry wins (the
+		// platform attached an expiry to it).
+		delete(r.additionalSdkKeys, k)
+		r.expiringAdditionalSdkKeys[k] = t
+	}
+}
+
+// SeedExpiringAdditionalMobileKeys is the mobile-key analog of SeedExpiringAdditionalSDKKeys.
+func (r *Rotator) SeedExpiringAdditionalMobileKeys(expiring map[config.MobileKey]time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, t := range expiring {
+		if !k.Defined() || k == r.primaryMobileKey {
+			continue
+		}
+		delete(r.additionalMobileKeys, k)
+		r.expiringAdditionalMobileKeys[k] = t
+	}
+}
+
 // IsSDKKeyRotationPredecessor reports whether the given SDK key is the previous primary that is
 // currently in its rotation grace period. Used by callers (e.g. envContextImpl) that need to give
 // rotation-predecessor keys the same treatment as the primary -- specifically, keeping their

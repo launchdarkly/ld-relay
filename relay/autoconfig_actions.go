@@ -28,7 +28,14 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	// But in reality, this method is only going to be called from a single goroutine in the auto-config
 	// stream handler.
 	envConfig := envfactory.NewEnvConfigFactoryForAutoConfig(a.r.config.AutoConfig).MakeEnvironmentConfig(params)
-	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
+	// Seed expiring additional keys at construction so the rotator's maps are populated before
+	// InsertEnvironment runs. Without this, the env would be mapped into the lookup with only the
+	// active additionals; a request authenticated with an expiring additional key would 401 until
+	// the follow-up SetAdditional call lands.
+	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil, addEnvironmentOptions{
+		initialExpiringAdditionalSDKKeys:    params.ExpiringAdditionalSDKKeys,
+		initialExpiringAdditionalMobileKeys: params.ExpiringAdditionalMobileKeys,
+	})
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
 		return

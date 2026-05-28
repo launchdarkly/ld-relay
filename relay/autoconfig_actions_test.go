@@ -194,6 +194,36 @@ func TestAutoConfigInitWithAdditionalSDKKeys(t *testing.T) {
 	})
 }
 
+// Regression test for the F9 finding: an env that arrives mid-rotation with expiring additional
+// SDK keys must have those keys mapped in the lookup BEFORE InsertEnvironment completes, not via
+// a follow-up SetAdditional call. Otherwise the env briefly returns 401 for requests using the
+// expiring key.
+func TestAutoConfigInitWithExpiringAdditionalSDKKey(t *testing.T) {
+	primaryKey := c.SDKKey("primary-sdk")
+	expiringExtra := c.SDKKey("expiring-extra-sdk")
+	expiresAt := ldtime.UnixMillisecondTime(ldtime.UnixMillisFromTime(time.Now().Add(time.Hour)))
+
+	env := testAutoConfEnv1
+	env.sdkKey = envfactory.SDKKeyRep{
+		Value: primaryKey,
+		Additional: []envfactory.AdditionalSDKKeyRep{
+			{Value: expiringExtra, ExpiresAt: &expiresAt},
+		},
+	}
+
+	initialEvent := makeAutoConfPutEvent(env)
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		_ = p.awaitClient()
+		envCtx := p.awaitEnvironment(env.id)
+
+		// The expiring extra key must already be mapped in the lookup immediately after env
+		// construction -- not after a subsequent SetAdditional call.
+		paramsExpiring := env.params()
+		paramsExpiring.SDKKey = expiringExtra
+		p.assertEnvLookup(envCtx, paramsExpiring)
+	})
+}
+
 func TestAutoConfigPatchRemovingAdditionalSDKKeyRevokesIt(t *testing.T) {
 	primaryKey := c.SDKKey("primary-sdk")
 	extra := c.SDKKey("extra-sdk")

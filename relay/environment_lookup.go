@@ -74,13 +74,23 @@ func NewEnvironmentLookup() *EnvironmentLookup {
 // InsertEnvironment creates a mapping from the given environment's credentials (and optional filter key)
 // to that environment, which can later be looked up using Lookup.
 // Only credentials that are defined are mapped (credential.Defined() must return true for each).
+//
+// The deprecated set is included so that an env which arrives mid-rotation -- whether the primary
+// is rotating with grace or an additional key was already expiring at construction time -- has
+// every credential it expects to honor mapped in the lookup before the first incoming request.
 func (e *EnvironmentLookup) InsertEnvironment(env relayenv.EnvContext) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	filterKey := env.GetPayloadFilter()
 	for _, cred := range env.GetCredentials() {
 		if cred.Defined() {
-			e.mapParams(sdkauth.NewScoped(env.GetPayloadFilter(), cred), env)
+			e.mapParams(sdkauth.NewScoped(filterKey, cred), env)
+		}
+	}
+	for _, cred := range env.GetDeprecatedCredentials() {
+		if cred.Defined() {
+			e.mapParams(sdkauth.NewScoped(filterKey, cred), env)
 		}
 	}
 

@@ -172,7 +172,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	r.clientSideSDKBaseURL = *c.Main.ClientSideBaseURI.Get() // config.ValidateConfig has ensured that this has a value
 
 	for envName, envConfig := range makeFilteredEnvironments(&c) {
-		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil)
+		env, resultCh, err := r.addEnvironment(relayenv.EnvIdentifiers{ConfiguredName: envName}, *envConfig, nil, addEnvironmentOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -402,12 +402,21 @@ func (r *Relay) getAllEnvironments() []relayenv.EnvContext {
 	return r.envsByCredential.Environments()
 }
 
+// addEnvironmentOptions carries optional inputs to addEnvironment that don't fit naturally in
+// EnvConfig (which is shared with the public configuration surface). For now this is just the
+// expiring additional-key maps that arrive only from the autoconfig / filedata sources.
+type addEnvironmentOptions struct {
+	initialExpiringAdditionalSDKKeys    map[config.SDKKey]time.Time
+	initialExpiringAdditionalMobileKeys map[config.MobileKey]time.Time
+}
+
 // addEnvironment attempts to add a new environment. It returns an error only if the configuration
 // is invalid; it does not wait to see whether the connection to LaunchDarkly succeeded.
 func (r *Relay) addEnvironment(
 	identifiers relayenv.EnvIdentifiers,
 	envConfig config.EnvConfig,
 	transformClientConfig func(ld.Config) ld.Config,
+	opts addEnvironmentOptions,
 ) (relayenv.EnvContext, <-chan relayenv.EnvContext, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -455,20 +464,22 @@ func (r *Relay) addEnvironment(
 		return r.clientFactory(sdkKey, config, timeout)
 	}
 	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
-		Identifiers:                      identifiers,
-		EnvConfig:                        envConfig,
-		AllConfig:                        r.config,
-		ClientFactory:                    wrappedClientFactory,
-		DataStoreFactory:                 dataStoreFactory,
-		DataStoreInfo:                    dataStoreInfo,
-		StreamProviders:                  r.allStreamProviders(),
-		JSClientContext:                  jsClientContext,
-		MetricsManager:                   r.metricsManager,
-		UserAgent:                        r.userAgent,
-		LogNameMode:                      r.envLogNameMode,
-		Loggers:                          r.loggers,
-		ConnectionMapper:                 r,
-		ExpiredCredentialCleanupInterval: r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
+		Identifiers:                         identifiers,
+		EnvConfig:                           envConfig,
+		AllConfig:                           r.config,
+		ClientFactory:                       wrappedClientFactory,
+		DataStoreFactory:                    dataStoreFactory,
+		DataStoreInfo:                       dataStoreInfo,
+		StreamProviders:                     r.allStreamProviders(),
+		JSClientContext:                     jsClientContext,
+		MetricsManager:                      r.metricsManager,
+		UserAgent:                           r.userAgent,
+		LogNameMode:                         r.envLogNameMode,
+		Loggers:                             r.loggers,
+		ConnectionMapper:                    r,
+		ExpiredCredentialCleanupInterval:    r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
+		InitialExpiringAdditionalSDKKeys:    opts.initialExpiringAdditionalSDKKeys,
+		InitialExpiringAdditionalMobileKeys: opts.initialExpiringAdditionalMobileKeys,
 	}, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
