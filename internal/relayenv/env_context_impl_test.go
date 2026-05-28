@@ -34,6 +34,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -607,6 +608,86 @@ func TestEventDispatcherIsNotCreatedIfSendEventsIsTrueAndNotInOfflineMode(t *tes
 		ed := envImpl.GetEventDispatcher()
 		require.Nil(t, ed)
 	})
+}
+
+// Regression test for the F7 finding: addCredential spawns startSDKClient in a goroutine and
+// releases c.mu before c.clients[sdkKey] is populated. If removeCredential runs in the gap, the
+// eventually-created client used to be orphaned (no Close() ever called) because c.clients[sdkKey]
+// looked nil at removeCredential time. The fix tracks pending removals so the spawned goroutine
+// auto-closes its client if removeCredential ran before it finished.
+func TestRemoveCredentialClosesInFlightSDKClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	// Gated factory: production of each FakeLDClient blocks until we release the gate. This lets
+	// us deterministically interleave removeCredential between addCredential's spawn and the
+	// client landing in c.clients.
+	gate := make(chan struct{})
+	createdCh := make(chan *testclient.FakeLDClient, 4)
+	gatedFactory := sdks.ClientFactoryFunc(func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		<-gate
+		client := &testclient.FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{})}
+		createdCh <- client
+		return client, nil
+	})
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:        envConfig,
+		ClientFactory:    gatedFactory,
+		ConnectionMapper: mockConnectionMapper{},
+		Loggers:          mockLog.Loggers,
+	}, nil)
+	require.NoError(t, err)
+	defer env.Close()
+	impl := env.(*envContextImpl)
+
+	// Promote an additional SDK key to a rotation predecessor by simulating the autoconfig path:
+	// register the key as additional, then rotate to a new primary with the original as grace.key.
+	// addCredential for the predecessor will fire startSDKClient (which blocks on the gate).
+	extra := config.SDKKey("extra-sdk")
+	env.SetAdditionalSDKKeys([]config.SDKKey{extra}, nil)
+	env.UpdateCredential(
+		NewCredentialUpdate(config.SDKKey("new-primary")).
+			WithGracePeriod(extra, time.Now().Add(time.Hour)),
+	)
+
+	// At this point the new-primary spawn and the rotation-predecessor spawn are both blocked on
+	// the gate. Remove the original primary's SDK key (the one EnvMain was constructed with)
+	// before the gate opens, then unblock everything.
+	env.UpdateCredential(NewCredentialUpdate(config.SDKKey("new-primary")))
+	// Now `extra` is the rotation predecessor of new-primary's previous rotation; its
+	// startSDKClient goroutine is still waiting on the gate. removeCredential for `extra` runs
+	// as soon as its grace expires -- but for this test we trigger it directly:
+	impl.removeCredential(extra)
+
+	// Release the factory. Every spawned client should be immediately closed because
+	// pendingClientRemoval was set for at least the predecessor.
+	close(gate)
+
+	// Drain createdCh and verify at least one of the clients got Close()d. (We don't assert all
+	// clients close because the new primary should keep running.)
+	deadline := time.Now().Add(time.Second)
+	sawClose := false
+	for time.Now().Before(deadline) {
+		select {
+		case client := <-createdCh:
+			if client.Key == extra {
+				select {
+				case <-client.CloseCh:
+					sawClose = true
+				case <-time.After(500 * time.Millisecond):
+					t.Fatalf("client for revoked key %q was created but never closed", client.Key)
+				}
+			}
+		case <-time.After(50 * time.Millisecond):
+		}
+		if sawClose {
+			break
+		}
+	}
+	assert.True(t, sawClose, "expected the in-flight client for the removed key to be closed")
 }
 
 // Regression test for the F1 finding from multi-agent review: when a mobile-key rotation arrives

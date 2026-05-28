@@ -95,8 +95,14 @@ type EnvContextImplParams struct {
 }
 
 type envContextImpl struct {
-	mu                        sync.RWMutex
-	clients                   map[config.SDKKey]sdks.LDClientContext
+	mu      sync.RWMutex
+	clients map[config.SDKKey]sdks.LDClientContext
+	// pendingClientRemoval tracks SDK keys that removeCredential saw in flight (no entry in
+	// clients yet, but a startSDKClient goroutine may still be running). When the goroutine
+	// finally writes the client, it checks this set and closes the client immediately rather
+	// than leaving an orphan whose Close() nothing will ever call. addCredential clears the flag
+	// before launching a new spawn so a key re-added after removal still gets its client.
+	pendingClientRemoval      map[config.SDKKey]struct{}
 	storeAdapter              *store.SSERelayDataStoreAdapter
 	loggers                   ldlog.Loggers
 	identifiers               EnvIdentifiers
@@ -182,6 +188,7 @@ func NewEnvContext(
 	envContext := &envContextImpl{
 		identifiers:               params.Identifiers,
 		clients:                   make(map[config.SDKKey]sdks.LDClientContext),
+		pendingClientRemoval:      make(map[config.SDKKey]struct{}),
 		loggers:                   envLoggers,
 		secureMode:                envConfig.SecureMode,
 		streamProviders:           params.StreamProviders,
@@ -465,6 +472,10 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 		isPrimary := key == c.keyRotator.SDKKey()
 		needsUpstreamClient := isPrimary || c.keyRotator.IsSDKKeyRotationPredecessor(key)
 		if needsUpstreamClient && !c.offline {
+			// Clear any stale pending-removal flag for this key. If the key was previously
+			// removed-while-in-flight and a startSDKClient was still cleaning up, we want the new
+			// spawn's client to land normally rather than be auto-closed.
+			delete(c.pendingClientRemoval, key)
 			go c.startSDKClient(key, nil, false)
 		}
 		if isPrimary {
@@ -505,6 +516,12 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 			if client := c.clients[sdkKey]; client != nil {
 				delete(c.clients, sdkKey)
 				_ = client.Close()
+			} else {
+				// addCredential may have launched a startSDKClient goroutine that hasn't yet
+				// written the client into c.clients. Mark the key so that goroutine closes the
+				// client immediately when it finishes -- otherwise it would land orphaned with
+				// nothing to clean it up until env shutdown.
+				c.pendingClientRemoval[sdkKey] = struct{}{}
 			}
 		}
 	}
@@ -513,6 +530,16 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- EnvContext, suppressErrors bool) {
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
+	if _, removed := c.pendingClientRemoval[sdkKey]; removed {
+		// removeCredential ran before this goroutine finished. The new client (if any) has no
+		// home; close it and drop the pending-removal flag.
+		delete(c.pendingClientRemoval, sdkKey)
+		c.mu.Unlock()
+		if client != nil {
+			_ = client.Close()
+		}
+		return
+	}
 	name := c.identifiers.GetDisplayName()
 	if client != nil {
 		c.clients[sdkKey] = client
