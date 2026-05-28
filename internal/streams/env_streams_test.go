@@ -122,6 +122,30 @@ func TestAddCredential(t *testing.T) {
 	assert.Equal(t, store, esp3.store)
 }
 
+// Regression test for the F6 finding: AddCredential must be idempotent against concurrent callers.
+// The original check-then-act released the lock between the duplicate check and the Register+append
+// loop, so two goroutines hitting the same credential could both pass the check and double-register.
+func TestAddCredentialConcurrent(t *testing.T) {
+	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
+	store := makeMockStore(nil, nil)
+	es := NewEnvStreams([]StreamProvider{sp}, store, 0, config.DefaultFilter, ldlog.NewDisabledLoggers())
+	defer es.Close()
+
+	sdkKey := config.SDKKey("contested-key")
+	const goroutines = 16
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			es.AddCredential(sdkKey)
+		}()
+	}
+	wg.Wait()
+
+	assert.Len(t, sp.createdStreams, 1, "expected exactly one stream registration despite concurrent AddCredential calls")
+}
+
 func TestRemoveCredential(t *testing.T) {
 	sp := &mockStreamProvider{credentialOfDesiredType: config.SDKKey("")}
 

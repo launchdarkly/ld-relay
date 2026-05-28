@@ -108,24 +108,26 @@ func NewEnvStreams(
 // AddCredential adds an environment keyed off the combination of credential and payload filter,
 // and creates a corresponding EnvStreamProvider. Calling AddCredential a second time with the same
 // credential is a no-op -- the registration is already in place.
+//
+// The lock is held across the duplicate check and the Register-then-append loop so two concurrent
+// callers can never both pass the duplicate check and double-register. In-tree callers serialize
+// via envContextImpl.mu, but the public docstring advertises idempotency against concurrent
+// callers as well.
 func (es *EnvStreams) AddCredential(credential credential.SDKCredential) {
 	if credential == nil {
 		return
 	}
 	scopedCred := sdkauth.NewScoped(es.filterKey, credential)
 	es.lock.Lock()
+	defer es.lock.Unlock()
 	for _, s := range es.activeStreams {
 		if s.credential == scopedCred {
-			es.lock.Unlock()
 			return
 		}
 	}
-	es.lock.Unlock()
 	for _, sp := range es.streamProviders {
 		if esp := sp.Register(scopedCred, es.storeQueries, es.loggers); esp != nil {
-			es.lock.Lock()
 			es.activeStreams = append(es.activeStreams, streamInfo{scopedCred, esp})
-			es.lock.Unlock()
 		}
 	}
 }
