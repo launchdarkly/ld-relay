@@ -159,11 +159,29 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 		if envConfig.SDKKey == "" {
 			result.AddError(nil, errEnvironmentWithNoSDKKey(envName))
 		}
+		envConfig.AdditionalSDKKeys = trimAdditionalKeyList(envConfig.AdditionalSDKKeys)
+		envConfig.AdditionalMobileKeys = trimAdditionalKeyList(envConfig.AdditionalMobileKeys)
 		validateAdditionalKeyList(result, envName, "additionalSdkKeys",
 			envConfig.AdditionalSDKKeys.Values(), string(envConfig.SDKKey))
 		validateAdditionalKeyList(result, envName, "additionalMobileKeys",
 			envConfig.AdditionalMobileKeys.Values(), string(envConfig.MobileKey))
+		c.Environment[envName] = envConfig
 	}
+}
+
+// trimAdditionalKeyList canonicalizes a comma- or list-form of additional keys by trimming
+// leading and trailing whitespace from each entry. Entries that are empty or whitespace-only
+// after trimming are preserved so the subsequent validator can report them.
+func trimAdditionalKeyList(list ct.OptStringList) ct.OptStringList {
+	if !list.IsDefined() {
+		return list
+	}
+	values := list.Values()
+	trimmed := make([]string, len(values))
+	for i, v := range values {
+		trimmed[i] = strings.TrimSpace(v)
+	}
+	return ct.NewOptStringList(trimmed)
 }
 
 func validateAdditionalKeyList(result *ct.ValidationResult, envName, fieldName string, keys []string, primary string) {

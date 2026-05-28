@@ -110,11 +110,13 @@ func makeValidConfigAdditionalKeys() testDataValidConfig {
 			},
 		}
 	}
+	// Include whitespace around the comma-separated entries to exercise the trim canonicalization
+	// performed by ValidateConfig. The expected config above has the trimmed values.
 	c.envVars = map[string]string{
 		"LD_ENV_earth":                    "earth-sdk",
 		"LD_MOBILE_KEY_earth":             "earth-mob",
-		"LD_ADDITIONAL_SDK_KEYS_earth":    "earth-sdk-2,earth-sdk-3",
-		"LD_ADDITIONAL_MOBILE_KEYS_earth": "earth-mob-2",
+		"LD_ADDITIONAL_SDK_KEYS_earth":    "earth-sdk-2, earth-sdk-3",
+		"LD_ADDITIONAL_MOBILE_KEYS_earth": " earth-mob-2 ",
 	}
 	c.fileContent = `
 [Environment "earth"]

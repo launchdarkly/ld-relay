@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -876,6 +877,7 @@ func toSDKKeys(values []string) []config.SDKKey {
 	}
 	keys := make([]config.SDKKey, 0, len(values))
 	for _, v := range values {
+		v = strings.TrimSpace(v)
 		if v != "" {
 			keys = append(keys, config.SDKKey(v))
 		}
@@ -889,6 +891,7 @@ func toMobileKeys(values []string) []config.MobileKey {
 	}
 	keys := make([]config.MobileKey, 0, len(values))
 	for _, v := range values {
+		v = strings.TrimSpace(v)
 		if v != "" {
 			keys = append(keys, config.MobileKey(v))
 		}
