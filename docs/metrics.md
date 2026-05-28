@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
+You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, Prometheus, or any OpenTelemetry-compatible backend via OTLP. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
 
 The Relay Proxy supports the following metrics:
 
@@ -22,6 +22,47 @@ You can filter metrics by the following tags:
 - `userAgent`: The user agent used to make the request, typically a LaunchDarkly SDK version. Example: "Node/3.4.0"
 
 **Note:** Traces for stream connections will trace until the connection is closed.
+
+## OpenTelemetry configuration
+
+When `USE_OPENTELEMETRY` is set to `true`, the Relay Proxy bridges its existing OpenCensus stats views and trace spans into the OpenTelemetry SDK and exports them via OTLP. This lets you ship Relay Proxy telemetry to any OpenTelemetry-compatible backend, including New Relic, Honeycomb, Grafana Tempo/Mimir/Loki, AWS Distro for OpenTelemetry, or an OpenTelemetry Collector that fans out to your APM of choice.
+
+Configuration knobs (set in the `[OpenTelemetry]` section of the configuration file, or via environment variables):
+
+| Variable                          | Default          | Description |
+|-----------------------------------|------------------|-------------|
+| `USE_OPENTELEMETRY`               | `false`          | Enables the OTLP exporter. |
+| `OPENTELEMETRY_SERVICE_NAME`      | `ld-relay`       | `service.name` resource attribute. Overridden by `OTEL_SERVICE_NAME`. |
+| `OPENTELEMETRY_PREFIX`            | (none)           | Optional `service.namespace` attribute. |
+| `OPENTELEMETRY_ENDPOINT`          | (SDK default)    | OTLP endpoint. When unset, the SDK reads `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+| `OPENTELEMETRY_PROTOCOL`          | `grpc`           | `grpc` or `http/protobuf`. |
+| `OPENTELEMETRY_INSECURE`          | `false`          | Disable TLS for the OTLP connection. Useful when shipping to a local collector. |
+| `OPENTELEMETRY_HEADERS`           | (none)           | Comma-separated `key=value` pairs to attach to OTLP requests (e.g. an API key). |
+| `OPENTELEMETRY_DISABLE_TRACES`    | `false`          | Disable trace export while still emitting metrics. |
+| `OPENTELEMETRY_DISABLE_METRICS`   | `false`          | Disable metric export while still emitting traces. |
+
+Standard `OTEL_*` environment variables (such as `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`) are also honored by the underlying SDK and act as defaults whenever the equivalent `OPENTELEMETRY_*` setting is not supplied.
+
+The OpenTelemetry exporter can be enabled alongside the Datadog, Stackdriver, and Prometheus exporters. All four read from the same underlying OpenCensus measurements, so it is safe to dual-write while you migrate dashboards.
+
+### Sending to New Relic
+
+```ini
+[OpenTelemetry]
+USE_OPENTELEMETRY = true
+OPENTELEMETRY_ENDPOINT = https://otlp.nr-data.net
+OPENTELEMETRY_PROTOCOL = http/protobuf
+OPENTELEMETRY_HEADERS = api-key=YOUR_NEW_RELIC_LICENSE_KEY
+```
+
+### Sending to a local OpenTelemetry Collector
+
+```ini
+[OpenTelemetry]
+USE_OPENTELEMETRY = true
+OPENTELEMETRY_ENDPOINT = localhost:4317
+OPENTELEMETRY_INSECURE = true
+```
 
 ## Prometheus configuration
 

@@ -287,6 +287,22 @@ To learn more, read [Metrics integrations](./metrics.md).
 | `port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will provide the `/metrics` endpoint on. |
 | `prefix`         | `PROMETHEUS_PREFIX` | String  |         | The metrics prefix to be used by Prometheus.                           |
 
+### File section: `[OpenTelemetry]`
+
+To learn more, read [Metrics integrations](./metrics.md).
+
+| Property in file   | Environment var                  |  Type   | Default    | Description                                                                                                          |
+|--------------------|----------------------------------|:-------:|:-----------|----------------------------------------------------------------------------------------------------------------------|
+| `enabled`          | `USE_OPENTELEMETRY`              | Boolean | `false`    | If true, exports the Relay Proxy's stats and trace spans via OTLP using the OpenCensus-to-OpenTelemetry bridge.      |
+| `serviceName`      | `OPENTELEMETRY_SERVICE_NAME`     | String  | `ld-relay` | The `service.name` resource attribute. `OTEL_SERVICE_NAME` overrides this when both are set.                         |
+| `prefix`           | `OPENTELEMETRY_PREFIX`           | String  |            | Optional `service.namespace` resource attribute, used for grouping multiple Relay Proxy instances in a backend.      |
+| `endpoint`         | `OPENTELEMETRY_ENDPOINT`         | String  |            | OTLP endpoint URL. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT` when unset.                                           |
+| `protocol`         | `OPENTELEMETRY_PROTOCOL`         | String  | `grpc`     | OTLP transport. One of `grpc` or `http/protobuf`.                                                                    |
+| `insecure`         | `OPENTELEMETRY_INSECURE`         | Boolean | `false`    | Disable TLS for the OTLP connection. Useful for sending to a local OpenTelemetry Collector.                          |
+| `headers`          | `OPENTELEMETRY_HEADERS`          | String  |            | Comma-separated `key=value` headers attached to OTLP requests, e.g. `api-key=...`.                                   |
+| `disableTraces`    | `OPENTELEMETRY_DISABLE_TRACES`   | Boolean | `false`    | If true, only metrics are exported via OTLP.                                                                         |
+| `disableMetrics`   | `OPENTELEMETRY_DISABLE_METRICS`  | Boolean | `false`    | If true, only traces are exported via OTLP.                                                                          |
+
 ### File section: `[Proxy]`
 
 | Property in file | Environment var       |  Type   | Default | Description                                                                                                                                                                                                                                                                       |
