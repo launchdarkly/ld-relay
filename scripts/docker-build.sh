@@ -100,15 +100,15 @@ build_variant() {
     local tag="${IMAGE}:${VERSION}${tag_suffix}-${arch_label}"
 
     local binary_arch_label="${BINARY_ARCH_LABELS[$platform]}"
+    local build_context="$DIST_DIR/build/ld-relay_${VERSION}_linux_${binary_arch_label}"
     echo "  Building ${tag} (${platform})..."
     docker buildx build \
       --platform "$platform" \
       --tag "$tag" \
       --pull \
       --file "$dockerfile" \
-      --build-arg "BINARY=dist/build/ld-relay_${VERSION}_linux_${binary_arch_label}/ld-relay" \
       $PUSH_FLAG \
-      .
+      "$build_context"
   done
 
   # Create version manifest

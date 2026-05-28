@@ -42,31 +42,15 @@ runs:
       run: |
         echo $DOCKER_TOKEN | docker login --username $DOCKER_USERNAME --password-stdin
 
-    - name: Extract version from tag
-      id: version
-      shell: bash
-      run: |
-        TAG="${{ inputs.tag }}"
-        VERSION="${TAG#v}"
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-    - name: Cross-compile binaries
-      shell: bash
-      run: |
-        ./scripts/cross-compile.sh --keep-build "${{ steps.version.outputs.version }}"
-
-    - name: Build system packages
-      shell: bash
-      run: |
-        ./scripts/build-packages.sh "${{ steps.version.outputs.version }}"
-
-    - name: Build and push Docker images
+    - name: Build release artifacts
       shell: bash
       env:
         LD_RELEASER_UPDATE_MAJOR: ${{ inputs.update-major-tag }}
         LD_RELEASER_UPDATE_LATEST: ${{ inputs.update-latest-tag }}
       run: |
-        ./scripts/docker-build.sh ${{ inputs.dry-run == 'true' && '--dry-run' || '' }} "${{ steps.version.outputs.version }}"
+        TAG="${{ inputs.tag }}"
+        VERSION="${TAG#v}"
+        ./scripts/release.sh ${{ inputs.dry-run == 'true' && '--dry-run' || '' }} "$VERSION"
 
     - name: Output checksum file path
       id: binary

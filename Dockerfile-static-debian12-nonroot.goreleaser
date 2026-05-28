@@ -3,9 +3,7 @@
 FROM gcr.io/distroless/static-debian12:nonroot
 # See "Runtime platform versions" in CONTRIBUTING.md
 
-ARG BINARY=ld-relay
-
-COPY ${BINARY} /usr/bin/ldr
+COPY ld-relay /usr/bin/ldr
 
 EXPOSE 8030
 ENV PORT=8030

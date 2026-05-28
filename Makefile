@@ -60,14 +60,10 @@ echo-release-notes:
 	@cat $(RELEASE_NOTES)
 
 publish:
-	./scripts/cross-compile.sh --keep-build
-	./scripts/build-packages.sh
-	./scripts/docker-build.sh
+	./scripts/release.sh
 
 products-for-release:
-	./scripts/cross-compile.sh --keep-build
-	./scripts/build-packages.sh
-	./scripts/docker-build.sh --dry-run
+	./scripts/release.sh --dry-run
 
 DOCKER_COMPOSE_TEST=docker-compose -f docker-compose.test.yml
 
