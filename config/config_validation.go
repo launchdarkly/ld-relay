@@ -46,6 +46,10 @@ func errAdditionalKeyDuplicate(envName, fieldName string) error {
 	return fmt.Errorf("%s for environment %q contains duplicate entries", fieldName, envName)
 }
 
+func errAdditionalKeysWithoutPrimary(envName, additionalFieldName, primaryFieldName string) error {
+	return fmt.Errorf("%s for environment %q requires a primary %s to be defined", additionalFieldName, envName, primaryFieldName)
+}
+
 func errMultipleDatabases(databases []string) error {
 	return fmt.Errorf("multiple databases are enabled (%s); only one is allowed", strings.Join(databases, ", "))
 }
@@ -161,6 +165,12 @@ func validateConfigEnvironments(result *ct.ValidationResult, c *Config) {
 		}
 		envConfig.AdditionalSDKKeys = trimAdditionalKeyList(envConfig.AdditionalSDKKeys)
 		envConfig.AdditionalMobileKeys = trimAdditionalKeyList(envConfig.AdditionalMobileKeys)
+		if len(envConfig.AdditionalSDKKeys.Values()) > 0 && envConfig.SDKKey == "" {
+			result.AddError(nil, errAdditionalKeysWithoutPrimary(envName, "additionalSdkKeys", "sdkKey"))
+		}
+		if len(envConfig.AdditionalMobileKeys.Values()) > 0 && !envConfig.MobileKey.Defined() {
+			result.AddError(nil, errAdditionalKeysWithoutPrimary(envName, "additionalMobileKeys", "mobileKey"))
+		}
 		validateAdditionalKeyList(result, envName, "additionalSdkKeys",
 			envConfig.AdditionalSDKKeys.Values(), string(envConfig.SDKKey))
 		validateAdditionalKeyList(result, envName, "additionalMobileKeys",

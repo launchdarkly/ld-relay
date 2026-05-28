@@ -47,7 +47,24 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigAdditionalMobileKeyDuplicatesPrimary(),
 		makeInvalidConfigAdditionalSDKKeyDuplicates(),
 		makeInvalidConfigAdditionalMobileKeyDuplicates(),
+		makeInvalidConfigAdditionalMobileKeysWithoutPrimary(),
 	}
+}
+
+func makeInvalidConfigAdditionalMobileKeysWithoutPrimary() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "additional mobile keys without primary mobile key"}
+	c.envVarsError = errAdditionalKeysWithoutPrimary("envname", "additionalMobileKeys", "mobileKey").Error()
+	c.envVars = map[string]string{
+		"LD_ENV_envname":                    "sdk-primary",
+		"LD_ADDITIONAL_MOBILE_KEYS_envname": "mob-extra",
+	}
+	c.fileContent = `
+[Environment "envname"]
+SdkKey = sdk-primary
+AdditionalMobileKeys = mob-extra
+`
+	c.fileError = c.envVarsError
+	return c
 }
 
 func makeInvalidConfigAdditionalSDKKeyDuplicatesPrimary() testDataInvalidConfig {
