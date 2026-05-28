@@ -569,6 +569,99 @@ func TestPromotingExpiringAdditionalSDKKeyToPrimaryRemovesFromExpiringSet(t *tes
 	assert.NotContains(t, deprecated, config.SDKKey("expiring1"))
 }
 
+// Regression test for the F2 finding from multi-agent review: a SetAdditional patch that omits a
+// key currently in rotation grace must NOT revoke that key. The rotation grace flow owns the
+// key's lifecycle; the diff loop must leave it alone.
+func TestSetAdditionalOmissionDoesNotRevokeRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary-v1")})
+
+	// Patch 1: register "A" as an additional key.
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"A"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	// Patch 2: rotation arrives where "A" is now the expiring predecessor (grace.key = A) and a
+	// new primary is "primary-v2". The autoconfig path runs UpdateCredential first, then
+	// SetAdditional with an empty additional list.
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("primary-v2"),
+		NewGracePeriod(config.SDKKey("A"), start.Add(1*time.Hour), start),
+	)
+	rotator.SetAdditionalSDKKeys(nil, nil)
+
+	additions, expirations := rotator.StepTime(start)
+	// "primary-v2" is queued as the new primary. "A" should NOT be expired -- it just transitioned
+	// from additional to rotation-predecessor and still has its full grace window.
+	assert.Contains(t, additions, config.SDKKey("primary-v2"))
+	assert.NotContains(t, expirations, config.SDKKey("A"))
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.SDKKey("A"))
+}
+
+// Regression test for the F3 finding: after a rotation grace expires for a key that was previously
+// an additional, the additional set must not retain a phantom entry.
+func TestRotationPredecessorClearedFromAdditionalSet(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.SDKKey("primary-v1")})
+
+	rotator.SetAdditionalSDKKeys([]config.SDKKey{"A"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	start := time.Unix(10000, 0)
+	rotator.RotateWithGrace(
+		config.SDKKey("primary-v2"),
+		NewGracePeriod(config.SDKKey("A"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+
+	// After the grace expires, the rotator should not still report "A" as an active additional.
+	_, _ = rotator.StepTime(start.Add(1*time.Hour + time.Millisecond))
+	assert.NotContains(t, rotator.ActiveSDKKeys(), config.SDKKey("A"))
+}
+
+// Same scenarios for mobile keys.
+func TestSetAdditionalOmissionDoesNotRevokeMobileRotationPredecessor(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary-v1")})
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"A"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	start := time.Unix(10000, 0)
+	rotator.RotateMobileKeyWithGrace(
+		config.MobileKey("primary-v2"),
+		NewMobileGracePeriod(config.MobileKey("A"), start.Add(1*time.Hour), start),
+	)
+	rotator.SetAdditionalMobileKeys(nil, nil)
+
+	additions, expirations := rotator.StepTime(start)
+	assert.Contains(t, additions, config.MobileKey("primary-v2"))
+	assert.NotContains(t, expirations, config.MobileKey("A"))
+	assert.Contains(t, rotator.DeprecatedCredentials(), config.MobileKey("A"))
+}
+
+func TestMobileRotationPredecessorClearedFromAdditionalSet(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+	rotator.Initialize([]SDKCredential{config.MobileKey("primary-v1")})
+
+	rotator.SetAdditionalMobileKeys([]config.MobileKey{"A"}, nil)
+	_, _ = rotator.StepTime(time.Now())
+
+	start := time.Unix(10000, 0)
+	rotator.RotateMobileKeyWithGrace(
+		config.MobileKey("primary-v2"),
+		NewMobileGracePeriod(config.MobileKey("A"), start.Add(1*time.Hour), start),
+	)
+	_, _ = rotator.StepTime(start)
+	_, _ = rotator.StepTime(start.Add(1*time.Hour + time.Millisecond))
+
+	assert.NotContains(t, rotator.ActiveMobileKeys(), config.MobileKey("A"))
+}
+
 // --- Mobile-key additional-set tests (parallel to the SDK suite above) ---
 
 func TestSetAdditionalMobileKeysAddsActiveKeys(t *testing.T) {

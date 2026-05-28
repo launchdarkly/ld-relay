@@ -467,6 +467,11 @@ func (r *Rotator) RotateMobileKeyWithGrace(primary config.MobileKey, grace *Mobi
 	}
 
 	r.loggers.Infof("Mobile key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+	// See the matching comment in updateSDKKey -- if the deprecated key was previously tracked as
+	// an additional mobile key, move it into the rotation-grace map so a later SetAdditional patch
+	// cannot revoke it and no phantom entry remains after expiry.
+	delete(r.additionalMobileKeys, grace.key)
+	delete(r.expiringAdditionalMobileKeys, grace.key)
 	r.deprecatedMobileKeys[grace.key] = grace.expiry
 
 	if grace.key != previous {
@@ -664,6 +669,13 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	}
 
 	r.loggers.Infof("SDK key %s was marked for deprecation with an expiry at %v", grace.key.Masked(), grace.expiry)
+	// If the deprecated key was previously tracked as an additional key (active or expiring), move
+	// it into the rotation-grace map. Leaving the entry in the additional maps would (1) let a
+	// later SetAdditional patch's cleanup-loop revoke the key while the rotation grace still wants
+	// it alive, and (2) leave a phantom entry behind after the grace expires that ActiveSDKKeys
+	// would keep reporting forever.
+	delete(r.additionalSdkKeys, grace.key)
+	delete(r.expiringAdditionalSdkKeys, grace.key)
 	r.deprecatedSdkKeys[grace.key] = grace.expiry
 
 	if grace.key != previous {
