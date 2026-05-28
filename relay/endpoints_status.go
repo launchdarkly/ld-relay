@@ -69,9 +69,25 @@ func statusHandler(relay *Relay) http.Handler {
 				}
 			}
 
+			// Surface every deprecated credential the rotator knows about, partitioned by kind.
+			// The scalar ExpiringSDKKey / ExpiringMobileKey fields are retained for back-compat
+			// with existing dashboards and carry the first key of each kind seen; the array
+			// fields carry the full set so callers can inspect every grace-period entry (which is
+			// possible now that additional keys can each carry their own ExpiresAt).
 			for _, c := range clientCtx.GetDeprecatedCredentials() {
-				if key, ok := c.(config.SDKKey); ok {
-					status.ExpiringSDKKey = sdks.ObscureKey(string(key))
+				switch key := c.(type) {
+				case config.SDKKey:
+					obscured := sdks.ObscureKey(string(key))
+					if status.ExpiringSDKKey == "" {
+						status.ExpiringSDKKey = obscured
+					}
+					status.ExpiringSDKKeys = append(status.ExpiringSDKKeys, obscured)
+				case config.MobileKey:
+					obscured := sdks.ObscureKey(string(key))
+					if status.ExpiringMobileKey == "" {
+						status.ExpiringMobileKey = obscured
+					}
+					status.ExpiringMobileKeys = append(status.ExpiringMobileKeys, obscured)
 				}
 			}
 

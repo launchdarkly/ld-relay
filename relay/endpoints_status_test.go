@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
@@ -93,6 +94,39 @@ func TestEndpointsStatus(t *testing.T) {
 			additionalMobileKeys := status.GetByKey("environments").GetByKey(envMobileWithExtras.Name).GetByKey("additionalMobileKeys")
 			require.Equal(t, 1, additionalMobileKeys.Count())
 			assert.Equal(t, sdks.ObscureKey("mob-extra-1"), additionalMobileKeys.GetByIndex(0).StringValue())
+		})
+	})
+
+	t.Run("expiring mobile key is surfaced", func(t *testing.T) {
+		envConfig := st.EnvMobile.Config
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(st.EnvMobile)
+
+		withStartedRelay(t, config, func(p relayTestParams) {
+			envMobile, err := p.relay.getEnvironment(sdkauth.New(envConfig.SDKKey))
+			require.NotNil(t, envMobile)
+			require.NoError(t, err)
+
+			// Rotate the mobile key with grace; the deprecated mobile key should surface in the
+			// status endpoint -- it was silently dropped before the F5 fix.
+			oldMobileKey := envConfig.MobileKey
+			newMobileKey := c.MobileKey("new-mobile-key")
+			envMobile.UpdateCredential(
+				relayenv.NewCredentialUpdate(newMobileKey).
+					WithGracePeriod(oldMobileKey, time.Now().Add(time.Hour)),
+			)
+
+			r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+			result, body := st.DoRequest(r, p.relay)
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			status := ldvalue.Parse(body)
+
+			expiring := status.GetByKey("environments").GetByKey(st.EnvMobile.Name).GetByKey("expiringMobileKey")
+			assert.Equal(t, sdks.ObscureKey(string(oldMobileKey)), expiring.StringValue())
+
+			arr := status.GetByKey("environments").GetByKey(st.EnvMobile.Name).GetByKey("expiringMobileKeys")
+			require.Equal(t, 1, arr.Count())
+			assert.Equal(t, sdks.ObscureKey(string(oldMobileKey)), arr.GetByIndex(0).StringValue())
 		})
 	})
 

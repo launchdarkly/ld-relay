@@ -27,6 +27,9 @@ type EnvironmentStatusRep struct {
 	ProjName             string               `json:"projName,omitempty"`
 	MobileKey            string               `json:"mobileKey,omitempty"`
 	ExpiringSDKKey       string               `json:"expiringSdkKey,omitempty"`
+	ExpiringMobileKey    string               `json:"expiringMobileKey,omitempty"`
+	ExpiringSDKKeys      []string             `json:"expiringSdkKeys,omitempty"`
+	ExpiringMobileKeys   []string             `json:"expiringMobileKeys,omitempty"`
 	AdditionalSDKKeys    []string             `json:"additionalSdkKeys,omitempty"`
 	AdditionalMobileKeys []string             `json:"additionalMobileKeys,omitempty"`
 	Status               string               `json:"status"`
