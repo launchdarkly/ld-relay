@@ -1,6 +1,6 @@
 module github.com/launchdarkly/ld-relay/v8
 
-go 1.25.5
+go 1.25.10
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
@@ -25,14 +25,14 @@ require (
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.11.0
 	github.com/launchdarkly/go-configtypes v1.2.0
-	github.com/launchdarkly/go-jsonstream/v4 v4.0.0-20260526224546-8bf6dec4a0c8
-	github.com/launchdarkly/go-sdk-common/v4 v4.0.0-20260526225240-97f2812dbb86
-	github.com/launchdarkly/go-sdk-events/v3 v3.6.1-0.20260526230019-c1af04865d66
-	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.1-0.20260527173847-1198f1b3305e
-	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.1-0.20260527173851-f5fa346fb9cc
-	github.com/launchdarkly/go-server-sdk-evaluation/v4 v4.0.0-20260526225518-f16d37cc6c94
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.3-0.20260527173843-7cd296229660
-	github.com/launchdarkly/go-server-sdk/v7 v7.14.8-0.20260527165936-9e2c40230b79
+	github.com/launchdarkly/go-jsonstream/v4 v4.0.0
+	github.com/launchdarkly/go-sdk-common/v4 v4.0.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.6.1
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.1
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.2
+	github.com/launchdarkly/go-server-sdk-evaluation/v4 v4.0.0
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.3
+	github.com/launchdarkly/go-server-sdk/v7 v7.15.1
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.7
 	github.com/pborman/uuid v1.2.1
