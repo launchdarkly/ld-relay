@@ -464,11 +464,13 @@ func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
 }
 
 func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
-	if envID == r.EnvironmentID() {
-		return
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Decide under the write lock so the no-op check sees the same state we'll then write. The
+	// previous RLock-then-Lock pattern was TOCTOU-prone -- consistent now with updateSDKKey.
+	if envID == r.primaryEnvironmentID {
+		return
+	}
 	previous := r.primaryEnvironmentID
 	r.primaryEnvironmentID = envID
 	r.additions = append(r.additions, envID)
@@ -481,9 +483,9 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 }
 
 func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
-	if mobileKey == r.MobileKey() {
-		return
-	}
+	// swapPrimaryMobileKey already short-circuits when the new key matches the current primary
+	// (it does so under the write lock so the check + write are atomic). Acquire the write lock
+	// directly and let swap decide -- no TOCTOU window.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	previous := r.swapPrimaryMobileKey(mobileKey)
