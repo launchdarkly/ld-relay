@@ -96,6 +96,56 @@ func TestEnvironmentRepToParamsAdditionalSDKKeys(t *testing.T) {
 	}, params.ExpiringAdditionalSDKKeys)
 }
 
+func TestEnvironmentRepToParamsAdditionalSDKKeysDedupesDuplicates(t *testing.T) {
+	// Defense in depth against malformed platform payloads: duplicate entries dedupe with
+	// expiring winning over active and the first occurrence within a kind winning.
+	expiresEarly := ldtime.UnixMillisecondTime(10000)
+	expiresLate := ldtime.UnixMillisecondTime(20000)
+	env := EnvironmentRep{
+		SDKKey: SDKKeyRep{
+			Value: config.SDKKey("primary"),
+			Additional: []AdditionalSDKKeyRep{
+				{Value: config.SDKKey("dup-active")},
+				{Value: config.SDKKey("dup-active")}, // identical to previous
+				{Value: config.SDKKey("dup-expiring"), ExpiresAt: &expiresEarly},
+				{Value: config.SDKKey("dup-expiring"), ExpiresAt: &expiresLate}, // ignored, first wins
+				{Value: config.SDKKey("mixed")},                                 // listed as active first
+				{Value: config.SDKKey("mixed"), ExpiresAt: &expiresEarly},       // promoted to expiring
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, []config.SDKKey{"dup-active"}, params.AdditionalSDKKeys)
+	assert.Equal(t, map[config.SDKKey]time.Time{
+		"dup-expiring": time.UnixMilli(int64(expiresEarly)),
+		"mixed":        time.UnixMilli(int64(expiresEarly)),
+	}, params.ExpiringAdditionalSDKKeys)
+}
+
+func TestEnvironmentRepToParamsAdditionalMobileKeysDedupesDuplicates(t *testing.T) {
+	expiresEarly := ldtime.UnixMillisecondTime(10000)
+	env := EnvironmentRep{
+		MobileKey: &MobileKeyRep{
+			Value: config.MobileKey("primary"),
+			Additional: []AdditionalMobileKeyRep{
+				{Value: config.MobileKey("dup-active")},
+				{Value: config.MobileKey("dup-active")},
+				{Value: config.MobileKey("mixed")},
+				{Value: config.MobileKey("mixed"), ExpiresAt: &expiresEarly},
+			},
+		},
+	}
+
+	params := env.ToParams()
+
+	assert.Equal(t, []config.MobileKey{"dup-active"}, params.AdditionalMobileKeys)
+	assert.Equal(t, map[config.MobileKey]time.Time{
+		"mixed": time.UnixMilli(int64(expiresEarly)),
+	}, params.ExpiringAdditionalMobileKeys)
+}
+
 func TestEnvironmentRepToParamsAdditionalSDKKeysSkipsUndefinedEntries(t *testing.T) {
 	env := EnvironmentRep{
 		SDKKey: SDKKeyRep{

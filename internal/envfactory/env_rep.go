@@ -163,6 +163,21 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 }
 
 func splitAdditionalSDKKeys(additional []AdditionalSDKKeyRep) (active []config.SDKKey, expiring map[config.SDKKey]time.Time) {
+	// Defense-in-depth dedupe of duplicate entries in the wire-format Additional list. The
+	// platform shouldn't send duplicates, but if it does we want deterministic results: expiring
+	// wins over active (it carries a stronger signal), and within a kind the first occurrence
+	// wins.
+	var hasExpiring map[config.SDKKey]struct{}
+	for _, a := range additional {
+		if a.Value.Defined() && a.ExpiresAt != nil {
+			if hasExpiring == nil {
+				hasExpiring = make(map[config.SDKKey]struct{})
+			}
+			hasExpiring[a.Value] = struct{}{}
+		}
+	}
+
+	seenActive := make(map[config.SDKKey]struct{})
 	for _, a := range additional {
 		if !a.Value.Defined() {
 			continue
@@ -171,15 +186,36 @@ func splitAdditionalSDKKeys(additional []AdditionalSDKKeyRep) (active []config.S
 			if expiring == nil {
 				expiring = make(map[config.SDKKey]time.Time)
 			}
-			expiring[a.Value] = ToTime(*a.ExpiresAt)
-		} else {
-			active = append(active, a.Value)
+			if _, dup := expiring[a.Value]; !dup {
+				expiring[a.Value] = ToTime(*a.ExpiresAt)
+			}
+			continue
 		}
+		if _, isExp := hasExpiring[a.Value]; isExp {
+			continue
+		}
+		if _, dup := seenActive[a.Value]; dup {
+			continue
+		}
+		seenActive[a.Value] = struct{}{}
+		active = append(active, a.Value)
 	}
 	return active, expiring
 }
 
 func splitAdditionalMobileKeys(additional []AdditionalMobileKeyRep) (active []config.MobileKey, expiring map[config.MobileKey]time.Time) {
+	// Same dedupe semantics as splitAdditionalSDKKeys; see the comment there.
+	var hasExpiring map[config.MobileKey]struct{}
+	for _, a := range additional {
+		if a.Value.Defined() && a.ExpiresAt != nil {
+			if hasExpiring == nil {
+				hasExpiring = make(map[config.MobileKey]struct{})
+			}
+			hasExpiring[a.Value] = struct{}{}
+		}
+	}
+
+	seenActive := make(map[config.MobileKey]struct{})
 	for _, a := range additional {
 		if !a.Value.Defined() {
 			continue
@@ -188,10 +224,19 @@ func splitAdditionalMobileKeys(additional []AdditionalMobileKeyRep) (active []co
 			if expiring == nil {
 				expiring = make(map[config.MobileKey]time.Time)
 			}
-			expiring[a.Value] = ToTime(*a.ExpiresAt)
-		} else {
-			active = append(active, a.Value)
+			if _, dup := expiring[a.Value]; !dup {
+				expiring[a.Value] = ToTime(*a.ExpiresAt)
+			}
+			continue
 		}
+		if _, isExp := hasExpiring[a.Value]; isExp {
+			continue
+		}
+		if _, dup := seenActive[a.Value]; dup {
+			continue
+		}
+		seenActive[a.Value] = struct{}{}
+		active = append(active, a.Value)
 	}
 	return active, expiring
 }
