@@ -271,7 +271,11 @@ func TestChangeSDKKey(t *testing.T) {
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
-	assert.Equal(t, env.GetClient(), client2)
+	// requireClientReady fires when the factory sends on clientCh, but startSDKClient stores
+	// the client in c.clients after that send. Use Eventually to wait for the map store.
+	require.Eventually(t, func() bool {
+		return env.GetClient() == client2
+	}, time.Second, 10*time.Millisecond, "env.GetClient() should return client2 after rotation")
 
 	// The client for the original SDK key should not have been closed, since it's valid for an hour.
 	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
