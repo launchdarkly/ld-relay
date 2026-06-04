@@ -113,8 +113,9 @@ func TestOfflineModeInit(t *testing.T) {
 
 		client1 := p.awaitClient()
 		client2 := p.awaitClient()
-		assert.Equal(t, testFileDataEnv1.Params.SDKKey, client1.Key)
-		assert.Equal(t, testFileDataEnv2.Params.SDKKey, client2.Key)
+		keys := []config.SDKKey{client1.Key, client2.Key}
+		assert.Contains(t, keys, testFileDataEnv1.Params.SDKKey)
+		assert.Contains(t, keys, testFileDataEnv2.Params.SDKKey)
 
 		env1 := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 		p.assertEnvLookup(env1, testFileDataEnv1.Params)
@@ -175,8 +176,9 @@ func TestOfflineModeDeleteEnvironment(t *testing.T) {
 
 		client1 := p.awaitClient()
 		client2 := p.awaitClient()
-		assert.Equal(t, testFileDataEnv1.Params.SDKKey, client1.Key)
-		assert.Equal(t, testFileDataEnv2.Params.SDKKey, client2.Key)
+		keys := []config.SDKKey{client1.Key, client2.Key}
+		assert.Contains(t, keys, testFileDataEnv1.Params.SDKKey)
+		assert.Contains(t, keys, testFileDataEnv2.Params.SDKKey)
 
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
