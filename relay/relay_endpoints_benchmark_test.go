@@ -36,7 +36,7 @@ func BenchmarkEvaluateAllFlags(b *testing.B) {
 			SingleVariation(ldvalue.String(fmt.Sprintf("value%d", i))).
 			ClientSideUsingEnvironmentID(true).
 			Build()
-		allData[0].Items = append(allData[0].Items, ldstoretypes.KeyedItemDescriptor{flag.Key, sharedtest.FlagDesc(flag)})
+		allData[0].Items = append(allData[0].Items, ldstoretypes.KeyedItemDescriptor{Key: flag.Key, Item: sharedtest.FlagDesc(flag)})
 	}
 
 	user := lduser.NewUserBuilder("user-key").Name("name").Email("email").Custom("a", ldvalue.String("b")).Build()
