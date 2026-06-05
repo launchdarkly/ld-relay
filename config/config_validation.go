@@ -21,6 +21,10 @@ var (
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
+	errRedisAWSAuthRequiresTLS                 = errors.New("REDIS_AWS_AUTH requires REDIS_TLS=true (ElastiCache IAM authentication only works over TLS)")
+	errRedisAWSAuthRequiresUsername            = errors.New("REDIS_AWS_AUTH requires REDIS_USERNAME")
+	errRedisAWSAuthRequiresCacheName           = errors.New("REDIS_AWS_AUTH requires REDIS_AWS_CACHE_NAME")
+	errRedisAWSAuthForbidsPassword             = errors.New("REDIS_AWS_AUTH cannot be combined with REDIS_PASSWORD (mutually exclusive)")
 	errConsulTokenAndTokenFile                 = errors.New("Consul token must be specified as either an inline value or a file, but not both") //nolint:staticcheck
 	errAutoConfWithFilters                     = errors.New("cannot configure filters if auto-configuration is enabled")
 	errCacheKeyWithoutStore                    = errors.New("AUTO_CONFIG_CACHE_KEY requires Redis or DynamoDB to be enabled")
@@ -307,5 +311,23 @@ func normalizeRedisConfig(result *ct.ValidationResult, c *Config) {
 		c.Redis.URL = url
 		c.Redis.Host = ""
 		c.Redis.Port = ct.OptIntGreaterThanZero{}
+	}
+
+	if c.Redis.AWSAuth {
+		if !c.Redis.TLS {
+			result.AddError(nil, errRedisAWSAuthRequiresTLS)
+		}
+		if c.Redis.Username == "" {
+			result.AddError(nil, errRedisAWSAuthRequiresUsername)
+		}
+		if c.Redis.AWSCacheName == "" {
+			result.AddError(nil, errRedisAWSAuthRequiresCacheName)
+		}
+		if c.Redis.Password != "" {
+			result.AddError(nil, errRedisAWSAuthForbidsPassword)
+		}
+		if c.Redis.AWSCacheName != "" {
+			c.Redis.AWSCacheName = strings.ToLower(c.Redis.AWSCacheName)
+		}
 	}
 }

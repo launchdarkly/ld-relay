@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
@@ -48,6 +50,22 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 			MinVersion: tls.VersionTLS12,
 		}
 	}
+
+	if redisConfig.AWSAuth {
+		provider, provErr := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
+		if provErr != nil {
+			return nil, provErr
+		}
+		uo.OnConnect = func(ctx context.Context, cn *redis.Conn) error {
+			tok, err := provider.Token(ctx)
+			if err != nil {
+				return err
+			}
+			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
+		}
+		uo.MaxConnAge = 11 * time.Hour
+	}
+
 	client := redis.NewUniversalClient(uo)
 	ctx, cancel := context.WithCancel(context.Background())
 	return &redisStore{client: client, ctx: ctx, cancel: cancel, hashKey: cacheKey, encKey: encKey, loggers: loggers}, nil

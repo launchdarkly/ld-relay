@@ -212,13 +212,15 @@ type EventsConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type RedisConfig struct {
-	Host     string `conf:"REDIS_HOST"`
-	Port     ct.OptIntGreaterThanZero
-	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
-	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
-	TLS      bool              `conf:"REDIS_TLS"`
-	Username string            `conf:"REDIS_USERNAME"`
-	Password string            `conf:"REDIS_PASSWORD"`
+	Host         string `conf:"REDIS_HOST"`
+	Port         ct.OptIntGreaterThanZero
+	URL          ct.OptURLAbsolute `conf:"REDIS_URL"`
+	LocalTTL     ct.OptDuration    `conf:"CACHE_TTL"`
+	TLS          bool              `conf:"REDIS_TLS"`
+	Username     string            `conf:"REDIS_USERNAME"`
+	Password     string            `conf:"REDIS_PASSWORD"`
+	AWSAuth      bool              `conf:"REDIS_AWS_AUTH"`
+	AWSCacheName string            `conf:"REDIS_AWS_CACHE_NAME"`
 }
 
 // ConsulConfig configures the optional Consul integration.

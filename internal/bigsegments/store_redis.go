@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
@@ -77,6 +79,21 @@ func newRedisBigSegmentStore(
 			ServerName: redisConfig.URL.Get().Hostname(),
 			MinVersion: tls.VersionTLS12,
 		}
+	}
+
+	if redisConfig.AWSAuth {
+		provider, err := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
+		if err != nil {
+			return nil, err
+		}
+		opts.OnConnect = func(ctx context.Context, cn *redis.Conn) error {
+			tok, err := provider.Token(ctx)
+			if err != nil {
+				return err
+			}
+			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
+		}
+		opts.MaxConnAge = 11 * time.Hour
 	}
 
 	store := redisBigSegmentStore{

@@ -199,6 +199,8 @@ To learn more, read [Persistent storage](./persistent-storage.md).
 | `tls`            | `REDIS_TLS`      | Boolean  | `false`     | If `true`, will use a secure connection to Redis (not all Redis servers support this). If you specified a `redis://` URL, setting `tls` to `true` will change it to `rediss://`.               |
 | `password`       | `REDIS_PASSWORD` |  String  |             | Optional password if Redis requires authentication.                                                                                                                                             |
 | `username`       | `REDIS_USERNAME` |  String  |             | Optional username if Redis requires authentication.                                                                                                                                            |
+| `awsAuth`        | `REDIS_AWS_AUTH`       | Boolean  | `false`     | Enable AWS IAM authentication for ElastiCache. Requires `REDIS_TLS=true`, `REDIS_USERNAME`, and `REDIS_AWS_CACHE_NAME`. Mutually exclusive with `REDIS_PASSWORD`.                              |
+| `awsCacheName`   | `REDIS_AWS_CACHE_NAME` |  String  |             | ElastiCache cluster name (lowercased automatically). Required when `REDIS_AWS_AUTH` is `true`. Used to construct the SigV4 presigned authentication URL.                                       |
 | `localTtl`       | `CACHE_TTL`      | Duration | `30s`       | Length of time that database items can be cached in memory.                                                                                                                                    |
 
 Note that the TLS and password options can also be specified as part of the URL: `rediss://` instead of `redis://` 

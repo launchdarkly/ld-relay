@@ -24,7 +24,10 @@ func ConfigureBigSegments(
 	var storeFactory subsystems.ComponentConfigurer[subsystems.BigSegmentStore]
 
 	if allConfig.Redis.URL.IsDefined() {
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
+		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
+		if err != nil {
+			return nil, err
+		}
 		redactedURL := util.RedactURL(redisURL)
 		loggers.Infof("Using Redis big segment store: %s with prefix: %s", redactedURL, envConfig.Prefix)
 		storeFactory = redisBuilder

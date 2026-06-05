@@ -47,6 +47,35 @@ If the database becomes unavailable, the Relay Proxy's behavior, based on its us
 
 The in-memory cache only helps SDKs using the Relay Proxy in proxy mode. SDKs configured to use daemon mode are connected to read directly from the database. To learn more, read [Configuring an SDK to use different modes](https://docs.launchdarkly.com/home/relay-proxy/using#configuring-an-sdk-to-use-different-modes).
 
+## AWS IAM authentication for ElastiCache
+
+When running the Relay Proxy on AWS against an ElastiCache cluster, you can authenticate using an IAM identity instead of a static Redis password. This is most useful when Relay runs on EKS with IRSA or Pod Identity, since it removes the need to inject long-lived Redis credentials into the pod environment. Relay uses the pod's AWS credentials to generate a short-lived SigV4 presigned authentication token for each Redis connection.
+
+### AWS-side prerequisites
+
+- ElastiCache for Valkey 7.2+ or Redis OSS 7.0+.
+- TLS enabled on the cache.
+- An IAM-enabled ElastiCache user created with `authentication-mode Type=iam`, where the user's `user-id` and `username` are identical (AWS requires this for IAM auth).
+- An IAM policy granting `elasticache:Connect` on both the cache resource and the user resource, attached to the role the Relay pod assumes.
+
+### Example configuration
+
+```
+USE_REDIS=1
+REDIS_HOST=my-cluster.abc123.use1.cache.amazonaws.com
+REDIS_PORT=6379
+REDIS_TLS=true
+REDIS_USERNAME=my-relay-user
+REDIS_AWS_AUTH=true
+REDIS_AWS_CACHE_NAME=my-cluster
+```
+
+The AWS region and credentials are picked up from the standard AWS environment (for example, the variables and files injected by IRSA or Pod Identity); there is no Relay-specific setting for them.
+
+### Connection lifetime
+
+AWS enforces a 12-hour maximum lifetime on connections authenticated with IAM. The Relay Proxy transparently recycles its Redis connections before that limit is reached, so no operator action is required. IAM authentication tokens are generated automatically per Redis connection and are not cached across the pool.
+
 ## DynamoDB storage limitation
 
 As described in the notes for the [LaunchDarkly Go SDK DynamoDB integration](https://github.com/launchdarkly/go-server-sdk-dynamodb/blob/master/README.md#data-size-limitation), which is the internal implementation used by the Relay Proxy, it is not possible to store more than 400KB of JSON data for any one feature flag or segment when using DynamoDB.
