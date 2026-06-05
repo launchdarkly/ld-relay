@@ -52,6 +52,12 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 	}
 
 	if redisConfig.AWSAuth {
+		// Clear any password/username that came in via URL parsing. Otherwise
+		// go-redis runs a pipeline-AUTH before OnConnect fires and sends the
+		// static credentials to ElastiCache, which rejects them.
+		uo.Username = ""
+		uo.Password = ""
+
 		provider, provErr := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
 		if provErr != nil {
 			return nil, provErr

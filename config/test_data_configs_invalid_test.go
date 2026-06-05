@@ -41,6 +41,7 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigRedisAWSAuthWithoutUsername(),
 		makeInvalidConfigRedisAWSAuthWithoutCacheName(),
 		makeInvalidConfigRedisAWSAuthWithPassword(),
+		makeInvalidConfigRedisAWSAuthWithURLEmbeddedPassword(),
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
 		makeInvalidConfigConsulTokenAndTokenFile(),
@@ -552,6 +553,28 @@ AWSAuth = true
 Username = "iam-user"
 AWSCacheName = "my-cache"
 Password = "should-not-be-here"
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithURLEmbeddedPassword() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth with password embedded in URL"}
+	c.envVarsError = errRedisAWSAuthForbidsPassword.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://iam-user:embedded-pw@my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://iam-user:embedded-pw@my-cluster.amazonaws.com:6379"
+TLS = true
+AWSAuth = true
+Username = "iam-user"
+AWSCacheName = "my-cache"
 `
 	return c
 }

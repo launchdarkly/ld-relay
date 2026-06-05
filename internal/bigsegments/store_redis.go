@@ -82,6 +82,12 @@ func newRedisBigSegmentStore(
 	}
 
 	if redisConfig.AWSAuth {
+		// Clear any password/username that came in via URL parsing. Otherwise
+		// go-redis runs a pipeline-AUTH before OnConnect fires and sends the
+		// static credentials to ElastiCache, which rejects them.
+		opts.Username = ""
+		opts.Password = ""
+
 		provider, err := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
 		if err != nil {
 			return nil, err

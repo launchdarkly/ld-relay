@@ -119,19 +119,15 @@ func (s *mockServer) dispatch(cmd string, args []string, state *connState) (repl
 
 	switch upper {
 	case "AUTH":
-		// redigo sends either:
-		//   AUTH <password>          (single arg, our IAM path)
-		//   AUTH <username> <password>  (two args, ACL path)
-		// We accept both forms.
-		var token string
-		switch len(args) {
-		case 1:
-			token = args[0]
-		case 2:
-			token = args[1]
-		default:
-			return "-ERR wrong number of arguments for 'auth' command\r\n", false
+		// AWS ElastiCache IAM auth requires the ACL form: AUTH <user> <token>.
+		// Single-arg AUTH is the legacy form and is rejected here to mirror
+		// real ElastiCache behavior — and to ensure the test would fail if
+		// the production wiring ever stops sending DialUsername alongside
+		// PasswordProvider.
+		if len(args) != 2 {
+			return "-ERR ElastiCache IAM auth requires the two-argument form AUTH <user> <token>\r\n", false
 		}
+		token := args[1]
 
 		expiry, err := parseTokenExpiry(token)
 		if err != nil {
@@ -401,7 +397,7 @@ func TestTokenRotation(t *testing.T) {
 	//
 	//    The pool mirrors the production config: PasswordProvider + MaxConnLifetime.
 	redisURL := "redis://" + mock.addr
-	pool := newRedigoPool(redisURL, provider.Token, tokenLifetime)
+	pool := newRedigoPool(redisURL, "iam-user-01", provider.Token, tokenLifetime)
 	defer pool.Close() //nolint:errcheck
 
 	// 4. Drive traffic for testDuration.
@@ -486,7 +482,7 @@ func TestTokenRotation(t *testing.T) {
 // This is intentional: the mock drives the *connection+auth* path, and the pool
 // parameters (MaxIdle, MaxActive, TestOnBorrow, PasswordProvider closure) are
 // what we need to replicate.
-func newRedigoPool(redisURL string, tokenFn func(ctx context.Context) (string, error), maxLifetime time.Duration) *redigo.Pool {
+func newRedigoPool(redisURL, username string, tokenFn func(ctx context.Context) (string, error), maxLifetime time.Duration) *redigo.Pool {
 	return &redigo.Pool{
 		MaxIdle:         5,
 		MaxActive:       5,
@@ -498,7 +494,10 @@ func newRedigoPool(redisURL string, tokenFn func(ctx context.Context) (string, e
 			if err != nil {
 				return nil, err
 			}
-			return redigo.DialURL(redisURL, redigo.DialPassword(pw))
+			// Matches the production wiring in makeRedisDataStoreBuilder:
+			// DialUsername is required so redigo emits AUTH <user> <token>
+			// (the ACL form ElastiCache IAM auth demands).
+			return redigo.DialURL(redisURL, redigo.DialUsername(username), redigo.DialPassword(pw))
 		},
 		TestOnBorrow: func(c redigo.Conn, t time.Time) error {
 			_, err := c.Do("PING")

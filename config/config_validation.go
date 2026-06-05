@@ -326,6 +326,14 @@ func normalizeRedisConfig(result *ct.ValidationResult, c *Config) {
 		if c.Redis.Password != "" {
 			result.AddError(nil, errRedisAWSAuthForbidsPassword)
 		}
+		// A password embedded in the URL (e.g. rediss://user:secret@host) would
+		// also bypass IAM auth and get sent to ElastiCache as a static AUTH —
+		// reject it for the same reason as REDIS_PASSWORD.
+		if u := c.Redis.URL.Get(); u != nil && u.User != nil {
+			if _, hasPassword := u.User.Password(); hasPassword {
+				result.AddError(nil, errRedisAWSAuthForbidsPassword)
+			}
+		}
 		if c.Redis.AWSCacheName != "" {
 			c.Redis.AWSCacheName = strings.ToLower(c.Redis.AWSCacheName)
 		}

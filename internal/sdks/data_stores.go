@@ -168,7 +168,11 @@ func makeRedisDataStoreBuilder[T any](
 		if provErr != nil {
 			return nil, redisURL, provErr
 		}
+		// ElastiCache IAM auth requires the ACL form of AUTH (AUTH <user> <token>),
+		// so DialUsername must accompany PasswordProvider — without it, redigo emits
+		// the single-arg form (AUTH <token>) and AWS rejects the connection.
 		b = b.PasswordProvider(provider.Token).
+			DialOptions(redigo.DialUsername(allConfig.Redis.Username)).
 			MaxConnLifetime(11 * time.Hour)
 	} else {
 		var dialOptions []redigo.DialOption
