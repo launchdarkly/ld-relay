@@ -17,6 +17,7 @@ All notable changes to the LaunchDarkly Relay will be documented in this file. T
 
 * **deps:** bump Go toolchain and dependencies to address CVEs ([#667](https://github.com/launchdarkly/ld-relay/issues/667)) ([f218551](https://github.com/launchdarkly/ld-relay/commit/f21855198717dda3bb4ee725b6cd319fede5922f))
 
+
 ## [8.19.1](https://github.com/launchdarkly/ld-relay/compare/v8.19.0...v8.19.1) (2026-04-29)
 
 

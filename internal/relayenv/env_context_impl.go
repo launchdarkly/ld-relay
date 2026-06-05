@@ -21,9 +21,9 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v4"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"

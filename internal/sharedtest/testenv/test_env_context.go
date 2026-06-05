@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"

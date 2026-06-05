@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 )
 
 type requestLogger struct {

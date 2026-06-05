@@ -7,8 +7,8 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"

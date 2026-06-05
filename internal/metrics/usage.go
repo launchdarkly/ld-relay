@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 	"github.com/launchdarkly/ld-relay/v8/internal/events"
 )
 

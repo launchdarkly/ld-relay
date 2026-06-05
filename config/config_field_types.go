@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 )
 
 func errBadLogLevel(s string) error {

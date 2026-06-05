@@ -6,7 +6,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	"github.com/launchdarkly/go-sdk-common/v4/ldcontext"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 )

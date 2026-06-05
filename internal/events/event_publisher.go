@@ -14,7 +14,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 )
 
