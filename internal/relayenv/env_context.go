@@ -17,7 +17,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v4"
 )
 
 // CredentialUpdate specifies the primary credential of a given credential kind for an environment.

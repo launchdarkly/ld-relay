@@ -23,7 +23,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v4"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"

@@ -113,23 +113,23 @@ func (s *OfflineModeSynchronizer) Name() string {
 }
 
 // Fetch returns the current basis (full dataset) from the offline data source.
-func (s *OfflineModeSynchronizer) Fetch(ds subsystems.DataSelector, ctx context.Context) (*subsystems.Basis, error) {
+func (s *OfflineModeSynchronizer) Fetch(ds subsystems.DataSelector, ctx context.Context) (*subsystems.Basis, bool, error) {
 	s.mu.RLock()
 	changeSet := s.currentChangeSet
 	initError := s.initError
 	s.mu.RUnlock()
 
 	if initError != nil {
-		return nil, initError
+		return nil, false, initError
 	}
 	if changeSet == nil {
-		return nil, errors.New("no data available in offline mode")
+		return nil, false, errors.New("no data available in offline mode")
 	}
 
 	return &subsystems.Basis{
 		ChangeSet: *changeSet,
 		Persist:   false,
-	}, nil
+	}, false, nil
 }
 
 // Sync starts the synchronizer and returns a channel for receiving updates.

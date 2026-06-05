@@ -18,7 +18,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 
-	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/bigsegments"
@@ -30,7 +30,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"

@@ -34,7 +34,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		syncFactory := filedata.OfflineModeSynchronizerFactory{Synchronizer: synchronizer}
 		config.DataSystem = ldcomponents.DataSystem().
 			Custom().
-			Synchronizers(syncFactory, nil)
+			Synchronizers(syncFactory)
 		config.Events = ldcomponents.NoEvents()
 		return config
 	}

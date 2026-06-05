@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 )
 
