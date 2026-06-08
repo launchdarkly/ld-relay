@@ -53,7 +53,7 @@ func makeLargePutDataSet() []ldstoretypes.Collection {
 			fb.AddTarget(t, userKeys...)
 		}
 		flag := fb.Build()
-		allData[0].Items = append(allData[0].Items, ldstoretypes.KeyedItemDescriptor{flag.Key, sharedtest.FlagDesc(flag)})
+		allData[0].Items = append(allData[0].Items, ldstoretypes.KeyedItemDescriptor{Key: flag.Key, Item: sharedtest.FlagDesc(flag)})
 	}
 
 	return allData
