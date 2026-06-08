@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.4](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.3...v9.0.0-rc.4) (2026-06-08)
+
+
+### Bug Fixes
+
+* Bump golang.org/x/* dependencies to address CVEs (v9) ([#678](https://github.com/launchdarkly/ld-relay/issues/678)) ([be94c0d](https://github.com/launchdarkly/ld-relay/commit/be94c0d6c8a0c768414a429e79d3a0934e1844b0))
+* **deps:** bump Go toolchain and dependencies to address CVEs (v9) ([#668](https://github.com/launchdarkly/ld-relay/issues/668)) ([2476cee](https://github.com/launchdarkly/ld-relay/commit/2476cee8fe23a47482af57ad4721988bf20acb31))
+* Parse ldlog level prefix without trailing space ([#672](https://github.com/launchdarkly/ld-relay/issues/672)) ([d1b1d1c](https://github.com/launchdarkly/ld-relay/commit/d1b1d1cc4d782e335a019d84bf678c0d75a79104))
+
 ## [8.19.1](https://github.com/launchdarkly/ld-relay/compare/v8.19.0...v8.19.1) (2026-04-29)
 
 
