@@ -26,8 +26,10 @@ type sharedProviderEntry struct {
 	resolvedRegion string
 }
 
+// Process-wide memoization cache: one TokenProvider (and its AWS credential
+// cache) shared across the three Redis wiring sites. Package-global by design.
 var (
-	sharedProvidersMu sync.Mutex
+	sharedProvidersMu sync.Mutex                                   //nolint:gochecknoglobals
 	sharedProviders   = map[providerCacheKey]sharedProviderEntry{} //nolint:gochecknoglobals
 )
 

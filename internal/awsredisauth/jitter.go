@@ -51,6 +51,6 @@ const (
 // CredentialsProvider interface that re-auths in place on each connection refresh
 // instead of forcing a full TCP recycle.
 func JitteredMaxConnAge() time.Duration {
-	jitter := time.Duration(rand.Int64N(int64(maxConnAgeJitter)))
+	jitter := time.Duration(rand.Int64N(int64(maxConnAgeJitter))) //nolint:gosec // connection-age jitter is not security-sensitive; a weak RNG is fine
 	return maxConnAgeBase - jitter
 }
