@@ -75,6 +75,9 @@ func TestNewRedisBigSegmentStore_AWSAuthSuccess(t *testing.T) {
 // TestNewRedisBigSegmentStore_AWSAuth_ErrorPropagated verifies that newRedisBigSegmentStore
 // returns an error when AWSAuth=true and no real AWS credentials are available (CI).
 func TestNewRedisBigSegmentStore_AWSAuth_ErrorPropagated(t *testing.T) {
+	awsredisauth.ResetSharedTokenProvidersForTest()
+	defer awsredisauth.ResetSharedTokenProvidersForTest()
+
 	rc := awsRedisConfig()
 	_, err := newRedisBigSegmentStore(rc, config.EnvConfig{}, false, ldlog.NewDisabledLoggers())
 	// In CI (no AWS credentials or region), startup must fail fast.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
@@ -59,7 +58,7 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
+		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig, loggers)
 		if err != nil {
 			return nil, DataStoreEnvironmentInfo{}, err
 		}
@@ -156,6 +155,7 @@ func makeRedisDataStoreBuilder[T any](
 	constructor func() *ldredis.StoreBuilder[T],
 	allConfig config.Config,
 	envConfig config.EnvConfig,
+	loggers ldlog.Loggers,
 ) (builder *ldredis.StoreBuilder[T], url string, err error) {
 	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
 
@@ -164,7 +164,7 @@ func makeRedisDataStoreBuilder[T any](
 		Prefix(prefix)
 
 	if allConfig.Redis.AWSAuth {
-		provider, provErr := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), allConfig.Redis)
+		provider, provErr := awsredisauth.SharedTokenProvider(context.Background(), allConfig.Redis, loggers)
 		if provErr != nil {
 			return nil, redisURL, provErr
 		}
@@ -173,7 +173,7 @@ func makeRedisDataStoreBuilder[T any](
 		// the single-arg form (AUTH <token>) and AWS rejects the connection.
 		b = b.PasswordProvider(provider.Token).
 			DialOptions(redigo.DialUsername(allConfig.Redis.Username)).
-			MaxConnLifetime(11 * time.Hour)
+			MaxConnLifetime(awsredisauth.JitteredMaxConnAge())
 	} else {
 		var dialOptions []redigo.DialOption
 		if allConfig.Redis.Password != "" {

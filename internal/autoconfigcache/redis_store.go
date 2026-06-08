@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
@@ -58,7 +57,7 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 		uo.Username = ""
 		uo.Password = ""
 
-		provider, provErr := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
+		provider, provErr := awsredisauth.SharedTokenProvider(context.Background(), redisConfig, loggers)
 		if provErr != nil {
 			return nil, provErr
 		}
@@ -69,7 +68,7 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 			}
 			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
 		}
-		uo.MaxConnAge = 11 * time.Hour
+		uo.MaxConnAge = awsredisauth.JitteredMaxConnAge()
 	}
 
 	client := redis.NewUniversalClient(uo)

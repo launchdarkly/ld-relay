@@ -24,7 +24,7 @@ func ConfigureBigSegments(
 	var storeFactory subsystems.ComponentConfigurer[subsystems.BigSegmentStore]
 
 	if allConfig.Redis.URL.IsDefined() {
-		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig)
+		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.BigSegmentStore, allConfig, envConfig, loggers)
 		if err != nil {
 			return nil, err
 		}

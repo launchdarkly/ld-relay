@@ -70,7 +70,17 @@ REDIS_AWS_AUTH=true
 REDIS_AWS_CACHE_NAME=my-cluster
 ```
 
-The AWS region and credentials are picked up from the standard AWS environment (for example, the variables and files injected by IRSA or Pod Identity); there is no Relay-specific setting for them.
+The AWS region and credentials are picked up from the standard AWS environment (for example, the variables and files injected by IRSA or Pod Identity). To override the region used for signing, set `REDIS_AWS_REGION`:
+
+```
+REDIS_AWS_REGION=eu-west-1
+```
+
+If the target cache is an **ElastiCache Serverless** cache, also set `REDIS_AWS_SERVERLESS=true`. Without this flag, authentication against a Serverless cache fails with an opaque `WRONGPASS` error:
+
+```
+REDIS_AWS_SERVERLESS=true
+```
 
 ### Connection lifetime
 

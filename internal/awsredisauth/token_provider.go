@@ -52,6 +52,12 @@ type Options struct {
 	// Primarily useful in tests to shorten the validity window. If zero, defaults
 	// to 15 minutes (900 seconds).
 	TokenLifetime time.Duration
+
+	// Serverless indicates that the target cache is an ElastiCache Serverless cache.
+	// When true, the signed token URL includes the query parameter
+	// ResourceType=ServerlessCache, which ElastiCache Serverless requires for IAM
+	// authentication. Without it, the auth request fails with WRONGPASS.
+	Serverless bool
 }
 
 // tokenProvider is the concrete, stateless implementation of TokenProvider.
@@ -108,6 +114,11 @@ func NewTokenProvider(cfg aws.Config, cacheName, user string, opts ...Options) (
 	baseQuery := url.Values{}
 	baseQuery.Set("Action", "connect")
 	baseQuery.Set("User", user)
+	if opt.Serverless {
+		// ElastiCache Serverless requires ResourceType=ServerlessCache in the signed
+		// token URL; without it the cluster rejects the connection with WRONGPASS.
+		baseQuery.Set("ResourceType", "ServerlessCache")
+	}
 
 	return &tokenProvider{
 		creds:     cfg.Credentials,

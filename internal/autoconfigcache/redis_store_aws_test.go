@@ -74,6 +74,9 @@ func TestNewRedisStore_AWSAuthSuccess(t *testing.T) {
 // TestNewRedisStore_AWSAuth_ErrorPropagated verifies that newRedisStore returns an error
 // when AWSAuth=true and no real AWS credentials are available (CI environment).
 func TestNewRedisStore_AWSAuth_ErrorPropagated(t *testing.T) {
+	awsredisauth.ResetSharedTokenProvidersForTest()
+	defer awsredisauth.ResetSharedTokenProvidersForTest()
+
 	rc := awsRedisConfig()
 	_, err := newRedisStore(rc, "test-cache-key", make([]byte, 32), ldlog.NewDisabledLoggers())
 	// In CI (no AWS credentials or region), startup must fail fast.

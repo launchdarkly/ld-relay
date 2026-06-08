@@ -233,6 +233,60 @@ func TestToken_PerCallFreshness(t *testing.T) {
 	// (same X-Amz-Date). That is acceptable and does not indicate a bug.
 }
 
+// TestToken_Serverless_ResourceTypePresent verifies that when Options.Serverless=true,
+// the token URL contains ResourceType=ServerlessCache.
+func TestToken_Serverless_ResourceTypePresent(t *testing.T) {
+	p := mustNewProvider(t, staticCreds(), testCacheName, testUser, Options{Serverless: true})
+
+	token, err := p.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, token)
+	assert.Equal(t, "ServerlessCache", u.Query().Get("ResourceType"),
+		"Serverless token must contain ResourceType=ServerlessCache")
+}
+
+// TestToken_Serverless_ResourceTypeAbsent verifies that when Options.Serverless=false
+// (the default), the token URL does NOT contain a ResourceType parameter.
+func TestToken_Serverless_ResourceTypeAbsent(t *testing.T) {
+	p := mustNewProvider(t, staticCreds(), testCacheName, testUser)
+
+	token, err := p.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, token)
+	assert.Empty(t, u.Query().Get("ResourceType"),
+		"non-Serverless token must not contain ResourceType")
+}
+
+// TestToken_OptionsRegionFlowsThroughToCredential verifies that Options.Region appears
+// in the X-Amz-Credential scope of the generated token, overriding cfg.Region.
+func TestToken_OptionsRegionFlowsThroughToCredential(t *testing.T) {
+	const overrideRegion = "eu-central-1"
+
+	cfg := aws.Config{
+		Region: "us-east-1", // should be overridden
+		Credentials: credentials.NewStaticCredentialsProvider(
+			"AKIAIOSFODNN7EXAMPLE",
+			"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			"",
+		),
+	}
+
+	p := mustNewProvider(t, cfg, testCacheName, testUser, Options{Region: overrideRegion})
+
+	token, err := p.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, token)
+	credential := u.Query().Get("X-Amz-Credential")
+	require.NotEmpty(t, credential)
+	assert.True(t,
+		strings.Contains(credential, "/"+overrideRegion+"/elasticache/aws4_request"),
+		"X-Amz-Credential %q must use Options.Region %q", credential, overrideRegion,
+	)
+}
+
 // errCredsProvider is a test-only aws.CredentialsProvider that always returns an error.
 type errCredsProvider struct {
 	err error

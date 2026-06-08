@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
@@ -88,7 +87,7 @@ func newRedisBigSegmentStore(
 		opts.Username = ""
 		opts.Password = ""
 
-		provider, err := awsredisauth.NewTokenProviderFromRedisConfig(context.Background(), redisConfig)
+		provider, err := awsredisauth.SharedTokenProvider(context.Background(), redisConfig, loggers)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +98,7 @@ func newRedisBigSegmentStore(
 			}
 			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
 		}
-		opts.MaxConnAge = 11 * time.Hour
+		opts.MaxConnAge = awsredisauth.JitteredMaxConnAge()
 	}
 
 	store := redisBigSegmentStore{

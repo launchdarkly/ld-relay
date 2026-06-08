@@ -221,6 +221,17 @@ type RedisConfig struct {
 	Password     string            `conf:"REDIS_PASSWORD"`
 	AWSAuth      bool              `conf:"REDIS_AWS_AUTH"`
 	AWSCacheName string            `conf:"REDIS_AWS_CACHE_NAME"`
+	// AWSRegion overrides the AWS region used for SigV4 signing of ElastiCache IAM
+	// authentication tokens. If empty, the region is resolved from the standard AWS
+	// credential chain (AWS_DEFAULT_REGION env var, ~/.aws/config, IMDS, etc.).
+	// Only meaningful when AWSAuth is true; ignored otherwise.
+	AWSRegion string `conf:"REDIS_AWS_REGION"`
+	// AWSServerless indicates that the target ElastiCache cache is a Serverless cache.
+	// When true, the SigV4 presigned token includes the query parameter
+	// ResourceType=ServerlessCache, which is required by ElastiCache Serverless for IAM
+	// authentication. Without this flag, authentication against a Serverless cache fails
+	// with an opaque WRONGPASS error. Only meaningful when AWSAuth is true; ignored otherwise.
+	AWSServerless bool `conf:"REDIS_AWS_SERVERLESS"`
 }
 
 // ConsulConfig configures the optional Consul integration.

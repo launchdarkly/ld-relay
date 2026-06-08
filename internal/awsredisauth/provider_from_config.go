@@ -31,7 +31,11 @@ func NewTokenProviderFromRedisConfig(ctx context.Context, redisConfig config.Red
 // testable entry point used by unit tests that need to inject a controlled aws.Config
 // (e.g., a credentials provider that returns an error).
 func NewTokenProviderFromAWSConfig(ctx context.Context, cfg aws.Config, redisConfig config.RedisConfig) (TokenProvider, error) {
-	provider, err := NewTokenProvider(cfg, redisConfig.AWSCacheName, redisConfig.Username)
+	opts := Options{
+		Region:     redisConfig.AWSRegion,
+		Serverless: redisConfig.AWSServerless,
+	}
+	provider, err := NewTokenProvider(cfg, redisConfig.AWSCacheName, redisConfig.Username, opts)
 	if err != nil {
 		return nil, err
 	}

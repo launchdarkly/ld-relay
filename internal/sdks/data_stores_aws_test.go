@@ -100,6 +100,9 @@ func TestMakeRedisDataStoreBuilder_AWSAuthSuccess(t *testing.T) {
 // returns an error when no real AWS credentials are available (CI environment). This confirms
 // the error from makeRedisDataStoreBuilder propagates up through ConfigureDataStore.
 func TestConfigureDataStore_AWSAuth_Error(t *testing.T) {
+	awsredisauth.ResetSharedTokenProvidersForTest()
+	defer awsredisauth.ResetSharedTokenProvidersForTest()
+
 	allConfig := config.Config{Redis: awsRedisConfig()}
 	_, _, err := ConfigureDataStore(allConfig, config.EnvConfig{}, ldlog.NewDisabledLoggers())
 	// In CI (no AWS credentials or region configured), startup must fail fast.

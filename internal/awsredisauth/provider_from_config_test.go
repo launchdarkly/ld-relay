@@ -3,6 +3,7 @@ package awsredisauth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -48,4 +49,63 @@ func TestNewTokenProviderFromAWSConfig_SuccessWithStaticCreds(t *testing.T) {
 	tok, err := provider.Token(context.Background())
 	require.NoError(t, err)
 	assert.NotEmpty(t, tok)
+}
+
+// TestNewTokenProviderFromAWSConfig_RegionOverride verifies that AWSRegion in
+// RedisConfig is threaded through to the SigV4 signing region.
+func TestNewTokenProviderFromAWSConfig_RegionOverride(t *testing.T) {
+	const overrideRegion = "ap-northeast-1"
+
+	rc := makeTestRedisConfig()
+	rc.AWSRegion = overrideRegion
+
+	// Provide a cfg with a different region to confirm override wins.
+	cfg := aws.Config{
+		Region:      "us-east-1",
+		Credentials: staticCreds().Credentials,
+	}
+
+	provider, err := NewTokenProviderFromAWSConfig(context.Background(), cfg, rc)
+	require.NoError(t, err)
+
+	tok, err := provider.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, tok)
+	credential := u.Query().Get("X-Amz-Credential")
+	assert.True(t,
+		strings.Contains(credential, "/"+overrideRegion+"/elasticache/aws4_request"),
+		"token credential %q must use AWSRegion override %q", credential, overrideRegion,
+	)
+}
+
+// TestNewTokenProviderFromAWSConfig_ServerlessFlag verifies that AWSServerless=true in
+// RedisConfig causes ResourceType=ServerlessCache in the generated token.
+func TestNewTokenProviderFromAWSConfig_ServerlessFlag(t *testing.T) {
+	rc := makeTestRedisConfig()
+	rc.AWSServerless = true
+
+	provider, err := NewTokenProviderFromAWSConfig(context.Background(), staticCreds(), rc)
+	require.NoError(t, err)
+
+	tok, err := provider.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, tok)
+	assert.Equal(t, "ServerlessCache", u.Query().Get("ResourceType"),
+		"AWSServerless=true must produce ResourceType=ServerlessCache in token")
+}
+
+// TestNewTokenProviderFromAWSConfig_ServerlessAbsent verifies that when AWSServerless
+// is false (default), no ResourceType parameter appears in the token.
+func TestNewTokenProviderFromAWSConfig_ServerlessAbsent(t *testing.T) {
+	provider, err := NewTokenProviderFromAWSConfig(context.Background(), staticCreds(), makeTestRedisConfig())
+	require.NoError(t, err)
+
+	tok, err := provider.Token(context.Background())
+	require.NoError(t, err)
+
+	u := parseToken(t, tok)
+	assert.Empty(t, u.Query().Get("ResourceType"),
+		"AWSServerless=false must not include ResourceType in token")
 }

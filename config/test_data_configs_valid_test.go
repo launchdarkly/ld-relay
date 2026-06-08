@@ -80,6 +80,8 @@ func makeValidConfigs() []testDataValidConfig {
 		makeValidConfigRedisOneEnvNoPrefix(),
 		makeValidConfigRedisAWSAuth(),
 		makeValidConfigRedisAWSAuthLowercasesCacheName(),
+		makeValidConfigRedisAWSAuthWithRegion(),
+		makeValidConfigRedisAWSAuthServerless(),
 		makeValidConfigConsulMinimal(),
 		makeValidConfigConsulAll(),
 		makeValidConfigConsulOneEnvNoPrefix(),
@@ -562,6 +564,72 @@ TLS = true
 Username = "iam-user"
 AWSAuth = true
 AWSCacheName = "my-cache"
+`
+	return c
+}
+
+func makeValidConfigRedisAWSAuthWithRegion() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - AWS IAM auth with explicit region override"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:          newOptURLAbsoluteMustBeValid("rediss://my-cluster.amazonaws.com:6379"),
+			TLS:          true,
+			Username:     "iam-user",
+			AWSAuth:      true,
+			AWSCacheName: "my-cache",
+			AWSRegion:    "eu-west-1",
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+		"REDIS_AWS_REGION":     "eu-west-1",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://my-cluster.amazonaws.com:6379"
+TLS = true
+Username = "iam-user"
+AWSAuth = true
+AWSCacheName = "my-cache"
+AWSRegion = "eu-west-1"
+`
+	return c
+}
+
+func makeValidConfigRedisAWSAuthServerless() testDataValidConfig {
+	c := testDataValidConfig{name: "Redis - AWS IAM auth for Serverless cache"}
+	c.makeConfig = func(c *Config) {
+		c.Redis = RedisConfig{
+			URL:           newOptURLAbsoluteMustBeValid("rediss://my-serverless.amazonaws.com:6379"),
+			TLS:           true,
+			Username:      "iam-user",
+			AWSAuth:       true,
+			AWSCacheName:  "my-serverless",
+			AWSServerless: true,
+		}
+	}
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://my-serverless.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_AWS_CACHE_NAME": "my-serverless",
+		"REDIS_AWS_SERVERLESS": "1",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://my-serverless.amazonaws.com:6379"
+TLS = true
+Username = "iam-user"
+AWSAuth = true
+AWSCacheName = "my-serverless"
+AWSServerless = true
 `
 	return c
 }
