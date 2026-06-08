@@ -231,6 +231,13 @@ type RedisConfig struct {
 	// ResourceType=ServerlessCache, which is required by ElastiCache Serverless for IAM
 	// authentication. Without this flag, authentication against a Serverless cache fails
 	// with an opaque WRONGPASS error. Only meaningful when AWSAuth is true; ignored otherwise.
+	//
+	// EXPERIMENTAL / NOT FUNCTIONALLY SUPPORTED: this flag covers only the IAM auth
+	// handshake. ElastiCache Serverless is cluster-mode-only, and Relay's Redis clients are
+	// not cluster-aware, so multi-key operations (SDK data-store writes, big-segments
+	// Watch/TxPipelined transactions) will fail with CROSSSLOT. Full Serverless support is
+	// blocked on cluster-aware client work that has not shipped. Do not rely on this in
+	// production. See docs/persistent-storage.md.
 	AWSServerless bool `conf:"REDIS_AWS_SERVERLESS"`
 }
 

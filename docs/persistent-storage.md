@@ -76,7 +76,14 @@ The AWS region and credentials are picked up from the standard AWS environment (
 REDIS_AWS_REGION=eu-west-1
 ```
 
-If the target cache is an **ElastiCache Serverless** cache, also set `REDIS_AWS_SERVERLESS=true`. Without this flag, authentication against a Serverless cache fails with an opaque `WRONGPASS` error:
+#### ElastiCache Serverless (experimental — not functionally supported)
+
+> [!WARNING]
+> **`REDIS_AWS_SERVERLESS` is experimental and not yet functionally supported.** It currently covers only the IAM authentication handshake — when set, it adds `ResourceType=ServerlessCache` to the SigV4 presigned token, which is required for a Serverless cache to accept the connection at all. Without it, authentication against a Serverless cache fails with an opaque `WRONGPASS` error.
+>
+> However, authenticating successfully is not the same as working correctly. ElastiCache Serverless runs in **cluster mode only**, and the Relay Proxy's Redis clients are not cluster-aware (see the note above: "The Relay Proxy does not support clustered Redis or Redis Sentinel"). Multi-key operations — SDK data-store writes and the big-segments optimistic-locking transactions (`Watch`/`TxPipelined` across multiple keys) — will hit `CROSSSLOT` errors when those keys land in different hash slots, which is the normal case on a cluster.
+>
+> Full Serverless support is blocked on cluster-aware client work that **has not shipped**. This path has never been validated against a real Serverless cache. Do not rely on `REDIS_AWS_SERVERLESS` in production; use a non-serverless ElastiCache cache (single shard / node-based) with `REDIS_AWS_AUTH=true` instead.
 
 ```
 REDIS_AWS_SERVERLESS=true
