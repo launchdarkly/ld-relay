@@ -141,6 +141,7 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 	t.Run("when no events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
+			p.awaitClient()
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			modified := makeEnvWithModifiedSDKKey(testAutoConfEnv1)
@@ -157,6 +158,7 @@ func TestEventForwardingAfterSDKKeyChange(t *testing.T) {
 	t.Run("when some events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
+			p.awaitClient()
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			verifyEventProxying(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey.Value)
@@ -236,6 +238,7 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 	t.Run("when no events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
+			p.awaitClient()
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			modified := makeEnvWithModifiedMobileKey(testAutoConfEnv1)
@@ -252,6 +255,7 @@ func TestEventForwardingAfterMobileKeyChange(t *testing.T) {
 	t.Run("when some events have been forwarded prior to the change", func(t *testing.T) {
 		autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 			env := p.awaitEnvironment(testAutoConfEnv1.id)
+			p.awaitClient()
 			assertEnvProps(t, testAutoConfEnv1.params(), env)
 
 			verifyEventVerbatimRelay(t, p, serverSideEventsURL, testAutoConfEnv1.sdkKey.Value)
