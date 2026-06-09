@@ -12,7 +12,7 @@ import (
 
 	"log/slog"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging/logtest"

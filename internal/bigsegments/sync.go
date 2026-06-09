@@ -15,7 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 
 	es "github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 )
 
 const (

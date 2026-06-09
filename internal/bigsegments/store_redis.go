@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
 
 	"github.com/go-redis/redis/v8"
 )
