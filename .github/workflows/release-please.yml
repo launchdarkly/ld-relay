@@ -19,12 +19,12 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       # Create any releases in release, then create tags, and then optionally create any new PRs.
-      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           token: ${{secrets.GITHUB_TOKEN}}
-          skip-github-pull-request: true
           target-branch: ${{ github.ref_name }}
+          skip-github-pull-request: true
 
 
       # Need the repository content to be able to create and push a tag.
@@ -47,13 +47,13 @@ jobs:
             git push origin "${TAG_NAME}"
           fi
 
-      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         if: ${{ steps.release.outputs.release_created != 'true'}}
         id: release-prs
         with:
           token: ${{secrets.GITHUB_TOKEN}}
-          skip-github-release: true
           target-branch: ${{ github.ref_name }}
+          skip-github-release: true
 
   release-relay:
     permissions:
