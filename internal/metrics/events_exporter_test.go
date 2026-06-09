@@ -184,12 +184,15 @@ func TestOpenCensusEventsExporter(t *testing.T) {
 		withTestView(publisher, func(ctx context.Context, exporter *openCensusEventsExporter, relayID string) {
 			time.Sleep(time.Millisecond * 10)
 			startTime := ldtime.UnixMillisNow()
-			// Wait an extra moment to let any export operation that has already started complete
-			time.Sleep(time.Millisecond * 1)
 			stats.Record(ctx, privateConnMeasure.M(1))
 
-			metricsEvent := publisher.expectMetricsEvent(t, time.Second)
-			assert.True(t, metricsEvent.StartDate >= startTime)
+			// Because currentConnections persist across flushes, events keep being
+			// emitted with advancing StartDate values. Poll until we see one whose
+			// StartDate is at or after startTime, avoiding the 1 ms ticker race.
+			require.Eventually(t, func() bool {
+				metricsEvent, ok := publisher.maybeReceiveMetricsEvent(t, time.Second)
+				return ok && metricsEvent.StartDate >= startTime
+			}, time.Second*5, time.Millisecond*100, "expected metricsEvent.StartDate >= startTime")
 		})
 	})
 
