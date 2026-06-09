@@ -212,13 +212,33 @@ type EventsConfig struct {
 // variables, individual fields are not documented here; instead, see the `README.md` section on
 // configuration.
 type RedisConfig struct {
-	Host     string `conf:"REDIS_HOST"`
-	Port     ct.OptIntGreaterThanZero
-	URL      ct.OptURLAbsolute `conf:"REDIS_URL"`
-	LocalTTL ct.OptDuration    `conf:"CACHE_TTL"`
-	TLS      bool              `conf:"REDIS_TLS"`
-	Username string            `conf:"REDIS_USERNAME"`
-	Password string            `conf:"REDIS_PASSWORD"`
+	Host         string `conf:"REDIS_HOST"`
+	Port         ct.OptIntGreaterThanZero
+	URL          ct.OptURLAbsolute `conf:"REDIS_URL"`
+	LocalTTL     ct.OptDuration    `conf:"CACHE_TTL"`
+	TLS          bool              `conf:"REDIS_TLS"`
+	Username     string            `conf:"REDIS_USERNAME"`
+	Password     string            `conf:"REDIS_PASSWORD"`
+	AWSAuth      bool              `conf:"REDIS_AWS_AUTH"`
+	AWSCacheName string            `conf:"REDIS_AWS_CACHE_NAME"`
+	// AWSRegion overrides the AWS region used for SigV4 signing of ElastiCache IAM
+	// authentication tokens. If empty, the region is resolved from the standard AWS
+	// credential chain (AWS_DEFAULT_REGION env var, ~/.aws/config, IMDS, etc.).
+	// Only meaningful when AWSAuth is true; ignored otherwise.
+	AWSRegion string `conf:"REDIS_AWS_REGION"`
+	// AWSServerless indicates that the target ElastiCache cache is a Serverless cache.
+	// When true, the SigV4 presigned token includes the query parameter
+	// ResourceType=ServerlessCache, which is required by ElastiCache Serverless for IAM
+	// authentication. Without this flag, authentication against a Serverless cache fails
+	// with an opaque WRONGPASS error. Only meaningful when AWSAuth is true; ignored otherwise.
+	//
+	// EXPERIMENTAL / NOT FUNCTIONALLY SUPPORTED: this flag covers only the IAM auth
+	// handshake. ElastiCache Serverless is cluster-mode-only, and Relay's Redis clients are
+	// not cluster-aware, so multi-key operations (SDK data-store writes, big-segments
+	// Watch/TxPipelined transactions) will fail with CROSSSLOT. Full Serverless support is
+	// blocked on cluster-aware client work that has not shipped. Do not rely on this in
+	// production. See docs/persistent-storage.md.
+	AWSServerless bool `conf:"REDIS_AWS_SERVERLESS"`
 }
 
 // ConsulConfig configures the optional Consul integration.

@@ -11,6 +11,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/autoconfig"
+	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 )
 
@@ -48,6 +49,28 @@ func newRedisStore(redisConfig config.RedisConfig, cacheKey string, encKey []byt
 			MinVersion: tls.VersionTLS12,
 		}
 	}
+
+	if redisConfig.AWSAuth {
+		// Clear any password/username that came in via URL parsing. Otherwise
+		// go-redis runs a pipeline-AUTH before OnConnect fires and sends the
+		// static credentials to ElastiCache, which rejects them.
+		uo.Username = ""
+		uo.Password = ""
+
+		provider, provErr := awsredisauth.SharedTokenProvider(context.Background(), redisConfig, loggers)
+		if provErr != nil {
+			return nil, provErr
+		}
+		uo.OnConnect = func(ctx context.Context, cn *redis.Conn) error {
+			tok, err := provider.Token(ctx)
+			if err != nil {
+				return err
+			}
+			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
+		}
+		uo.MaxConnAge = awsredisauth.JitteredMaxConnAge()
+	}
+
 	client := redis.NewUniversalClient(uo)
 	ctx, cancel := context.WithCancel(context.Background())
 	return &redisStore{client: client, ctx: ctx, cancel: cancel, hashKey: cacheKey, encKey: encKey, loggers: loggers}, nil

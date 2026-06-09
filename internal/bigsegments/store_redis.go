@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
@@ -77,6 +78,27 @@ func newRedisBigSegmentStore(
 			ServerName: redisConfig.URL.Get().Hostname(),
 			MinVersion: tls.VersionTLS12,
 		}
+	}
+
+	if redisConfig.AWSAuth {
+		// Clear any password/username that came in via URL parsing. Otherwise
+		// go-redis runs a pipeline-AUTH before OnConnect fires and sends the
+		// static credentials to ElastiCache, which rejects them.
+		opts.Username = ""
+		opts.Password = ""
+
+		provider, err := awsredisauth.SharedTokenProvider(context.Background(), redisConfig, loggers)
+		if err != nil {
+			return nil, err
+		}
+		opts.OnConnect = func(ctx context.Context, cn *redis.Conn) error {
+			tok, err := provider.Token(ctx)
+			if err != nil {
+				return err
+			}
+			return cn.AuthACL(ctx, redisConfig.Username, tok).Err()
+		}
+		opts.MaxConnAge = awsredisauth.JitteredMaxConnAge()
 	}
 
 	store := redisBigSegmentStore{

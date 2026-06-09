@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/awsredisauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
@@ -57,7 +58,10 @@ func ConfigureDataStore(
 	if allConfig.Redis.URL.IsDefined() {
 		// Our config validation already takes care of normalizing the Redis parameters so that if a
 		// host & port were specified, they are transformed into a URL.
-		redisBuilder, redisURL := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig)
+		redisBuilder, redisURL, err := makeRedisDataStoreBuilder(ldredis.DataStore, allConfig, envConfig, loggers)
+		if err != nil {
+			return nil, DataStoreEnvironmentInfo{}, err
+		}
 		redactedURL := util.RedactURL(redisURL)
 
 		loggers.Infof("Using Redis data store: %s with prefix: %s", redactedURL, envConfig.Prefix)
@@ -151,22 +155,37 @@ func makeRedisDataStoreBuilder[T any](
 	constructor func() *ldredis.StoreBuilder[T],
 	allConfig config.Config,
 	envConfig config.EnvConfig,
-) (builder *ldredis.StoreBuilder[T], url string) {
+	loggers ldlog.Loggers,
+) (builder *ldredis.StoreBuilder[T], url string, err error) {
 	redisURL, prefix := GetRedisBasicProperties(allConfig.Redis, envConfig)
-
-	var dialOptions []redigo.DialOption
-	if allConfig.Redis.Password != "" {
-		dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
-	}
-	if allConfig.Redis.Username != "" {
-		dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
-	}
 
 	b := constructor().
 		URL(redisURL).
-		Prefix(prefix).
-		DialOptions(dialOptions...)
-	return b, redisURL
+		Prefix(prefix)
+
+	if allConfig.Redis.AWSAuth {
+		provider, provErr := awsredisauth.SharedTokenProvider(context.Background(), allConfig.Redis, loggers)
+		if provErr != nil {
+			return nil, redisURL, provErr
+		}
+		// ElastiCache IAM auth requires the ACL form of AUTH (AUTH <user> <token>),
+		// so DialUsername must accompany PasswordProvider — without it, redigo emits
+		// the single-arg form (AUTH <token>) and AWS rejects the connection.
+		b = b.PasswordProvider(provider.Token).
+			DialOptions(redigo.DialUsername(allConfig.Redis.Username)).
+			MaxConnLifetime(awsredisauth.JitteredMaxConnAge())
+	} else {
+		var dialOptions []redigo.DialOption
+		if allConfig.Redis.Password != "" {
+			dialOptions = append(dialOptions, redigo.DialPassword(allConfig.Redis.Password))
+		}
+		if allConfig.Redis.Username != "" {
+			dialOptions = append(dialOptions, redigo.DialUsername(allConfig.Redis.Username))
+		}
+		b = b.DialOptions(dialOptions...)
+	}
+
+	return b, redisURL, nil
 }
 
 // GetDynamoDBBasicProperties transforms the configuration properties to the standard parameters

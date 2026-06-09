@@ -37,6 +37,11 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigRedisConflictingParams(),
 		makeInvalidConfigRedisNoPrefix(),
 		makeInvalidConfigRedisAutoConfNoPrefix(),
+		makeInvalidConfigRedisAWSAuthWithoutTLS(),
+		makeInvalidConfigRedisAWSAuthWithoutUsername(),
+		makeInvalidConfigRedisAWSAuthWithoutCacheName(),
+		makeInvalidConfigRedisAWSAuthWithPassword(),
+		makeInvalidConfigRedisAWSAuthWithURLEmbeddedPassword(),
 		makeInvalidConfigConsulNoPrefix(),
 		makeInvalidConfigConsulAutoConfNoPrefix(),
 		makeInvalidConfigConsulTokenAndTokenFile(),
@@ -464,6 +469,112 @@ Host = "consulhost"
 
 [DynamoDB]
 Enabled = true
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithoutTLS() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth without TLS"}
+	c.envVarsError = errRedisAWSAuthRequiresTLS.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "redis://my-cluster.amazonaws.com:6379",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+	}
+	c.fileContent = `
+[Redis]
+Url = "redis://my-cluster.amazonaws.com:6379"
+AWSAuth = true
+Username = "iam-user"
+AWSCacheName = "my-cache"
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithoutUsername() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth without username"}
+	c.envVarsError = errRedisAWSAuthRequiresUsername.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://my-cluster.amazonaws.com:6379"
+TLS = true
+AWSAuth = true
+AWSCacheName = "my-cache"
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithoutCacheName() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth without cache name"}
+	c.envVarsError = errRedisAWSAuthRequiresCacheName.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":      "1",
+		"REDIS_URL":      "rediss://my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":      "1",
+		"REDIS_AWS_AUTH": "1",
+		"REDIS_USERNAME": "iam-user",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://my-cluster.amazonaws.com:6379"
+TLS = true
+AWSAuth = true
+Username = "iam-user"
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithPassword() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth with password"}
+	c.envVarsError = errRedisAWSAuthForbidsPassword.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+		"REDIS_PASSWORD":       "should-not-be-here",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://my-cluster.amazonaws.com:6379"
+TLS = true
+AWSAuth = true
+Username = "iam-user"
+AWSCacheName = "my-cache"
+Password = "should-not-be-here"
+`
+	return c
+}
+
+func makeInvalidConfigRedisAWSAuthWithURLEmbeddedPassword() testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "Redis - AWS auth with password embedded in URL"}
+	c.envVarsError = errRedisAWSAuthForbidsPassword.Error()
+	c.envVars = map[string]string{
+		"USE_REDIS":            "1",
+		"REDIS_URL":            "rediss://iam-user:embedded-pw@my-cluster.amazonaws.com:6379",
+		"REDIS_TLS":            "1",
+		"REDIS_AWS_AUTH":       "1",
+		"REDIS_USERNAME":       "iam-user",
+		"REDIS_AWS_CACHE_NAME": "my-cache",
+	}
+	c.fileContent = `
+[Redis]
+Url = "rediss://iam-user:embedded-pw@my-cluster.amazonaws.com:6379"
+TLS = true
+AWSAuth = true
+Username = "iam-user"
+AWSCacheName = "my-cache"
 `
 	return c
 }
