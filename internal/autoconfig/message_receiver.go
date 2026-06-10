@@ -1,6 +1,6 @@
 package autoconfig
 
-import "github.com/launchdarkly/go-sdk-common/v4/ldlog"
+import "github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 // MessageReceiver is responsible for transforming a potentially unreliable stream of SSE message from LaunchDarkly
 // into a reliable sequence of commands for other components. It serves to isolate the state needed for those operations

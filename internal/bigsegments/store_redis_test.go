@@ -10,7 +10,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
 	"github.com/stretchr/testify/require"
 )

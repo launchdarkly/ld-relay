@@ -24,15 +24,12 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.11.0
-	github.com/launchdarkly/go-configtypes v1.2.2
-	github.com/launchdarkly/go-jsonstream/v4 v4.0.0
-	github.com/launchdarkly/go-sdk-common/v4 v4.0.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.6.1
-	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.1
-	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.2
-	github.com/launchdarkly/go-server-sdk-evaluation/v4 v4.0.0
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.3
-	github.com/launchdarkly/go-server-sdk/v7 v7.15.1
+	github.com/launchdarkly/go-configtypes v1.2.3-0.20260610191826-f878d6774ccc
+	github.com/launchdarkly/go-sdk-events/v3 v3.6.2-0.20260610185926-04050b02df99
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2-0.20260610190904-1d7ca8a82c04
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3-0.20260610191044-3d314dd18883
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4-0.20260610190935-0620e938449a
+	github.com/launchdarkly/go-server-sdk/v7 v7.15.3-0.20260610192009-fb2518b505b3
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.7
 	github.com/pborman/uuid v1.2.1
@@ -62,6 +59,9 @@ require (
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
 	github.com/klauspost/compress v1.18.5
 	github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e
+	github.com/launchdarkly/go-jsonstream/v3 v3.1.1
+	github.com/launchdarkly/go-sdk-common/v3 v3.5.0
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
 	golang.org/x/crypto v0.52.0
 )
 
@@ -99,10 +99,12 @@ require (
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/josharian/intern v1.0.0 // indirect
 	github.com/launchdarkly/ccache v1.1.0 // indirect
 	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.3 // indirect
 	github.com/launchdarkly/go-ntlmssp v1.0.3 // indirect
 	github.com/launchdarkly/go-semver v1.0.3 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
@@ -141,3 +143,10 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// v8.19.4 upgraded to the go-jsonstream/v4, go-sdk-common/v4, and
+// go-server-sdk-evaluation/v4 core libraries (and the SDK/integration releases
+// that depend on them). Those /v4 major bumps are a breaking change for customers
+// (Go semantic import versioning), so v8.19.4 is retracted in favor of a release
+// built on the v3 core libraries. See SDK-2496.
+retract v8.19.4

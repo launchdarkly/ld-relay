@@ -13,8 +13,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
-	"github.com/launchdarkly/go-sdk-common/v4/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
