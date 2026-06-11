@@ -24,7 +24,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.11.0
-	github.com/launchdarkly/go-configtypes v1.2.3-0.20260610191826-f878d6774ccc
+	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.1
 	github.com/launchdarkly/go-sdk-common/v3 v3.5.0
 	github.com/launchdarkly/go-sdk-events/v3 v3.6.2-0.20260610185926-04050b02df99
@@ -101,8 +101,10 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/launchdarkly/ccache v1.1.0 // indirect
+	github.com/launchdarkly/go-jsonstream/v4 v4.0.0 // indirect
 	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.3 // indirect
 	github.com/launchdarkly/go-ntlmssp v1.0.3 // indirect
+	github.com/launchdarkly/go-sdk-common/v4 v4.0.0 // indirect
 	github.com/launchdarkly/go-semver v1.0.3 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
