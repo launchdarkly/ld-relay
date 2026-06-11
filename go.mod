@@ -27,12 +27,12 @@ require (
 	github.com/launchdarkly/go-configtypes v1.2.2
 	github.com/launchdarkly/go-jsonstream/v3 v3.1.1
 	github.com/launchdarkly/go-sdk-common/v3 v3.5.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.6.2-0.20260610185926-04050b02df99
-	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2-0.20260610190904-1d7ca8a82c04
-	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3-0.20260610191044-3d314dd18883
+	github.com/launchdarkly/go-sdk-events/v3 v3.6.2
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
 	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4-0.20260610190935-0620e938449a
-	github.com/launchdarkly/go-server-sdk/v7 v7.15.3-0.20260610192009-fb2518b505b3
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4
+	github.com/launchdarkly/go-server-sdk/v7 v7.15.3
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/launchdarkly/opencensus-go-exporter-stackdriver v0.14.7
 	github.com/pborman/uuid v1.2.1
