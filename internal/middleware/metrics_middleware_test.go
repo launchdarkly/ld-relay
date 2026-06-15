@@ -12,7 +12,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldlogtest"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"

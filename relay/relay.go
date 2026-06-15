@@ -27,7 +27,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 	"github.com/launchdarkly/ld-relay/v8/relay/version"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldlog"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 )
 
