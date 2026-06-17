@@ -1,4 +1,4 @@
-package testharness
+package configsource
 
 import (
 	"archive/tar"
@@ -19,17 +19,13 @@ import (
 )
 
 // ArchiveEnvSpec describes one environment to be written into an offline-mode archive.
-// SDKData follows the same JSON shape as the archive data files:
-//
-//	{"flags": {"flag-key": <flag-object>}, "segments": {"seg-key": <segment-object>}}
-//
-// Both keys are optional; omit if the env has no flags or segments.
-// Values should be JSON-serializable objects (e.g. from ldbuilders).
+// Flags and Segments follow the same JSON shape as the archive data files; values should be
+// JSON-serializable objects (e.g. from ldbuilders). Both are optional.
 type ArchiveEnvSpec struct {
 	// Rep is the EnvironmentRep written to the metadata file.
 	Rep envfactory.EnvironmentRep
-	// DataID is an opaque string stored alongside the metadata. Relay uses it to detect
-	// whether the data file changed across reloads. Any non-empty string works.
+	// DataID is an opaque string stored alongside the metadata. Relay uses it to detect whether
+	// the data file changed across reloads. Any non-empty string works.
 	DataID string
 	// Flags is a map of flag key → JSON-serializable flag object. May be nil.
 	Flags map[string]any
@@ -37,8 +33,10 @@ type ArchiveEnvSpec struct {
 	Segments map[string]any
 }
 
-// ArchiveFixtureBuilder builds offline-mode archive files (.tar.gz) for use as relay's
-// FileDataSource. Call AddEnv one or more times, then WriteTempFile or WriteFile.
+// ArchiveFixtureBuilder builds offline-mode archive files (.tar.gz) for use as Relay's
+// FileDataSource. The archive format matches what internal/filedata.ArchiveManager expects:
+// an {envID}.json metadata file, an {envID}-data.json flag/segment data file, and a checksum.md5
+// file. Call AddEnv one or more times, then WriteTempFile or WriteFile.
 type ArchiveFixtureBuilder struct {
 	envs []ArchiveEnvSpec
 }
@@ -54,8 +52,8 @@ func (b *ArchiveFixtureBuilder) AddEnv(spec ArchiveEnvSpec) *ArchiveFixtureBuild
 	return b
 }
 
-// WriteTempFile writes the archive to a temporary .tar.gz file and returns its path.
-// The file is removed automatically when the test ends.
+// WriteTempFile writes the archive to a temporary .tar.gz file and returns its path. The file is
+// removed automatically when the test ends.
 func (b *ArchiveFixtureBuilder) WriteTempFile(t testing.TB) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "ld-relay-archive-*.tar.gz")
@@ -82,8 +80,8 @@ func (b *ArchiveFixtureBuilder) WriteFile(t testing.TB, path string) {
 		for _, spec := range b.envs {
 			envIDs = append(envIDs, spec.Rep.EnvID)
 		}
-		writeChecksum(t, dir, envIDs)
-		tarGz(t, path, dir)
+		writeArchiveChecksum(t, dir, envIDs)
+		writeArchiveTarGz(t, path, dir)
 	})
 }
 
@@ -101,7 +99,7 @@ func (b *ArchiveFixtureBuilder) writeEnvFiles(t testing.TB, dir string, spec Arc
 	if err != nil {
 		t.Fatalf("ArchiveFixtureBuilder: marshal env metadata: %v", err)
 	}
-	writeFile(t, metadataPath(dir, spec.Rep.EnvID), metaBytes)
+	writeArchiveFile(t, archiveMetadataPath(dir, spec.Rep.EnvID), metaBytes)
 
 	// {envID}-data.json
 	sdkData := make(map[string]any, 2)
@@ -115,14 +113,14 @@ func (b *ArchiveFixtureBuilder) writeEnvFiles(t testing.TB, dir string, spec Arc
 	if err != nil {
 		t.Fatalf("ArchiveFixtureBuilder: marshal sdk data: %v", err)
 	}
-	writeFile(t, dataPath(dir, spec.Rep.EnvID), dataBytes)
+	writeArchiveFile(t, archiveDataPath(dir, spec.Rep.EnvID), dataBytes)
 }
 
-func writeChecksum(t testing.TB, dir string, envIDs []config.EnvironmentID) {
+func writeArchiveChecksum(t testing.TB, dir string, envIDs []config.EnvironmentID) {
 	t.Helper()
 	paths := make([]string, 0, len(envIDs)*2)
 	for _, id := range envIDs {
-		paths = append(paths, metadataPath(dir, id), dataPath(dir, id))
+		paths = append(paths, archiveMetadataPath(dir, id), archiveDataPath(dir, id))
 	}
 	sort.Strings(paths)
 
@@ -138,10 +136,10 @@ func writeChecksum(t testing.TB, dir string, envIDs []config.EnvironmentID) {
 		}
 		_ = f.Close()
 	}
-	writeFile(t, filepath.Join(dir, "checksum.md5"), h.Sum(nil))
+	writeArchiveFile(t, filepath.Join(dir, "checksum.md5"), h.Sum(nil))
 }
 
-func tarGz(t testing.TB, destPath, srcDir string) {
+func writeArchiveTarGz(t testing.TB, destPath, srcDir string) {
 	t.Helper()
 	_ = os.Remove(destPath)
 	f, err := os.OpenFile(filepath.Clean(destPath), os.O_CREATE|os.O_RDWR, 0600)
@@ -193,15 +191,15 @@ func tarGz(t testing.TB, destPath, srcDir string) {
 	}
 }
 
-func metadataPath(dir string, id config.EnvironmentID) string {
+func archiveMetadataPath(dir string, id config.EnvironmentID) string {
 	return filepath.Join(dir, fmt.Sprintf("%s.json", string(id)))
 }
 
-func dataPath(dir string, id config.EnvironmentID) string {
+func archiveDataPath(dir string, id config.EnvironmentID) string {
 	return filepath.Join(dir, fmt.Sprintf("%s-data.json", string(id)))
 }
 
-func writeFile(t testing.TB, path string, data []byte) {
+func writeArchiveFile(t testing.TB, path string, data []byte) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Clean(path), data, 0600); err != nil {
 		t.Fatalf("ArchiveFixtureBuilder: write %s: %v", path, err)

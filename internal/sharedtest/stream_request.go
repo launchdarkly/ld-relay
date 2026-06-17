@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/eventsource"
 
@@ -82,6 +83,31 @@ func WithStreamRequest(
 	cancelRequest()
 	wg.Wait()
 	return w.Result()
+}
+
+// AwaitEventOfType reads from an event channel (such as the one passed to the action by
+// WithStreamRequest) until it receives an event whose Event() type matches eventType, skipping any
+// events of a different type. It calls t.Fatal if the stream closes (a nil value is received) or
+// the timeout elapses before such an event arrives.
+func AwaitEventOfType(t *testing.T, eventCh <-chan eventsource.Event, eventType string, timeout time.Duration) eventsource.Event {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		select {
+		case e := <-eventCh:
+			if e == nil {
+				t.Fatalf("stream closed before receiving event of type %q", eventType)
+				return nil
+			}
+			if e.Event() == eventType {
+				return e
+			}
+		case <-deadline.C:
+			t.Fatalf("timed out after %s waiting for event of type %q", timeout, eventType)
+			return nil
+		}
+	}
 }
 
 func WithStreamRequestLines(
