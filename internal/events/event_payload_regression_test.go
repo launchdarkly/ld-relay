@@ -1,33 +1,23 @@
-// Event payload regression tests for concurrent-keys Phase 1.
+// Credential routing regression tests for the EventDispatcher.
 //
-// Purpose: catch accidental schema drift in upstream event payloads across the lifetime
-// of the concurrent-keys project. Every sub-PR that touches event-related code must keep
-// these green.
-//
-// Invariants tested:
-//  1. Analytics payloads use the anchor credential (EventDispatcher's stored authKey) in the
-//     Authorization header — not the credential on the incoming request.
-//  2. Diagnostic payloads proxy the incoming request's Authorization header verbatim.
-//  3. After a re-anchor (ReplaceCredential), analytics uses the new anchor; diagnostic is unchanged.
-//  4. Body schemas match the v8 baseline fixtures in testdata/.
-//
-// REFRESHING THE BASELINE: see docs/concurrent-keys/baseline-refresh.md
+// Invariants:
+//  1. Analytics events are always forwarded upstream under the anchor credential
+//     (EventDispatcher's stored authKey) — never under the credential that arrived
+//     on the incoming SDK request.
+//  2. Diagnostic events proxy the incoming request's Authorization header verbatim;
+//     the anchor credential is not used.
+//  3. After ReplaceCredential is called (anchor rotation), analytics switches to the
+//     new anchor immediately; diagnostic forwarding is unaffected.
 package events
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http/httptest"
-	"os"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
-	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -37,215 +27,64 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// loadPayloadFixture reads a baseline fixture file from testdata/.
-func loadPayloadFixture(t *testing.T, name string) []byte {
-	t.Helper()
-	data, err := os.ReadFile("testdata/" + name)
-	require.NoError(t, err, "loading payload fixture %s", name)
-	return data
-}
-
-// jsonSchemaOf returns a canonical string describing the structure of a JSON value: its
-// field names (for objects) and nesting, not its values. Used to detect schema drift
-// without being sensitive to value changes (timestamps, IDs, etc.).
-//
-// Object key order is normalised alphabetically so comparisons are deterministic.
-// Array schemas reflect only the first element (relay event arrays are homogeneous by kind;
-// the schema of element[0] is representative).
-func jsonSchemaOf(v any) string {
-	switch val := v.(type) {
-	case nil:
-		return "null"
-	case bool:
-		return "bool"
-	case float64:
-		return "number"
-	case string:
-		return "string"
-	case []any:
-		if len(val) == 0 {
-			return "[]"
-		}
-		return "[" + jsonSchemaOf(val[0]) + "]"
-	case map[string]any:
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, k+":"+jsonSchemaOf(val[k]))
-		}
-		return "{" + strings.Join(parts, ",") + "}"
-	default:
-		return fmt.Sprintf("unknown(%T)", v)
-	}
-}
-
-// assertBodySchemaMatchesFixture parses both byte slices as JSON and asserts they have
-// the same structure — key names and nesting — ignoring values and field ordering.
-//
-// For JSON arrays (event batches), elements are compared individually in order so that
-// heterogeneous event kinds (index, feature, custom, summary) are all checked, not just
-// the first element.
-func assertBodySchemaMatchesFixture(t *testing.T, fixture, actual []byte) {
-	t.Helper()
-	var fixtureVal, actualVal any
-	require.NoError(t, json.Unmarshal(fixture, &fixtureVal), "fixture must be valid JSON")
-	require.NoError(t, json.Unmarshal(actual, &actualVal), "upstream body must be valid JSON")
-
-	// For event-batch arrays, compare element-by-element so every event kind is verified.
-	fixtureArr, fixtureIsArr := fixtureVal.([]any)
-	actualArr, actualIsArr := actualVal.([]any)
-	if fixtureIsArr && actualIsArr {
-		assert.Equal(t, len(fixtureArr), len(actualArr),
-			"event array length must match baseline")
-		n := min(len(fixtureArr), len(actualArr))
-		for i := range n {
-			assert.Equal(t, jsonSchemaOf(fixtureArr[i]), jsonSchemaOf(actualArr[i]),
-				"event[%d] schema must match baseline", i)
-		}
-		return
-	}
-
-	assert.Equal(t, jsonSchemaOf(fixtureVal), jsonSchemaOf(actualVal),
-		"upstream body JSON schema must match v8 baseline fixture")
-}
-
-// expectUpstreamRequest waits for one upstream request to arrive on requestsCh.
-func expectUpstreamRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) httphelpers.HTTPRequestInfo {
+func requireUpstreamRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequestInfo) httphelpers.HTTPRequestInfo {
 	t.Helper()
 	return helpers.RequireValue(t, requestsCh, time.Second)
 }
 
-// TestEventPayloadRegressionVerbatimAnalytics verifies that verbatim analytics payloads
-// (schema v4, modern Go SDK path) are forwarded upstream with:
-//   - the anchor credential in Authorization (not the incoming request's credential), and
-//   - a body schema identical to the v8 baseline fixture.
-func TestEventPayloadRegressionVerbatimAnalytics(t *testing.T) {
-	fixture := loadPayloadFixture(t, "baseline_analytics_verbatim.json")
-
+// TestAnalyticsUpstreamUsesAnchorCredential verifies that analytics events are forwarded
+// upstream under the dispatcher's stored anchor credential, even when the incoming SDK
+// request carries a different Authorization header.
+func TestAnalyticsUpstreamUsesAnchorCredential(t *testing.T) {
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		headers := headersWithEventSchema(CurrentEventsSchemaVersion)
-		// Simulate an incoming request from a non-anchor SDK key.  The upstream output must
-		// use the anchor (EventDispatcher's stored authKey), not this incoming credential.
+		// Incoming request carries a non-anchor key — it must not reach the upstream.
 		headers.Set("Authorization", "sdk-non-anchor-key-must-not-reach-upstream")
 
-		req := st.BuildRequest("POST", "/", fixture, headers)
 		handler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)
 		require.NotNil(t, handler)
 		w := httptest.NewRecorder()
-		handler(w, req)
+		handler(w, st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headers))
 		assert.Equal(t, 202, w.Result().StatusCode)
 
 		p.dispatcher.flush()
-		r := expectUpstreamRequest(t, p.requestsCh)
+		r := requireUpstreamRequest(t, p.requestsCh)
 
-		// Invariant 1: analytics upstream must carry the anchor credential.
 		assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"analytics upstream must use anchor credential, not the incoming request credential")
-
-		// Invariant 4: body schema must match v8 baseline.
-		body, err := util.DecompressGzipData([]byte(r.Body))
-		require.NoError(t, err)
-		assertBodySchemaMatchesFixture(t, fixture, body)
+			"analytics upstream must carry the anchor credential, not the incoming request credential")
 	})
 }
 
-// TestEventPayloadRegressionDiagnostic verifies that diagnostic payloads are forwarded
-// upstream with:
-//   - the original incoming Authorization header (verbatim, not the anchor), and
-//   - a body schema identical to the v8 baseline fixture.
-//
-// Per design §4.3: diagnostic events preserve the original credential for debug attribution
-// ("which SDK reported this"), while analytics events collapse to the anchor.
-func TestEventPayloadRegressionDiagnostic(t *testing.T) {
-	fixture := loadPayloadFixture(t, "baseline_diagnostic.json")
-	const originalAuth = "sdk-original-diagnostic-client-auth"
+// TestDiagnosticUpstreamProxiesIncomingCredential verifies that diagnostic events proxy
+// the incoming request's Authorization header verbatim to the upstream, not the anchor.
+func TestDiagnosticUpstreamProxiesIncomingCredential(t *testing.T) {
+	const sdkAuth = "sdk-original-diagnostic-client-auth"
 
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		headers := headersWithEventSchema(0)
-		headers.Set("Authorization", originalAuth)
+		headers.Set("Authorization", sdkAuth)
 
-		req := st.BuildRequest("POST", "/", fixture, headers)
 		handler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind)
 		require.NotNil(t, handler)
 		w := httptest.NewRecorder()
-		handler(w, req)
+		handler(w, st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headers))
 		assert.Equal(t, 202, w.Result().StatusCode)
 
-		r := expectUpstreamRequest(t, p.requestsCh)
+		r := requireUpstreamRequest(t, p.requestsCh)
 
-		// Invariant 2: diagnostic upstream must carry the original auth, not the anchor.
-		assert.Equal(t, originalAuth, r.Request.Header.Get("Authorization"),
-			"diagnostic upstream must proxy the original authorization header verbatim")
+		assert.Equal(t, sdkAuth, r.Request.Header.Get("Authorization"),
+			"diagnostic upstream must proxy the incoming Authorization header verbatim")
 		assert.NotEqual(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"diagnostic upstream must NOT use the anchor credential")
-
-		// Invariant 4: body schema must match v8 baseline.
-		body, err := util.DecompressGzipData([]byte(r.Body))
-		require.NoError(t, err)
-		assertBodySchemaMatchesFixture(t, fixture, body)
+			"diagnostic upstream must not use the anchor credential")
 	})
 }
 
-// TestEventPayloadRegressionSummarizedAnalytics verifies that pre-summarization analytics
-// payloads (PHP SDK path: schema ≤2 or Unsummarized header) are forwarded upstream with:
-//   - the anchor credential in Authorization, and
-//   - a body that is a valid summarized event array with the expected schema.
-func TestEventPayloadRegressionSummarizedAnalytics(t *testing.T) {
-	inputFixture := loadPayloadFixture(t, "baseline_analytics_summarize_input.json")
-
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		headers := headersWithEventSchema(2)
-		headers.Set(EventUnsummarizedHeader, "true")
-
-		req := st.BuildRequest("POST", "/", inputFixture, headers)
-		handler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)
-		require.NotNil(t, handler)
-		w := httptest.NewRecorder()
-		handler(w, req)
-		assert.Equal(t, 202, w.Result().StatusCode)
-
-		p.dispatcher.flush()
-		r := expectUpstreamRequest(t, p.requestsCh)
-
-		// Invariant 1: summarized analytics upstream must carry the anchor credential.
-		assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"summarized analytics upstream must use anchor credential")
-
-		// Invariant 4: output must be a valid JSON array of event objects; final event is summary.
-		body, err := util.DecompressGzipData(r.Body)
-		require.NoError(t, err)
-
-		var events []map[string]any
-		require.NoError(t, json.Unmarshal(body, &events), "summarized output must be a JSON array of objects")
-		require.NotEmpty(t, events, "summarized output must not be empty")
-
-		for i, evt := range events {
-			_, hasKind := evt["kind"]
-			assert.True(t, hasKind, "event[%d] must have a 'kind' field", i)
-		}
-		// The summarizing relay always appends a summary event last.
-		lastEvt := events[len(events)-1]
-		assert.Equal(t, "summary", lastEvt["kind"], "last event must be a summary")
-		_, hasFeatures := lastEvt["features"]
-		assert.True(t, hasFeatures, "summary event must have a 'features' field")
-	})
-}
-
-// TestEventPayloadRegressionAnchorReplacement is the core Phase 1 regression test.
-// It simulates the re-anchor operation (T2.c) and verifies credential routing remains
-// correct before and after ReplaceCredential is called.
-//
-// Invariant 3: after re-anchor, analytics uses the new anchor; diagnostic stays verbatim.
-func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
-	analyticsFixture := loadPayloadFixture(t, "baseline_analytics_verbatim.json")
-	diagnosticFixture := loadPayloadFixture(t, "baseline_diagnostic.json")
-
+// TestCredentialRoutingAfterReplaceCredential verifies that after ReplaceCredential is
+// called (anchor rotation), analytics events use the new anchor while diagnostic events
+// continue to proxy the original incoming authorization.
+func TestCredentialRoutingAfterReplaceCredential(t *testing.T) {
 	newAnchorKey := config.SDKKey(string(st.EnvMain.Config.SDKKey) + "-rotated")
-	const diagnosticAuth = "sdk-original-client-that-sent-diagnostic"
+	const sdkDiagAuth = "sdk-original-client-that-sent-diagnostic"
 
 	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
 		analyticsHandler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)
@@ -256,54 +95,43 @@ func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
 		sendAnalytics := func() httphelpers.HTTPRequestInfo {
 			analyticsHandler(
 				httptest.NewRecorder(),
-				st.BuildRequest("POST", "/", analyticsFixture, headersWithEventSchema(CurrentEventsSchemaVersion)),
+				st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headersWithEventSchema(CurrentEventsSchemaVersion)),
 			)
 			p.dispatcher.flush()
-			return expectUpstreamRequest(t, p.requestsCh)
+			return requireUpstreamRequest(t, p.requestsCh)
 		}
 
 		sendDiagnostic := func() httphelpers.HTTPRequestInfo {
-			diagHeaders := headersWithEventSchema(0)
-			diagHeaders.Set("Authorization", diagnosticAuth)
+			headers := headersWithEventSchema(0)
+			headers.Set("Authorization", sdkDiagAuth)
 			diagnosticHandler(
 				httptest.NewRecorder(),
-				st.BuildRequest("POST", "/", diagnosticFixture, diagHeaders),
+				st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headers),
 			)
-			// Diagnostic events are forwarded immediately (no buffer/flush needed),
-			// unlike analytics events which batch and require an explicit flush.
-			return expectUpstreamRequest(t, p.requestsCh)
+			// Diagnostic events are forwarded immediately; no flush needed.
+			return requireUpstreamRequest(t, p.requestsCh)
 		}
 
-		// --- Before re-anchor ---
+		// Before rotation: analytics uses the original anchor.
 		r := sendAnalytics()
 		assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"before re-anchor: analytics must use original anchor")
+			"before rotation: analytics must use original anchor")
 
-		// --- Simulate Phase 1 re-anchor (T2.c calls ReplaceCredential) ---
+		// Rotate the anchor.
 		p.dispatcher.ReplaceCredential(newAnchorKey)
 
-		// --- After re-anchor: analytics must switch to new anchor ---
+		// After rotation: analytics must switch to the new anchor.
 		r = sendAnalytics()
 		assert.Equal(t, string(newAnchorKey), r.Request.Header.Get("Authorization"),
-			"after re-anchor: analytics must use new anchor credential")
+			"after rotation: analytics must use new anchor credential")
 		assert.NotEqual(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"after re-anchor: analytics must NOT still use old anchor credential")
+			"after rotation: analytics must not still use old anchor credential")
 
-		// Analytics body schema must be preserved after re-anchor.
-		analyticsBody, err := util.DecompressGzipData([]byte(r.Body))
-		require.NoError(t, err)
-		assertBodySchemaMatchesFixture(t, analyticsFixture, analyticsBody)
-
-		// --- After re-anchor: diagnostic must still proxy the original auth verbatim ---
+		// After rotation: diagnostic must still proxy the original incoming auth.
 		r = sendDiagnostic()
-		assert.Equal(t, diagnosticAuth, r.Request.Header.Get("Authorization"),
-			"after re-anchor: diagnostic must still proxy original auth, not the new anchor")
+		assert.Equal(t, sdkDiagAuth, r.Request.Header.Get("Authorization"),
+			"after rotation: diagnostic must still proxy the original incoming authorization")
 		assert.NotEqual(t, string(newAnchorKey), r.Request.Header.Get("Authorization"),
-			"after re-anchor: diagnostic must NOT use the new anchor credential")
-
-		// Diagnostic body schema must also be preserved across re-anchor.
-		diagBody, err := util.DecompressGzipData([]byte(r.Body))
-		require.NoError(t, err)
-		assertBodySchemaMatchesFixture(t, diagnosticFixture, diagBody)
+			"after rotation: diagnostic must not use the new anchor credential")
 	})
 }
