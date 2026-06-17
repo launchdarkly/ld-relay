@@ -1,0 +1,36 @@
+{
+  "kind": "diagnostic-init",
+  "creationDate": 1000,
+  "id": {
+    "diagnosticId": "regression-diag-id",
+    "sdkKeySuffix": "7e42d0"
+  },
+  "sdk": {
+    "name": "go-server-sdk",
+    "version": "7.0.0"
+  },
+  "configuration": {
+    "customBaseURI": false,
+    "customStreamURI": false,
+    "customEventsURI": false,
+    "eventsCapacity": 1000,
+    "connectTimeoutMillis": 10000,
+    "socketTimeoutMillis": 300000,
+    "eventsFlushIntervalMillis": 30000,
+    "usingProxy": false,
+    "streamingDisabled": false,
+    "usingRelayDaemon": false,
+    "offline": false,
+    "allAttributesPrivate": false,
+    "customAttributesPrivate": 0,
+    "diagnosticRecordingIntervalMillis": 900000,
+    "featureStoreFactory": "InMemoryDataStore"
+  },
+  "platform": {
+    "name": "Go",
+    "goVersion": "1.21.0",
+    "osArch": "amd64",
+    "osName": "linux",
+    "osVersion": ""
+  }
+}
