@@ -71,6 +71,17 @@ func (b *ArchiveFixtureBuilder) WriteTempFile(t testing.TB) string {
 func (b *ArchiveFixtureBuilder) WriteFile(t testing.TB, path string) {
 	t.Helper()
 
+	// Each environment maps to one pair of files ({envID}.json, {envID}-data.json). A duplicate
+	// EnvID would overwrite those files but be hashed twice in checksum.md5, producing an archive
+	// that fails filedata's checksum verification. Reject it rather than write a broken archive.
+	seen := make(map[config.EnvironmentID]bool, len(b.envs))
+	for _, spec := range b.envs {
+		if seen[spec.Rep.EnvID] {
+			t.Fatalf("ArchiveFixtureBuilder: duplicate environment ID %q; each env must be added once", spec.Rep.EnvID)
+		}
+		seen[spec.Rep.EnvID] = true
+	}
+
 	// Stage files in a temp directory, compute checksum, then tar.gz the result.
 	helpers.WithTempDir(func(dir string) {
 		for _, spec := range b.envs {

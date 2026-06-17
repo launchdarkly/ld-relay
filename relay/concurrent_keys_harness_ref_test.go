@@ -1,15 +1,14 @@
 package relay
 
-// TestConcurrentKeysHarnessReference is the reference integration test for the Phase 1
-// concurrent-keys test helpers (SDK-2548 / T5.a). It demonstrates the reusable helpers added to
-// internal/sharedtest working together end-to-end:
+// TestConcurrentKeysHarnessReference is the reference integration test for the concurrent-keys
+// test helpers. It demonstrates the reusable helpers added to internal/sharedtest working together
+// end-to-end:
 //
 //   - configsource.ArchiveFixtureBuilder (offline-mode archive with flag data)
 //   - configsource.RACMock (RAC SSE server delivering environment configuration)
 //   - sharedtest.WithStreamRequest + sharedtest.AwaitEventOfType (consuming Relay's SSE stream)
 //
-// Scenario tests for individual Phase 1 features accumulate in the sub-tasks that introduce them
-// (T1.c, T2.c, T3.c, T4), reusing these same helpers.
+// Feature-specific scenario tests live alongside the code they exercise and reuse these helpers.
 
 import (
 	"net/http"
@@ -51,7 +50,7 @@ var harnessEnvRep = envfactory.EnvironmentRep{
 	Version:  1,
 }
 
-// TestConcurrentKeysHarnessReference exercises the reusable Phase 1 test helpers.
+// TestConcurrentKeysHarnessReference exercises the reusable concurrent-keys test helpers.
 func TestConcurrentKeysHarnessReference(t *testing.T) {
 	t.Run("archive fixture + SDK stream: flag data flows through Relay's SSE stream", func(t *testing.T) {
 		// 1. Build an offline-mode archive containing a single env with a simple boolean flag.
