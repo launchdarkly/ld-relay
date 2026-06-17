@@ -28,13 +28,13 @@ This document is committed in that worktree at `docs/concurrent-keys/phase1-plan
 
 ## 2. Wave breakdown
 
-Three waves. Wave 3 is the final merge-forward to v9, possibly weeks or months after Wave 2 completes.
+Three waves. Wave 3 is release-time work: clean up project scaffolding, merge `feat/concurrent-keys` to v8 and release, then merge-forward to v9 when v9 is ready (possibly weeks or months later).
 
 | Wave | Theme | When |
 |---|---|---|
 | **Wave 1** | Foundations: PoC, data structures, wire types, test infrastructure | Immediately, multiple sub-tasks in parallel |
 | **Wave 2** | Core implementation: API surface change, re-anchor mechanism, peripheral re-wiring, end-to-end integration | After PoC findings + Wave 1 data structures land |
-| **Wave 3** | Merge-forward to v9 | Possibly weeks/months after Wave 2, depending on v8 production deploy timing |
+| **Wave 3** | Release: code cleanup → merge to v8 → publish release → merge-forward to v9 | Cleanup + v8 release happen as soon as Wave 2 completes; merge-forward to v9 is calendar-deferred |
 
 The "single-key behavior unchanged at every PR boundary" invariant is the load-bearing testable property. Every sub-PR must preserve it.
 
@@ -78,9 +78,11 @@ Each task has: ticket name, files touched, dependencies, estimates. Acceptance c
 
 | Task | Files | Depends on | Human | AI agent |
 |---|---|---|---|---|
-| **T5.e** — Merge-forward to v9 | `internal/relayenv/*`, streaming path | All Wave 2 done | 3-7 days | 1-2 days (with iteration) |
+| **T5.f** — Code cleanup: remove project scaffolding before v8 merge | `docs/concurrent-keys/` (entire directory), `internal/relayenv/env_context_reanchor_test.go`, anything else project-specific | All Wave 2 terminal sub-tasks (T1.c, T2.b, T2.d, T2.e, T4) | 0.5-1 day | 30 min - 1 hr |
+| **T5.g** — Merge `feat/concurrent-keys` to v8 + publish release | None (release activity) | T5.f | 0.5-1 day | n/a (release task, not coding) |
+| **T5.e** — Merge-forward to v9 | `internal/relayenv/*`, streaming path | T5.g (and calendar — may be weeks/months after the v8 release) | 3-7 days | 1-2 days (with iteration) |
 
-**Total project**: ~6-11 weeks of full-time human work (excluding the calendar gap before Wave 3, which may extend the project's wall-clock duration substantially).
+**Total project**: ~6-11 weeks of full-time human work for code work; the merge-forward to v9 (T5.e) lives on its own calendar that depends on v9 readiness.
 
 ---
 
@@ -106,13 +108,13 @@ T3.b ─────────────────────────
 T5.a (test harness) — supports all other tasks' tests
 T5.b (events regression) — runs continuously after landing
 
-[all Wave 2 done] ─→ T5.e (merge-forward to v9)
+[Wave 2 terminal nodes: T1.c, T2.b, T2.d, T2.e, T4] ─→ T5.f (cleanup) ─→ T5.g (merge to v8 + release) ─→ T5.e (merge-forward to v9)
 ```
 
 **Critical path** (longest dependency chain):
-T1.0 → T1.a → T1.b → T2.a → T2.c → T2.e → T5.e
+T1.0 → T1.a → T1.b → T2.a → T2.c → T2.e → T5.f → T5.g → T5.e
 
-This chain alone is roughly: 0.5 + 1.5 + 2.5 + 1.5 + 4 + 2.5 + 5 = ~17 human days at the midpoint of the estimates. Other Wave 2 tasks parallelize off this critical path.
+The Wave 2 portion is roughly: 0.5 + 1.5 + 2.5 + 1.5 + 4 + 2.5 = ~12.5 human days at the midpoint. Wave 3 adds ~1 day (cleanup) + ~1 day (merge/release) + 3-7 days (v9 merge-forward, calendar-deferred). Other Wave 2 tasks parallelize off this critical path.
 
 ---
 
@@ -274,11 +276,38 @@ The harness lands as Wave 1 infrastructure; scenarios accumulate as acceptance t
 
 Capture upstream payloads from v8 under realistic SDK traffic. Assert post-Phase-1 payloads are structurally identical *except* for the credential field. Catches accidental schema drift throughout the project.
 
+### T5.f — Code cleanup before v8 merge
+
+Remove all project-specific scaffolding from `feat/concurrent-keys` *before* T5.g merges the branch to v8. The canonical design + plan docs and the PoC test file were useful during development; they shouldn't land on v8.
+
+What to remove:
+- `docs/concurrent-keys/` — entire directory (this file is one of the things being removed). Save off-branch if you want to keep it for reference.
+- `internal/relayenv/env_context_reanchor_test.go` — PoC test file. Verify any useful tests have already been adopted into proper regression test files by T2.c before deleting.
+- Any other concurrent-keys-specific scaffolding that may have accumulated.
+
+What stays:
+- Actual feature code.
+- Regression tests in properly-named test files (those aren't scaffolding).
+
+Single PR. Conventional commit: `chore(concurrent-keys): remove project scaffolding before v8 merge`.
+
+### T5.g — Merge `feat/concurrent-keys` to v8 + publish release
+
+Final merge. **Squash-merge** as a single `feat:` commit — that commit is what release tooling sees, so it triggers the minor version bump. Suggested squash title: `feat(concurrent-keys): support multiple SDK keys per environment via RAC and offline archive`.
+
+Steps:
+1. Final review of feature branch HEAD; confirm cleanup (T5.f) is in.
+2. Squash-merge `feat/concurrent-keys` → v8.
+3. Verify release tooling triggers a minor version bump.
+4. Publish release notes (three items from §8).
+
+Not a coding task — this is a release activity.
+
 ### T5.e — Merge-forward to v9
 
 Not a `git merge`. Real integration work resolving FDv2 ↔ Phase 1 interactions in `env_context_impl.go` and the streaming path. v9 has FDv2 in it, which touches the same files Phase 1 changes most heavily. Validate against v9's existing test suite plus a subset of Phase 1 tests adapted for v9.
 
-Timing: possibly weeks or months after Wave 2 completes, depending on when v8 ships to production.
+Timing: calendar-deferred. May happen weeks or months after T5.g (v8 release), depending on when v9 is ready.
 
 ---
 
@@ -403,9 +432,11 @@ SDK-2453 (Epic) — Relay Proxy Multi Keys Support
 │   ├── T3.b Shared reconcile helper                        [Sub-task]
 │   └── T3.c Wire RAC + offline handlers                    [Sub-task]
 ├── T4  Status endpoints                                    [Task]
-└── T5  Tests + merge-forward                               [Story]
+└── T5  Tests, release, and merge-forward                   [Story]
     ├── T5.a Integration test harness                       [Sub-task]
     ├── T5.b Events payload regression test                 [Sub-task]
+    ├── T5.f Code cleanup before v8 merge                   [Sub-task]
+    ├── T5.g Merge feat/concurrent-keys to v8 + release     [Sub-task]
     └── T5.e Merge-forward to v9                            [Sub-task]
 ```
 
