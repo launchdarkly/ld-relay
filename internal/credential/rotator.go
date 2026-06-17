@@ -36,7 +36,7 @@ type Rotator struct {
 	// Upon expiration, they are removed.
 	deprecatedSdkKeys map[config.SDKKey]time.Time
 
-	// Consumed by T1.b (ReconcileCredentials API). See docs/concurrent-keys/phase1-design.md §6.2.
+	// Consumed by ReconcileCredentials API
 	acceptedSDKKeys    map[config.SDKKey]*acceptedKeyInfo
 	acceptedMobileKeys map[config.MobileKey]*acceptedKeyInfo
 
