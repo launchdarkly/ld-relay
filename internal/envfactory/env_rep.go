@@ -142,7 +142,10 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		SecureMode:     r.SecureMode,
 	}
 
-	if len(r.SDKKeys) > 0 {
+	// Use != nil (not len > 0) so that "sdkKeys": [] in new-format payloads produces a
+	// non-nil empty slice, preserving the nil/non-nil signal that distinguishes
+	// "old-format payload" (nil) from "new-format payload with no keys" ([]AcceptedSDKKey{}).
+	if r.SDKKeys != nil {
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
 		for _, k := range r.SDKKeys {
 			entry := AcceptedSDKKey{
@@ -156,7 +159,7 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		}
 	}
 
-	if len(r.MobileKeys) > 0 {
+	if r.MobileKeys != nil {
 		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
 		for _, k := range r.MobileKeys {
 			entry := AcceptedMobileKey{

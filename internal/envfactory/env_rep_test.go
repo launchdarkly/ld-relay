@@ -40,6 +40,9 @@ func TestEnvironmentRepToParams(t *testing.T) {
 		TTL:        2 * time.Minute,
 		SecureMode: true,
 	}, params1)
+	// Old-format env (no SDKKeys/MobileKeys set) → accepted-set fields must be nil, not empty slice.
+	assert.Nil(t, params1.AcceptedSDKKeys)
+	assert.Nil(t, params1.AcceptedMobileKeys)
 
 	env2 := EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid2"),
@@ -180,6 +183,33 @@ func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	assert.Nil(t, params.AcceptedMobileKeys)
 	assert.Equal(t, config.SDKKey("sdk-key1"), params.SDKKey)
 	assert.Equal(t, config.MobileKey("mob-default"), params.MobileKey)
+}
+
+// TestEnvironmentRepEmptyArrays verifies that a new-format payload carrying empty sdkKeys/mobileKeys
+// arrays (not absent, but explicitly []) produces non-nil empty slices in AcceptedSDKKeys/
+// AcceptedMobileKeys, preserving the nil/non-nil signal that distinguishes "old wire format" (nil)
+// from "new format with no keys yet" (non-nil empty slice).
+func TestEnvironmentRepEmptyArrays(t *testing.T) {
+	jsonStr := `{
+		"envID": "envid1",
+		"sdkKey": { "value": "sdk-key1" },
+		"mobKey": "mob-key1",
+		"sdkKeys": [],
+		"mobileKeys": []
+	}`
+
+	var rep EnvironmentRep
+	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
+	assert.NotNil(t, rep.SDKKeys, "explicitly-empty sdkKeys array must unmarshal to non-nil slice")
+	assert.Len(t, rep.SDKKeys, 0)
+	assert.NotNil(t, rep.MobileKeys, "explicitly-empty mobileKeys array must unmarshal to non-nil slice")
+	assert.Len(t, rep.MobileKeys, 0)
+
+	params := rep.ToParams()
+	assert.NotNil(t, params.AcceptedSDKKeys, "non-nil empty sdkKeys must produce non-nil AcceptedSDKKeys")
+	assert.Len(t, params.AcceptedSDKKeys, 0)
+	assert.NotNil(t, params.AcceptedMobileKeys, "non-nil empty mobileKeys must produce non-nil AcceptedMobileKeys")
+	assert.Len(t, params.AcceptedMobileKeys, 0)
 }
 
 // TestEnvironmentRepBackCompatOldRelay verifies that a new-format payload (containing sdkKeys/
