@@ -165,7 +165,7 @@ func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePe
 // RotateWithGrace sets a new primary credential while deprecating the previous one. When grace is nil
 // the outgoing credential is immediately revoked. It is invalid to specify a grace period for an
 // environment ID. For mobile keys, a non-nil grace period stores the expiry for the outgoing key;
-// the cleanup ticker (T1.c) is responsible for acting on it.
+// the cleanup ticker is responsible for acting on it.
 func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
 	switch primary := primary.(type) {
 	case config.SDKKey:
@@ -208,6 +208,7 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod
 	}
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
+	delete(r.deprecatedMobileKeys, mobileKey)
 	r.additions = append(r.additions, mobileKey)
 	if !previous.Defined() {
 		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
