@@ -142,35 +142,51 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		SecureMode:     r.SecureMode,
 	}
 
-	// Use != nil (not len > 0) so that "sdkKeys": [] in new-format payloads produces a
-	// non-nil empty slice, preserving the nil/non-nil signal that distinguishes
-	// "old-format payload" (nil) from "new-format payload with no keys" ([]AcceptedSDKKey{}).
 	if r.SDKKeys != nil {
+		// New-format payload: populate directly from the array.
+		// Use != nil (not len > 0) so that "sdkKeys": [] produces a non-nil empty slice,
+		// distinct from the synthesized case below.
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
 		for _, k := range r.SDKKeys {
 			entry := AcceptedSDKKey{
-				Key: k.Key,
-				Value:      config.SDKKey(k.Value),
+				Key:   k.Key,
+				Value: config.SDKKey(k.Value),
 			}
 			if k.Expiry != nil {
 				entry.Expiry = time.UnixMilli(*k.Expiry)
 			}
 			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, entry)
 		}
+	} else {
+		// Old-format payload: no sdkKeys array present. Synthesize AcceptedSDKKeys from the
+		// singular sdkKey fields so T3.b/c consumers always receive a consistent non-nil model
+		// regardless of wire format version. Key (identifier) is empty — the old format had none.
+		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, 2)
+		params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{Value: r.SDKKey.Value})
+		if r.SDKKey.Expiring.Value.Defined() {
+			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{
+				Value:  r.SDKKey.Expiring.Value,
+				Expiry: ToTime(r.SDKKey.Expiring.Timestamp),
+			})
+		}
 	}
 
 	if r.MobileKeys != nil {
+		// New-format payload: populate directly from the array.
 		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
 		for _, k := range r.MobileKeys {
 			entry := AcceptedMobileKey{
-				Key: k.Key,
-				Value:      config.MobileKey(k.Value),
+				Key:   k.Key,
+				Value: config.MobileKey(k.Value),
 			}
 			if k.Expiry != nil {
 				entry.Expiry = time.UnixMilli(*k.Expiry)
 			}
 			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, entry)
 		}
+	} else {
+		// Old-format payload: synthesize from the singular mobKey field.
+		params.AcceptedMobileKeys = []AcceptedMobileKey{{Value: r.MobKey}}
 	}
 
 	return params

@@ -35,14 +35,13 @@ func TestEnvironmentRepToParams(t *testing.T) {
 			ProjKey:  "projkey1",
 			ProjName: "projname1",
 		},
-		SDKKey:     env1.SDKKey.Value,
-		MobileKey:  env1.MobKey,
-		TTL:        2 * time.Minute,
-		SecureMode: true,
+		SDKKey:             env1.SDKKey.Value,
+		MobileKey:          env1.MobKey,
+		TTL:                2 * time.Minute,
+		SecureMode:         true,
+		AcceptedSDKKeys:    []AcceptedSDKKey{{Value: config.SDKKey("sdkkey1")}},
+		AcceptedMobileKeys: []AcceptedMobileKey{{Value: config.MobileKey("mobkey1")}},
 	}, params1)
-	// Old-format env (no SDKKeys/MobileKeys set) → accepted-set fields must be nil, not empty slice.
-	assert.Nil(t, params1.AcceptedSDKKeys)
-	assert.Nil(t, params1.AcceptedMobileKeys)
 
 	env2 := EnvironmentRep{
 		EnvID:    config.EnvironmentID("envid2"),
@@ -73,6 +72,11 @@ func TestEnvironmentRepToParams(t *testing.T) {
 			Expiration: time.UnixMilli(int64(env2.SDKKey.Expiring.Timestamp)),
 		},
 		MobileKey: env2.MobKey,
+		AcceptedSDKKeys: []AcceptedSDKKey{
+			{Value: config.SDKKey("sdkkey2")},
+			{Value: config.SDKKey("oldkey"), Expiry: time.UnixMilli(10000)},
+		},
+		AcceptedMobileKeys: []AcceptedMobileKey{{Value: config.MobileKey("mobkey2")}},
 	}, params2)
 }
 
@@ -148,19 +152,21 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 	params := rep.ToParams()
 
 	require.Len(t, params.AcceptedSDKKeys, 2)
-	assert.Equal(t, AcceptedSDKKey{Key:"default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
+	assert.Equal(t, AcceptedSDKKey{Key: "default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
 	assert.Equal(t, AcceptedSDKKey{
-		Key:"service-a",
-		Value:      config.SDKKey("sdk-service-a"),
-		Expiry:     time.UnixMilli(expiryMs),
+		Key:    "service-a",
+		Value:  config.SDKKey("sdk-service-a"),
+		Expiry: time.UnixMilli(expiryMs),
 	}, params.AcceptedSDKKeys[1])
 
 	require.Len(t, params.AcceptedMobileKeys, 1)
-	assert.Equal(t, AcceptedMobileKey{Key:"mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
+	assert.Equal(t, AcceptedMobileKey{Key: "mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
 }
 
 // TestEnvironmentRepOldFormatNoArrays verifies that an old-format payload (singular sdkKey/mobKey
-// only, no sdkKeys/mobileKeys arrays) parses cleanly and leaves the accepted-set fields nil.
+// only, no sdkKeys/mobileKeys arrays) is normalized by ToParams() into a consistent accepted set.
+// The wire rep's SDKKeys/MobileKeys remain nil, but params.AcceptedSDKKeys/AcceptedMobileKeys are
+// synthesized from the singular fields so T3.b/c consumers never need to handle two code paths.
 func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	jsonStr := `{
 		"envID": "envid1",
@@ -179,16 +185,18 @@ func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	assert.Nil(t, rep.MobileKeys)
 
 	params := rep.ToParams()
-	assert.Nil(t, params.AcceptedSDKKeys)
-	assert.Nil(t, params.AcceptedMobileKeys)
 	assert.Equal(t, config.SDKKey("sdk-key1"), params.SDKKey)
 	assert.Equal(t, config.MobileKey("mob-default"), params.MobileKey)
+	require.Len(t, params.AcceptedSDKKeys, 1)
+	assert.Equal(t, AcceptedSDKKey{Value: config.SDKKey("sdk-key1")}, params.AcceptedSDKKeys[0])
+	require.Len(t, params.AcceptedMobileKeys, 1)
+	assert.Equal(t, AcceptedMobileKey{Value: config.MobileKey("mob-default")}, params.AcceptedMobileKeys[0])
 }
 
-// TestEnvironmentRepEmptyArrays verifies that a new-format payload carrying empty sdkKeys/mobileKeys
-// arrays (not absent, but explicitly []) produces non-nil empty slices in AcceptedSDKKeys/
-// AcceptedMobileKeys, preserving the nil/non-nil signal that distinguishes "old wire format" (nil)
-// from "new format with no keys yet" (non-nil empty slice).
+// TestEnvironmentRepEmptyArrays verifies that a new-format payload carrying explicitly empty
+// sdkKeys/mobileKeys arrays (present but []) produces non-nil empty AcceptedSDKKeys/
+// AcceptedMobileKeys — distinct from the old-format synthesis path which always produces at
+// least one entry (the anchor).
 func TestEnvironmentRepEmptyArrays(t *testing.T) {
 	jsonStr := `{
 		"envID": "envid1",

@@ -49,17 +49,17 @@ type EnvironmentParams struct {
 // AcceptedSDKKey is one entry in the accepted SDK key set for an environment.
 // Expiry is zero if the key is permanent.
 type AcceptedSDKKey struct {
-	Key string
-	Value      config.SDKKey
-	Expiry     time.Time
+	Key    string
+	Value  config.SDKKey
+	Expiry time.Time
 }
 
 // AcceptedMobileKey is one entry in the accepted mobile key set for an environment.
 // Expiry is zero if the key is permanent.
 type AcceptedMobileKey struct {
-	Key string
-	Value      config.MobileKey
-	Expiry     time.Time
+	Key    string
+	Value  config.MobileKey
+	Expiry time.Time
 }
 
 type ExpiringSDKKey struct {
