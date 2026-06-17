@@ -162,21 +162,16 @@ func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePe
 	return &GracePeriod{key, expiry, now}
 }
 
-// RotateWithGrace sets a new primary credential while deprecating a previous credential. The grace
-// parameter may be nil to immediately revoke the previous credential.
-// It is invalid to specify a grace period when the credential being rotated is an environment ID.
-// For mobile keys, a non-nil grace period stores the expiry for the outgoing key; the cleanup
-// ticker (T1.c) is responsible for acting on it.
+// RotateWithGrace sets a new primary credential while deprecating the previous one. When grace is nil
+// the outgoing credential is immediately revoked. It is invalid to specify a grace period for an
+// environment ID. For mobile keys, a non-nil grace period stores the expiry for the outgoing key;
+// the cleanup ticker (T1.c) is responsible for acting on it.
 func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
 	switch primary := primary.(type) {
 	case config.SDKKey:
 		r.updateSDKKey(primary, grace)
 	case config.MobileKey:
-		if grace != nil {
-			r.updateMobileKeyWithGrace(primary, grace)
-		} else {
-			r.updateMobileKey(primary)
-		}
+		r.updateMobileKey(primary, grace)
 	case config.EnvironmentID:
 		if grace != nil {
 			panic("programmer error: environment IDs do not support deprecation")
@@ -202,34 +197,25 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 	}
 }
 
-func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
-	if mobileKey == r.MobileKey() {
-		return
-	}
+// updateMobileKey sets a new primary mobile key. When grace is nil the outgoing key is
+// immediately revoked; when non-nil its expiry is stored in deprecatedMobileKeys.
+// StepTime does not yet act on deprecatedMobileKeys — that is deferred to T1.c.
+func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	previous := r.primaryMobileKey
-	r.primaryMobileKey = mobileKey
-	r.additions = append(r.additions, mobileKey)
-	if previous.Defined() {
-		r.expirations = append(r.expirations, previous)
-		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
-	} else {
-		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
-	}
-}
-
-func (r *Rotator) updateMobileKeyWithGrace(mobileKey config.MobileKey, grace *GracePeriod) {
-	if mobileKey == r.MobileKey() {
+	if mobileKey == r.primaryMobileKey {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
 	r.additions = append(r.additions, mobileKey)
 	if !previous.Defined() {
 		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+		return
+	}
+	if grace == nil {
+		r.expirations = append(r.expirations, previous)
+		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
 		return
 	}
 	if grace.Expired() {

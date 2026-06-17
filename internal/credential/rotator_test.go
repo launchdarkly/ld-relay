@@ -280,4 +280,21 @@ func TestRotateWithGraceMobileKey(t *testing.T) {
 		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
 		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
 	})
+
+	t.Run("immediately revokes outgoing key when grace is nil", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		rotator := NewRotator(mockLog.Loggers)
+
+		mob1 := config.MobileKey("mob1")
+		mob2 := config.MobileKey("mob2")
+
+		rotator.Initialize([]SDKCredential{mob1})
+		rotator.RotateWithGrace(mob2, nil)
+
+		assert.Equal(t, mob2, rotator.MobileKey())
+
+		additions, expirations := rotator.StepTime(time.Now())
+		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
+		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
+	})
 }
