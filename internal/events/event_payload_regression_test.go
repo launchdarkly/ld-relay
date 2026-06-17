@@ -85,11 +85,30 @@ func jsonSchemaOf(v any) string {
 
 // assertBodySchemaMatchesFixture parses both byte slices as JSON and asserts they have
 // the same structure — key names and nesting — ignoring values and field ordering.
+//
+// For JSON arrays (event batches), elements are compared individually in order so that
+// heterogeneous event kinds (index, feature, custom, summary) are all checked, not just
+// the first element.
 func assertBodySchemaMatchesFixture(t *testing.T, fixture, actual []byte) {
 	t.Helper()
 	var fixtureVal, actualVal any
 	require.NoError(t, json.Unmarshal(fixture, &fixtureVal), "fixture must be valid JSON")
 	require.NoError(t, json.Unmarshal(actual, &actualVal), "upstream body must be valid JSON")
+
+	// For event-batch arrays, compare element-by-element so every event kind is verified.
+	fixtureArr, fixtureIsArr := fixtureVal.([]any)
+	actualArr, actualIsArr := actualVal.([]any)
+	if fixtureIsArr && actualIsArr {
+		assert.Equal(t, len(fixtureArr), len(actualArr),
+			"event array length must match baseline")
+		n := min(len(fixtureArr), len(actualArr))
+		for i := range n {
+			assert.Equal(t, jsonSchemaOf(fixtureArr[i]), jsonSchemaOf(actualArr[i]),
+				"event[%d] schema must match baseline", i)
+		}
+		return
+	}
+
 	assert.Equal(t, jsonSchemaOf(fixtureVal), jsonSchemaOf(actualVal),
 		"upstream body JSON schema must match v8 baseline fixture")
 }
@@ -128,7 +147,7 @@ func TestEventPayloadRegressionVerbatimAnalytics(t *testing.T) {
 			"analytics upstream must use anchor credential, not the incoming request credential")
 
 		// Invariant 4: body schema must match v8 baseline.
-		body, err := util.DecompressGzipData(r.Body)
+		body, err := util.DecompressGzipData([]byte(r.Body))
 		require.NoError(t, err)
 		assertBodySchemaMatchesFixture(t, fixture, body)
 	})
@@ -250,6 +269,8 @@ func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
 				httptest.NewRecorder(),
 				st.BuildRequest("POST", "/", diagnosticFixture, diagHeaders),
 			)
+			// Diagnostic events are forwarded immediately (no buffer/flush needed),
+			// unlike analytics events which batch and require an explicit flush.
 			return expectUpstreamRequest(t, p.requestsCh)
 		}
 
@@ -268,6 +289,11 @@ func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
 		assert.NotEqual(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
 			"after re-anchor: analytics must NOT still use old anchor credential")
 
+		// Analytics body schema must be preserved after re-anchor.
+		analyticsBody, err := util.DecompressGzipData([]byte(r.Body))
+		require.NoError(t, err)
+		assertBodySchemaMatchesFixture(t, analyticsFixture, analyticsBody)
+
 		// --- After re-anchor: diagnostic must still proxy the original auth verbatim ---
 		r = sendDiagnostic()
 		assert.Equal(t, diagnosticAuth, r.Request.Header.Get("Authorization"),
@@ -275,8 +301,8 @@ func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
 		assert.NotEqual(t, string(newAnchorKey), r.Request.Header.Get("Authorization"),
 			"after re-anchor: diagnostic must NOT use the new anchor credential")
 
-		// Diagnostic body schema must be preserved across re-anchor.
-		diagBody, err := util.DecompressGzipData(r.Body)
+		// Diagnostic body schema must also be preserved across re-anchor.
+		diagBody, err := util.DecompressGzipData([]byte(r.Body))
 		require.NoError(t, err)
 		assertBodySchemaMatchesFixture(t, diagnosticFixture, diagBody)
 	})
