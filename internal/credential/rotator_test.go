@@ -231,3 +231,97 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{primaryKey}, additions)
 	assert.Empty(t, expirations)
 }
+
+func TestRotateWithGraceMobileKey(t *testing.T) {
+	t.Run("does not panic with non-nil grace period", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		rotator := NewRotator(mockLog.Loggers)
+
+		mob1 := config.MobileKey("mob1")
+		mob2 := config.MobileKey("mob2")
+
+		start := time.Unix(10000, 0)
+		expiry := start.Add(1 * time.Hour)
+
+		rotator.Initialize([]SDKCredential{mob1})
+
+		// GracePeriod.key is SDK-key typed; pass a zero value since mobile-key rotation
+		// does not use that identifier field.
+		assert.NotPanics(t, func() {
+			rotator.RotateWithGrace(mob2, NewGracePeriod(config.SDKKey(""), expiry, start))
+		})
+
+		assert.Equal(t, mob2, rotator.MobileKey())
+
+		// mob2 is a new addition; mob1 is in the deprecated set (not yet expired),
+		// so it should not appear as an expiration here. Cleanup is deferred to T1.c.
+		additions, expirations := rotator.StepTime(start)
+		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
+		assert.Empty(t, expirations)
+	})
+
+	t.Run("immediately revokes outgoing key when grace period is already expired", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		rotator := NewRotator(mockLog.Loggers)
+
+		mob1 := config.MobileKey("mob1")
+		mob2 := config.MobileKey("mob2")
+
+		expiry := time.Unix(10000, 0)
+		now := expiry.Add(1 * time.Hour) // now is after expiry
+
+		rotator.Initialize([]SDKCredential{mob1})
+
+		rotator.RotateWithGrace(mob2, NewGracePeriod(config.SDKKey(""), expiry, now))
+
+		assert.Equal(t, mob2, rotator.MobileKey())
+
+		additions, expirations := rotator.StepTime(now)
+		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
+		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
+	})
+
+	t.Run("immediately revokes outgoing key when grace is nil", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		rotator := NewRotator(mockLog.Loggers)
+
+		mob1 := config.MobileKey("mob1")
+		mob2 := config.MobileKey("mob2")
+
+		rotator.Initialize([]SDKCredential{mob1})
+		rotator.RotateWithGrace(mob2, nil)
+
+		assert.Equal(t, mob2, rotator.MobileKey())
+
+		additions, expirations := rotator.StepTime(time.Now())
+		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
+		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
+	})
+
+	t.Run("re-promoting a deprecated key removes it from the deprecated set", func(t *testing.T) {
+		mockLog := ldlogtest.NewMockLog()
+		rotator := NewRotator(mockLog.Loggers)
+
+		mob1 := config.MobileKey("mob1")
+		mob2 := config.MobileKey("mob2")
+
+		start := time.Unix(10000, 0)
+		expiry := start.Add(1 * time.Hour)
+
+		rotator.Initialize([]SDKCredential{mob1})
+
+		// Rotate mob1 → mob2 with grace; mob1 enters deprecatedMobileKeys.
+		rotator.RotateWithGrace(mob2, NewGracePeriod(config.SDKKey(""), expiry, start))
+		rotator.StepTime(start)
+
+		// Rotate back mob2 → mob1; mob1 should be promoted out of the deprecated set.
+		rotator.RotateWithGrace(mob1, nil)
+
+		assert.Equal(t, mob1, rotator.MobileKey())
+
+		// mob1 should appear only as an addition, not also as an expiration.
+		additions, expirations := rotator.StepTime(start)
+		assert.ElementsMatch(t, []SDKCredential{mob1}, additions)
+		assert.ElementsMatch(t, []SDKCredential{mob2}, expirations)
+	})
+}

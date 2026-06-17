@@ -12,8 +12,13 @@ import (
 type Rotator struct {
 	loggers ldlog.Loggers
 
-	// There is only one mobile key active at a given time; it does not support a deprecation period.
+	// There is only one mobile key active at a given time.
 	primaryMobileKey config.MobileKey
+
+	// deprecatedMobileKeys stores mobile keys being phased out with a grace period, keyed
+	// by credential value with the associated expiry time. StepTime does not yet act on
+	// these entries — that is deferred to T1.c (generalize cleanup ticker).
+	deprecatedMobileKeys map[config.MobileKey]time.Time
 
 	// There is only one environment ID active at a given time, and it won't actually be rotated. The mechanism is
 	// here to allow setting it in a deferred manner.
@@ -42,8 +47,9 @@ type InitialCredentials struct {
 // contains no credentials and can optionally be initialized via Initialize.
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
-		loggers:           loggers,
-		deprecatedSdkKeys: make(map[config.SDKKey]time.Time),
+		loggers:              loggers,
+		deprecatedSdkKeys:    make(map[config.SDKKey]time.Time),
+		deprecatedMobileKeys: make(map[config.MobileKey]time.Time),
 	}
 	return r
 }
@@ -156,19 +162,16 @@ func NewGracePeriod(key config.SDKKey, expiry time.Time, now time.Time) *GracePe
 	return &GracePeriod{key, expiry, now}
 }
 
-// RotateWithGrace sets a new primary credential while deprecating a previous credential. The grace
-// parameter may be nil to immediately revoke the previous credential.
-// It is invalid to specify a grace period when the credential being rotate is a mobile key or
-// environment ID.
+// RotateWithGrace sets a new primary credential while deprecating the previous one. When grace is nil
+// the outgoing credential is immediately revoked. It is invalid to specify a grace period for an
+// environment ID. For mobile keys, a non-nil grace period stores the expiry for the outgoing key;
+// the cleanup ticker is responsible for acting on it.
 func (r *Rotator) RotateWithGrace(primary SDKCredential, grace *GracePeriod) {
 	switch primary := primary.(type) {
 	case config.SDKKey:
 		r.updateSDKKey(primary, grace)
 	case config.MobileKey:
-		if grace != nil {
-			panic("programmer error: mobile keys do not support deprecation")
-		}
-		r.updateMobileKey(primary)
+		r.updateMobileKey(primary, grace)
 	case config.EnvironmentID:
 		if grace != nil {
 			panic("programmer error: environment IDs do not support deprecation")
@@ -194,21 +197,36 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 	}
 }
 
-func (r *Rotator) updateMobileKey(mobileKey config.MobileKey) {
-	if mobileKey == r.MobileKey() {
-		return
-	}
+// updateMobileKey sets a new primary mobile key. When grace is nil the outgoing key is
+// immediately revoked; when non-nil its expiry is stored in deprecatedMobileKeys.
+// StepTime does not yet act on deprecatedMobileKeys — that is deferred to T1.c.
+func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if mobileKey == r.primaryMobileKey {
+		return
+	}
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
+	delete(r.deprecatedMobileKeys, mobileKey)
 	r.additions = append(r.additions, mobileKey)
-	if previous.Defined() {
+	if !previous.Defined() {
+		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+		return
+	}
+	if grace == nil {
 		r.expirations = append(r.expirations, previous)
 		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
-	} else {
-		r.loggers.Infof("New primary mobile key is %s", mobileKey.Masked())
+		return
 	}
+	if grace.Expired() {
+		r.loggers.Infof("Deprecated mobile key %s already expired at %v; revoking immediately", previous.Masked(), grace.expiry)
+		r.expirations = append(r.expirations, previous)
+		return
+	}
+	r.deprecatedMobileKeys[previous] = grace.expiry
+	r.loggers.Infof("Mobile key %s was marked for deprecation with an expiry at %v, new primary mobile key is %s",
+		previous.Masked(), grace.expiry, mobileKey.Masked())
 }
 
 func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
