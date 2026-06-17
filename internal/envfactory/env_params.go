@@ -31,13 +31,14 @@ type EnvironmentParams struct {
 	ExpiringSDKKey ExpiringSDKKey
 
 	// AcceptedSDKKeys is the full accepted set of SDK keys for this environment, including the
-	// anchor. Always non-nil after ToParams(): new-format payloads populate from the sdkKeys
-	// array; old-format payloads (no sdkKeys field) are synthesized from the singular sdkKey field.
+	// anchor. Always non-nil after ToParams(): non-empty sdkKeys arrays populate directly; absent
+	// or empty sdkKeys are synthesized from the singular sdkKey field so there is always at least
+	// the anchor entry.
 	AcceptedSDKKeys []AcceptedSDKKey
 
 	// AcceptedMobileKeys is the full accepted set of mobile keys for this environment. Always
-	// non-nil after ToParams(): new-format payloads populate from the mobileKeys array; old-format
-	// payloads are synthesized from the singular mobKey field.
+	// non-nil after ToParams(): non-empty mobileKeys arrays populate directly; absent or empty
+	// mobileKeys are synthesized from the singular mobKey field.
 	AcceptedMobileKeys []AcceptedMobileKey
 
 	// TTL is the cache TTL for PHP clients.

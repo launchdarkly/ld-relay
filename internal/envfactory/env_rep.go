@@ -142,10 +142,8 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		SecureMode:     r.SecureMode,
 	}
 
-	if r.SDKKeys != nil {
+	if len(r.SDKKeys) > 0 {
 		// New-format payload: populate directly from the array.
-		// Use != nil (not len > 0) so that "sdkKeys": [] produces a non-nil empty slice,
-		// distinct from the synthesized case below.
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
 		for _, k := range r.SDKKeys {
 			entry := AcceptedSDKKey{
@@ -171,7 +169,7 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		}
 	}
 
-	if r.MobileKeys != nil {
+	if len(r.MobileKeys) > 0 {
 		// New-format payload: populate directly from the array.
 		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
 		for _, k := range r.MobileKeys {
