@@ -148,15 +148,15 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 	params := rep.ToParams()
 
 	require.Len(t, params.AcceptedSDKKeys, 2)
-	assert.Equal(t, AcceptedSDKKey{Identifier: "default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
+	assert.Equal(t, AcceptedSDKKey{Key:"default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
 	assert.Equal(t, AcceptedSDKKey{
-		Identifier: "service-a",
+		Key:"service-a",
 		Value:      config.SDKKey("sdk-service-a"),
 		Expiry:     time.UnixMilli(expiryMs),
 	}, params.AcceptedSDKKeys[1])
 
 	require.Len(t, params.AcceptedMobileKeys, 1)
-	assert.Equal(t, AcceptedMobileKey{Identifier: "mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
+	assert.Equal(t, AcceptedMobileKey{Key:"mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
 }
 
 // TestEnvironmentRepOldFormatNoArrays verifies that an old-format payload (singular sdkKey/mobKey

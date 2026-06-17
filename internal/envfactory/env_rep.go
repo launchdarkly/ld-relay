@@ -35,19 +35,21 @@ import (
 //
 // TERMINOLOGY:
 //
-//	The wire "key" field is the human-readable IDENTIFIER (e.g. "default-sdk"),
-//	non-secret. The wire "value" field is the actual CREDENTIAL string (e.g.
-//	"sdk-xxxx-..."), which is the secret. Note that relay's own types
-//	(SDKKey, MobileKey, SDKCredential) refer to what the wire calls "value" —
-//	they are misnamed by today's standards but stable, so do not rename them.
+//	The wire "key" field is the human-readable identifier (e.g. "default-sdk"),
+//	non-secret — stored as AcceptedSDKKey.Key / AcceptedMobileKey.Key internally.
+//	The wire "value" field is the actual credential string (e.g. "sdk-xxxx-..."),
+//	which is the secret — stored as AcceptedSDKKey.Value / AcceptedMobileKey.Value.
+//	Note that relay's own types (SDKKey, MobileKey, SDKCredential) refer to what
+//	the wire calls "value" — they are misnamed by today's standards but stable,
+//	so do not rename them.
 //
 // Anchor selection: anchor = the sdkKeys entry whose `value` matches sdkKey.value.
-// No isDefault flag — value match is the signal. See phase1-design.md §4.2.
+// No isDefault flag — value match is the signal.
 //
 // Backwards compatibility: Go's default JSON decoder ignores unknown fields, so old
 // relays receiving payloads with sdkKeys/mobileKeys simply ignore them and continue
 // using sdkKey/mobKey. DisallowUnknownFields is intentionally not used anywhere in
-// this parse path — verified as T3.a pre-work. See phase1-design.md §10.
+// this parse path.
 type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
@@ -100,10 +102,8 @@ type ExpiringKeyRep struct {
 // ConcurrentKeyRep is an entry in the sdkKeys or mobileKeys array on EnvironmentRep.
 // It represents one accepted credential in an environment's concurrent key set.
 //
-// TERMINOLOGY (mirrors EnvironmentRep comment):
-//
-//	Key   = identifier (non-secret, e.g. "default-sdk")
-//	Value = credential secret (e.g. "sdk-xxxx-..."), what relay types call SDKKey/MobileKey
+// Key is the human-readable identifier (non-secret, e.g. "default-sdk"); Value is
+// the credential secret (e.g. "sdk-xxxx-..."). See the EnvironmentRep TERMINOLOGY comment.
 type ConcurrentKeyRep struct {
 	Key    string `json:"key"`
 	Value  string `json:"value"`
@@ -149,7 +149,7 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
 		for _, k := range r.SDKKeys {
 			entry := AcceptedSDKKey{
-				Identifier: k.Key,
+				Key: k.Key,
 				Value:      config.SDKKey(k.Value),
 			}
 			if k.Expiry != nil {
@@ -163,7 +163,7 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
 		for _, k := range r.MobileKeys {
 			entry := AcceptedMobileKey{
-				Identifier: k.Key,
+				Key: k.Key,
 				Value:      config.MobileKey(k.Value),
 			}
 			if k.Expiry != nil {
