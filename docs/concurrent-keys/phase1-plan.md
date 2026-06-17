@@ -170,9 +170,13 @@ ReconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential) error
 
 `AcceptedSet` carries the full new state (server keys + mobile keys with optional per-key expiry). The implementation owns the order of operations (`add → re-anchor → remove`) internally; callers don't sequence.
 
+**On malformed payload**: `ReconcileCredentials` should signal the malformed condition (return a structured error) so that the caller can both (a) preserve the previous accepted set and (b) trigger a reconnect of the RAC stream with jitter (per design §9). T1.b owns the API contract; T3.b/c own driving the reconnect.
+
 ### T1.c — Cleanup ticker
 
-Generalize `cleanupExpiredCredentials` (called from `StepTime`) to walk the entire accepted set per kind and drop entries whose `expiry` has passed. The downstream-disconnect logic must handle mobile-key disconnects, not just SDK-key ones. **Q8 pre-work**: verify in code that `envStreams` (or an adjacent component) maintains per-credential downstream connection lists. If not, the per-key targeted disconnect needs additional infrastructure — scope expansion.
+Generalize `cleanupExpiredCredentials` (called from `StepTime`) to walk the entire accepted set per kind and drop entries whose `expiry` has passed. The downstream-disconnect logic must handle mobile-key disconnects, not just SDK-key ones.
+
+**Q8 confirmed by team**: per-credential downstream tracking is *already implemented* — today's rotation/disconnect path uses it. T1.c builds on the existing tracking. No new infrastructure to construct; scope is *narrower* than originally feared.
 
 ### T2.a — `addCredential` anchor-only client
 
@@ -184,25 +188,34 @@ The switch case at `env_context_impl.go:448-463` currently calls `startSDKClient
 
 ### T2.c — Re-anchor mechanism
 
-The big one. Implements whatever order-of-ops and component-rewiring the PoC settled on. Per the §7 design analysis, the swap consists of:
+The big one. PoC findings (design §7 + [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md)) turned this from "TBD per PoC" into a concrete specification:
 
-1. Start new upstream client on the new anchor's SDK key.
-2. Wait for it to initialize (the data store is shared; the new client feeds the same store).
-3. Atomically swap the rotator's anchor pointer (so `GetClient()` returns the new client).
-4. Call `ReplaceCredential` on event dispatcher and metrics publisher.
-5. Re-wire big-segment sync (mechanism TBD per PoC).
-6. Verify `httpconfig` continues to work (likely no-op per PoC).
-7. Close the old upstream client.
+1. **Build** the new anchor's SDK client (do *not* flip the anchor pointer yet).
+2. **Wait** for the new client to report `Initialized() == true`.
+3. **Atomically flip** the rotator's anchor pointer. Until this moment, `GetClient()` returns the **old** client and evaluations are served from the old store.
+4. **Call `ReplaceCredential`** on the event dispatcher and metrics publisher.
+5. **Re-wire** (or recreate) big-segment sync — T2.d owns this piece; T2.c calls into it.
+6. **Close** the old upstream client after its grace period elapses for any retained downstream traffic.
 
-PoC failure modes inform the recovery logic.
+**On new-client init failure**: roll back. Anchor pointer stays on the old key, previous accepted set is preserved, structured error logged, alarm raised. The old client (still alive in its grace period) continues to serve.
 
-### T2.d — Big-segment sync + `httpconfig` from anchor
+**Why this order matters** (PoC H1, H5, H6, H7):
+- Flipping the pointer before the new client is registered leaves `GetClient()` returning nil mid-swap (H6).
+- Flipping the pointer on init failure strands the env with no usable client even though the old one is fine (H7).
+- The in-memory store is rebuilt empty when the new client constructs (H1, H5) — keeping the old anchor authoritative until `Initialized()` is the only way to avoid an evaluation gap without requiring a persistent store.
 
-These are the two construction-time wirings. Either:
-- Refactor big-segment sync to be re-wireable (add a method to point it at a new SDK key), or
-- Recreate the big-segment sync component on each re-anchor (heavier but simpler).
+**Awareness for T2.c**: downstream SSE connections survive the swap automatically but will receive *one duplicate `put`* from the new client's initial sync (PoC H2). This is tolerable and expected — don't treat it as a bug.
 
-`httpconfig` is mostly TLS / proxy / event-base-uri config — key-independent — but verify in PoC.
+### T2.d — Big-segment sync re-wire on re-anchor
+
+T2.d's single responsibility (after PoC): re-wire big-segment sync when the anchor changes. Choose one approach at PR time:
+
+- **Recreate**: destroy and reconstruct the `BigSegmentSynchronizer` on each re-anchor. Simpler; loses any in-flight sync state.
+- **Replace-credential**: add a method to the synchronizer interface that updates its SDK key in place. Preserves in-flight state; requires a new method on the interface.
+
+**Recommendation**: recreate, unless we discover in-flight state preservation matters for a specific big-segment customer scenario. Recreate is the easier path; switch to replace-credential only if needed.
+
+`httpconfig` was previously scoped to this task — **PoC H4 confirmed no `httpconfig` change is needed**. The SDK rebuilds the HTTP config with the new anchor key automatically because relay injects the *builder*, not a pre-built config. Removed from T2.d's scope.
 
 ### T2.e — Handler fan-out optimization
 
@@ -220,12 +233,14 @@ A new helper (in `internal/envfactory/` or similar) that both `autoconfig_action
 - Diff the old accepted set against the new one (set-keyed by `value`).
 - Detect re-anchor (`sdkKey.value` changed).
 - Compute the ordered operation list: `add → re-anchor → remove`.
-- Hard-fail if the payload is malformed (anchor `value` not in `sdkKeys[]`).
+- **Signal malformed-payload condition** (anchor `value` not in `sdkKeys[]`) as a structured error so the caller can both preserve the previous state *and* trigger an RAC stream reconnect with jitter (design §9).
 - Treat the legacy `sdkKey.expiring{}` field as write-only — read only the array.
 
 ### T3.c — Wire both action handlers
 
 Replace `UpdateCredential` calls with the new `ReconcileCredentials` API, via the shared helper. RAC handler and offline handler updates land in one PR (separate commits per Aaron's preference).
+
+**Malformed-payload handling** (design §9): when the shared helper signals a malformed payload, the RAC handler must (a) preserve the previous accepted set and (b) **disconnect and reconnect the RAC stream with jitter** to force a fresh `put` from the backend. The offline handler preserves state only (no equivalent reconnect since there's no live connection — wait for the next archive reload).
 
 Test matrix (covered in T3.c's acceptance criteria):
 - Add a new key
@@ -236,6 +251,7 @@ Test matrix (covered in T3.c's acceptance criteria):
 - De-expiry (remove `expiry` on existing entry — cancel scheduled drop)
 - Mixed patch (add + re-anchor + remove)
 - Partial-failure reconcile (preserves previous state)
+- **Malformed payload triggers RAC reconnect** (RAC handler only); state preserved meanwhile
 
 ### T4 — Status endpoint arrays
 
