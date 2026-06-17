@@ -11,7 +11,7 @@ import (
 
 // acceptedKeyInfo holds per-key metadata for the accepted-set maps.
 type acceptedKeyInfo struct {
-	expiry *time.Time // nil means the key does not expire
+	expiry *time.Time //nolint:unused // nil = permanent; read by T1.b (ReconcileCredentials)
 }
 
 type Rotator struct {
