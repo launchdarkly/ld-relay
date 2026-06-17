@@ -275,9 +275,9 @@ func TestEventPayloadRegressionAnchorReplacement(t *testing.T) {
 		assert.NotEqual(t, string(newAnchorKey), r.Request.Header.Get("Authorization"),
 			"after re-anchor: diagnostic must NOT use the new anchor credential")
 
-		// Body schemas must be preserved across re-anchor.
-		analyticsBody, err := util.DecompressGzipData(r.Body)
+		// Diagnostic body schema must be preserved across re-anchor.
+		diagBody, err := util.DecompressGzipData(r.Body)
 		require.NoError(t, err)
-		assertBodySchemaMatchesFixture(t, diagnosticFixture, analyticsBody)
+		assertBodySchemaMatchesFixture(t, diagnosticFixture, diagBody)
 	})
 }
