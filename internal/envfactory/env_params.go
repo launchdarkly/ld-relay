@@ -30,11 +30,36 @@ type EnvironmentParams struct {
 	// the canonical one).
 	ExpiringSDKKey ExpiringSDKKey
 
+	// AcceptedSDKKeys is the full accepted set of SDK keys for this environment, including the
+	// anchor. Populated only when the source (RAC or offline archive) emits the sdkKeys array.
+	// Nil for old-format payloads that carry only the singular sdkKey field.
+	AcceptedSDKKeys []AcceptedSDKKey
+
+	// AcceptedMobileKeys is the full accepted set of mobile keys for this environment. Populated
+	// only when the source emits the mobileKeys array; nil for old-format payloads.
+	AcceptedMobileKeys []AcceptedMobileKey
+
 	// TTL is the cache TTL for PHP clients.
 	TTL time.Duration
 
 	// SecureMode is true if secure mode is required for this environment.
 	SecureMode bool
+}
+
+// AcceptedSDKKey is one entry in the accepted SDK key set for an environment.
+// Expiry is zero if the key is permanent.
+type AcceptedSDKKey struct {
+	Identifier string
+	Value      config.SDKKey
+	Expiry     time.Time
+}
+
+// AcceptedMobileKey is one entry in the accepted mobile key set for an environment.
+// Expiry is zero if the key is permanent.
+type AcceptedMobileKey struct {
+	Identifier string
+	Value      config.MobileKey
+	Expiry     time.Time
 }
 
 type ExpiringSDKKey struct {

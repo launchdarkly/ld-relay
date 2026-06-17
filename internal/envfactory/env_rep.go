@@ -15,6 +15,39 @@ import (
 // or the other of those contexts should be in the appropriate package instead of here.
 
 // EnvironmentRep is a representation of an environment that is being added or updated.
+//
+// EnvironmentRep carries an environment's wire shape from RAC and the offline archive
+// (same struct serves both — keep them aligned).
+//
+// FIELD NAMING — read this before changing anything:
+//
+//	sdkKey  is the singular *default* SDK key for the environment. It's an
+//	        object ({"value": "sdk-..."}) so it can also carry the legacy
+//	        sdkKey.expiring{value, timestamp} slot during default rotation
+//	        (back-compat for relays predating concurrent keys).
+//
+//	mobKey  is the singular default mobile key. It's a *plain string*
+//	        because mobile keys never had a legacy expiring slot. The shape
+//	        asymmetry is historical, not a design choice.
+//
+//	sdkKeys/mobileKeys  are the authoritative full accepted set. Entries:
+//	                    { key: <identifier>, value: <credential>, expiry?: <ms> }
+//
+// TERMINOLOGY:
+//
+//	The wire "key" field is the human-readable IDENTIFIER (e.g. "default-sdk"),
+//	non-secret. The wire "value" field is the actual CREDENTIAL string (e.g.
+//	"sdk-xxxx-..."), which is the secret. Note that relay's own types
+//	(SDKKey, MobileKey, SDKCredential) refer to what the wire calls "value" —
+//	they are misnamed by today's standards but stable, so do not rename them.
+//
+// Anchor selection: anchor = the sdkKeys entry whose `value` matches sdkKey.value.
+// No isDefault flag — value match is the signal. See phase1-design.md §4.2.
+//
+// Backwards compatibility: Go's default JSON decoder ignores unknown fields, so old
+// relays receiving payloads with sdkKeys/mobileKeys simply ignore them and continue
+// using sdkKey/mobKey. DisallowUnknownFields is intentionally not used anywhere in
+// this parse path — verified as T3.a pre-work. See phase1-design.md §10.
 type EnvironmentRep struct {
 	EnvID      config.EnvironmentID `json:"envID"`
 	EnvKey     string               `json:"envKey"`
@@ -23,6 +56,8 @@ type EnvironmentRep struct {
 	ProjKey    string               `json:"projKey"`
 	ProjName   string               `json:"projName"`
 	SDKKey     SDKKeyRep            `json:"sdkKey"`
+	SDKKeys    []ConcurrentKeyRep   `json:"sdkKeys,omitempty"`
+	MobileKeys []ConcurrentKeyRep   `json:"mobileKeys,omitempty"`
 	DefaultTTL int                  `json:"defaultTtl"`
 	SecureMode bool                 `json:"secureMode"`
 	Version    int                  `json:"version"`
@@ -62,6 +97,19 @@ type ExpiringKeyRep struct {
 	Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
 }
 
+// ConcurrentKeyRep is an entry in the sdkKeys or mobileKeys array on EnvironmentRep.
+// It represents one accepted credential in an environment's concurrent key set.
+//
+// TERMINOLOGY (mirrors EnvironmentRep comment):
+//
+//	Key   = identifier (non-secret, e.g. "default-sdk")
+//	Value = credential secret (e.g. "sdk-xxxx-..."), what relay types call SDKKey/MobileKey
+type ConcurrentKeyRep struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Expiry *int64 `json:"expiry,omitempty"` // Unix-ms; nil = permanent
+}
+
 func (e ExpiringKeyRep) ToParams() ExpiringSDKKey {
 	if e.Value.Defined() {
 		return ExpiringSDKKey{
@@ -92,6 +140,34 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		MobileKey:      r.MobKey,
 		TTL:            time.Duration(r.DefaultTTL) * time.Minute,
 		SecureMode:     r.SecureMode,
+	}
+
+	if len(r.SDKKeys) > 0 {
+		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
+		for _, k := range r.SDKKeys {
+			entry := AcceptedSDKKey{
+				Identifier: k.Key,
+				Value:      config.SDKKey(k.Value),
+			}
+			if k.Expiry != nil {
+				entry.Expiry = time.UnixMilli(*k.Expiry)
+			}
+			params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, entry)
+		}
+	}
+
+	if len(r.MobileKeys) > 0 {
+		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
+		for _, k := range r.MobileKeys {
+			entry := AcceptedMobileKey{
+				Identifier: k.Key,
+				Value:      config.MobileKey(k.Value),
+			}
+			if k.Expiry != nil {
+				entry.Expiry = time.UnixMilli(*k.Expiry)
+			}
+			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, entry)
+		}
 	}
 
 	return params
