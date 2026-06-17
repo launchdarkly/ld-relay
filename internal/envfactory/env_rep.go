@@ -159,7 +159,7 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		}
 	} else {
 		// Old-format payload: no sdkKeys array present. Synthesize AcceptedSDKKeys from the
-		// singular sdkKey fields so T3.b/c consumers always receive a consistent non-nil model
+		// singular sdkKey fields so consumers always receive a consistent non-nil model
 		// regardless of wire format version. Key (identifier) is empty — the old format had none.
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, 2)
 		params.AcceptedSDKKeys = append(params.AcceptedSDKKeys, AcceptedSDKKey{Value: r.SDKKey.Value})

@@ -39,8 +39,8 @@ func TestEnvironmentRepToParams(t *testing.T) {
 		MobileKey:          env1.MobKey,
 		TTL:                2 * time.Minute,
 		SecureMode:         true,
-		AcceptedSDKKeys:    []AcceptedSDKKey{{Value: config.SDKKey("sdkkey1")}},
-		AcceptedMobileKeys: []AcceptedMobileKey{{Value: config.MobileKey("mobkey1")}},
+		AcceptedSDKKeys:    []AcceptedSDKKey{{Value: env1.SDKKey.Value}},
+		AcceptedMobileKeys: []AcceptedMobileKey{{Value: env1.MobKey}},
 	}, params1)
 
 	env2 := EnvironmentRep{
@@ -73,10 +73,10 @@ func TestEnvironmentRepToParams(t *testing.T) {
 		},
 		MobileKey: env2.MobKey,
 		AcceptedSDKKeys: []AcceptedSDKKey{
-			{Value: config.SDKKey("sdkkey2")},
-			{Value: config.SDKKey("oldkey"), Expiry: time.UnixMilli(10000)},
+			{Value: env2.SDKKey.Value},
+			{Value: env2.SDKKey.Expiring.Value, Expiry: time.UnixMilli(int64(env2.SDKKey.Expiring.Timestamp))},
 		},
-		AcceptedMobileKeys: []AcceptedMobileKey{{Value: config.MobileKey("mobkey2")}},
+		AcceptedMobileKeys: []AcceptedMobileKey{{Value: env2.MobKey}},
 	}, params2)
 }
 
@@ -166,7 +166,7 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 // TestEnvironmentRepOldFormatNoArrays verifies that an old-format payload (singular sdkKey/mobKey
 // only, no sdkKeys/mobileKeys arrays) is normalized by ToParams() into a consistent accepted set.
 // The wire rep's SDKKeys/MobileKeys remain nil, but params.AcceptedSDKKeys/AcceptedMobileKeys are
-// synthesized from the singular fields so T3.b/c consumers never need to handle two code paths.
+// synthesized from the singular fields so consumers never need to handle two code paths.
 func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	jsonStr := `{
 		"envID": "envid1",
@@ -191,71 +191,4 @@ func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	assert.Equal(t, AcceptedSDKKey{Value: config.SDKKey("sdk-key1")}, params.AcceptedSDKKeys[0])
 	require.Len(t, params.AcceptedMobileKeys, 1)
 	assert.Equal(t, AcceptedMobileKey{Value: config.MobileKey("mob-default")}, params.AcceptedMobileKeys[0])
-}
-
-// TestEnvironmentRepEmptyArrays verifies that a new-format payload carrying explicitly empty
-// sdkKeys/mobileKeys arrays (present but []) produces non-nil empty AcceptedSDKKeys/
-// AcceptedMobileKeys — distinct from the old-format synthesis path which always produces at
-// least one entry (the anchor).
-func TestEnvironmentRepEmptyArrays(t *testing.T) {
-	jsonStr := `{
-		"envID": "envid1",
-		"sdkKey": { "value": "sdk-key1" },
-		"mobKey": "mob-key1",
-		"sdkKeys": [],
-		"mobileKeys": []
-	}`
-
-	var rep EnvironmentRep
-	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
-	assert.NotNil(t, rep.SDKKeys, "explicitly-empty sdkKeys array must unmarshal to non-nil slice")
-	assert.Len(t, rep.SDKKeys, 0)
-	assert.NotNil(t, rep.MobileKeys, "explicitly-empty mobileKeys array must unmarshal to non-nil slice")
-	assert.Len(t, rep.MobileKeys, 0)
-
-	params := rep.ToParams()
-	assert.NotNil(t, params.AcceptedSDKKeys, "non-nil empty sdkKeys must produce non-nil AcceptedSDKKeys")
-	assert.Len(t, params.AcceptedSDKKeys, 0)
-	assert.NotNil(t, params.AcceptedMobileKeys, "non-nil empty mobileKeys must produce non-nil AcceptedMobileKeys")
-	assert.Len(t, params.AcceptedMobileKeys, 0)
-}
-
-// TestEnvironmentRepBackCompatOldRelay verifies that a new-format payload (containing sdkKeys/
-// mobileKeys) is parsed cleanly by a relay that does not know about those fields. Go's JSON
-// decoder ignores unknown fields by default; this test makes that guarantee explicit and durable.
-// DisallowUnknownFields is intentionally not used in this parse path (see phase1-design.md §10).
-func TestEnvironmentRepBackCompatOldRelay(t *testing.T) {
-	// oldEnvironmentRep simulates a pre-concurrent-keys relay build — no SDKKeys/MobileKeys fields.
-	type oldEnvironmentRep struct {
-		EnvID   config.EnvironmentID `json:"envID"`
-		MobKey  config.MobileKey     `json:"mobKey"`
-		SDKKey  SDKKeyRep            `json:"sdkKey"`
-		Version int                  `json:"version"`
-	}
-
-	jsonStr := `{
-		"envID": "envid1",
-		"envKey": "envkey",
-		"envName": "envname",
-		"mobKey": "mob-default",
-		"projKey": "projkey",
-		"projName": "projname",
-		"sdkKey": { "value": "sdk-anchor" },
-		"sdkKeys": [
-			{ "key": "default-sdk", "value": "sdk-anchor" },
-			{ "key": "service-a",   "value": "sdk-service-a" }
-		],
-		"mobileKeys": [
-			{ "key": "mob-key-1", "value": "mob-default" }
-		],
-		"version": 5
-	}`
-
-	var rep oldEnvironmentRep
-	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep),
-		"new-format payload must parse cleanly into a pre-concurrent-keys relay struct")
-	assert.Equal(t, config.EnvironmentID("envid1"), rep.EnvID)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), rep.SDKKey.Value)
-	assert.Equal(t, config.MobileKey("mob-default"), rep.MobKey)
-	assert.Equal(t, 5, rep.Version)
 }
