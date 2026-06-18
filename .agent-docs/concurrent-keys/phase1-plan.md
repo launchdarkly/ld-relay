@@ -28,13 +28,13 @@ This document is committed in that worktree at `.agent-docs/concurrent-keys/phas
 
 ## 2. Wave breakdown
 
-Three waves. Wave 3 is the final merge-forward to v9, possibly weeks or months after Wave 2 completes.
+Three waves. Wave 3 is release-time work: clean up project scaffolding, merge `feat/concurrent-keys` to v8 and release, then merge-forward to v9 when v9 is ready (possibly weeks or months later).
 
 | Wave | Theme | When |
 |---|---|---|
 | **Wave 1** | Foundations: PoC, data structures, wire types, test infrastructure | Immediately, multiple sub-tasks in parallel |
 | **Wave 2** | Core implementation: API surface change, re-anchor mechanism, peripheral re-wiring, end-to-end integration | After PoC findings + Wave 1 data structures land |
-| **Wave 3** | Merge-forward to v9 | Possibly weeks/months after Wave 2, depending on v8 production deploy timing |
+| **Wave 3** | Release: code cleanup → merge to v8 → publish release → merge-forward to v9 | Cleanup + v8 release happen as soon as Wave 2 completes; merge-forward to v9 is calendar-deferred |
 
 The "single-key behavior unchanged at every PR boundary" invariant is the load-bearing testable property. Every sub-PR must preserve it.
 
@@ -78,9 +78,11 @@ Each task has: ticket name, files touched, dependencies, estimates. Acceptance c
 
 | Task | Files | Depends on | Human | AI agent |
 |---|---|---|---|---|
-| **T5.e** — Merge-forward to v9 | `internal/relayenv/*`, streaming path | All Wave 2 done | 3-7 days | 1-2 days (with iteration) |
+| **T5.f** — Code cleanup: remove project scaffolding before v8 merge | `.agent-docs/concurrent-keys/` (entire directory), `internal/relayenv/env_context_reanchor_test.go`, anything else project-specific | All Wave 2 terminal sub-tasks (T1.c, T2.b, T2.d, T2.e, T4) | 0.5-1 day | 30 min - 1 hr |
+| **T5.g** — Merge `feat/concurrent-keys` to v8 + publish release | None (release activity) | T5.f | 0.5-1 day | n/a (release task, not coding) |
+| **T5.e** — Merge-forward to v9 | `internal/relayenv/*`, streaming path | T5.g (and calendar — may be weeks/months after the v8 release) | 3-7 days | 1-2 days (with iteration) |
 
-**Total project**: ~6-11 weeks of full-time human work (excluding the calendar gap before Wave 3, which may extend the project's wall-clock duration substantially).
+**Total project**: ~6-11 weeks of full-time human work for code work; the merge-forward to v9 (T5.e) lives on its own calendar that depends on v9 readiness.
 
 ---
 
@@ -106,13 +108,13 @@ T3.b ─────────────────────────
 T5.a (test harness) — supports all other tasks' tests
 T5.b (events regression) — runs continuously after landing
 
-[all Wave 2 done] ─→ T5.e (merge-forward to v9)
+[Wave 2 terminal nodes: T1.c, T2.b, T2.d, T2.e, T4] ─→ T5.f (cleanup) ─→ T5.g (merge to v8 + release) ─→ T5.e (merge-forward to v9)
 ```
 
 **Critical path** (longest dependency chain):
-T1.0 → T1.a → T1.b → T2.a → T2.c → T2.e → T5.e
+T1.0 → T1.a → T1.b → T2.a → T2.c → T2.e → T5.f → T5.g → T5.e
 
-This chain alone is roughly: 0.5 + 1.5 + 2.5 + 1.5 + 4 + 2.5 + 5 = ~17 human days at the midpoint of the estimates. Other Wave 2 tasks parallelize off this critical path.
+The Wave 2 portion is roughly: 0.5 + 1.5 + 2.5 + 1.5 + 4 + 2.5 = ~12.5 human days at the midpoint. Wave 3 adds ~1 day (cleanup) + ~1 day (merge/release) + 3-7 days (v9 merge-forward, calendar-deferred). Other Wave 2 tasks parallelize off this critical path.
 
 ---
 
@@ -170,9 +172,13 @@ ReconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential) error
 
 `AcceptedSet` carries the full new state (server keys + mobile keys with optional per-key expiry). The implementation owns the order of operations (`add → re-anchor → remove`) internally; callers don't sequence.
 
+**On malformed payload**: `ReconcileCredentials` should signal the malformed condition (return a structured error) so that the caller can both (a) preserve the previous accepted set and (b) trigger a reconnect of the RAC stream with jitter (per design §9). T1.b owns the API contract; T3.b/c own driving the reconnect.
+
 ### T1.c — Cleanup ticker
 
-Generalize `cleanupExpiredCredentials` (called from `StepTime`) to walk the entire accepted set per kind and drop entries whose `expiry` has passed. The downstream-disconnect logic must handle mobile-key disconnects, not just SDK-key ones. **Q8 pre-work**: verify in code that `envStreams` (or an adjacent component) maintains per-credential downstream connection lists. If not, the per-key targeted disconnect needs additional infrastructure — scope expansion.
+Generalize `cleanupExpiredCredentials` (called from `StepTime`) to walk the entire accepted set per kind and drop entries whose `expiry` has passed. The downstream-disconnect logic must handle mobile-key disconnects, not just SDK-key ones.
+
+**Q8 confirmed by team**: per-credential downstream tracking is *already implemented* — today's rotation/disconnect path uses it. T1.c builds on the existing tracking. No new infrastructure to construct; scope is *narrower* than originally feared.
 
 ### T2.a — `addCredential` anchor-only client
 
@@ -184,25 +190,34 @@ The switch case at `env_context_impl.go:448-463` currently calls `startSDKClient
 
 ### T2.c — Re-anchor mechanism
 
-The big one. Implements whatever order-of-ops and component-rewiring the PoC settled on. Per the §7 design analysis, the swap consists of:
+The big one. PoC findings (design §7 + [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md)) turned this from "TBD per PoC" into a concrete specification:
 
-1. Start new upstream client on the new anchor's SDK key.
-2. Wait for it to initialize (the data store is shared; the new client feeds the same store).
-3. Atomically swap the rotator's anchor pointer (so `GetClient()` returns the new client).
-4. Call `ReplaceCredential` on event dispatcher and metrics publisher.
-5. Re-wire big-segment sync (mechanism TBD per PoC).
-6. Verify `httpconfig` continues to work (likely no-op per PoC).
-7. Close the old upstream client.
+1. **Build** the new anchor's SDK client (do *not* flip the anchor pointer yet).
+2. **Wait** for the new client to report `Initialized() == true`.
+3. **Atomically flip** the rotator's anchor pointer. Until this moment, `GetClient()` returns the **old** client and evaluations are served from the old store.
+4. **Call `ReplaceCredential`** on the event dispatcher and metrics publisher.
+5. **Re-wire** (or recreate) big-segment sync — T2.d owns this piece; T2.c calls into it.
+6. **Close** the old upstream client after its grace period elapses for any retained downstream traffic.
 
-PoC failure modes inform the recovery logic.
+**On new-client init failure**: roll back. Anchor pointer stays on the old key, previous accepted set is preserved, structured error logged, alarm raised. The old client (still alive in its grace period) continues to serve.
 
-### T2.d — Big-segment sync + `httpconfig` from anchor
+**Why this order matters** (PoC H1, H5, H6, H7):
+- Flipping the pointer before the new client is registered leaves `GetClient()` returning nil mid-swap (H6).
+- Flipping the pointer on init failure strands the env with no usable client even though the old one is fine (H7).
+- The in-memory store is rebuilt empty when the new client constructs (H1, H5) — keeping the old anchor authoritative until `Initialized()` is the only way to avoid an evaluation gap without requiring a persistent store.
 
-These are the two construction-time wirings. Either:
-- Refactor big-segment sync to be re-wireable (add a method to point it at a new SDK key), or
-- Recreate the big-segment sync component on each re-anchor (heavier but simpler).
+**Awareness for T2.c**: downstream SSE connections survive the swap automatically but will receive *one duplicate `put`* from the new client's initial sync (PoC H2). This is tolerable and expected — don't treat it as a bug.
 
-`httpconfig` is mostly TLS / proxy / event-base-uri config — key-independent — but verify in PoC.
+### T2.d — Big-segment sync re-wire on re-anchor
+
+T2.d's single responsibility (after PoC): re-wire big-segment sync when the anchor changes. Choose one approach at PR time:
+
+- **Recreate**: destroy and reconstruct the `BigSegmentSynchronizer` on each re-anchor. Simpler; loses any in-flight sync state.
+- **Replace-credential**: add a method to the synchronizer interface that updates its SDK key in place. Preserves in-flight state; requires a new method on the interface.
+
+**Recommendation**: recreate, unless we discover in-flight state preservation matters for a specific big-segment customer scenario. Recreate is the easier path; switch to replace-credential only if needed.
+
+`httpconfig` was previously scoped to this task — **PoC H4 confirmed no `httpconfig` change is needed**. The SDK rebuilds the HTTP config with the new anchor key automatically because relay injects the *builder*, not a pre-built config. Removed from T2.d's scope.
 
 ### T2.e — Handler fan-out optimization
 
@@ -220,12 +235,14 @@ A new helper (in `internal/envfactory/` or similar) that both `autoconfig_action
 - Diff the old accepted set against the new one (set-keyed by `value`).
 - Detect re-anchor (`sdkKey.value` changed).
 - Compute the ordered operation list: `add → re-anchor → remove`.
-- Hard-fail if the payload is malformed (anchor `value` not in `sdkKeys[]`).
+- **Signal malformed-payload condition** (anchor `value` not in `sdkKeys[]`) as a structured error so the caller can both preserve the previous state *and* trigger an RAC stream reconnect with jitter (design §9).
 - Treat the legacy `sdkKey.expiring{}` field as write-only — read only the array.
 
 ### T3.c — Wire both action handlers
 
 Replace `UpdateCredential` calls with the new `ReconcileCredentials` API, via the shared helper. RAC handler and offline handler updates land in one PR (separate commits per Aaron's preference).
+
+**Malformed-payload handling** (design §9): when the shared helper signals a malformed payload, the RAC handler must (a) preserve the previous accepted set and (b) **disconnect and reconnect the RAC stream with jitter** to force a fresh `put` from the backend. The offline handler preserves state only (no equivalent reconnect since there's no live connection — wait for the next archive reload).
 
 Test matrix (covered in T3.c's acceptance criteria):
 - Add a new key
@@ -236,6 +253,7 @@ Test matrix (covered in T3.c's acceptance criteria):
 - De-expiry (remove `expiry` on existing entry — cancel scheduled drop)
 - Mixed patch (add + re-anchor + remove)
 - Partial-failure reconcile (preserves previous state)
+- **Malformed payload triggers RAC reconnect** (RAC handler only); state preserved meanwhile
 
 ### T4 — Status endpoint arrays
 
@@ -258,11 +276,38 @@ The harness lands as Wave 1 infrastructure; scenarios accumulate as acceptance t
 
 Capture upstream payloads from v8 under realistic SDK traffic. Assert post-Phase-1 payloads are structurally identical *except* for the credential field. Catches accidental schema drift throughout the project.
 
+### T5.f — Code cleanup before v8 merge
+
+Remove all project-specific scaffolding from `feat/concurrent-keys` *before* T5.g merges the branch to v8. The canonical design + plan docs and the PoC test file were useful during development; they shouldn't land on v8.
+
+What to remove:
+- `.agent-docs/concurrent-keys/` — entire directory (this file is one of the things being removed). Save off-branch if you want to keep it for reference.
+- `internal/relayenv/env_context_reanchor_test.go` — PoC test file. Verify any useful tests have already been adopted into proper regression test files by T2.c before deleting.
+- Any other concurrent-keys-specific scaffolding that may have accumulated.
+
+What stays:
+- Actual feature code.
+- Regression tests in properly-named test files (those aren't scaffolding).
+
+Single PR. Conventional commit: `chore(concurrent-keys): remove project scaffolding before v8 merge`.
+
+### T5.g — Merge `feat/concurrent-keys` to v8 + publish release
+
+Final merge. **Squash-merge** as a single `feat:` commit — that commit is what release tooling sees, so it triggers the minor version bump. Suggested squash title: `feat(concurrent-keys): support multiple SDK keys per environment via RAC and offline archive`.
+
+Steps:
+1. Final review of feature branch HEAD; confirm cleanup (T5.f) is in.
+2. Squash-merge `feat/concurrent-keys` → v8.
+3. Verify release tooling triggers a minor version bump.
+4. Publish release notes (three items from §8).
+
+Not a coding task — this is a release activity.
+
 ### T5.e — Merge-forward to v9
 
 Not a `git merge`. Real integration work resolving FDv2 ↔ Phase 1 interactions in `env_context_impl.go` and the streaming path. v9 has FDv2 in it, which touches the same files Phase 1 changes most heavily. Validate against v9's existing test suite plus a subset of Phase 1 tests adapted for v9.
 
-Timing: possibly weeks or months after Wave 2 completes, depending on when v8 ships to production.
+Timing: calendar-deferred. May happen weeks or months after T5.g (v8 release), depending on when v9 is ready.
 
 ---
 
@@ -387,9 +432,11 @@ SDK-2453 (Epic) — Relay Proxy Multi Keys Support
 │   ├── T3.b Shared reconcile helper                        [Sub-task]
 │   └── T3.c Wire RAC + offline handlers                    [Sub-task]
 ├── T4  Status endpoints                                    [Task]
-└── T5  Tests + merge-forward                               [Story]
+└── T5  Tests, release, and merge-forward                   [Story]
     ├── T5.a Integration test harness                       [Sub-task]
     ├── T5.b Events payload regression test                 [Sub-task]
+    ├── T5.f Code cleanup before v8 merge                   [Sub-task]
+    ├── T5.g Merge feat/concurrent-keys to v8 + release     [Sub-task]
     └── T5.e Merge-forward to v9                            [Sub-task]
 ```
 

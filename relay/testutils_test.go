@@ -133,10 +133,26 @@ func (h relayTestHelper) assertEndpointStatus(
 
 func (h relayTestHelper) awaitCredentialsUpdated(env relayenv.EnvContext, expected envfactory.EnvironmentParams) {
 	expectedCredentials := credentialsAsSet(expected.EnvID, expected.MobileKey, expected.SDKKey)
-	isChanged := func() bool {
-		return reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials)
+	// Poll until both env.GetCredentials() and relay's connection mappings reflect the new credentials.
+	// The two updates are not atomic: AddCredential runs before AddConnectionMapping, so there is a
+	// window where GetCredentials() shows the new key but getEnvironment() still returns an error.
+	isReady := func() bool {
+		if !reflect.DeepEqual(credentialsAsSet(env.GetCredentials()...), expectedCredentials) {
+			return false
+		}
+		for _, cred := range []sdkauth.ScopedCredential{
+			sdkauth.New(expected.EnvID),
+			sdkauth.New(expected.MobileKey),
+			sdkauth.New(expected.SDKKey),
+		} {
+			found, err := h.relay.getEnvironment(cred)
+			if err != nil || found != env {
+				return false
+			}
+		}
+		return true
 	}
-	require.Eventually(h.t, isChanged, time.Second, time.Millisecond*5)
+	require.Eventually(h.t, isReady, time.Second, time.Millisecond*5)
 	h.assertEnvLookup(env, expected)
 }
 

@@ -238,35 +238,57 @@ On default rotation the backend mirrors expiry info into both:
 
 When `sdkKey.value` changes (voluntary rotation *or* current default expiring and being replaced by a promoted non-expiring key), relay must swap its upstream client to the new anchor while preserving downstream SDK connections.
 
-This is the highest-risk piece of Phase 1. The source plan describes the swap in a single sentence ("stand up the new client, hand the data source over, retire the old"). The actual mechanism is *mostly implicit* in today's code rather than orchestrated:
+This is the highest-risk piece of Phase 1. The **T0 PoC** validated the swap mechanism against seven hypotheses; the durable tests live in `internal/relayenv/env_context_reanchor_test.go` and the per-hypothesis findings are in [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md). The findings are summarized below as the spec for T2.c / T2.d.
 
-- The data store is reached via `storeAdapter`. **T0 found this is *not* automatically shared:** the SDK calls `storeAdapter.Build()` for each new client, which rebuilds a fresh (empty) in-memory store. The fix is to have the adapter **hand its existing store over** to the new client (reuse rather than rebuild), so the new anchor serves populated data with no empty-store window. (The "shared store as a side-effect" only held literally for persistent stores.)
-- `GetClient()` returns `c.clients[c.keyRotator.SDKKey()]` — so flipping the rotator's anchor swaps which client serves. **T0 found** the anchor pointer must not flip until the new client is registered and initialized, or `GetClient()` returns nil mid-swap.
-- Downstream lookup is on `ScopedCredential`, not on the anchor — so downstream connections route correctly regardless of which anchor is current. **T0 confirmed** open downstream connections survive the swap (they do receive one duplicate `put` from the new anchor's initial sync).
+### Required order of operations
 
-Several components are wired at **construction time** to the original SDK key. T0 settled each one:
+```
+1. Build the new anchor's SDK client, handing over the existing data store (do not flip the anchor pointer yet).
+2. Wait for the new client to report Initialized() == true.
+3. Atomically flip the rotator's anchor pointer.
+4. Call ReplaceCredential on event dispatcher + metrics publisher.
+5. Re-wire (or recreate) big-segment sync.
+6. Close the old anchor's client (after its grace period elapses for downstream traffic), ensuring its Close() does not tear down the now-shared store.
+```
 
-| Component | Today's wiring | Re-anchor story (per T0 findings) |
+This order is *necessary* — the PoC found that flipping the pointer too early leaves `GetClient()` nil mid-swap (H6) and breaks the env on init failure (H7) — and *sufficient* only with the store-handling approach below.
+
+### The data store: hand the existing store over to the new client
+
+An earlier version of this design assumed two SDK clients pointed at the same env would feed the *same* data store as a side-effect. The PoC (H1, H5) showed this is **wrong for the in-memory store**: each SDK client construction calls `storeAdapter.Build()`, which atomically swaps in a *new, empty* store, so the new client would otherwise have to re-sync from scratch (an empty-store window). This affects only the in-memory case; with a persistent store (Redis, DynamoDB) the data lives outside the wrapper and survives the swap.
+
+**Chosen remedy: hand the existing store over to the new client.** Because relay owns the store implementation (it hands the SDK a single `storeAdapter`), the re-anchor reuses the existing store for the new client instead of letting `Build()` construct a fresh one — concretely, make `SSERelayDataStoreAdapter.Build()` return its existing store when one is already present (or otherwise seed the new client with the old client's store). The new anchor then serves populated, initialized data immediately, with no empty-store window. Validated by `TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow`.
+
+This is the concrete form of decoupling the store's lifecycle from the client's. Two alternatives were considered and rejected as heavier: gating the swap on the new client reaching `Initialized()` (still leaves a window for already-connected reads and keeps the store coupled to client construction), and mandating a persistent store for graceful re-anchor (constrains deployments).
+
+**Store-lifecycle caveat:** `streamUpdatesStoreWrapper.Close()` closes the underlying store. With handover the retiring and new clients share one underlying store, so closing the retiring client must **not** close it — the adapter (not the client) must own the store's lifecycle. (Not reproducible with the fake client used in the PoC; verify against the real client in T2.c.)
+
+### Component re-wiring on re-anchor
+
+| Component | Today | On re-anchor |
 |---|---|---|
-| Data store | Reached via `storeAdapter`; SDK rebuilds it per client | **Hand the existing store over** to the new client (make `Build` reuse it); ensure the retiring client's `Close()` doesn't tear it down |
-| Event dispatcher | Stores `authKey`; has `ReplaceCredential` | Call `ReplaceCredential` on re-anchor |
-| Metrics publisher | Stores `authKey`; has `ReplaceCredential` | Call `ReplaceCredential` on re-anchor |
-| Big-segment sync | Wired to SDK key at construction | **No re-wire path today** — add a replace-credential method or recreate the synchronizer (T2.d) |
-| `httpconfig` | Built with SDK key at construction | **Confirmed key-independent** — no re-wire needed |
+| Data store | Rebuilt per client by `storeAdapter.Build()` | Hand the existing store over (adapter reuses it); the retiring client's `Close()` must not tear it down (T2.c) |
+| Event dispatcher | Has `ReplaceCredential` | Call `ReplaceCredential` (T2.c) |
+| Metrics publisher | Has `ReplaceCredential` | Call `ReplaceCredential` (T2.c) |
+| Big-segment sync | Wired at construction; no replacement method | Re-wire (add a replace-credential method) **or** recreate the synchronizer (T2.d). Recreate is simpler; re-wire preserves in-flight sync state. |
+| `httpconfig` | Built via injected *builder* (not pre-built config) | **No change needed** — the SDK rebuilds with the new anchor key automatically (PoC H4) |
+| Downstream SSE connections | Keyed on `ScopedCredential`, independent of anchor | Survive automatically (PoC H2); expect one duplicate `put` from the new client's initial sync |
 
-### PoC (T0) — complete
+### Failure handling
 
-The re-anchor mechanism was validated by **T0**, a PoC of durable tests answering seven hypotheses, *before* T2 implements it:
+If the new client fails to initialize, the swap **rolls back**: the rotator's anchor pointer stays on the old key, the previous accepted set is preserved, a structured error is logged, and an alarm is raised. The old anchor's client (still alive in its grace period) continues to serve. This is the §8 atomicity principle applied to re-anchor.
 
-1. Two clients sharing a store don't corrupt store invariants. → No corruption; in-memory store is rebuilt empty, so hand the store over (see above).
-2. Downstream SSE connections tolerate the swap. → Yes; expect one duplicate `put`.
-3. Big-segment sync keeps working after re-anchor — or, if not, what re-wiring is needed. → Re-wiring needed (T2.d).
-4. `httpconfig` stays functional after re-anchor. → Yes; key-independent.
-5. Order of operations: start-new → swap pointer → close-old vs. alternatives. → **start new (with store handover) → swap pointer + re-wire peripherals → close old.**
-6. Behavior during the swap window (requests arriving mid-swap). → Don't flip the anchor pointer until the new client is registered/initialized.
-7. Failure modes: new client init fails — recovery behavior. → Validate new-client init **before** swapping; roll back to the old anchor on failure (atomicity, §8).
+### Consolidated specification for T2.c / T2.d
 
-Full results and the executable spec live in [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md) and `internal/relayenv/env_context_reanchor_test.go`. These durable tests survive into T2.
+| # | Requirement | Source | Owner |
+|---|---|---|---|
+| 1 | Build + initialize the new anchor client *before* flipping the pointer; flip atomically. | H5, H6 | T2.c |
+| 2 | On init failure, roll back to old anchor; preserve previous accepted set; log + alarm. | H7 | T2.c |
+| 3 | Hand the existing store over to the new client (adapter reuses its store); ensure the retiring client's `Close()` does not tear down the shared store. | H1, H5 | T2.c |
+| 4 | Re-wire big-segment sync on re-anchor (recreate or replace-credential). | H3 | T2.d |
+| 5 | Call `ReplaceCredential` on event dispatcher + metrics publisher. | §7 | T2.c (already wired in `addCredential`) |
+| 6 | Expect duplicate downstream `put`; retain connections for credentials still in the accepted set. | H2 | T2.c (awareness) |
+| 7 | No `httpconfig` change. | H4 | n/a |
 
 ---
 
@@ -306,13 +328,14 @@ Reconcile is **all-or-nothing**. On partial failure (malformed payload, new-clie
 
 When relay receives a malformed RAC payload — most importantly, `sdkKey.value` not present in `sdkKeys[]`, or `sdkKey` field missing entirely — the backend invariants of §4.2 have been violated.
 
-**Working assumption** (pending team confirmation):
+**Decision** (confirmed with the team):
 
-- **Hard-fail the update.** Log a structured error. Preserve the previous accepted set. Alarm.
-- Do *not* silently fall back to the first entry in `sdkKeys[]` (silent and dangerous).
-- Do *not* leave the env in a half-applied state.
+1. **Preserve the previous accepted set.** Do not apply the malformed update. Log a structured error. Alarm.
+2. **Disconnect and reconnect the RAC stream with jitter.** The backend believes the patch was applied — RAC is one-way push and relay has no NAK channel. Without a reconnect the backend won't send a fresh state; it expects relay to be in sync. Reconnecting forces a fresh `put` on the new connection, which gives relay a clean baseline.
+3. Do *not* silently fall back to the first entry in `sdkKeys[]` (silent and dangerous).
+4. Do *not* leave the env in a half-applied state.
 
-This is the same atomicity principle as §8, applied at the boundary between trusted-source input and relay's internal state.
+This is the same atomicity principle as §8, applied at the boundary between trusted-source input and relay's internal state, with the added piece (reconnect) needed because RAC has no acknowledgment mechanism for failed-payload rejection.
 
 ---
 
@@ -372,27 +395,29 @@ Environment
 | Single upstream connection per env on the anchor | Connection-count efficiency at scale; aligns with Phase 2's single-mega-stream model | Multi-client (SDK-2415 PoC approach): trades re-anchor complexity for fan-out at customer scale |
 | Anchor by `sdkKey.value` byte-match (no `isDefault` flag) | Single source of truth; matches what RAC already emits | `isDefault` flag (would require backend wire change and dual sources of truth) |
 | Per-key `expiry` (Unix-ms) on array entries | Confirmed real format from producers; reuses existing ticker | Per-env single deprecated slot (today's model — doesn't scale to multi-key) |
-| Trust the array on expiry disagreement (Q7 working assumption) | Simpler invariant; legacy field becomes write-only shim | Take whichever is later, hard-fail on disagreement (more complex, no clear value) |
+| Trust the array on expiry disagreement | Simpler invariant; legacy field becomes write-only shim | Take whichever is later, hard-fail on disagreement (more complex, no clear value) |
 | Events collapse to anchor per kind, no per-key attribution | Keys are secrets — not appropriate as analytics tags; LD provides better tagging mechanisms | Per-key attribution (would multiply event machinery N×) |
 | Diagnostic events keep verbatim-proxy behavior | Preserves operational debug value (which SDK reported); minimal code change | Collapse diagnostic to anchor (loses debug signal); metadata-header (long-term direction, out of Phase 1 scope) |
 | `ReconcileCredentials` API replaces `UpdateCredential` everywhere | Atomic semantics; single API surface; no external consumers to preserve | Keep both methods (two ways to do the same thing); stateful batching (non-idiomatic Go) |
-| Hard-fail on malformed payload (Q6 working assumption) | Loud, safe, atomic | Soft-fall-back to `sdkKeys[0]` (silent, order-dependent); refuse to serve until next valid update (disruptive) |
-| Order of operations: add → re-anchor → remove (Q9 working assumption) | Accepted set is a superset during transition; downstream survives | Remove first (downstream-availability window); concurrent (race-prone); atomic batch (atomicity breaks at goroutine boundary) |
+| On malformed payload: preserve previous state **+ reconnect RAC stream with jitter** | Loud, safe, atomic — and forces backend to push a fresh `put`, since RAC has no NAK | Soft-fall-back to `sdkKeys[0]` (silent, order-dependent); refuse to serve until next valid update (disruptive); preserve-without-reconnect (backend stays out of sync until something else triggers a refresh) |
+| Order of operations: add → re-anchor → remove | Accepted set is a superset during transition; downstream survives | Remove first (downstream-availability window); concurrent (race-prone); atomic batch (atomicity breaks at goroutine boundary) |
+| Re-anchor: keep old store/anchor authoritative until new client `Initialized()` | The in-memory store is rebuilt empty on new-client construction (PoC H1, H5); must keep old serving until new is ready | Require persistent store (limits feature to a subset); decouple store from client lifecycle (much bigger refactor) |
+| Re-anchor: validate new client `Initialized()` before flipping the anchor pointer; rollback on failure | Avoids mid-swap nil `GetClient()` (PoC H6) and stranded-anchor on init failure (PoC H7) | Flip-then-init (today's broken behavior); accept the gap (visible to customers) |
 | Manual config stays single-key in Phase 1 | Same trusted-source reasoning as above | Verify-on-startup, opt-in unsafe flag (rejected for the same reasons in §1) |
 
 ---
 
-## 14. Open questions (pending offline confirmation)
+## 14. Resolved questions
 
-These have working assumptions; Aaron is confirming with the team before lock-in. None block design or initial development.
+All design-blocking questions have been answered.
 
-- **Q5**: RAC propagation SLA for `sdkKey.value` changes. *Working assumption*: real-time via SSE push.
-- **Q6**: Behavior on malformed RAC payload. *Working assumption*: hard-fail, preserve previous state.
-- **Q7**: Legacy `sdkKey.expiring{}` vs per-key `expiry` disagreement policy. *Working assumption*: trust the array.
-- **Q8**: Does relay track per-credential downstream connections for targeted disconnect? *Working assumption*: yes (in `envStreams`); verify in code as T1.c pre-work.
-- **Q11**: Customer downgrade story (rolling relay back from Phase 1). *Working assumption*: surface in release notes; no relay-side mitigation needed.
+- **Q5** (RAC propagation SLA for `sdkKey.value` changes): **Real-time.** Same delivery semantics as flag eval / delivery in the SDK.
+- **Q6** (Behavior on malformed RAC payload): **Preserve previous accepted set + reconnect the RAC stream with jitter** to force a fresh `put` from the backend (the backend believes the patch was applied because RAC has no NAK channel). See §9.
+- **Q7** (Legacy `sdkKey.expiring{}` vs per-key `expiry` disagreement policy): **Trust the array.** Legacy field is a write-only back-compat shim; new relays ignore it on read.
+- **Q8** (Per-credential downstream tracking for targeted disconnect): **Already implemented** — today's rotation/disconnect path uses it. T1.c builds on the existing tracking; does not have to construct new infrastructure.
+- **Q11** (Customer downgrade story): **No mitigation work.** Documented in release notes; customers reverting from Phase 1 understand they lose multi-key support.
 
-See [`phase1-questions.md`](../../docs/agents/phase1-questions.md) in the design worktree for full context per question. (That file is not on this feature branch — it lives in the design worktree.)
+T0 PoC findings (re-anchoring mechanics) are recorded in §7 and in [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md).
 
 ---
 
