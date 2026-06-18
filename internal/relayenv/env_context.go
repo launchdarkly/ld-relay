@@ -125,7 +125,7 @@ type MalformedCredentialSetError struct {
 }
 
 func (e *MalformedCredentialSetError) Error() string {
-	if e.Anchor == nil || !e.Anchor.Defined() {
+	if e.Anchor == nil {
 		return "malformed credential set: anchor SDK key is missing"
 	}
 	return fmt.Sprintf("malformed credential set: anchor SDK key %s is not present in the accepted set",

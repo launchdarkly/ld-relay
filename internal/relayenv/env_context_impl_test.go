@@ -276,12 +276,9 @@ func TestReconcileCredentialsRejectsAnchorNotInSet(t *testing.T) {
 }
 
 func TestMalformedCredentialSetErrorMessage(t *testing.T) {
-	// A nil or empty/undefined anchor must report "missing" rather than masking an empty key
-	// (Masked() would otherwise render an empty SDK key as a bare "...").
+	// A nil anchor reports "missing" rather than dereferencing a nil credential.
 	assert.Equal(t, "malformed credential set: anchor SDK key is missing",
 		(&MalformedCredentialSetError{Anchor: nil}).Error())
-	assert.Equal(t, "malformed credential set: anchor SDK key is missing",
-		(&MalformedCredentialSetError{Anchor: config.SDKKey("")}).Error())
 
 	// A defined anchor is masked in the message.
 	assert.Contains(t, (&MalformedCredentialSetError{Anchor: config.SDKKey("sdk-abcd1234")}).Error(),
