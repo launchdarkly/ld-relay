@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -39,13 +40,15 @@ func StartHTTPServer(
 		}
 	}
 
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 
 	// Create a channel to listen for signals
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM)
 
-	go func() {
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
 		var err error
 		loggers.Infof("Starting server listening on port %d\n", port)
 		if tlsEnabled {
@@ -61,7 +64,7 @@ func StartHTTPServer(
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
-	}()
+	})
 
 	// Handle graceful shutdown in a separate goroutine
 	go func() {
@@ -83,7 +86,8 @@ func StartHTTPServer(
 		} else {
 			loggers.Info("Server gracefully stopped")
 		}
-		close(errCh) // Close the error channel after shutdown
+		wg.Wait()
+		close(errCh)
 	}()
 
 	return srv, errCh
