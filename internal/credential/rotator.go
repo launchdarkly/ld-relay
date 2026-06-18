@@ -9,6 +9,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
+// acceptedKeyInfo holds per-key metadata for the accepted-set maps.
+type acceptedKeyInfo struct {
+	expiry *time.Time //nolint:unused // nil = permanent; read by T1.b (ReconcileCredentials)
+}
+
 type Rotator struct {
 	loggers ldlog.Loggers
 
@@ -31,6 +36,10 @@ type Rotator struct {
 	// Upon expiration, they are removed.
 	deprecatedSdkKeys map[config.SDKKey]time.Time
 
+	// Consumed by ReconcileCredentials API
+	acceptedSDKKeys    map[config.SDKKey]*acceptedKeyInfo
+	acceptedMobileKeys map[config.MobileKey]*acceptedKeyInfo
+
 	expirations []SDKCredential
 	additions   []SDKCredential
 
@@ -50,6 +59,8 @@ func NewRotator(loggers ldlog.Loggers) *Rotator {
 		loggers:              loggers,
 		deprecatedSdkKeys:    make(map[config.SDKKey]time.Time),
 		deprecatedMobileKeys: make(map[config.MobileKey]time.Time),
+		acceptedSDKKeys:      make(map[config.SDKKey]*acceptedKeyInfo),
+		acceptedMobileKeys:   make(map[config.MobileKey]*acceptedKeyInfo),
 	}
 	return r
 }
@@ -67,8 +78,10 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 		switch cred := cred.(type) {
 		case config.SDKKey:
 			r.primarySdkKey = cred
+			r.acceptedSDKKeys[cred] = &acceptedKeyInfo{}
 		case config.MobileKey:
 			r.primaryMobileKey = cred
+			r.acceptedMobileKeys[cred] = &acceptedKeyInfo{}
 		case config.EnvironmentID:
 			r.primaryEnvironmentID = cred
 		}

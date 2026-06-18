@@ -232,6 +232,34 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.Empty(t, expirations)
 }
 
+func TestInitializePopulatesAcceptedSets(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	sdkKey := config.SDKKey("sdk-test-key")
+	mobileKey := config.MobileKey("mob-test-key")
+	envID := config.EnvironmentID("env-test-id")
+
+	rotator.Initialize([]SDKCredential{sdkKey, mobileKey, envID})
+
+	// Verify accepted SDK key set: one entry, no expiry.
+	assert.Len(t, rotator.acceptedSDKKeys, 1)
+	if info, ok := rotator.acceptedSDKKeys[sdkKey]; assert.True(t, ok, "acceptedSDKKeys should contain the initialized SDK key") {
+		assert.Nil(t, info.expiry, "a key initialized without expiry should have nil expiry in acceptedKeyInfo")
+	}
+
+	// Verify accepted mobile key set: one entry, no expiry.
+	assert.Len(t, rotator.acceptedMobileKeys, 1)
+	if info, ok := rotator.acceptedMobileKeys[mobileKey]; assert.True(t, ok, "acceptedMobileKeys should contain the initialized mobile key") {
+		assert.Nil(t, info.expiry, "a key initialized without expiry should have nil expiry in acceptedKeyInfo")
+	}
+
+	// Existing public API is unchanged.
+	assert.Equal(t, sdkKey, rotator.SDKKey())
+	assert.Equal(t, mobileKey, rotator.MobileKey())
+	assert.Equal(t, envID, rotator.EnvironmentID())
+}
+
 func TestRotateWithGraceMobileKey(t *testing.T) {
 	t.Run("does not panic with non-nil grace period", func(t *testing.T) {
 		mockLog := ldlogtest.NewMockLog()
