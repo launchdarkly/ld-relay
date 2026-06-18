@@ -64,6 +64,13 @@ func TestEndpointsStatusExpect(t *testing.T) {
 				assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
 			})
 
+			t.Run("present-but-empty expect value returns 400", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", "http://localhost/status?expect=", nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+				assert.NotEmpty(t, ldvalue.Parse(body).GetByKey("error").StringValue())
+			})
+
 			t.Run("no expect param leaves the body unchanged", func(t *testing.T) {
 				r, _ := http.NewRequest("GET", "http://localhost/status", nil)
 				result, body := st.DoRequest(r, p.relay)
