@@ -560,13 +560,13 @@ func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credent
 	anchorKey, ok := anchor.(config.SDKKey)
 	if !ok || !anchorKey.Defined() || !newSet.hasSDKKey(anchorKey) {
 		// Malformed payload: make no changes (preserve the previous accepted set) and surface a
-		// structured error so the caller can reconnect the RAC stream (design §9; reconnect is T3.c).
+		// structured error so the caller can reconnect the RAC stream.
 		return &MalformedCredentialSetError{Anchor: anchor}
 	}
 
 	// Re-anchor: the anchor becomes the primary SDK key. A non-anchor SDK key carrying an expiry is
-	// a graceful deprecation, and its expiry is read from the set ("trust the array", §6.3). The
-	// dedicated upstream-client swap is T2.c; in Phase 1's single-key world the swap is realized by
+	// a graceful deprecation, and its expiry is read from the set rather than the legacy expiring
+	// slot. The dedicated upstream-client swap is handled separately; here the swap is realized by
 	// the rotation below, which starts a client for the new anchor via addCredential.
 	if deprecated, hasDeprecated := newSet.deprecatedSDKKey(anchorKey); hasDeprecated {
 		c.keyRotator.RotateWithGrace(anchorKey, credential.NewGracePeriod(deprecated.key, *deprecated.expiry, now))
@@ -575,8 +575,7 @@ func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credent
 	}
 
 	// The mobile key and environment ID rotate to their new values, immediately revoking the
-	// previous primary of each kind (unchanged single-key behavior). Per-key mobile expiry and
-	// multi-key cleanup are generalized in T1.c.
+	// previous primary of each kind.
 	if mobileKey, hasMobile := newSet.primaryMobileKey(); hasMobile {
 		c.keyRotator.Rotate(mobileKey)
 	}
@@ -587,7 +586,7 @@ func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credent
 	// Apply the queued changes. triggerCredentialChanges drains the rotator's additions before its
 	// expirations, so the accepted set is a superset during the transition: new credentials,
 	// handlers, and the new anchor's SDK client are in place before any outgoing credential is torn
-	// down (order of operations: add → re-anchor → remove, design §8).
+	// down (add → re-anchor → remove).
 	c.triggerCredentialChanges(now)
 	return nil
 }

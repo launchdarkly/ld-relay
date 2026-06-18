@@ -17,8 +17,7 @@ const (
 )
 
 // acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
-// using the singular SDK/mobile/env fields plus the optional expiring SDK key. This preserves
-// single-key behavior; consuming the full sdkKeys[]/mobileKeys[] arrays via a shared helper is T3.b.
+// using the singular SDK/mobile/env fields plus the optional expiring SDK key.
 func acceptedSetFromParams(params envfactory.EnvironmentParams) relayenv.AcceptedSet {
 	set := relayenv.NewAcceptedSet().
 		WithSDKKey(params.SDKKey).

@@ -22,28 +22,23 @@ import (
 )
 
 // AcceptedSet is the full set of credentials that an environment should accept after a
-// reconcile. It carries every accepted server-side SDK key and mobile key — each with an
-// optional per-key expiry — plus the single environment ID. The anchor (the one SDK key that
-// owns the environment's upstream connection) is supplied separately to ReconcileCredentials.
+// reconcile. It carries every accepted server-side SDK key (each with an optional expiry) and
+// mobile key, plus the single environment ID. The anchor (the one SDK key that owns the
+// environment's upstream connection) is supplied separately to ReconcileCredentials.
 //
-// Per design §6.3 ("trust the array"), a key's expiry is taken from its entry in this set; the
-// legacy sdkKey.expiring{} wire slot is not consulted when building it.
+// A key's expiry is taken from its entry in this set; the legacy sdkKey.expiring{} wire slot is
+// not consulted when building it.
 //
 // Build an AcceptedSet with NewAcceptedSet and the With* methods, which ignore undefined
 // credentials so callers can supply optional keys unconditionally.
 type AcceptedSet struct {
 	sdkKeys    []acceptedSDKKey
-	mobileKeys []acceptedMobileKey
+	mobileKeys []config.MobileKey
 	envID      config.EnvironmentID
 }
 
 type acceptedSDKKey struct {
 	key    config.SDKKey
-	expiry *time.Time // nil = permanent
-}
-
-type acceptedMobileKey struct {
-	key    config.MobileKey
 	expiry *time.Time // nil = permanent
 }
 
@@ -71,11 +66,10 @@ func (s AcceptedSet) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) Acc
 	return s
 }
 
-// WithMobileKey adds a permanent (non-expiring) mobile key to the set. It is a no-op if the key
-// is undefined.
+// WithMobileKey adds a mobile key to the set. It is a no-op if the key is undefined.
 func (s AcceptedSet) WithMobileKey(key config.MobileKey) AcceptedSet {
 	if key.Defined() {
-		s.mobileKeys = append(s.mobileKeys, acceptedMobileKey{key: key})
+		s.mobileKeys = append(s.mobileKeys, key)
 	}
 	return s
 }
@@ -99,8 +93,7 @@ func (s AcceptedSet) hasSDKKey(key config.SDKKey) bool {
 }
 
 // deprecatedSDKKey returns the accepted SDK key other than the anchor that carries an expiry —
-// the key being phased out with a grace period. Phase 1's single-key model has at most one such
-// key; multi-key reconciliation is generalized in T1.c.
+// the key being phased out with a grace period. There is at most one such key today.
 func (s AcceptedSet) deprecatedSDKKey(anchor config.SDKKey) (acceptedSDKKey, bool) {
 	for _, k := range s.sdkKeys {
 		if k.key != anchor && k.expiry != nil {
@@ -110,30 +103,23 @@ func (s AcceptedSet) deprecatedSDKKey(anchor config.SDKKey) (acceptedSDKKey, boo
 	return acceptedSDKKey{}, false
 }
 
-// primaryMobileKey returns the environment's primary mobile key — the single accepted mobile key
-// in Phase 1. It returns false if the set has no mobile key. Per-key mobile expiry and multi-key
-// mobile cleanup are generalized in T1.c.
+// primaryMobileKey returns the environment's single accepted mobile key, or false if there is none.
 func (s AcceptedSet) primaryMobileKey() (config.MobileKey, bool) {
-	for _, k := range s.mobileKeys {
-		if k.expiry == nil {
-			return k.key, true
-		}
-	}
 	if len(s.mobileKeys) > 0 {
-		return s.mobileKeys[0].key, true
+		return s.mobileKeys[0], true
 	}
 	return "", false
 }
 
 // MalformedCredentialSetError is returned by ReconcileCredentials when the supplied anchor SDK
 // key is not present among the accepted set's SDK keys — a violation of the backend invariant
-// that the anchor (sdkKey.value) always appears in sdkKeys[] (design §4.2, §9).
+// that the anchor (sdkKey.value) always appears in sdkKeys[].
 //
 // When ReconcileCredentials returns this error it has made no changes, so the environment's
 // previous accepted set is preserved. The caller is responsible for the second half of the
-// malformed-payload policy: reconnecting the RAC stream with jitter to force a fresh put (wired
-// in T3.c). RAC is one-way push with no NAK channel, so without the reconnect the backend would
-// believe the malformed patch was applied and would not send fresh state.
+// malformed-payload policy: reconnecting the RAC stream with jitter to force a fresh put. RAC is
+// one-way push with no NAK channel, so without the reconnect the backend would believe the
+// malformed patch was applied and would not send fresh state.
 type MalformedCredentialSetError struct {
 	// Anchor is the anchor credential that was not found among the set's SDK keys.
 	Anchor credential.SDKCredential
