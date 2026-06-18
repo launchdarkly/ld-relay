@@ -243,33 +243,31 @@ This is the highest-risk piece of Phase 1. The **T0 PoC** validated the swap mec
 ### Required order of operations
 
 ```
-1. Build the new anchor's SDK client (do not flip the anchor pointer yet).
+1. Build the new anchor's SDK client, handing over the existing data store (do not flip the anchor pointer yet).
 2. Wait for the new client to report Initialized() == true.
 3. Atomically flip the rotator's anchor pointer.
 4. Call ReplaceCredential on event dispatcher + metrics publisher.
 5. Re-wire (or recreate) big-segment sync.
-6. Close the old anchor's client (after its grace period elapses for downstream traffic).
+6. Close the old anchor's client (after its grace period elapses for downstream traffic), ensuring its Close() does not tear down the now-shared store.
 ```
 
-This order is *necessary* — the PoC found that flipping the pointer too early leaves `GetClient()` nil mid-swap (H6) and breaks the env on init failure (H7) — and *sufficient* only with the store-handling caveat below.
+This order is *necessary* — the PoC found that flipping the pointer too early leaves `GetClient()` nil mid-swap (H6) and breaks the env on init failure (H7) — and *sufficient* only with the store-handling approach below.
 
-### The data store: old stays authoritative until new is `Initialized()`
+### The data store: hand the existing store over to the new client
 
-An earlier version of this design assumed two SDK clients pointed at the same env would feed the *same* data store as a side-effect. The PoC (H1, H5) showed this is **wrong for the in-memory store**: each SDK client construction calls `storeAdapter.Build()`, which atomically swaps in a *new, empty* store. The new client must re-sync from scratch.
+An earlier version of this design assumed two SDK clients pointed at the same env would feed the *same* data store as a side-effect. The PoC (H1, H5) showed this is **wrong for the in-memory store**: each SDK client construction calls `storeAdapter.Build()`, which atomically swaps in a *new, empty* store, so the new client would otherwise have to re-sync from scratch (an empty-store window). This affects only the in-memory case; with a persistent store (Redis, DynamoDB) the data lives outside the wrapper and survives the swap.
 
-This affects only the in-memory case. With a persistent store (Redis, DynamoDB), the data lives outside the wrapper and survives the swap.
+**Chosen remedy: hand the existing store over to the new client.** Because relay owns the store implementation (it hands the SDK a single `storeAdapter`), the re-anchor reuses the existing store for the new client instead of letting `Build()` construct a fresh one — concretely, make `SSERelayDataStoreAdapter.Build()` return its existing store when one is already present (or otherwise seed the new client with the old client's store). The new anchor then serves populated, initialized data immediately, with no empty-store window. Validated by `TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow`.
 
-Three remedies were considered (PoC findings §H5):
-1. **Keep the old store/anchor authoritative until the new client is `Initialized()`.** ← **chosen**
-2. Require a persistent store for graceful re-anchor.
-3. Decouple the data store lifecycle from the client lifecycle.
+This is the concrete form of decoupling the store's lifecycle from the client's. Two alternatives were considered and rejected as heavier: gating the swap on the new client reaching `Initialized()` (still leaves a window for already-connected reads and keeps the store coupled to client construction), and mandating a persistent store for graceful re-anchor (constrains deployments).
 
-Option 1 aligns with §8's "superset during transition" principle: just as the *accepted credential set* is a superset during a keys-change event, the *store* (and the client serving it) stays in place until the replacement is ready.
+**Store-lifecycle caveat:** `streamUpdatesStoreWrapper.Close()` closes the underlying store. With handover the retiring and new clients share one underlying store, so closing the retiring client must **not** close it — the adapter (not the client) must own the store's lifecycle. (Not reproducible with the fake client used in the PoC; verify against the real client in T2.c.)
 
 ### Component re-wiring on re-anchor
 
 | Component | Today | On re-anchor |
 |---|---|---|
+| Data store | Rebuilt per client by `storeAdapter.Build()` | Hand the existing store over (adapter reuses it); the retiring client's `Close()` must not tear it down (T2.c) |
 | Event dispatcher | Has `ReplaceCredential` | Call `ReplaceCredential` (T2.c) |
 | Metrics publisher | Has `ReplaceCredential` | Call `ReplaceCredential` (T2.c) |
 | Big-segment sync | Wired at construction; no replacement method | Re-wire (add a replace-credential method) **or** recreate the synchronizer (T2.d). Recreate is simpler; re-wire preserves in-flight sync state. |
@@ -286,7 +284,7 @@ If the new client fails to initialize, the swap **rolls back**: the rotator's an
 |---|---|---|---|
 | 1 | Build + initialize the new anchor client *before* flipping the pointer; flip atomically. | H5, H6 | T2.c |
 | 2 | On init failure, roll back to old anchor; preserve previous accepted set; log + alarm. | H7 | T2.c |
-| 3 | Keep the old store/anchor authoritative until new client `Initialized()`. | H1, H5 | T2.c |
+| 3 | Hand the existing store over to the new client (adapter reuses its store); ensure the retiring client's `Close()` does not tear down the shared store. | H1, H5 | T2.c |
 | 4 | Re-wire big-segment sync on re-anchor (recreate or replace-credential). | H3 | T2.d |
 | 5 | Call `ReplaceCredential` on event dispatcher + metrics publisher. | §7 | T2.c (already wired in `addCredential`) |
 | 6 | Expect duplicate downstream `put`; retain connections for credentials still in the accepted set. | H2 | T2.c (awareness) |

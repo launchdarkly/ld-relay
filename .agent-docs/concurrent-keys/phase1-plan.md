@@ -22,7 +22,7 @@ This document covers *how* we ship Phase 1: branching, sequencing, tasks, depend
 git worktree add ../ld-relay-wt-feat-concurrent-keys -b feat/concurrent-keys v8
 ```
 
-This document is committed in that worktree at `docs/concurrent-keys/phase1-plan.md`.
+This document is committed in that worktree at `.agent-docs/concurrent-keys/phase1-plan.md`.
 
 ---
 
@@ -78,7 +78,7 @@ Each task has: ticket name, files touched, dependencies, estimates. Acceptance c
 
 | Task | Files | Depends on | Human | AI agent |
 |---|---|---|---|---|
-| **T5.f** — Code cleanup: remove project scaffolding before v8 merge | `docs/concurrent-keys/` (entire directory), `internal/relayenv/env_context_reanchor_test.go`, anything else project-specific | All Wave 2 terminal sub-tasks (T1.c, T2.b, T2.d, T2.e, T4) | 0.5-1 day | 30 min - 1 hr |
+| **T5.f** — Code cleanup: remove project scaffolding before v8 merge | `.agent-docs/concurrent-keys/` (entire directory), `internal/relayenv/env_context_reanchor_test.go`, anything else project-specific | All Wave 2 terminal sub-tasks (T1.c, T2.b, T2.d, T2.e, T4) | 0.5-1 day | 30 min - 1 hr |
 | **T5.g** — Merge `feat/concurrent-keys` to v8 + publish release | None (release activity) | T5.f | 0.5-1 day | n/a (release task, not coding) |
 | **T5.e** — Merge-forward to v9 | `internal/relayenv/*`, streaming path | T5.g (and calendar — may be weeks/months after the v8 release) | 3-7 days | 1-2 days (with iteration) |
 
@@ -143,7 +143,7 @@ Today: `rotator.go:168-169` panics with `"programmer error: mobile keys do not s
 
 Internal fields only. No API change. Existing public methods (`SDKKey()`, `GetCredentials()`, etc.) continue to return what they return today by reading from the new internal state where the single primary maps to a one-element set.
 
-Reviewer-friendly comment to add at the top of the new fields: `// Consumed by T1.b (ReconcileCredentials API). See docs/concurrent-keys/phase1-design.md §6.2.`
+Reviewer-friendly comment to add at the top of the new fields: `// Consumed by T1.b (ReconcileCredentials API). See .agent-docs/concurrent-keys/phase1-design.md §6.2.`
 
 ### T1.b — `ReconcileCredentials` API
 
@@ -281,7 +281,7 @@ Capture upstream payloads from v8 under realistic SDK traffic. Assert post-Phase
 Remove all project-specific scaffolding from `feat/concurrent-keys` *before* T5.g merges the branch to v8. The canonical design + plan docs and the PoC test file were useful during development; they shouldn't land on v8.
 
 What to remove:
-- `docs/concurrent-keys/` — entire directory (this file is one of the things being removed). Save off-branch if you want to keep it for reference.
+- `.agent-docs/concurrent-keys/` — entire directory (this file is one of the things being removed). Save off-branch if you want to keep it for reference.
 - `internal/relayenv/env_context_reanchor_test.go` — PoC test file. Verify any useful tests have already been adopted into proper regression test files by T2.c before deleting.
 - Any other concurrent-keys-specific scaffolding that may have accumulated.
 
@@ -452,7 +452,7 @@ SDK-2453 (Epic) — Relay Proxy Multi Keys Support
 |---|---|
 | Feature branch? | `feat/concurrent-keys` off v8 |
 | Sub-PR branches? | `aaronz/<sub-task-ticket-id>/<task-slug>` off the feature branch (use the specific sub-task ticket ID, not the epic SDK-2453) |
-| Where do canonical docs live? | This file + `phase1-design.md` in `docs/concurrent-keys/` on the feature branch |
+| Where do canonical docs live? | This file + `phase1-design.md` in `.agent-docs/concurrent-keys/` on the feature branch |
 | Where do working notes live? | `docs/agents/phase1-*.md` in the design worktree (gitignored, not on this branch) |
 | How is ordering enforced within a `keys change` event? | Add → re-anchor → remove (atomic) |
 | What triggers re-anchor? | `sdkKey.value` changed |
