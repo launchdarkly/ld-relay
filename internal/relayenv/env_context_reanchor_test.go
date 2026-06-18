@@ -3,12 +3,12 @@ package relayenv
 // T0 — Re-anchoring PoC (SDK-2453 / SDK-2530).
 //
 // These tests validate the upstream SDK-client swap mechanism that T2.c will implement. Each test
-// answers one of the seven hypotheses in docs/concurrent-keys/phase1-design.md §7. They are written
-// as durable, executable probes of today's primitives so they survive into T2 as regression tests
-// and as the executable spec for the re-anchor implementation.
+// answers one of the seven hypotheses in .agent-docs/concurrent-keys/phase1-design.md §7. They are
+// written as durable, executable probes of today's primitives so they survive into T2 as regression
+// tests and as the executable spec for the re-anchor implementation.
 //
 // A written summary of the findings lives in
-// docs/concurrent-keys/phase1-T0-reanchor-poc-findings.md.
+// .agent-docs/concurrent-keys/phase1-T0-reanchor-poc-findings.md.
 //
 // Terminology: "re-anchor" = swapping the single upstream SDK client when sdkKey.value changes.
 // Today there is no dedicated re-anchor method; the closest existing path is UpdateCredential with a
@@ -46,9 +46,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// reanchorTestKey2 is a well-formed SDK key distinct from any in the sharedtest fixtures; used as the
-// "new anchor" that we re-anchor onto.
-const reanchorTestKey2 = config.SDKKey("sdk-98e2b0b4-2688-4a59-9810-1e0e3d7e42f2")
+// reanchorTestKey2 is the "new anchor" SDK key we re-anchor onto. It is deliberately NOT in the real
+// sdk-<uuid> credential format so it won't trip secret scanners; relay treats SDK keys as opaque
+// non-empty strings, so any value works here.
+const reanchorTestKey2 = config.SDKKey("reanchor-poc-new-anchor")
 
 // recordingStreamUpdates is a streams.EnvStreamUpdates that counts the broadcasts it receives, so we
 // can observe whether a re-anchor produces duplicate downstream "put"s.
@@ -454,6 +455,67 @@ func TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor(t *testing.T) {
 	got2, err := newStore.Get(featureKind, flagKey)
 	require.NoError(t, err)
 	assert.Nil(t, got2.Item, "data is absent in the new store until the new anchor re-syncs")
+}
+
+// TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow validates the reviewer suggestion that, because
+// relay owns the data store implementation (it hands the SDK a single storeAdapter), the re-anchor can
+// hand the existing store over to the new client instead of letting it build a fresh one. Modeled here
+// by a DataStoreFactory that returns the same underlying store on every Build; the production change
+// (T2.c/T2.d) is to make SSERelayDataStoreAdapter reuse its store across the swap. With handover the
+// new anchor's client sees the populated, initialized store immediately -- no empty-store window
+// (contrast TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor).
+//
+// CAVEAT for the implementation (not reproducible with the fake client, so documented here and in the
+// findings): streamUpdatesStoreWrapper.Close() closes the underlying store. If the new client wraps the
+// SAME underlying store, closing the retiring client must NOT close it -- the store's lifecycle has to
+// be owned by the adapter, not by the client being retired.
+func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
+	featureKind := ldstoreimpl.Features()
+	flagKey := st.Flag1ServerSide.Flag.Key
+	envConfig := st.EnvMain.Config
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	// A store factory that hands the same underlying store to every client (the "handover" model).
+	underlying, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
+	require.NoError(t, err)
+	handoverFactory := &sharedStoreFactory{store: underlying}
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	readyCh := make(chan EnvContext, 1)
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+		EnvConfig:        envConfig,
+		ClientFactory:    testclient.FakeLDClientFactoryWithChannel(true, clientCh),
+		DataStoreFactory: handoverFactory,
+		ConnectionMapper: mockConnectionMapper{},
+		Loggers:          mockLog.Loggers,
+	}, readyCh)
+	require.NoError(t, err)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	client1 := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == client1 }, time.Second, 10*time.Millisecond)
+
+	// Populate the store as the original anchor's client would have.
+	require.NoError(t, env.GetStore().Init(st.AllData))
+
+	// Re-anchor onto a new key.
+	start := time.Unix(1000, 0)
+	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+
+	client2 := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond)
+
+	// FINDING: with store handover there is no empty-store window -- the new client's store is still
+	// initialized and still holds the data, because the underlying store was reused rather than rebuilt.
+	newStore := env.GetStore()
+	assert.True(t, newStore.IsInitialized(), "handed-over store stays initialized across the re-anchor")
+	got, err := newStore.Get(featureKind, flagKey)
+	require.NoError(t, err)
+	assert.NotNil(t, got.Item, "data is preserved across the re-anchor when the store is handed over")
 }
 
 // -----------------------------------------------------------------------------------------------
