@@ -232,9 +232,10 @@ With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script
 
 **Path syntax:**
 
-- Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>` (for example `environments.production.status`). On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
+- Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>`. On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
+- The keys under `environments` are the same display names used elsewhere in the `/status` body: normally `"<projName> <envName>"` (with a `" (<filterKey>)"` suffix for a filtered variant), or the environment ID in automatic configuration mode. Because these usually contain spaces and parentheses, bracket-quote the key and URL-encode the clause: `expect=environments["My Application Production"].status=connected`. Querying a per-environment route (for example `/status/my-application/production`) avoids the map key entirely and is usually simpler.
 - Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`.
-- For a map key that itself contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
+- For a map key that contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
 - Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`).
 
 **Operators and comparison:**
@@ -260,7 +261,7 @@ When `expect` is supplied, the response body is a summary of the evaluation rath
 }
 ```
 
-Requests without an `expect` parameter are unaffected and return the full status document as described above.
+Requests without an `expect` parameter are unaffected and return the full status document as described above. A present-but-empty value (`?expect=`) is treated as a malformed clause and returns `400`.
 
 ### Special flag evaluation endpoints
 

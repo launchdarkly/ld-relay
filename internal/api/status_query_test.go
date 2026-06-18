@@ -157,6 +157,9 @@ func TestEvaluateExpectationsMalformed(t *testing.T) {
 		"=healthy",          // no path
 		"environments[.x=1", // unterminated bracket
 		"a[]=1",             // empty bracket
+		`a["]=1`,            // lone double-quote in bracket (must not panic)
+		"a[']=1",            // lone single-quote in bracket (must not panic)
+		`a["]`,              // lone double-quote, no operator after
 	} {
 		t.Run(clause, func(t *testing.T) {
 			res, code := EvaluateExpectations(body, []string{clause})
@@ -165,6 +168,29 @@ func TestEvaluateExpectationsMalformed(t *testing.T) {
 			assert.NotEmpty(t, res.Error)
 		})
 	}
+}
+
+func TestEvaluateExpectationsStrayBracket(t *testing.T) {
+	body := statusRepBody(t)
+
+	// An unbalanced ']' must not drive bracket depth negative and hide the top-level operator.
+	// The operator is still found, the resulting path simply does not resolve -> unsatisfied (412),
+	// not a 400 for the wrong reason and not a crash.
+	res, code := EvaluateExpectations(body, []string{"a]b=c"})
+	assert.Equal(t, http.StatusPreconditionFailed, code)
+	assert.False(t, res.Satisfied)
+	require.Len(t, res.Results, 1)
+	assert.False(t, res.Results[0].OK)
+}
+
+func TestEvaluateExpectationsExplicitNull(t *testing.T) {
+	// A field whose value is explicit JSON null renders as the string "null".
+	body, err := json.Marshal(map[string]interface{}{"thing": nil})
+	require.NoError(t, err)
+
+	res, code := EvaluateExpectations(body, []string{"thing=null"})
+	assert.Equal(t, http.StatusOK, code)
+	assert.True(t, res.Satisfied)
 }
 
 func TestEvaluateExpectationsSingleEnvBody(t *testing.T) {

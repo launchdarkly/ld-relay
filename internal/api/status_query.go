@@ -129,7 +129,11 @@ func parseClause(clause string) (path, op, value string, err error) {
 		case '[':
 			depth++
 		case ']':
-			depth--
+			// Clamp at zero so an unbalanced ']' cannot drive depth negative and hide the
+			// real top-level operator from the scan below.
+			if depth > 0 {
+				depth--
+			}
 		case '!':
 			if depth == 0 && i+1 < len(clause) && clause[i+1] == '=' {
 				return clause[:i], opNotEquals, clause[i+2:], validateClauseParts(clause[:i])
@@ -181,6 +185,9 @@ func parsePath(path string) ([]pathStep, error) {
 		case '.':
 			i++
 		case '[':
+			// The bracket ends at the first ']'. A key or filter value that itself contains ']'
+			// is therefore not addressable; this is acceptable because status field values
+			// (credentials, states, identifiers) do not contain ']'.
 			end := strings.IndexByte(path[i:], ']')
 			if end < 0 {
 				return nil, fmt.Errorf("unterminated '[' in path")
@@ -209,9 +216,12 @@ func parseBracket(inner string) (pathStep, error) {
 	if inner == "" {
 		return pathStep{}, fmt.Errorf("empty '[]' in path")
 	}
-	// Quoted key: ["foo"] or ['foo'].
-	if (inner[0] == '"' && inner[len(inner)-1] == '"') ||
-		(inner[0] == '\'' && inner[len(inner)-1] == '\'') {
+	// Quoted key: ["foo"] or ['foo']. The length guard ensures a lone quote character (where
+	// inner[0] and inner[len-1] are the same byte) is not mistaken for a quoted key, which would
+	// slice inner[1:0] and panic.
+	if len(inner) >= 2 &&
+		((inner[0] == '"' && inner[len(inner)-1] == '"') ||
+			(inner[0] == '\'' && inner[len(inner)-1] == '\'')) {
 		return pathStep{kind: stepKey, key: inner[1 : len(inner)-1]}, nil
 	}
 	// Field filter: [field=value].

@@ -94,6 +94,16 @@ func TestEndpointsStatusExpect(t *testing.T) {
 				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
 			})
 
+			t.Run("not-equals operator through the handler", func(t *testing.T) {
+				r, _ := http.NewRequest("GET", statusURL(envPath, "status!=disconnected"), nil)
+				result, _ := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+
+				r, _ = http.NewRequest("GET", statusURL(envPath, "status!=connected"), nil)
+				result, _ = st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusPreconditionFailed, result.StatusCode)
+			})
+
 			t.Run("unknown environment still returns 404 before evaluation", func(t *testing.T) {
 				r, _ := http.NewRequest("GET",
 					statusURL("/status/no-such-env", "status=connected"), nil)
