@@ -208,6 +208,60 @@ curl http://localhost:8030/status/my-app/production/filters/microservice-a
 - **Debugging**: Quickly check the status of a single environment during troubleshooting
 - **Filtered environments**: Verify the status of specific payload filter variants
 
+### Health assertions (the `expect` query parameter)
+
+Any of the status endpoints above (`/status` and the per-environment routes) accept an optional `expect` query parameter that lets the Relay Proxy validate its own state and answer with an HTTP status code. This means a monitoring script or health probe can decide whether the Relay Proxy is in the state it expects without fetching the JSON body and parsing it (for example, with `jq`).
+
+Each `expect` clause is a path into the response body, a comparison operator, and an expected value:
+
+```
+expect=<path><operator><value>
+```
+
+The parameter can be repeated; all clauses must hold for the request to be considered satisfied (they are combined with logical AND).
+
+```shell
+# Is the whole Relay Proxy healthy?
+curl -fsS 'http://localhost:8030/status?expect=status=healthy'
+
+# Is one specific environment connected and its data source valid?
+curl -fsS 'http://localhost:8030/status/my-app/production?expect=status=connected&expect=connectionStatus.state=VALID'
+```
+
+With `curl -f`, a non-2xx response makes `curl` exit non-zero, so a shell script can branch on the exit code with no body parsing at all.
+
+**Path syntax:**
+
+- Paths address the JSON body that *that route* returns. On `/status` the body is the full document, so an environment is reached via `environments.<key>.<field>` (for example `environments.production.status`). On a per-environment route the body is the single environment object, so the same field is just `status` or `connectionStatus.state`.
+- Use dotted segments for nested objects: `connectionStatus.state`, `bigSegmentStatus.available`.
+- For a map key that itself contains a dot or other punctuation, bracket-quote it: `environments["my.env"].status`.
+- Arrays can be addressed by index (`somearray[0].field`) or by matching a field within an element (`somearray[field=value].otherField`).
+
+**Operators and comparison:**
+
+- `=` asserts the value at the path equals the expected value; `!=` asserts it does not.
+- Comparison is done as strings against the value as it appears in the JSON response (for example `available=true`, `connectionStatus.state=VALID`, or a `stateSince` timestamp such as `stateSince=1618859993000`).
+
+**HTTP status codes:**
+
+- `200 OK` - every clause held.
+- `412 Precondition Failed` - at least one well-formed clause did not hold. A clause whose path is not present in the response is treated as not held, since the field you asserted about does not exist in the current state. (`412`, rather than `503`, is used so that an unmet assertion is distinguishable from the Relay Proxy not yet being initialized, which the per-environment routes report as `503`.)
+- `400 Bad Request` - a clause was malformed (for example, missing an operator).
+- On the per-environment routes, an unknown environment or filter (`404`) or an uninitialized Relay Proxy (`503`) is reported before any clause is evaluated.
+
+When `expect` is supplied, the response body is a summary of the evaluation rather than the usual status document; the HTTP status code is the contract, and the body is for debugging:
+
+```json
+{
+  "satisfied": false,
+  "results": [
+    { "expr": "status=healthy", "expected": "healthy", "actual": "degraded", "ok": false }
+  ]
+}
+```
+
+Requests without an `expect` parameter are unaffected and return the full status document as described above.
+
 ### Special flag evaluation endpoints
 
 If you're building an SDK for a language which isn't officially supported by LaunchDarkly, or want to evaluate feature flags internally without an SDK instance, the Relay Proxy provides endpoints for evaluating all feature flags for a given user.
