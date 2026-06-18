@@ -22,7 +22,7 @@ This document covers *how* we ship Phase 1: branching, sequencing, tasks, depend
 git worktree add ../ld-relay-wt-feat-concurrent-keys -b feat/concurrent-keys v8
 ```
 
-This document is committed in that worktree at `docs/concurrent-keys/phase1-plan.md`.
+This document is committed in that worktree at `.agent-docs/concurrent-keys/phase1-plan.md`.
 
 ---
 
@@ -141,7 +141,7 @@ Today: `rotator.go:168-169` panics with `"programmer error: mobile keys do not s
 
 Internal fields only. No API change. Existing public methods (`SDKKey()`, `GetCredentials()`, etc.) continue to return what they return today by reading from the new internal state where the single primary maps to a one-element set.
 
-Reviewer-friendly comment to add at the top of the new fields: `// Consumed by T1.b (ReconcileCredentials API). See docs/concurrent-keys/phase1-design.md §6.2.`
+Reviewer-friendly comment to add at the top of the new fields: `// Consumed by T1.b (ReconcileCredentials API). See .agent-docs/concurrent-keys/phase1-design.md §6.2.`
 
 ### T1.b — `ReconcileCredentials` API
 
@@ -405,7 +405,7 @@ SDK-2453 (Epic) — Relay Proxy Multi Keys Support
 |---|---|
 | Feature branch? | `feat/concurrent-keys` off v8 |
 | Sub-PR branches? | `aaronz/<sub-task-ticket-id>/<task-slug>` off the feature branch (use the specific sub-task ticket ID, not the epic SDK-2453) |
-| Where do canonical docs live? | This file + `phase1-design.md` in `docs/concurrent-keys/` on the feature branch |
+| Where do canonical docs live? | This file + `phase1-design.md` in `.agent-docs/concurrent-keys/` on the feature branch |
 | Where do working notes live? | `docs/agents/phase1-*.md` in the design worktree (gitignored, not on this branch) |
 | How is ordering enforced within a `keys change` event? | Add → re-anchor → remove (atomic) |
 | What triggers re-anchor? | `sdkKey.value` changed |

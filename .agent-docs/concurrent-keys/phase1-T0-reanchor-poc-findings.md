@@ -22,7 +22,8 @@ those gaps are the concrete acceptance criteria for T2.c.
 **Re-anchoring is feasible, but it is _not_ a transparent side-effect of today's code — three concrete
 gaps must be closed by T2.c/T2.d, and one design assumption (the "shared store") is only true for
 persistent stores.** None of the gaps are blockers; each has a clear remedy. The single highest-risk
-item is the in-memory data store being rebuilt (emptied) when the new anchor client starts.
+item is the in-memory data store being rebuilt (emptied) when the new anchor client starts; the remedy is
+to hand the existing store over to the new client rather than rebuild it (H5).
 
 ---
 
@@ -44,7 +45,8 @@ around a **freshly built** underlying store and atomically swaps `adapter.store`
   configuration in which the §7 assumption is literally true.
 
 No invariant corruption occurs in either case (the swap is atomic under the adapter's lock), but the
-emptiness of the new in-memory store is the crux of H5.
+emptiness of the new in-memory store is the crux of H5. The remedy — handing the existing store over to
+the new client rather than rebuilding — is covered under H5.
 
 ### H2 — Downstream SSE connections tolerate the swap
 
@@ -96,14 +98,24 @@ window after the swap in which evaluations see an empty store until the new anch
 sync — *regardless* of operation order. The PoC shows the env's store is replaced with a fresh,
 uninitialized store as soon as the new client is registered.
 
-**T2.c must do one of:**
-1. Keep the old store/anchor authoritative until the new client reports `Initialized() == true`, then
-   swap (the safest; aligns with §8's "superset during transition").
-2. Require a persistent store for graceful re-anchor (then H1's data survives the swap).
-3. Decouple the data store lifecycle from the client lifecycle so a new client doesn't rebuild it.
+**Recommended remedy: hand the existing store over to the new client.** Because relay owns the store
+implementation (it hands the SDK a single `storeAdapter`), the re-anchor can reuse the existing store for
+the new client instead of letting `Build()` construct a fresh one — concretely, make
+`SSERelayDataStoreAdapter.Build()` return its existing store when one is already present (or otherwise
+seed the new client with the old client's store). The new anchor then reads populated, initialized data
+immediately, so there is no empty-store window. Validated by
+`TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow`.
 
-Recommended order, refined: **start new client → wait for `Initialized()` → swap anchor pointer (and
-re-wire peripherals) → close old client.** Option (1) is the recommended default.
+This is simpler than the alternatives originally considered — gating the swap on `Initialized()`,
+mandating a persistent store, or otherwise decoupling store from client — and supersedes them.
+
+**Store-lifecycle caveat:** `streamUpdatesStoreWrapper.Close()` closes the underlying store. With
+handover the retiring and new clients share one underlying store, so closing the retiring client must
+**not** close it — the adapter (not the client) must own the store's lifecycle. This is not reproducible
+with the fake client used in the PoC; verify against the real client in T2.c.
+
+**Recommended order, refined:** start new client (handing over the existing store) → swap anchor pointer
+and re-wire peripherals → close old client, ensuring that close does not tear down the shared store.
 
 ### H6 — Behavior during the swap window (requests arriving mid-swap)
 
@@ -141,7 +153,7 @@ set. Log a structured error and alarm (per §9).
 |---|---|---|
 | 1 | Construct + initialize the new anchor client **before** flipping the anchor pointer; flip atomically. | H5, H6 |
 | 2 | On new-client init failure, roll back to the old anchor; preserve previous accepted set; log + alarm. | H7 |
-| 3 | Keep the old store/anchor authoritative until the new client is `Initialized()` — or require a persistent store, or decouple store from client lifecycle. | H1, H5 |
+| 3 | Hand the existing store over to the new client (make `SSERelayDataStoreAdapter.Build` reuse its store) so there is no empty-store window; ensure the retiring client's `Close()` does not tear down the shared store. | H1, H5 |
 | 4 | Re-wire big-segment sync on re-anchor (add a replace-credential method, or recreate the synchronizer). | H3 |
 | 5 | Continue calling `ReplaceCredential` on the event dispatcher + metrics publisher (already wired in `addCredential`). | §7 table |
 | 6 | Expect a duplicate downstream `put` from the new anchor's initial sync; ensure downstream connections are not torn down for retained credentials. | H2 |
@@ -165,5 +177,6 @@ prefixed `TestReanchorPoC_H<n>_…`:
 - `H3_BigSegmentSyncIsNotReWiredOnReAnchor` — synchronizer keeps the old key; no re-wire today.
 - `H4_HTTPConfigIsKeyIndependentExceptAuthHeader` — only the auth header is key-dependent.
 - `H5_InMemoryStoreIsWipedByReAnchor` — store replaced/empty after swap.
+- `H5_StoreHandoverAvoidsEmptyWindow` — reusing the store across the swap avoids the empty window (the remedy).
 - `H6_AnchorPointerFlipsBeforeNewClientIsRegistered` — `GetClient()` nil mid-swap (deterministic).
 - `H7_FailedNewClientLeavesEnvWithoutAnchorClient` — failed swap breaks the env; old client still alive.

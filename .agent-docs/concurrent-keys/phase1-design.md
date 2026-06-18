@@ -240,32 +240,33 @@ When `sdkKey.value` changes (voluntary rotation *or* current default expiring an
 
 This is the highest-risk piece of Phase 1. The source plan describes the swap in a single sentence ("stand up the new client, hand the data source over, retire the old"). The actual mechanism is *mostly implicit* in today's code rather than orchestrated:
 
-- The data store is shared via `storeAdapter`, so two SDK clients pointed at the same env can feed the same store as a side-effect.
-- `GetClient()` returns `c.clients[c.keyRotator.SDKKey()]` — so flipping the rotator's anchor swaps which client serves.
-- Downstream lookup is on `ScopedCredential`, not on the anchor — so downstream connections route correctly regardless of which anchor is current.
+- The data store is reached via `storeAdapter`. **T0 found this is *not* automatically shared:** the SDK calls `storeAdapter.Build()` for each new client, which rebuilds a fresh (empty) in-memory store. The fix is to have the adapter **hand its existing store over** to the new client (reuse rather than rebuild), so the new anchor serves populated data with no empty-store window. (The "shared store as a side-effect" only held literally for persistent stores.)
+- `GetClient()` returns `c.clients[c.keyRotator.SDKKey()]` — so flipping the rotator's anchor swaps which client serves. **T0 found** the anchor pointer must not flip until the new client is registered and initialized, or `GetClient()` returns nil mid-swap.
+- Downstream lookup is on `ScopedCredential`, not on the anchor — so downstream connections route correctly regardless of which anchor is current. **T0 confirmed** open downstream connections survive the swap (they do receive one duplicate `put` from the new anchor's initial sync).
 
-But several components are wired at **construction time** to the original SDK key and are *not* re-wired by the implicit handoff:
+Several components are wired at **construction time** to the original SDK key. T0 settled each one:
 
-| Component | Today's wiring | Re-anchor story |
+| Component | Today's wiring | Re-anchor story (per T0 findings) |
 |---|---|---|
+| Data store | Reached via `storeAdapter`; SDK rebuilds it per client | **Hand the existing store over** to the new client (make `Build` reuse it); ensure the retiring client's `Close()` doesn't tear it down |
 | Event dispatcher | Stores `authKey`; has `ReplaceCredential` | Call `ReplaceCredential` on re-anchor |
 | Metrics publisher | Stores `authKey`; has `ReplaceCredential` | Call `ReplaceCredential` on re-anchor |
-| Big-segment sync | Wired to SDK key at construction | **No re-wire path today — new mechanism needed** |
-| `httpconfig` | Built with SDK key at construction | Likely key-independent (TLS / proxy config); verify in PoC |
+| Big-segment sync | Wired to SDK key at construction | **No re-wire path today** — add a replace-credential method or recreate the synchronizer (T2.d) |
+| `httpconfig` | Built with SDK key at construction | **Confirmed key-independent** — no re-wire needed |
 
-### PoC first
+### PoC (T0) — complete
 
-The re-anchor mechanism is the topic of **T0** — a PoC that validates the swap with concrete tests *before* T2 implements it. The PoC answers seven hypotheses:
+The re-anchor mechanism was validated by **T0**, a PoC of durable tests answering seven hypotheses, *before* T2 implements it:
 
-1. Two clients sharing a store don't corrupt store invariants.
-2. Downstream SSE connections tolerate the swap.
-3. Big-segment sync keeps working after re-anchor — or, if not, what re-wiring is needed.
-4. `httpconfig` stays functional after re-anchor.
-5. Order of operations: start-new → swap pointer → close-old vs. alternatives.
-6. Behavior during the swap window (requests arriving mid-swap).
-7. Failure modes: new client init fails — recovery behavior.
+1. Two clients sharing a store don't corrupt store invariants. → No corruption; in-memory store is rebuilt empty, so hand the store over (see above).
+2. Downstream SSE connections tolerate the swap. → Yes; expect one duplicate `put`.
+3. Big-segment sync keeps working after re-anchor — or, if not, what re-wiring is needed. → Re-wiring needed (T2.d).
+4. `httpconfig` stays functional after re-anchor. → Yes; key-independent.
+5. Order of operations: start-new → swap pointer → close-old vs. alternatives. → **start new (with store handover) → swap pointer + re-wire peripherals → close old.**
+6. Behavior during the swap window (requests arriving mid-swap). → Don't flip the anchor pointer until the new client is registered/initialized.
+7. Failure modes: new client init fails — recovery behavior. → Validate new-client init **before** swapping; roll back to the old anchor on failure (atomicity, §8).
 
-T0's deliverable is durable test code that survives into T2.
+Full results and the executable spec live in [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md) and `internal/relayenv/env_context_reanchor_test.go`. These durable tests survive into T2.
 
 ---
 
