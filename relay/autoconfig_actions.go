@@ -13,7 +13,22 @@ const (
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
 	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
+	logMsgReconcileCredentialsError       = "Unable to reconcile credentials for environment %q: %s"
 )
+
+// acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
+// using the singular SDK/mobile/env fields plus the optional expiring SDK key. This preserves
+// single-key behavior; consuming the full sdkKeys[]/mobileKeys[] arrays via a shared helper is T3.b.
+func acceptedSetFromParams(params envfactory.EnvironmentParams) relayenv.AcceptedSet {
+	set := relayenv.NewAcceptedSet().
+		WithSDKKey(params.SDKKey).
+		WithMobileKey(params.MobileKey).
+		WithEnvironmentID(params.EnvID)
+	if params.ExpiringSDKKey.Defined() {
+		set = set.WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
+	}
+	return set
+}
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
@@ -34,8 +49,9 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+		if err := env.ReconcileCredentials(acceptedSetFromParams(params), params.SDKKey); err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
+		}
 	}
 }
 
@@ -50,15 +66,10 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
-	}
 	if params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		if params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
+		if err := env.ReconcileCredentials(acceptedSetFromParams(params), params.SDKKey); err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 		}
-		env.UpdateCredential(update)
 	}
 }
 

@@ -550,13 +550,46 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
-	if !update.deprecated.Defined() {
-		c.keyRotator.Rotate(update.primary)
-	} else {
-		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
+func (c *envContextImpl) ReconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential) error {
+	return c.reconcileCredentials(newSet, anchor, time.Now())
+}
+
+// reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
+// reference time for grace-period math; production callers pass time.Now() via ReconcileCredentials.
+func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential, now time.Time) error {
+	anchorKey, ok := anchor.(config.SDKKey)
+	if !ok || !anchorKey.Defined() || !newSet.hasSDKKey(anchorKey) {
+		// Malformed payload: make no changes (preserve the previous accepted set) and surface a
+		// structured error so the caller can reconnect the RAC stream (design §9; reconnect is T3.c).
+		return &MalformedCredentialSetError{Anchor: anchor}
 	}
-	c.triggerCredentialChanges(update.now)
+
+	// Re-anchor: the anchor becomes the primary SDK key. A non-anchor SDK key carrying an expiry is
+	// a graceful deprecation, and its expiry is read from the set ("trust the array", §6.3). The
+	// dedicated upstream-client swap is T2.c; in Phase 1's single-key world the swap is realized by
+	// the rotation below, which starts a client for the new anchor via addCredential.
+	if deprecated, hasDeprecated := newSet.deprecatedSDKKey(anchorKey); hasDeprecated {
+		c.keyRotator.RotateWithGrace(anchorKey, credential.NewGracePeriod(deprecated.key, *deprecated.expiry, now))
+	} else {
+		c.keyRotator.Rotate(anchorKey)
+	}
+
+	// The mobile key and environment ID rotate to their new values, immediately revoking the
+	// previous primary of each kind (unchanged single-key behavior). Per-key mobile expiry and
+	// multi-key cleanup are generalized in T1.c.
+	if mobileKey, hasMobile := newSet.primaryMobileKey(); hasMobile {
+		c.keyRotator.Rotate(mobileKey)
+	}
+	if newSet.envID.Defined() {
+		c.keyRotator.Rotate(newSet.envID)
+	}
+
+	// Apply the queued changes. triggerCredentialChanges drains the rotator's additions before its
+	// expirations, so the accepted set is a superset during the transition: new credentials,
+	// handlers, and the new anchor's SDK client are in place before any outgoing credential is torn
+	// down (order of operations: add → re-anchor → remove, design §8).
+	c.triggerCredentialChanges(now)
+	return nil
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {

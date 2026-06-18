@@ -21,41 +21,130 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
-// CredentialUpdate specifies the primary credential of a given credential kind for an environment.
-// For example, an environment may have a primary SDK key and a primary mobile key at the same time; each would
-// be specified in individual CredentialUpdate objects.
-type CredentialUpdate struct {
-	// The new primary credential
-	primary credential.SDKCredential
-	// An optional deprecated credential (only SDK keys are supported currently)
-	deprecated config.SDKKey
-	// When the deprecated credential expires
-	expiry time.Time
-	// The current time
-	now time.Time
+// AcceptedSet is the full set of credentials that an environment should accept after a
+// reconcile. It carries every accepted server-side SDK key and mobile key — each with an
+// optional per-key expiry — plus the single environment ID. The anchor (the one SDK key that
+// owns the environment's upstream connection) is supplied separately to ReconcileCredentials.
+//
+// Per design §6.3 ("trust the array"), a key's expiry is taken from its entry in this set; the
+// legacy sdkKey.expiring{} wire slot is not consulted when building it.
+//
+// Build an AcceptedSet with NewAcceptedSet and the With* methods, which ignore undefined
+// credentials so callers can supply optional keys unconditionally.
+type AcceptedSet struct {
+	sdkKeys    []acceptedSDKKey
+	mobileKeys []acceptedMobileKey
+	envID      config.EnvironmentID
 }
 
-// NewCredentialUpdate creates a CredentialUpdate from a given primary credential.
-// The default behavior of the environment is to immediately revoke the previous credential of this kind.
-func NewCredentialUpdate(primary credential.SDKCredential) *CredentialUpdate {
-	return &CredentialUpdate{primary: primary, now: time.Now()}
+type acceptedSDKKey struct {
+	key    config.SDKKey
+	expiry *time.Time // nil = permanent
 }
 
-// WithGracePeriod modifies the default behavior from immediate revocation to a delayed revocation of the previous
-// credential. During the grace period, the previous credential continues to function.
-func (c *CredentialUpdate) WithGracePeriod(deprecated config.SDKKey, expiry time.Time) *CredentialUpdate {
-	c.deprecated = deprecated
-	c.expiry = expiry
-	return c
+type acceptedMobileKey struct {
+	key    config.MobileKey
+	expiry *time.Time // nil = permanent
 }
 
-// WithTime overrides the update's current time for testing purposes.
-// Because the environment's credential rotation algorithm compares the current time to the specific expiry of
-// each credential, this can be used to trigger behavior in a more predictable way than relying on the actual time
-// in the test.
-func (c *CredentialUpdate) WithTime(t time.Time) *CredentialUpdate {
-	c.now = t
-	return c
+// NewAcceptedSet returns an empty AcceptedSet.
+func NewAcceptedSet() AcceptedSet {
+	return AcceptedSet{}
+}
+
+// WithSDKKey adds a permanent (non-expiring) SDK key to the set. It is a no-op if the key is
+// undefined.
+func (s AcceptedSet) WithSDKKey(key config.SDKKey) AcceptedSet {
+	if key.Defined() {
+		s.sdkKeys = append(s.sdkKeys, acceptedSDKKey{key: key})
+	}
+	return s
+}
+
+// WithExpiringSDKKey adds an SDK key that should be accepted until the given expiry. It is a
+// no-op if the key is undefined.
+func (s AcceptedSet) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) AcceptedSet {
+	if key.Defined() {
+		exp := expiry
+		s.sdkKeys = append(s.sdkKeys, acceptedSDKKey{key: key, expiry: &exp})
+	}
+	return s
+}
+
+// WithMobileKey adds a permanent (non-expiring) mobile key to the set. It is a no-op if the key
+// is undefined.
+func (s AcceptedSet) WithMobileKey(key config.MobileKey) AcceptedSet {
+	if key.Defined() {
+		s.mobileKeys = append(s.mobileKeys, acceptedMobileKey{key: key})
+	}
+	return s
+}
+
+// WithEnvironmentID sets the environment ID for the set. It is a no-op if the ID is undefined.
+func (s AcceptedSet) WithEnvironmentID(id config.EnvironmentID) AcceptedSet {
+	if id.Defined() {
+		s.envID = id
+	}
+	return s
+}
+
+// hasSDKKey reports whether key is one of the set's accepted SDK keys.
+func (s AcceptedSet) hasSDKKey(key config.SDKKey) bool {
+	for _, k := range s.sdkKeys {
+		if k.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// deprecatedSDKKey returns the accepted SDK key other than the anchor that carries an expiry —
+// the key being phased out with a grace period. Phase 1's single-key model has at most one such
+// key; multi-key reconciliation is generalized in T1.c.
+func (s AcceptedSet) deprecatedSDKKey(anchor config.SDKKey) (acceptedSDKKey, bool) {
+	for _, k := range s.sdkKeys {
+		if k.key != anchor && k.expiry != nil {
+			return k, true
+		}
+	}
+	return acceptedSDKKey{}, false
+}
+
+// primaryMobileKey returns the environment's primary mobile key — the single accepted mobile key
+// in Phase 1. It returns false if the set has no mobile key. Per-key mobile expiry and multi-key
+// mobile cleanup are generalized in T1.c.
+func (s AcceptedSet) primaryMobileKey() (config.MobileKey, bool) {
+	for _, k := range s.mobileKeys {
+		if k.expiry == nil {
+			return k.key, true
+		}
+	}
+	if len(s.mobileKeys) > 0 {
+		return s.mobileKeys[0].key, true
+	}
+	return "", false
+}
+
+// MalformedCredentialSetError is returned by ReconcileCredentials when the supplied anchor SDK
+// key is not present among the accepted set's SDK keys — a violation of the backend invariant
+// that the anchor (sdkKey.value) always appears in sdkKeys[] (design §4.2, §9).
+//
+// When ReconcileCredentials returns this error it has made no changes, so the environment's
+// previous accepted set is preserved. The caller is responsible for the second half of the
+// malformed-payload policy: reconnecting the RAC stream with jitter to force a fresh put (wired
+// in T3.c). RAC is one-way push with no NAK channel, so without the reconnect the backend would
+// believe the malformed patch was applied and would not send fresh state.
+type MalformedCredentialSetError struct {
+	// Anchor is the anchor credential that was not found among the set's SDK keys.
+	Anchor credential.SDKCredential
+}
+
+func (e *MalformedCredentialSetError) Error() string {
+	if e.Anchor == nil {
+		return "malformed credential set: anchor SDK key is missing"
+	}
+	return fmt.Sprintf("malformed credential set: anchor SDK key %s is not present in the accepted set",
+		e.Anchor.Masked())
 }
 
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
@@ -77,9 +166,13 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
-	// UpdateCredential updates the environment with a new credential, optionally deprecating a previous one
-	// with a grace period.
-	UpdateCredential(update *CredentialUpdate)
+	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
+	// newSet, with anchor designating the SDK key that owns the upstream connection. The method
+	// owns the order of operations internally (add → re-anchor → remove); callers do not sequence.
+	//
+	// It returns a *MalformedCredentialSetError, without changing any state, if anchor is not one
+	// of newSet's SDK keys; see that type for the caller's responsibilities.
+	ReconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential) error
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential

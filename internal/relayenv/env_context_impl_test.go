@@ -189,22 +189,32 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.EnvID))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	envID := st.EnvWithAllCredentials.Config.EnvID
+
+	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
+	require.NoError(t, env.ReconcileCredentials(
+		NewAcceptedSet().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey).WithEnvironmentID(envID),
+		envConfig.SDKKey))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.Contains(t, creds, mobileKey)
+	assert.Contains(t, creds, envID)
 
-	env.UpdateCredential(NewCredentialUpdate(config.MobileKey("evict-the-previous-key")))
+	// Reconciling with a different mobile key evicts the previous one.
+	newMobileKey := config.MobileKey("evict-the-previous-key")
+	require.NoError(t, env.ReconcileCredentials(
+		NewAcceptedSet().WithSDKKey(envConfig.SDKKey).WithMobileKey(newMobileKey).WithEnvironmentID(envID),
+		envConfig.SDKKey))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.NotContains(t, creds, mobileKey)
+	assert.Contains(t, creds, newMobileKey)
+	assert.Contains(t, creds, envID)
 }
 
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
@@ -218,19 +228,51 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	set := NewAcceptedSet().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey)
+
+	require.NoError(t, env.ReconcileCredentials(set, envConfig.SDKKey))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	// Reconciling with the same set again changes nothing.
+	require.NoError(t, env.ReconcileCredentials(set, envConfig.SDKKey))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
+}
+
+func TestReconcileCredentialsRejectsAnchorNotInSet(t *testing.T) {
+	envConfig := st.EnvMain.Config
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
+	defer env.Close()
+
+	before := env.GetCredentials()
+	require.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, before)
+
+	// The anchor is not present among the set's SDK keys: a malformed payload.
+	anchor := config.SDKKey("anchor-not-in-set")
+	set := NewAcceptedSet().
+		WithSDKKey(config.SDKKey("some-other-key")).
+		WithMobileKey(config.MobileKey("mob"))
+
+	err := env.ReconcileCredentials(set, anchor)
+
+	var malformed *MalformedCredentialSetError
+	require.ErrorAs(t, err, &malformed)
+	assert.Equal(t, anchor, malformed.Anchor)
+
+	// State is preserved: nothing was added or removed.
+	assert.ElementsMatch(t, before, env.GetCredentials())
 }
 
 func TestChangeSDKKey(t *testing.T) {
@@ -246,6 +288,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
+	envImpl := env.(*envContextImpl)
 
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	client1 := requireClientReady(t, clientCh)
@@ -257,14 +300,18 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	// For the purposes of key rotation, we'll make time deterministic.
+	// For the purposes of key rotation, we'll make time deterministic. We drive the grace-period
+	// setup through the time-injectable reconcileCredentials, then advance the cleanup ticker
+	// (triggerCredentialChanges) to expire the deprecated key — the same path the periodic ticker
+	// uses in production.
 	start := time.Unix(1000, 0)
 
-	// Upon rotating to key2, the original key should still be valid for a hour.
-	env.UpdateCredential(
-		NewCredentialUpdate(key2).
-			WithTime(start).
-			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
+	// Upon re-anchoring to key2, the original key should still be valid for an hour.
+	require.NoError(t, envImpl.reconcileCredentials(
+		NewAcceptedSet().
+			WithSDKKey(key2).
+			WithExpiringSDKKey(envConfig.SDKKey, start.Add(1*time.Hour)),
+		key2, start))
 
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
@@ -283,14 +330,14 @@ func TestChangeSDKKey(t *testing.T) {
 	}
 
 	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(45 * time.Minute)))
+	envImpl.triggerCredentialChanges(start.Add(45 * time.Minute))
 	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
 		t.FailNow()
 	}
 
 	// We are now an instant after the deprecation period. This should cause the original key to become expired
 	// and trigger the client to close.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(1*time.Hour + 1*time.Millisecond)))
+	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
