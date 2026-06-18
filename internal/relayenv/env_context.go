@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
@@ -84,23 +85,21 @@ func (s AcceptedSet) WithEnvironmentID(id config.EnvironmentID) AcceptedSet {
 
 // hasSDKKey reports whether key is one of the set's accepted SDK keys.
 func (s AcceptedSet) hasSDKKey(key config.SDKKey) bool {
-	for _, k := range s.sdkKeys {
-		if k.key == key {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.sdkKeys, func(k acceptedSDKKey) bool {
+		return k.key == key
+	})
 }
 
 // deprecatedSDKKey returns the accepted SDK key other than the anchor that carries an expiry —
 // the key being phased out with a grace period. There is at most one such key today.
 func (s AcceptedSet) deprecatedSDKKey(anchor config.SDKKey) (acceptedSDKKey, bool) {
-	for _, k := range s.sdkKeys {
-		if k.key != anchor && k.expiry != nil {
-			return k, true
-		}
+	i := slices.IndexFunc(s.sdkKeys, func(k acceptedSDKKey) bool {
+		return k.key != anchor && k.expiry != nil
+	})
+	if i < 0 {
+		return acceptedSDKKey{}, false
 	}
-	return acceptedSDKKey{}, false
+	return s.sdkKeys[i], true
 }
 
 // primaryMobileKey returns the environment's single accepted mobile key, or false if there is none.
@@ -126,7 +125,7 @@ type MalformedCredentialSetError struct {
 }
 
 func (e *MalformedCredentialSetError) Error() string {
-	if e.Anchor == nil {
+	if e.Anchor == nil || !e.Anchor.Defined() {
 		return "malformed credential set: anchor SDK key is missing"
 	}
 	return fmt.Sprintf("malformed credential set: anchor SDK key %s is not present in the accepted set",
