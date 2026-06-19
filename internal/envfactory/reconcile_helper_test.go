@@ -220,9 +220,9 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 	assert.Equal(t, expected, set)
 }
 
-// TestBuildAcceptedSet_AnchorNeverExpiring verifies the §4.2 invariant defense: even if a
-// payload carries an expiry on the anchor's own entry, the anchor is added as a permanent key,
-// never as an expiring one.
+// TestBuildAcceptedSet_AnchorNeverExpiring verifies the invariant defense: even if a payload
+// carries an expiry on the anchor's own entry, the anchor is added as a permanent key, never
+// as an expiring one.
 func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	params := makeParams(
 		"sdk-anchor",

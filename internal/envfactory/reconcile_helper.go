@@ -13,12 +13,12 @@ import (
 // AcceptedSet as if nothing changed.
 //
 // Expiry comes from AcceptedSDKKey.Expiry / AcceptedMobileKey.Expiry (the arrays). The legacy
-// sdkKey.expiring wire slot is never consulted here ("trust the array", design §6.3).
+// sdkKey.expiring wire slot is never consulted here — relay trusts the array.
 //
 // If the anchor is malformed, no set is built and a *relayenv.MalformedCredentialSetError is
 // returned with an empty AcceptedSet. The anchor is malformed when params.SDKKey is undefined
 // or is not found in AcceptedSDKKeys by value. The caller must preserve the previous accepted
-// state and, for RAC handlers, reconnect the stream with jitter to force a fresh put (design §9).
+// state and, for RAC handlers, reconnect the stream with jitter to force a fresh put.
 func BuildAcceptedSet(params EnvironmentParams) (relayenv.AcceptedSet, config.SDKKey, error) {
 	anchor := params.SDKKey
 	if !anchor.Defined() {
@@ -34,7 +34,7 @@ func BuildAcceptedSet(params EnvironmentParams) (relayenv.AcceptedSet, config.SD
 	set := relayenv.NewAcceptedSet().WithEnvironmentID(params.EnvID)
 
 	for _, k := range params.AcceptedSDKKeys {
-		// The anchor is always permanent (design §4.2: sdkKey always names a non-expiring key).
+		// The anchor is always permanent: the singular sdkKey always names a non-expiring key.
 		// Defend the invariant here: even if a payload carries an expiry on the anchor entry,
 		// add it as a permanent key so it can never be treated as a deprecated/expiring key.
 		if k.Value == anchor || k.Expiry.IsZero() {
@@ -45,7 +45,7 @@ func BuildAcceptedSet(params EnvironmentParams) (relayenv.AcceptedSet, config.SD
 	}
 
 	// AcceptedSet.mobileKeys is a flat slice with no per-key expiry; expiring mobile key
-	// cleanup is handled by the StepTime ticker (T1.c). Add all mobile keys unconditionally.
+	// cleanup is handled by the StepTime ticker. Add all mobile keys unconditionally.
 	for _, k := range params.AcceptedMobileKeys {
 		set = set.WithMobileKey(k.Value)
 	}
