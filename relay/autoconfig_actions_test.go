@@ -136,13 +136,11 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 	}
 	initialEvent := makeAutoConfPutEvent(envWithKeys)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-		client2 := p.awaitClient()
-		if client1.Key == oldKey {
-			client1, client2 = client2, client1
-		}
-		assert.Equal(t, newKey, client1.Key)
-		assert.Equal(t, oldKey, client2.Key)
+		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
+		// locally but shares the anchor's connection (T2.a: anchor-only upstream client).
+		anchorClient := p.awaitClient()
+		assert.Equal(t, newKey, anchorClient.Key)
+		p.shouldNotCreateClient(200 * time.Millisecond)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
@@ -220,13 +218,11 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
 
-		client1 := p.awaitClient()
-		client2 := p.awaitClient()
-		if client1.Key == oldKey {
-			client1, client2 = client2, client1
-		}
-		assert.Equal(t, newKey, client1.Key)
-		assert.Equal(t, oldKey, client2.Key)
+		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
+		// locally but shares the anchor's connection (T2.a: anchor-only upstream client).
+		anchorClient := p.awaitClient()
+		assert.Equal(t, newKey, anchorClient.Key)
+		p.shouldNotCreateClient(200 * time.Millisecond)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
@@ -237,10 +233,6 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		paramsWithOldKey := envWithKeys.params()
 		paramsWithOldKey.SDKKey = oldKey
 		p.assertEnvLookup(env, paramsWithOldKey)
-
-		if !helpers.AssertChannelNotClosed(t, client2.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
-			t.FailNow()
-		}
 	})
 }
 
