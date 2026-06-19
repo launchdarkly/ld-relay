@@ -307,7 +307,25 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.loggers.Infof("Deprecated SDK key %s has expired and is no longer valid for authentication", sdkKey.Masked())
 	delete(r.deprecatedSdkKeys, sdkKey)
+	delete(r.acceptedSDKKeys, sdkKey)
 	r.expirations = append(r.expirations, sdkKey)
+}
+
+// AddNonAnchorSDKKey enqueues a non-primary SDK key for delivery via the next StepTime call.
+// The key will be routed through addCredential, which sets up envStreams, handler bundles, and
+// connection-mapper registration but skips startSDKClient (enforced in addCredential).
+// No-op if the key is already the primary (anchor) key or was already registered.
+func (r *Rotator) AddNonAnchorSDKKey(key config.SDKKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if key == r.primarySdkKey {
+		return
+	}
+	if _, exists := r.acceptedSDKKeys[key]; exists {
+		return
+	}
+	r.acceptedSDKKeys[key] = &acceptedKeyInfo{}
+	r.additions = append(r.additions, key)
 }
 
 // StepTime provides the current time to the Rotator, allowing it to compute the set of additions and expirations

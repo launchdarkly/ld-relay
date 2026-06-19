@@ -357,6 +357,43 @@ func TestChangeSDKKey(t *testing.T) {
 
 }
 
+func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	readyCh := make(chan EnvContext, 1)
+	// Buffer large enough to catch any unexpected extra clients.
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// One client is opened for the anchor key during construction.
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	anchorClient := requireClientReady(t, clientCh)
+	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
+	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
+
+	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor
+	// client is needed. Non-anchor keys must get envStreams + handlers + connection mapping but
+	// must NOT open an upstream client.
+	require.NoError(t, env.ReconcileCredentials(
+		NewAcceptedSet().
+			WithSDKKey(envConfig.SDKKey).
+			WithSDKKey(nonAnchorKey1).
+			WithSDKKey(nonAnchorKey2),
+		envConfig.SDKKey))
+
+	// Verify no additional clients were started.
+	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
+		t.FailNow()
+	}
+}
+
 func TestSDKClientCreationFails(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	envConfig.TTL = configtypes.NewOptDuration(time.Hour)

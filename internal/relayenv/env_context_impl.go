@@ -437,8 +437,11 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	}
 
 	// A new SDK key means:
-	//  1. we should start a new SDK client*
-	//  2. we should tell all event forwarding components that use an SDK key to use the new one.
+	//  1. we should start a new SDK client*, but only for the anchor (design §4.1: one upstream
+	//     connection per env, on the anchor). Non-anchor server keys get envStreams + handler bundles
+	//     above, but no upstream client — matching today's mobile-key behavior.
+	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
+	//     again only when it is the anchor (events collapse to the anchor per kind — design §4.3).
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
 	// components that use a mobile key.
 	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
@@ -447,14 +450,16 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		if !c.offline {
-			go c.startSDKClient(key, nil, false)
-		}
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		if key == c.keyRotator.SDKKey() {
+			if !c.offline {
+				go c.startSDKClient(key, nil, false)
+			}
+			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+				c.metricsEventPub.ReplaceCredential(key)
+			}
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	case config.MobileKey:
 		if c.eventDispatcher != nil {
@@ -581,6 +586,15 @@ func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credent
 	}
 	if newSet.envID.Defined() {
 		c.keyRotator.Rotate(newSet.envID)
+	}
+
+	// Enqueue non-anchor SDK keys. These get envStreams + handler bundles + connection-mapper
+	// registration (via addCredential), but no upstream client — enforced in addCredential by the
+	// key == anchor check. The anchor itself is managed by the Rotate call above.
+	for _, k := range newSet.sdkKeys {
+		if k.key != anchorKey {
+			c.keyRotator.AddNonAnchorSDKKey(k.key)
+		}
 	}
 
 	// Apply the queued changes. triggerCredentialChanges drains the rotator's additions before its
