@@ -124,9 +124,10 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 		"mob-primary",
 	)
 
-	setWithExpiry, _, _ := BuildAcceptedSet(paramsWithExpiry)
+	setWithExpiry, _, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
 	setNoExpiry, _, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
 
+	require.NoError(t, errWithExpiry)
 	require.NoError(t, errNoExpiry)
 
 	// The set built without expiry must include sdk-old as a permanent key.
@@ -159,6 +160,9 @@ func TestBuildAcceptedSet_MalformedPayload(t *testing.T) {
 	require.True(t, errors.As(err, &malformed), "error should be *relayenv.MalformedCredentialSetError")
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 	assert.Equal(t, relayenv.NewAcceptedSet(), set, "AcceptedSet must be empty on malformed payload")
+	// The error must carry the offending anchor so the caller/log identifies it (masked).
+	assert.Equal(t, config.SDKKey("sdk-anchor"), malformed.Anchor)
+	assert.Contains(t, malformed.Error(), "not present in the accepted set")
 }
 
 // TestBuildAcceptedSet_MalformedPayload_AnchorUndefined verifies that an undefined anchor
@@ -175,7 +179,12 @@ func TestBuildAcceptedSet_MalformedPayload_AnchorUndefined(t *testing.T) {
 
 	require.Error(t, err)
 	var malformed *relayenv.MalformedCredentialSetError
-	assert.True(t, errors.As(err, &malformed))
+	require.True(t, errors.As(err, &malformed))
+	// An undefined anchor must produce the "missing" message, not the "not present" one. This
+	// only holds if Anchor is an untyped nil — a boxed zero-value config.SDKKey would be non-nil
+	// and route Error() down the wrong branch.
+	assert.Nil(t, malformed.Anchor)
+	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
 }
 
 // TestBuildAcceptedSet_MixedUpdate verifies add + re-anchor + remove in a single params update
@@ -208,6 +217,55 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 		WithSDKKey("sdk-b").
 		WithSDKKey("sdk-c").
 		WithMobileKey("mob-primary")
+	assert.Equal(t, expected, set)
+}
+
+// TestBuildAcceptedSet_AnchorNeverExpiring verifies the §4.2 invariant defense: even if a
+// payload carries an expiry on the anchor's own entry, the anchor is added as a permanent key,
+// never as an expiring one.
+func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
+	params := makeParams(
+		"sdk-anchor",
+		[]AcceptedSDKKey{
+			{Key: "default", Value: "sdk-anchor", Expiry: expiry1}, // anchor with a bogus expiry
+			{Key: "service-a", Value: "sdk-service-a"},
+		},
+		"mob-primary",
+	)
+	set, anchor, err := BuildAcceptedSet(params)
+
+	require.NoError(t, err)
+	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
+
+	// Anchor is permanent (WithSDKKey), not expiring — identical to a payload with no anchor expiry.
+	expected := relayenv.NewAcceptedSet().
+		WithEnvironmentID("env-abc").
+		WithSDKKey("sdk-anchor").
+		WithSDKKey("sdk-service-a").
+		WithMobileKey("mob-primary")
+	assert.Equal(t, expected, set)
+}
+
+// TestBuildAcceptedSet_MultipleMobileKeys verifies that all accepted mobile keys are included,
+// exercising the len(AcceptedMobileKeys) > 1 path.
+func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
+	params := EnvironmentParams{
+		EnvID:           "env-abc",
+		SDKKey:          "sdk-anchor",
+		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+		AcceptedMobileKeys: []AcceptedMobileKey{
+			{Key: "mob-1", Value: "mob-primary"},
+			{Key: "mob-2", Value: "mob-secondary"},
+		},
+	}
+	set, _, err := BuildAcceptedSet(params)
+
+	require.NoError(t, err)
+	expected := relayenv.NewAcceptedSet().
+		WithEnvironmentID("env-abc").
+		WithSDKKey("sdk-anchor").
+		WithMobileKey("mob-primary").
+		WithMobileKey("mob-secondary")
 	assert.Equal(t, expected, set)
 }
 
