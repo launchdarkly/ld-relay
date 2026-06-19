@@ -437,11 +437,11 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	}
 
 	// A new SDK key means:
-	//  1. we should start a new SDK client*, but only for the anchor (design §4.1: one upstream
-	//     connection per env, on the anchor). Non-anchor server keys get envStreams + handler bundles
-	//     above, but no upstream client — matching today's mobile-key behavior.
+	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
+	//     connection per environment, owned by the anchor key. Non-anchor server keys get envStreams
+	//     + handler bundles above, but no upstream client — matching today's mobile-key behavior.
 	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
-	//     again only when it is the anchor (events collapse to the anchor per kind — design §4.3).
+	//     again only when it is the anchor, since events collapse to the anchor per kind.
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
 	// components that use a mobile key.
 	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl

@@ -137,7 +137,7 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(envWithKeys)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
-		// locally but shares the anchor's connection (T2.a: anchor-only upstream client).
+		// locally but shares the anchor's connection (anchor-only upstream client).
 		anchorClient := p.awaitClient()
 		assert.Equal(t, newKey, anchorClient.Key)
 		p.shouldNotCreateClient(200 * time.Millisecond)
@@ -219,7 +219,7 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
 
 		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
-		// locally but shares the anchor's connection (T2.a: anchor-only upstream client).
+		// locally but shares the anchor's connection (anchor-only upstream client).
 		anchorClient := p.awaitClient()
 		assert.Equal(t, newKey, anchorClient.Key)
 		p.shouldNotCreateClient(200 * time.Millisecond)
