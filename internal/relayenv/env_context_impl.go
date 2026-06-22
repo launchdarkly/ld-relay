@@ -500,7 +500,29 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
+	droppedInactive := false
+	if client != nil && (c.closed || (sdkKey.Defined() && !c.sdkKeyIsActive(sdkKey))) {
+		// startSDKClient builds the client before taking c.mu, so by the time we hold the lock the key
+		// may already have been revoked (rotated away) or the environment may have been closed. In
+		// either case the freshly-built client must be closed here rather than installed, otherwise its
+		// upstream connection and goroutines leak until env.Close() (and, once closed, nothing ever
+		// closes it). removeCredential cannot close it because the client was never in c.clients.
+		//
+		// The revocation check applies only to a defined key: an undefined (empty) SDK key is never a
+		// tracked credential -- the rotator filters undefined credentials out of its accepted set -- so
+		// it can never be "revoked", and dropping its client would break environments that legitimately
+		// run without an SDK key (e.g. offline or not-yet-configured envs, and test fixtures).
+		_ = client.Close()
+		client = nil
+		droppedInactive = true
+	}
 	if client != nil {
+		// If a client already exists for this SDK key (e.g. the key was re-anchored back into the
+		// primary slot while a previous client for it was still alive in its grace period), close
+		// the stale one before replacing it so its upstream connection and goroutines are not leaked.
+		if existing := c.clients[sdkKey]; existing != nil && existing != client {
+			_ = existing.Close()
+		}
 		c.clients[sdkKey] = client
 
 		// The data store instance is created by the SDK when it creates the client. Now that
@@ -522,7 +544,8 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	c.initErr = err
 	c.mu.Unlock()
 
-	if err != nil {
+	switch {
+	case err != nil:
 		if suppressErrors {
 			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
 				name, err)
@@ -534,12 +557,31 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 			}
 			return
 		}
-	} else {
+	case droppedInactive:
+		// The client initialized successfully but the key was revoked (or the environment was closed)
+		// before it could be installed, so it was discarded above. The environment is still considered
+		// ready: it is in a consistent state with no client for this no-longer-tracked key.
+		c.globalLoggers.Infof("SDK key %s was revoked or the environment was closed before its client "+
+			"finished initializing; the client was discarded", sdkKey.Masked())
+	default:
 		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q (SDK key %s)", name, sdkKey.Masked())
 	}
 	if readyCh != nil {
 		readyCh <- c
 	}
+}
+
+// sdkKeyIsActive reports whether the given SDK key is still a tracked credential -- either the primary
+// key or one within its deprecation grace period -- according to the rotator. startSDKClient uses this
+// to avoid installing (and thereby leaking) a client for a key that was revoked while the client was
+// being constructed.
+func (c *envContextImpl) sdkKeyIsActive(sdkKey config.SDKKey) bool {
+	for _, cred := range c.keyRotator.AllCredentials() {
+		if cred == sdkKey {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
