@@ -18,15 +18,13 @@ const (
 
 // acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
 // using the singular SDK/mobile/env fields plus the optional expiring SDK key.
-func acceptedSetFromParams(params envfactory.EnvironmentParams) relayenv.AcceptedSet {
-	set := relayenv.NewAcceptedSet().
+func acceptedSetFromParams(params envfactory.EnvironmentParams) (relayenv.AcceptedSet, error) {
+	return relayenv.NewAcceptedSetBuilder().
 		WithSDKKey(params.SDKKey).
+		WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration).
 		WithMobileKey(params.MobileKey).
-		WithEnvironmentID(params.EnvID)
-	if params.ExpiringSDKKey.Defined() {
-		set = set.WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
-	}
-	return set
+		WithEnvironmentID(params.EnvID).
+		Build()
 }
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -49,7 +47,12 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		if err := env.ReconcileCredentials(acceptedSetFromParams(params), params.SDKKey); err != nil {
+		set, err := acceptedSetFromParams(params)
+		if err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
+			return
+		}
+		if err := env.ReconcileCredentials(set, params.SDKKey); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 		}
 	}
@@ -67,7 +70,12 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetSecureMode(params.SecureMode)
 
 	if params.SDKKey.Defined() {
-		if err := env.ReconcileCredentials(acceptedSetFromParams(params), params.SDKKey); err != nil {
+		set, err := acceptedSetFromParams(params)
+		if err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
+			return
+		}
+		if err := env.ReconcileCredentials(set, params.SDKKey); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 		}
 	}

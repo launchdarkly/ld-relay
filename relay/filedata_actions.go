@@ -55,7 +55,12 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return
 	}
 	if ae.Params.ExpiringSDKKey.Defined() {
-		if err := env.ReconcileCredentials(acceptedSetFromParams(ae.Params), ae.Params.SDKKey); err != nil {
+		set, err := acceptedSetFromParams(ae.Params)
+		if err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
+			return
+		}
+		if err := env.ReconcileCredentials(set, ae.Params.SDKKey); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 		}
 	}
@@ -89,7 +94,12 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetSecureMode(ae.Params.SecureMode)
 
 	if ae.Params.SDKKey.Defined() {
-		if err := env.ReconcileCredentials(acceptedSetFromParams(ae.Params), ae.Params.SDKKey); err != nil {
+		set, err := acceptedSetFromParams(ae.Params)
+		if err != nil {
+			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
+			return
+		}
+		if err := env.ReconcileCredentials(set, ae.Params.SDKKey); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 		}
 	}

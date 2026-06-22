@@ -2,6 +2,7 @@ package relayenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,8 +31,7 @@ import (
 // A key's expiry is taken from its entry in this set; the legacy sdkKey.expiring{} wire slot is
 // not consulted when building it.
 //
-// Build an AcceptedSet with NewAcceptedSet and the With* methods, which ignore undefined
-// credentials so callers can supply optional keys unconditionally.
+// Construct an AcceptedSet with AcceptedSetBuilder.
 type AcceptedSet struct {
 	sdkKeys    []acceptedSDKKey
 	mobileKeys []config.MobileKey
@@ -43,44 +43,63 @@ type acceptedSDKKey struct {
 	expiry *time.Time // nil = permanent
 }
 
-// NewAcceptedSet returns an empty AcceptedSet.
-func NewAcceptedSet() AcceptedSet {
-	return AcceptedSet{}
+// errAcceptedSetMissingSDKKey is returned by AcceptedSetBuilder.Build when no SDK key was added.
+// An environment must always have at least one SDK key (its anchor), so an empty set indicates a
+// caller mistake rather than a benign edge case — surfacing it avoids a silent misconfiguration.
+var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must contain at least one SDK key")
+
+// AcceptedSetBuilder accumulates the credentials for an AcceptedSet. The With* methods ignore
+// undefined credentials, so callers can supply optional keys unconditionally; Build then validates
+// that the accumulated set has at least one SDK key before returning it.
+type AcceptedSetBuilder struct {
+	set AcceptedSet
 }
 
-// WithSDKKey adds a permanent (non-expiring) SDK key to the set. It is a no-op if the key is
-// undefined.
-func (s AcceptedSet) WithSDKKey(key config.SDKKey) AcceptedSet {
+// NewAcceptedSetBuilder returns an empty AcceptedSetBuilder.
+func NewAcceptedSetBuilder() *AcceptedSetBuilder {
+	return &AcceptedSetBuilder{}
+}
+
+// WithSDKKey adds a permanent (non-expiring) SDK key. It is a no-op if the key is undefined.
+func (b *AcceptedSetBuilder) WithSDKKey(key config.SDKKey) *AcceptedSetBuilder {
 	if key.Defined() {
-		s.sdkKeys = append(s.sdkKeys, acceptedSDKKey{key: key})
+		b.set.sdkKeys = append(b.set.sdkKeys, acceptedSDKKey{key: key})
 	}
-	return s
+	return b
 }
 
-// WithExpiringSDKKey adds an SDK key that should be accepted until the given expiry. It is a
-// no-op if the key is undefined.
-func (s AcceptedSet) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) AcceptedSet {
+// WithExpiringSDKKey adds an SDK key that should be accepted until the given expiry. It is a no-op
+// if the key is undefined.
+func (b *AcceptedSetBuilder) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) *AcceptedSetBuilder {
 	if key.Defined() {
-		exp := expiry
-		s.sdkKeys = append(s.sdkKeys, acceptedSDKKey{key: key, expiry: &exp})
+		b.set.sdkKeys = append(b.set.sdkKeys, acceptedSDKKey{key: key, expiry: &expiry})
 	}
-	return s
+	return b
 }
 
-// WithMobileKey adds a mobile key to the set. It is a no-op if the key is undefined.
-func (s AcceptedSet) WithMobileKey(key config.MobileKey) AcceptedSet {
+// WithMobileKey adds a mobile key. It is a no-op if the key is undefined.
+func (b *AcceptedSetBuilder) WithMobileKey(key config.MobileKey) *AcceptedSetBuilder {
 	if key.Defined() {
-		s.mobileKeys = append(s.mobileKeys, key)
+		b.set.mobileKeys = append(b.set.mobileKeys, key)
 	}
-	return s
+	return b
 }
 
-// WithEnvironmentID sets the environment ID for the set. It is a no-op if the ID is undefined.
-func (s AcceptedSet) WithEnvironmentID(id config.EnvironmentID) AcceptedSet {
+// WithEnvironmentID sets the environment ID. It is a no-op if the ID is undefined.
+func (b *AcceptedSetBuilder) WithEnvironmentID(id config.EnvironmentID) *AcceptedSetBuilder {
 	if id.Defined() {
-		s.envID = id
+		b.set.envID = id
 	}
-	return s
+	return b
+}
+
+// Build validates and returns the accumulated AcceptedSet. It returns an error if no SDK key was
+// added.
+func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
+	if len(b.set.sdkKeys) == 0 {
+		return AcceptedSet{}, errAcceptedSetMissingSDKKey
+	}
+	return b.set, nil
 }
 
 // hasSDKKey reports whether key is one of the set's accepted SDK keys.

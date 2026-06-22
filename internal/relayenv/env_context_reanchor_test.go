@@ -101,9 +101,11 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 // reconcileCredentials directly so the grace-period math is deterministic.
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
-	set := NewAcceptedSet().
+	set, err := NewAcceptedSetBuilder().
 		WithSDKKey(newKey).
-		WithExpiringSDKKey(oldKey, now.Add(time.Hour))
+		WithExpiringSDKKey(oldKey, now.Add(time.Hour)).
+		Build()
+	require.NoError(t, err)
 	require.NoError(t, env.(*envContextImpl).reconcileCredentials(set, newKey, now))
 }
 
