@@ -48,9 +48,8 @@ func (s AcceptedSet) hasSDKKey(key config.SDKKey) bool {
 // mistake rather than a benign edge case — surfacing it avoids a silent misconfiguration.
 var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must contain at least one SDK key")
 
-// AcceptedSetBuilder accumulates the credentials for an AcceptedSet. The With* methods ignore
-// undefined credentials, so callers can supply optional keys unconditionally; Build then validates
-// that the accumulated set has at least one SDK key before returning it.
+// AcceptedSetBuilder accumulates the credentials for an AcceptedSet. Build validates that the
+// accumulated set has at least one SDK key before returning it.
 type AcceptedSetBuilder struct {
 	set AcceptedSet
 }
