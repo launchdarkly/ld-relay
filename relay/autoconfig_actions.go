@@ -45,6 +45,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
+		return
 	}
 
 	if params.ExpiringSDKKey.Defined() {

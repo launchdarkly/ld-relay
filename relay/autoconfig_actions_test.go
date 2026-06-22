@@ -244,6 +244,38 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	})
 }
 
+// When addEnvironment fails, the auto-config handler must not go on to call ReconcileCredentials on
+// the nil EnvContext it got back. This is only reachable when the payload also carries an expiring
+// SDK key (the gate that triggers the reconcile). We force the failure deterministically by closing
+// the Relay first, so addEnvironment returns errAlreadyClosed with a nil env.
+func TestAutoConfigAddEnvironmentWithExpiringSDKKeyDoesNotPanicWhenInitFails(t *testing.T) {
+	newKey := c.SDKKey("newsdkkey")
+	oldKey := c.SDKKey("oldsdkkey")
+	envWithKeys := testAutoConfEnv1
+	envWithKeys.sdkKey = envfactory.SDKKeyRep{
+		Value: newKey,
+		Expiring: envfactory.ExpiringKeyRep{
+			Value:     oldKey,
+			Timestamp: ldtime.UnixMillisNow() + 100000,
+		},
+	}
+
+	initialEvent := makeAutoConfPutEvent()
+	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
+		params := envWithKeys.params()
+		require.True(t, params.ExpiringSDKKey.Defined(),
+			"precondition: params must carry an expiring SDK key to reach the reconcile branch")
+
+		// Closing the Relay makes the next addEnvironment return (nil, nil, errAlreadyClosed).
+		require.NoError(t, p.relay.Close())
+
+		actions := &relayAutoConfigActions{r: p.relay}
+		require.NotPanics(t, func() {
+			actions.AddEnvironment(params)
+		}, "AddEnvironment must not dereference a nil EnvContext when addEnvironment fails")
+	})
+}
+
 func TestAutoConfigUpdateEnvironmentName(t *testing.T) {
 	initialEvent := makeAutoConfPutEvent(testAutoConfEnv1)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
