@@ -1,7 +1,6 @@
 package credential
 
 import (
-	"slices"
 	"sync"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 
 // acceptedKeyInfo holds per-key metadata for the accepted-set maps.
 type acceptedKeyInfo struct {
-	expiry *time.Time //nolint:unused // nil = permanent; read by T1.b (ReconcileCredentials)
+	expiry *time.Time // nil = permanent
 }
 
 type Rotator struct {
@@ -22,7 +21,7 @@ type Rotator struct {
 
 	// deprecatedMobileKeys stores mobile keys being phased out with a grace period, keyed
 	// by credential value with the associated expiry time. StepTime does not yet act on
-	// these entries — that is deferred to T1.c (generalize cleanup ticker).
+	// these entries; generalizing the cleanup ticker to drop them is handled separately.
 	deprecatedMobileKeys map[config.MobileKey]time.Time
 
 	// There is only one environment ID active at a given time, and it won't actually be rotated. The mechanism is
@@ -116,14 +115,44 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	return r.primaryCredentials()
 }
 
+// primaryCredentials returns every accepted, non-deprecated credential: the anchor and any other
+// accepted SDK keys, the primary and any other accepted mobile keys, and the environment ID. The
+// accepted-set maps are maintained by Initialize and Reconcile.
 func (r *Rotator) primaryCredentials() []SDKCredential {
-	return slices.DeleteFunc([]SDKCredential{
-		r.primarySdkKey,
-		r.primaryMobileKey,
-		r.primaryEnvironmentID,
-	}, func(cred SDKCredential) bool {
-		return !cred.Defined()
-	})
+	creds := make([]SDKCredential, 0, len(r.acceptedSDKKeys)+len(r.acceptedMobileKeys)+1)
+
+	// Anchor first, then any other accepted (non-deprecated) SDK keys.
+	if r.primarySdkKey.Defined() {
+		creds = append(creds, r.primarySdkKey)
+	}
+	for key := range r.acceptedSDKKeys {
+		if key == r.primarySdkKey {
+			continue
+		}
+		if _, deprecated := r.deprecatedSdkKeys[key]; deprecated {
+			continue
+		}
+		creds = append(creds, key)
+	}
+
+	// Primary mobile key first, then any other accepted (non-deprecated) mobile keys.
+	if r.primaryMobileKey.Defined() {
+		creds = append(creds, r.primaryMobileKey)
+	}
+	for key := range r.acceptedMobileKeys {
+		if key == r.primaryMobileKey {
+			continue
+		}
+		if _, deprecated := r.deprecatedMobileKeys[key]; deprecated {
+			continue
+		}
+		creds = append(creds, key)
+	}
+
+	if r.primaryEnvironmentID.Defined() {
+		creds = append(creds, r.primaryEnvironmentID)
+	}
+	return creds
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
@@ -212,7 +241,7 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 
 // updateMobileKey sets a new primary mobile key. When grace is nil the outgoing key is
 // immediately revoked; when non-nil its expiry is stored in deprecatedMobileKeys.
-// StepTime does not yet act on deprecatedMobileKeys — that is deferred to T1.c.
+// StepTime does not yet act on deprecatedMobileKeys; that cleanup is handled separately.
 func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -307,6 +336,7 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.loggers.Infof("Deprecated SDK key %s has expired and is no longer valid for authentication", sdkKey.Masked())
 	delete(r.deprecatedSdkKeys, sdkKey)
+	delete(r.acceptedSDKKeys, sdkKey)
 	r.expirations = append(r.expirations, sdkKey)
 }
 
@@ -326,4 +356,121 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	r.additions = nil
 	r.expirations = nil
 	return
+}
+
+// Reconcile updates the rotator to match set, with anchor designating the primary SDK key. It diffs
+// the desired accepted set against the current one and queues additions and expirations (drained by
+// the next StepTime call); SDK keys carrying a future expiry are recorded so the cleanup ticker
+// drops them later. SDK or mobile keys no longer present in the set are revoked immediately. An
+// undefined environment ID leaves the current one unchanged, since environments are removed via
+// teardown rather than reconcile.
+//
+// It returns a *MalformedCredentialSetError, without mutating any state, if anchor is not one of the
+// set's SDK keys.
+func (r *Rotator) Reconcile(set AcceptedSet, anchor config.SDKKey, now time.Time) error {
+	if !anchor.Defined() || !set.hasSDKKey(anchor) {
+		return &MalformedCredentialSetError{Anchor: anchor}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.reconcileSDKKeys(set, anchor, now)
+	r.reconcileMobileKeys(set)
+	r.reconcileEnvironmentID(set)
+	return nil
+}
+
+// reconcileSDKKeys diffs the desired SDK keys against the accepted set. The caller must hold the
+// write lock.
+func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
+	// Build the desired set as key -> expiry (nil = permanent). Already-expired entries are dropped,
+	// and the anchor is always permanent regardless of any expiry the payload may carry for it.
+	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
+	for _, k := range set.sdkKeys {
+		if k.expiry != nil && !now.Before(*k.expiry) {
+			continue // already expired; treat as absent
+		}
+		desired[k.key] = k.expiry
+	}
+	desired[anchor] = nil
+
+	for key, expiry := range desired {
+		if info, ok := r.acceptedSDKKeys[key]; ok {
+			info.expiry = expiry
+		} else {
+			r.acceptedSDKKeys[key] = &acceptedKeyInfo{expiry: expiry}
+			r.additions = append(r.additions, key)
+			r.loggers.Infof("SDK key %s is now accepted", key.Masked())
+		}
+		if expiry != nil {
+			r.deprecatedSdkKeys[key] = *expiry
+		} else {
+			delete(r.deprecatedSdkKeys, key)
+		}
+	}
+
+	for key := range r.acceptedSDKKeys {
+		if _, ok := desired[key]; ok {
+			continue
+		}
+		if _, inGracePeriod := r.deprecatedSdkKeys[key]; inGracePeriod {
+			// A key already in its grace period stays until the cleanup ticker drops it at expiry,
+			// even when a later update omits it. The one-shot deprecation protocol does not re-send
+			// grace keys, so omission is not a revocation signal for them.
+			continue
+		}
+		delete(r.acceptedSDKKeys, key)
+		r.expirations = append(r.expirations, key)
+		r.loggers.Infof("SDK key %s is no longer accepted and has been revoked", key.Masked())
+	}
+
+	r.primarySdkKey = anchor
+}
+
+// reconcileMobileKeys diffs the desired mobile keys against the accepted set. The caller must hold
+// the write lock.
+func (r *Rotator) reconcileMobileKeys(set AcceptedSet) {
+	desired := make(map[config.MobileKey]struct{}, len(set.mobileKeys))
+	for _, key := range set.mobileKeys {
+		desired[key] = struct{}{}
+	}
+
+	for key := range desired {
+		if _, ok := r.acceptedMobileKeys[key]; !ok {
+			r.acceptedMobileKeys[key] = &acceptedKeyInfo{}
+			r.additions = append(r.additions, key)
+			r.loggers.Infof("Mobile key %s is now accepted", key.Masked())
+		}
+	}
+
+	for key := range r.acceptedMobileKeys {
+		if _, ok := desired[key]; !ok {
+			delete(r.acceptedMobileKeys, key)
+			delete(r.deprecatedMobileKeys, key)
+			r.expirations = append(r.expirations, key)
+			r.loggers.Infof("Mobile key %s is no longer accepted and has been revoked", key.Masked())
+		}
+	}
+
+	// The first mobile key in the set is the primary, used where a single mobile key is required
+	// (e.g. event forwarding). Empty when the set carries no mobile key.
+	if len(set.mobileKeys) > 0 {
+		r.primaryMobileKey = set.mobileKeys[0]
+	} else {
+		r.primaryMobileKey = ""
+	}
+}
+
+// reconcileEnvironmentID updates the environment ID if the set carries a new one. The caller must
+// hold the write lock.
+func (r *Rotator) reconcileEnvironmentID(set AcceptedSet) {
+	if !set.envID.Defined() || set.envID == r.primaryEnvironmentID {
+		return
+	}
+	if r.primaryEnvironmentID.Defined() {
+		r.expirations = append(r.expirations, r.primaryEnvironmentID)
+	}
+	r.primaryEnvironmentID = set.envID
+	r.additions = append(r.additions, set.envID)
 }

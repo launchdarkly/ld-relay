@@ -179,7 +179,7 @@ func TestLogPrefix(t *testing.T) {
 }
 
 // mustBuildAcceptedSet builds the set from b, failing the test if Build returns an error.
-func mustBuildAcceptedSet(t *testing.T, b *AcceptedSetBuilder) AcceptedSet {
+func mustBuildAcceptedSet(t *testing.T, b *credential.AcceptedSetBuilder) credential.AcceptedSet {
 	t.Helper()
 	set, err := b.Build()
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
 	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey).WithEnvironmentID(envID)),
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey).WithEnvironmentID(envID)),
 		envConfig.SDKKey))
 
 	creds := env.GetCredentials()
@@ -214,7 +214,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	// Reconciling with a different mobile key evicts the previous one.
 	newMobileKey := config.MobileKey("evict-the-previous-key")
 	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(newMobileKey).WithEnvironmentID(envID)),
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(newMobileKey).WithEnvironmentID(envID)),
 		envConfig.SDKKey))
 
 	creds = env.GetCredentials()
@@ -237,7 +237,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
-	set := mustBuildAcceptedSet(t, NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey))
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey))
 
 	require.NoError(t, env.ReconcileCredentials(set, envConfig.SDKKey))
 
@@ -269,42 +269,18 @@ func TestReconcileCredentialsRejectsAnchorNotInSet(t *testing.T) {
 
 	// The anchor is not present among the set's SDK keys: a malformed payload.
 	anchor := config.SDKKey("anchor-not-in-set")
-	set := mustBuildAcceptedSet(t, NewAcceptedSetBuilder().
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 		WithSDKKey(config.SDKKey("some-other-key")).
 		WithMobileKey(config.MobileKey("mob")))
 
 	err := env.ReconcileCredentials(set, anchor)
 
-	var malformed *MalformedCredentialSetError
+	var malformed *credential.MalformedCredentialSetError
 	require.ErrorAs(t, err, &malformed)
 	assert.Equal(t, anchor, malformed.Anchor)
 
 	// State is preserved: nothing was added or removed.
 	assert.ElementsMatch(t, before, env.GetCredentials())
-}
-
-func TestAcceptedSetBuilderRequiresSDKKey(t *testing.T) {
-	// A set with no SDK key is a caller error, not a silent no-op.
-	_, err := NewAcceptedSetBuilder().
-		WithMobileKey(config.MobileKey("mob")).
-		WithEnvironmentID(config.EnvironmentID("env")).
-		Build()
-	require.Error(t, err)
-
-	// With at least one SDK key, Build succeeds.
-	set, err := NewAcceptedSetBuilder().WithSDKKey(config.SDKKey("sdk")).Build()
-	require.NoError(t, err)
-	assert.True(t, set.hasSDKKey(config.SDKKey("sdk")))
-}
-
-func TestMalformedCredentialSetErrorMessage(t *testing.T) {
-	// A nil anchor reports "missing" rather than dereferencing a nil credential.
-	assert.Equal(t, "malformed credential set: anchor SDK key is missing",
-		(&MalformedCredentialSetError{Anchor: nil}).Error())
-
-	// A defined anchor is masked in the message.
-	assert.Contains(t, (&MalformedCredentialSetError{Anchor: config.SDKKey("sdk-abcd1234")}).Error(),
-		"...1234")
 }
 
 func TestChangeSDKKey(t *testing.T) {
@@ -340,7 +316,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	// Upon re-anchoring to key2, the original key should still be valid for an hour.
 	require.NoError(t, envImpl.reconcileCredentials(
-		mustBuildAcceptedSet(t, NewAcceptedSetBuilder().
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 			WithSDKKey(key2).
 			WithExpiringSDKKey(envConfig.SDKKey, start.Add(1*time.Hour))),
 		key2, start))
@@ -377,6 +353,49 @@ func TestChangeSDKKey(t *testing.T) {
 		t.FailNow()
 	}
 
+}
+
+func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	readyCh := make(chan EnvContext, 1)
+	// Buffer large enough to catch any unexpected extra clients.
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// One client is opened for the anchor key during construction.
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	anchorClient := requireClientReady(t, clientCh)
+	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
+	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
+
+	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor client
+	// is needed. Non-anchor keys must get envStreams + handlers + connection mapping but must NOT
+	// open an upstream client.
+	require.NoError(t, env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithSDKKey(envConfig.SDKKey).
+			WithSDKKey(nonAnchorKey1).
+			WithSDKKey(nonAnchorKey2)),
+		envConfig.SDKKey))
+
+	// All three SDK keys are accepted...
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.Contains(t, creds, nonAnchorKey1)
+	assert.Contains(t, creds, nonAnchorKey2)
+
+	// ...but no additional upstream client was started.
+	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
+		t.FailNow()
+	}
 }
 
 func TestSDKClientCreationFails(t *testing.T) {

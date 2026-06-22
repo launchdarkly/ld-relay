@@ -2,8 +2,8 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -18,8 +18,8 @@ const (
 
 // acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
 // using the singular SDK/mobile/env fields plus the optional expiring SDK key.
-func acceptedSetFromParams(params envfactory.EnvironmentParams) (relayenv.AcceptedSet, error) {
-	return relayenv.NewAcceptedSetBuilder().
+func acceptedSetFromParams(params envfactory.EnvironmentParams) (credential.AcceptedSet, error) {
+	return credential.NewAcceptedSetBuilder().
 		WithSDKKey(params.SDKKey).
 		WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration).
 		WithMobileKey(params.MobileKey).

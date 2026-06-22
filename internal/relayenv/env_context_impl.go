@@ -437,8 +437,11 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	}
 
 	// A new SDK key means:
-	//  1. we should start a new SDK client*
-	//  2. we should tell all event forwarding components that use an SDK key to use the new one.
+	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
+	//     connection per environment, owned by the anchor key. Non-anchor server keys get envStreams
+	//     + handler bundles above, but no upstream client — matching today's mobile-key behavior.
+	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
+	//     again only when it is the anchor, since events collapse to the anchor per kind.
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
 	// components that use a mobile key.
 	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
@@ -447,14 +450,16 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		if !c.offline {
-			go c.startSDKClient(key, nil, false)
-		}
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		if key == c.keyRotator.SDKKey() {
+			if !c.offline {
+				go c.startSDKClient(key, nil, false)
+			}
+			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+				c.metricsEventPub.ReplaceCredential(key)
+			}
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	case config.MobileKey:
 		if c.eventDispatcher != nil {
@@ -550,43 +555,27 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) ReconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential) error {
+func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet, anchor credential.SDKCredential) error {
 	return c.reconcileCredentials(newSet, anchor, time.Now())
 }
 
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
-// reference time for grace-period math; production callers pass time.Now() via ReconcileCredentials.
-func (c *envContextImpl) reconcileCredentials(newSet AcceptedSet, anchor credential.SDKCredential, now time.Time) error {
+// reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
+//
+// The Rotator owns the diff (add → re-anchor → remove) and queues the resulting additions and
+// expirations; triggerCredentialChanges then applies them, draining additions before expirations so
+// the accepted set is a superset during the transition. addCredential opens an upstream client only
+// for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, anchor credential.SDKCredential, now time.Time) error {
 	anchorKey, ok := anchor.(config.SDKKey)
-	if !ok || !anchorKey.Defined() || !newSet.hasSDKKey(anchorKey) {
-		// Malformed payload: make no changes (preserve the previous accepted set) and surface a
-		// structured error so the caller can reconnect the RAC stream.
-		return &MalformedCredentialSetError{Anchor: anchor}
+	if !ok {
+		// A non-SDK-key anchor is malformed: make no changes and surface a structured error so the
+		// caller can reconnect the RAC stream.
+		return &credential.MalformedCredentialSetError{Anchor: anchor}
 	}
-
-	// Re-anchor: the anchor becomes the primary SDK key. A non-anchor SDK key carrying an expiry is
-	// a graceful deprecation, and its expiry is read from the set rather than the legacy expiring
-	// slot. The dedicated upstream-client swap is handled separately; here the swap is realized by
-	// the rotation below, which starts a client for the new anchor via addCredential.
-	if deprecated, hasDeprecated := newSet.deprecatedSDKKey(anchorKey); hasDeprecated {
-		c.keyRotator.RotateWithGrace(anchorKey, credential.NewGracePeriod(deprecated.key, *deprecated.expiry, now))
-	} else {
-		c.keyRotator.Rotate(anchorKey)
+	if err := c.keyRotator.Reconcile(newSet, anchorKey, now); err != nil {
+		return err
 	}
-
-	// The mobile key and environment ID rotate to their new values, immediately revoking the
-	// previous primary of each kind.
-	if mobileKey, hasMobile := newSet.primaryMobileKey(); hasMobile {
-		c.keyRotator.Rotate(mobileKey)
-	}
-	if newSet.envID.Defined() {
-		c.keyRotator.Rotate(newSet.envID)
-	}
-
-	// Apply the queued changes. triggerCredentialChanges drains the rotator's additions before its
-	// expirations, so the accepted set is a superset during the transition: new credentials,
-	// handlers, and the new anchor's SDK client are in place before any outgoing credential is torn
-	// down (add → re-anchor → remove).
 	c.triggerCredentialChanges(now)
 	return nil
 }
