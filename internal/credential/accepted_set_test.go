@@ -135,6 +135,40 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
 }
 
+func TestReconcileExpiringMobileKey(t *testing.T) {
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	permanent := config.MobileKey("mob-permanent")
+	expiring := config.MobileKey("mob-expiring")
+	start := time.Unix(1000, 0)
+
+	require.NoError(t, r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithSDKKey(anchor).
+			WithMobileKey(permanent).
+			WithExpiringMobileKey(expiring, start.Add(time.Hour))),
+		anchor, start))
+	additions, expirations := r.StepTime(start)
+
+	// Both mobile keys are accepted (and added); the permanent one is the primary.
+	assert.ElementsMatch(t, []SDKCredential{anchor, permanent, expiring}, additions)
+	assert.Empty(t, expirations)
+	assert.Equal(t, permanent, r.MobileKey())
+
+	// The expiring mobile key is recorded for the cleanup ticker (which drops it — owned by T1.c),
+	// while still being accepted until then. The permanent key is not deprecated.
+	_, expiringDeprecated := r.deprecatedMobileKeys[expiring]
+	_, expiringAccepted := r.acceptedMobileKeys[expiring]
+	_, permanentDeprecated := r.deprecatedMobileKeys[permanent]
+	assert.True(t, expiringDeprecated, "expiring mobile key should be queued for expiry")
+	assert.True(t, expiringAccepted, "expiring mobile key is still accepted until it expires")
+	assert.False(t, permanentDeprecated)
+
+	// PrimaryCredentials keeps the permanent key but excludes the deprecated (expiring) one.
+	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(permanent))
+	assert.NotContains(t, r.PrimaryCredentials(), SDKCredential(expiring))
+}
+
 func TestReconcileExpiringSDKKey(t *testing.T) {
 	r := newTestRotator()
 	old := config.SDKKey("old")

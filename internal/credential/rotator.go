@@ -376,7 +376,7 @@ func (r *Rotator) Reconcile(set AcceptedSet, anchor config.SDKKey, now time.Time
 	defer r.mu.Unlock()
 
 	r.reconcileSDKKeys(set, anchor, now)
-	r.reconcileMobileKeys(set)
+	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
 	return nil
 }
@@ -428,37 +428,62 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	r.primarySdkKey = anchor
 }
 
-// reconcileMobileKeys diffs the desired mobile keys against the accepted set. The caller must hold
-// the write lock.
-func (r *Rotator) reconcileMobileKeys(set AcceptedSet) {
-	desired := make(map[config.MobileKey]struct{}, len(set.mobileKeys))
-	for _, key := range set.mobileKeys {
-		desired[key] = struct{}{}
+// reconcileMobileKeys diffs the desired mobile keys against the accepted set, mirroring
+// reconcileSDKKeys: expiring keys are recorded in deprecatedMobileKeys for the cleanup ticker, and
+// keys already in a grace period survive omission. The caller must hold the write lock.
+func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
+	// Build the desired set as key -> expiry (nil = permanent), dropping already-expired entries.
+	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
+	for _, k := range set.mobileKeys {
+		if k.expiry != nil && !now.Before(*k.expiry) {
+			continue // already expired; treat as absent
+		}
+		desired[k.key] = k.expiry
 	}
 
-	for key := range desired {
-		if _, ok := r.acceptedMobileKeys[key]; !ok {
-			r.acceptedMobileKeys[key] = &acceptedKeyInfo{}
+	for key, expiry := range desired {
+		if info, ok := r.acceptedMobileKeys[key]; ok {
+			info.expiry = expiry
+		} else {
+			r.acceptedMobileKeys[key] = &acceptedKeyInfo{expiry: expiry}
 			r.additions = append(r.additions, key)
 			r.loggers.Infof("Mobile key %s is now accepted", key.Masked())
+		}
+		if expiry != nil {
+			r.deprecatedMobileKeys[key] = *expiry
+		} else {
+			delete(r.deprecatedMobileKeys, key)
 		}
 	}
 
 	for key := range r.acceptedMobileKeys {
-		if _, ok := desired[key]; !ok {
-			delete(r.acceptedMobileKeys, key)
-			delete(r.deprecatedMobileKeys, key)
-			r.expirations = append(r.expirations, key)
-			r.loggers.Infof("Mobile key %s is no longer accepted and has been revoked", key.Masked())
+		if _, ok := desired[key]; ok {
+			continue
 		}
+		if _, inGracePeriod := r.deprecatedMobileKeys[key]; inGracePeriod {
+			continue
+		}
+		delete(r.acceptedMobileKeys, key)
+		r.expirations = append(r.expirations, key)
+		r.loggers.Infof("Mobile key %s is no longer accepted and has been revoked", key.Masked())
 	}
 
-	// The first mobile key in the set is the primary, used where a single mobile key is required
-	// (e.g. event forwarding). Empty when the set carries no mobile key.
-	if len(set.mobileKeys) > 0 {
-		r.primaryMobileKey = set.mobileKeys[0]
-	} else {
-		r.primaryMobileKey = ""
+	// The primary mobile key — used where a single mobile key is required (e.g. event forwarding) —
+	// is the first permanent key in the set, falling back to the first non-expired key, else empty.
+	r.primaryMobileKey = ""
+	for _, k := range set.mobileKeys {
+		if k.expiry == nil {
+			r.primaryMobileKey = k.key
+			break
+		}
+	}
+	if !r.primaryMobileKey.Defined() {
+		for _, k := range set.mobileKeys {
+			if _, ok := desired[k.key]; ok {
+				r.primaryMobileKey = k.key
+				break
+			}
+		}
 	}
 }
 

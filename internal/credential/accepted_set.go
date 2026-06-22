@@ -9,9 +9,9 @@ import (
 )
 
 // AcceptedSet is the full set of credentials that an environment should accept after a reconcile.
-// It carries every accepted server-side SDK key (each with an optional expiry) and mobile key, plus
-// the single environment ID. The anchor (the one SDK key that owns the environment's upstream
-// connection) is supplied separately to Rotator.Reconcile.
+// It carries every accepted server-side SDK key and mobile key — each with an optional per-key
+// expiry — plus the single environment ID. The anchor (the one SDK key that owns the environment's
+// upstream connection) is supplied separately to Rotator.Reconcile.
 //
 // A key's expiry is taken from its entry in this set; the legacy sdkKey.expiring{} wire slot is not
 // consulted when building it.
@@ -19,12 +19,17 @@ import (
 // Construct an AcceptedSet with AcceptedSetBuilder.
 type AcceptedSet struct {
 	sdkKeys    []acceptedSDKKey
-	mobileKeys []config.MobileKey
+	mobileKeys []acceptedMobileKey
 	envID      config.EnvironmentID
 }
 
 type acceptedSDKKey struct {
 	key    config.SDKKey
+	expiry *time.Time // nil = permanent
+}
+
+type acceptedMobileKey struct {
+	key    config.MobileKey
 	expiry *time.Time // nil = permanent
 }
 
@@ -72,10 +77,19 @@ func (b *AcceptedSetBuilder) WithExpiringSDKKey(key config.SDKKey, expiry time.T
 	return b
 }
 
-// WithMobileKey adds a mobile key. It is a no-op if the key is undefined.
+// WithMobileKey adds a permanent (non-expiring) mobile key. It is a no-op if the key is undefined.
 func (b *AcceptedSetBuilder) WithMobileKey(key config.MobileKey) *AcceptedSetBuilder {
 	if key.Defined() {
-		b.set.mobileKeys = append(b.set.mobileKeys, key)
+		b.set.mobileKeys = append(b.set.mobileKeys, acceptedMobileKey{key: key})
+	}
+	return b
+}
+
+// WithExpiringMobileKey adds a mobile key that should be accepted until the given expiry. It is a
+// no-op if the key is undefined.
+func (b *AcceptedSetBuilder) WithExpiringMobileKey(key config.MobileKey, expiry time.Time) *AcceptedSetBuilder {
+	if key.Defined() {
+		b.set.mobileKeys = append(b.set.mobileKeys, acceptedMobileKey{key: key, expiry: &expiry})
 	}
 	return b
 }
