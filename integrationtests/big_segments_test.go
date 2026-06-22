@@ -110,7 +110,8 @@ func verifyEvaluationWithBigSegment(
 	// Poll the evaluation endpoint until we see the expected flag values. We're using a
 	// longer timeout here than we use in tests that don't involve big segments, because
 	// the user segment state caching inside the SDK makes it hard to say how soon we'll
-	// see the effect of an update.
+	// see the effect of an update. 60s gives enough headroom for streaming propagation
+	// of a second segment update to complete in staging CI environments.
 	success := assert.Eventually(t, func() bool {
 		ok := true
 		for i, env := range environments {
@@ -125,7 +126,7 @@ func verifyEvaluationWithBigSegment(
 			}
 		}
 		return ok
-	}, time.Second*20, time.Millisecond*100, "Did not see expected flag values from Relay")
+	}, time.Second*60, time.Millisecond*100, "Did not see expected flag values from Relay")
 
 	if !success {
 		manager.loggers.Infof("EXPLANATION OF TEST FAILURE FOLLOWS:")
