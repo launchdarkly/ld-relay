@@ -25,7 +25,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
@@ -102,13 +101,9 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 // reconcileCredentials directly so the grace-period math is deterministic.
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
-	set, err := credential.NewAcceptedSetBuilder().
-		WithSDKKey(newKey).
-		WithAnchorSDKKey(newKey).
-		WithExpiringSDKKey(oldKey, now.Add(time.Hour)).
-		Build()
-	require.NoError(t, err)
-	require.NoError(t, env.(*envContextImpl).reconcileCredentials(set, now))
+	env.(*envContextImpl).UpdateCredential(NewCredentialUpdate(newKey).
+		WithGracePeriod(oldKey, now.Add(time.Hour)).
+		WithTime(now))
 }
 
 // -----------------------------------------------------------------------------------------------

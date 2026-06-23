@@ -555,6 +555,15 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
+func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
+	if !update.deprecated.Defined() {
+		c.keyRotator.Rotate(update.primary)
+	} else {
+		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
+	}
+	c.triggerCredentialChanges(update.now)
+}
+
 func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) error {
 	return c.reconcileCredentials(newSet, time.Now())
 }

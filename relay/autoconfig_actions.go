@@ -2,8 +2,8 @@ package relay
 
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
+	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -13,22 +13,7 @@ const (
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
 	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
-	logMsgReconcileCredentialsError       = "Unable to reconcile credentials for environment %q: %s"
 )
-
-// acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
-// using the singular SDK/mobile/env fields plus the optional expiring SDK key. The singular SDK and
-// mobile keys are both accepted keys and the designated anchor / primary mobile key.
-func acceptedSetFromParams(params envfactory.EnvironmentParams) (credential.AcceptedSet, error) {
-	return credential.NewAcceptedSetBuilder().
-		WithSDKKey(params.SDKKey).
-		WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration).
-		WithMobileKey(params.MobileKey).
-		WithAnchorSDKKey(params.SDKKey).
-		WithPrimaryMobileKey(params.MobileKey).
-		WithEnvironmentID(params.EnvID).
-		Build()
-}
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
@@ -46,18 +31,11 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env, _, err := a.r.addEnvironment(params.Identifiers, envConfig, nil)
 	if err != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), err)
-		return
 	}
 
 	if params.ExpiringSDKKey.Defined() {
-		set, err := acceptedSetFromParams(params)
-		if err != nil {
-			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
-			return
-		}
-		if err := env.ReconcileCredentials(set); err != nil {
-			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
-		}
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
 	}
 }
 
@@ -72,15 +50,15 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
+	if params.MobileKey.Defined() {
+		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
+	}
 	if params.SDKKey.Defined() {
-		set, err := acceptedSetFromParams(params)
-		if err != nil {
-			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
-			return
+		update := relayenv.NewCredentialUpdate(params.SDKKey)
+		if params.ExpiringSDKKey.Defined() {
+			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
 		}
-		if err := env.ReconcileCredentials(set); err != nil {
-			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
-		}
+		env.UpdateCredential(update)
 	}
 }
 

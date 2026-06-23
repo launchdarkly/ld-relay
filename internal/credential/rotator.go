@@ -364,10 +364,11 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 
 // Reconcile updates the rotator to match set. The set names its own anchor (the primary SDK key) and
 // primary mobile key. It diffs the desired accepted set against the current one and queues additions
-// and expirations (drained by the next StepTime call); SDK keys carrying a future expiry are
-// recorded so the cleanup ticker drops them later. SDK or mobile keys no longer present in the set
-// are revoked immediately. An undefined environment ID leaves the current one unchanged, since
-// environments are removed via teardown rather than reconcile.
+// and expirations (drained by the next StepTime call); keys newly present are accepted, and keys no
+// longer present are revoked. Per-key expiry is stored as data on the accepted entry — grace-period
+// deprecation and the cleanup ticker that drops expiring keys are handled separately. An undefined
+// environment ID leaves the current one unchanged, since environments are removed via teardown
+// rather than reconcile.
 //
 // It returns a *MalformedCredentialSetError, without mutating any state, if the set's anchor is
 // undefined or not one of its SDK keys. AcceptedSetBuilder.Build already enforces this, so a set
@@ -389,11 +390,12 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) error {
 	return nil
 }
 
-// reconcileSDKKeys diffs the desired SDK keys against the accepted set. The caller must hold the
-// write lock.
+// reconcileSDKKeys diffs the desired SDK keys against the accepted set: keys present in the set but
+// not yet accepted are queued as additions, the anchor is set, and accepted keys no longer in the
+// set are revoked. Per-key expiry is stored as data on the accepted entry; acting on it (grace-period
+// deprecation, the cleanup ticker, and the anchor-change side effects) is handled separately. The
+// caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
-	previousAnchor := r.primarySdkKey
-
 	// Build the desired set as key -> expiry (nil = permanent). Already-expired entries are dropped,
 	// and the anchor is always permanent regardless of any expiry the payload may carry for it.
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
@@ -408,34 +410,15 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	for key, expiry := range desired {
 		if info, ok := r.acceptedSDKKeys[key]; ok {
 			info.expiry = expiry
-			// Re-anchoring onto a key that was already accepted as a non-anchor key still needs the
-			// anchor-only setup that addCredential runs for additions: starting the upstream client
-			// and repointing event forwarding. It wasn't queued as an addition above because it
-			// already existed, so queue it now. (A brand-new anchor is queued by the else branch; a
-			// reconcile that leaves the anchor unchanged is skipped, avoiding a redundant restart.)
-			if key == anchor && key != previousAnchor {
-				r.additions = append(r.additions, key)
-			}
 		} else {
 			r.acceptedSDKKeys[key] = &acceptedKeyInfo{expiry: expiry}
 			r.additions = append(r.additions, key)
 			r.loggers.Infof("SDK key %s is now accepted", key.Masked())
 		}
-		if expiry != nil {
-			r.deprecatedSdkKeys[key] = *expiry
-		} else {
-			delete(r.deprecatedSdkKeys, key)
-		}
 	}
 
 	for key := range r.acceptedSDKKeys {
 		if _, ok := desired[key]; ok {
-			continue
-		}
-		if _, inGracePeriod := r.deprecatedSdkKeys[key]; inGracePeriod {
-			// A key already in its grace period stays until the cleanup ticker drops it at expiry,
-			// even when a later update omits it. The one-shot deprecation protocol does not re-send
-			// grace keys, so omission is not a revocation signal for them.
 			continue
 		}
 		delete(r.acceptedSDKKeys, key)
@@ -447,8 +430,8 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 }
 
 // reconcileMobileKeys diffs the desired mobile keys against the accepted set, mirroring
-// reconcileSDKKeys: expiring keys are recorded in deprecatedMobileKeys for the cleanup ticker, and
-// keys already in a grace period survive omission. The caller must hold the write lock.
+// reconcileSDKKeys. Per-key expiry is stored as data; acting on it is handled separately. The caller
+// must hold the write lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	// Build the desired set as key -> expiry (nil = permanent), dropping already-expired entries.
 	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
@@ -467,18 +450,10 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 			r.additions = append(r.additions, key)
 			r.loggers.Infof("Mobile key %s is now accepted", key.Masked())
 		}
-		if expiry != nil {
-			r.deprecatedMobileKeys[key] = *expiry
-		} else {
-			delete(r.deprecatedMobileKeys, key)
-		}
 	}
 
 	for key := range r.acceptedMobileKeys {
 		if _, ok := desired[key]; ok {
-			continue
-		}
-		if _, inGracePeriod := r.deprecatedMobileKeys[key]; inGracePeriod {
 			continue
 		}
 		delete(r.acceptedMobileKeys, key)
@@ -487,9 +462,8 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	}
 
 	// The primary mobile key — used where a single mobile key is required (e.g. event forwarding) —
-	// is the one the set designates (the wire's singular mobKey). The set carries it explicitly, so
-	// the choice doesn't depend on reconcile-time iteration. It is always a permanent key, so it is
-	// never dropped as expired; an empty value means the set declared no mobile key.
+	// is the one the set designates (the wire's singular mobKey). It is always a permanent key; an
+	// empty value means the set declared no mobile key.
 	r.primaryMobileKey = set.primaryMobileKey
 }
 

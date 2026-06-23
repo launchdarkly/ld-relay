@@ -202,7 +202,7 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
 	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithAnchorSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey).WithPrimaryMobileKey(mobileKey).WithEnvironmentID(envID))))
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey).WithEnvironmentID(envID))))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -213,7 +213,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	// Reconciling with a different mobile key evicts the previous one.
 	newMobileKey := config.MobileKey("evict-the-previous-key")
 	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithAnchorSDKKey(envConfig.SDKKey).WithMobileKey(newMobileKey).WithPrimaryMobileKey(newMobileKey).WithEnvironmentID(envID))))
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(newMobileKey).WithEnvironmentID(envID))))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -235,7 +235,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
-	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithSDKKey(envConfig.SDKKey).WithAnchorSDKKey(envConfig.SDKKey).WithMobileKey(mobileKey).WithPrimaryMobileKey(mobileKey))
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey))
 
 	require.NoError(t, env.ReconcileCredentials(set))
 
@@ -303,17 +303,15 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
 	// For the purposes of key rotation, we'll make time deterministic. We drive the grace-period
-	// setup through the time-injectable reconcileCredentials, then advance the cleanup ticker
-	// (triggerCredentialChanges) to expire the deprecated key — the same path the periodic ticker
-	// uses in production.
+	// setup through the legacy UpdateCredential API (with an injected time), then advance the cleanup
+	// ticker (triggerCredentialChanges) to expire the deprecated key — the same path the periodic
+	// ticker uses in production.
 	start := time.Unix(1000, 0)
 
-	// Upon re-anchoring to key2, the original key should still be valid for an hour.
-	require.NoError(t, envImpl.reconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithSDKKey(key2).WithAnchorSDKKey(key2).
-			WithExpiringSDKKey(envConfig.SDKKey, start.Add(1*time.Hour))),
-		start))
+	// Upon rotating to key2, the original key should still be valid for an hour.
+	envImpl.UpdateCredential(NewCredentialUpdate(key2).
+		WithGracePeriod(envConfig.SDKKey, start.Add(1 * time.Hour)).
+		WithTime(start))
 
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
@@ -375,7 +373,7 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	// open an upstream client.
 	require.NoError(t, env.ReconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithSDKKey(envConfig.SDKKey).WithAnchorSDKKey(envConfig.SDKKey).
+			WithPrimarySDKKey(envConfig.SDKKey).
 			WithSDKKey(nonAnchorKey1).
 			WithSDKKey(nonAnchorKey2))))
 

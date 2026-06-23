@@ -136,11 +136,13 @@ func TestAutoConfigInitWithExpiringSDKKey(t *testing.T) {
 	}
 	initialEvent := makeAutoConfPutEvent(envWithKeys)
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
-		// locally but shares the anchor's connection (anchor-only upstream client).
-		anchorClient := p.awaitClient()
-		assert.Equal(t, newKey, anchorClient.Key)
-		p.shouldNotCreateClient(200 * time.Millisecond)
+		client1 := p.awaitClient()
+		client2 := p.awaitClient()
+		if client1.Key == oldKey {
+			client1, client2 = client2, client1
+		}
+		assert.Equal(t, newKey, client1.Key)
+		assert.Equal(t, oldKey, client2.Key)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
@@ -218,11 +220,13 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		p.stream.Enqueue(makeAutoConfPatchEvent(envWithKeys))
 
-		// Only the anchor (newKey) opens an upstream client; the expiring oldKey is accepted
-		// locally but shares the anchor's connection (anchor-only upstream client).
-		anchorClient := p.awaitClient()
-		assert.Equal(t, newKey, anchorClient.Key)
-		p.shouldNotCreateClient(200 * time.Millisecond)
+		client1 := p.awaitClient()
+		client2 := p.awaitClient()
+		if client1.Key == oldKey {
+			client1, client2 = client2, client1
+		}
+		assert.Equal(t, newKey, client1.Key)
+		assert.Equal(t, oldKey, client2.Key)
 
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
@@ -233,38 +237,10 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		paramsWithOldKey := envWithKeys.params()
 		paramsWithOldKey.SDKKey = oldKey
 		p.assertEnvLookup(env, paramsWithOldKey)
-	})
-}
 
-// When addEnvironment fails, the auto-config handler must not go on to call ReconcileCredentials on
-// the nil EnvContext it got back. This is only reachable when the payload also carries an expiring
-// SDK key (the gate that triggers the reconcile). We force the failure deterministically by closing
-// the Relay first, so addEnvironment returns errAlreadyClosed with a nil env.
-func TestAutoConfigAddEnvironmentWithExpiringSDKKeyDoesNotPanicWhenInitFails(t *testing.T) {
-	newKey := c.SDKKey("newsdkkey")
-	oldKey := c.SDKKey("oldsdkkey")
-	envWithKeys := testAutoConfEnv1
-	envWithKeys.sdkKey = envfactory.SDKKeyRep{
-		Value: newKey,
-		Expiring: envfactory.ExpiringKeyRep{
-			Value:     oldKey,
-			Timestamp: ldtime.UnixMillisNow() + 100000,
-		},
-	}
-
-	initialEvent := makeAutoConfPutEvent()
-	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
-		params := envWithKeys.params()
-		require.True(t, params.ExpiringSDKKey.Defined(),
-			"precondition: params must carry an expiring SDK key to reach the reconcile branch")
-
-		// Closing the Relay makes the next addEnvironment return (nil, nil, errAlreadyClosed).
-		require.NoError(t, p.relay.Close())
-
-		actions := &relayAutoConfigActions{r: p.relay}
-		require.NotPanics(t, func() {
-			actions.AddEnvironment(params)
-		}, "AddEnvironment must not dereference a nil EnvContext when addEnvironment fails")
+		if !helpers.AssertChannelNotClosed(t, client2.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
+			t.FailNow()
+		}
 	})
 }
 
