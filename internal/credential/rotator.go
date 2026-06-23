@@ -254,6 +254,11 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod
 	}
 	previous := r.primaryMobileKey
 	r.primaryMobileKey = mobileKey
+	// Keep the accepted-set map (the source of truth for PrimaryCredentials) consistent with the
+	// legacy rotation path.
+	if _, ok := r.acceptedMobileKeys[mobileKey]; !ok {
+		r.acceptedMobileKeys[mobileKey] = &acceptedKeyInfo{}
+	}
 	delete(r.deprecatedMobileKeys, mobileKey)
 	r.additions = append(r.additions, mobileKey)
 	if !previous.Defined() {
@@ -261,6 +266,7 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod
 		return
 	}
 	if grace == nil {
+		delete(r.acceptedMobileKeys, previous)
 		r.expirations = append(r.expirations, previous)
 		r.loggers.Infof("Mobile key %s was rotated, new primary mobile key is %s", previous.Masked(), mobileKey.Masked())
 		return
@@ -282,6 +288,11 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	}
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
+	// Keep the accepted-set map (the source of truth for PrimaryCredentials) consistent with the
+	// legacy rotation path.
+	if _, ok := r.acceptedSDKKeys[newKey]; !ok {
+		r.acceptedSDKKeys[newKey] = &acceptedKeyInfo{}
+	}
 	r.additions = append(r.additions, newKey)
 	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
 
@@ -290,6 +301,7 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 
 func (r *Rotator) immediatelyRevoke(key config.SDKKey) {
 	if key.Defined() {
+		delete(r.acceptedSDKKeys, key)
 		r.expirations = append(r.expirations, key)
 		r.loggers.Infof("SDK key %s has been immediately revoked", key.Masked())
 	}
