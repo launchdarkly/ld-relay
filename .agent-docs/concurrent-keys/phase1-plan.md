@@ -40,6 +40,31 @@ The "single-key behavior unchanged at every PR boundary" invariant is the load-b
 
 ---
 
+## 2.1 Milestone view (delivery-oriented)
+
+§2's waves are about *sequencing*; this is about *demonstrable capability*. The work groups into five milestones; each is "done" when its end-to-end acceptance scenarios (§7) pass.
+
+| Milestone | Capability | Tickets | Status |
+|---|---|---|---|
+| **M1 — Parse the new payload** | Read `sdkKeys[]`/`mobileKeys[]` (+ per-key expiry); old relays ignore the new fields | SDK-2545 (T3.a) | ✅ Done (#702) |
+| **M2 — Anchor + multi-key auth** | Accept N keys; one upstream connection via the anchor; every key authenticates downstream | SDK-2538 (foundation) + SDK-2546 (helper, #713) + SDK-2547 (wire handlers) | In progress |
+| **M3 — Expiry & rotation** | Grace-period expiry/deprecation; re-anchoring; targeted downstream disconnects | SDK-2539 (ticker, #714) + SDK-2542 (re-anchor) + SDK-2577 (rotation leak cleanup) | Not started |
+| **M4 — Big segments after re-anchor** | Big-segment sync survives a re-anchor | SDK-2543 (T2.d) | Not started |
+| **M5 — Handler fan-out** | One handler per `(filter, provider)` instead of per credential | SDK-2544 (T2.e) | Not started |
+
+### Decision (2026-06-23): finish M2 before heavy M3; split T1.b into foundation + wiring
+
+To keep PRs reviewable and land a working multi-key milestone before taking on rotation, **T1.b (SDK-2538 / #712) is reduced to a behavior-neutral foundation**:
+
+- The `AcceptedSet` data model (incl. per-key expiry *fields* — the full payload is represented), the `Rotator.Reconcile` add / set-anchor / remove core, the anchor-only upstream client (absorbed from T2.a / SDK-2540), and the `ReconcileCredentials` API.
+- It does **not** remove `UpdateCredential` and does **not** change the action handlers — so it carries zero production behavior change. Existing rotation keeps flowing through `UpdateCredential`.
+
+**M2 is completed by T3.b (SDK-2546 / #713) + T3.c (SDK-2547):** the helper builds the `AcceptedSet` from the full parsed key arrays, and T3.c wires both handlers to `ReconcileCredentials`, removes `UpdateCredential`, and validates the payload. There is no window where both credential paths are live — the handler switch and the `UpdateCredential` deletion land together in T3.c.
+
+**M3 owns the rotation behavior:** the grace-period deprecation, the cleanup ticker (SDK-2539), the robust re-anchor mechanism, and the "re-queue an already-accepted key when it becomes the primary/anchor" fixes (both SDK and mobile, SDK-2542). Re-anchoring (changing the anchor) is M3, not M2.
+
+---
+
 ## 3. Task list
 
 Each task has: ticket name, files touched, dependencies, estimates. Acceptance criteria live in the JIRA ticket; rationale lives in [`phase1-design.md`](./phase1-design.md).
@@ -147,6 +172,8 @@ Reviewer-friendly comment to add at the top of the new fields: `// Consumed by T
 
 ### T1.b — `ReconcileCredentials` API
 
+> **Scope reduced (2026-06-23) — see §2.1.** T1.b is now a behavior-neutral *foundation*: the `AcceptedSet` model (incl. per-key expiry fields), `Rotator.Reconcile` (add / set-anchor / remove), the anchor-only client, and the `ReconcileCredentials` API. It **keeps** `UpdateCredential` and does **not** touch the action handlers. The migration + removal described below moved to **T3.c (SDK-2547)**; the rotation refinements moved to T1.c (SDK-2539) / T2.c (SDK-2542). The original note is retained for context.
+
 The new method replaces `UpdateCredential` *everywhere* — both call sites migrate in this same PR, and `UpdateCredential` + supporting types are removed. There are no external consumers to preserve.
 
 Today's API surface (to be removed):
@@ -189,6 +216,8 @@ The switch case at `env_context_impl.go:448-463` currently calls `startSDKClient
 `GetClient()` at `env_context_impl.go:580-594` already returns `c.clients[c.keyRotator.SDKKey()]`. With anchor-only client construction (T2.a), this becomes "return the only client." Verify behavior in tests; small change.
 
 ### T2.c — Re-anchor mechanism
+
+> **Added scope (2026-06-23):** T2.c also owns the "re-queue an already-accepted key when it becomes the primary" fixes from SDK-2538 / #712 review. **SDK:** when `Reconcile` moves the anchor onto an already-accepted non-anchor key, re-queue it as an addition so `addCredential` runs the anchor-only setup. **Mobile:** when the primary mobile key switches to an already-accepted mobile key, re-queue it so event forwarding follows, and gate `addCredential`'s mobile side-effect on the primary mobile key (Bugbot "Primary mobile switch skips setup", Medium). The SDK fix currently lives in #712 and moves here with the rotation work.
 
 The big one. PoC findings (design §7 + [`phase1-T0-reanchor-poc-findings.md`](./phase1-T0-reanchor-poc-findings.md)) turned this from "TBD per PoC" into a concrete specification:
 
@@ -239,6 +268,8 @@ A new helper (in `internal/envfactory/` or similar) that both `autoconfig_action
 - Treat the legacy `sdkKey.expiring{}` field as write-only — read only the array.
 
 ### T3.c — Wire both action handlers
+
+> **This is the PR that completes Milestone 2 (2026-06-23) — see §2.1.** Beyond wiring the handlers, T3.c now also owns (moved from T1.b / SDK-2538): **removing `UpdateCredential` / `CredentialUpdate` and migrating both call sites**, and **building the `AcceptedSet` from the full parsed key arrays** (`params.AcceptedSDKKeys` / `AcceptedMobileKeys`, incl. per-key expiry) rather than the singular fields. Plus the **undefined/malformed-credential validation** below (referenced on #712 as "SDK-2534" — a mis-cite; it belongs here): catch undefined/empty credentials and a structurally-malformed payload (anchor `value` absent from `sdkKeys[]`) at parse/process time and surface a structured error instead of silently dropping.
 
 Replace `UpdateCredential` calls with the new `ReconcileCredentials` API, via the shared helper. RAC handler and offline handler updates land in one PR (separate commits per Aaron's preference).
 
