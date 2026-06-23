@@ -168,7 +168,11 @@ func testSDKKeyExpires(t *testing.T, manager *integrationTestManager) {
 			fileName := "archive.tar.gz"
 			filePath := filepath.Join(manager.relaySharedDir, fileName)
 
-			const keyGracePeriod = 5 * time.Second
+			// 30s gives plenty of margin for multiple sequential staging API calls to succeed
+			// even with round-trip latency and clock skew between the CI runner and staging.
+			// Previously 5s was too tight: the second rotateSDKKey call could arrive at staging
+			// with an expiry at-or-before "now", causing a 400 Bad Request.
+			const keyGracePeriod = 30 * time.Second
 			// Relay will check for expired keys at this interval.
 			const cleanupInterval = 100 * time.Millisecond
 

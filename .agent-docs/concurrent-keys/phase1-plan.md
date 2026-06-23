@@ -358,16 +358,79 @@ These live in T5 and run continuously:
 - **T5.a (test harness)**: enables the per-sub-task tests above.
 - **T5.b (events payload regression)**: catches schema drift in event payloads.
 
+### End-to-end acceptance scenarios
+
+The complete catalog of E2E scenarios that prove Phase 1 works. Each scenario is implemented as an integration test in the sub-task(s) listed in **Owner**. The catalog as a whole is the release-readiness coverage check — if every row's tests pass, the project is functionally complete.
+
+These scenarios live in code (as integration tests). This list is the *registry* — the single place to ask "what does done look like?"
+
+#### Multi-key authentication
+
+| # | Scenario | Owner |
+|---|---|---|
+| 1 | Env with N SDK keys: every key authenticates downstream SDKs correctly; one upstream connection serves all. | T2.a, T3.c |
+| 2 | Env with M mobile keys: every mobile key authenticates downstream SDKs correctly. | T1.c, T3.c |
+| 3 | Mixed accepted set (SDK + mobile + env ID): all credentials route to the same env context. | T2.a, T3.c |
+
+#### Re-anchoring
+
+| # | Scenario | Owner |
+|---|---|---|
+| 4 | Voluntary anchor rotation: `sdkKey.value` changes; downstream SSE survives; events continue under the new anchor. | T2.c |
+| 5 | Default expiry-driven rotation: backend marks current default as expiring and promotes a new one; relay re-anchors; downstream survives. | T2.c, T1.c |
+| 6 | New-anchor client init fails: rollback; anchor pointer stays on old key; previous accepted set preserved; structured error logged + alarmed. | T2.c |
+| 7 | Big-segment sync remains functional after re-anchor (recreated or re-wired per T2.d's choice). | T2.d |
+
+#### Key lifecycle
+
+| # | Scenario | Owner |
+|---|---|---|
+| 8 | Add a new key: joins the accepted set; existing downstream SDKs undisturbed. | T3.c |
+| 9 | Graceful expiry: non-anchor key with `expiry` set; ticker drops it at the timestamp; *only that key's* downstream SDKs disconnect. | T1.c |
+| 10 | Immediate revocation: key omitted from next RAC patch; reconcile drops it now; targeted disconnect. | T1.c, T3.c |
+| 11 | De-expiry: existing entry's `expiry` removed in next payload; scheduled drop cancelled. | T3.c |
+| 12 | Rename: array entry's `key` identifier changes while `value` is preserved; no credential disturbance; status endpoint reflects the new identifier. | T3.c, T4 |
+| 13 | Mixed update (add + re-anchor + remove in a single payload): operations apply in order `add → re-anchor → remove`. | T3.c, T2.c |
+
+#### Defensive behavior
+
+| # | Scenario | Owner |
+|---|---|---|
+| 14 | Malformed RAC payload (`sdkKey.value` not present in `sdkKeys[]`): previous accepted set preserved; structured error + alarm logged; RAC stream disconnects and reconnects with jitter; subsequent fresh `put` from backend restores correct state. | T3.b, T3.c |
+
+#### Sources
+
+| # | Scenario | Owner |
+|---|---|---|
+| 15 | RAC multi-key path: scenarios 1–14 work end-to-end via RAC. | T3.c (RAC handler) |
+| 16 | Offline archive multi-key path: scenarios 1–13 work end-to-end via filedata reload. | T3.c (offline handler) |
+
+#### Backward compatibility
+
+| # | Scenario | Owner |
+|---|---|---|
+| 17 | Single-key env behaves identically to v8 (the regression invariant — checked at every PR boundary, not just at release). | All sub-PRs; full test suite |
+| 18 | Pre-Phase-1 v8 relay parses new-format payload gracefully (additive guarantee). | T3.a |
+| 19 | Events payload schema preserved across Phase 1: every field identical to v8 except the credential. | T5.b |
+
+#### Observability
+
+| # | Scenario | Owner |
+|---|---|---|
+| 20 | Status endpoint: scalar fields = anchor (obscured); arrays = full accepted set; per-key `expiry` visible when present; entries stably ordered (anchor first, identifier-alphabetical). | T4 |
+| 21 | Analytics events forwarded under the env's anchor key per kind, regardless of which accepted key the request came in on. | T2.c, T5.b |
+| 22 | Diagnostic events proxy verbatim under the originating credential (deliberate asymmetry — preserved, not collapsed). | T2.c |
+
 ### Release-readiness checklist
 
 Before merging `feat/concurrent-keys` to v8 (and again before deploying to production), run through:
 
 1. All Wave 2 sub-tasks merged and tests passing.
-2. End-to-end customer-journey integration tests pass (assembled from T5.a + per-task acceptance tests).
+2. **Every scenario in "End-to-end acceptance scenarios" above passes** (the catalog is the explicit coverage check).
 3. Events payload regression test (T5.b) passes against the full feature branch.
-4. Single-key behavior verified identical to v8's baseline via full test suite.
+4. Single-key behavior verified identical to v8's baseline via the full test suite.
 5. Status endpoint manually inspected for both single-key and multi-key envs.
-6. Defensive payload tests: malformed RAC payload → relay logs + preserves previous state.
+6. Defensive payload tests: malformed RAC payload → relay logs + preserves previous state + reconnects RAC stream.
 
 This is a *checklist*, not a discrete task. Touched at release readiness, not as a separate sub-PR.
 
