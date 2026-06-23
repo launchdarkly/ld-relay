@@ -116,6 +116,37 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.PrimaryCredentials())
 }
 
+func TestReconcileReanchorToAlreadyAcceptedKeyRequeuesAddition(t *testing.T) {
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	other := config.SDKKey("other")
+	now := time.Now()
+
+	// Accept both keys with anchor as the primary; other is accepted as a non-anchor key.
+	require.NoError(t, r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other).WithAnchorSDKKey(anchor)), now))
+	additions, _ := r.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{anchor, other}, additions)
+
+	// Re-anchor onto other, which is already accepted. It must be re-queued as an addition so the
+	// caller runs the anchor-only setup (upstream client start, event-forwarding swap) for it —
+	// re-anchoring onto an existing non-anchor key is the backend's default-rotation sequence.
+	require.NoError(t, r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other).WithAnchorSDKKey(other)), now))
+	additions, expirations := r.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{other}, additions)
+	assert.Empty(t, expirations)
+	assert.Equal(t, other, r.SDKKey())
+
+	// Reconciling again with the same anchor is a no-op: the anchor is unchanged, so it is not
+	// re-queued (which would redundantly restart the upstream client).
+	require.NoError(t, r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other).WithAnchorSDKKey(other)), now))
+	additions, expirations = r.StepTime(now)
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+}
+
 func TestReconcileMalformedAnchorPreservesState(t *testing.T) {
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")

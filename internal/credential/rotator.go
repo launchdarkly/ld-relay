@@ -392,6 +392,8 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) error {
 // reconcileSDKKeys diffs the desired SDK keys against the accepted set. The caller must hold the
 // write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
+	previousAnchor := r.primarySdkKey
+
 	// Build the desired set as key -> expiry (nil = permanent). Already-expired entries are dropped,
 	// and the anchor is always permanent regardless of any expiry the payload may carry for it.
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
@@ -406,6 +408,14 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	for key, expiry := range desired {
 		if info, ok := r.acceptedSDKKeys[key]; ok {
 			info.expiry = expiry
+			// Re-anchoring onto a key that was already accepted as a non-anchor key still needs the
+			// anchor-only setup that addCredential runs for additions: starting the upstream client
+			// and repointing event forwarding. It wasn't queued as an addition above because it
+			// already existed, so queue it now. (A brand-new anchor is queued by the else branch; a
+			// reconcile that leaves the anchor unchanged is skipped, avoiding a redundant restart.)
+			if key == anchor && key != previousAnchor {
+				r.additions = append(r.additions, key)
+			}
 		} else {
 			r.acceptedSDKKeys[key] = &acceptedKeyInfo{expiry: expiry}
 			r.additions = append(r.additions, key)
