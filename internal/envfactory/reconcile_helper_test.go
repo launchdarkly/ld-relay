@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,9 +15,18 @@ import (
 // expiry1 is a fixed future timestamp used in tests to represent an expiring key.
 var expiry1 = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 
+// mustBuild builds the AcceptedSet from b, failing the test if Build returns an error. It is used to
+// construct the expected set for comparison.
+func mustBuild(t *testing.T, b *credential.AcceptedSetBuilder) credential.AcceptedSet {
+	t.Helper()
+	set, err := b.Build()
+	require.NoError(t, err)
+	return set
+}
+
 // makeParams is a convenience builder for EnvironmentParams test fixtures.
 // sdkKey is the anchor, sdkKeys are the full accepted set (must include the anchor),
-// mobileKey is the single mobile key to include.
+// mobileKey is the single (primary) mobile key to include.
 func makeParams(sdkKey config.SDKKey, sdkKeys []AcceptedSDKKey, mobileKey config.MobileKey) EnvironmentParams {
 	mob := []AcceptedMobileKey{}
 	if mobileKey.Defined() {
@@ -26,6 +35,7 @@ func makeParams(sdkKey config.SDKKey, sdkKeys []AcceptedSDKKey, mobileKey config
 	return EnvironmentParams{
 		EnvID:              config.EnvironmentID("env-abc"),
 		SDKKey:             sdkKey,
+		MobileKey:          mobileKey,
 		AcceptedSDKKeys:    sdkKeys,
 		AcceptedMobileKeys: mob,
 	}
@@ -44,10 +54,10 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
-	expected := relayenv.NewAcceptedSet().
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
-		WithMobileKey("mob-primary")
+		WithPrimarySDKKey("sdk-anchor").
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
 
@@ -58,8 +68,8 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 		"sdk-anchor",
 		[]AcceptedSDKKey{
 			{Key: "default", Value: "sdk-anchor"},
-			{Key: "service-a", Value: "sdk-service-a"},                    // permanent, non-anchor
-			{Key: "old-key", Value: "sdk-old", Expiry: expiry1},          // expiring, non-anchor
+			{Key: "service-a", Value: "sdk-service-a"},          // permanent, non-anchor
+			{Key: "old-key", Value: "sdk-old", Expiry: expiry1}, // expiring, non-anchor
 		},
 		"mob-primary",
 	)
@@ -68,12 +78,12 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
-	expected := relayenv.NewAcceptedSet().
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
+		WithPrimarySDKKey("sdk-anchor").
 		WithSDKKey("sdk-service-a").
 		WithExpiringSDKKey("sdk-old", expiry1).
-		WithMobileKey("mob-primary")
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
 
@@ -131,43 +141,45 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	require.NoError(t, errNoExpiry)
 
 	// The set built without expiry must include sdk-old as a permanent key.
-	expectedPermanent := relayenv.NewAcceptedSet().
+	expectedPermanent := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
+		WithPrimarySDKKey("sdk-anchor").
 		WithSDKKey("sdk-old"). // permanent, no expiry
-		WithMobileKey("mob-primary")
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expectedPermanent, setNoExpiry)
 
 	// Sanity: the expiring and non-expiring versions are different.
 	assert.NotEqual(t, setWithExpiry, setNoExpiry)
 }
 
-// TestBuildAcceptedSet_MalformedPayload verifies that when the anchor (params.SDKKey) is not
-// present in AcceptedSDKKeys, BuildAcceptedSet returns a *relayenv.MalformedCredentialSetError
-// and an empty AcceptedSet.
-func TestBuildAcceptedSet_MalformedPayload(t *testing.T) {
+// TestBuildAcceptedSet_AnchorNotInArray verifies that an anchor absent from AcceptedSDKKeys is no
+// longer rejected here: WithPrimarySDKKey adds and designates the anchor regardless, so the
+// resulting set contains both the anchor and the array entry. Structural validation of the wire
+// payload (anchor-absent-from-array) happens upstream when the payload is parsed into params.
+func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	params := makeParams(
 		"sdk-anchor",
 		[]AcceptedSDKKey{
-			{Key: "other-key", Value: "sdk-other"}, // anchor NOT here
+			{Key: "other-key", Value: "sdk-other"}, // anchor NOT in the array
 		},
 		"mob-primary",
 	)
 	set, anchor, err := BuildAcceptedSet(params)
 
-	require.Error(t, err)
-	var malformed *relayenv.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed), "error should be *relayenv.MalformedCredentialSetError")
+	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
-	assert.Equal(t, relayenv.NewAcceptedSet(), set, "AcceptedSet must be empty on malformed payload")
-	// The error must carry the offending anchor so the caller/log identifies it (masked).
-	assert.Equal(t, config.SDKKey("sdk-anchor"), malformed.Anchor)
-	assert.Contains(t, malformed.Error(), "not present in the accepted set")
+
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithPrimarySDKKey("sdk-anchor"). // added + designated even though absent from the array
+		WithSDKKey("sdk-other").
+		WithPrimaryMobileKey("mob-primary"))
+	assert.Equal(t, expected, set)
 }
 
-// TestBuildAcceptedSet_MalformedPayload_AnchorUndefined verifies that an undefined anchor
-// (empty SDKKey) is treated as a malformed payload.
-func TestBuildAcceptedSet_MalformedPayload_AnchorUndefined(t *testing.T) {
+// TestBuildAcceptedSet_AnchorUndefined verifies that an undefined anchor (empty SDKKey) yields a
+// *credential.MalformedCredentialSetError: no anchor was designated, so Build rejects the set.
+func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 	params := makeParams(
 		"", // undefined anchor
 		[]AcceptedSDKKey{
@@ -178,13 +190,25 @@ func TestBuildAcceptedSet_MalformedPayload_AnchorUndefined(t *testing.T) {
 	_, _, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
-	var malformed *relayenv.MalformedCredentialSetError
+	var malformed *credential.MalformedCredentialSetError
 	require.True(t, errors.As(err, &malformed))
 	// An undefined anchor must produce the "missing" message, not the "not present" one. This
 	// only holds if Anchor is an untyped nil — a boxed zero-value config.SDKKey would be non-nil
 	// and route Error() down the wrong branch.
 	assert.Nil(t, malformed.Anchor)
 	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
+}
+
+// TestBuildAcceptedSet_NoSDKKeys verifies that when neither an anchor nor any array SDK keys are
+// present, Build returns an error (the set has no SDK key at all).
+func TestBuildAcceptedSet_NoSDKKeys(t *testing.T) {
+	params := EnvironmentParams{
+		SDKKey:             "", // undefined anchor
+		AcceptedSDKKeys:    []AcceptedSDKKey{},
+		AcceptedMobileKeys: []AcceptedMobileKey{},
+	}
+	_, _, err := BuildAcceptedSet(params)
+	require.Error(t, err, "a set with no SDK key at all must be rejected")
 }
 
 // TestBuildAcceptedSet_MixedUpdate verifies add + re-anchor + remove in a single params update
@@ -211,12 +235,12 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-new-anchor"), anchor)
 
-	expected := relayenv.NewAcceptedSet().
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-new-anchor").
+		WithPrimarySDKKey("sdk-new-anchor").
 		WithSDKKey("sdk-b").
 		WithSDKKey("sdk-c").
-		WithMobileKey("mob-primary")
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
 
@@ -237,21 +261,23 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
-	// Anchor is permanent (WithSDKKey), not expiring — identical to a payload with no anchor expiry.
-	expected := relayenv.NewAcceptedSet().
+	// Anchor is permanent (WithPrimarySDKKey), not expiring — identical to a payload with no anchor expiry.
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
+		WithPrimarySDKKey("sdk-anchor").
 		WithSDKKey("sdk-service-a").
-		WithMobileKey("mob-primary")
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
 
 // TestBuildAcceptedSet_MultipleMobileKeys verifies that all accepted mobile keys are included,
-// exercising the len(AcceptedMobileKeys) > 1 path.
+// exercising the len(AcceptedMobileKeys) > 1 path, and that the wire's mobKey is designated as the
+// primary mobile key.
 func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 	params := EnvironmentParams{
 		EnvID:           "env-abc",
 		SDKKey:          "sdk-anchor",
+		MobileKey:       "mob-primary",
 		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
 		AcceptedMobileKeys: []AcceptedMobileKey{
 			{Key: "mob-1", Value: "mob-primary"},
@@ -261,12 +287,40 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	expected := relayenv.NewAcceptedSet().
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
+		WithPrimarySDKKey("sdk-anchor").
 		WithMobileKey("mob-primary").
-		WithMobileKey("mob-secondary")
+		WithMobileKey("mob-secondary").
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
+}
+
+// TestBuildAcceptedSet_ExpiringMobileKey verifies that a mobile key carrying a non-zero Expiry is
+// plumbed through as an expiring key (parallel to the expiring-SDK-key path), while the permanent
+// primary mobile key is designated. This is what makes per-key mobile expiry work end-to-end:
+// params carry it → BuildAcceptedSet plumbs it into the AcceptedSet → Reconcile acts on it.
+func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
+	params := EnvironmentParams{
+		EnvID:           "env-abc",
+		SDKKey:          "sdk-anchor",
+		MobileKey:       "mob-primary",
+		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+		AcceptedMobileKeys: []AcceptedMobileKey{
+			{Key: "mob-1", Value: "mob-primary"},                // permanent primary
+			{Key: "mob-old", Value: "mob-old", Expiry: expiry1}, // expiring
+		},
+	}
+	set, _, err := BuildAcceptedSet(params)
+
+	require.NoError(t, err)
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithPrimarySDKKey("sdk-anchor").
+		WithMobileKey("mob-primary").
+		WithExpiringMobileKey("mob-old", expiry1).
+		WithPrimaryMobileKey("mob-primary"))
+	assert.Equal(t, expected, set, "expiring mobile key must land as an expiring key in the set")
 }
 
 // TestBuildAcceptedSet_TrustTheArray verifies that the legacy sdkKey.expiring slot is not
@@ -276,8 +330,9 @@ func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
 	// Simulate an old-relay payload where ExpiringSDKKey is populated from sdkKey.expiring,
 	// but AcceptedSDKKeys only has the anchor (no expiring key in the array).
 	params := EnvironmentParams{
-		EnvID:  "env-abc",
-		SDKKey: "sdk-anchor",
+		EnvID:     "env-abc",
+		SDKKey:    "sdk-anchor",
+		MobileKey: "mob-primary",
 		ExpiringSDKKey: ExpiringSDKKey{ // legacy field — must NOT be consulted
 			Key:        "sdk-legacy-expiring",
 			Expiration: expiry1,
@@ -289,22 +344,9 @@ func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
 	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	expected := relayenv.NewAcceptedSet().
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithSDKKey("sdk-anchor").
-		WithMobileKey("mob-primary")
+		WithPrimarySDKKey("sdk-anchor").
+		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set, "legacy sdkKey.expiring slot must not appear in AcceptedSet")
-}
-
-// TestBuildAcceptedSet_EmptyArrays verifies the edge case where AcceptedSDKKeys is empty:
-// the anchor cannot be found, so a malformed-payload error is returned.
-func TestBuildAcceptedSet_EmptyArrays(t *testing.T) {
-	// Edge case: AcceptedSDKKeys is empty (which means malformed, since anchor can't be found).
-	params := EnvironmentParams{
-		SDKKey:             "sdk-anchor",
-		AcceptedSDKKeys:    []AcceptedSDKKey{},
-		AcceptedMobileKeys: []AcceptedMobileKey{},
-	}
-	_, _, err := BuildAcceptedSet(params)
-	require.Error(t, err, "empty AcceptedSDKKeys should be malformed since anchor is not present")
 }
