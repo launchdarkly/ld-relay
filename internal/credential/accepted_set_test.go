@@ -15,7 +15,7 @@ func newTestRotator() *Rotator {
 	return NewRotator(ldlogtest.NewMockLog().Loggers)
 }
 
-func TestAcceptedSetBuilderRequiresSDKKey(t *testing.T) {
+func TestAcceptedSetBuilderValidation(t *testing.T) {
 	// A set with no SDK key is a caller error, not a silent no-op.
 	_, err := NewAcceptedSetBuilder().
 		WithMobileKey(config.MobileKey("mob")).
@@ -23,10 +23,28 @@ func TestAcceptedSetBuilderRequiresSDKKey(t *testing.T) {
 		Build()
 	require.ErrorIs(t, err, errAcceptedSetMissingSDKKey)
 
-	// With at least one SDK key, Build succeeds.
-	set, err := NewAcceptedSetBuilder().WithSDKKey(config.SDKKey("sdk")).Build()
+	var malformed *MalformedCredentialSetError
+
+	// An SDK key with no designated anchor is malformed.
+	_, err = NewAcceptedSetBuilder().WithSDKKey(config.SDKKey("sdk")).Build()
+	require.ErrorAs(t, err, &malformed)
+
+	// A designated anchor that isn't among the SDK keys is malformed.
+	_, err = NewAcceptedSetBuilder().
+		WithSDKKey(config.SDKKey("sdk")).
+		WithAnchorSDKKey(config.SDKKey("other")).
+		Build()
+	require.ErrorAs(t, err, &malformed)
+	assert.Equal(t, config.SDKKey("other"), malformed.Anchor)
+
+	// With an SDK key designated as the anchor, Build succeeds.
+	set, err := NewAcceptedSetBuilder().
+		WithSDKKey(config.SDKKey("sdk")).
+		WithAnchorSDKKey(config.SDKKey("sdk")).
+		Build()
 	require.NoError(t, err)
 	assert.True(t, set.hasSDKKey(config.SDKKey("sdk")))
+	assert.Equal(t, config.SDKKey("sdk"), set.primarySdkKey)
 }
 
 func TestMalformedCredentialSetErrorMessage(t *testing.T) {
@@ -51,7 +69,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor)), anchor, now))
+	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithAnchorSDKKey(anchor)), now))
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -68,7 +86,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	now := time.Now()
 
 	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other)), anchor, now))
+		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other).WithAnchorSDKKey(anchor)), now))
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
@@ -87,10 +105,12 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	now := time.Now()
 
 	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithMobileKey(mob1).WithMobileKey(mob2)), anchor, now))
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithSDKKey(anchor).WithAnchorSDKKey(anchor).
+			WithMobileKey(mob1).WithMobileKey(mob2).WithPrimaryMobileKey(mob1)), now))
 	additions, _ := r.StepTime(now)
 
-	// Every mobile key is accepted; the first is the primary.
+	// Every mobile key is accepted; the designated one is the primary.
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, additions)
 	assert.Equal(t, mob1, r.MobileKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.PrimaryCredentials())
@@ -101,14 +121,20 @@ func TestReconcileMalformedAnchorPreservesState(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor)), anchor, now))
+	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithAnchorSDKKey(anchor)), now))
 	r.StepTime(now)
 
-	// The anchor is not among the set's SDK keys: malformed, no mutation.
-	bad := mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(config.SDKKey("other")))
 	var malformed *MalformedCredentialSetError
-	require.ErrorAs(t, r.Reconcile(bad, config.SDKKey("not-in-set"), now), &malformed)
 
+	// A set whose anchor is not among its SDK keys is rejected at Build, before it can reach Reconcile.
+	_, err := NewAcceptedSetBuilder().
+		WithSDKKey(config.SDKKey("other")).
+		WithAnchorSDKKey(config.SDKKey("not-in-set")).
+		Build()
+	require.ErrorAs(t, err, &malformed)
+
+	// Reconcile defends against a set with no anchor (e.g. the zero value): it makes no changes.
+	require.ErrorAs(t, r.Reconcile(AcceptedSet{}, now), &malformed)
 	additions, expirations := r.StepTime(now)
 	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
@@ -123,11 +149,13 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	now := time.Now()
 
 	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithSDKKey(other).WithMobileKey(mob)), anchor, now))
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithSDKKey(anchor).WithSDKKey(other).WithAnchorSDKKey(anchor).
+			WithMobileKey(mob).WithPrimaryMobileKey(mob)), now))
 	r.StepTime(now)
 
 	// Reconciling to just the anchor revokes the omitted server and mobile keys.
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor)), anchor, now))
+	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithAnchorSDKKey(anchor)), now))
 	additions, expirations := r.StepTime(now)
 
 	assert.Empty(t, additions)
@@ -144,13 +172,13 @@ func TestReconcileExpiringMobileKey(t *testing.T) {
 
 	require.NoError(t, r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithSDKKey(anchor).
-			WithMobileKey(permanent).
+			WithSDKKey(anchor).WithAnchorSDKKey(anchor).
+			WithMobileKey(permanent).WithPrimaryMobileKey(permanent).
 			WithExpiringMobileKey(expiring, start.Add(time.Hour))),
-		anchor, start))
+		start))
 	additions, expirations := r.StepTime(start)
 
-	// Both mobile keys are accepted (and added); the permanent one is the primary.
+	// Both mobile keys are accepted (and added); the designated one is the primary.
 	assert.ElementsMatch(t, []SDKCredential{anchor, permanent, expiring}, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, permanent, r.MobileKey())
@@ -176,13 +204,13 @@ func TestReconcileExpiringSDKKey(t *testing.T) {
 	start := time.Unix(1000, 0)
 
 	// Start anchored on the old key.
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(old)), old, start))
+	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(old).WithAnchorSDKKey(old)), start))
 	r.StepTime(start)
 
 	// Re-anchor onto anchor, keeping old valid (deprecated) for an hour.
 	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithExpiringSDKKey(old, start.Add(time.Hour))),
-		anchor, start))
+		mustBuild(t, NewAcceptedSetBuilder().WithSDKKey(anchor).WithAnchorSDKKey(anchor).WithExpiringSDKKey(old, start.Add(time.Hour))),
+		start))
 	additions, expirations := r.StepTime(start)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)

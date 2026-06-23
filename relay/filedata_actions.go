@@ -60,7 +60,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 			return
 		}
-		if err := env.ReconcileCredentials(set, ae.Params.SDKKey); err != nil {
+		if err := env.ReconcileCredentials(set); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 		}
 	}
@@ -99,7 +99,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 			return
 		}
-		if err := env.ReconcileCredentials(set, ae.Params.SDKKey); err != nil {
+		if err := env.ReconcileCredentials(set); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, ae.Params.Identifiers.GetDisplayName(), err)
 		}
 	}

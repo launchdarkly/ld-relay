@@ -121,7 +121,11 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 func (r *Rotator) primaryCredentials() []SDKCredential {
 	creds := make([]SDKCredential, 0, len(r.acceptedSDKKeys)+len(r.acceptedMobileKeys)+1)
 
-	// Anchor first, then any other accepted (non-deprecated) SDK keys.
+	// No caller relies on credential order, but emitting the primary explicitly is load-bearing: the
+	// legacy Rotate/RotateWithGrace paths set primarySdkKey/primaryMobileKey without populating the
+	// accepted-set maps, so a Rotate-set primary would otherwise be missing here. The map loops then
+	// skip the primary to avoid a duplicate in the Reconcile path, where it is in the map. Once Rotate
+	// is removed and Reconcile is the only writer, both the primary blocks and the skips can go away.
 	if r.primarySdkKey.Defined() {
 		creds = append(creds, r.primarySdkKey)
 	}
@@ -358,24 +362,28 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	return
 }
 
-// Reconcile updates the rotator to match set, with anchor designating the primary SDK key. It diffs
-// the desired accepted set against the current one and queues additions and expirations (drained by
-// the next StepTime call); SDK keys carrying a future expiry are recorded so the cleanup ticker
-// drops them later. SDK or mobile keys no longer present in the set are revoked immediately. An
-// undefined environment ID leaves the current one unchanged, since environments are removed via
-// teardown rather than reconcile.
+// Reconcile updates the rotator to match set. The set names its own anchor (the primary SDK key) and
+// primary mobile key. It diffs the desired accepted set against the current one and queues additions
+// and expirations (drained by the next StepTime call); SDK keys carrying a future expiry are
+// recorded so the cleanup ticker drops them later. SDK or mobile keys no longer present in the set
+// are revoked immediately. An undefined environment ID leaves the current one unchanged, since
+// environments are removed via teardown rather than reconcile.
 //
-// It returns a *MalformedCredentialSetError, without mutating any state, if anchor is not one of the
-// set's SDK keys.
-func (r *Rotator) Reconcile(set AcceptedSet, anchor config.SDKKey, now time.Time) error {
-	if !anchor.Defined() || !set.hasSDKKey(anchor) {
-		return &MalformedCredentialSetError{Anchor: anchor}
+// It returns a *MalformedCredentialSetError, without mutating any state, if the set's anchor is
+// undefined or not one of its SDK keys. AcceptedSetBuilder.Build already enforces this, so a set
+// obtained from the builder always reconciles cleanly; the guard defends against a zero-value set.
+func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) error {
+	if !set.primarySdkKey.Defined() {
+		return &MalformedCredentialSetError{Anchor: nil}
+	}
+	if !set.hasSDKKey(set.primarySdkKey) {
+		return &MalformedCredentialSetError{Anchor: set.primarySdkKey}
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.reconcileSDKKeys(set, anchor, now)
+	r.reconcileSDKKeys(set, set.primarySdkKey, now)
 	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
 	return nil
@@ -469,22 +477,10 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	}
 
 	// The primary mobile key — used where a single mobile key is required (e.g. event forwarding) —
-	// is the first permanent key in the set, falling back to the first non-expired key, else empty.
-	r.primaryMobileKey = ""
-	for _, k := range set.mobileKeys {
-		if k.expiry == nil {
-			r.primaryMobileKey = k.key
-			break
-		}
-	}
-	if !r.primaryMobileKey.Defined() {
-		for _, k := range set.mobileKeys {
-			if _, ok := desired[k.key]; ok {
-				r.primaryMobileKey = k.key
-				break
-			}
-		}
-	}
+	// is the one the set designates (the wire's singular mobKey). The set carries it explicitly, so
+	// the choice doesn't depend on reconcile-time iteration. It is always a permanent key, so it is
+	// never dropped as expired; an empty value means the set declared no mobile key.
+	r.primaryMobileKey = set.primaryMobileKey
 }
 
 // reconcileEnvironmentID updates the environment ID if the set carries a new one. The caller must

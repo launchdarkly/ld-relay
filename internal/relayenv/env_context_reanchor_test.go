@@ -104,10 +104,11 @@ func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now ti
 	t.Helper()
 	set, err := credential.NewAcceptedSetBuilder().
 		WithSDKKey(newKey).
+		WithAnchorSDKKey(newKey).
 		WithExpiringSDKKey(oldKey, now.Add(time.Hour)).
 		Build()
 	require.NoError(t, err)
-	require.NoError(t, env.(*envContextImpl).reconcileCredentials(set, newKey, now))
+	require.NoError(t, env.(*envContextImpl).reconcileCredentials(set, now))
 }
 
 // -----------------------------------------------------------------------------------------------

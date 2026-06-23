@@ -17,12 +17,15 @@ const (
 )
 
 // acceptedSetFromParams builds the full accepted credential set from an environment's parameters,
-// using the singular SDK/mobile/env fields plus the optional expiring SDK key.
+// using the singular SDK/mobile/env fields plus the optional expiring SDK key. The singular SDK and
+// mobile keys are both accepted keys and the designated anchor / primary mobile key.
 func acceptedSetFromParams(params envfactory.EnvironmentParams) (credential.AcceptedSet, error) {
 	return credential.NewAcceptedSetBuilder().
 		WithSDKKey(params.SDKKey).
 		WithExpiringSDKKey(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration).
 		WithMobileKey(params.MobileKey).
+		WithAnchorSDKKey(params.SDKKey).
+		WithPrimaryMobileKey(params.MobileKey).
 		WithEnvironmentID(params.EnvID).
 		Build()
 }
@@ -52,7 +55,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 			return
 		}
-		if err := env.ReconcileCredentials(set, params.SDKKey); err != nil {
+		if err := env.ReconcileCredentials(set); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 		}
 	}
@@ -75,7 +78,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 			return
 		}
-		if err := env.ReconcileCredentials(set, params.SDKKey); err != nil {
+		if err := env.ReconcileCredentials(set); err != nil {
 			a.r.loggers.Errorf(logMsgReconcileCredentialsError, params.Identifiers.GetDisplayName(), err)
 		}
 	}

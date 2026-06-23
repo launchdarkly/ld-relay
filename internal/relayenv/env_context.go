@@ -41,12 +41,13 @@ type EnvContext interface {
 	SetIdentifiers(EnvIdentifiers)
 
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
-	// newSet, with anchor designating the SDK key that owns the upstream connection. The method
-	// owns the order of operations internally (add → re-anchor → remove); callers do not sequence.
+	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
+	// primary mobile key. The method owns the order of operations internally (add → re-anchor →
+	// remove); callers do not sequence.
 	//
-	// It returns a *credential.MalformedCredentialSetError, without changing any state, if anchor is
-	// not one of newSet's SDK keys; see that type for the caller's responsibilities.
-	ReconcileCredentials(newSet credential.AcceptedSet, anchor credential.SDKCredential) error
+	// It returns a *credential.MalformedCredentialSetError, without changing any state, if the set's
+	// anchor is missing or not one of its SDK keys; see that type for the caller's responsibilities.
+	ReconcileCredentials(newSet credential.AcceptedSet) error
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential

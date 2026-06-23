@@ -555,8 +555,8 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet, anchor credential.SDKCredential) error {
-	return c.reconcileCredentials(newSet, anchor, time.Now())
+func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) error {
+	return c.reconcileCredentials(newSet, time.Now())
 }
 
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
@@ -566,14 +566,8 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet, anc
 // expirations; triggerCredentialChanges then applies them, draining additions before expirations so
 // the accepted set is a superset during the transition. addCredential opens an upstream client only
 // for the anchor, so non-anchor server keys are accepted and routed without a second connection.
-func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, anchor credential.SDKCredential, now time.Time) error {
-	anchorKey, ok := anchor.(config.SDKKey)
-	if !ok {
-		// A non-SDK-key anchor is malformed: make no changes and surface a structured error so the
-		// caller can reconnect the RAC stream.
-		return &credential.MalformedCredentialSetError{Anchor: anchor}
-	}
-	if err := c.keyRotator.Reconcile(newSet, anchorKey, now); err != nil {
+func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) error {
+	if err := c.keyRotator.Reconcile(newSet, now); err != nil {
 		return err
 	}
 	c.triggerCredentialChanges(now)
