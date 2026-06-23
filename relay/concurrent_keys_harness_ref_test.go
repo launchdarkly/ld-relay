@@ -120,7 +120,17 @@ func TestConcurrentKeysHarnessReference(t *testing.T) {
 
 		// 3. Wait for the env to become available (confirms Relay processed the RAC put event).
 		h := relayTestHelper{t: t, relay: relay}
-		_ = h.awaitEnvironment(harnessEnvID)
+		env := h.awaitEnvironment(harnessEnvID)
+
+		// awaitEnvironment only waits until the env is discoverable by credential lookup. The SDK
+		// client is created in a background goroutine (go c.startSDKClient(...)), so GetClient() can
+		// still be nil at this point. Relay's stream middleware returns 503 (Service Unavailable)
+		// while GetClient() == nil, which would cause the SSE request below to fail intermittently.
+		// Wait for the client to be ready before connecting, mirroring the readiness poll in
+		// internal/relayenv/env_context_impl_test.go (TestChangeSDKKey).
+		require.Eventually(t, func() bool {
+			return env.GetClient() != nil
+		}, 5*time.Second, time.Millisecond*5, "timed out waiting for the SDK client to be ready")
 
 		// 4. Connect to Relay's SSE stream and verify it serves a put event.
 		req := sharedtest.BuildRequestWithAuth(http.MethodGet, "/all", harnessSDKKey, nil)
