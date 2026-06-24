@@ -119,9 +119,6 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 // accepted mobile keys, and the environment ID. The primary SDK key and primary mobile key are always
 // present in the accepted-set maps (maintained by Initialize, the legacy rotation path, and Reconcile)
 // and are never left marked deprecated, so a plain pass over the maps already includes them.
-//
-// The order is not significant: callers either match each credential by type or map every credential;
-// none depend on position. (Go map iteration order is unspecified anyway.)
 func (r *Rotator) primaryCredentials() []SDKCredential {
 	creds := make([]SDKCredential, 0, len(r.acceptedSDKKeys)+len(r.acceptedMobileKeys)+1)
 
@@ -390,14 +387,59 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) error {
 	return nil
 }
 
-// reconcileSDKKeys diffs the desired SDK keys against the accepted set: keys present in the set but
-// not yet accepted are queued as additions, the anchor is set, and accepted keys no longer in the
-// set are revoked. Per-key expiry is stored as data on the accepted entry; acting on it (grace-period
-// deprecation, the cleanup ticker, and the anchor-change side effects) is handled separately. The
+// reconcilableKey constrains the generic reconcile helper to a comparable credential (so it can key a
+// map) that is also an SDKCredential (so it can be logged and appended to the credential lists).
+type reconcilableKey interface {
+	comparable
+	SDKCredential
+}
+
+// reconcileAcceptedKeys diffs the desired keys against the currently-accepted ones (SDK or mobile,
+// same algorithm): a desired key not yet accepted is recorded and queued as an addition; an accepted
+// key no longer desired is dropped and queued as an expiration. Either way the key is cleared from the
+// deprecated map — a key the set accepts is not deprecated, and a key it revokes is gone. Per-key
+// expiry is stored as data on the accepted entry; the cleanup ticker is what later acts on it. The
 // caller must hold the write lock.
+func reconcileAcceptedKeys[K reconcilableKey](
+	desired map[K]*time.Time,
+	accepted map[K]*acceptedKeyInfo,
+	deprecated map[K]time.Time,
+	additions *[]SDKCredential,
+	expirations *[]SDKCredential,
+	loggers ldlog.Loggers,
+	kind string,
+) {
+	// First pass: walk every key the set wants us to accept. If we already accept it, just refresh
+	// its expiry; if it's new, start accepting it and queue it as an addition. Either way, a desired
+	// key can't also be deprecated, so clear any stale deprecation for it.
+	for key, expiry := range desired {
+		if info, ok := accepted[key]; ok {
+			info.expiry = expiry
+		} else {
+			accepted[key] = &acceptedKeyInfo{expiry: expiry}
+			*additions = append(*additions, key)
+			loggers.Infof("%s %s is now accepted", kind, key.Masked())
+		}
+		delete(deprecated, key)
+	}
+	// Second pass: walk every key we currently accept and drop the ones the set no longer wants.
+	// Keys still desired were handled above, so skip them; the rest are revoked outright (removed
+	// from both maps) and queued as expirations.
+	for key := range accepted {
+		if _, ok := desired[key]; ok {
+			continue
+		}
+		delete(accepted, key)
+		delete(deprecated, key)
+		*expirations = append(*expirations, key)
+		loggers.Infof("%s %s is no longer accepted and has been revoked", kind, key.Masked())
+	}
+}
+
+// reconcileSDKKeys diffs the desired SDK keys against the accepted set and applies the result via
+// reconcileAcceptedKeys. The anchor is always accepted and permanent, regardless of any expiry the
+// payload may carry for it. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
-	// Build the desired set as key -> expiry (nil = permanent). Already-expired entries are dropped,
-	// and the anchor is always permanent regardless of any expiry the payload may carry for it.
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
 	for _, k := range set.sdkKeys {
 		if k.expiry != nil && !now.Before(*k.expiry) {
@@ -406,38 +448,14 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 		desired[k.key] = k.expiry
 	}
 	desired[anchor] = nil
-
-	for key, expiry := range desired {
-		if info, ok := r.acceptedSDKKeys[key]; ok {
-			info.expiry = expiry
-		} else {
-			r.acceptedSDKKeys[key] = &acceptedKeyInfo{expiry: expiry}
-			r.additions = append(r.additions, key)
-			r.loggers.Infof("SDK key %s is now accepted", key.Masked())
-		}
-		// A key the set accepts is not deprecated; clear any stale grace mark (e.g. left by the legacy
-		// rotation path) so PrimaryCredentials does not skip it.
-		delete(r.deprecatedSdkKeys, key)
-	}
-
-	for key := range r.acceptedSDKKeys {
-		if _, ok := desired[key]; ok {
-			continue
-		}
-		delete(r.acceptedSDKKeys, key)
-		delete(r.deprecatedSdkKeys, key)
-		r.expirations = append(r.expirations, key)
-		r.loggers.Infof("SDK key %s is no longer accepted and has been revoked", key.Masked())
-	}
-
+	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
 	r.primarySdkKey = anchor
 }
 
-// reconcileMobileKeys diffs the desired mobile keys against the accepted set, mirroring
-// reconcileSDKKeys. Per-key expiry is stored as data; acting on it is handled separately. The caller
-// must hold the write lock.
+// reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The primary mobile key — the wire's
+// singular mobKey, used where one mobile key is required (e.g. event forwarding) — is always accepted
+// and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
-	// Build the desired set as key -> expiry (nil = permanent), dropping already-expired entries.
 	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
 	for _, k := range set.mobileKeys {
 		if k.expiry != nil && !now.Before(*k.expiry) {
@@ -445,39 +463,10 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 		}
 		desired[k.key] = k.expiry
 	}
-	// The primary mobile key is always accepted and permanent, mirroring the SDK anchor
-	// (desired[anchor] = nil in reconcileSDKKeys). Without this, a primary designated with a past
-	// expiry would be dropped here yet still emitted by PrimaryCredentials.
 	if set.primaryMobileKey.Defined() {
 		desired[set.primaryMobileKey] = nil
 	}
-
-	for key, expiry := range desired {
-		if info, ok := r.acceptedMobileKeys[key]; ok {
-			info.expiry = expiry
-		} else {
-			r.acceptedMobileKeys[key] = &acceptedKeyInfo{expiry: expiry}
-			r.additions = append(r.additions, key)
-			r.loggers.Infof("Mobile key %s is now accepted", key.Masked())
-		}
-		// A key the set accepts is not deprecated; clear any stale grace mark (e.g. left by the legacy
-		// rotation path) so PrimaryCredentials does not skip it.
-		delete(r.deprecatedMobileKeys, key)
-	}
-
-	for key := range r.acceptedMobileKeys {
-		if _, ok := desired[key]; ok {
-			continue
-		}
-		delete(r.acceptedMobileKeys, key)
-		delete(r.deprecatedMobileKeys, key)
-		r.expirations = append(r.expirations, key)
-		r.loggers.Infof("Mobile key %s is no longer accepted and has been revoked", key.Masked())
-	}
-
-	// The primary mobile key — used where a single mobile key is required (e.g. event forwarding) —
-	// is the one the set designates (the wire's singular mobKey). It is always a permanent key; an
-	// empty value means the set declared no mobile key.
+	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, r.deprecatedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
 	r.primaryMobileKey = set.primaryMobileKey
 }
 
