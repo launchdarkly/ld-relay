@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -576,12 +577,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 // to avoid installing (and thereby leaking) a client for a key that was revoked while the client was
 // being constructed.
 func (c *envContextImpl) sdkKeyIsActive(sdkKey config.SDKKey) bool {
-	for _, cred := range c.keyRotator.AllCredentials() {
-		if cred == sdkKey {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.keyRotator.AllCredentials(), credential.SDKCredential(sdkKey))
 }
 
 func (c *envContextImpl) GetPayloadFilter() config.FilterKey {
