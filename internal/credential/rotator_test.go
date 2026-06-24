@@ -237,6 +237,65 @@ func TestSDKKeyExpiredInThePastIsNotAdded(t *testing.T) {
 	assert.Empty(t, expirations)
 }
 
+func TestSDKKeyDeprecationWithAlreadyExpiredGraceRevokesPreviousPrimary(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	key1 := config.SDKKey("key1")
+	key2 := config.SDKKey("key2")
+
+	expiry := time.Unix(10000, 0)
+	now := expiry.Add(1 * time.Hour) // now is after the grace period's expiry
+
+	rotator.Initialize([]SDKCredential{key1})
+
+	// Rotate key1 -> key2, but the deprecation grace for the outgoing key1 has already elapsed.
+	// key2 becomes primary; key1 must be revoked immediately rather than lingering forever as an
+	// accepted-but-untracked key. (This mirrors the equivalent mobile-key behavior.)
+	rotator.RotateWithGrace(key2, NewGracePeriod(key1, expiry, now))
+
+	assert.Equal(t, key2, rotator.SDKKey())
+
+	additions, expirations := rotator.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
+	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
+	assert.Empty(t, rotator.DeprecatedCredentials())
+}
+
+func TestReAnchoringDeprecatedSDKKeyRemovesItFromDeprecatedSet(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	rotator := NewRotator(mockLog.Loggers)
+
+	key1 := config.SDKKey("key1")
+	key2 := config.SDKKey("key2")
+
+	start := time.Unix(10000, 0)
+	expiry := start.Add(1 * time.Hour)
+
+	rotator.Initialize([]SDKCredential{key1})
+
+	// Rotate key1 -> key2 with grace; key1 enters the deprecated set.
+	rotator.RotateWithGrace(key2, NewGracePeriod(key1, expiry, start))
+	rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{key1}, rotator.DeprecatedCredentials())
+
+	// Re-anchor key2 -> key1 before key1's grace expires. key1 must be promoted out of the
+	// deprecated set; otherwise the cleanup ticker would later expire the active primary.
+	rotator.Rotate(key1)
+	assert.Equal(t, key1, rotator.SDKKey())
+	assert.Empty(t, rotator.DeprecatedCredentials())
+
+	additions, expirations := rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{key1}, additions)
+	assert.ElementsMatch(t, []SDKCredential{key2}, expirations)
+
+	// Well past the original grace expiry, key1 (the active primary) must NOT be expired.
+	additions, expirations = rotator.StepTime(expiry.Add(1 * time.Hour))
+	assert.Empty(t, additions)
+	assert.Empty(t, expirations)
+	assert.Equal(t, key1, rotator.SDKKey())
+}
+
 func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	rotator := NewRotator(mockLog.Loggers)
