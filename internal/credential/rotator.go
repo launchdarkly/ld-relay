@@ -115,44 +115,28 @@ func (r *Rotator) PrimaryCredentials() []SDKCredential {
 	return r.primaryCredentials()
 }
 
-// primaryCredentials returns every accepted, non-deprecated credential: the anchor and any other
-// accepted SDK keys, the primary and any other accepted mobile keys, and the environment ID. The
-// accepted-set maps are maintained by Initialize and Reconcile.
+// primaryCredentials returns every accepted, non-deprecated credential: all accepted SDK keys, all
+// accepted mobile keys, and the environment ID. The primary SDK key and primary mobile key are always
+// present in the accepted-set maps (maintained by Initialize, the legacy rotation path, and Reconcile)
+// and are never left marked deprecated, so a plain pass over the maps already includes them.
+//
+// The order is not significant: callers either match each credential by type or map every credential;
+// none depend on position. (Go map iteration order is unspecified anyway.)
 func (r *Rotator) primaryCredentials() []SDKCredential {
 	creds := make([]SDKCredential, 0, len(r.acceptedSDKKeys)+len(r.acceptedMobileKeys)+1)
 
-	// No caller relies on credential order, but emitting the primary explicitly is load-bearing: the
-	// legacy Rotate/RotateWithGrace paths set primarySdkKey/primaryMobileKey without populating the
-	// accepted-set maps, so a Rotate-set primary would otherwise be missing here. The map loops then
-	// skip the primary to avoid a duplicate in the Reconcile path, where it is in the map. Once Rotate
-	// is removed and Reconcile is the only writer, both the primary blocks and the skips can go away.
-	if r.primarySdkKey.Defined() {
-		creds = append(creds, r.primarySdkKey)
-	}
 	for key := range r.acceptedSDKKeys {
-		if key == r.primarySdkKey {
-			continue
-		}
 		if _, deprecated := r.deprecatedSdkKeys[key]; deprecated {
 			continue
 		}
 		creds = append(creds, key)
 	}
-
-	// Primary mobile key first, then any other accepted (non-deprecated) mobile keys.
-	if r.primaryMobileKey.Defined() {
-		creds = append(creds, r.primaryMobileKey)
-	}
 	for key := range r.acceptedMobileKeys {
-		if key == r.primaryMobileKey {
-			continue
-		}
 		if _, deprecated := r.deprecatedMobileKeys[key]; deprecated {
 			continue
 		}
 		creds = append(creds, key)
 	}
-
 	if r.primaryEnvironmentID.Defined() {
 		creds = append(creds, r.primaryEnvironmentID)
 	}
@@ -289,11 +273,13 @@ func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
 	}
 	previous := r.primarySdkKey
 	r.primarySdkKey = newKey
-	// Keep the accepted-set map (the source of truth for PrimaryCredentials) consistent with the
-	// legacy rotation path.
+	// Keep the accepted-set map (the source of truth for PrimaryCredentials) consistent: the new
+	// primary is accepted and is no longer deprecated, even if it was being phased out before. Mirrors
+	// updateMobileKey for mobile keys.
 	if _, ok := r.acceptedSDKKeys[newKey]; !ok {
 		r.acceptedSDKKeys[newKey] = &acceptedKeyInfo{}
 	}
+	delete(r.deprecatedSdkKeys, newKey)
 	r.additions = append(r.additions, newKey)
 	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
 

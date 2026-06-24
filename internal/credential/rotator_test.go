@@ -357,3 +357,24 @@ func TestRotateWithGraceMobileKey(t *testing.T) {
 		assert.ElementsMatch(t, []SDKCredential{mob2}, expirations)
 	})
 }
+
+func TestRotateSDKKeyRePromoteClearsDeprecation(t *testing.T) {
+	// Re-promoting a deprecated SDK key back to primary must clear its deprecated mark, so
+	// PrimaryCredentials lists it (mirrors the mobile re-promote behavior).
+	rotator := newTestRotator()
+	key1 := config.SDKKey("key1")
+	key2 := config.SDKKey("key2")
+	start := time.Unix(10000, 0)
+
+	rotator.Initialize([]SDKCredential{key1})
+	rotator.RotateWithGrace(key2, NewGracePeriod(key1, start.Add(time.Hour), start)) // deprecate key1
+	rotator.StepTime(start)
+	assert.ElementsMatch(t, []SDKCredential{key1}, rotator.DeprecatedCredentials())
+
+	rotator.RotateWithGrace(key1, nil) // re-promote key1
+	rotator.StepTime(start)
+
+	assert.Equal(t, key1, rotator.SDKKey())
+	assert.Contains(t, rotator.PrimaryCredentials(), SDKCredential(key1))
+	assert.NotContains(t, rotator.DeprecatedCredentials(), SDKCredential(key1))
+}
