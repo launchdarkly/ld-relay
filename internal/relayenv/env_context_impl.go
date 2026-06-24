@@ -606,10 +606,10 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// In offline mode, there's only one SDK client. This is awkward because we represent the active clients
-	// as a map, but in this case there's only one client in the map. A refactoring might pull this logic (along with
-	// differences in add/removeCredential into an interface that is injected based on the environment being
-	// offline or online.
+	// After T2.a (anchor-only upstream client), c.clients always has at most one entry — the anchor's
+	// client. Online mode looks it up by anchor key; offline mode iterates (the initial startSDKClient
+	// call does not carry the envConfig.SDKKey into the rotator's primary key in all offline code paths,
+	// so the lookup-by-key form is used only in the online path to be safe).
 	if c.offline {
 		for _, client := range c.clients {
 			return client
