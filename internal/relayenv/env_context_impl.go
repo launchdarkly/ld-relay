@@ -606,10 +606,13 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// After T2.a (anchor-only upstream client), c.clients always has at most one entry — the anchor's
-	// client. Online mode looks it up by anchor key; offline mode iterates (the initial startSDKClient
-	// call does not carry the envConfig.SDKKey into the rotator's primary key in all offline code paths,
-	// so the lookup-by-key form is used only in the online path to be safe).
+	// c.clients always has at most one entry — the anchor's client. Only the anchor key triggers
+	// startSDKClient (in addCredential and at construction), so non-anchor server keys never open
+	// their own upstream connection.
+	//
+	// Offline mode uses iteration rather than key-based lookup for historical reasons; both
+	// approaches are correct because keyRotator is initialized with envConfig.SDKKey before
+	// startSDKClient is ever called.
 	if c.offline {
 		for _, client := range c.clients {
 			return client
