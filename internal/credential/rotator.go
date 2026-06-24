@@ -453,6 +453,12 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 		}
 		desired[k.key] = k.expiry
 	}
+	// The primary mobile key is always accepted and permanent, mirroring the SDK anchor
+	// (desired[anchor] = nil in reconcileSDKKeys). Without this, a primary designated with a past
+	// expiry would be dropped here yet still emitted by PrimaryCredentials.
+	if set.primaryMobileKey.Defined() {
+		desired[set.primaryMobileKey] = nil
+	}
 
 	for key, expiry := range desired {
 		if info, ok := r.acceptedMobileKeys[key]; ok {

@@ -389,6 +389,63 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	}
 }
 
+func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	envConfig := st.EnvWithAllCredentials.Config
+	primaryMobile := envConfig.MobileKey
+	nonPrimaryMobile := config.MobileKey("mob-non-primary")
+
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(EnvContextImplParams{
+			Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+			EnvConfig:        envConfig,
+			AllConfig:        allConfig,
+			ClientFactory:    testclient.FakeLDClientFactory(true),
+			Loggers:          mockLog.Loggers,
+			ConnectionMapper: mockConnectionMapper{},
+		}, nil)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+
+		// Reconcile to a set that keeps the original mobile key as primary but also accepts a second,
+		// non-primary mobile key. Accepting the non-primary key must NOT repoint event forwarding —
+		// events collapse to the primary mobile key, mirroring the SDK anchor.
+		require.NoError(t, env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithPrimarySDKKey(envConfig.SDKKey).
+			WithPrimaryMobileKey(primaryMobile).
+			WithMobileKey(nonPrimaryMobile).
+			WithEnvironmentID(envConfig.EnvID))))
+
+		ed := envImpl.GetEventDispatcher()
+		require.NotNil(t, ed)
+		handler := ed.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+
+		rr := httptest.NewRecorder()
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", string(primaryMobile))
+		headers.Set("X-LaunchDarkly-Event-Schema", strconv.Itoa(events.SummaryEventsSchemaVersion))
+		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+		req := st.BuildRequest("POST", server.URL+"/mobile/events/bulk", []byte(body), headers)
+		handler(rr, req)
+		require.Equal(t, 202, rr.Result().StatusCode)
+
+		// Mobile events forward under the env's primary mobile key, not the freshly-accepted
+		// non-primary one.
+		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
+		assert.Equal(t, string(primaryMobile), eventPost.Request.Header.Get("Authorization"))
+	})
+}
+
 func TestSDKClientCreationFails(t *testing.T) {
 	envConfig := st.EnvWithAllCredentials.Config
 	envConfig.TTL = configtypes.NewOptDuration(time.Hour)

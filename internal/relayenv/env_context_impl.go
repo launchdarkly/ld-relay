@@ -462,8 +462,13 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 			}
 		}
 	case config.MobileKey:
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		// Mobile-key event forwarding collapses to the primary mobile key, mirroring the anchor-only
+		// behavior for SDK keys above: only the primary mobile key repoints the event dispatcher, so a
+		// non-primary mobile key accepted in the same reconcile does not steal event forwarding.
+		if key == c.keyRotator.MobileKey() {
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	}
 

@@ -163,6 +163,27 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	assert.Empty(t, r.DeprecatedCredentials())
 }
 
+func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
+	// Defensive: even if the designated primary mobile key is also listed with a past expiry, it must
+	// stay accepted (mirroring the SDK anchor), so PrimaryCredentials never reports a torn-down key.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	mob := config.MobileKey("mob")
+	now := time.Unix(1000, 0)
+
+	set := mustBuild(t, NewAcceptedSetBuilder().
+		WithPrimarySDKKey(anchor).
+		WithExpiringMobileKey(mob, now.Add(-time.Hour)). // already expired in the payload...
+		WithPrimaryMobileKey(mob))                       // ...but designated as the primary
+	require.NoError(t, r.Reconcile(set, now))
+	r.StepTime(now)
+
+	assert.Equal(t, mob, r.MobileKey())
+	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(mob))
+	_, accepted := r.acceptedMobileKeys[mob]
+	assert.True(t, accepted, "the primary mobile key must remain in the accepted set")
+}
+
 func TestReconcileRejectsSetWithoutAnchor(t *testing.T) {
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")
