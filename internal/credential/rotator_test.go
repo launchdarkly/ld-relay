@@ -307,6 +307,8 @@ func TestRotateWithGraceMobileKey(t *testing.T) {
 		additions, expirations := rotator.StepTime(now)
 		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
 		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
+		// The immediately-revoked key must leave the accepted set, not linger in PrimaryCredentials.
+		assert.NotContains(t, rotator.PrimaryCredentials(), SDKCredential(mob1))
 	})
 
 	t.Run("immediately revokes outgoing key when grace is nil", func(t *testing.T) {
@@ -324,6 +326,8 @@ func TestRotateWithGraceMobileKey(t *testing.T) {
 		additions, expirations := rotator.StepTime(time.Now())
 		assert.ElementsMatch(t, []SDKCredential{mob2}, additions)
 		assert.ElementsMatch(t, []SDKCredential{mob1}, expirations)
+		// The immediately-revoked key must leave the accepted set, not linger in PrimaryCredentials.
+		assert.NotContains(t, rotator.PrimaryCredentials(), SDKCredential(mob1))
 	})
 
 	t.Run("re-promoting a deprecated key removes it from the deprecated set", func(t *testing.T) {

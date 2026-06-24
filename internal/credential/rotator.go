@@ -272,6 +272,7 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod
 		return
 	}
 	if grace.Expired() {
+		delete(r.acceptedMobileKeys, previous)
 		r.loggers.Infof("Deprecated mobile key %s already expired at %v; revoking immediately", previous.Masked(), grace.expiry)
 		r.expirations = append(r.expirations, previous)
 		return
