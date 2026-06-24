@@ -20,8 +20,8 @@ type Rotator struct {
 	primaryMobileKey config.MobileKey
 
 	// deprecatedMobileKeys stores mobile keys being phased out with a grace period, keyed
-	// by credential value with the associated expiry time. StepTime does not yet act on
-	// these entries; generalizing the cleanup ticker to drop them is handled separately.
+	// by credential value with the associated expiry time. StepTime walks this map and emits
+	// an expiration once a key's grace period passes, mirroring deprecatedSdkKeys.
 	deprecatedMobileKeys map[config.MobileKey]time.Time
 
 	// There is only one environment ID active at a given time, and it won't actually be rotated. The mechanism is
@@ -141,8 +141,11 @@ func (r *Rotator) primaryCredentials() []SDKCredential {
 }
 
 func (r *Rotator) deprecatedCredentials() []SDKCredential {
-	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys))
+	deprecated := make([]SDKCredential, 0, len(r.deprecatedSdkKeys)+len(r.deprecatedMobileKeys))
 	for key := range r.deprecatedSdkKeys {
+		deprecated = append(deprecated, key)
+	}
+	for key := range r.deprecatedMobileKeys {
 		deprecated = append(deprecated, key)
 	}
 	return deprecated
@@ -225,8 +228,8 @@ func (r *Rotator) updateEnvironmentID(envID config.EnvironmentID) {
 }
 
 // updateMobileKey sets a new primary mobile key. When grace is nil the outgoing key is
-// immediately revoked; when non-nil its expiry is stored in deprecatedMobileKeys.
-// StepTime does not yet act on deprecatedMobileKeys; that cleanup is handled separately.
+// immediately revoked; when non-nil its expiry is stored in deprecatedMobileKeys for the
+// cleanup ticker (StepTime) to act on.
 func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -341,29 +344,66 @@ func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 	r.expirations = append(r.expirations, sdkKey)
 }
 
+// expireMobileKey drops a mobile key from both the deprecated grace map and the accepted set, then
+// queues its expiration. Deleting from acceptedMobileKeys is load-bearing: PrimaryCredentials derives
+// from that map, so an expired key would otherwise linger as a primary credential. Mirrors expireSDKKey.
+func (r *Rotator) expireMobileKey(mobileKey config.MobileKey) {
+	r.loggers.Infof("Deprecated mobile key %s has expired and is no longer valid for authentication", mobileKey.Masked())
+	delete(r.deprecatedMobileKeys, mobileKey)
+	delete(r.acceptedMobileKeys, mobileKey)
+	r.expirations = append(r.expirations, mobileKey)
+}
+
 // StepTime provides the current time to the Rotator, allowing it to compute the set of additions and expirations
 // for the tracked credentials since the last time this method was called.
+//
+// It enforces expiry from both expiry mechanisms, for both SDK and mobile keys:
+//   - The legacy grace-period maps (deprecatedSdkKeys / deprecatedMobileKeys), populated by the
+//     RotateWithGrace path, where the expiry lives in the map value.
+//   - The reconcile path, where per-key expiry is stored as data on the accepted entry
+//     (acceptedKeyInfo.expiry); a nil expiry means the key is permanent and is never expired here.
+//
+// Expiry is strict (now strictly after the expiry timestamp), consistent across all four loops.
 func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Legacy grace-period deprecations (RotateWithGrace path).
 	for key, expiry := range r.deprecatedSdkKeys {
 		if now.After(expiry) {
 			r.expireSDKKey(key)
+		}
+	}
+	for key, expiry := range r.deprecatedMobileKeys {
+		if now.After(expiry) {
+			r.expireMobileKey(key)
+		}
+	}
+
+	// Reconcile-path per-key expiry, stored on the accepted entry. The anchor and primary mobile key
+	// carry a nil expiry, so this never drops them.
+	for key, info := range r.acceptedSDKKeys {
+		if info.expiry != nil && now.After(*info.expiry) {
+			r.expireSDKKey(key)
+		}
+	}
+	for key, info := range r.acceptedMobileKeys {
+		if info.expiry != nil && now.After(*info.expiry) {
+			r.expireMobileKey(key)
 		}
 	}
 
 	additions, expirations = r.additions, r.expirations
 	r.additions = nil
 	r.expirations = nil
-	return
+	return additions, expirations
 }
 
 // Reconcile updates the rotator to match set. The set names its own anchor (the primary SDK key) and
 // primary mobile key. It diffs the desired accepted set against the current one and queues additions
 // and expirations (drained by the next StepTime call); keys newly present are accepted, and keys no
-// longer present are revoked. Per-key expiry is stored as data on the accepted entry — grace-period
-// deprecation and the cleanup ticker that drops expiring keys are handled separately. An undefined
+// longer present are revoked. Per-key expiry is stored as data on the accepted entry; the cleanup
+// ticker (StepTime) is what later acts on it, dropping a key once its expiry passes. An undefined
 // environment ID leaves the current one unchanged, since environments are removed via teardown
 // rather than reconcile.
 //
