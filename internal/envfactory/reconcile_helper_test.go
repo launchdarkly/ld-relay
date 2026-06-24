@@ -192,10 +192,6 @@ func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
 	require.True(t, errors.As(err, &malformed))
-	// An undefined anchor must produce the "missing" message, not the "not present" one. This
-	// only holds if Anchor is an untyped nil — a boxed zero-value config.SDKKey would be non-nil
-	// and route Error() down the wrong branch.
-	assert.Nil(t, malformed.Anchor)
 	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
 }
 

@@ -54,8 +54,9 @@ func (n *spyHandler) AddEnvironment(params envfactory.EnvironmentParams) {
 	n.added = append(n.added, params)
 }
 
-func (n *spyHandler) UpdateEnvironment(params envfactory.EnvironmentParams) {
+func (n *spyHandler) UpdateEnvironment(params envfactory.EnvironmentParams) bool {
 	n.updated = append(n.updated, params)
+	return false
 }
 
 func (n *spyHandler) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {

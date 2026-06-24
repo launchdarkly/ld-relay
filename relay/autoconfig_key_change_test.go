@@ -199,7 +199,7 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 		assert.Equal(t, modified.SDKKey(), client2.Key)
 
 		p.awaitCredentialsUpdated(env, modified.params())
-		newCredentials := credentialsAsSet(env.GetCredentials()...)
+		// Before expiry, old key is still accepted (it's in the accepted set with a countdown).
 		foundEnvWithOldKey, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Equal(t, env, foundEnvWithOldKey)
 
@@ -207,7 +207,9 @@ func TestAutoConfigRemovesCredentialForExpiredSDKKey(t *testing.T) {
 			t.FailNow()
 		}
 
-		assert.Equal(t, newCredentials, credentialsAsSet(env.GetCredentials()...))
+		// After expiry, old key is removed; new key + mobile key + env ID are the only credentials left.
+		expectedAfterExpiry := credentialsAsSet(modified.id, modified.mobKey, modified.SDKKey())
+		assert.Equal(t, expectedAfterExpiry, credentialsAsSet(env.GetCredentials()...))
 		noEnv, _ := p.relay.getEnvironment(sdkauth.New(oldKey))
 		assert.Nil(t, noEnv)
 	})

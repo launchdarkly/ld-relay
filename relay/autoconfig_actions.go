@@ -1,9 +1,11 @@
 package relay
 
 import (
+	"errors"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -13,6 +15,9 @@ const (
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
 	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
+
+	logMsgMalformedCredentialPayloadRAC     = "Malformed credential payload for environment %q — preserving previous credentials and reconnecting RAC stream: %s"
+	logMsgMalformedCredentialPayloadOffline = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -34,33 +39,37 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		return
 	}
 
-	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return
 	}
+	env.ReconcileCredentials(set)
 }
 
-func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
+func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) bool {
 	env, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.EnvID))
 	if err != nil {
 		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
-		return
+		return false
 	}
 
 	env.SetIdentifiers(params.Identifiers)
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
-	}
-	if params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		if params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
+	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		var malformed *credential.MalformedCredentialSetError
+		if errors.As(buildErr, &malformed) {
+			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadRAC, params.Identifiers.GetDisplayName(), buildErr)
+			return true // signal stream restart so backend pushes a fresh put
 		}
-		env.UpdateCredential(update)
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return false
 	}
+	env.ReconcileCredentials(set)
+	return false
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {

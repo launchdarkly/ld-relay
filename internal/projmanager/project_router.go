@@ -53,16 +53,17 @@ func (e *ProjectRouter) AddEnvironment(params envfactory.EnvironmentParams) {
 	manager.AddEnvironment(params)
 }
 
-// UpdateEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its project key.
+// UpdateEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its
+// project key. Returns true if the RAC stream should be restarted (malformed credential payload).
 // If no such manager exists, the params are ignored and an error is logged.
-func (e *ProjectRouter) UpdateEnvironment(params envfactory.EnvironmentParams) {
+func (e *ProjectRouter) UpdateEnvironment(params envfactory.EnvironmentParams) bool {
 	proj := params.Identifiers.ProjKey
 	manager, ok := e.managers[proj]
 	if ok {
-		manager.UpdateEnvironment(params)
-	} else {
-		e.loggers.Errorf("precondition violation: received updated config for (%s), but environment was never added", params.Identifiers.GetDisplayName())
+		return manager.UpdateEnvironment(params)
 	}
+	e.loggers.Errorf("precondition violation: received updated config for (%s), but environment was never added", params.Identifiers.GetDisplayName())
+	return false
 }
 
 // DeleteEnvironment dispatches a deletion command for the given environment ID to all ProjectManagers. It is

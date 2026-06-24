@@ -158,6 +158,25 @@ func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	return r.deprecatedCredentials()
 }
 
+// AllDeprecatedCredentials returns the complete set of SDK credentials being phased out:
+// the legacy grace-period bucket (deprecatedSdkKeys) plus any non-primary accepted SDK keys
+// that carry a future expiry in the AcceptedSet model.
+// This is the method EnvContext.GetDeprecatedCredentials delegates to; callers such as the
+// status endpoint use it to surface the expiringSDKKey field without caring which rotation
+// path produced it.  Mobile keys with expiry are accepted credentials, not deprecated ones —
+// there is no equivalent status field for them.
+func (r *Rotator) AllDeprecatedCredentials() []SDKCredential {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := r.deprecatedCredentials()
+	for key, info := range r.acceptedSDKKeys {
+		if info.expiry != nil && key != r.primarySdkKey {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
 // AllCredentials returns the primary and deprecated credentials as one list.
 func (r *Rotator) AllCredentials() []SDKCredential {
 	r.mu.RLock()

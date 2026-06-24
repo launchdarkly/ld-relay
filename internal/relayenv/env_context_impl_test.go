@@ -278,18 +278,26 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	// For the purposes of key rotation, we'll make time deterministic. We drive the grace-period
-	// setup through the legacy UpdateCredential API (with an injected time), then advance the cleanup
-	// ticker (triggerCredentialChanges) to expire the deprecated key — the same path the periodic
-	// ticker uses in production.
+	// For the purposes of key rotation, we'll make time deterministic. We build an AcceptedSet
+	// with key2 as anchor and envConfig.SDKKey expiring in one hour, then drive the time-injectable
+	// reconcileCredentials. The cleanup ticker path (triggerCredentialChanges) is exercised below.
 	start := time.Unix(1000, 0)
 
 	// Upon rotating to key2, the original key should still be valid for an hour.
-	envImpl.UpdateCredential(NewCredentialUpdate(key2).
-		WithGracePeriod(envConfig.SDKKey, start.Add(1 * time.Hour)).
-		WithTime(start))
+	rotationSet, err := credential.NewAcceptedSetBuilder().
+		WithPrimarySDKKey(key2).
+		WithExpiringSDKKey(envConfig.SDKKey, start.Add(1*time.Hour)).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(rotationSet, start)
 
-	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
+	// In the new accepted-set model both keys are accepted (GetCredentials includes both) until
+	// the old key's expiry elapses. GetDeprecatedCredentials reports the expiring accepted key so
+	// callers like the status endpoint can surface it without distinguishing the rotation path.
+	creds := env.GetCredentials()
+	assert.Len(t, creds, 2)
+	assert.Contains(t, creds, key2)
+	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
 
 	client2 := requireClientReady(t, clientCh)
@@ -305,14 +313,14 @@ func TestChangeSDKKey(t *testing.T) {
 		t.FailNow()
 	}
 
-	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
+	// Simulate an amount of time passing that is less than the expiry window. The original key should still be valid.
 	envImpl.triggerCredentialChanges(start.Add(45 * time.Minute))
 	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
 		t.FailNow()
 	}
 
-	// We are now an instant after the deprecation period. This should cause the original key to become expired
-	// and trigger the client to close.
+	// We are now an instant after the expiry. This should cause the original key to be removed
+	// and trigger its client to close.
 	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())

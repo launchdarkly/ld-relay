@@ -1,9 +1,10 @@
 package relay
 
 import (
+	"errors"
 	"time"
 
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -56,10 +57,21 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), err)
 		return
 	}
-	if ae.Params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration))
+
+	set, _, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	if buildErr != nil {
+		var malformed *credential.MalformedCredentialSetError
+		if errors.As(buildErr, &malformed) {
+			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+		} else {
+			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
+		}
+		// No reconnect for offline mode: preserve previous state (env was just created with
+		// the singular sdkKey from envConfig) and wait for the next archive reload.
+	} else {
+		env.ReconcileCredentials(set)
 	}
+
 	select {
 	case updates := <-updatesCh:
 		if a.envUpdates == nil {
@@ -89,15 +101,17 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	if ae.Params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(ae.Params.MobileKey))
-	}
-	if ae.Params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(ae.Params.SDKKey)
-		if ae.Params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(ae.Params.ExpiringSDKKey.Key, ae.Params.ExpiringSDKKey.Expiration)
+	set, _, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	if buildErr != nil {
+		var malformed *credential.MalformedCredentialSetError
+		if errors.As(buildErr, &malformed) {
+			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+		} else {
+			a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		}
-		env.UpdateCredential(update)
+		// Preserve previous credentials; no reconnect (offline path has no live stream).
+	} else {
+		env.ReconcileCredentials(set)
 	}
 
 	// SDKData will be non-nil only if the flag/segment data for the environment has actually changed.

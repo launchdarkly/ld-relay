@@ -14,7 +14,9 @@ type MessageHandler interface {
 
 	// UpdateEnvironment is called when the stream has provided a new configuration for an
 	// existing environment. This can happen due to either a "put" or a "patch".
-	UpdateEnvironment(params envfactory.EnvironmentParams)
+	// It returns true if the stream should be restarted (e.g. a malformed credential payload
+	// was detected; see design §9).
+	UpdateEnvironment(params envfactory.EnvironmentParams) bool
 
 	// ReceivedAllEnvironments is called when StreamManager has received a "put" event and has
 	// finished calling AddEnvironment or UpdateEnvironment for every environment in the list (and

@@ -36,12 +36,17 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		WithPrimarySDKKey(anchor).
 		WithPrimaryMobileKey(params.MobileKey)
 
-	// Add the remaining accepted keys. The builder de-duplicates by value, so the anchor and the
-	// primary mobile key — already added permanently above — are ignored when they reappear in
-	// their arrays. That also defends the anchor-never-expiring invariant: a payload that (wrongly)
-	// carries an expiry on the anchor's own entry cannot demote it, because the permanent anchor is
-	// already present.
+	// Validate and add the remaining accepted keys. The builder de-duplicates by value, so the
+	// anchor and the primary mobile key — already added permanently above — are ignored when they
+	// reappear in their arrays. That also defends the anchor-never-expiring invariant: a payload
+	// that (wrongly) carries an expiry on the anchor's own entry cannot demote it.
+	//
+	// Entries with an empty value are structurally malformed: relay would silently accept them but
+	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.
 	for _, k := range params.AcceptedSDKKeys {
+		if !k.Value.Defined() {
+			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("sdkKeys", k.Key)
+		}
 		if k.Expiry.IsZero() {
 			b.WithSDKKey(k.Value)
 		} else {
@@ -50,6 +55,9 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	}
 
 	for _, k := range params.AcceptedMobileKeys {
+		if !k.Value.Defined() {
+			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
+		}
 		if k.Expiry.IsZero() {
 			b.WithMobileKey(k.Value)
 		} else {

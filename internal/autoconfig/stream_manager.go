@@ -412,7 +412,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 				break
 			}
 			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
-			s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
+			if s.dispatchEnvAction(config.EnvironmentID(id), envRep, action) {
+				shouldRestart = true
+			}
 			if action != ActionNoop {
 				s.cacheUpsert(CacheKindEnvironment, id, envRep)
 			}
@@ -472,10 +474,12 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 	return shouldRestart
 }
 
-func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
+// dispatchEnvAction dispatches a single environment action to the handler. It returns true if the
+// stream should be restarted (forwarded from UpdateEnvironment on malformed credential payload).
+func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) bool {
 	switch action {
 	case ActionNoop:
-		return
+		return false
 	case ActionInsert:
 		params := rep.ToParams()
 		s.handler.AddEnvironment(params)
@@ -483,8 +487,9 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 		s.handler.DeleteEnvironment(id)
 	case ActionUpdate:
 		params := rep.ToParams()
-		s.handler.UpdateEnvironment(params)
+		return s.handler.UpdateEnvironment(params)
 	}
+	return false
 }
 
 func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.FilterRep, action Action) {

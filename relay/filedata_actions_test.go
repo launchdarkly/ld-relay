@@ -231,7 +231,8 @@ func TestOfflineModeDeprecatedSDKKeyIsRespectedIfExpiryInFuture(t *testing.T) {
 
 		env := p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
 
-		assert.ElementsMatch(t, []credential.SDKCredential{envData.Params.SDKKey, envData.Params.EnvID}, env.GetCredentials())
+		// Expiring key is in the accepted set (and thus GetCredentials) until it expires.
+		assert.ElementsMatch(t, []credential.SDKCredential{envData.Params.SDKKey, envData.Params.ExpiringSDKKey.Key, envData.Params.EnvID}, env.GetCredentials())
 		assert.ElementsMatch(t, []credential.SDKCredential{envData.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
 	})
 }
@@ -253,7 +254,8 @@ func TestOfflineModePrimarySDKKeyIsDeprecated(t *testing.T) {
 		update2 := RotateSDKKeyWithGracePeriod("key2", "key1", time.Now().Add(1*time.Hour))
 		p.updateHandler.UpdateEnvironment(update2)
 
-		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+		// Both the new anchor and the expiring old key are accepted until key1 expires.
+		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.SDKKey, update2.Params.ExpiringSDKKey.Key, update1.Params.EnvID}, env.GetCredentials())
 		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
 
 		update3 := RotateSDKKey("key3")
@@ -261,9 +263,9 @@ func TestOfflineModePrimarySDKKeyIsDeprecated(t *testing.T) {
 
 		assert.ElementsMatch(t, []credential.SDKCredential{update3.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
 
-		// Note: key2 isn't in the deprecated list, because update3 was an immediate rotation (with no grace period for the
-		// previous key.) At the same time, key1 is still deprecated until the hour is up.
-		assert.ElementsMatch(t, []credential.SDKCredential{update2.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
+		// update3 carries no expiring key, so ReconcileCredentials replaces the full accepted set with
+		// just key3; key1 and key2 are removed immediately (not held in the deprecated bucket).
+		assert.Empty(t, env.GetDeprecatedCredentials())
 	})
 }
 
@@ -298,7 +300,8 @@ func TestOfflineModeSDKKeyCanExpire(t *testing.T) {
 			// Waiting for the environment can take up to 1 second, but it could be much faster. In any case
 			// we'll still need to sleep at least the cleanup interval to ensure the key is expired.
 			env := p.awaitEnvironmentFor(update1.Params.EnvID, time.Second)
-			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
+			// Both the primary and the expiring key are in the accepted set until the expiry fires.
+			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.ExpiringSDKKey.Key, update1.Params.EnvID}, env.GetCredentials())
 			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
 
 			assert.Eventually(t, func() bool {

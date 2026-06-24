@@ -106,7 +106,7 @@ func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 		return AcceptedSet{}, errAcceptedSetMissingSDKKey
 	}
 	if !b.set.primarySdkKey.Defined() {
-		return AcceptedSet{}, &MalformedCredentialSetError{Anchor: nil}
+		return AcceptedSet{}, newMissingAnchorError()
 	}
 	return b.set, nil
 }

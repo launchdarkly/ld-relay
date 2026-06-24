@@ -560,15 +560,6 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	c.identifiers = ei
 }
 
-func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
-	if !update.deprecated.Defined() {
-		c.keyRotator.Rotate(update.primary)
-	} else {
-		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
-	}
-	c.triggerCredentialChanges(update.now)
-}
-
 func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 	c.reconcileCredentials(newSet, time.Now())
 }
@@ -599,8 +590,12 @@ func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
 	return c.keyRotator.PrimaryCredentials()
 }
 
+func (c *envContextImpl) GetSDKKey() config.SDKKey {
+	return c.keyRotator.SDKKey()
+}
+
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
-	return c.keyRotator.DeprecatedCredentials()
+	return c.keyRotator.AllDeprecatedCredentials()
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
