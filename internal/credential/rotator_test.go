@@ -378,3 +378,22 @@ func TestRotateSDKKeyRePromoteClearsDeprecation(t *testing.T) {
 	assert.Contains(t, rotator.PrimaryCredentials(), SDKCredential(key1))
 	assert.NotContains(t, rotator.DeprecatedCredentials(), SDKCredential(key1))
 }
+
+func TestRotateSDKKeyWithExpiredGraceRevokesPrevious(t *testing.T) {
+	// A legacy SDK rotation whose grace period is already expired must revoke the swapped-out key,
+	// not leave it enabled alongside the new anchor (mirrors updateMobileKey).
+	rotator := newTestRotator()
+	key1 := config.SDKKey("key1")
+	key2 := config.SDKKey("key2")
+	expiry := time.Unix(10000, 0)
+	now := expiry.Add(time.Hour) // now is after expiry
+
+	rotator.Initialize([]SDKCredential{key1})
+	rotator.RotateWithGrace(key2, NewGracePeriod(key1, expiry, now))
+
+	assert.Equal(t, key2, rotator.SDKKey())
+	additions, expirations := rotator.StepTime(now)
+	assert.ElementsMatch(t, []SDKCredential{key2}, additions)
+	assert.ElementsMatch(t, []SDKCredential{key1}, expirations)
+	assert.NotContains(t, rotator.PrimaryCredentials(), SDKCredential(key1))
+}

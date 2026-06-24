@@ -323,7 +323,8 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	}
 
 	if grace.Expired() {
-		r.loggers.Infof("Deprecated SDK key %s already expired at %v; ignoring", grace.key.Masked(), grace.expiry)
+		r.loggers.Infof("Deprecated SDK key %s already expired at %v; revoking the previous key immediately", grace.key.Masked(), grace.expiry)
+		r.immediatelyRevoke(previous)
 		return
 	}
 
