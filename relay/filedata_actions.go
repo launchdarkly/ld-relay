@@ -62,7 +62,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+			a.r.loggers.Errorf(logMsgMalformedPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		} else {
 			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		}
@@ -105,7 +105,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+			a.r.loggers.Errorf(logMsgMalformedPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		} else {
 			a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
 		}

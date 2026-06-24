@@ -16,8 +16,8 @@ const (
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
 	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 
-	logMsgMalformedCredentialPayloadRAC     = "Malformed credential payload for environment %q — preserving previous credentials and reconnecting RAC stream: %s"
-	logMsgMalformedCredentialPayloadOffline = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
+	logMsgMalformedPayloadRAC     = "Malformed credential payload for environment %q — preserving previous credentials and reconnecting RAC stream: %s"
+	logMsgMalformedPayloadOffline = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -62,7 +62,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedCredentialPayloadRAC, params.Identifiers.GetDisplayName(), buildErr)
+			a.r.loggers.Errorf(logMsgMalformedPayloadRAC, params.Identifiers.GetDisplayName(), buildErr)
 			return true // signal stream restart so backend pushes a fresh put
 		}
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
