@@ -428,6 +428,9 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 			r.additions = append(r.additions, key)
 			r.loggers.Infof("SDK key %s is now accepted", key.Masked())
 		}
+		// A key the set accepts is not deprecated; clear any stale grace mark (e.g. left by the legacy
+		// rotation path) so PrimaryCredentials does not skip it.
+		delete(r.deprecatedSdkKeys, key)
 	}
 
 	for key := range r.acceptedSDKKeys {
@@ -435,6 +438,7 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 			continue
 		}
 		delete(r.acceptedSDKKeys, key)
+		delete(r.deprecatedSdkKeys, key)
 		r.expirations = append(r.expirations, key)
 		r.loggers.Infof("SDK key %s is no longer accepted and has been revoked", key.Masked())
 	}
@@ -469,6 +473,9 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 			r.additions = append(r.additions, key)
 			r.loggers.Infof("Mobile key %s is now accepted", key.Masked())
 		}
+		// A key the set accepts is not deprecated; clear any stale grace mark (e.g. left by the legacy
+		// rotation path) so PrimaryCredentials does not skip it.
+		delete(r.deprecatedMobileKeys, key)
 	}
 
 	for key := range r.acceptedMobileKeys {
@@ -476,6 +483,7 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 			continue
 		}
 		delete(r.acceptedMobileKeys, key)
+		delete(r.deprecatedMobileKeys, key)
 		r.expirations = append(r.expirations, key)
 		r.loggers.Infof("Mobile key %s is no longer accepted and has been revoked", key.Masked())
 	}

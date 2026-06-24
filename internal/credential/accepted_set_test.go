@@ -184,6 +184,28 @@ func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 	assert.True(t, accepted, "the primary mobile key must remain in the accepted set")
 }
 
+func TestReconcileClearsStaleDeprecationForAcceptedKey(t *testing.T) {
+	// A key left in the deprecated set by the legacy rotation path must be treated as fully accepted
+	// once a reconcile includes it, not silently skipped by PrimaryCredentials.
+	r := newTestRotator()
+	old := config.SDKKey("old")
+	anchor := config.SDKKey("anchor")
+	now := time.Unix(1000, 0)
+
+	r.Initialize([]SDKCredential{old})
+	r.RotateWithGrace(anchor, NewGracePeriod(old, now.Add(time.Hour), now)) // deprecate `old` with grace
+	r.StepTime(now)
+	require.ElementsMatch(t, []SDKCredential{old}, r.DeprecatedCredentials())
+
+	// Reconcile to a set that fully accepts both keys.
+	require.NoError(t, r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(old)), now))
+	r.StepTime(now)
+
+	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(old))
+	assert.Empty(t, r.DeprecatedCredentials())
+}
+
 func TestReconcileRejectsSetWithoutAnchor(t *testing.T) {
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")
