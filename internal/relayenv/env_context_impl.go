@@ -437,8 +437,11 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	}
 
 	// A new SDK key means:
-	//  1. we should start a new SDK client*
-	//  2. we should tell all event forwarding components that use an SDK key to use the new one.
+	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
+	//     connection per environment, owned by the anchor key. Non-anchor server keys get envStreams
+	//     + handler bundles above, but no upstream client — matching today's mobile-key behavior.
+	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
+	//     again only when it is the anchor, since events collapse to the anchor per kind.
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
 	// components that use a mobile key.
 	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
@@ -447,18 +450,25 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		if !c.offline {
-			go c.startSDKClient(key, nil, false)
-		}
-		if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-			c.metricsEventPub.ReplaceCredential(key)
-		}
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		if key == c.keyRotator.SDKKey() {
+			if !c.offline {
+				go c.startSDKClient(key, nil, false)
+			}
+			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
+				c.metricsEventPub.ReplaceCredential(key)
+			}
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	case config.MobileKey:
-		if c.eventDispatcher != nil {
-			c.eventDispatcher.ReplaceCredential(key)
+		// Mobile-key event forwarding collapses to the primary mobile key, mirroring the anchor-only
+		// behavior for SDK keys above: only the primary mobile key repoints the event dispatcher, so a
+		// non-primary mobile key accepted in the same reconcile does not steal event forwarding.
+		if key == c.keyRotator.MobileKey() {
+			if c.eventDispatcher != nil {
+				c.eventDispatcher.ReplaceCredential(key)
+			}
 		}
 	}
 
@@ -557,6 +567,22 @@ func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
 		c.keyRotator.RotateWithGrace(update.primary, credential.NewGracePeriod(update.deprecated, update.expiry, update.now))
 	}
 	c.triggerCredentialChanges(update.now)
+}
+
+func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
+	c.reconcileCredentials(newSet, time.Now())
+}
+
+// reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
+// reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
+//
+// The Rotator owns the diff (add → re-anchor → remove) and queues the resulting additions and
+// expirations; triggerCredentialChanges then applies them, draining additions before expirations so
+// the accepted set is a superset during the transition. addCredential opens an upstream client only
+// for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
+	c.keyRotator.Reconcile(newSet, now)
+	c.triggerCredentialChanges(now)
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {

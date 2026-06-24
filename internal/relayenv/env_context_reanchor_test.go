@@ -11,9 +11,9 @@ package relayenv
 // .agent-docs/concurrent-keys/phase1-T0-reanchor-poc-findings.md.
 //
 // Terminology: "re-anchor" = swapping the single upstream SDK client when sdkKey.value changes.
-// Today there is no dedicated re-anchor method; the closest existing path is UpdateCredential with a
-// grace period (which rotates the primary SDK key and stands up a new client), so several tests drive
-// that path and observe where it falls short of the §7 requirements.
+// Today there is no dedicated re-anchor method; the closest existing path is ReconcileCredentials with
+// an expiring (grace-period) key (which rotates the primary SDK key and stands up a new client), so
+// several tests drive that path and observe where it falls short of the §7 requirements.
 
 import (
 	"errors"
@@ -95,12 +95,15 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 	return f.store, nil
 }
 
-// newReanchorCredentialUpdate builds a CredentialUpdate that rotates the primary SDK key to newKey
-// while keeping oldKey valid for a grace hour (so the old client is not torn down during the swap).
-// This mirrors the backend's default-rotation behavior: the new anchor is non-expiring, the demoted
-// old anchor carries an expiry.
-func newReanchorCredentialUpdate(newKey, oldKey config.SDKKey, now time.Time) *CredentialUpdate {
-	return NewCredentialUpdate(newKey).WithTime(now).WithGracePeriod(oldKey, now.Add(time.Hour))
+// reanchor re-anchors env onto newKey while keeping oldKey valid for a grace hour (so the old client
+// is not torn down during the swap). This mirrors the backend's default-rotation behavior: the new
+// anchor is non-expiring, the demoted old anchor carries an expiry. It drives the time-injectable
+// reconcileCredentials directly so the grace-period math is deterministic.
+func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
+	t.Helper()
+	env.(*envContextImpl).UpdateCredential(NewCredentialUpdate(newKey).
+		WithGracePeriod(oldKey, now.Add(time.Hour)).
+		WithTime(now))
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -227,7 +230,7 @@ func TestReanchorPoC_H2_DownstreamConnectionSurvivesReAnchor(t *testing.T) {
 		// The connection is keyed on the env ID (a ScopedCredential), independent of the upstream SDK
 		// key, so swapping the SDK anchor must not disturb it.
 		start := time.Unix(1000, 0)
-		env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+		reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 		// The new anchor client comes up on a background goroutine. Credential additions start the client
 		// with a nil readyCh (so it does NOT signal sdkStartedCh); wait on the credential set instead.
@@ -340,7 +343,7 @@ func TestReanchorPoC_H3_BigSegmentSyncIsNotReWiredOnReAnchor(t *testing.T) {
 
 	// Re-anchor onto a new SDK key.
 	start := time.Unix(1000, 0)
-	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 	require.Eventually(t, func() bool {
 		for _, c := range env.GetCredentials() {
 			if c == reanchorTestKey2 {
@@ -436,7 +439,7 @@ func TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor(t *testing.T) {
 	// Re-anchor onto a new key (old key kept valid for a grace hour, so the old client is not closed --
 	// i.e. this exercises the recommended "start-new-before-close-old" ordering).
 	start := time.Unix(1000, 0)
-	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 	client2 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond,
@@ -504,7 +507,7 @@ func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
 
 	// Re-anchor onto a new key.
 	start := time.Unix(1000, 0)
-	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 	client2 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond)
@@ -549,10 +552,10 @@ func TestReanchorPoC_H6_AnchorPointerFlipsBeforeNewClientIsRegistered(t *testing
 	client1 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client1 }, time.Second, 10*time.Millisecond)
 
-	// Re-anchor. UpdateCredential flips the rotator's primary SDK key synchronously, then starts the new
-	// client on a background goroutine (which blocks in the factory on `gate`).
+	// Re-anchor. reconcileCredentials flips the rotator's primary SDK key synchronously, then starts the
+	// new client on a background goroutine (which blocks in the factory on `gate`).
 	start := time.Unix(1000, 0)
-	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 	// FINDING: there is a window where the anchor pointer already names the new key but no client exists
 	// for it yet, so GetClient() returns nil. GetClient() == clients[rotator.SDKKey()], and the rotator's
@@ -600,7 +603,7 @@ func TestReanchorPoC_H7_FailedNewClientLeavesEnvWithoutAnchorClient(t *testing.T
 
 	// Re-anchor onto a key whose client init fails (old key kept valid for a grace hour).
 	start := time.Unix(1000, 0)
-	env.UpdateCredential(newReanchorCredentialUpdate(reanchorTestKey2, envConfig.SDKKey, start))
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 	require.Eventually(t, func() bool { return env.GetInitError() != nil }, time.Second, 10*time.Millisecond,
 		"the failed new-client init should surface as an init error")

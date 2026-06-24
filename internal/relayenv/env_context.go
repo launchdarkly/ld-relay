@@ -79,7 +79,20 @@ type EnvContext interface {
 
 	// UpdateCredential updates the environment with a new credential, optionally deprecating a previous one
 	// with a grace period.
+	//
+	// This is the legacy single-credential rotation API. It is retained while the action handlers still
+	// drive rotation through it; the full-set ReconcileCredentials below will take over once the handlers
+	// are migrated to it.
 	UpdateCredential(update *CredentialUpdate)
+
+	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
+	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
+	// primary mobile key. The method owns the order of operations internally (add → re-anchor →
+	// remove); callers do not sequence.
+	//
+	// newSet is assumed well-formed: it is built and validated via credential.AcceptedSetBuilder
+	// (which guarantees an anchor) before reaching here, so this method does not re-validate.
+	ReconcileCredentials(newSet credential.AcceptedSet)
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential

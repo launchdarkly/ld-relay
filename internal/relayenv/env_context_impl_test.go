@@ -178,6 +178,14 @@ func TestLogPrefix(t *testing.T) {
 	testPrefix("impossibly short env ID", LogNameIsEnvID, config.SDKKey("1234567890"), config.EnvironmentID("hij"), "[env: hij]")
 }
 
+// mustBuildAcceptedSet builds the set from b, failing the test if Build returns an error.
+func mustBuildAcceptedSet(t *testing.T, b *credential.AcceptedSetBuilder) credential.AcceptedSet {
+	t.Helper()
+	set, err := b.Build()
+	require.NoError(t, err)
+	return set
+}
+
 func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -189,22 +197,30 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.EnvID))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	envID := st.EnvWithAllCredentials.Config.EnvID
+
+	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey).WithEnvironmentID(envID)))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.Contains(t, creds, mobileKey)
+	assert.Contains(t, creds, envID)
 
-	env.UpdateCredential(NewCredentialUpdate(config.MobileKey("evict-the-previous-key")))
+	// Reconciling with a different mobile key evicts the previous one.
+	newMobileKey := config.MobileKey("evict-the-previous-key")
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(newMobileKey).WithEnvironmentID(envID)))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.NotContains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.EnvID)
+	assert.NotContains(t, creds, mobileKey)
+	assert.Contains(t, creds, newMobileKey)
+	assert.Contains(t, creds, envID)
 }
 
 func TestAddExistingCredentialDoesNothing(t *testing.T) {
@@ -218,19 +234,23 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey))
+
+	env.ReconcileCredentials(set)
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
 
-	env.UpdateCredential(NewCredentialUpdate(st.EnvWithAllCredentials.Config.MobileKey))
+	// Reconciling with the same set again changes nothing.
+	env.ReconcileCredentials(set)
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Contains(t, creds, st.EnvWithAllCredentials.Config.MobileKey)
+	assert.Contains(t, creds, mobileKey)
 }
 
 func TestChangeSDKKey(t *testing.T) {
@@ -246,6 +266,7 @@ func TestChangeSDKKey(t *testing.T) {
 
 	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
 	defer env.Close()
+	envImpl := env.(*envContextImpl)
 
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	client1 := requireClientReady(t, clientCh)
@@ -257,14 +278,16 @@ func TestChangeSDKKey(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
-	// For the purposes of key rotation, we'll make time deterministic.
+	// For the purposes of key rotation, we'll make time deterministic. We drive the grace-period
+	// setup through the legacy UpdateCredential API (with an injected time), then advance the cleanup
+	// ticker (triggerCredentialChanges) to expire the deprecated key — the same path the periodic
+	// ticker uses in production.
 	start := time.Unix(1000, 0)
 
-	// Upon rotating to key2, the original key should still be valid for a hour.
-	env.UpdateCredential(
-		NewCredentialUpdate(key2).
-			WithTime(start).
-			WithGracePeriod(envConfig.SDKKey, start.Add(1*time.Hour)))
+	// Upon rotating to key2, the original key should still be valid for an hour.
+	envImpl.UpdateCredential(NewCredentialUpdate(key2).
+		WithGracePeriod(envConfig.SDKKey, start.Add(1 * time.Hour)).
+		WithTime(start))
 
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
@@ -283,14 +306,14 @@ func TestChangeSDKKey(t *testing.T) {
 	}
 
 	// Simulate an amount of time passing that is less than the deprecation period. The original key should still be valid.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(45 * time.Minute)))
+	envImpl.triggerCredentialChanges(start.Add(45 * time.Minute))
 	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
 		t.FailNow()
 	}
 
 	// We are now an instant after the deprecation period. This should cause the original key to become expired
 	// and trigger the client to close.
-	env.UpdateCredential(NewCredentialUpdate(key2).WithTime(start.Add(1*time.Hour + 1*time.Millisecond)))
+	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
 
@@ -298,6 +321,105 @@ func TestChangeSDKKey(t *testing.T) {
 		t.FailNow()
 	}
 
+}
+
+func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	readyCh := make(chan EnvContext, 1)
+	// Buffer large enough to catch any unexpected extra clients.
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// One client is opened for the anchor key during construction.
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	anchorClient := requireClientReady(t, clientCh)
+	assert.Equal(t, envConfig.SDKKey, anchorClient.Key)
+
+	nonAnchorKey1 := config.SDKKey("non-anchor-key-1")
+	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
+
+	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor client
+	// is needed. Non-anchor keys must get envStreams + handlers + connection mapping but must NOT
+	// open an upstream client.
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithPrimarySDKKey(envConfig.SDKKey).
+			WithSDKKey(nonAnchorKey1).
+			WithSDKKey(nonAnchorKey2)))
+
+	// All three SDK keys are accepted...
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, envConfig.SDKKey)
+	assert.Contains(t, creds, nonAnchorKey1)
+	assert.Contains(t, creds, nonAnchorKey2)
+
+	// ...but no additional upstream client was started.
+	if !helpers.AssertNoMoreValues(t, clientCh, 200*time.Millisecond) {
+		t.FailNow()
+	}
+}
+
+func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	envConfig := st.EnvWithAllCredentials.Config
+	primaryMobile := envConfig.MobileKey
+	nonPrimaryMobile := config.MobileKey("mob-non-primary")
+
+	eventRecorderHandler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(eventRecorderHandler, func(server *httptest.Server) {
+		var allConfig config.Config
+		allConfig.Events.SendEvents = true
+		allConfig.Events.EventsURI, _ = configtypes.NewOptURLAbsoluteFromString(server.URL)
+		allConfig.Events.FlushInterval = configtypes.NewOptDuration(time.Millisecond * 10)
+		env, err := NewEnvContext(EnvContextImplParams{
+			Identifiers:      EnvIdentifiers{ConfiguredName: envName},
+			EnvConfig:        envConfig,
+			AllConfig:        allConfig,
+			ClientFactory:    testclient.FakeLDClientFactory(true),
+			Loggers:          mockLog.Loggers,
+			ConnectionMapper: mockConnectionMapper{},
+		}, nil)
+		require.NoError(t, err)
+		defer env.Close()
+		envImpl := env.(*envContextImpl)
+
+		// Reconcile to a set that keeps the original mobile key as primary but also accepts a second,
+		// non-primary mobile key. Accepting the non-primary key must NOT repoint event forwarding —
+		// events collapse to the primary mobile key, mirroring the SDK anchor.
+		env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+			WithPrimarySDKKey(envConfig.SDKKey).
+			WithPrimaryMobileKey(primaryMobile).
+			WithMobileKey(nonPrimaryMobile).
+			WithEnvironmentID(envConfig.EnvID)))
+
+		ed := envImpl.GetEventDispatcher()
+		require.NotNil(t, ed)
+		handler := ed.GetHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind)
+		require.NotNil(t, handler)
+
+		rr := httptest.NewRecorder()
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", string(primaryMobile))
+		headers.Set("X-LaunchDarkly-Event-Schema", strconv.Itoa(events.SummaryEventsSchemaVersion))
+		body := `[{"kind":"identify","creationDate":1000,"key":"userkey","user":{"key":"userkey"}}]`
+		req := st.BuildRequest("POST", server.URL+"/mobile/events/bulk", []byte(body), headers)
+		handler(rr, req)
+		require.Equal(t, 202, rr.Result().StatusCode)
+
+		// Mobile events forward under the env's primary mobile key, not the freshly-accepted
+		// non-primary one.
+		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
+		assert.Equal(t, string(primaryMobile), eventPost.Request.Header.Get("Authorization"))
+	})
 }
 
 func TestSDKClientCreationFails(t *testing.T) {
