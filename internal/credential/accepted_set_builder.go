@@ -14,7 +14,12 @@ type AcceptedSetBuilder struct {
 
 // NewAcceptedSetBuilder returns an empty AcceptedSetBuilder.
 func NewAcceptedSetBuilder() *AcceptedSetBuilder {
-	return &AcceptedSetBuilder{}
+	return &AcceptedSetBuilder{
+		set: AcceptedSet{
+			sdkKeys:    make(map[config.SDKKey]*time.Time),
+			mobileKeys: make(map[config.MobileKey]*time.Time),
+		},
+	}
 }
 
 // WithSDKKey adds a permanent (non-expiring) SDK key. It is a no-op if the key is undefined or
@@ -41,13 +46,13 @@ func (b *AcceptedSetBuilder) WithPrimarySDKKey(key config.SDKKey) *AcceptedSetBu
 	return b
 }
 
-// addSDKKey appends the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set.
+// addSDKKey records the key with the given expiry (nil = permanent), skipping undefined keys and
+// keys already in the set (the first expiry recorded for a key wins).
 func (b *AcceptedSetBuilder) addSDKKey(key config.SDKKey, expiry *time.Time) {
 	if !key.Defined() || b.set.hasSDKKey(key) {
 		return
 	}
-	b.set.sdkKeys = append(b.set.sdkKeys, acceptedSDKKey{key: key, expiry: expiry})
+	b.set.sdkKeys[key] = expiry
 }
 
 // WithMobileKey adds a permanent (non-expiring) mobile key. It is a no-op if the key is undefined or
@@ -75,13 +80,13 @@ func (b *AcceptedSetBuilder) WithPrimaryMobileKey(key config.MobileKey) *Accepte
 	return b
 }
 
-// addMobileKey appends the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set.
+// addMobileKey records the key with the given expiry (nil = permanent), skipping undefined keys and
+// keys already in the set (the first expiry recorded for a key wins).
 func (b *AcceptedSetBuilder) addMobileKey(key config.MobileKey, expiry *time.Time) {
 	if !key.Defined() || b.set.hasMobileKey(key) {
 		return
 	}
-	b.set.mobileKeys = append(b.set.mobileKeys, acceptedMobileKey{key: key, expiry: expiry})
+	b.set.mobileKeys[key] = expiry
 }
 
 // WithEnvironmentID sets the environment ID. It is a no-op if the ID is undefined.

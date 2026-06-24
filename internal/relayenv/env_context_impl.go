@@ -569,8 +569,8 @@ func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {
 	c.triggerCredentialChanges(update.now)
 }
 
-func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) error {
-	return c.reconcileCredentials(newSet, time.Now())
+func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
+	c.reconcileCredentials(newSet, time.Now())
 }
 
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
@@ -580,12 +580,9 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) err
 // expirations; triggerCredentialChanges then applies them, draining additions before expirations so
 // the accepted set is a superset during the transition. addCredential opens an upstream client only
 // for the anchor, so non-anchor server keys are accepted and routed without a second connection.
-func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) error {
-	if err := c.keyRotator.Reconcile(newSet, now); err != nil {
-		return err
-	}
+func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
+	c.keyRotator.Reconcile(newSet, now)
 	c.triggerCredentialChanges(now)
-	return nil
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {

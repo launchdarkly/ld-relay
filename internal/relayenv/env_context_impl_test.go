@@ -201,8 +201,8 @@ func TestAddRemoveCredential(t *testing.T) {
 	envID := st.EnvWithAllCredentials.Config.EnvID
 
 	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
-	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey).WithEnvironmentID(envID))))
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey).WithEnvironmentID(envID)))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -212,8 +212,8 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	// Reconciling with a different mobile key evicts the previous one.
 	newMobileKey := config.MobileKey("evict-the-previous-key")
-	require.NoError(t, env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(newMobileKey).WithEnvironmentID(envID))))
+	env.ReconcileCredentials(
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(newMobileKey).WithEnvironmentID(envID)))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -237,7 +237,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
 	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(envConfig.SDKKey).WithPrimaryMobileKey(mobileKey))
 
-	require.NoError(t, env.ReconcileCredentials(set))
+	env.ReconcileCredentials(set)
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
@@ -245,36 +245,12 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	assert.Contains(t, creds, mobileKey)
 
 	// Reconciling with the same set again changes nothing.
-	require.NoError(t, env.ReconcileCredentials(set))
+	env.ReconcileCredentials(set)
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, envConfig.SDKKey)
 	assert.Contains(t, creds, mobileKey)
-}
-
-func TestReconcileCredentialsRejectsSetWithoutAnchor(t *testing.T) {
-	envConfig := st.EnvMain.Config
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, nil)
-	defer env.Close()
-
-	before := env.GetCredentials()
-	require.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, before)
-
-	// A set with no designated anchor (the zero value) is malformed. The builder would reject such a
-	// set at Build time, so this exercises ReconcileCredentials' own guard against a malformed set
-	// reaching it.
-	err := env.ReconcileCredentials(credential.AcceptedSet{})
-
-	var malformed *credential.MalformedCredentialSetError
-	require.ErrorAs(t, err, &malformed)
-
-	// State is preserved: nothing was added or removed.
-	assert.ElementsMatch(t, before, env.GetCredentials())
 }
 
 func TestChangeSDKKey(t *testing.T) {
@@ -371,11 +347,11 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor client
 	// is needed. Non-anchor keys must get envStreams + handlers + connection mapping but must NOT
 	// open an upstream client.
-	require.NoError(t, env.ReconcileCredentials(
+	env.ReconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 			WithPrimarySDKKey(envConfig.SDKKey).
 			WithSDKKey(nonAnchorKey1).
-			WithSDKKey(nonAnchorKey2))))
+			WithSDKKey(nonAnchorKey2)))
 
 	// All three SDK keys are accepted...
 	creds := env.GetCredentials()
@@ -418,11 +394,11 @@ func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
 		// Reconcile to a set that keeps the original mobile key as primary but also accepts a second,
 		// non-primary mobile key. Accepting the non-primary key must NOT repoint event forwarding —
 		// events collapse to the primary mobile key, mirroring the SDK anchor.
-		require.NoError(t, env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
+		env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 			WithPrimarySDKKey(envConfig.SDKKey).
 			WithPrimaryMobileKey(primaryMobile).
 			WithMobileKey(nonPrimaryMobile).
-			WithEnvironmentID(envConfig.EnvID))))
+			WithEnvironmentID(envConfig.EnvID)))
 
 		ed := envImpl.GetEventDispatcher()
 		require.NotNil(t, ed)

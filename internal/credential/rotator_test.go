@@ -408,7 +408,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now))
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -424,8 +424,8 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	other := config.SDKKey("other")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other)), now))
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other)), now)
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
@@ -443,8 +443,8 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	mob2 := config.MobileKey("mob2")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithPrimaryMobileKey(mob1).WithMobileKey(mob2)), now))
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithPrimaryMobileKey(mob1).WithMobileKey(mob2)), now)
 	additions, _ := r.StepTime(now)
 
 	// Every mobile key is accepted; the designated one is the primary.
@@ -460,12 +460,12 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	mob := config.MobileKey("mob")
 	now := time.Now()
 
-	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other).WithPrimaryMobileKey(mob)), now))
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other).WithPrimaryMobileKey(mob)), now)
 	r.StepTime(now)
 
 	// Reconciling to just the anchor revokes the omitted server and mobile keys.
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now))
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.Empty(t, additions)
@@ -483,13 +483,13 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	expiringMobile := config.MobileKey("expiring-mob")
 	now := time.Unix(1000, 0)
 
-	require.NoError(t, r.Reconcile(
+	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
 			WithPrimarySDKKey(anchor).
 			WithExpiringSDKKey(expiringSDK, now.Add(time.Hour)).
 			WithPrimaryMobileKey(mob).
 			WithExpiringMobileKey(expiringMobile, now.Add(time.Hour))),
-		now))
+		now)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
@@ -511,7 +511,7 @@ func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 		WithPrimarySDKKey(anchor).
 		WithExpiringMobileKey(mob, now.Add(-time.Hour)). // already expired in the payload...
 		WithPrimaryMobileKey(mob))                       // ...but designated as the primary
-	require.NoError(t, r.Reconcile(set, now))
+	r.Reconcile(set, now)
 	r.StepTime(now)
 
 	assert.Equal(t, mob, r.MobileKey())
@@ -534,27 +534,10 @@ func TestReconcileClearsStaleDeprecationForAcceptedKey(t *testing.T) {
 	require.ElementsMatch(t, []SDKCredential{old}, r.DeprecatedCredentials())
 
 	// Reconcile to a set that fully accepts both keys.
-	require.NoError(t, r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(old)), now))
+	r.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(old)), now)
 	r.StepTime(now)
 
 	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(old))
 	assert.Empty(t, r.DeprecatedCredentials())
-}
-
-func TestReconcileRejectsSetWithoutAnchor(t *testing.T) {
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	now := time.Now()
-
-	require.NoError(t, r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now))
-	r.StepTime(now)
-
-	// A set with no designated anchor (e.g. the zero value) is malformed; Reconcile makes no changes.
-	var malformed *MalformedCredentialSetError
-	require.ErrorAs(t, r.Reconcile(AcceptedSet{}, now), &malformed)
-	additions, expirations := r.StepTime(now)
-	assert.Empty(t, additions)
-	assert.Empty(t, expirations)
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
 }

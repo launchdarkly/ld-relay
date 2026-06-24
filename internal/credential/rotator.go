@@ -367,24 +367,16 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // environment ID leaves the current one unchanged, since environments are removed via teardown
 // rather than reconcile.
 //
-// It returns a *MalformedCredentialSetError, without mutating any state, if the set's anchor is
-// undefined or not one of its SDK keys. AcceptedSetBuilder.Build already enforces this, so a set
-// obtained from the builder always reconciles cleanly; the guard defends against a zero-value set.
-func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) error {
-	if !set.primarySdkKey.Defined() {
-		return &MalformedCredentialSetError{Anchor: nil}
-	}
-	if !set.hasSDKKey(set.primarySdkKey) {
-		return &MalformedCredentialSetError{Anchor: set.primarySdkKey}
-	}
-
+// The set is assumed well-formed: AcceptedSetBuilder.Build validates that an anchor was designated
+// (and, because WithPrimarySDKKey adds the key as it designates it, that the anchor is among the SDK
+// keys), so Reconcile trusts what it is handed rather than re-validating.
+func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.reconcileSDKKeys(set, set.primarySdkKey, now)
 	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
-	return nil
 }
 
 // reconcilableKey constrains the generic reconcile helper to a comparable credential (so it can key a
@@ -441,11 +433,11 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // payload may carry for it. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
-	for _, k := range set.sdkKeys {
-		if k.expiry != nil && !now.Before(*k.expiry) {
+	for key, expiry := range set.sdkKeys {
+		if expiry != nil && !now.Before(*expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[k.key] = k.expiry
+		desired[key] = expiry
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
@@ -457,11 +449,11 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 // and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
-	for _, k := range set.mobileKeys {
-		if k.expiry != nil && !now.Before(*k.expiry) {
+	for key, expiry := range set.mobileKeys {
+		if expiry != nil && !now.Before(*expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[k.key] = k.expiry
+		desired[key] = expiry
 	}
 	if set.primaryMobileKey.Defined() {
 		desired[set.primaryMobileKey] = nil

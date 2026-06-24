@@ -90,9 +90,9 @@ type EnvContext interface {
 	// primary mobile key. The method owns the order of operations internally (add → re-anchor →
 	// remove); callers do not sequence.
 	//
-	// It returns a *credential.MalformedCredentialSetError, without changing any state, if the set's
-	// anchor is missing or not one of its SDK keys; see that type for the caller's responsibilities.
-	ReconcileCredentials(newSet credential.AcceptedSet) error
+	// newSet is assumed well-formed: it is built and validated via credential.AcceptedSetBuilder
+	// (which guarantees an anchor) before reaching here, so this method does not re-validate.
+	ReconcileCredentials(newSet credential.AcceptedSet)
 
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
