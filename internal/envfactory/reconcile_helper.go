@@ -28,20 +28,20 @@ import (
 func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.SDKKey, error) {
 	anchor := params.SDKKey
 
-	// WithPrimarySDKKey both adds the anchor and designates it. If anchor is undefined it is a
-	// no-op, leaving the set with no designated anchor; Build then returns a
-	// *MalformedCredentialSetError. The builder de-duplicates, so re-adding the anchor in the loop
-	// below is safe.
+	// WithPrimarySDKKey / WithPrimaryMobileKey each add the key and designate it (the anchor and the
+	// wire's mobKey, respectively). An undefined key makes the call a no-op, so an undefined anchor
+	// leaves the set with no designated anchor and Build returns a *MalformedCredentialSetError.
 	b := credential.NewAcceptedSetBuilder().
 		WithEnvironmentID(params.EnvID).
-		WithPrimarySDKKey(anchor)
+		WithPrimarySDKKey(anchor).
+		WithPrimaryMobileKey(params.MobileKey)
 
+	// Add the remaining accepted keys. The builder de-duplicates by value, so the anchor and the
+	// primary mobile key — already added permanently above — are ignored when they reappear in
+	// their arrays. That also defends the anchor-never-expiring invariant: a payload that (wrongly)
+	// carries an expiry on the anchor's own entry cannot demote it, because the permanent anchor is
+	// already present.
 	for _, k := range params.AcceptedSDKKeys {
-		// The anchor is added permanently above; skip it so a payload that (wrongly) carries an
-		// expiry on the anchor's own entry can never demote it to an expiring key.
-		if k.Value == anchor {
-			continue
-		}
 		if k.Expiry.IsZero() {
 			b.WithSDKKey(k.Value)
 		} else {
@@ -56,9 +56,6 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 			b.WithExpiringMobileKey(k.Value, k.Expiry)
 		}
 	}
-
-	// Designate the primary mobile key (the wire's mobKey). De-duplicated against the array above.
-	b.WithPrimaryMobileKey(params.MobileKey)
 
 	set, err := b.Build()
 	if err != nil {
