@@ -524,7 +524,6 @@ func (r *Rotator) CommitAnchor(key config.SDKKey) {
 	r.primarySdkKey = key
 }
 
-
 // reconcilableKey constrains the generic reconcile helper to a comparable credential (so it can key a
 // map) that is also an SDKCredential (so it can be logged and appended to the credential lists).
 type reconcilableKey interface {

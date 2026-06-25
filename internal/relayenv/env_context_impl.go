@@ -804,7 +804,9 @@ func (c *envContextImpl) installAnchorPeripherals(newAnchor config.SDKKey) {
 // "Component re-wiring", PoC H3). Until T2.d lands, big-segment sync continues to use the previous
 // anchor key — this matches today's behavior and does not regress on re-anchor.
 func (c *envContextImpl) reanchorBigSegmentSync(_ config.SDKKey) {
-	// TODO(T2.d, SDK-2543): rewire bigSegmentSync to the new anchor.
+	// Intentionally a no-op until T2.d (SDK-2543) implements the big-segment re-wire. Leaving it
+	// unimplemented matches today's behavior (big-segment sync stays on the previous anchor key) and
+	// does not regress on re-anchor.
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
