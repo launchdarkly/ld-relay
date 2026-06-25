@@ -85,6 +85,36 @@ func TestMalformedCredentialPayloadCausesStreamRestart(t *testing.T) {
 	})
 }
 
+// A put carrying a malformed credential payload must not be written to the persistent cache: doing so
+// would re-surface the rejected environment (skipped again) on the next cache load. The malformed env
+// is skipped in memory and the stream reconnects for a fresh put, which is what refreshes the cache.
+func TestMalformedCredentialPayloadInPutIsNotCached(t *testing.T) {
+	malformedEnv := testEnv1
+	malformedEnv.SDKKey = envfactory.SDKKeyRep{Value: config.SDKKey("")} // undefined anchor
+
+	t.Run("malformed put is not persisted", func(t *testing.T) {
+		cache := &recordingCache{}
+		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+			p.startStream()
+			<-p.requestsCh
+			p.stream.Enqueue(makeEnvPutEvent(malformedEnv))
+			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+			assert.Equal(t, 0, cache.setAllCount(), "a malformed put must not be written to the cache")
+		})
+	})
+
+	t.Run("valid put is persisted", func(t *testing.T) {
+		cache := &recordingCache{}
+		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+			p.startStream()
+			<-p.requestsCh
+			p.stream.Enqueue(makeEnvPutEvent(testEnv1))
+			assert.Eventually(t, func() bool { return cache.setAllCount() == 1 }, time.Second, 10*time.Millisecond,
+				"a valid put must be written to the cache")
+		})
+	})
+}
+
 func TestMalformedJSONInEventCausesStreamRestart(t *testing.T) {
 	t.Run("put", func(t *testing.T) {
 		event := httphelpers.SSEEvent{Event: PutEvent, Data: malformedJSON}
@@ -144,7 +174,7 @@ func errorShouldCauseReconnect(t *testing.T, errorProducingHandler http.Handler,
 		errorProducingHandler, // first request will get this
 		streamHandler,         // request after reconnect will get this
 	)
-	streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
+	streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
 		p.startStream()
 		<-p.requestsCh // first request
 		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
@@ -178,7 +208,7 @@ func TestNoReconnectAfterUnrecoverableHTTPError(t *testing.T) {
 				errorProducingHandler, // first request will get this
 				streamHandler,         // request after reconnect will get this
 			)
-			streamManagerTestWithStreamHandler(t, handler, stream, func(p streamManagerTestParams) {
+			streamManagerTestWithStreamHandler(t, handler, stream, noopTestCache{}, func(p streamManagerTestParams) {
 				p.startStream()
 				<-p.requestsCh // first request
 				select {

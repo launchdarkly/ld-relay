@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,29 @@ func (noopTestCache) SetAll(context.Context, PutContent) error                  
 func (noopTestCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
 func (noopTestCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (noopTestCache) Close() error                                                 { return nil }
+
+// recordingCache records calls to SetAll so a test can assert whether a put was persisted.
+type recordingCache struct {
+	mu      sync.Mutex
+	setAllN int
+}
+
+func (c *recordingCache) GetAll(context.Context) (*PutContent, error) { return nil, nil }
+func (c *recordingCache) SetAll(context.Context, PutContent) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.setAllN++
+	return nil
+}
+func (c *recordingCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
+func (c *recordingCache) Delete(context.Context, CacheKind, string) error              { return nil }
+func (c *recordingCache) Close() error                                                 { return nil }
+
+func (c *recordingCache) setAllCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.setAllN
+}
 
 const (
 	testConfigKey config.AutoConfigKey = "test-key"
@@ -208,9 +232,13 @@ type testMessageHandler struct {
 }
 
 func streamManagerTest(t *testing.T, initialEvent *httphelpers.SSEEvent, action func(p streamManagerTestParams)) {
+	streamManagerTestWithCache(t, initialEvent, noopTestCache{}, action)
+}
+
+func streamManagerTestWithCache(t *testing.T, initialEvent *httphelpers.SSEEvent, cache Cache, action func(p streamManagerTestParams)) {
 	streamHandler, stream := httphelpers.SSEHandler(initialEvent)
 	defer stream.Close()
-	streamManagerTestWithStreamHandler(t, streamHandler, stream, action)
+	streamManagerTestWithStreamHandler(t, streamHandler, stream, cache, action)
 }
 
 func mustParseURL(t *testing.T, u string) *url.URL {
@@ -226,6 +254,7 @@ func streamManagerTestWithStreamHandler(
 	t *testing.T,
 	streamHandler http.Handler,
 	stream httphelpers.SSEStreamControl,
+	cache Cache,
 	action func(p streamManagerTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
@@ -254,7 +283,7 @@ func streamManagerTestWithStreamHandler(
 			time.Millisecond,
 			rpacProtocolVersion,
 			mockLog.Loggers,
-			noopTestCache{},
+			cache,
 		)
 		defer p.streamManager.Close()
 

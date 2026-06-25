@@ -579,7 +579,11 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-	if content.Persist {
+	// Don't persist a put that carried a malformed credential payload (shouldRestart). The rejected
+	// environment would be written to the cache and then re-skipped on the next cache load, leaving it
+	// unavailable until a valid put arrives. We're already reconnecting for a fresh put, so preserve the
+	// previous cache and let that fresh put refresh it.
+	if content.Persist && !shouldRestart {
 		if err := s.cache.SetAll(context.Background(), content); err != nil {
 			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
 		}
