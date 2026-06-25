@@ -107,7 +107,8 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 		if errors.As(buildErr, &malformed) {
 			a.r.loggers.Errorf(logMsgMalformedPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		} else {
-			a.r.loggers.Errorf(logMsgInternalErrorUpdatedEnvNotFound, ae.Params.EnvID)
+			// The environment was found above; this is a credential-build failure, not a missing env.
+			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		}
 		// Preserve previous credentials; no reconnect (offline path has no live stream).
 	} else {
