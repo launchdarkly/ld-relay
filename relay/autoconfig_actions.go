@@ -1,10 +1,7 @@
 package relay
 
 import (
-	"errors"
-
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
@@ -16,7 +13,6 @@ const (
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
 	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 
-	logMsgMalformedPayloadRAC     = "Malformed credential payload for environment %q — preserving previous credentials and reconnecting RAC stream: %s"
 	logMsgMalformedPayloadOffline = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
 )
 
@@ -47,11 +43,11 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 	env.ReconcileCredentials(set)
 }
 
-func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) bool {
+func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	env, err := a.r.getEnvironment(sdkauth.NewScoped(params.Identifiers.FilterKey, params.EnvID))
 	if err != nil {
 		a.r.loggers.Warnf(logMsgAutoConfUpdateUnknownEnv, params.Identifiers.GetDisplayName())
-		return false
+		return
 	}
 
 	env.SetIdentifiers(params.Identifiers)
@@ -60,16 +56,13 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 
 	set, _, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
-		var malformed *credential.MalformedCredentialSetError
-		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedPayloadRAC, params.Identifiers.GetDisplayName(), buildErr)
-			return true // signal stream restart so backend pushes a fresh put
-		}
+		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
+		// being dispatched here, so a malformed set should not reach this point. Log defensively and
+		// preserve the previous credentials rather than applying a partial set.
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
-		return false
+		return
 	}
 	env.ReconcileCredentials(set)
-	return false
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {

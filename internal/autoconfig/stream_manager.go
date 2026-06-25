@@ -388,7 +388,9 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			s.cacheCh = nil
 		}
 		putMessage.Data.Persist = true
-		s.handlePut(putMessage.Data)
+		if s.handlePut(putMessage.Data) {
+			shouldRestart = true
+		}
 
 	case PatchEvent:
 		var patchMsg PatchMessageData
@@ -411,10 +413,15 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 				s.loggers.Warnf(logMsgEnvHasWrongID, envRep.EnvID, id)
 				break
 			}
-			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
-			if s.dispatchEnvAction(config.EnvironmentID(id), envRep, action) {
+			// Validate before Upsert so a malformed payload does not advance the version (see
+			// validateCredentialPayload). Preserve previous state for this env and reconnect.
+			if err = s.validateCredentialPayload(envRep); err != nil {
+				s.loggers.Errorf(logMsgMalformedCredentialPayload, envRep.EnvID, err)
 				shouldRestart = true
+				break
 			}
+			action := s.envReceiver.Upsert(id, envRep, envRep.Version)
+			s.dispatchEnvAction(config.EnvironmentID(id), envRep, action)
 			if action != ActionNoop {
 				s.cacheUpsert(CacheKindEnvironment, id, envRep)
 			}
@@ -474,12 +481,11 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 	return shouldRestart
 }
 
-// dispatchEnvAction dispatches a single environment action to the handler. It returns true if the
-// stream should be restarted (forwarded from UpdateEnvironment on malformed credential payload).
-func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) bool {
+// dispatchEnvAction dispatches a single environment action to the handler.
+func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactory.EnvironmentRep, action Action) {
 	switch action {
 	case ActionNoop:
-		return false
+		return
 	case ActionInsert:
 		params := rep.ToParams()
 		s.handler.AddEnvironment(params)
@@ -487,9 +493,22 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 		s.handler.DeleteEnvironment(id)
 	case ActionUpdate:
 		params := rep.ToParams()
-		return s.handler.UpdateEnvironment(params)
+		s.handler.UpdateEnvironment(params)
 	}
-	return false
+}
+
+// validateCredentialPayload checks that an environment rep carries a structurally valid credential
+// set. It is run at the stream parse boundary — before the rep's version is recorded via Upsert —
+// mirroring how an unparseable event is handled by gotMalformedEvent.
+//
+// Per design §9 a malformed credential payload must preserve the previous accepted set and force a
+// stream reconnect (RAC is one-way push with no NAK channel, so the reconnect is what makes the
+// backend resend a fresh put). Validating here rather than after Upsert is essential: the version is
+// not advanced, so the fresh put — which carries the same version — is not deduplicated away by the
+// MessageReceiver. Any error from BuildAcceptedSet is a *MalformedCredentialSetError.
+func (s *StreamManager) validateCredentialPayload(rep envfactory.EnvironmentRep) error {
+	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
+	return err
 }
 
 func (s *StreamManager) dispatchFilterAction(id config.FilterID, rep envfactory.FilterRep, action Action) {
@@ -514,15 +533,26 @@ func (s *StreamManager) applyCachedContent(content *PutContent) {
 
 // All of the private methods below can be assumed to be called from the same goroutine that consumeStream
 // is on. We will never be processing more than one stream message at the same time.
-func (s *StreamManager) handlePut(content PutContent) {
+//
+// handlePut returns true if the stream should be restarted — a malformed credential payload in any of
+// the environments triggers a reconnect (design §9), while still processing the well-formed ones.
+func (s *StreamManager) handlePut(content PutContent) bool {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
 	// in the set.
+	shouldRestart := false
 	s.loggers.Infof(logMsgPutEvent, len(content.Environments))
 	for id, rep := range content.Environments {
 		if id != rep.EnvID {
 			s.loggers.Warnf(logMsgEnvHasWrongID, rep.EnvID, id)
+			continue
+		}
+		// Validate before Upsert so a malformed payload does not advance the version (see
+		// validateCredentialPayload). Skip this env, preserving its previous state, and reconnect.
+		if err := s.validateCredentialPayload(rep); err != nil {
+			s.loggers.Errorf(logMsgMalformedCredentialPayload, rep.EnvID, err)
+			shouldRestart = true
 			continue
 		}
 		s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
@@ -554,6 +584,7 @@ func (s *StreamManager) handlePut(content PutContent) {
 			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
 		}
 	}
+	return shouldRestart
 }
 
 func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {

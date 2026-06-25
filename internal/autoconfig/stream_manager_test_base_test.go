@@ -296,9 +296,8 @@ func (h *testMessageHandler) AddEnvironment(params envfactory.EnvironmentParams)
 	h.received <- testMessage{add: &params}
 }
 
-func (h *testMessageHandler) UpdateEnvironment(params envfactory.EnvironmentParams) bool {
+func (h *testMessageHandler) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	h.received <- testMessage{update: &params}
-	return false
 }
 
 func (h *testMessageHandler) DeleteEnvironment(id config.EnvironmentID) {

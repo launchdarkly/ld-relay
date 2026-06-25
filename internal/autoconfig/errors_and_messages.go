@@ -20,5 +20,7 @@ const (
 	logMsgWrongPath           = "Ignoring %q event for unknown path %q"
 	logMsgMalformedData       = "Received streaming %q event with malformed JSON data (%s); will restart stream"
 
+	logMsgMalformedCredentialPayload = "Received malformed credential payload for environment %q (%s); preserving previous credentials and will restart stream"
+
 	logMsgUnknownEntity = "Ignoring unknown entity: %s"
 )

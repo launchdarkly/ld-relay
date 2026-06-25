@@ -10,8 +10,7 @@ import (
 
 type EnvironmentActions interface {
 	AddEnvironment(params envfactory.EnvironmentParams)
-	// UpdateEnvironment returns true if the RAC stream should be restarted (malformed payload).
-	UpdateEnvironment(params envfactory.EnvironmentParams) bool
+	UpdateEnvironment(params envfactory.EnvironmentParams)
 	DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey)
 }
 
@@ -48,17 +47,16 @@ func NewEnvironmentManager(project string, handler EnvironmentActions, loggers l
 	}
 }
 
-func (e *EnvironmentManager) UpdateEnvironment(env envfactory.EnvironmentParams) bool {
+func (e *EnvironmentManager) UpdateEnvironment(env envfactory.EnvironmentParams) {
 	_, ok := e.defaults[env.EnvID]
 	if !ok {
-		return false
+		return
 	}
 
-	restart := e.handler.UpdateEnvironment(env)
+	e.handler.UpdateEnvironment(env)
 	for _, filter := range e.filtered {
-		restart = e.handler.UpdateEnvironment(env.WithFilter(filter.key)) || restart
+		e.handler.UpdateEnvironment(env.WithFilter(filter.key))
 	}
-	return restart
 }
 
 func (e *EnvironmentManager) AddEnvironment(env envfactory.EnvironmentParams) {
