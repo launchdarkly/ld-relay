@@ -480,7 +480,8 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
-	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
+	// The anchor is stripped from additions — the synchronous re-anchor sequence owns its setup.
+	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.SDKKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
@@ -499,8 +500,9 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
-	// Both server keys are accepted; only the anchor is primary.
-	assert.ElementsMatch(t, []SDKCredential{anchor, other}, additions)
+	// Both server keys are accepted; only the non-anchor server key is in additions (the anchor is
+	// owned by the synchronous re-anchor sequence in env_context_impl).
+	assert.ElementsMatch(t, []SDKCredential{other}, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.SDKKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.PrimaryCredentials())
@@ -518,8 +520,9 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithPrimaryMobileKey(mob1).WithMobileKey(mob2)), now)
 	additions, _ := r.StepTime(now)
 
-	// Every mobile key is accepted; the designated one is the primary.
-	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, additions)
+	// Every mobile key is accepted; the anchor is owned by the synchronous re-anchor (stripped from
+	// additions). The designated primary mobile key and the other mobile key remain in additions.
+	assert.ElementsMatch(t, []SDKCredential{mob1, mob2}, additions)
 	assert.Equal(t, mob1, r.MobileKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.PrimaryCredentials())
 }
@@ -564,7 +567,8 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 		now)
 	additions, expirations := r.StepTime(now)
 
-	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
+	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
+	assert.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
 	assert.Empty(t, expirations)
 	// All keys are accepted and non-deprecated in the foundation.
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.PrimaryCredentials())
@@ -635,7 +639,8 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 			WithExpiringMobileKey(expiringMobile, expiry)),
 		now)
 	additions, expirations := r.StepTime(now)
-	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
+	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
+	require.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
 	require.Empty(t, expirations)
 
 	// At the exact expiry, expiry is strict (now must be strictly after), so nothing is dropped yet.

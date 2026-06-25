@@ -449,7 +449,9 @@ type AnchorChange struct {
 //
 // Reconcile does NOT flip the SDK anchor pointer (primarySdkKey) when the anchor changes — the
 // returned ReconcileResult.AnchorChange signals the change so the caller can drive the synchronous
-// re-anchor sequence, then call CommitAnchor to atomically move the pointer.
+// re-anchor sequence, then call CommitAnchor to atomically move the pointer. The new anchor is
+// also stripped from additions in Case A (NewAnchorPreviouslyAccepted == false) so that the async
+// startSDKClient invocation in addCredential does not race the synchronous client build.
 func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -469,6 +471,16 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 
 	r.reconcileSDKKeys(set, set.primarySdkKey, now)
 
+	if result.AnchorChange != nil && !result.AnchorChange.NewAnchorPreviouslyAccepted {
+		// Case A: reconcileAcceptedKeys just appended the brand-new anchor to r.additions. Strip
+		// it — the synchronous re-anchor sequence in env_context_impl owns the new anchor's setup
+		// (peripherals + client build + flip + ReplaceCredential). If addCredential drained this
+		// addition normally, its async startSDKClient would race the synchronous build. In Case B
+		// (anchor previously accepted) the anchor was already in acceptedSDKKeys so
+		// reconcileAcceptedKeys did not add it — no strip needed.
+		r.additions = removeCredentialFromList(r.additions, newAnchor)
+	}
+
 	previousMobile := r.primaryMobileKey
 	newMobile := set.primaryMobileKey
 	var newMobileAlreadyAccepted bool
@@ -486,6 +498,15 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.reconcileEnvironmentID(set)
 
 	return result
+}
+
+func removeCredentialFromList(list []SDKCredential, target SDKCredential) []SDKCredential {
+	for i, c := range list {
+		if c == target {
+			return append(list[:i], list[i+1:]...)
+		}
+	}
+	return list
 }
 
 // CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. The caller

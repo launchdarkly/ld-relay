@@ -123,6 +123,12 @@ type envContextImpl struct {
 	connectionMapper          ConnectionMapper
 	offline                   bool
 	closed                    bool
+
+	// reconcileMu serializes reconcileCredentials calls, including the synchronous re-anchor
+	// sequence inside them. Held separately from mu so that GetClient / GetStore / GetEvaluator /
+	// addCredential continue to run during the (potentially seconds-long) SDK client construction
+	// in a Case A re-anchor.
+	reconcileMu sync.Mutex
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -614,24 +620,39 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
 // reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
 //
-// The Rotator owns the diff (add → re-anchor → remove) and queues the resulting additions and
-// expirations; triggerCredentialChanges then applies them, draining additions before expirations so
-// the accepted set is a superset during the transition. addCredential opens an upstream client only
-// for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+// Order of operations (design §8): add → re-anchor → remove. Additions drain first so peripheral
+// setup is in place before any synchronous re-anchor runs, the re-anchor swaps the upstream client
+// while the old anchor is still serving, and expirations drain last so the old anchor's client
+// (and any other revoked keys) are torn down only after the new anchor is fully operational. addCredential
+// opens an upstream client only for the anchor — non-anchor server keys are accepted and routed
+// without a second connection.
 //
-// Re-anchor handling (M3 / T2.c, design §7): Reconcile defers the SDK anchor flip and returns a
-// ReconcileResult describing the change so the caller can drive a synchronous re-anchor. This
-// initial cut commits the anchor immediately after Reconcile, preserving pre-T2.c behavior; the
-// full synchronous sequence (build new client first, then commit + ReplaceCredential + big-segment
-// re-wire) lands in a follow-up commit. The MobilePrimaryRepoint case — primary mobile key changed
-// to a key that was already in the accepted set — is handled here too: addCredential's gate won't
-// fire for it (the key isn't in additions), so we call ReplaceCredential synchronously.
+// Re-anchor handling (M3 / T2.c, design §7): Reconcile defers the SDK anchor flip and strips the
+// new anchor from additions so this method owns the new anchor's setup. The synchronous re-anchor
+// sequence — build new client (Case A) or reuse existing (Case B), CommitAnchor, ReplaceCredential
+// on event dispatcher + metrics publisher, re-wire big-segment sync — happens between the addition
+// and expiration phases. The MobilePrimaryRepoint case (primary mobile key changed to a key that
+// was already in the accepted set) is handled in the same window: addCredential's gate won't fire
+// for it because the key isn't in additions, so ReplaceCredential is called synchronously.
+//
+// reconcileMu serializes concurrent reconciles. If two reconciles arrive while a synchronous build
+// is in flight, the second blocks here until the first completes — matching the design's "all-or-
+// nothing" atomicity requirement.
 func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+
 	result := c.keyRotator.Reconcile(newSet, now)
-	if result.AnchorChange != nil {
-		c.keyRotator.CommitAnchor(result.AnchorChange.NewAnchor)
+	additions, expirations := c.keyRotator.StepTime(now)
+
+	for _, cred := range additions {
+		c.addCredential(cred)
 	}
-	c.triggerCredentialChanges(now)
+
+	if result.AnchorChange != nil {
+		c.reanchor(result.AnchorChange)
+	}
+
 	if result.MobilePrimaryRepoint != nil {
 		c.mu.RLock()
 		dispatcher := c.eventDispatcher
@@ -640,6 +661,150 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 			dispatcher.ReplaceCredential(*result.MobilePrimaryRepoint)
 		}
 	}
+
+	for _, cred := range expirations {
+		c.removeCredential(cred)
+	}
+}
+
+// reanchor drives the synchronous re-anchor sequence (design §7) for an SDK anchor change signaled
+// by Reconcile's ReconcileResult.AnchorChange. Invoked by reconcileCredentials after additions have
+// been processed and before expirations, so the previous anchor's client is still alive while the
+// new client is built (or reused).
+//
+// Case A (no existing client for the new anchor): perform peripheral setup if the key is brand new
+// (Reconcile stripped it from additions), build a new SDK client synchronously, wait for
+// Initialized — then CommitAnchor + ReplaceCredential + big-segment re-wire. On init failure, roll
+// back: do not CommitAnchor, leave the previous anchor authoritative, log a structured error. The
+// old client (still alive in its grace period) keeps serving.
+//
+// Case B (a client already exists for the new anchor — e.g. a former anchor still in its grace
+// period): no build, no peripheral setup. CommitAnchor + ReplaceCredential + big-segment re-wire.
+//
+// The old anchor's client is not closed here; its grace-period expiration drives removeCredential.
+func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
+	newAnchor := change.NewAnchor
+	previousAnchor := change.PreviousAnchor
+
+	c.mu.RLock()
+	existingClient := c.clients[newAnchor]
+	offline := c.offline
+	c.mu.RUnlock()
+
+	if existingClient != nil {
+		// Case B: client already exists for the new anchor.
+		c.commitReanchor(newAnchor, previousAnchor, "Case B (reused existing client)")
+		return
+	}
+
+	if !change.NewAnchorPreviouslyAccepted {
+		// Case A with a brand-new key: Reconcile stripped the new anchor from additions, so peripherals
+		// were skipped. Install them here, mirroring addCredential.
+		c.installAnchorPeripherals(newAnchor)
+	}
+	// Else: previously accepted (rare — non-anchor server key becoming anchor, no client). Peripherals
+	// were already set up by the original addCredential when the key was first accepted.
+
+	if offline {
+		// In offline mode there is no upstream client to build. Just commit + ReplaceCredential.
+		c.commitReanchor(newAnchor, previousAnchor, "Case A (offline — no client build)")
+		return
+	}
+
+	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
+	if err != nil || client == nil || !client.Initialized() {
+		// Init failure: do NOT CommitAnchor (rollback). The rotator's anchor pointer stays on the
+		// previous key, GetClient() continues to return the still-serving old client, and the
+		// reconciled accepted set is preserved. Log a structured error — relay has no dedicated
+		// alarm infrastructure today, so Errorf is the strongest signal available (design §7
+		// "Failure handling"). See PoC H7 for the no-rollback baseline this replaces.
+		var initialized bool
+		if client != nil {
+			initialized = client.Initialized()
+			_ = client.Close()
+		}
+		c.mu.Lock()
+		c.initErr = err
+		c.mu.Unlock()
+		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
+			"preserving previous anchor %s",
+			newAnchor.Masked(), err, initialized, previousAnchor.Masked())
+		return
+	}
+
+	c.mu.Lock()
+	if existing := c.clients[newAnchor]; existing != nil && existing != client {
+		// Mirrors PR #716's stale-client guard. Case A entered with no client for newAnchor, but the
+		// lock was released between then and here, so re-check.
+		_ = existing.Close()
+	}
+	c.clients[newAnchor] = client
+
+	// Rebuild the evaluator against the (handed-over) store, mirroring startSDKClient. With store
+	// handover, c.storeAdapter.GetStore() returns the SAME wrapper the old client used — the data is
+	// already there, so the new evaluator serves populated data immediately.
+	st := c.storeAdapter.GetStore()
+	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(st, c.loggers)
+	evalOptions := []ldeval.EvaluatorOption{
+		ldeval.EvaluatorOptionEnableSecondaryKey(true),
+	}
+	if c.sdkBigSegments != nil {
+		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
+	}
+	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
+	c.initErr = nil
+	c.mu.Unlock()
+
+	c.commitReanchor(newAnchor, previousAnchor, "Case A (built new client)")
+}
+
+// commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor
+// pointer, repoint downstream event/metrics forwarding, and re-wire big-segment sync. Shared by
+// Case A and Case B.
+func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string) {
+	c.keyRotator.CommitAnchor(newAnchor)
+
+	c.mu.RLock()
+	dispatcher := c.eventDispatcher
+	metricsPub := c.metricsEventPub
+	c.mu.RUnlock()
+
+	if metricsPub != nil {
+		metricsPub.ReplaceCredential(newAnchor)
+	}
+	if dispatcher != nil {
+		dispatcher.ReplaceCredential(newAnchor)
+	}
+
+	c.reanchorBigSegmentSync(newAnchor)
+
+	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
+}
+
+// installAnchorPeripherals runs the peripheral setup that addCredential normally performs for a new
+// credential — envStreams.AddCredential, per-stream-provider handler construction, and the
+// connection-mapper entry. Used by reanchor's Case A for a brand-new anchor key (Reconcile strips
+// the new anchor from additions to keep addCredential's async startSDKClient out of the re-anchor
+// critical path, so the peripherals are installed here instead).
+func (c *envContextImpl) installAnchorPeripherals(newAnchor config.SDKKey) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.envStreams.AddCredential(newAnchor)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newAnchor)); h != nil {
+			handlers[newAnchor] = h
+		}
+	}
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newAnchor), c)
+}
+
+// reanchorBigSegmentSync re-points big-segment synchronization at the new anchor SDK key.
+// T2.c (SDK-2542) defines the call site; T2.d (SDK-2543) implements the body — either recreating
+// the synchronizer or adding a credential-replacement method to BigSegmentSynchronizer (design §7
+// "Component re-wiring", PoC H3). Until T2.d lands, big-segment sync continues to use the previous
+// anchor key — this matches today's behavior and does not regress on re-anchor.
+func (c *envContextImpl) reanchorBigSegmentSync(_ config.SDKKey) {
+	// TODO(T2.d, SDK-2543): rewire bigSegmentSync to the new anchor.
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
