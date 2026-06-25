@@ -67,15 +67,30 @@ func NewSSERelayDataStoreAdapter(
 }
 
 // Build is called by the SDK when the LDClient is being created.
+//
+// Store handover (concurrent-keys re-anchor, design §7): if the adapter already holds a wrapper from
+// a prior client construction, that wrapper is returned again instead of building a fresh one. This
+// hands the populated, initialized data store over to the new anchor's client during a re-anchor —
+// no empty-store window, no re-sync. The wrapper refcounts its holders so the underlying store is
+// only torn down by the final Close (see streamUpdatesStoreWrapper.Close).
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
-	var sw *streamUpdatesStoreWrapper
+	a.mu.Lock()
+	if existing := a.store; existing != nil {
+		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok {
+			sw.acquire()
+			a.mu.Unlock()
+			return sw, nil
+		}
+	}
+	a.mu.Unlock()
+
 	wrappedStore, err := a.wrappedFactory.Build(context)
 	if err != nil {
 		return nil, err // this will cause client initialization to fail immediately
 	}
-	sw = newStreamUpdatesStoreWrapper(
+	sw := newStreamUpdatesStoreWrapper(
 		a.updates,
 		wrappedStore,
 		context.GetLogging().Loggers,
@@ -93,6 +108,13 @@ type streamUpdatesStoreWrapper struct {
 	store   subsystems.DataStore
 	updates streams.EnvStreamUpdates
 	loggers ldlog.Loggers
+
+	// refCount tracks how many SDK clients hold this wrapper. The first holder is implicit
+	// (count starts at 1 in newStreamUpdatesStoreWrapper). Each handover (Build reuse) calls
+	// acquire to bump the count; each client's Close decrements. The underlying store is torn
+	// down only when the count reaches zero. Guarded by refMu.
+	refMu    sync.Mutex
+	refCount int
 }
 
 func newStreamUpdatesStoreWrapper(
@@ -101,14 +123,33 @@ func newStreamUpdatesStoreWrapper(
 	loggers ldlog.Loggers,
 ) *streamUpdatesStoreWrapper {
 	relayStore := &streamUpdatesStoreWrapper{
-		store:   baseFeatureStore,
-		updates: updates,
-		loggers: loggers,
+		store:    baseFeatureStore,
+		updates:  updates,
+		loggers:  loggers,
+		refCount: 1,
 	}
 	return relayStore
 }
 
+// acquire records an additional holder of the wrapper, used by SSERelayDataStoreAdapter.Build
+// when it hands this wrapper to a new client during a concurrent-keys re-anchor.
+func (sw *streamUpdatesStoreWrapper) acquire() {
+	sw.refMu.Lock()
+	sw.refCount++
+	sw.refMu.Unlock()
+}
+
 func (sw *streamUpdatesStoreWrapper) Close() error {
+	sw.refMu.Lock()
+	sw.refCount--
+	final := sw.refCount <= 0
+	sw.refMu.Unlock()
+	if !final {
+		// Re-anchor handover in progress: another client is still using this underlying store.
+		// The retiring client's Close must not tear it down — see SSERelayDataStoreAdapter.Build
+		// for the other half of this contract.
+		return nil
+	}
 	return sw.store.Close()
 }
 

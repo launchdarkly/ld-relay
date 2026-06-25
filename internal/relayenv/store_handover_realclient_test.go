@@ -148,23 +148,18 @@ func TestRealClient_ReadsAfterCloseAreStillFunctional(t *testing.T) {
 		gotAfter.Item != nil, errAfter, wrapper.IsInitialized())
 }
 
-// TestRealClient_HandoverScenarioToday simulates the re-anchor handover with two real clients
-// against the CURRENT (unmodified) adapter implementation, to capture today's broken behavior as a
-// baseline. This is the "before" half of the fix; the corresponding "after" test will move to the
-// regression suite once T2.c's Build() reuse + Close() lifecycle change is in.
+// TestRealClient_HandoverPreservesUnderlyingStore exercises the production store-handover behavior:
+// when a second real ld.LDClient is built against the same SSERelayDataStoreAdapter — the re-anchor
+// case — the adapter hands the existing wrapper (and underlying store) to the new client rather
+// than rebuilding it. Closing the first client must not tear the underlying store down while the
+// second client is still holding it; only the final Close releases it.
 //
 // Sequence:
-//   1. Build client1, init data. (Original anchor.)
-//   2. Build client2 — this triggers a SECOND adapter.Build(), which today creates a fresh wrapper
-//      around a fresh in-memory store and replaces adapter.store.
-//   3. Close client1.
-//   4. Inspect: is the store the adapter still points at (the "new anchor's" store) usable, and
-//      what did Close do to which underlying store?
-//
-// Today we expect: two separate underlying stores got built; client1.Close() closes the first one
-// (now unreachable), and adapter.GetStore() points at the second one which is empty (the H1
-// finding from the PoC, now demonstrated end-to-end with real clients).
-func TestRealClient_HandoverScenarioToday(t *testing.T) {
+//  1. Build client1; init data on its wrapper.
+//  2. Build client2 — adapter returns the SAME wrapper; no second underlying store is built.
+//  3. Close client1 — store stays open because client2 still holds it.
+//  4. Close client2 — final release; underlying store closes exactly once.
+func TestRealClient_HandoverPreservesUnderlyingStore(t *testing.T) {
 	factory := &countingStoreFactory{}
 	rec := &recordingStreamUpdates{}
 	adapter := store.NewSSERelayDataStoreAdapter(factory, rec)
@@ -173,27 +168,21 @@ func TestRealClient_HandoverScenarioToday(t *testing.T) {
 	wrapper1 := adapter.GetStore()
 	require.NoError(t, wrapper1.Init(st.AllData))
 	require.Equal(t, 1, factory.buildCount, "one Build for client1")
-	store1 := factory.lastObserved
+	underlying := factory.lastObserved
 
 	client2 := realClientUsingAdapter(t, adapter)
 	wrapper2 := adapter.GetStore()
-	require.Equal(t, 2, factory.buildCount, "today: client2's init triggers a SECOND Build")
-	store2 := factory.lastObserved
-	assert.NotSame(t, store1, store2, "today: client2's underlying store is a fresh instance")
-	assert.NotSame(t, wrapper1, wrapper2, "today: client2's wrapper is a fresh instance")
-	assert.False(t, wrapper2.IsInitialized(), "today: client2's store starts empty (H1 finding)")
+	require.Equal(t, 1, factory.buildCount, "client2 reuses the existing wrapper — no second Build")
+	assert.Same(t, wrapper1, wrapper2, "the adapter hands the same wrapper to both clients")
+	assert.True(t, wrapper2.IsInitialized(), "the shared store stays initialized across handover")
 
 	require.NoError(t, client1.Close())
-
-	// What did client1.Close affect?
-	t.Logf("after client1.Close: store1.closeCount=%d store2.closeCount=%d",
-		store1.closeCount, store2.closeCount)
-	t.Logf("after client1.Close: adapter.GetStore() == wrapper2: %v",
-		adapter.GetStore() == wrapper2)
+	assert.Equal(t, 0, underlying.closeCount,
+		"client1.Close must NOT tear down the underlying store while client2 still holds it")
 
 	require.NoError(t, client2.Close())
-	t.Logf("after client2.Close: store1.closeCount=%d store2.closeCount=%d",
-		store1.closeCount, store2.closeCount)
+	assert.Equal(t, 1, underlying.closeCount,
+		"client2.Close is the final release; the underlying store is closed exactly once")
 }
 
 // countingStoreFactory tracks every Build call and exposes the most recently built store so the
