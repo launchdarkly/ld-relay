@@ -310,11 +310,12 @@ type HTTPConfig struct {
 
 // MetricsConfig contains configurations for optional metrics integrations.
 //
-// This corresponds to the [Datadog], [Stackdriver], and [Prometheus] sections in the configuration file.
+// This corresponds to the [Datadog], [Stackdriver], [Prometheus], and [OTLP] sections in the configuration file.
 type MetricsConfig struct {
 	Datadog     DatadogConfig
 	Stackdriver StackdriverConfig
 	Prometheus  PrometheusConfig
+	OTLP        OTLPConfig
 }
 
 // DatadogConfig configures the optional Datadog integration, which is used only if Enabled is true.
@@ -356,4 +357,23 @@ type PrometheusConfig struct {
 	Enabled bool                     `conf:"USE_PROMETHEUS"`
 	Prefix  string                   `conf:"PROMETHEUS_PREFIX"`
 	Port    ct.OptIntGreaterThanZero `conf:"PROMETHEUS_PORT"`
+}
+
+// OTLPConfig configures the optional OpenTelemetry (OTLP) integration, which is used only if Enabled is true.
+//
+// Unlike the other metrics integrations, OTLP exports both metrics and route traces, bridging Relay's
+// OpenCensus instrumentation to an OTLP/gRPC endpoint (such as an OpenTelemetry Collector or Honeycomb).
+//
+// This corresponds to the [OTLP] section in the configuration file.
+//
+// Since configuration options can be set either programmatically, or from a file, or from environment
+// variables, individual fields are not documented here; instead, see the `README.md` section on
+// configuration.
+type OTLPConfig struct {
+	Enabled  bool   `conf:"USE_OTLP"`
+	Endpoint string `conf:"OTLP_ENDPOINT"`
+	Prefix   string `conf:"OTLP_PREFIX"`
+	Insecure bool   `conf:"OTLP_INSECURE"`
+	// Comma-separated key=value pairs sent as gRPC headers, e.g. "x-honeycomb-team=KEY,x-honeycomb-dataset=ld-relay".
+	Headers string `conf:"OTLP_HEADERS"`
 }

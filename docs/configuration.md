@@ -287,6 +287,20 @@ To learn more, read [Metrics integrations](./metrics.md).
 | `port`           | `PROMETHEUS_PORT`   | Number  | `8031`  | The port that the Relay Proxy will provide the `/metrics` endpoint on. |
 | `prefix`         | `PROMETHEUS_PREFIX` | String  |         | The metrics prefix to be used by Prometheus.                           |
 
+### File section: `[OTLP]`
+
+To learn more, read [Metrics integrations](./metrics.md).
+
+Unlike the other integrations, OTLP exports both metrics and route traces, bridging Relay's OpenCensus instrumentation to an OTLP/gRPC endpoint such as an OpenTelemetry Collector or Honeycomb.
+
+| Property in file | Environment var  |  Type   | Default | Description                                                                                                                              |
+|------------------|------------------|:-------:|:--------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`        | `USE_OTLP`       | Boolean | `false` | If true, enables exporting metrics and traces over OTLP/gRPC.                                                                             |
+| `endpoint`       | `OTLP_ENDPOINT`  | String  |         | The OTLP/gRPC endpoint (`host:port`), e.g. `otel-collector:4317`. Required when `enabled` is true.                                        |
+| `insecure`       | `OTLP_INSECURE`  | Boolean | `false` | If true, disables transport security (plaintext gRPC). Leave false to use TLS, e.g. when sending directly to `api.honeycomb.io:443`.      |
+| `headers`        | `OTLP_HEADERS`   | String  |         | Comma-separated `key=value` gRPC headers, e.g. `x-honeycomb-team=KEY,x-honeycomb-dataset=ld-relay`.                                       |
+| `prefix`         | `OTLP_PREFIX`    | String  |         | The `service.name` resource attribute to report. Defaults to `launchdarkly_relay`.                                                       |
+
 ### File section: `[Proxy]`
 
 | Property in file | Environment var       |  Type   | Default | Description                                                                                                                                                                                                                                                                       |

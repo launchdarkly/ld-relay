@@ -2,7 +2,7 @@
 
 [(Back to README)](../README.md)
 
-You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, and Prometheus. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
+You can configure the Relay Proxy to export statistics and route traces to Datadog, Stackdriver, Prometheus, and any OpenTelemetry (OTLP) endpoint. To learn about the available settings for each of these options, read [Configuration](./configuration.md).
 
 The Relay Proxy supports the following metrics:
 
@@ -33,4 +33,24 @@ scrape_configs:
     scrape_interval: 10s
     static_configs:
       - targets: ['localhost:8031']
+```
+
+## OpenTelemetry (OTLP) configuration
+
+Setting `USE_OTLP` exports both metrics and route traces over OTLP/gRPC to the endpoint given by `OTLP_ENDPOINT`. This bridges the Relay Proxy's OpenCensus instrumentation onto OpenTelemetry, so the data can be sent to an OpenTelemetry Collector or directly to a backend such as Honeycomb.
+
+```
+[OTLP]
+enabled = true
+endpoint = otel-collector:4317
+insecure = true
+```
+
+To send directly to Honeycomb instead of a collector, point at its OTLP endpoint over TLS and supply the ingest headers:
+
+```
+[OTLP]
+enabled = true
+endpoint = api.honeycomb.io:443
+headers = x-honeycomb-team=YOUR_API_KEY,x-honeycomb-dataset=ld-relay
 ```

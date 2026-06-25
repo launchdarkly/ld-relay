@@ -28,6 +28,7 @@ var (
 	errMissingProjKey                          = errors.New("when filters are configured, all environments must specify a 'projKey'")
 	errInvalidFileDataSourceMonitoringInterval = fmt.Errorf("file data source monitoring interval must be >= %s", minimumFileDataSourceMonitoringInterval)
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
+	errOTLPEndpointRequired                    = errors.New("OTLP_ENDPOINT is required when USE_OTLP is enabled")
 )
 
 func errEnvironmentWithNoSDKKey(envName string) error {
@@ -85,6 +86,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
+	validateMetrics(&result, c)
 
 	return result.GetError()
 }
@@ -222,6 +224,12 @@ func validateCredentialCleanupInterval(result *ct.ValidationResult, c *Config) {
 		if interval < minimumCredentialCleanupInterval {
 			result.AddError(nil, errInvalidCredentialCleanupInterval)
 		}
+	}
+}
+
+func validateMetrics(result *ct.ValidationResult, c *Config) {
+	if c.OTLP.Enabled && strings.TrimSpace(c.OTLP.Endpoint) == "" {
+		result.AddError(nil, errOTLPEndpointRequired)
 	}
 }
 
