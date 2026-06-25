@@ -34,6 +34,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -512,6 +513,174 @@ func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
 		eventPost := helpers.RequireValue(t, requestsCh, time.Second)
 		assert.Equal(t, string(primaryMobile), eventPost.Request.Header.Get("Authorization"))
 	})
+}
+
+// When an SDK key that is still alive in its grace period is re-anchored back into the primary slot,
+// a fresh SDK client is started for it. The previously-created client for that same key must be closed
+// rather than silently dropped from the clients map, otherwise its upstream connection leaks.
+func TestReAnchoringToKeyStillInGraceClosesStaleClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	keyA := envConfig.SDKKey
+	keyB := config.SDKKey("keyB")
+	readyCh := make(chan EnvContext, 1)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	clientA1 := requireClientReady(t, clientCh)
+	assert.Equal(t, env.GetClient(), clientA1)
+
+	start := time.Unix(1000, 0)
+
+	// Rotate keyA -> keyB, deprecating keyA with an hour-long grace. keyA's client (clientA1) stays
+	// alive because keyA is still accepted during the grace window.
+	env.UpdateCredential(
+		NewCredentialUpdate(keyB).
+			WithTime(start).
+			WithGracePeriod(keyA, start.Add(1*time.Hour)))
+
+	clientB := requireClientReady(t, clientCh)
+	assert.NotEqual(t, clientA1, clientB)
+	if !helpers.AssertChannelNotClosed(t, clientA1.CloseCh, time.Second, "clientA1 should still be alive during keyA's grace") {
+		t.FailNow()
+	}
+
+	// Re-anchor back to keyA while it is still within its grace period. This starts a new client for
+	// keyA; the stale clientA1 must be closed so its connection is not leaked.
+	env.UpdateCredential(NewCredentialUpdate(keyA).WithTime(start.Add(10 * time.Minute)))
+
+	clientA2 := requireClientReady(t, clientCh)
+	assert.NotEqual(t, clientA1, clientA2)
+
+	if !helpers.AssertChannelClosed(t, clientA1.CloseCh, time.Second, "the stale client for keyA should have been closed on re-anchor") {
+		t.FailNow()
+	}
+	// keyB was immediately revoked by the re-anchor, so its client should be closed too.
+	if !helpers.AssertChannelClosed(t, clientB.CloseCh, time.Second, "client for the revoked keyB should have been closed") {
+		t.FailNow()
+	}
+
+	require.Eventually(t, func() bool {
+		return env.GetClient() == clientA2
+	}, time.Second, 10*time.Millisecond, "env.GetClient() should return the new client for keyA after re-anchor")
+
+	creds := env.GetCredentials()
+	assert.Contains(t, creds, keyA)
+	assert.NotContains(t, creds, keyB)
+}
+
+// gatedClientFactory wraps the normal fake factory but blocks the factory call for gateKey until
+// `gate` is closed, signalling on `started` once that call is in flight. This lets a test interleave
+// a credential revocation with an in-flight startSDKClient that has not yet taken c.mu.
+func gatedClientFactory(
+	gate <-chan struct{},
+	started chan<- struct{},
+	createdCh chan<- *testclient.FakeLDClient,
+	gateKey config.SDKKey,
+) sdks.ClientFactoryFunc {
+	inner := testclient.FakeLDClientFactoryWithChannel(true, createdCh)
+	var once sync.Once
+	return func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == gateKey {
+			once.Do(func() { close(started) })
+			<-gate
+		}
+		return inner(sdkKey, cfg, timeout)
+	}
+}
+
+// When an SDK key is revoked while its client is still being constructed, startSDKClient builds the
+// client before taking c.mu, so it can finish and try to install a client for a key that is no longer
+// tracked. That client must be closed rather than installed -- otherwise it leaks its upstream
+// connection and goroutines, because removeCredential already ran and found nothing in c.clients to
+// close, and nothing else will ever close it until env.Close().
+func TestRevokingSDKKeyWhileClientIsStartingDoesNotLeakTheClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	keyA := envConfig.SDKKey
+	keyB := config.SDKKey("keyB")
+	readyCh := make(chan EnvContext, 1)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	gate := make(chan struct{})
+	started := make(chan struct{})
+	factory := gatedClientFactory(gate, started, clientCh, keyA)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	// Wait until the initial startSDKClient(keyA) is blocked inside the factory, before it takes c.mu.
+	<-started
+
+	// Revoke keyA by rotating to keyB with no grace. keyA is immediately revoked and removeCredential(keyA)
+	// runs now -- but c.clients[keyA] is still nil because the initial goroutine is blocked in the factory,
+	// so nothing is closed and the mapping is simply removed.
+	env.UpdateCredential(NewCredentialUpdate(keyB).WithTime(time.Unix(1000, 0)))
+
+	creds := env.GetCredentials()
+	require.NotContains(t, creds, keyA, "keyA should have been revoked")
+
+	// Release the gate; the now-unblocked startSDKClient(keyA) discovers keyA is no longer tracked and
+	// must close the client it just built rather than installing it.
+	close(gate)
+
+	// Collect the client that was created for keyA.
+	var clientA *testclient.FakeLDClient
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case c := <-clientCh:
+				if c.Key == keyA {
+					clientA = c
+				}
+			default:
+				return clientA != nil
+			}
+		}
+	}, 2*time.Second, 10*time.Millisecond, "expected a client to be created for keyA")
+	require.NotNil(t, clientA)
+
+	// The client built for the now-revoked keyA must be closed, not leaked.
+	if !helpers.AssertChannelClosed(t, clientA.CloseCh, time.Second,
+		"client built for the revoked keyA should have been closed rather than installed") {
+		t.FailNow()
+	}
+
+	// And it must not have been installed into the clients map.
+	impl := env.(*envContextImpl)
+	impl.mu.Lock()
+	_, present := impl.clients[keyA]
+	impl.mu.Unlock()
+	assert.False(t, present, "revoked keyA should not have a client in the clients map")
+}
+
+// An environment configured without an SDK key (e.g. offline or not-yet-configured envs, and test
+// fixtures) must still get its SDK client installed. An undefined key is never a tracked credential,
+// so the startup guard that discards clients for revoked keys must not fire for it.
+func TestEnvWithoutSDKKeyStillInstallsClient(t *testing.T) {
+	readyCh := make(chan EnvContext, 1)
+	clientCh := make(chan *testclient.FakeLDClient, 1)
+	clientFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	env := makeBasicEnv(t, config.EnvConfig{}, clientFactory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	assert.Equal(t, env, requireEnvReady(t, readyCh))
+	client := requireClientReady(t, clientCh)
+	assert.NotNil(t, client)
+	assert.Equal(t, client, env.GetClient())
 }
 
 func TestSDKClientCreationFails(t *testing.T) {
