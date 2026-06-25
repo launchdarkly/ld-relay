@@ -618,9 +618,28 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // expirations; triggerCredentialChanges then applies them, draining additions before expirations so
 // the accepted set is a superset during the transition. addCredential opens an upstream client only
 // for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+//
+// Re-anchor handling (M3 / T2.c, design §7): Reconcile defers the SDK anchor flip and returns a
+// ReconcileResult describing the change so the caller can drive a synchronous re-anchor. This
+// initial cut commits the anchor immediately after Reconcile, preserving pre-T2.c behavior; the
+// full synchronous sequence (build new client first, then commit + ReplaceCredential + big-segment
+// re-wire) lands in a follow-up commit. The MobilePrimaryRepoint case — primary mobile key changed
+// to a key that was already in the accepted set — is handled here too: addCredential's gate won't
+// fire for it (the key isn't in additions), so we call ReplaceCredential synchronously.
 func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
-	c.keyRotator.Reconcile(newSet, now)
+	result := c.keyRotator.Reconcile(newSet, now)
+	if result.AnchorChange != nil {
+		c.keyRotator.CommitAnchor(result.AnchorChange.NewAnchor)
+	}
 	c.triggerCredentialChanges(now)
+	if result.MobilePrimaryRepoint != nil {
+		c.mu.RLock()
+		dispatcher := c.eventDispatcher
+		c.mu.RUnlock()
+		if dispatcher != nil {
+			dispatcher.ReplaceCredential(*result.MobilePrimaryRepoint)
+		}
+	}
 }
 
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {

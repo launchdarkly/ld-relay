@@ -475,7 +475,9 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
+	require.NotNil(t, result.AnchorChange, "anchor transition from empty to defined is signaled")
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -491,8 +493,10 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	other := config.SDKKey("other")
 	now := time.Now()
 
-	r.Reconcile(
+	result := r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other)), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
