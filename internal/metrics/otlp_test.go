@@ -7,6 +7,8 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
+	octrace "go.opencensus.io/trace"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +54,20 @@ func TestOTLPExporterType(t *testing.T) {
 		// close() forces a final metric flush; with no collector listening it returns a connection
 		// error, which the exporter framework logs and tolerates. We only assert it doesn't panic.
 		_ = e.close()
+	})
+
+	t.Run("close restores the OpenCensus tracer the bridge replaced", func(t *testing.T) {
+		original := octrace.DefaultTracer
+
+		e, err := exporterType.createExporterIfEnabled(enabledConfig(), ldlog.NewDisabledLoggers())
+		require.NoError(t, err)
+		require.NotNil(t, e)
+
+		require.NoError(t, e.register())
+		assert.NotEqual(t, original, octrace.DefaultTracer, "register should install the trace bridge")
+
+		_ = e.close()
+		assert.Equal(t, original, octrace.DefaultTracer, "close should restore the previous tracer")
 	})
 }
 

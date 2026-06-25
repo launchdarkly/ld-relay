@@ -8,6 +8,7 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 
+	octrace "go.opencensus.io/trace"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/bridge/opencensus"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -28,6 +29,8 @@ type otlpExporterImpl struct {
 	resource       *resource.Resource
 	tracerProvider *sdktrace.TracerProvider
 	meterProvider  *sdkmetric.MeterProvider
+	// prevOCTracer is the OpenCensus default tracer that InstallTraceBridge replaced, restored on close.
+	prevOCTracer octrace.Tracer
 }
 
 func (o otlpExporterTypeImpl) getName() string {
@@ -78,7 +81,9 @@ func (o *otlpExporterImpl) register() error {
 		sdktrace.WithBatcher(o.traceExporter),
 		sdktrace.WithResource(o.resource),
 	)
-	// Bridge Relay's OpenCensus route-trace spans into the OTLP TracerProvider.
+	// Bridge Relay's OpenCensus route-trace spans into the OTLP TracerProvider. InstallTraceBridge
+	// mutates the global octrace.DefaultTracer, so capture the previous value to restore on close.
+	o.prevOCTracer = octrace.DefaultTracer
 	opencensus.InstallTraceBridge(opencensus.WithTracerProvider(o.tracerProvider))
 
 	reader := sdkmetric.NewPeriodicReader(
@@ -110,6 +115,10 @@ func (o *otlpExporterImpl) close() error {
 		record(o.metricExporter.Shutdown(ctx))
 	}
 	if o.tracerProvider != nil {
+		// Uninstall the trace bridge before shutting the provider down, otherwise OpenCensus route
+		// spans would keep flowing to a closed provider. There is no Uninstall API, so restore the
+		// tracer InstallTraceBridge replaced.
+		octrace.DefaultTracer = o.prevOCTracer
 		record(o.tracerProvider.Shutdown(ctx))
 	} else {
 		record(o.traceExporter.Shutdown(ctx))
