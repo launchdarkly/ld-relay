@@ -45,6 +45,11 @@ type EnvContext interface {
 	// than the full accepted set returned by GetCredentials.
 	GetSDKKey() config.SDKKey
 
+	// GetMobileKey returns the primary (default) mobile key. Like GetSDKKey for the anchor, use this
+	// for the status endpoint's mobileKey field rather than iterating GetCredentials, which may return
+	// several accepted mobile keys (primary + expiring) in nondeterministic order.
+	GetMobileKey() config.MobileKey
+
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
 	// primary mobile key. The method owns the order of operations internally (add → re-anchor →
