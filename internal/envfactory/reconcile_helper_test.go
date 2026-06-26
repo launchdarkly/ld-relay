@@ -56,7 +56,7 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
@@ -80,7 +80,7 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithSDKKey("sdk-service-a").
 		WithExpiringSDKKey("sdk-old", expiry1).
 		WithPrimaryMobileKey("mob-primary"))
@@ -143,7 +143,7 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	// The set built without expiry must include sdk-old as a permanent key.
 	expectedPermanent := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithSDKKey("sdk-old"). // permanent, no expiry
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expectedPermanent, setNoExpiry)
@@ -153,7 +153,7 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 }
 
 // TestBuildAcceptedSet_AnchorNotInArray verifies that an anchor absent from AcceptedSDKKeys is no
-// longer rejected here: WithPrimarySDKKey adds and designates the anchor regardless, so the
+// longer rejected here: WithAnchor adds and designates the anchor regardless, so the
 // resulting set contains both the anchor and the array entry. Structural validation of the wire
 // payload (anchor-absent-from-array) happens upstream when the payload is parsed into params.
 // TestBuildAcceptedSet_AnchorNotInArray verifies that a defined anchor absent from the sdkKeys[] array
@@ -192,7 +192,7 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor"))
+		WithAnchor("sdk-anchor"))
 	assert.Equal(t, expected, set)
 }
 
@@ -252,7 +252,7 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-new-anchor").
+		WithAnchor("sdk-new-anchor").
 		WithSDKKey("sdk-b").
 		WithSDKKey("sdk-c").
 		WithPrimaryMobileKey("mob-primary"))
@@ -276,10 +276,10 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
-	// Anchor is permanent (WithPrimarySDKKey), not expiring — identical to a payload with no anchor expiry.
+	// Anchor is permanent (WithAnchor), not expiring — identical to a payload with no anchor expiry.
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithSDKKey("sdk-service-a").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
@@ -304,7 +304,7 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithMobileKey("mob-primary").
 		WithMobileKey("mob-secondary").
 		WithPrimaryMobileKey("mob-primary"))
@@ -331,7 +331,7 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithMobileKey("mob-primary").
 		WithExpiringMobileKey("mob-old", expiry1).
 		WithPrimaryMobileKey("mob-primary"))
@@ -361,7 +361,7 @@ func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor").
+		WithAnchor("sdk-anchor").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set, "legacy sdkKey.expiring slot must not appear in AcceptedSet")
 }

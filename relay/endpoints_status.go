@@ -49,7 +49,7 @@ func statusHandler(relay *Relay) http.Handler {
 			// Use the anchor SDK key and primary mobile key specifically — GetCredentials() may return
 			// multiple SDK and mobile keys (primary + expiring), so iterating it for these singular
 			// status fields would give a non-deterministic result.
-			if key := clientCtx.GetSDKKey(); key.Defined() {
+			if key := clientCtx.GetAnchorKey(); key.Defined() {
 				status.SDKKey = sdks.ObscureKey(string(key))
 			}
 			if key := clientCtx.GetMobileKey(); key.Defined() {

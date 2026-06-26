@@ -28,12 +28,12 @@ import (
 func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.SDKKey, error) {
 	anchor := params.SDKKey
 
-	// WithPrimarySDKKey / WithPrimaryMobileKey each add the key and designate it (the anchor and the
+	// WithAnchor / WithPrimaryMobileKey each add the key and designate it (the anchor and the
 	// wire's mobKey, respectively). An undefined key makes the call a no-op, so an undefined anchor
 	// leaves the set with no designated anchor and Build returns a *MalformedCredentialSetError.
 	b := credential.NewAcceptedSetBuilder().
 		WithEnvironmentID(params.EnvID).
-		WithPrimarySDKKey(anchor).
+		WithAnchor(anchor).
 		WithPrimaryMobileKey(params.MobileKey)
 
 	// Validate and add the remaining accepted keys. The builder de-duplicates by value, so the
@@ -60,7 +60,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 
 	// The anchor must be one of the accepted SDK keys: the backend lists it in sdkKeys[] (and ToParams
 	// synthesizes it into the array for old-format payloads). A defined anchor absent from the array is
-	// a structurally malformed payload — reject it per §9 rather than letting WithPrimarySDKKey above
+	// a structurally malformed payload — reject it per §9 rather than letting WithAnchor above
 	// silently synthesize it into the set.
 	if anchor.Defined() && !anchorInArray {
 		return credential.AcceptedSet{}, anchor, credential.NewAnchorNotInSetError()

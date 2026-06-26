@@ -13,11 +13,11 @@ import (
 // expiry — plus the single environment ID and two primary designations:
 //
 //   - The anchor: the one SDK key that owns the environment's upstream connection. Set with
-//     WithPrimarySDKKey.
+//     WithAnchor.
 //   - The primary mobile key: the singular default mobile key (the wire's mobKey), used where one
 //     mobile key is required, e.g. event forwarding. Set with WithPrimaryMobileKey.
 //
-// WithPrimarySDKKey / WithPrimaryMobileKey both add the key to the set and designate it, so adding a
+// WithAnchor / WithPrimaryMobileKey both add the key to the set and designate it, so adding a
 // single key takes one call. Build requires that an anchor was designated. (Structural validation of
 // the wire payload — undefined credentials, an anchor absent from the array — happens upstream when
 // the payload is parsed into the set; see SDK-2547.)
@@ -30,9 +30,9 @@ type AcceptedSet struct {
 	// sdkKeys and mobileKeys store each accepted key once, keyed by value, so duplicates collapse
 	// without a containment scan. The map value is the key's expiry: a nil *time.Time means the key
 	// is permanent. A nil map is a valid empty set (reads return absent; only the builder writes).
-	sdkKeys          map[config.SDKKey]*time.Time
-	primarySdkKey    config.SDKKey
-	mobileKeys       map[config.MobileKey]*time.Time
+	sdkKeys    map[config.SDKKey]*time.Time
+	anchor     config.SDKKey
+	mobileKeys map[config.MobileKey]*time.Time
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
 }
