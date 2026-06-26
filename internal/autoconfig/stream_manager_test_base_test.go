@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,53 @@ func (noopTestCache) SetAll(context.Context, PutContent) error                  
 func (noopTestCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
 func (noopTestCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (noopTestCache) Close() error                                                 { return nil }
+
+// recordingCache is a minimal in-memory cache: SetAll stores the snapshot and GetAll returns it, so a
+// test can drive the read-modify-write path in persistPut and then assert what was persisted.
+type recordingCache struct {
+	mu     sync.Mutex
+	stored *PutContent
+}
+
+func (c *recordingCache) GetAll(context.Context) (*PutContent, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stored, nil
+}
+func (c *recordingCache) SetAll(_ context.Context, content PutContent) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := content
+	c.stored = &cp
+	return nil
+}
+func (c *recordingCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
+func (c *recordingCache) Delete(context.Context, CacheKind, string) error              { return nil }
+func (c *recordingCache) Close() error                                                 { return nil }
+
+// cachedEnvIDs returns the set of environment IDs in the most recently stored snapshot.
+func (c *recordingCache) cachedEnvIDs() map[config.EnvironmentID]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[config.EnvironmentID]bool)
+	if c.stored != nil {
+		for id := range c.stored.Environments {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// cachedEnv returns the stored rep for an environment ID in the most recently stored snapshot.
+func (c *recordingCache) cachedEnv(id config.EnvironmentID) (envfactory.EnvironmentRep, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stored == nil {
+		return envfactory.EnvironmentRep{}, false
+	}
+	rep, ok := c.stored.Environments[id]
+	return rep, ok
+}
 
 const (
 	testConfigKey config.AutoConfigKey = "test-key"
@@ -208,9 +256,13 @@ type testMessageHandler struct {
 }
 
 func streamManagerTest(t *testing.T, initialEvent *httphelpers.SSEEvent, action func(p streamManagerTestParams)) {
+	streamManagerTestWithCache(t, initialEvent, noopTestCache{}, action)
+}
+
+func streamManagerTestWithCache(t *testing.T, initialEvent *httphelpers.SSEEvent, cache Cache, action func(p streamManagerTestParams)) {
 	streamHandler, stream := httphelpers.SSEHandler(initialEvent)
 	defer stream.Close()
-	streamManagerTestWithStreamHandler(t, streamHandler, stream, action)
+	streamManagerTestWithStreamHandler(t, streamHandler, stream, cache, action)
 }
 
 func mustParseURL(t *testing.T, u string) *url.URL {
@@ -226,6 +278,7 @@ func streamManagerTestWithStreamHandler(
 	t *testing.T,
 	streamHandler http.Handler,
 	stream httphelpers.SSEStreamControl,
+	cache Cache,
 	action func(p streamManagerTestParams),
 ) {
 	mockLog := ldlogtest.NewMockLog()
@@ -254,7 +307,7 @@ func streamManagerTestWithStreamHandler(
 			time.Millisecond,
 			rpacProtocolVersion,
 			mockLog.Loggers,
-			noopTestCache{},
+			cache,
 		)
 		defer p.streamManager.Close()
 

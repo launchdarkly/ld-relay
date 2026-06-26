@@ -227,7 +227,8 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 		env := p.awaitEnvironment(envWithKeys.id)
 		assertEnvProps(t, envWithKeys.params(), env)
 
-		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, envWithKeys.SDKKey())
+		// Both the new anchor key and the expiring old key are in the accepted set until oldKey expires.
+		expectedCredentials := credentialsAsSet(envWithKeys.id, envWithKeys.mobKey, newKey, oldKey)
 		assert.Equal(t, expectedCredentials, credentialsAsSet(env.GetCredentials()...))
 
 		paramsWithOldKey := envWithKeys.params()
@@ -236,7 +237,7 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKey(t *testing.T) {
 	})
 }
 
-// When addEnvironment fails, the auto-config handler must not go on to call UpdateCredential on
+// When addEnvironment fails, the auto-config handler must not go on to call ReconcileCredentials on
 // the nil EnvContext it got back. This is only reachable when the payload also carries an expiring
 // SDK key (the gate that triggers the credential update). We force the failure deterministically by
 // closing the Relay first, so addEnvironment returns errAlreadyClosed with a nil env.

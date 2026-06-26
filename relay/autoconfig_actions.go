@@ -3,7 +3,6 @@ package relay
 import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
-	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 )
 
@@ -34,10 +33,12 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		return
 	}
 
-	if params.ExpiringSDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		env.UpdateCredential(update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration))
+	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return
 	}
+	env.ReconcileCredentials(set)
 }
 
 func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.EnvironmentParams) {
@@ -51,16 +52,15 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	if params.MobileKey.Defined() {
-		env.UpdateCredential(relayenv.NewCredentialUpdate(params.MobileKey))
+	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	if buildErr != nil {
+		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
+		// being dispatched here, so a malformed set should not reach this point. Log defensively and
+		// preserve the previous credentials rather than applying a partial set.
+		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
+		return
 	}
-	if params.SDKKey.Defined() {
-		update := relayenv.NewCredentialUpdate(params.SDKKey)
-		if params.ExpiringSDKKey.Defined() {
-			update = update.WithGracePeriod(params.ExpiringSDKKey.Key, params.ExpiringSDKKey.Expiration)
-		}
-		env.UpdateCredential(update)
-	}
+	env.ReconcileCredentials(set)
 }
 
 func (a *relayAutoConfigActions) DeleteEnvironment(id config.EnvironmentID, filter config.FilterKey) {

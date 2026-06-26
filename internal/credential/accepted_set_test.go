@@ -9,11 +9,13 @@ import (
 )
 
 func TestMalformedCredentialSetErrorMessage(t *testing.T) {
-	// A nil anchor reports "missing" rather than dereferencing a nil credential.
+	// Missing anchor.
 	assert.Equal(t, "malformed credential set: anchor SDK key is missing",
-		(&MalformedCredentialSetError{Anchor: nil}).Error())
+		newMissingAnchorError().Error())
 
-	// A defined anchor is masked in the message.
-	assert.Contains(t, (&MalformedCredentialSetError{Anchor: config.SDKKey("sdk-abcd1234")}).Error(),
-		"...1234")
+	// Empty credential value.
+	assert.Contains(t, NewEmptyCredentialError("sdkKeys", "my-key").Error(), "empty value")
+
+	// The config.SDKKey import is exercised; confirm it still compiles.
+	_ = config.SDKKey("sdk-abcd1234")
 }

@@ -542,8 +542,9 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 
 func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	// Reconcile stores per-key expiry as data on the accepted entry; before that expiry passes, an
-	// expiring key is simply accepted and non-deprecated. The cleanup ticker (StepTime) only acts on
-	// the expiry once it elapses — see TestReconcileExpiringKeysAreEvictedByStepTime.
+	// expiring key is still accepted (it authenticates and appears in PrimaryCredentials) while also
+	// being reported as deprecated — accepted, but on its way out. The cleanup ticker (StepTime) only
+	// drops it once the expiry elapses — see TestReconcileExpiringKeysAreEvictedByStepTime.
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")
 	expiringSDK := config.SDKKey("expiring-sdk")
@@ -562,9 +563,12 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
 	assert.Empty(t, expirations)
-	// All keys are accepted and non-deprecated in the foundation.
+	// Every key is accepted (still authenticates)...
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.PrimaryCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
+	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
+	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
+	// path treats it as accepted-only.
+	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, r.DeprecatedCredentials())
 }
 
 func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {

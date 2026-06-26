@@ -20,11 +20,11 @@ import (
 // The builder de-duplicates by value, so an anchor or primary mobile key that also appears in its
 // array is added only once.
 //
-// If no anchor is designated — params.SDKKey is undefined — no set is built and a
-// *credential.MalformedCredentialSetError is returned with an empty AcceptedSet. The caller must
+// A *credential.MalformedCredentialSetError is returned (with an empty AcceptedSet) for a
+// structurally malformed payload: an undefined anchor (params.SDKKey not set), a defined anchor that
+// is absent from params.AcceptedSDKKeys, or an array entry with an empty value. The caller must
 // preserve the previous accepted state and, for RAC handlers, reconnect the stream with jitter to
-// force a fresh put. Structural validation of the wire payload (undefined credentials, an anchor
-// absent from the array) happens upstream when the payload is parsed into params.
+// force a fresh put. This is the single home for the anchor invariant.
 func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.SDKKey, error) {
 	anchor := params.SDKKey
 
@@ -36,12 +36,21 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		WithPrimarySDKKey(anchor).
 		WithPrimaryMobileKey(params.MobileKey)
 
-	// Add the remaining accepted keys. The builder de-duplicates by value, so the anchor and the
-	// primary mobile key — already added permanently above — are ignored when they reappear in
-	// their arrays. That also defends the anchor-never-expiring invariant: a payload that (wrongly)
-	// carries an expiry on the anchor's own entry cannot demote it, because the permanent anchor is
-	// already present.
+	// Validate and add the remaining accepted keys. The builder de-duplicates by value, so the
+	// anchor and the primary mobile key — already added permanently above — are ignored when they
+	// reappear in their arrays. That also defends the anchor-never-expiring invariant: a payload
+	// that (wrongly) carries an expiry on the anchor's own entry cannot demote it.
+	//
+	// Entries with an empty value are structurally malformed: relay would silently accept them but
+	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.
+	anchorInArray := false
 	for _, k := range params.AcceptedSDKKeys {
+		if !k.Value.Defined() {
+			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("sdkKeys", k.Key)
+		}
+		if k.Value == anchor {
+			anchorInArray = true
+		}
 		if k.Expiry.IsZero() {
 			b.WithSDKKey(k.Value)
 		} else {
@@ -49,7 +58,18 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		}
 	}
 
+	// The anchor must be one of the accepted SDK keys: the backend lists it in sdkKeys[] (and ToParams
+	// synthesizes it into the array for old-format payloads). A defined anchor absent from the array is
+	// a structurally malformed payload — reject it per §9 rather than letting WithPrimarySDKKey above
+	// silently synthesize it into the set.
+	if anchor.Defined() && !anchorInArray {
+		return credential.AcceptedSet{}, anchor, credential.NewAnchorNotInSetError()
+	}
+
 	for _, k := range params.AcceptedMobileKeys {
+		if !k.Value.Defined() {
+			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
+		}
 		if k.Expiry.IsZero() {
 			b.WithMobileKey(k.Value)
 		} else {

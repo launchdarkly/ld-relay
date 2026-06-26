@@ -156,6 +156,10 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 // longer rejected here: WithPrimarySDKKey adds and designates the anchor regardless, so the
 // resulting set contains both the anchor and the array entry. Structural validation of the wire
 // payload (anchor-absent-from-array) happens upstream when the payload is parsed into params.
+// TestBuildAcceptedSet_AnchorNotInArray verifies that a defined anchor absent from the sdkKeys[] array
+// yields a *credential.MalformedCredentialSetError per design §9: the payload is structurally
+// inconsistent (the designated primary is not in the authoritative array), so it must be rejected
+// rather than silently synthesized into the set.
 func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	params := makeParams(
 		"sdk-anchor",
@@ -164,16 +168,31 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
+
+	require.Error(t, err)
+	var malformed *credential.MalformedCredentialSetError
+	require.True(t, errors.As(err, &malformed))
+	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
+}
+
+// TestBuildAcceptedSet_NoMobileKey verifies that an environment with no mobile key (e.g. a
+// server-side-only environment) is valid: ToParams must not synthesize a phantom empty mobileKeys
+// entry that BuildAcceptedSet would reject as malformed.
+func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
+	rep := EnvironmentRep{
+		EnvID:  "env-abc",
+		SDKKey: SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
+		// no MobKey, no MobileKeys
+	}
+	set, anchor, err := BuildAcceptedSet(rep.ToParams())
 
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor"). // added + designated even though absent from the array
-		WithSDKKey("sdk-other").
-		WithPrimaryMobileKey("mob-primary"))
+		WithPrimarySDKKey("sdk-anchor"))
 	assert.Equal(t, expected, set)
 }
 
@@ -192,10 +211,6 @@ func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
 	require.True(t, errors.As(err, &malformed))
-	// An undefined anchor must produce the "missing" message, not the "not present" one. This
-	// only holds if Anchor is an untyped nil — a boxed zero-value config.SDKKey would be non-nil
-	// and route Error() down the wrong branch.
-	assert.Nil(t, malformed.Anchor)
 	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
 }
 

@@ -183,8 +183,14 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, entry)
 		}
 	} else {
-		// Old-format payload: synthesize from the singular mobKey field.
-		params.AcceptedMobileKeys = []AcceptedMobileKey{{Value: r.MobKey}}
+		// Old-format payload: synthesize from the singular mobKey field. An undefined mobKey means the
+		// environment has no mobile key (e.g. a server-side-only environment) — leave the set empty
+		// rather than synthesizing a phantom empty-value entry, which BuildAcceptedSet would otherwise
+		// reject as a malformed credential.
+		params.AcceptedMobileKeys = []AcceptedMobileKey{}
+		if r.MobKey.Defined() {
+			params.AcceptedMobileKeys = append(params.AcceptedMobileKeys, AcceptedMobileKey{Value: r.MobKey})
+		}
 	}
 
 	return params

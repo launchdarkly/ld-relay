@@ -151,11 +151,30 @@ func (r *Rotator) deprecatedCredentials() []SDKCredential {
 	return deprecated
 }
 
-// DeprecatedCredentials returns deprecated credentials (not expired or primary.)
+// DeprecatedCredentials returns the SDK keys being phased out — every accepted SDK key, other than the
+// anchor, that carries a future expiry. (Per-key expiry is stored as data on the accepted entry; the
+// cleanup ticker drops the key once it elapses.) EnvContext.GetDeprecatedCredentials delegates here to
+// populate the status endpoint's expiringSdkKey field.
+//
+// Mobile keys are deliberately not returned even though they expire the same way SDK keys do — carried
+// as per-key expiry and dropped by the same cleanup ticker. They are omitted only because the status
+// endpoint has no expiringMobileKey field to populate, not because mobile-key expiry is unimplemented.
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.deprecatedCredentials()
+
+	// TEMPORARY (legacy rotation path): keys deprecated via RotateWithGrace live in the
+	// deprecatedSdkKeys / deprecatedMobileKeys buckets, which the reconcile path never populates. Once
+	// the legacy path is removed (SDK-2603) these buckets are always empty; delete this line and the
+	// deprecatedCredentials helper, leaving only the accepted-with-expiry logic below.
+	out := r.deprecatedCredentials()
+
+	for key, info := range r.acceptedSDKKeys {
+		if info.expiry != nil && key != r.primarySdkKey {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // AllCredentials returns the primary and deprecated credentials as one list.
