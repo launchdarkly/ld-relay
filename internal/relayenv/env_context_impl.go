@@ -633,7 +633,7 @@ func (c *envContextImpl) GetSDKKey() config.SDKKey {
 }
 
 func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
-	return c.keyRotator.AllDeprecatedCredentials()
+	return c.keyRotator.DeprecatedCredentials()
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {

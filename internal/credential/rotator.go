@@ -151,24 +151,24 @@ func (r *Rotator) deprecatedCredentials() []SDKCredential {
 	return deprecated
 }
 
-// DeprecatedCredentials returns deprecated credentials (not expired or primary.)
+// DeprecatedCredentials returns the SDK keys being phased out: any non-anchor accepted SDK key that
+// carries a future expiry (the reconcile model stores per-key expiry as data on the accepted entry).
+// EnvContext.GetDeprecatedCredentials delegates here so the status endpoint can surface its
+// expiringSdkKey field.
+//
+// Reconcile-path mobile keys with an expiry are intentionally excluded: there is no expiringMobileKey
+// status field, and such a key still authenticates until the cleanup ticker drops it, so the reconcile
+// path treats it as accepted rather than deprecated (see TestMobileKeyReconcileExpiry).
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.deprecatedCredentials()
-}
 
-// AllDeprecatedCredentials returns the complete set of SDK credentials being phased out:
-// the legacy grace-period bucket (deprecatedSdkKeys) plus any non-primary accepted SDK keys
-// that carry a future expiry in the AcceptedSet model.
-// This is the method EnvContext.GetDeprecatedCredentials delegates to; callers such as the
-// status endpoint use it to surface the expiringSDKKey field without caring which rotation
-// path produced it.  Mobile keys with expiry are accepted credentials, not deprecated ones —
-// there is no equivalent status field for them.
-func (r *Rotator) AllDeprecatedCredentials() []SDKCredential {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	// TEMPORARY (legacy rotation path): keys deprecated via RotateWithGrace live in the
+	// deprecatedSdkKeys / deprecatedMobileKeys buckets, which the reconcile path never populates. Once
+	// the legacy path is removed (SDK-2603) these buckets are always empty; delete this line and the
+	// deprecatedCredentials helper, leaving only the accepted-with-expiry logic below.
 	out := r.deprecatedCredentials()
+
 	for key, info := range r.acceptedSDKKeys {
 		if info.expiry != nil && key != r.primarySdkKey {
 			out = append(out, key)
