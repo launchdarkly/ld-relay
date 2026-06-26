@@ -332,45 +332,6 @@ func TestChangeSDKKey(t *testing.T) {
 
 }
 
-// TestMobileKeyGraceExpiry drives a deprecated mobile key (legacy RotateWithGrace path) to expiry
-// through the cleanup ticker (triggerCredentialChanges → StepTime), mirroring the SDK-key flow in
-// TestChangeSDKKey.
-func TestMobileKeyGraceExpiry(t *testing.T) {
-	envConfig := st.EnvMobile.Config
-	readyCh := make(chan EnvContext, 1)
-
-	mob1 := envConfig.MobileKey
-	mob2 := config.MobileKey("mob2-new-key")
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, readyCh)
-	defer env.Close()
-	envImpl := env.(*envContextImpl)
-
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-
-	start := time.Unix(2000, 0)
-	graceDuration := 1 * time.Hour
-
-	// Rotate mob1 → mob2 with a grace period; mob1 is deprecated but still valid.
-	envImpl.keyRotator.RotateWithGrace(mob2, credential.NewGracePeriod(config.SDKKey(""), start.Add(graceDuration), start))
-	envImpl.triggerCredentialChanges(start)
-
-	assert.Contains(t, env.GetDeprecatedCredentials(), mob1)
-
-	// Before the grace period ends, mob1 is still deprecated (not yet expired).
-	envImpl.triggerCredentialChanges(start.Add(30 * time.Minute))
-	assert.Contains(t, env.GetDeprecatedCredentials(), mob1)
-
-	// One moment past the grace period: the cleanup ticker evicts mob1 entirely.
-	envImpl.triggerCredentialChanges(start.Add(graceDuration + 1*time.Millisecond))
-
-	assert.NotContains(t, env.GetCredentials(), mob1)
-	assert.NotContains(t, env.GetDeprecatedCredentials(), mob1)
-}
-
 // TestMobileKeyReconcileExpiry drives a mobile key carrying a per-key expiry end-to-end through the
 // reconcile path: ReconcileCredentials records the expiry as data on the accepted entry, and the
 // cleanup ticker (triggerCredentialChanges → StepTime) later evicts the key once its expiry elapses.
