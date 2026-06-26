@@ -590,23 +590,28 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 // persistPut writes a put's content to the cache. A clean put is stored atomically with SetAll. When
 // the put carried malformed environments, a plain SetAll would corrupt the cache: filtering the
 // malformed envs out would drop them, and if every env was malformed it would wipe the cache entirely.
-// Instead we keep each malformed env's previously-cached entry and write the resulting complete
-// snapshot — so the valid envs and the filters in this put are persisted, the malformed envs keep their
-// last-good value, and envs the put removed are still dropped. The reconnect a malformed put triggers
-// fetches fresh data for the malformed envs. If the prior cache can't be read, leave it untouched
-// rather than risk dropping entries.
+// Instead we keep each malformed env's previously-cached entry and write the resulting snapshot — so
+// the valid envs and the filters in this put are persisted, the malformed envs keep their last-good
+// value (or are simply omitted when the cache has no prior entry for them), and envs the put removed
+// are still dropped. The reconnect a malformed put triggers fetches fresh data for the malformed envs.
+// If the prior cache genuinely can't be read, leave it untouched rather than risk dropping entries.
 func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[config.EnvironmentID]bool) {
 	if len(malformedEnvIDs) > 0 {
+		// A nil result with no error means an empty cache (per the Cache contract), not a failure —
+		// in that case there are simply no prior entries to restore. Only a real read error makes it
+		// unsafe to rewrite the snapshot, so bail out only then.
 		prev, err := s.cache.GetAll(context.Background())
-		if err != nil || prev == nil {
+		if err != nil {
 			s.loggers.Warnf("Skipping AutoConfig cache write for a put with malformed credentials (cannot read prior cache): %v", err)
 			return
 		}
 		envs := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments))
 		for id, rep := range content.Environments {
 			if malformedEnvIDs[id] {
-				if prevRep, ok := prev.Environments[id]; ok {
-					envs[id] = prevRep // keep the malformed env's last-good cached entry
+				if prev != nil {
+					if prevRep, ok := prev.Environments[id]; ok {
+						envs[id] = prevRep // keep the malformed env's last-good cached entry
+					}
 				}
 			} else {
 				envs[id] = rep

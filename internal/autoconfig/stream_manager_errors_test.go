@@ -148,6 +148,24 @@ func TestMalformedCredentialPayloadPreservesEnvironmentCache(t *testing.T) {
 			assert.Equal(t, testEnv2.SDKKey.Value, env2.SDKKey.Value, "env2 keeps its previous value")
 		})
 	})
+
+	t.Run("mixed put on an empty cache still persists the valid env", func(t *testing.T) {
+		cache := &recordingCache{}
+		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+			p.startStream()
+			<-p.requestsCh
+			// No seed: the cache is empty (GetAll returns nil, not an error). A first put mixing a valid
+			// and a malformed env must still persist the valid one.
+			p.stream.Enqueue(makeEnvPutEvent(testEnv1, malformed(testEnv2)))
+			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+
+			env1, ok1 := cache.cachedEnv(testEnv1.EnvID)
+			require.True(t, ok1, "the valid env must be persisted even on an empty cache")
+			assert.Equal(t, testEnv1.SDKKey.Value, env1.SDKKey.Value)
+			_, ok2 := cache.cachedEnv(testEnv2.EnvID)
+			assert.False(t, ok2, "the malformed env has no prior cached value, so it is omitted")
+		})
+	})
 }
 
 func TestMalformedJSONInEventCausesStreamRestart(t *testing.T) {
