@@ -194,6 +194,26 @@ func TestBuildAcceptedSet_AnchorNotInNewFormatArray(t *testing.T) {
 	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
 }
 
+// TestBuildAcceptedSet_NoMobileKey verifies that an environment with no mobile key (e.g. a
+// server-side-only environment) is valid: ToParams must not synthesize a phantom empty mobileKeys
+// entry that BuildAcceptedSet would reject as malformed.
+func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
+	rep := EnvironmentRep{
+		EnvID:  "env-abc",
+		SDKKey: SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
+		// no MobKey, no MobileKeys
+	}
+	set, anchor, err := BuildAcceptedSet(rep.ToParams())
+
+	require.NoError(t, err)
+	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
+
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithPrimarySDKKey("sdk-anchor"))
+	assert.Equal(t, expected, set)
+}
+
 // TestBuildAcceptedSet_AnchorUndefined verifies that an undefined anchor (empty SDKKey) yields a
 // *credential.MalformedCredentialSetError: no anchor was designated, so Build rejects the set.
 func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
