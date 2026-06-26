@@ -16,10 +16,32 @@ type AcceptedSetBuilder struct {
 func NewAcceptedSetBuilder() *AcceptedSetBuilder {
 	return &AcceptedSetBuilder{
 		set: AcceptedSet{
-			sdkKeys:    make(map[config.SDKKey]*time.Time),
-			mobileKeys: make(map[config.MobileKey]*time.Time),
+			sdkKeys:              make(map[config.SDKKey]*time.Time),
+			mobileKeys:           make(map[config.MobileKey]*time.Time),
+			sdkKeyIdentifiers:    make(map[config.SDKKey]string),
+			mobileKeyIdentifiers: make(map[config.MobileKey]string),
 		},
 	}
+}
+
+// WithSDKKeyIdentifier sets the human-readable identifier (the wire "key" field) for an SDK key that
+// was already added to the builder. It is a no-op if the key is undefined, not in the set, or if
+// identifier is empty (old-format payloads synthesise entries without an identifier).
+func (b *AcceptedSetBuilder) WithSDKKeyIdentifier(key config.SDKKey, identifier string) *AcceptedSetBuilder {
+	if key.Defined() && identifier != "" && b.set.hasSDKKey(key) {
+		b.set.sdkKeyIdentifiers[key] = identifier
+	}
+	return b
+}
+
+// WithMobileKeyIdentifier sets the human-readable identifier (the wire "key" field) for a mobile key
+// that was already added to the builder. It is a no-op if the key is undefined, not in the set, or if
+// identifier is empty.
+func (b *AcceptedSetBuilder) WithMobileKeyIdentifier(key config.MobileKey, identifier string) *AcceptedSetBuilder {
+	if key.Defined() && identifier != "" && b.set.hasMobileKey(key) {
+		b.set.mobileKeyIdentifiers[key] = identifier
+	}
+	return b
 }
 
 // WithSDKKey adds a permanent (non-expiring) SDK key. It is a no-op if the key is undefined or

@@ -56,6 +56,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		} else {
 			b.WithExpiringSDKKey(k.Value, k.Expiry)
 		}
+		b.WithSDKKeyIdentifier(k.Value, k.Key)
 	}
 
 	// The anchor must be one of the accepted SDK keys: the backend lists it in sdkKeys[] (and ToParams
@@ -75,6 +76,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		} else {
 			b.WithExpiringMobileKey(k.Value, k.Expiry)
 		}
+		b.WithMobileKeyIdentifier(k.Value, k.Key)
 	}
 
 	set, err := b.Build()

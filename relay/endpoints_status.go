@@ -7,6 +7,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/api"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
@@ -46,9 +47,7 @@ func statusHandler(relay *Relay) http.Handler {
 				ProjName: identifiers.ProjName,
 			}
 
-			// Use the anchor SDK key and primary mobile key specifically — GetCredentials() may return
-			// multiple SDK and mobile keys (primary + expiring), so iterating it for these singular
-			// status fields would give a non-deterministic result.
+			// Scalar fields: anchor SDK key and primary mobile key.
 			if key := clientCtx.GetSDKKey(); key.Defined() {
 				status.SDKKey = sdks.ObscureKey(string(key))
 			}
@@ -60,10 +59,17 @@ func statusHandler(relay *Relay) http.Handler {
 					status.EnvID = string(envID)
 				}
 			}
-			for _, c := range clientCtx.GetDeprecatedCredentials() {
-				if key, ok := c.(config.SDKKey); ok {
-					status.ExpiringSDKKey = sdks.ObscureKey(string(key))
-				}
+
+			// sdkKeys[]: non-anchor accepted SDK keys, sorted by identifier.
+			status.SDKKeys = buildKeyStatusSlice(clientCtx.GetAcceptedSDKKeys())
+
+			// mobileKeys[]: non-primary accepted mobile keys, sorted by identifier.
+			status.MobileKeys = buildMobileKeyStatusSlice(clientCtx.GetAcceptedMobileKeys())
+
+			// expiringSdkKey: pick the non-anchor SDK key with the soonest expiry for a deterministic
+			// value; with multiple expiring keys the previous loop-overwrite was nondeterministic.
+			if key, ok := clientCtx.GetEarliestExpiringSDKKey(); ok {
+				status.ExpiringSDKKey = sdks.ObscureKey(string(key))
 			}
 
 			client := clientCtx.GetClient()
@@ -154,4 +160,40 @@ func statusHandler(relay *Relay) http.Handler {
 
 		_, _ = w.Write(data)
 	})
+}
+
+// buildKeyStatusSlice converts SDK key entries from the rotator into the JSON-serialisable slice for
+// the sdkKeys[] response field. The entries are pre-sorted by the rotator.
+func buildKeyStatusSlice(entries []credential.SDKKeyEntry) []api.KeyStatus {
+	result := make([]api.KeyStatus, 0, len(entries))
+	for _, e := range entries {
+		ks := api.KeyStatus{
+			Key:   e.Identifier,
+			Value: sdks.ObscureKey(string(e.Value)),
+		}
+		if e.Expiry != nil {
+			ms := e.Expiry.UnixMilli()
+			ks.Expiry = &ms
+		}
+		result = append(result, ks)
+	}
+	return result
+}
+
+// buildMobileKeyStatusSlice converts mobile key entries into the JSON-serialisable slice for the
+// mobileKeys[] response field. The entries are pre-sorted by the rotator.
+func buildMobileKeyStatusSlice(entries []credential.MobileKeyEntry) []api.KeyStatus {
+	result := make([]api.KeyStatus, 0, len(entries))
+	for _, e := range entries {
+		ks := api.KeyStatus{
+			Key:   e.Identifier,
+			Value: sdks.ObscureKey(string(e.Value)),
+		}
+		if e.Expiry != nil {
+			ms := e.Expiry.UnixMilli()
+			ks.Expiry = &ms
+		}
+		result = append(result, ks)
+	}
+	return result
 }

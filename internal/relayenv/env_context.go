@@ -50,6 +50,20 @@ type EnvContext interface {
 	// several accepted mobile keys (primary + expiring) in nondeterministic order.
 	GetMobileKey() config.MobileKey
 
+	// GetAcceptedSDKKeys returns metadata for all non-anchor accepted SDK keys, sorted by identifier.
+	// Used by the status endpoint to populate the sdkKeys[] array. Returns an empty slice for
+	// single-key environments (those with only the anchor key).
+	GetAcceptedSDKKeys() []credential.SDKKeyEntry
+
+	// GetAcceptedMobileKeys returns metadata for all non-primary accepted mobile keys, sorted by
+	// identifier. Used by the status endpoint to populate the mobileKeys[] array.
+	GetAcceptedMobileKeys() []credential.MobileKeyEntry
+
+	// GetEarliestExpiringSDKKey returns the non-anchor SDK key with the soonest expiry, and true.
+	// Returns the zero SDKKey and false when no expiring non-anchor key exists. Used by the status
+	// endpoint to populate expiringSdkKey deterministically.
+	GetEarliestExpiringSDKKey() (config.SDKKey, bool)
+
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
 	// primary mobile key. The method owns the order of operations internally (add → re-anchor →

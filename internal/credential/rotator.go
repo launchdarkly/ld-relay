@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -10,7 +11,27 @@ import (
 
 // acceptedKeyInfo holds per-key metadata for the accepted-set maps.
 type acceptedKeyInfo struct {
-	expiry *time.Time // nil = permanent
+	expiry     *time.Time // nil = permanent
+	identifier string     // wire "key" field — non-secret human-readable name; may be empty
+}
+
+// SDKKeyEntry is metadata for one accepted SDK key, returned by NonAnchorSDKKeyEntries.
+// Used by the status endpoint to populate the sdkKeys[] response array.
+type SDKKeyEntry struct {
+	// Value is the credential secret (relay's SDKKey type — what the wire calls "value").
+	Value config.SDKKey
+	// Identifier is the non-secret human-readable name from the wire's "key" field.
+	Identifier string
+	// Expiry is the key's expiry time. Nil means the key is permanent.
+	Expiry *time.Time
+}
+
+// MobileKeyEntry is metadata for one accepted mobile key, returned by NonPrimaryMobileKeyEntries.
+// Used by the status endpoint to populate the mobileKeys[] response array.
+type MobileKeyEntry struct {
+	Value      config.MobileKey
+	Identifier string
+	Expiry     *time.Time
 }
 
 type Rotator struct {
@@ -500,6 +521,12 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
+	// Refresh identifiers for every key now in the accepted set.
+	for key, id := range set.sdkKeyIdentifiers {
+		if info, ok := r.acceptedSDKKeys[key]; ok && id != "" {
+			info.identifier = id
+		}
+	}
 	r.primarySdkKey = anchor
 }
 
@@ -518,6 +545,11 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 		desired[set.primaryMobileKey] = nil
 	}
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, r.deprecatedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
+	for key, id := range set.mobileKeyIdentifiers {
+		if info, ok := r.acceptedMobileKeys[key]; ok && id != "" {
+			info.identifier = id
+		}
+	}
 	r.primaryMobileKey = set.primaryMobileKey
 }
 
@@ -533,3 +565,121 @@ func (r *Rotator) reconcileEnvironmentID(set AcceptedSet) {
 	r.primaryEnvironmentID = set.envID
 	r.additions = append(r.additions, set.envID)
 }
+
+// NonAnchorSDKKeyEntries returns metadata for all accepted SDK keys except the anchor, sorted by
+// identifier. Used by the status endpoint to populate the sdkKeys[] response array.
+//
+// Non-anchor keys with no identifier (e.g. keys accepted via the legacy RotateWithGrace path, which
+// predates identifier support) sort after identified keys; ties within no-identifier keys are broken
+// by credential value for determinism.
+func (r *Rotator) NonAnchorSDKKeyEntries() []SDKKeyEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entries := make([]SDKKeyEntry, 0, max(0, len(r.acceptedSDKKeys)-1))
+	for key, info := range r.acceptedSDKKeys {
+		if key == r.primarySdkKey {
+			continue
+		}
+		expiry := info.expiry
+		// Legacy RotateWithGrace path stores expiry in deprecatedSdkKeys, not in acceptedKeyInfo.
+		if expiry == nil {
+			if t, ok := r.deprecatedSdkKeys[key]; ok {
+				expiry = &t
+			}
+		}
+		entries = append(entries, SDKKeyEntry{
+			Value:      key,
+			Identifier: info.identifier,
+			Expiry:     expiry,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if a.Identifier != b.Identifier {
+			// Empty identifiers sort last.
+			if a.Identifier == "" {
+				return false
+			}
+			if b.Identifier == "" {
+				return true
+			}
+			return a.Identifier < b.Identifier
+		}
+		return string(a.Value) < string(b.Value)
+	})
+	return entries
+}
+
+// NonPrimaryMobileKeyEntries returns metadata for all accepted mobile keys except the primary,
+// sorted by identifier. Used by the status endpoint to populate the mobileKeys[] response array.
+func (r *Rotator) NonPrimaryMobileKeyEntries() []MobileKeyEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entries := make([]MobileKeyEntry, 0, max(0, len(r.acceptedMobileKeys)-1))
+	for key, info := range r.acceptedMobileKeys {
+		if key == r.primaryMobileKey {
+			continue
+		}
+		expiry := info.expiry
+		if expiry == nil {
+			if t, ok := r.deprecatedMobileKeys[key]; ok {
+				expiry = &t
+			}
+		}
+		entries = append(entries, MobileKeyEntry{
+			Value:      key,
+			Identifier: info.identifier,
+			Expiry:     expiry,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if a.Identifier != b.Identifier {
+			if a.Identifier == "" {
+				return false
+			}
+			if b.Identifier == "" {
+				return true
+			}
+			return a.Identifier < b.Identifier
+		}
+		return string(a.Value) < string(b.Value)
+	})
+	return entries
+}
+
+// EarliestExpiringNonAnchorSDKKey returns the non-anchor SDK key with the soonest expiry, and true.
+// Returns the zero SDKKey and false when no expiring non-anchor key exists. This produces a
+// deterministic value for the status endpoint's legacy expiringSdkKey field, regardless of how many
+// keys are currently expiring.
+func (r *Rotator) EarliestExpiringNonAnchorSDKKey() (config.SDKKey, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var earliest config.SDKKey
+	var earliestTime *time.Time
+
+	updateEarliest := func(key config.SDKKey, t time.Time) {
+		if earliestTime == nil || t.Before(*earliestTime) {
+			earliest = key
+			tt := t
+			earliestTime = &tt
+		}
+	}
+
+	// Reconcile-path: expiry stored on the accepted entry.
+	for key, info := range r.acceptedSDKKeys {
+		if key != r.primarySdkKey && info.expiry != nil {
+			updateEarliest(key, *info.expiry)
+		}
+	}
+	// Legacy RotateWithGrace path: expiry stored in deprecatedSdkKeys.
+	for key, t := range r.deprecatedSdkKeys {
+		updateEarliest(key, t)
+	}
+
+	return earliest, earliestTime != nil
+}
+

@@ -15,17 +15,40 @@ type StatusRep struct {
 	ClientVersion string                          `json:"clientVersion"`
 }
 
+// KeyStatus is the JSON representation of one accepted SDK or mobile key in the status endpoint's
+// sdkKeys[] / mobileKeys[] arrays.
+//
+// Key is the non-secret human-readable identifier from the wire format (the "key" field of a
+// sdkKeys/mobileKeys entry). Value is the obscured credential secret (via sdks.ObscureKey). Expiry
+// carries the Unix-millisecond expiry timestamp when the key is being phased out; it is omitted for
+// permanent keys.
+type KeyStatus struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Expiry *int64 `json:"expiry,omitempty"`
+}
+
 // EnvironmentStatusRep is the per-environment JSON representation returned by the status endpoint.
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	SDKKey           string               `json:"sdkKey"`
+	// SDKKey is the obscured anchor SDK key — the key relay uses for its upstream connection.
+	// Kept for back-compat; for the full non-anchor accepted set see SDKKeys.
+	SDKKey string `json:"sdkKey"`
+	// SDKKeys carries all non-anchor accepted SDK keys with their identifiers, obscured values, and
+	// optional expiry. Present-but-empty for single-key environments.
+	SDKKeys          []KeyStatus          `json:"sdkKeys"`
 	EnvID            string               `json:"envId,omitempty"`
 	EnvKey           string               `json:"envKey,omitempty"`
 	EnvName          string               `json:"envName,omitempty"`
 	ProjKey          string               `json:"projKey,omitempty"`
 	ProjName         string               `json:"projName,omitempty"`
-	MobileKey        string               `json:"mobileKey,omitempty"`
+	// MobileKey is the obscured primary mobile key. Kept for back-compat; for the full non-primary
+	// accepted set see MobileKeys.
+	MobileKey string `json:"mobileKey,omitempty"`
+	// MobileKeys carries all non-primary accepted mobile keys. Present-but-empty for environments
+	// without additional mobile keys.
+	MobileKeys       []KeyStatus          `json:"mobileKeys"`
 	ExpiringSDKKey   string               `json:"expiringSdkKey,omitempty"`
 	Status           string               `json:"status"`
 	ConnectionStatus ConnectionStatusRep  `json:"connectionStatus"`

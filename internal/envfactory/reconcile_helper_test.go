@@ -57,7 +57,8 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
-		WithPrimaryMobileKey("mob-primary"))
+		WithSDKKeyIdentifier("sdk-anchor", "default").
+		WithPrimaryMobileKey("mob-primary")) // mobile has no identifier in makeParams fixture
 	assert.Equal(t, expected, set)
 }
 
@@ -81,16 +82,19 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithSDKKey("sdk-service-a").
+		WithSDKKeyIdentifier("sdk-service-a", "service-a").
 		WithExpiringSDKKey("sdk-old", expiry1).
+		WithSDKKeyIdentifier("sdk-old", "old-key").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
 
-// TestBuildAcceptedSet_Rename verifies that a rename — same credential value, different key
-// identifier — is a no-op: the returned AcceptedSet is identical regardless of the identifier.
+// TestBuildAcceptedSet_Rename verifies that a rename — same credential value, different identifier
+// — updates only the identifier in the AcceptedSet, not the accepted credential itself. The sets
+// produced before and after a rename carry the same credentials but different identifier maps.
 func TestBuildAcceptedSet_Rename(t *testing.T) {
-	// Build AcceptedSet for the "before" and "after" of a rename.
 	paramsOldName := makeParams(
 		"sdk-anchor",
 		[]AcceptedSDKKey{{Key: "old-name", Value: "sdk-anchor"}},
@@ -107,7 +111,21 @@ func TestBuildAcceptedSet_Rename(t *testing.T) {
 
 	require.NoError(t, errOld)
 	require.NoError(t, errNew)
-	assert.Equal(t, setOld, setNew, "rename (same value, different key identifier) should produce the same AcceptedSet")
+	// The credential content is the same — only the identifier differs.
+	// When Reconcile applies the new set the display name is refreshed but no credential is added or removed.
+	assert.NotEqual(t, setOld, setNew, "rename changes the identifier map, so the AcceptedSets differ")
+	expectedOld := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "old-name").
+		WithPrimaryMobileKey("mob-primary"))
+	assert.Equal(t, expectedOld, setOld)
+	expectedNew := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "new-name").
+		WithPrimaryMobileKey("mob-primary"))
+	assert.Equal(t, expectedNew, setNew)
 }
 
 // TestBuildAcceptedSet_Deexpiry verifies that removing the expiry from an existing key (a
@@ -144,7 +162,9 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	expectedPermanent := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithSDKKey("sdk-old"). // permanent, no expiry
+		WithSDKKeyIdentifier("sdk-old", "old-key").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expectedPermanent, setNoExpiry)
 
@@ -253,8 +273,11 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-new-anchor").
+		WithSDKKeyIdentifier("sdk-new-anchor", "new-default").
 		WithSDKKey("sdk-b").
+		WithSDKKeyIdentifier("sdk-b", "service-b").
 		WithSDKKey("sdk-c").
+		WithSDKKeyIdentifier("sdk-c", "service-c").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
@@ -280,7 +303,9 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithSDKKey("sdk-service-a").
+		WithSDKKeyIdentifier("sdk-service-a", "service-a").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
@@ -305,8 +330,11 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithMobileKey("mob-primary").
+		WithMobileKeyIdentifier("mob-primary", "mob-1").
 		WithMobileKey("mob-secondary").
+		WithMobileKeyIdentifier("mob-secondary", "mob-2").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set)
 }
@@ -332,8 +360,11 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithMobileKey("mob-primary").
+		WithMobileKeyIdentifier("mob-primary", "mob-1").
 		WithExpiringMobileKey("mob-old", expiry1).
+		WithMobileKeyIdentifier("mob-old", "mob-old").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set, "expiring mobile key must land as an expiring key in the set")
 }
@@ -362,6 +393,7 @@ func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithPrimarySDKKey("sdk-anchor").
+		WithSDKKeyIdentifier("sdk-anchor", "default").
 		WithPrimaryMobileKey("mob-primary"))
 	assert.Equal(t, expected, set, "legacy sdkKey.expiring slot must not appear in AcceptedSet")
 }

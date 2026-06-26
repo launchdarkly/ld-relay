@@ -35,6 +35,12 @@ type AcceptedSet struct {
 	mobileKeys       map[config.MobileKey]*time.Time
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
+
+	// sdkKeyIdentifiers and mobileKeyIdentifiers carry the wire "key" field — the non-secret
+	// human-readable identifier for each credential. May be absent for entries synthesized from
+	// old-format payloads that only have the singular sdkKey/mobKey fields.
+	sdkKeyIdentifiers    map[config.SDKKey]string
+	mobileKeyIdentifiers map[config.MobileKey]string
 }
 
 // hasSDKKey reports whether key is one of the set's accepted SDK keys.

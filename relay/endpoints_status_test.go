@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
@@ -129,5 +130,77 @@ func TestEndpointsStatus(t *testing.T) {
 
 			st.AssertJSONPathMatch(t, "degraded", status, "status")
 		})
+	})
+}
+
+// TestBuildKeyStatusSlice verifies the sdkKeys[] helper that converts rotator entries to the JSON
+// representation used by the status endpoint.
+func TestBuildKeyStatusSlice(t *testing.T) {
+	t.Run("empty entries yields empty slice", func(t *testing.T) {
+		result := buildKeyStatusSlice(nil)
+		assert.Empty(t, result)
+	})
+
+	t.Run("permanent key has no expiry field", func(t *testing.T) {
+		entries := []credential.SDKKeyEntry{
+			{Value: c.SDKKey("sdk-abc123"), Identifier: "default", Expiry: nil},
+		}
+		result := buildKeyStatusSlice(entries)
+		require.Len(t, result, 1)
+		assert.Equal(t, "default", result[0].Key)
+		assert.Equal(t, sdks.ObscureKey("sdk-abc123"), result[0].Value)
+		assert.Nil(t, result[0].Expiry)
+	})
+
+	t.Run("expiring key has expiry in Unix milliseconds", func(t *testing.T) {
+		expiry := time.Date(2099, 6, 1, 12, 0, 0, 0, time.UTC)
+		entries := []credential.SDKKeyEntry{
+			{Value: c.SDKKey("sdk-old"), Identifier: "old-key", Expiry: &expiry},
+		}
+		result := buildKeyStatusSlice(entries)
+		require.Len(t, result, 1)
+		require.NotNil(t, result[0].Expiry)
+		assert.Equal(t, expiry.UnixMilli(), *result[0].Expiry)
+	})
+
+	t.Run("preserves entry order from input", func(t *testing.T) {
+		entries := []credential.SDKKeyEntry{
+			{Value: c.SDKKey("sdk-a"), Identifier: "a"},
+			{Value: c.SDKKey("sdk-b"), Identifier: "b"},
+		}
+		result := buildKeyStatusSlice(entries)
+		require.Len(t, result, 2)
+		assert.Equal(t, "a", result[0].Key)
+		assert.Equal(t, "b", result[1].Key)
+	})
+}
+
+// TestBuildMobileKeyStatusSlice verifies the mobileKeys[] helper mirrors buildKeyStatusSlice behaviour.
+func TestBuildMobileKeyStatusSlice(t *testing.T) {
+	t.Run("empty entries yields empty slice", func(t *testing.T) {
+		result := buildMobileKeyStatusSlice(nil)
+		assert.Empty(t, result)
+	})
+
+	t.Run("mobile key value is obscured", func(t *testing.T) {
+		entries := []credential.MobileKeyEntry{
+			{Value: c.MobileKey("mob-secret"), Identifier: "mob-1", Expiry: nil},
+		}
+		result := buildMobileKeyStatusSlice(entries)
+		require.Len(t, result, 1)
+		assert.Equal(t, "mob-1", result[0].Key)
+		assert.Equal(t, sdks.ObscureKey("mob-secret"), result[0].Value)
+		assert.Nil(t, result[0].Expiry)
+	})
+
+	t.Run("expiring mobile key has expiry in Unix milliseconds", func(t *testing.T) {
+		expiry := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+		entries := []credential.MobileKeyEntry{
+			{Value: c.MobileKey("mob-old"), Identifier: "mob-old", Expiry: &expiry},
+		}
+		result := buildMobileKeyStatusSlice(entries)
+		require.Len(t, result, 1)
+		require.NotNil(t, result[0].Expiry)
+		assert.Equal(t, expiry.UnixMilli(), *result[0].Expiry)
 	})
 }
