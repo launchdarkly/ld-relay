@@ -151,14 +151,14 @@ func (r *Rotator) deprecatedCredentials() []SDKCredential {
 	return deprecated
 }
 
-// DeprecatedCredentials returns the SDK keys being phased out: any non-anchor accepted SDK key that
-// carries a future expiry (the reconcile model stores per-key expiry as data on the accepted entry).
-// EnvContext.GetDeprecatedCredentials delegates here so the status endpoint can surface its
-// expiringSdkKey field.
+// DeprecatedCredentials returns the SDK keys being phased out — every accepted SDK key, other than the
+// anchor, that carries a future expiry. (Per-key expiry is stored as data on the accepted entry; the
+// cleanup ticker drops the key once it elapses.) EnvContext.GetDeprecatedCredentials delegates here to
+// populate the status endpoint's expiringSdkKey field.
 //
-// Reconcile-path mobile keys with an expiry are intentionally excluded: there is no expiringMobileKey
-// status field, and such a key still authenticates until the cleanup ticker drops it, so the reconcile
-// path treats it as accepted rather than deprecated (see TestMobileKeyReconcileExpiry).
+// Mobile keys are deliberately not returned even though they expire the same way SDK keys do — carried
+// as per-key expiry and dropped by the same cleanup ticker. They are omitted only because the status
+// endpoint has no expiringMobileKey field to populate, not because mobile-key expiry is unimplemented.
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
