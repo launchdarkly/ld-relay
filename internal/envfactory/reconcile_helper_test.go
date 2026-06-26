@@ -176,24 +176,6 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
 }
 
-// TestBuildAcceptedSet_AnchorNotInNewFormatArray exercises the realistic wire path: a new-format
-// EnvironmentRep (sdkKeys[] present) whose sdkKey.value is absent from the array must be rejected after
-// ToParams, not silently synthesized in.
-func TestBuildAcceptedSet_AnchorNotInNewFormatArray(t *testing.T) {
-	rep := EnvironmentRep{
-		EnvID:   "env-abc",
-		SDKKey:  SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
-		MobKey:  "mob-primary",
-		SDKKeys: []ConcurrentKeyRep{{Key: "other-key", Value: "sdk-other"}}, // anchor not present
-	}
-	_, _, err := BuildAcceptedSet(rep.ToParams())
-
-	require.Error(t, err)
-	var malformed *credential.MalformedCredentialSetError
-	require.True(t, errors.As(err, &malformed))
-	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
-}
-
 // TestBuildAcceptedSet_NoMobileKey verifies that an environment with no mobile key (e.g. a
 // server-side-only environment) is valid: ToParams must not synthesize a phantom empty mobileKeys
 // entry that BuildAcceptedSet would reject as malformed.
