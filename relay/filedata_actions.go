@@ -62,7 +62,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+			a.r.loggers.Errorf("Malformed credential payload for offline environment %q — preserving previous credentials: %s", ae.Params.Identifiers.GetDisplayName(), buildErr)
 		} else {
 			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		}
@@ -105,7 +105,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf(logMsgMalformedPayloadOffline, ae.Params.Identifiers.GetDisplayName(), buildErr)
+			a.r.loggers.Errorf("Malformed credential payload for offline environment %q — preserving previous credentials: %s", ae.Params.Identifiers.GetDisplayName(), buildErr)
 		} else {
 			// The environment was found above; this is a credential-build failure, not a missing env.
 			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)

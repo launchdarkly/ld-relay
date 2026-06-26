@@ -416,7 +416,7 @@ func (s *StreamManager) handleStreamEvent(event es.Event) bool {
 			// Validate before Upsert so a malformed payload does not advance the version (see
 			// validateCredentialPayload). Preserve previous state for this env and reconnect.
 			if err = s.validateCredentialPayload(envRep); err != nil {
-				s.loggers.Errorf(logMsgMalformedCredentialPayload, envRep.EnvID, err)
+				s.loggers.Errorf("Received malformed credential payload for environment %q (%s); preserving previous credentials and will restart stream", envRep.EnvID, err)
 				shouldRestart = true
 				break
 			}
@@ -552,7 +552,7 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 		// Validate before Upsert so a malformed payload does not advance the version (see
 		// validateCredentialPayload). Skip this env, preserving its previous state, and reconnect.
 		if err := s.validateCredentialPayload(rep); err != nil {
-			s.loggers.Errorf(logMsgMalformedCredentialPayload, rep.EnvID, err)
+			s.loggers.Errorf("Received malformed credential payload for environment %q (%s); preserving previous credentials and will restart stream", rep.EnvID, err)
 			shouldRestart = true
 			malformedEnvIDs[id] = true
 			continue
