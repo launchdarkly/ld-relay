@@ -53,16 +53,16 @@ func (e *ProjectRouter) AddEnvironment(params envfactory.EnvironmentParams) {
 	manager.AddEnvironment(params)
 }
 
-// UpdateEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its
-// project key. If no such manager exists, the params are ignored and an error is logged.
+// UpdateEnvironment routes the given EnvironmentParams to the relevant ProjectManager based on its project key.
+// If no such manager exists, the params are ignored and an error is logged.
 func (e *ProjectRouter) UpdateEnvironment(params envfactory.EnvironmentParams) {
 	proj := params.Identifiers.ProjKey
 	manager, ok := e.managers[proj]
 	if ok {
 		manager.UpdateEnvironment(params)
-		return
+	} else {
+		e.loggers.Errorf("precondition violation: received updated config for (%s), but environment was never added", params.Identifiers.GetDisplayName())
 	}
-	e.loggers.Errorf("precondition violation: received updated config for (%s), but environment was never added", params.Identifiers.GetDisplayName())
 }
 
 // DeleteEnvironment dispatches a deletion command for the given environment ID to all ProjectManagers. It is
