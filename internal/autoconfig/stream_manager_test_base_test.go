@@ -31,39 +31,42 @@ func (noopTestCache) Upsert(context.Context, CacheKind, string, interface{}) err
 func (noopTestCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (noopTestCache) Close() error                                                 { return nil }
 
-// recordingCache records SetAll calls — the count and the environment IDs of the most recent call —
-// so a test can assert what a put persisted.
+// recordingCache is a minimal in-memory cache: SetAll stores the snapshot and GetAll returns it, so a
+// test can drive the read-modify-write path in persistPut and then assert what was persisted.
 type recordingCache struct {
-	mu         sync.Mutex
-	setAllN    int
-	lastEnvIDs map[config.EnvironmentID]bool
+	mu      sync.Mutex
+	setAllN int
+	stored  *PutContent
 }
 
-func (c *recordingCache) GetAll(context.Context) (*PutContent, error) { return nil, nil }
+func (c *recordingCache) GetAll(context.Context) (*PutContent, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stored, nil
+}
 func (c *recordingCache) SetAll(_ context.Context, content PutContent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.setAllN++
-	c.lastEnvIDs = make(map[config.EnvironmentID]bool, len(content.Environments))
-	for id := range content.Environments {
-		c.lastEnvIDs[id] = true
-	}
+	cp := content
+	c.stored = &cp
 	return nil
 }
 func (c *recordingCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
 func (c *recordingCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (c *recordingCache) Close() error                                                 { return nil }
 
-func (c *recordingCache) setAllCount() int {
+// cachedEnvIDs returns the set of environment IDs in the most recently stored snapshot.
+func (c *recordingCache) cachedEnvIDs() map[config.EnvironmentID]bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.setAllN
-}
-
-func (c *recordingCache) lastCachedEnvIDs() map[config.EnvironmentID]bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.lastEnvIDs
+	out := make(map[config.EnvironmentID]bool)
+	if c.stored != nil {
+		for id := range c.stored.Environments {
+			out[id] = true
+		}
+	}
+	return out
 }
 
 const (

@@ -582,25 +582,41 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 
 	s.handler.ReceivedAllEnvironments()
 	if content.Persist {
-		// Persist the valid environments, but drop any malformed ones from what we cache. Writing a
-		// rejected env would re-surface it (skipped again) on the next cache load; omitting it lets the
-		// valid envs in this put still be cached (so their updates aren't rolled back on a restart) while
-		// the reconnect we triggered fetches a fresh put for the dropped ones.
-		toCache := content
-		if len(malformedEnvIDs) > 0 {
-			kept := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments)-len(malformedEnvIDs))
-			for id, rep := range content.Environments {
-				if !malformedEnvIDs[id] {
-					kept[id] = rep
-				}
-			}
-			toCache.Environments = kept
-		}
-		if err := s.cache.SetAll(context.Background(), toCache); err != nil {
-			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
-		}
+		s.persistPut(content, malformedEnvIDs)
 	}
 	return shouldRestart
+}
+
+// persistPut writes a put's content to the cache. A clean put is stored atomically with SetAll. When
+// the put carried malformed environments, a plain SetAll would corrupt the cache: filtering the
+// malformed envs out would drop them, and if every env was malformed it would wipe the cache entirely.
+// Instead we keep each malformed env's previously-cached entry and write the resulting complete
+// snapshot — so the valid envs and the filters in this put are persisted, the malformed envs keep their
+// last-good value, and envs the put removed are still dropped. The reconnect a malformed put triggers
+// fetches fresh data for the malformed envs. If the prior cache can't be read, leave it untouched
+// rather than risk dropping entries.
+func (s *StreamManager) persistPut(content PutContent, malformedEnvIDs map[config.EnvironmentID]bool) {
+	if len(malformedEnvIDs) > 0 {
+		prev, err := s.cache.GetAll(context.Background())
+		if err != nil || prev == nil {
+			s.loggers.Warnf("Skipping AutoConfig cache write for a put with malformed credentials (cannot read prior cache): %v", err)
+			return
+		}
+		envs := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments))
+		for id, rep := range content.Environments {
+			if malformedEnvIDs[id] {
+				if prevRep, ok := prev.Environments[id]; ok {
+					envs[id] = prevRep // keep the malformed env's last-good cached entry
+				}
+			} else {
+				envs[id] = rep
+			}
+		}
+		content.Environments = envs
+	}
+	if err := s.cache.SetAll(context.Background(), content); err != nil {
+		s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
+	}
 }
 
 func (s *StreamManager) cacheUpsert(kind CacheKind, id string, data interface{}) {

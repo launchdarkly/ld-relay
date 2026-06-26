@@ -85,28 +85,51 @@ func TestMalformedCredentialPayloadCausesStreamRestart(t *testing.T) {
 	})
 }
 
-// A put that carries a malformed credential payload must still cache its valid environments, dropping
-// only the malformed one. Caching the rejected env would re-surface it (skipped again) on the next
-// cache load; failing to cache the valid envs would roll their updates back on a restart. The malformed
-// env is fetched fresh via the reconnect the put triggers.
-func TestMalformedCredentialPayloadIsExcludedFromCache(t *testing.T) {
-	validEnv := testEnv1
-	malformedEnv := testEnv2
-	malformedEnv.SDKKey = envfactory.SDKKeyRep{Value: config.SDKKey("")} // undefined anchor
+// A put carrying malformed credential payloads must not corrupt the persistent cache: valid envs are
+// updated, malformed envs keep their previously-cached entry, and an all-malformed put must not wipe
+// the cache (the regression — SetAll is a full replace, so writing a filtered/empty set erased it).
+func TestMalformedCredentialPayloadPreservesEnvironmentCache(t *testing.T) {
+	malformed := func(env envfactory.EnvironmentRep) envfactory.EnvironmentRep {
+		env.SDKKey = envfactory.SDKKeyRep{Value: config.SDKKey("")} // undefined anchor
+		return env
+	}
+	seedBothEnvs := func(t *testing.T, p streamManagerTestParams, cache *recordingCache) {
+		p.stream.Enqueue(makeEnvPutEvent(testEnv1, testEnv2))
+		require.Eventually(t, func() bool {
+			ids := cache.cachedEnvIDs()
+			return ids[testEnv1.EnvID] && ids[testEnv2.EnvID]
+		}, time.Second, 10*time.Millisecond, "both envs should be cached after the clean put")
+	}
 
-	cache := &recordingCache{}
-	streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
-		p.startStream()
-		<-p.requestsCh
-		p.stream.Enqueue(makeEnvPutEvent(validEnv, malformedEnv))
-		// The malformed env triggers a reconnect; observing it means handlePut has finished, including
-		// the cache write.
-		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+	t.Run("mixed put keeps the valid and the malformed env in the cache", func(t *testing.T) {
+		cache := &recordingCache{}
+		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+			p.startStream()
+			<-p.requestsCh
+			seedBothEnvs(t, p, cache)
 
-		require.GreaterOrEqual(t, cache.setAllCount(), 1, "the valid env in the put must still be cached")
-		cached := cache.lastCachedEnvIDs()
-		assert.Contains(t, cached, validEnv.EnvID, "the valid env must be cached")
-		assert.NotContains(t, cached, malformedEnv.EnvID, "the malformed env must be excluded from the cache")
+			p.stream.Enqueue(makeEnvPutEvent(testEnv1, malformed(testEnv2)))
+			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+
+			ids := cache.cachedEnvIDs()
+			assert.True(t, ids[testEnv1.EnvID], "the valid env must remain cached")
+			assert.True(t, ids[testEnv2.EnvID], "the malformed env must keep its previously-cached entry, not be dropped")
+		})
+	})
+
+	t.Run("all-malformed put does not wipe the cache", func(t *testing.T) {
+		cache := &recordingCache{}
+		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+			p.startStream()
+			<-p.requestsCh
+			seedBothEnvs(t, p, cache)
+
+			p.stream.Enqueue(makeEnvPutEvent(malformed(testEnv1), malformed(testEnv2)))
+			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
+
+			ids := cache.cachedEnvIDs()
+			assert.True(t, ids[testEnv1.EnvID] && ids[testEnv2.EnvID], "an all-malformed put must not wipe the cache")
+		})
 	})
 }
 
