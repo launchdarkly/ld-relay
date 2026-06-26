@@ -994,7 +994,7 @@ func TestEarliestExpiringNonAnchorSDKKey(t *testing.T) {
 	t.Run("picks soonest across both reconcile and legacy paths", func(t *testing.T) {
 		r := newTestRotator()
 		now := time.Unix(1000, 0)
-		legacyExpiry := now.Add(2 * time.Hour) // later
+		legacyExpiry := now.Add(2 * time.Hour)       // later
 		reconcileExpiry := now.Add(30 * time.Minute) // sooner
 
 		r.Initialize([]SDKCredential{config.SDKKey("sdk-legacy")})

@@ -37,12 +37,12 @@ type EnvironmentStatusRep struct {
 	SDKKey string `json:"sdkKey"`
 	// SDKKeys carries all non-anchor accepted SDK keys with their identifiers, obscured values, and
 	// optional expiry. Present-but-empty for single-key environments.
-	SDKKeys          []KeyStatus          `json:"sdkKeys"`
-	EnvID            string               `json:"envId,omitempty"`
-	EnvKey           string               `json:"envKey,omitempty"`
-	EnvName          string               `json:"envName,omitempty"`
-	ProjKey          string               `json:"projKey,omitempty"`
-	ProjName         string               `json:"projName,omitempty"`
+	SDKKeys  []KeyStatus `json:"sdkKeys"`
+	EnvID    string      `json:"envId,omitempty"`
+	EnvKey   string      `json:"envKey,omitempty"`
+	EnvName  string      `json:"envName,omitempty"`
+	ProjKey  string      `json:"projKey,omitempty"`
+	ProjName string      `json:"projName,omitempty"`
 	// MobileKey is the obscured primary mobile key. Kept for back-compat; for the full non-primary
 	// accepted set see MobileKeys.
 	MobileKey string `json:"mobileKey,omitempty"`
