@@ -82,6 +82,13 @@ func newMissingAnchorError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is missing"}
 }
 
+// NewAnchorNotInSetError returns a MalformedCredentialSetError for a payload whose designated anchor
+// (sdkKey.value) is defined but not present in the sdkKeys[] array — a structural inconsistency. The
+// anchor value is a secret, so it is deliberately not included in the message.
+func NewAnchorNotInSetError() *MalformedCredentialSetError {
+	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is not present in sdkKeys[]"}
+}
+
 // NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose
 // value field is empty. kind is "sdkKeys" or "mobileKeys"; identifier is the key's identifier
 // string (may be empty for old-format payloads that synthesize from the singular fields).

@@ -156,6 +156,10 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 // longer rejected here: WithPrimarySDKKey adds and designates the anchor regardless, so the
 // resulting set contains both the anchor and the array entry. Structural validation of the wire
 // payload (anchor-absent-from-array) happens upstream when the payload is parsed into params.
+// TestBuildAcceptedSet_AnchorNotInArray verifies that a defined anchor absent from the sdkKeys[] array
+// yields a *credential.MalformedCredentialSetError per design §9: the payload is structurally
+// inconsistent (the designated primary is not in the authoritative array), so it must be rejected
+// rather than silently synthesized into the set.
 func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	params := makeParams(
 		"sdk-anchor",
@@ -164,17 +168,30 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 
-	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
+	require.Error(t, err)
+	var malformed *credential.MalformedCredentialSetError
+	require.True(t, errors.As(err, &malformed))
+	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
+}
 
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey("sdk-anchor"). // added + designated even though absent from the array
-		WithSDKKey("sdk-other").
-		WithPrimaryMobileKey("mob-primary"))
-	assert.Equal(t, expected, set)
+// TestBuildAcceptedSet_AnchorNotInNewFormatArray exercises the realistic wire path: a new-format
+// EnvironmentRep (sdkKeys[] present) whose sdkKey.value is absent from the array must be rejected after
+// ToParams, not silently synthesized in.
+func TestBuildAcceptedSet_AnchorNotInNewFormatArray(t *testing.T) {
+	rep := EnvironmentRep{
+		EnvID:   "env-abc",
+		SDKKey:  SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
+		MobKey:  "mob-primary",
+		SDKKeys: []ConcurrentKeyRep{{Key: "other-key", Value: "sdk-other"}}, // anchor not present
+	}
+	_, _, err := BuildAcceptedSet(rep.ToParams())
+
+	require.Error(t, err)
+	var malformed *credential.MalformedCredentialSetError
+	require.True(t, errors.As(err, &malformed))
+	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
 }
 
 // TestBuildAcceptedSet_AnchorUndefined verifies that an undefined anchor (empty SDKKey) yields a
