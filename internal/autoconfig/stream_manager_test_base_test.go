@@ -34,9 +34,8 @@ func (noopTestCache) Close() error                                              
 // recordingCache is a minimal in-memory cache: SetAll stores the snapshot and GetAll returns it, so a
 // test can drive the read-modify-write path in persistPut and then assert what was persisted.
 type recordingCache struct {
-	mu      sync.Mutex
-	setAllN int
-	stored  *PutContent
+	mu     sync.Mutex
+	stored *PutContent
 }
 
 func (c *recordingCache) GetAll(context.Context) (*PutContent, error) {
@@ -47,7 +46,6 @@ func (c *recordingCache) GetAll(context.Context) (*PutContent, error) {
 func (c *recordingCache) SetAll(_ context.Context, content PutContent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.setAllN++
 	cp := content
 	c.stored = &cp
 	return nil
@@ -67,6 +65,17 @@ func (c *recordingCache) cachedEnvIDs() map[config.EnvironmentID]bool {
 		}
 	}
 	return out
+}
+
+// cachedEnv returns the stored rep for an environment ID in the most recently stored snapshot.
+func (c *recordingCache) cachedEnv(id config.EnvironmentID) (envfactory.EnvironmentRep, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stored == nil {
+		return envfactory.EnvironmentRep{}, false
+	}
+	rep, ok := c.stored.Environments[id]
+	return rep, ok
 }
 
 const (

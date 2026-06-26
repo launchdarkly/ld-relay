@@ -93,6 +93,13 @@ func TestMalformedCredentialPayloadPreservesEnvironmentCache(t *testing.T) {
 		env.SDKKey = envfactory.SDKKeyRep{Value: config.SDKKey("")} // undefined anchor
 		return env
 	}
+	// updated gives env a distinct SDK key value and a bumped version, so the test can tell a freshly
+	// persisted update apart from the seeded value.
+	updated := func(env envfactory.EnvironmentRep, newKey config.SDKKey) envfactory.EnvironmentRep {
+		env.SDKKey = envfactory.SDKKeyRep{Value: newKey}
+		env.Version++
+		return env
+	}
 	seedBothEnvs := func(t *testing.T, p streamManagerTestParams, cache *recordingCache) {
 		p.stream.Enqueue(makeEnvPutEvent(testEnv1, testEnv2))
 		require.Eventually(t, func() bool {
@@ -101,19 +108,26 @@ func TestMalformedCredentialPayloadPreservesEnvironmentCache(t *testing.T) {
 		}, time.Second, 10*time.Millisecond, "both envs should be cached after the clean put")
 	}
 
-	t.Run("mixed put keeps the valid and the malformed env in the cache", func(t *testing.T) {
+	t.Run("valid env is updated, malformed env keeps its previous value", func(t *testing.T) {
 		cache := &recordingCache{}
 		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
 			p.startStream()
 			<-p.requestsCh
 			seedBothEnvs(t, p, cache)
 
-			p.stream.Enqueue(makeEnvPutEvent(testEnv1, malformed(testEnv2)))
+			// env1 carries a valid update to a new SDK key; env2 is malformed in the same put.
+			p.stream.Enqueue(makeEnvPutEvent(updated(testEnv1, "sdkkey1-rotated"), malformed(testEnv2)))
 			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
 
-			ids := cache.cachedEnvIDs()
-			assert.True(t, ids[testEnv1.EnvID], "the valid env must remain cached")
-			assert.True(t, ids[testEnv2.EnvID], "the malformed env must keep its previously-cached entry, not be dropped")
+			env1, ok1 := cache.cachedEnv(testEnv1.EnvID)
+			require.True(t, ok1, "the valid env must remain cached")
+			assert.Equal(t, config.SDKKey("sdkkey1-rotated"), env1.SDKKey.Value,
+				"the valid env's update must be persisted")
+
+			env2, ok2 := cache.cachedEnv(testEnv2.EnvID)
+			require.True(t, ok2, "the malformed env must keep its previously-cached entry, not be dropped")
+			assert.Equal(t, testEnv2.SDKKey.Value, env2.SDKKey.Value,
+				"the malformed env must retain its previous (valid) cached value, not the malformed one")
 		})
 	})
 
@@ -127,8 +141,11 @@ func TestMalformedCredentialPayloadPreservesEnvironmentCache(t *testing.T) {
 			p.stream.Enqueue(makeEnvPutEvent(malformed(testEnv1), malformed(testEnv2)))
 			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
 
-			ids := cache.cachedEnvIDs()
-			assert.True(t, ids[testEnv1.EnvID] && ids[testEnv2.EnvID], "an all-malformed put must not wipe the cache")
+			env1, ok1 := cache.cachedEnv(testEnv1.EnvID)
+			env2, ok2 := cache.cachedEnv(testEnv2.EnvID)
+			require.True(t, ok1 && ok2, "an all-malformed put must not wipe the cache")
+			assert.Equal(t, testEnv1.SDKKey.Value, env1.SDKKey.Value, "env1 keeps its previous value")
+			assert.Equal(t, testEnv2.SDKKey.Value, env2.SDKKey.Value, "env2 keeps its previous value")
 		})
 	})
 }
