@@ -30,9 +30,9 @@ type AcceptedSet struct {
 	// sdkKeys and mobileKeys store each accepted key once, keyed by value, so duplicates collapse
 	// without a containment scan. The map value is the key's expiry: a nil *time.Time means the key
 	// is permanent. A nil map is a valid empty set (reads return absent; only the builder writes).
-	sdkKeys    map[config.SDKKey]*time.Time
-	anchor     config.SDKKey
-	mobileKeys map[config.MobileKey]*time.Time
+	sdkKeys          map[config.SDKKey]*time.Time
+	anchor           config.SDKKey
+	mobileKeys       map[config.MobileKey]*time.Time
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
 }
