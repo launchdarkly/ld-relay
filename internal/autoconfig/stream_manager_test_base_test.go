@@ -31,17 +31,23 @@ func (noopTestCache) Upsert(context.Context, CacheKind, string, interface{}) err
 func (noopTestCache) Delete(context.Context, CacheKind, string) error              { return nil }
 func (noopTestCache) Close() error                                                 { return nil }
 
-// recordingCache records calls to SetAll so a test can assert whether a put was persisted.
+// recordingCache records SetAll calls — the count and the environment IDs of the most recent call —
+// so a test can assert what a put persisted.
 type recordingCache struct {
-	mu      sync.Mutex
-	setAllN int
+	mu         sync.Mutex
+	setAllN    int
+	lastEnvIDs map[config.EnvironmentID]bool
 }
 
 func (c *recordingCache) GetAll(context.Context) (*PutContent, error) { return nil, nil }
-func (c *recordingCache) SetAll(context.Context, PutContent) error {
+func (c *recordingCache) SetAll(_ context.Context, content PutContent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.setAllN++
+	c.lastEnvIDs = make(map[config.EnvironmentID]bool, len(content.Environments))
+	for id := range content.Environments {
+		c.lastEnvIDs[id] = true
+	}
 	return nil
 }
 func (c *recordingCache) Upsert(context.Context, CacheKind, string, interface{}) error { return nil }
@@ -52,6 +58,12 @@ func (c *recordingCache) setAllCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.setAllN
+}
+
+func (c *recordingCache) lastCachedEnvIDs() map[config.EnvironmentID]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastEnvIDs
 }
 
 const (

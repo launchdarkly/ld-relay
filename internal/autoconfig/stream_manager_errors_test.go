@@ -85,33 +85,28 @@ func TestMalformedCredentialPayloadCausesStreamRestart(t *testing.T) {
 	})
 }
 
-// A put carrying a malformed credential payload must not be written to the persistent cache: doing so
-// would re-surface the rejected environment (skipped again) on the next cache load. The malformed env
-// is skipped in memory and the stream reconnects for a fresh put, which is what refreshes the cache.
-func TestMalformedCredentialPayloadInPutIsNotCached(t *testing.T) {
-	malformedEnv := testEnv1
+// A put that carries a malformed credential payload must still cache its valid environments, dropping
+// only the malformed one. Caching the rejected env would re-surface it (skipped again) on the next
+// cache load; failing to cache the valid envs would roll their updates back on a restart. The malformed
+// env is fetched fresh via the reconnect the put triggers.
+func TestMalformedCredentialPayloadIsExcludedFromCache(t *testing.T) {
+	validEnv := testEnv1
+	malformedEnv := testEnv2
 	malformedEnv.SDKKey = envfactory.SDKKeyRep{Value: config.SDKKey("")} // undefined anchor
 
-	t.Run("malformed put is not persisted", func(t *testing.T) {
-		cache := &recordingCache{}
-		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
-			p.startStream()
-			<-p.requestsCh
-			p.stream.Enqueue(makeEnvPutEvent(malformedEnv))
-			_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
-			assert.Equal(t, 0, cache.setAllCount(), "a malformed put must not be written to the cache")
-		})
-	})
+	cache := &recordingCache{}
+	streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
+		p.startStream()
+		<-p.requestsCh
+		p.stream.Enqueue(makeEnvPutEvent(validEnv, malformedEnv))
+		// The malformed env triggers a reconnect; observing it means handlePut has finished, including
+		// the cache write.
+		_ = helpers.RequireValue(t, p.requestsCh, time.Second, "timed out waiting for stream restart")
 
-	t.Run("valid put is persisted", func(t *testing.T) {
-		cache := &recordingCache{}
-		streamManagerTestWithCache(t, nil, cache, func(p streamManagerTestParams) {
-			p.startStream()
-			<-p.requestsCh
-			p.stream.Enqueue(makeEnvPutEvent(testEnv1))
-			assert.Eventually(t, func() bool { return cache.setAllCount() == 1 }, time.Second, 10*time.Millisecond,
-				"a valid put must be written to the cache")
-		})
+		require.GreaterOrEqual(t, cache.setAllCount(), 1, "the valid env in the put must still be cached")
+		cached := cache.lastCachedEnvIDs()
+		assert.Contains(t, cached, validEnv.EnvID, "the valid env must be cached")
+		assert.NotContains(t, cached, malformedEnv.EnvID, "the malformed env must be excluded from the cache")
 	})
 }
 

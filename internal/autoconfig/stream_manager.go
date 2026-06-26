@@ -542,6 +542,7 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 	// UpdateEnvironment for any that have changed, and DeleteEnvironment for any that are no longer
 	// in the set.
 	shouldRestart := false
+	malformedEnvIDs := make(map[config.EnvironmentID]bool)
 	s.loggers.Infof(logMsgPutEvent, len(content.Environments))
 	for id, rep := range content.Environments {
 		if id != rep.EnvID {
@@ -553,6 +554,7 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 		if err := s.validateCredentialPayload(rep); err != nil {
 			s.loggers.Errorf(logMsgMalformedCredentialPayload, rep.EnvID, err)
 			shouldRestart = true
+			malformedEnvIDs[id] = true
 			continue
 		}
 		s.dispatchEnvAction(id, rep, s.envReceiver.Upsert(string(id), rep, rep.Version))
@@ -579,12 +581,22 @@ func (s *StreamManager) handlePut(content PutContent) bool {
 	}
 
 	s.handler.ReceivedAllEnvironments()
-	// Don't persist a put that carried a malformed credential payload (shouldRestart). The rejected
-	// environment would be written to the cache and then re-skipped on the next cache load, leaving it
-	// unavailable until a valid put arrives. We're already reconnecting for a fresh put, so preserve the
-	// previous cache and let that fresh put refresh it.
-	if content.Persist && !shouldRestart {
-		if err := s.cache.SetAll(context.Background(), content); err != nil {
+	if content.Persist {
+		// Persist the valid environments, but drop any malformed ones from what we cache. Writing a
+		// rejected env would re-surface it (skipped again) on the next cache load; omitting it lets the
+		// valid envs in this put still be cached (so their updates aren't rolled back on a restart) while
+		// the reconnect we triggered fetches a fresh put for the dropped ones.
+		toCache := content
+		if len(malformedEnvIDs) > 0 {
+			kept := make(map[config.EnvironmentID]envfactory.EnvironmentRep, len(content.Environments)-len(malformedEnvIDs))
+			for id, rep := range content.Environments {
+				if !malformedEnvIDs[id] {
+					kept[id] = rep
+				}
+			}
+			toCache.Environments = kept
+		}
+		if err := s.cache.SetAll(context.Background(), toCache); err != nil {
 			s.loggers.Warnf("Failed to write AutoConfig cache: %v", err)
 		}
 	}
