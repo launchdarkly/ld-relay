@@ -59,7 +59,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.SDKKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 	assert.Empty(t, r.DeprecatedCredentials())
 }
 
@@ -77,7 +77,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.SDKKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
 	assert.Empty(t, r.DeprecatedCredentials())
 }
 
@@ -95,7 +95,7 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	// Every mobile key is accepted; the designated one is the primary.
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, additions)
 	assert.Equal(t, mob1, r.MobileKey())
-	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.AllCredentials())
 }
 
 func TestReconcileRevokesOmittedKeys(t *testing.T) {
@@ -115,12 +115,12 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 
 	assert.Empty(t, additions)
 	assert.ElementsMatch(t, []SDKCredential{other, mob}, expirations)
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 }
 
 func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	// Reconcile stores per-key expiry as data on the accepted entry; before that expiry passes, an
-	// expiring key is still accepted (it authenticates and appears in PrimaryCredentials) while also
+	// expiring key is still accepted (it authenticates and appears in AllCredentials) while also
 	// being reported as deprecated — accepted, but on its way out. The cleanup ticker (StepTime) only
 	// drops it once the expiry elapses — see TestReconcileExpiringKeysAreEvictedByStepTime.
 	r := newTestRotator()
@@ -142,7 +142,7 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
 	assert.Empty(t, expirations)
 	// Every key is accepted (still authenticates)...
-	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.AllCredentials())
 	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
 	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
 	// path treats it as accepted-only.
@@ -151,7 +151,7 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 
 func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 	// Defensive: even if the designated primary mobile key is also listed with a past expiry, it must
-	// stay accepted (mirroring the SDK anchor), so PrimaryCredentials never reports a torn-down key.
+	// stay accepted (mirroring the SDK anchor), so AllCredentials never reports a torn-down key.
 	r := newTestRotator()
 	anchor := config.SDKKey("anchor")
 	mob := config.MobileKey("mob")
@@ -165,7 +165,7 @@ func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 	r.StepTime(now)
 
 	assert.Equal(t, mob, r.MobileKey())
-	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(mob))
+	assert.Contains(t, r.AllCredentials(), SDKCredential(mob))
 	_, accepted := r.acceptedMobileKeys[mob]
 	assert.True(t, accepted, "the primary mobile key must remain in the accepted set")
 }
@@ -202,9 +202,9 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 	additions, expirations = r.StepTime(expiry.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.ElementsMatch(t, []SDKCredential{expiringSDK, expiringMobile}, expirations)
-	assert.ElementsMatch(t, []SDKCredential{anchor, mob}, r.PrimaryCredentials())
-	assert.NotContains(t, r.PrimaryCredentials(), SDKCredential(expiringSDK))
-	assert.NotContains(t, r.PrimaryCredentials(), SDKCredential(expiringMobile))
+	assert.ElementsMatch(t, []SDKCredential{anchor, mob}, r.AllCredentials())
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(expiringSDK))
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(expiringMobile))
 }
 
 func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
@@ -226,7 +226,7 @@ func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
 	// Only the anchor is added; the stale key is never accepted.
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
 	assert.Empty(t, expirations)
-	assert.ElementsMatch(t, []SDKCredential{anchor}, r.PrimaryCredentials())
+	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 }
 
 func TestReconcileDeExpiryRestoresKey(t *testing.T) {
@@ -257,11 +257,11 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 	r.StepTime(now)
 
 	// The key is still accepted and permanent: no longer deprecated, not evicted by StepTime.
-	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(key))
+	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
 	assert.Empty(t, r.DeprecatedCredentials())
 
 	additions, expirations := r.StepTime(expiry.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
-	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(key))
+	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
 }

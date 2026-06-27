@@ -23,7 +23,7 @@ type Rotator struct {
 	// here to allow setting it in a deferred manner.
 	primaryEnvironmentID config.EnvironmentID
 
-	// There can be multiple SDK keys active at a given time, but only one is primary (the anchor).
+	// There can be multiple SDK keys active at a given time, but only one is primary.
 	primarySdkKey config.SDKKey
 
 	// acceptedSDKKeys is the full set of accepted SDK keys with optional per-key expiry.
@@ -101,18 +101,9 @@ func (r *Rotator) EnvironmentID() config.EnvironmentID {
 	return r.primaryEnvironmentID
 }
 
-// PrimaryCredentials returns all currently accepted credentials: every accepted SDK key, every
-// accepted mobile key (including those with a future expiry — they still authenticate until then),
-// and the environment ID.
-func (r *Rotator) PrimaryCredentials() []SDKCredential {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.primaryCredentials()
-}
-
-// primaryCredentials returns every accepted credential. Expiring keys are included until the
+// allCredentials returns every accepted credential. Expiring keys are included until the
 // cleanup ticker drops them (StepTime). The caller must hold at least a read lock.
-func (r *Rotator) primaryCredentials() []SDKCredential {
+func (r *Rotator) allCredentials() []SDKCredential {
 	creds := make([]SDKCredential, 0, len(r.acceptedSDKKeys)+len(r.acceptedMobileKeys)+1)
 	for key := range r.acceptedSDKKeys {
 		creds = append(creds, key)
@@ -147,13 +138,13 @@ func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	return out
 }
 
-// AllCredentials returns all accepted credentials. It is equivalent to PrimaryCredentials; both
-// methods return the full accepted set (accepted keys, including those carrying a future expiry,
-// together with the environment ID).
+// AllCredentials returns every accepted credential: every accepted SDK key, every accepted mobile
+// key (including those carrying a future expiry — they still authenticate until the cleanup ticker
+// drops them), and the environment ID.
 func (r *Rotator) AllCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.primaryCredentials()
+	return r.allCredentials()
 }
 
 func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
@@ -163,7 +154,7 @@ func (r *Rotator) expireSDKKey(sdkKey config.SDKKey) {
 }
 
 // expireMobileKey drops a mobile key from the accepted set and queues its expiration.
-// Deleting from acceptedMobileKeys is load-bearing: PrimaryCredentials derives from that map,
+// Deleting from acceptedMobileKeys is load-bearing: AllCredentials derives from that map,
 // so an expired key would otherwise linger as an accepted credential. Mirrors expireSDKKey.
 func (r *Rotator) expireMobileKey(mobileKey config.MobileKey) {
 	r.loggers.Infof("Deprecated mobile key %s has expired and is no longer valid for authentication", mobileKey.Masked())
@@ -177,7 +168,7 @@ func (r *Rotator) expireMobileKey(mobileKey config.MobileKey) {
 // It enforces per-key expiry for both SDK and mobile keys: expiry is stored as data on the accepted
 // entry (acceptedKeyInfo.expiry); a nil expiry means the key is permanent and is never expired here.
 //
-// Expiry is strict (now strictly after the expiry timestamp).
+// Expiry happens strictly after a key's expiry timestamp.
 func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
