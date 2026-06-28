@@ -16,99 +16,69 @@ type AcceptedSetBuilder struct {
 func NewAcceptedSetBuilder() *AcceptedSetBuilder {
 	return &AcceptedSetBuilder{
 		set: AcceptedSet{
-			sdkKeys:              make(map[config.SDKKey]*time.Time),
-			mobileKeys:           make(map[config.MobileKey]*time.Time),
-			sdkKeyIdentifiers:    make(map[config.SDKKey]string),
-			mobileKeyIdentifiers: make(map[config.MobileKey]string),
+			sdkKeys:    make(map[config.SDKKey]acceptedKeyMeta),
+			mobileKeys: make(map[config.MobileKey]acceptedKeyMeta),
 		},
 	}
 }
 
-// WithSDKKeyIdentifier sets the human-readable identifier (the wire "key" field) for an SDK key that
-// was already added to the builder. It is a no-op if the key is undefined, not in the set, or if
-// identifier is empty (old-format payloads synthesise entries without an identifier).
-func (b *AcceptedSetBuilder) WithSDKKeyIdentifier(key config.SDKKey, identifier string) *AcceptedSetBuilder {
-	if key.Defined() && identifier != "" && b.set.hasSDKKey(key) {
-		b.set.sdkKeyIdentifiers[key] = identifier
+// SDKKeyParams describes one accepted server-side SDK key for the builder: the credential value plus
+// the optional wire "key" identifier (nil when absent) and optional expiry (nil = permanent).
+type SDKKeyParams struct {
+	Value  config.SDKKey
+	Key    *string
+	Expiry *time.Time
+}
+
+// MobileKeyParams describes one accepted mobile key for the builder. See SDKKeyParams.
+type MobileKeyParams struct {
+	Value  config.MobileKey
+	Key    *string
+	Expiry *time.Time
+}
+
+// WithSDKKey adds a server-side SDK key. It is a no-op if the value is undefined or already present
+// (the first metadata recorded for a value wins).
+func (b *AcceptedSetBuilder) WithSDKKey(p SDKKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() || b.set.hasSDKKey(p.Value) {
+		return b
 	}
+	b.set.sdkKeys[p.Value] = acceptedKeyMeta{key: p.Key, expiry: p.Expiry}
 	return b
 }
 
-// WithMobileKeyIdentifier sets the human-readable identifier (the wire "key" field) for a mobile key
-// that was already added to the builder. It is a no-op if the key is undefined, not in the set, or if
-// identifier is empty.
-func (b *AcceptedSetBuilder) WithMobileKeyIdentifier(key config.MobileKey, identifier string) *AcceptedSetBuilder {
-	if key.Defined() && identifier != "" && b.set.hasMobileKey(key) {
-		b.set.mobileKeyIdentifiers[key] = identifier
+// WithPrimarySDKKey adds p.Value and designates it as the anchor — the SDK key that owns the
+// environment's upstream connection. The anchor is always permanent, so p.Expiry is ignored. It is a
+// no-op if the value is undefined. Unlike WithSDKKey it overwrites any existing entry for the value,
+// since designating the anchor takes precedence over an earlier non-anchor add.
+func (b *AcceptedSetBuilder) WithPrimarySDKKey(p SDKKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() {
+		return b
 	}
+	b.set.sdkKeys[p.Value] = acceptedKeyMeta{key: p.Key, expiry: nil}
+	b.set.primarySdkKey = p.Value
 	return b
 }
 
-// WithSDKKey adds a permanent (non-expiring) SDK key. It is a no-op if the key is undefined or
-// already present.
-func (b *AcceptedSetBuilder) WithSDKKey(key config.SDKKey) *AcceptedSetBuilder {
-	b.addSDKKey(key, nil)
-	return b
-}
-
-// WithExpiringSDKKey adds an SDK key that should be accepted until the given expiry. It is a no-op
-// if the key is undefined or already present.
-func (b *AcceptedSetBuilder) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) *AcceptedSetBuilder {
-	b.addSDKKey(key, &expiry)
-	return b
-}
-
-// WithPrimarySDKKey adds key (if not already present) and designates it as the anchor — the SDK key
-// that owns the environment's upstream connection. It is a no-op if the key is undefined.
-func (b *AcceptedSetBuilder) WithPrimarySDKKey(key config.SDKKey) *AcceptedSetBuilder {
-	if key.Defined() {
-		b.addSDKKey(key, nil)
-		b.set.primarySdkKey = key
+// WithMobileKey adds a mobile key. It is a no-op if the value is undefined or already present.
+func (b *AcceptedSetBuilder) WithMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() || b.set.hasMobileKey(p.Value) {
+		return b
 	}
+	b.set.mobileKeys[p.Value] = acceptedKeyMeta{key: p.Key, expiry: p.Expiry}
 	return b
 }
 
-// addSDKKey records the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set (the first expiry recorded for a key wins).
-func (b *AcceptedSetBuilder) addSDKKey(key config.SDKKey, expiry *time.Time) {
-	if !key.Defined() || b.set.hasSDKKey(key) {
-		return
+// WithPrimaryMobileKey adds p.Value and designates it as the primary mobile key — the singular
+// default (the wire's mobKey) used where one mobile key is required, e.g. event forwarding. The
+// primary is always permanent, so p.Expiry is ignored. It is a no-op if the value is undefined.
+func (b *AcceptedSetBuilder) WithPrimaryMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() {
+		return b
 	}
-	b.set.sdkKeys[key] = expiry
-}
-
-// WithMobileKey adds a permanent (non-expiring) mobile key. It is a no-op if the key is undefined or
-// already present.
-func (b *AcceptedSetBuilder) WithMobileKey(key config.MobileKey) *AcceptedSetBuilder {
-	b.addMobileKey(key, nil)
+	b.set.mobileKeys[p.Value] = acceptedKeyMeta{key: p.Key, expiry: nil}
+	b.set.primaryMobileKey = p.Value
 	return b
-}
-
-// WithExpiringMobileKey adds a mobile key that should be accepted until the given expiry. It is a
-// no-op if the key is undefined or already present.
-func (b *AcceptedSetBuilder) WithExpiringMobileKey(key config.MobileKey, expiry time.Time) *AcceptedSetBuilder {
-	b.addMobileKey(key, &expiry)
-	return b
-}
-
-// WithPrimaryMobileKey adds key (if not already present) and designates it as the primary mobile
-// key — the singular default (the wire's mobKey) used where one mobile key is required, e.g. event
-// forwarding. It is a no-op if the key is undefined.
-func (b *AcceptedSetBuilder) WithPrimaryMobileKey(key config.MobileKey) *AcceptedSetBuilder {
-	if key.Defined() {
-		b.addMobileKey(key, nil)
-		b.set.primaryMobileKey = key
-	}
-	return b
-}
-
-// addMobileKey records the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set (the first expiry recorded for a key wins).
-func (b *AcceptedSetBuilder) addMobileKey(key config.MobileKey, expiry *time.Time) {
-	if !key.Defined() || b.set.hasMobileKey(key) {
-		return
-	}
-	b.set.mobileKeys[key] = expiry
 }
 
 // WithEnvironmentID sets the environment ID. It is a no-op if the ID is undefined.

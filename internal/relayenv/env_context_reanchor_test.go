@@ -24,8 +24,8 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
@@ -103,8 +103,8 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
 	set, err := credential.NewAcceptedSetBuilder().
-		WithPrimarySDKKey(newKey).
-		WithExpiringSDKKey(oldKey, now.Add(time.Hour)).
+		WithPrimarySDKKey(credential.SDKKeyParams{Value: newKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: oldKey, Expiry: expiryPtr(now.Add(time.Hour))}).
 		Build()
 	require.NoError(t, err)
 	env.(*envContextImpl).reconcileCredentials(set, now)

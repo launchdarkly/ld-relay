@@ -27,20 +27,22 @@ import (
 //
 // Construct an AcceptedSet with AcceptedSetBuilder (see accepted_set_builder.go).
 type AcceptedSet struct {
-	// sdkKeys and mobileKeys store each accepted key once, keyed by value, so duplicates collapse
-	// without a containment scan. The map value is the key's expiry: a nil *time.Time means the key
-	// is permanent. A nil map is a valid empty set (reads return absent; only the builder writes).
-	sdkKeys          map[config.SDKKey]*time.Time
+	// sdkKeys and mobileKeys store each accepted key once, keyed by value (the secret), so duplicates
+	// collapse without a containment scan. The map value carries the key's metadata. A nil map is a
+	// valid empty set (reads return absent; only the builder writes).
+	sdkKeys          map[config.SDKKey]acceptedKeyMeta
 	primarySdkKey    config.SDKKey
-	mobileKeys       map[config.MobileKey]*time.Time
+	mobileKeys       map[config.MobileKey]acceptedKeyMeta
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
+}
 
-	// sdkKeyIdentifiers and mobileKeyIdentifiers carry the wire "key" field — the non-secret
-	// human-readable identifier for each credential. May be absent for entries synthesized from
-	// old-format payloads that only have the singular sdkKey/mobKey fields.
-	sdkKeyIdentifiers    map[config.SDKKey]string
-	mobileKeyIdentifiers map[config.MobileKey]string
+// acceptedKeyMeta is the per-key metadata stored in an AcceptedSet alongside the credential value:
+// the optional wire "key" identifier (nil when the source carried none — manual config or an
+// old-format payload) and the optional expiry (nil = permanent).
+type acceptedKeyMeta struct {
+	key    *string
+	expiry *time.Time
 }
 
 // hasSDKKey reports whether key is one of the set's accepted SDK keys.
@@ -96,15 +98,15 @@ func NewAnchorNotInSetError() *MalformedCredentialSetError {
 }
 
 // NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose
-// value field is empty. kind is "sdkKeys" or "mobileKeys"; identifier is the key's identifier
-// string (may be empty for old-format payloads that synthesize from the singular fields).
-func NewEmptyCredentialError(kind, identifier string) *MalformedCredentialSetError {
-	if identifier == "" {
+// value field is empty. kind is "sdkKeys" or "mobileKeys"; key is the entry's wire "key" identifier
+// (may be empty for old-format payloads that synthesize from the singular fields).
+func NewEmptyCredentialError(kind, key string) *MalformedCredentialSetError {
+	if key == "" {
 		return &MalformedCredentialSetError{
 			msg: fmt.Sprintf("malformed credential set: %s entry has an empty value", kind),
 		}
 	}
 	return &MalformedCredentialSetError{
-		msg: fmt.Sprintf("malformed credential set: %s entry %q has an empty value", kind, identifier),
+		msg: fmt.Sprintf("malformed credential set: %s entry %q has an empty value", kind, key),
 	}
 }

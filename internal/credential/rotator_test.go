@@ -475,7 +475,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, ""))), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -492,7 +492,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, "")).WithSDKKey(sdkP(other, ""))), now)
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
@@ -511,7 +511,7 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithPrimaryMobileKey(mob1).WithMobileKey(mob2)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, "")).WithPrimaryMobileKey(mobP(mob1, "")).WithMobileKey(mobP(mob2, ""))), now)
 	additions, _ := r.StepTime(now)
 
 	// Every mobile key is accepted; the designated one is the primary.
@@ -528,11 +528,11 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(other).WithPrimaryMobileKey(mob)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, "")).WithSDKKey(sdkP(other, "")).WithPrimaryMobileKey(mobP(mob, ""))), now)
 	r.StepTime(now)
 
 	// Reconciling to just the anchor revokes the omitted server and mobile keys.
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor)), now)
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, ""))), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.Empty(t, additions)
@@ -554,10 +554,10 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithPrimarySDKKey(anchor).
-			WithExpiringSDKKey(expiringSDK, now.Add(time.Hour)).
-			WithPrimaryMobileKey(mob).
-			WithExpiringMobileKey(expiringMobile, now.Add(time.Hour))),
+			WithPrimarySDKKey(sdkP(anchor, "")).
+			WithSDKKey(sdkPExp(expiringSDK, "", now.Add(time.Hour))).
+			WithPrimaryMobileKey(mobP(mob, "")).
+			WithMobileKey(mobPExp(expiringMobile, "", now.Add(time.Hour)))),
 		now)
 	additions, expirations := r.StepTime(now)
 
@@ -580,9 +580,9 @@ func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 	now := time.Unix(1000, 0)
 
 	set := mustBuild(t, NewAcceptedSetBuilder().
-		WithPrimarySDKKey(anchor).
-		WithExpiringMobileKey(mob, now.Add(-time.Hour)). // already expired in the payload...
-		WithPrimaryMobileKey(mob))                       // ...but designated as the primary
+		WithPrimarySDKKey(sdkP(anchor, "")).
+		WithMobileKey(mobPExp(mob, "", now.Add(-time.Hour))). // already expired in the payload...
+		WithPrimaryMobileKey(mobP(mob, "")))                  // ...but designated as the primary
 	r.Reconcile(set, now)
 	r.StepTime(now)
 
@@ -607,7 +607,7 @@ func TestReconcileClearsStaleDeprecationForAcceptedKey(t *testing.T) {
 
 	// Reconcile to a set that fully accepts both keys.
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(anchor).WithSDKKey(old)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithPrimarySDKKey(sdkP(anchor, "")).WithSDKKey(sdkP(old, ""))), now)
 	r.StepTime(now)
 
 	assert.Contains(t, r.PrimaryCredentials(), SDKCredential(old))
@@ -629,10 +629,10 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithPrimarySDKKey(anchor).
-			WithExpiringSDKKey(expiringSDK, expiry).
-			WithPrimaryMobileKey(mob).
-			WithExpiringMobileKey(expiringMobile, expiry)),
+			WithPrimarySDKKey(sdkP(anchor, "")).
+			WithSDKKey(sdkPExp(expiringSDK, "", expiry)).
+			WithPrimaryMobileKey(mobP(mob, "")).
+			WithMobileKey(mobPExp(expiringMobile, "", expiry))),
 		now)
 	additions, expirations := r.StepTime(now)
 	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
@@ -797,10 +797,8 @@ func TestAcceptedKeys(t *testing.T) {
 	t.Run("single anchor plus primary mobile", func(t *testing.T) {
 		r := newTestRotator()
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithSDKKeyIdentifier("sdk-anchor", "default").
-				WithPrimaryMobileKey("mob-primary").
-				WithMobileKeyIdentifier("mob-primary", "mob-1")
+			b.WithPrimarySDKKey(sdkP("sdk-anchor", "default")).
+				WithPrimaryMobileKey(mobP("mob-primary", "mob-1"))
 		})
 		entries := r.AcceptedKeys()
 		require.Len(t, entries, 2)
@@ -823,13 +821,10 @@ func TestAcceptedKeys(t *testing.T) {
 		r := newTestRotator()
 		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithSDKKeyIdentifier("sdk-anchor", "default").
-				WithSDKKey("sdk-b").
-				WithSDKKeyIdentifier("sdk-b", "b-service").
-				WithExpiringSDKKey("sdk-old", expiry).
-				WithSDKKeyIdentifier("sdk-old", "old-key").
-				WithPrimaryMobileKey("mob-primary")
+			b.WithPrimarySDKKey(sdkP("sdk-anchor", "default")).
+				WithSDKKey(sdkP("sdk-b", "b-service")).
+				WithSDKKey(sdkPExp("sdk-old", "old-key", expiry)).
+				WithPrimaryMobileKey(mobP("mob-primary", ""))
 		})
 		entries := r.AcceptedKeys()
 		// anchor + sdk-b + sdk-old + mob-primary
@@ -866,7 +861,7 @@ func TestDeprecatedSDKKeys(t *testing.T) {
 	t.Run("empty when no legacy grace keys", func(t *testing.T) {
 		r := newTestRotator()
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").WithPrimaryMobileKey("mob-primary")
+			b.WithPrimarySDKKey(sdkP("sdk-anchor", "")).WithPrimaryMobileKey(mobP("mob-primary", ""))
 		})
 		assert.Empty(t, r.DeprecatedSDKKeys())
 	})

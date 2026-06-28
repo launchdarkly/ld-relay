@@ -532,19 +532,18 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // payload may carry for it. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
-	for key, expiry := range set.sdkKeys {
-		if expiry != nil && !now.Before(*expiry) {
+	for key, meta := range set.sdkKeys {
+		if meta.expiry != nil && !now.Before(*meta.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = expiry
+		desired[key] = meta.expiry
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
 	// Refresh the wire "key" identifier for every key now in the accepted set.
-	for key, id := range set.sdkKeyIdentifiers {
-		if info, ok := r.acceptedSDKKeys[key]; ok && id != "" {
-			idCopy := id
-			info.key = &idCopy
+	for key, meta := range set.sdkKeys {
+		if info, ok := r.acceptedSDKKeys[key]; ok && meta.key != nil {
+			info.key = meta.key
 		}
 	}
 	r.primarySdkKey = anchor
@@ -555,20 +554,19 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 // and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
-	for key, expiry := range set.mobileKeys {
-		if expiry != nil && !now.Before(*expiry) {
+	for key, meta := range set.mobileKeys {
+		if meta.expiry != nil && !now.Before(*meta.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = expiry
+		desired[key] = meta.expiry
 	}
 	if set.primaryMobileKey.Defined() {
 		desired[set.primaryMobileKey] = nil
 	}
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, r.deprecatedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
-	for key, id := range set.mobileKeyIdentifiers {
-		if info, ok := r.acceptedMobileKeys[key]; ok && id != "" {
-			idCopy := id
-			info.key = &idCopy
+	for key, meta := range set.mobileKeys {
+		if info, ok := r.acceptedMobileKeys[key]; ok && meta.key != nil {
+			info.key = meta.key
 		}
 	}
 	r.primaryMobileKey = set.primaryMobileKey
