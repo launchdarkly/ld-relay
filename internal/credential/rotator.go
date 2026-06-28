@@ -1,7 +1,6 @@
 package credential
 
 import (
-	"sort"
 	"sync"
 	"time"
 
@@ -11,27 +10,47 @@ import (
 
 // acceptedKeyInfo holds per-key metadata for the accepted-set maps.
 type acceptedKeyInfo struct {
-	expiry     *time.Time // nil = permanent
-	identifier string     // wire "key" field — non-secret human-readable name; may be empty
+	expiry *time.Time // nil = permanent
+	key    *string    // wire "key" identifier — non-secret human-readable name; nil when absent
 }
 
-// SDKKeyEntry is metadata for one accepted SDK key, returned by NonAnchorSDKKeyEntries.
-// Used by the status endpoint to populate the sdkKeys[] response array.
-type SDKKeyEntry struct {
-	// Value is the credential secret (relay's SDKKey type — what the wire calls "value").
-	Value config.SDKKey
-	// Identifier is the non-secret human-readable name from the wire's "key" field.
-	Identifier string
+// KeyType distinguishes a server-side SDK key from a mobile key in an AcceptedKey. Client-side IDs
+// are not part of the accepted-set model and so have no KeyType.
+type KeyType int
+
+const (
+	// KeyTypeServer is a server-side SDK key.
+	KeyTypeServer KeyType = iota
+	// KeyTypeMobile is a mobile key.
+	KeyTypeMobile
+)
+
+// String returns the lowercase wire-style name of the key type ("server" or "mobile").
+func (t KeyType) String() string {
+	switch t {
+	case KeyTypeServer:
+		return "server"
+	case KeyTypeMobile:
+		return "mobile"
+	default:
+		return "unknown"
+	}
+}
+
+// AcceptedKey is metadata for one accepted credential, returned by AcceptedKeys (and, for the legacy
+// grace-period set, DeprecatedSDKKeys). The status endpoint uses it to populate the sdkKeys[] /
+// mobileKeys[] response arrays.
+type AcceptedKey struct {
+	// Type is the kind of key — server-side SDK or mobile.
+	Type KeyType
+	// Value is the credential secret (what the wire calls "value"). Plain, not obscured; the status
+	// handler obscures it before serialising.
+	Value string
+	// Key is the non-secret human-readable identifier (the wire "key" field). Nil when the source
+	// carried no identifier — manual configuration, or an old-format payload predating concurrent keys.
+	Key *string
 	// Expiry is the key's expiry time. Nil means the key is permanent.
 	Expiry *time.Time
-}
-
-// MobileKeyEntry is metadata for one accepted mobile key, returned by NonPrimaryMobileKeyEntries.
-// Used by the status endpoint to populate the mobileKeys[] response array.
-type MobileKeyEntry struct {
-	Value      config.MobileKey
-	Identifier string
-	Expiry     *time.Time
 }
 
 type Rotator struct {
@@ -521,10 +540,11 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
-	// Refresh identifiers for every key now in the accepted set.
+	// Refresh the wire "key" identifier for every key now in the accepted set.
 	for key, id := range set.sdkKeyIdentifiers {
 		if info, ok := r.acceptedSDKKeys[key]; ok && id != "" {
-			info.identifier = id
+			idCopy := id
+			info.key = &idCopy
 		}
 	}
 	r.primarySdkKey = anchor
@@ -547,7 +567,8 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, r.deprecatedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
 	for key, id := range set.mobileKeyIdentifiers {
 		if info, ok := r.acceptedMobileKeys[key]; ok && id != "" {
-			info.identifier = id
+			idCopy := id
+			info.key = &idCopy
 		}
 	}
 	r.primaryMobileKey = set.primaryMobileKey
@@ -566,114 +587,48 @@ func (r *Rotator) reconcileEnvironmentID(set AcceptedSet) {
 	r.additions = append(r.additions, set.envID)
 }
 
-// nonPrimaryKeyEntries returns metadata for every accepted key except primary, sorted by identifier.
-// It is the shared implementation behind NonAnchorSDKKeyEntries and NonPrimaryMobileKeyEntries; the
-// caller supplies the relevant accepted/deprecated maps and a constructor that builds the concrete
-// entry type. The caller must hold at least the read lock.
-//
-// Keys with no identifier (e.g. keys accepted via the legacy RotateWithGrace path, which predates
-// identifier support) sort after identified keys; ties within no-identifier keys are broken by
-// credential value for determinism.
-func nonPrimaryKeyEntries[K ~string, E any](
-	accepted map[K]*acceptedKeyInfo,
-	deprecated map[K]time.Time,
-	primary K,
-	identifier func(E) string,
-	value func(E) string,
-	construct func(key K, identifier string, expiry *time.Time) E,
-) []E {
-	entries := make([]E, 0, max(0, len(accepted)-1))
+// acceptedKeysOf snapshots one accepted-key map (SDK or mobile) into a slice of AcceptedKey tagged
+// with kind. Order is unspecified — the status endpoint does not depend on it. A key whose expiry
+// lives only in the legacy grace map (the RotateWithGrace path stores it there, not on the accepted
+// entry) gets that expiry folded in. The caller must hold at least the read lock.
+func acceptedKeysOf[K ~string](accepted map[K]*acceptedKeyInfo, deprecated map[K]time.Time, kind KeyType) []AcceptedKey {
+	out := make([]AcceptedKey, 0, len(accepted))
 	for key, info := range accepted {
-		if key == primary {
-			continue
-		}
 		expiry := info.expiry
-		// Legacy RotateWithGrace path stores expiry in the deprecated map, not in acceptedKeyInfo.
 		if expiry == nil {
 			if t, ok := deprecated[key]; ok {
-				expiry = &t
+				tt := t
+				expiry = &tt
 			}
 		}
-		entries = append(entries, construct(key, info.identifier, expiry))
+		out = append(out, AcceptedKey{Type: kind, Value: string(key), Key: info.key, Expiry: expiry})
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		ai, bi := identifier(entries[i]), identifier(entries[j])
-		if ai != bi {
-			// Empty identifiers sort last.
-			if ai == "" {
-				return false
-			}
-			if bi == "" {
-				return true
-			}
-			return ai < bi
-		}
-		return value(entries[i]) < value(entries[j])
-	})
-	return entries
+	return out
 }
 
-// NonAnchorSDKKeyEntries returns metadata for all accepted SDK keys except the anchor, sorted by
-// identifier. Used by the status endpoint to populate the sdkKeys[] response array.
-func (r *Rotator) NonAnchorSDKKeyEntries() []SDKKeyEntry {
+// AcceptedKeys returns every accepted credential — all server-side SDK keys and all mobile keys,
+// including the anchor and the primary mobile key. The status endpoint partitions the result by Type
+// to populate the full sdkKeys[] / mobileKeys[] arrays. Order is unspecified.
+func (r *Rotator) AcceptedKeys() []AcceptedKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return nonPrimaryKeyEntries(
-		r.acceptedSDKKeys, r.deprecatedSdkKeys, r.primarySdkKey,
-		func(e SDKKeyEntry) string { return e.Identifier },
-		func(e SDKKeyEntry) string { return string(e.Value) },
-		func(key config.SDKKey, identifier string, expiry *time.Time) SDKKeyEntry {
-			return SDKKeyEntry{Value: key, Identifier: identifier, Expiry: expiry}
-		},
-	)
+	keys := acceptedKeysOf(r.acceptedSDKKeys, r.deprecatedSdkKeys, KeyTypeServer)
+	return append(keys, acceptedKeysOf(r.acceptedMobileKeys, r.deprecatedMobileKeys, KeyTypeMobile)...)
 }
 
-// NonPrimaryMobileKeyEntries returns metadata for all accepted mobile keys except the primary,
-// sorted by identifier. Used by the status endpoint to populate the mobileKeys[] response array.
-func (r *Rotator) NonPrimaryMobileKeyEntries() []MobileKeyEntry {
+// DeprecatedSDKKeys returns the server-side SDK keys in the legacy grace-period map (the
+// RotateWithGrace path) with their expiry. These may not be in the accepted set, so the status
+// endpoint folds them into the expiringSdkKey computation for back-compat. The slice is empty once
+// the legacy rotation path is removed (SDK-2603). Order is unspecified.
+func (r *Rotator) DeprecatedSDKKeys() []AcceptedKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return nonPrimaryKeyEntries(
-		r.acceptedMobileKeys, r.deprecatedMobileKeys, r.primaryMobileKey,
-		func(e MobileKeyEntry) string { return e.Identifier },
-		func(e MobileKeyEntry) string { return string(e.Value) },
-		func(key config.MobileKey, identifier string, expiry *time.Time) MobileKeyEntry {
-			return MobileKeyEntry{Value: key, Identifier: identifier, Expiry: expiry}
-		},
-	)
-}
-
-// EarliestExpiringNonAnchorSDKKey returns the non-anchor SDK key with the soonest expiry, and true.
-// Returns the zero SDKKey and false when no expiring non-anchor key exists. This produces a
-// deterministic value for the status endpoint's legacy expiringSdkKey field, regardless of how many
-// keys are currently expiring.
-func (r *Rotator) EarliestExpiringNonAnchorSDKKey() (config.SDKKey, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var earliest config.SDKKey
-	var earliestTime *time.Time
-
-	updateEarliest := func(key config.SDKKey, t time.Time) {
-		if earliestTime == nil || t.Before(*earliestTime) {
-			earliest = key
-			tt := t
-			earliestTime = &tt
-		}
-	}
-
-	// Reconcile-path: expiry stored on the accepted entry.
-	for key, info := range r.acceptedSDKKeys {
-		if key != r.primarySdkKey && info.expiry != nil {
-			updateEarliest(key, *info.expiry)
-		}
-	}
-	// Legacy RotateWithGrace path: expiry stored in deprecatedSdkKeys.
+	out := make([]AcceptedKey, 0, len(r.deprecatedSdkKeys))
 	for key, t := range r.deprecatedSdkKeys {
-		updateEarliest(key, t)
+		tt := t
+		out = append(out, AcceptedKey{Type: KeyTypeServer, Value: string(key), Expiry: &tt})
 	}
-
-	return earliest, earliestTime != nil
+	return out
 }

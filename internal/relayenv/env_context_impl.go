@@ -640,16 +640,12 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 	return c.keyRotator.DeprecatedCredentials()
 }
 
-func (c *envContextImpl) GetAcceptedSDKKeys() []credential.SDKKeyEntry {
-	return c.keyRotator.NonAnchorSDKKeyEntries()
+func (c *envContextImpl) GetAcceptedKeys() []credential.AcceptedKey {
+	return c.keyRotator.AcceptedKeys()
 }
 
-func (c *envContextImpl) GetAcceptedMobileKeys() []credential.MobileKeyEntry {
-	return c.keyRotator.NonPrimaryMobileKeyEntries()
-}
-
-func (c *envContextImpl) GetEarliestExpiringSDKKey() (config.SDKKey, bool) {
-	return c.keyRotator.EarliestExpiringNonAnchorSDKKey()
+func (c *envContextImpl) GetDeprecatedSDKKeys() []credential.AcceptedKey {
+	return c.keyRotator.DeprecatedSDKKeys()
 }
 
 func (c *envContextImpl) GetClient() sdks.LDClientContext {

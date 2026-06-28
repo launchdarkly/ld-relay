@@ -3,6 +3,7 @@ package relay
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -60,16 +61,41 @@ func statusHandler(relay *Relay) http.Handler {
 				}
 			}
 
-			// sdkKeys[]: non-anchor accepted SDK keys, sorted by identifier.
-			status.SDKKeys = buildKeyStatusSlice(clientCtx.GetAcceptedSDKKeys())
+			// sdkKeys[] / mobileKeys[]: the full accepted set — including the anchor and primary mobile
+			// key — partitioned by type. The scalar sdkKey/mobileKey above designate which entry is the
+			// anchor/primary. Order is unspecified.
+			anchor := string(clientCtx.GetSDKKey())
+			var expiringCandidates []credential.AcceptedKey
+			for _, k := range clientCtx.GetAcceptedKeys() {
+				ks := keyStatus(k)
+				switch k.Type {
+				case credential.KeyTypeServer:
+					status.SDKKeys = append(status.SDKKeys, ks)
+					// expiringSdkKey considers non-anchor server keys that carry an expiry.
+					if k.Value != anchor && k.Expiry != nil {
+						expiringCandidates = append(expiringCandidates, k)
+					}
+				case credential.KeyTypeMobile:
+					status.MobileKeys = append(status.MobileKeys, ks)
+				}
+			}
+			// Arrays are always present (never null): a server-only env has an empty mobileKeys.
+			if status.SDKKeys == nil {
+				status.SDKKeys = []api.KeyStatus{}
+			}
+			if status.MobileKeys == nil {
+				status.MobileKeys = []api.KeyStatus{}
+			}
 
-			// mobileKeys[]: non-primary accepted mobile keys, sorted by identifier.
-			status.MobileKeys = buildMobileKeyStatusSlice(clientCtx.GetAcceptedMobileKeys())
-
-			// expiringSdkKey: pick the non-anchor SDK key with the soonest expiry for a deterministic
-			// value; with multiple expiring keys the previous loop-overwrite was nondeterministic.
-			if key, ok := clientCtx.GetEarliestExpiringSDKKey(); ok {
-				status.ExpiringSDKKey = sdks.ObscureKey(string(key))
+			// expiringSdkKey (back-compat): the soonest-expiring non-anchor SDK key. Fold in the legacy
+			// grace-period keys, which may not appear in the accepted set above. Picking the soonest
+			// expiry makes the value deterministic when several keys are expiring at once.
+			expiringCandidates = append(expiringCandidates, clientCtx.GetDeprecatedSDKKeys()...)
+			if len(expiringCandidates) > 0 {
+				earliest := slices.MinFunc(expiringCandidates, func(a, b credential.AcceptedKey) int {
+					return a.Expiry.Compare(*b.Expiry)
+				})
+				status.ExpiringSDKKey = sdks.ObscureKey(earliest.Value)
 			}
 
 			client := clientCtx.GetClient()
@@ -162,38 +188,16 @@ func statusHandler(relay *Relay) http.Handler {
 	})
 }
 
-// buildKeyStatusSlice converts SDK key entries from the rotator into the JSON-serialisable slice for
-// the sdkKeys[] response field. The entries are pre-sorted by the rotator.
-func buildKeyStatusSlice(entries []credential.SDKKeyEntry) []api.KeyStatus {
-	result := make([]api.KeyStatus, 0, len(entries))
-	for _, e := range entries {
-		ks := api.KeyStatus{
-			Key:   e.Identifier,
-			Value: sdks.ObscureKey(string(e.Value)),
-		}
-		if e.Expiry != nil {
-			ms := e.Expiry.UnixMilli()
-			ks.Expiry = &ms
-		}
-		result = append(result, ks)
+// keyStatus converts an accepted key into its status-endpoint JSON representation, obscuring the
+// secret value and surfacing the optional identifier and expiry.
+func keyStatus(k credential.AcceptedKey) api.KeyStatus {
+	ks := api.KeyStatus{Value: sdks.ObscureKey(k.Value)}
+	if k.Key != nil {
+		ks.Key = *k.Key
 	}
-	return result
-}
-
-// buildMobileKeyStatusSlice converts mobile key entries into the JSON-serialisable slice for the
-// mobileKeys[] response field. The entries are pre-sorted by the rotator.
-func buildMobileKeyStatusSlice(entries []credential.MobileKeyEntry) []api.KeyStatus {
-	result := make([]api.KeyStatus, 0, len(entries))
-	for _, e := range entries {
-		ks := api.KeyStatus{
-			Key:   e.Identifier,
-			Value: sdks.ObscureKey(string(e.Value)),
-		}
-		if e.Expiry != nil {
-			ms := e.Expiry.UnixMilli()
-			ks.Expiry = &ms
-		}
-		result = append(result, ks)
+	if k.Expiry != nil {
+		ms := k.Expiry.UnixMilli()
+		ks.Expiry = &ms
 	}
-	return result
+	return ks
 }

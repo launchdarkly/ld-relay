@@ -57,6 +57,36 @@ func TestEndpointsStatus(t *testing.T) {
 			st.AssertJSONPathMatch(t, p.relay.version, status, "version")
 			st.AssertJSONPathMatch(t, ld.Version, status, "clientVersion")
 		})
+
+		t.Run("sdkKeys/mobileKeys arrays carry the full accepted set including the anchor", func(t *testing.T) {
+			var config c.Config
+			config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvMobile)
+
+			withStartedRelay(t, config, func(p relayTestParams) {
+				r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+				result, body := st.DoRequest(r, p.relay)
+				assert.Equal(t, http.StatusOK, result.StatusCode)
+				status := ldvalue.Parse(body)
+
+				// EnvMain is a manually-configured single-key env: sdkKeys[] is present and contains
+				// exactly the anchor (full set includes it); manual config carries no key identifier.
+				sdkKeys := status.GetByKey("environments").GetByKey(st.EnvMain.Name).GetByKey("sdkKeys")
+				require.Equal(t, 1, sdkKeys.Count(), "sdkKeys must contain the anchor")
+				assert.Equal(t, sdks.ObscureKey(string(st.EnvMain.Config.SDKKey)),
+					sdkKeys.GetByIndex(0).GetByKey("value").StringValue())
+
+				// EnvMain has no mobile key — mobileKeys is present but empty.
+				mobileKeys := status.GetByKey("environments").GetByKey(st.EnvMain.Name).GetByKey("mobileKeys")
+				assert.Equal(t, 0, mobileKeys.Count())
+				assert.Equal(t, ldvalue.ArrayType, mobileKeys.Type(), "mobileKeys present (not null) even when empty")
+
+				// EnvMobile has both: its mobile key appears in mobileKeys[].
+				mobMobileKeys := status.GetByKey("environments").GetByKey(st.EnvMobile.Name).GetByKey("mobileKeys")
+				require.Equal(t, 1, mobMobileKeys.Count())
+				assert.Equal(t, sdks.ObscureKey(string(st.EnvMobile.Config.MobileKey)),
+					mobMobileKeys.GetByIndex(0).GetByKey("value").StringValue())
+			})
+		})
 	})
 
 	t.Run("connection interruption - less than DisconnectedStatusTime", func(t *testing.T) {
@@ -133,74 +163,39 @@ func TestEndpointsStatus(t *testing.T) {
 	})
 }
 
-// TestBuildKeyStatusSlice verifies the sdkKeys[] helper that converts rotator entries to the JSON
-// representation used by the status endpoint.
-func TestBuildKeyStatusSlice(t *testing.T) {
-	t.Run("empty entries yields empty slice", func(t *testing.T) {
-		result := buildKeyStatusSlice(nil)
-		assert.Empty(t, result)
+// TestKeyStatus verifies the helper that converts an accepted key into its status-endpoint JSON form.
+func TestKeyStatus(t *testing.T) {
+	strptr := func(s string) *string { return &s }
+
+	t.Run("permanent key with identifier", func(t *testing.T) {
+		ks := keyStatus(credential.AcceptedKey{
+			Type: credential.KeyTypeServer, Value: "sdk-abc123", Key: strptr("default"),
+		})
+		assert.Equal(t, "default", ks.Key)
+		assert.Equal(t, sdks.ObscureKey("sdk-abc123"), ks.Value)
+		assert.Nil(t, ks.Expiry)
 	})
 
-	t.Run("permanent key has no expiry field", func(t *testing.T) {
-		entries := []credential.SDKKeyEntry{
-			{Value: c.SDKKey("sdk-abc123"), Identifier: "default", Expiry: nil},
-		}
-		result := buildKeyStatusSlice(entries)
-		require.Len(t, result, 1)
-		assert.Equal(t, "default", result[0].Key)
-		assert.Equal(t, sdks.ObscureKey("sdk-abc123"), result[0].Value)
-		assert.Nil(t, result[0].Expiry)
+	t.Run("nil identifier yields empty Key (omitted in JSON)", func(t *testing.T) {
+		ks := keyStatus(credential.AcceptedKey{
+			Type: credential.KeyTypeServer, Value: "sdk-legacy", Key: nil,
+		})
+		assert.Equal(t, "", ks.Key)
 	})
 
 	t.Run("expiring key has expiry in Unix milliseconds", func(t *testing.T) {
 		expiry := time.Date(2099, 6, 1, 12, 0, 0, 0, time.UTC)
-		entries := []credential.SDKKeyEntry{
-			{Value: c.SDKKey("sdk-old"), Identifier: "old-key", Expiry: &expiry},
-		}
-		result := buildKeyStatusSlice(entries)
-		require.Len(t, result, 1)
-		require.NotNil(t, result[0].Expiry)
-		assert.Equal(t, expiry.UnixMilli(), *result[0].Expiry)
-	})
-
-	t.Run("preserves entry order from input", func(t *testing.T) {
-		entries := []credential.SDKKeyEntry{
-			{Value: c.SDKKey("sdk-a"), Identifier: "a"},
-			{Value: c.SDKKey("sdk-b"), Identifier: "b"},
-		}
-		result := buildKeyStatusSlice(entries)
-		require.Len(t, result, 2)
-		assert.Equal(t, "a", result[0].Key)
-		assert.Equal(t, "b", result[1].Key)
-	})
-}
-
-// TestBuildMobileKeyStatusSlice verifies the mobileKeys[] helper mirrors buildKeyStatusSlice behaviour.
-func TestBuildMobileKeyStatusSlice(t *testing.T) {
-	t.Run("empty entries yields empty slice", func(t *testing.T) {
-		result := buildMobileKeyStatusSlice(nil)
-		assert.Empty(t, result)
+		ks := keyStatus(credential.AcceptedKey{
+			Type: credential.KeyTypeServer, Value: "sdk-old", Key: strptr("old-key"), Expiry: &expiry,
+		})
+		require.NotNil(t, ks.Expiry)
+		assert.Equal(t, expiry.UnixMilli(), *ks.Expiry)
 	})
 
 	t.Run("mobile key value is obscured", func(t *testing.T) {
-		entries := []credential.MobileKeyEntry{
-			{Value: c.MobileKey("mob-secret"), Identifier: "mob-1", Expiry: nil},
-		}
-		result := buildMobileKeyStatusSlice(entries)
-		require.Len(t, result, 1)
-		assert.Equal(t, "mob-1", result[0].Key)
-		assert.Equal(t, sdks.ObscureKey("mob-secret"), result[0].Value)
-		assert.Nil(t, result[0].Expiry)
-	})
-
-	t.Run("expiring mobile key has expiry in Unix milliseconds", func(t *testing.T) {
-		expiry := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
-		entries := []credential.MobileKeyEntry{
-			{Value: c.MobileKey("mob-old"), Identifier: "mob-old", Expiry: &expiry},
-		}
-		result := buildMobileKeyStatusSlice(entries)
-		require.Len(t, result, 1)
-		require.NotNil(t, result[0].Expiry)
-		assert.Equal(t, expiry.UnixMilli(), *result[0].Expiry)
+		ks := keyStatus(credential.AcceptedKey{
+			Type: credential.KeyTypeMobile, Value: "mob-secret", Key: strptr("mob-1"),
+		})
+		assert.Equal(t, sdks.ObscureKey("mob-secret"), ks.Value)
 	})
 }

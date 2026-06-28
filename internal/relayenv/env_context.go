@@ -50,19 +50,14 @@ type EnvContext interface {
 	// several accepted mobile keys (primary + expiring) in nondeterministic order.
 	GetMobileKey() config.MobileKey
 
-	// GetAcceptedSDKKeys returns metadata for all non-anchor accepted SDK keys, sorted by identifier.
-	// Used by the status endpoint to populate the sdkKeys[] array. Returns an empty slice for
-	// single-key environments (those with only the anchor key).
-	GetAcceptedSDKKeys() []credential.SDKKeyEntry
+	// GetAcceptedKeys returns metadata for every accepted credential — all server-side SDK keys and
+	// all mobile keys, including the anchor and the primary mobile key. The status endpoint partitions
+	// the result by type to populate the full sdkKeys[] / mobileKeys[] arrays.
+	GetAcceptedKeys() []credential.AcceptedKey
 
-	// GetAcceptedMobileKeys returns metadata for all non-primary accepted mobile keys, sorted by
-	// identifier. Used by the status endpoint to populate the mobileKeys[] array.
-	GetAcceptedMobileKeys() []credential.MobileKeyEntry
-
-	// GetEarliestExpiringSDKKey returns the non-anchor SDK key with the soonest expiry, and true.
-	// Returns the zero SDKKey and false when no expiring non-anchor key exists. Used by the status
-	// endpoint to populate expiringSdkKey deterministically.
-	GetEarliestExpiringSDKKey() (config.SDKKey, bool)
+	// GetDeprecatedSDKKeys returns server-side SDK keys in the legacy grace-period map with their
+	// expiry. The status endpoint folds these into the expiringSdkKey computation for back-compat.
+	GetDeprecatedSDKKeys() []credential.AcceptedKey
 
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and

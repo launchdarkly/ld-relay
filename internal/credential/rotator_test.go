@@ -780,60 +780,70 @@ func reconcileSet(t *testing.T, r *Rotator, build func(*AcceptedSetBuilder)) {
 	r.Reconcile(set, time.Unix(0, 0))
 }
 
-// TestNonAnchorSDKKeyEntries verifies that NonAnchorSDKKeyEntries returns all accepted non-anchor SDK
-// keys sorted by identifier, with anchor excluded and expiry populated from both reconcile and legacy paths.
-func TestNonAnchorSDKKeyEntries(t *testing.T) {
-	t.Run("single anchor returns empty slice", func(t *testing.T) {
+// findAcceptedKey returns the entry with the given value, or nil. Used because AcceptedKeys order is
+// unspecified.
+func findAcceptedKey(entries []AcceptedKey, value string) *AcceptedKey {
+	for i := range entries {
+		if entries[i].Value == value {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+// TestAcceptedKeys verifies that AcceptedKeys returns the full accepted set — every server and mobile
+// key, including the anchor and primary mobile key — with type, identifier, and expiry populated.
+func TestAcceptedKeys(t *testing.T) {
+	t.Run("single anchor plus primary mobile", func(t *testing.T) {
 		r := newTestRotator()
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
 			b.WithPrimarySDKKey("sdk-anchor").
 				WithSDKKeyIdentifier("sdk-anchor", "default").
-				WithPrimaryMobileKey("mob-primary")
+				WithPrimaryMobileKey("mob-primary").
+				WithMobileKeyIdentifier("mob-primary", "mob-1")
 		})
-		entries := r.NonAnchorSDKKeyEntries()
-		assert.Empty(t, entries)
+		entries := r.AcceptedKeys()
+		require.Len(t, entries, 2)
+
+		anchor := findAcceptedKey(entries, "sdk-anchor")
+		require.NotNil(t, anchor)
+		assert.Equal(t, KeyTypeServer, anchor.Type)
+		require.NotNil(t, anchor.Key)
+		assert.Equal(t, "default", *anchor.Key)
+		assert.Nil(t, anchor.Expiry)
+
+		mob := findAcceptedKey(entries, "mob-primary")
+		require.NotNil(t, mob)
+		assert.Equal(t, KeyTypeMobile, mob.Type)
+		require.NotNil(t, mob.Key)
+		assert.Equal(t, "mob-1", *mob.Key)
 	})
 
-	t.Run("multiple keys sorted by identifier", func(t *testing.T) {
+	t.Run("multiple keys include the anchor", func(t *testing.T) {
 		r := newTestRotator()
+		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
 			b.WithPrimarySDKKey("sdk-anchor").
 				WithSDKKeyIdentifier("sdk-anchor", "default").
 				WithSDKKey("sdk-b").
 				WithSDKKeyIdentifier("sdk-b", "b-service").
-				WithSDKKey("sdk-a").
-				WithSDKKeyIdentifier("sdk-a", "a-service").
-				WithPrimaryMobileKey("mob-primary")
-		})
-		entries := r.NonAnchorSDKKeyEntries()
-		require.Len(t, entries, 2)
-		// Sorted alphabetically by identifier: a-service < b-service.
-		assert.Equal(t, config.SDKKey("sdk-a"), entries[0].Value)
-		assert.Equal(t, "a-service", entries[0].Identifier)
-		assert.Nil(t, entries[0].Expiry)
-		assert.Equal(t, config.SDKKey("sdk-b"), entries[1].Value)
-		assert.Equal(t, "b-service", entries[1].Identifier)
-	})
-
-	t.Run("expiring key expiry populated", func(t *testing.T) {
-		r := newTestRotator()
-		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithSDKKeyIdentifier("sdk-anchor", "default").
 				WithExpiringSDKKey("sdk-old", expiry).
 				WithSDKKeyIdentifier("sdk-old", "old-key").
 				WithPrimaryMobileKey("mob-primary")
 		})
-		entries := r.NonAnchorSDKKeyEntries()
-		require.Len(t, entries, 1)
-		assert.Equal(t, config.SDKKey("sdk-old"), entries[0].Value)
-		assert.Equal(t, "old-key", entries[0].Identifier)
-		require.NotNil(t, entries[0].Expiry)
-		assert.Equal(t, expiry, *entries[0].Expiry)
+		entries := r.AcceptedKeys()
+		// anchor + sdk-b + sdk-old + mob-primary
+		require.Len(t, entries, 4)
+
+		assert.NotNil(t, findAcceptedKey(entries, "sdk-anchor"), "anchor must be present in the full set")
+
+		old := findAcceptedKey(entries, "sdk-old")
+		require.NotNil(t, old)
+		require.NotNil(t, old.Expiry)
+		assert.Equal(t, expiry, *old.Expiry)
 	})
 
-	t.Run("legacy RotateWithGrace key included with expiry", func(t *testing.T) {
+	t.Run("legacy RotateWithGrace key has expiry and nil identifier", func(t *testing.T) {
 		r := newTestRotator()
 		now := time.Unix(1000, 0)
 		expiry := now.Add(time.Hour)
@@ -841,144 +851,27 @@ func TestNonAnchorSDKKeyEntries(t *testing.T) {
 		r.RotateWithGrace(config.SDKKey("sdk-new"), NewGracePeriod("sdk-old", expiry, now))
 		r.StepTime(now)
 
-		entries := r.NonAnchorSDKKeyEntries()
-		require.Len(t, entries, 1)
-		assert.Equal(t, config.SDKKey("sdk-old"), entries[0].Value)
-		assert.Equal(t, "", entries[0].Identifier) // legacy path has no identifier
-		require.NotNil(t, entries[0].Expiry)
-		assert.Equal(t, expiry, *entries[0].Expiry)
-	})
-
-	t.Run("no-identifier keys sort after identified keys", func(t *testing.T) {
-		r := newTestRotator()
-		now := time.Unix(1000, 0)
-		expiry := now.Add(time.Hour)
-		// sdk-legacy has no identifier (legacy path); sdk-named has one (reconcile path).
-		r.Initialize([]SDKCredential{config.SDKKey("sdk-old")})
-		r.RotateWithGrace(config.SDKKey("sdk-anchor"), NewGracePeriod("sdk-old", expiry, now))
-		r.StepTime(now)
-		// Now add a reconcile key with an identifier.
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithSDKKeyIdentifier("sdk-anchor", "default").
-				WithSDKKey("sdk-named").
-				WithSDKKeyIdentifier("sdk-named", "named").
-				WithSDKKey("sdk-old") // keep legacy key in set so it isn't revoked
-		})
-
-		entries := r.NonAnchorSDKKeyEntries()
-		require.Len(t, entries, 2)
-		// "named" has an identifier; sdk-old has none — identified entries sort first.
-		assert.Equal(t, "named", entries[0].Identifier)
-		assert.Equal(t, "", entries[1].Identifier)
+		entries := r.AcceptedKeys()
+		old := findAcceptedKey(entries, "sdk-old")
+		require.NotNil(t, old)
+		assert.Nil(t, old.Key, "legacy path carries no identifier")
+		require.NotNil(t, old.Expiry)
+		assert.Equal(t, expiry, *old.Expiry)
 	})
 }
 
-// TestNonPrimaryMobileKeyEntries verifies NonPrimaryMobileKeyEntries returns all non-primary mobile keys.
-func TestNonPrimaryMobileKeyEntries(t *testing.T) {
-	t.Run("single primary mobile key returns empty slice", func(t *testing.T) {
-		r := newTestRotator()
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithPrimaryMobileKey("mob-primary").
-				WithMobileKeyIdentifier("mob-primary", "mob-1")
-		})
-		entries := r.NonPrimaryMobileKeyEntries()
-		assert.Empty(t, entries)
-	})
-
-	t.Run("multiple mobile keys sorted by identifier", func(t *testing.T) {
-		r := newTestRotator()
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithMobileKey("mob-primary").
-				WithMobileKeyIdentifier("mob-primary", "mob-1").
-				WithMobileKey("mob-secondary").
-				WithMobileKeyIdentifier("mob-secondary", "mob-2").
-				WithMobileKey("mob-third").
-				WithMobileKeyIdentifier("mob-third", "mob-0").
-				WithPrimaryMobileKey("mob-primary")
-		})
-		entries := r.NonPrimaryMobileKeyEntries()
-		require.Len(t, entries, 2)
-		// mob-0 < mob-2 alphabetically.
-		assert.Equal(t, config.MobileKey("mob-third"), entries[0].Value)
-		assert.Equal(t, "mob-0", entries[0].Identifier)
-		assert.Equal(t, config.MobileKey("mob-secondary"), entries[1].Value)
-		assert.Equal(t, "mob-2", entries[1].Identifier)
-	})
-
-	t.Run("expiring mobile key expiry populated", func(t *testing.T) {
-		r := newTestRotator()
-		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithMobileKey("mob-primary").
-				WithMobileKeyIdentifier("mob-primary", "mob-1").
-				WithExpiringMobileKey("mob-old", expiry).
-				WithMobileKeyIdentifier("mob-old", "mob-old").
-				WithPrimaryMobileKey("mob-primary")
-		})
-		entries := r.NonPrimaryMobileKeyEntries()
-		require.Len(t, entries, 1)
-		assert.Equal(t, config.MobileKey("mob-old"), entries[0].Value)
-		require.NotNil(t, entries[0].Expiry)
-		assert.Equal(t, expiry, *entries[0].Expiry)
-	})
-}
-
-// TestEarliestExpiringNonAnchorSDKKey verifies the deterministic expiring-key selection used by the
-// status endpoint's legacy expiringSdkKey field.
-func TestEarliestExpiringNonAnchorSDKKey(t *testing.T) {
-	t.Run("no keys returns false", func(t *testing.T) {
+// TestDeprecatedSDKKeys verifies the legacy grace-period accessor used for the expiringSdkKey
+// back-compat computation.
+func TestDeprecatedSDKKeys(t *testing.T) {
+	t.Run("empty when no legacy grace keys", func(t *testing.T) {
 		r := newTestRotator()
 		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
 			b.WithPrimarySDKKey("sdk-anchor").WithPrimaryMobileKey("mob-primary")
 		})
-		_, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.False(t, ok)
+		assert.Empty(t, r.DeprecatedSDKKeys())
 	})
 
-	t.Run("only permanent non-anchor keys returns false", func(t *testing.T) {
-		r := newTestRotator()
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithSDKKey("sdk-perm").
-				WithPrimaryMobileKey("mob-primary")
-		})
-		_, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.False(t, ok)
-	})
-
-	t.Run("single expiring key (reconcile path)", func(t *testing.T) {
-		r := newTestRotator()
-		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithExpiringSDKKey("sdk-old", expiry).
-				WithPrimaryMobileKey("mob-primary")
-		})
-		key, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.True(t, ok)
-		assert.Equal(t, config.SDKKey("sdk-old"), key)
-	})
-
-	t.Run("picks soonest among multiple expiring keys", func(t *testing.T) {
-		r := newTestRotator()
-		sooner := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
-		later := time.Date(2099, 12, 31, 0, 0, 0, 0, time.UTC)
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithExpiringSDKKey("sdk-sooner", sooner).
-				WithExpiringSDKKey("sdk-later", later).
-				WithPrimaryMobileKey("mob-primary")
-		})
-		key, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.True(t, ok)
-		assert.Equal(t, config.SDKKey("sdk-sooner"), key)
-	})
-
-	t.Run("legacy RotateWithGrace key is found", func(t *testing.T) {
+	t.Run("returns legacy grace key with expiry", func(t *testing.T) {
 		r := newTestRotator()
 		now := time.Unix(1000, 0)
 		expiry := now.Add(time.Hour)
@@ -986,29 +879,11 @@ func TestEarliestExpiringNonAnchorSDKKey(t *testing.T) {
 		r.RotateWithGrace(config.SDKKey("sdk-new"), NewGracePeriod("sdk-old", expiry, now))
 		r.StepTime(now)
 
-		key, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.True(t, ok)
-		assert.Equal(t, config.SDKKey("sdk-old"), key)
-	})
-
-	t.Run("picks soonest across both reconcile and legacy paths", func(t *testing.T) {
-		r := newTestRotator()
-		now := time.Unix(1000, 0)
-		legacyExpiry := now.Add(2 * time.Hour)       // later
-		reconcileExpiry := now.Add(30 * time.Minute) // sooner
-
-		r.Initialize([]SDKCredential{config.SDKKey("sdk-legacy")})
-		r.RotateWithGrace(config.SDKKey("sdk-anchor"), NewGracePeriod("sdk-legacy", legacyExpiry, now))
-		r.StepTime(now)
-
-		reconcileSet(t, r, func(b *AcceptedSetBuilder) {
-			b.WithPrimarySDKKey("sdk-anchor").
-				WithExpiringSDKKey("sdk-reconcile", reconcileExpiry).
-				WithSDKKey("sdk-legacy") // include legacy key so it isn't revoked
-		})
-
-		key, ok := r.EarliestExpiringNonAnchorSDKKey()
-		assert.True(t, ok)
-		assert.Equal(t, config.SDKKey("sdk-reconcile"), key)
+		entries := r.DeprecatedSDKKeys()
+		require.Len(t, entries, 1)
+		assert.Equal(t, "sdk-old", entries[0].Value)
+		assert.Equal(t, KeyTypeServer, entries[0].Type)
+		require.NotNil(t, entries[0].Expiry)
+		assert.Equal(t, expiry, *entries[0].Expiry)
 	})
 }
