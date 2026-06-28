@@ -288,11 +288,11 @@ Test matrix (covered in T3.c's acceptance criteria):
 
 ### T4 — Status endpoint arrays
 
-Add `sdkKeys` / `mobileKeys` array fields to the env status response. Each entry: non-secret `Key` identifier + obscured `Value` (via `sdks.ObscureKey`) + optional `Expiry`. Keep scalar `sdkKey` / `mobileKey` — they now represent the **anchor** specifically. Keep `expiringSdkKey` for default-rotation back-compat.
+Add `sdkKeys` / `mobileKeys` array fields to the env status response. The arrays carry the **full accepted set, including the anchor / primary mobile key** (mirroring the wire format). Each entry: optional non-secret `Key` identifier + obscured `Value` (via `sdks.ObscureKey`) + optional `Expiry`. Keep scalar `sdkKey` / `mobileKey` — they now designate which array entry is the **anchor** / primary, and stay for back-compat. Keep `expiringSdkKey` (the soonest-expiring non-anchor SDK key) for default-rotation back-compat.
 
-Stable ordering of array entries: anchor first, then identifier-alphabetical. Predictable for tooling consumers.
+Array entry order is unspecified — consumers look up by `key`/`value`, not position, and the spec treats every key as equally valid. (Stable ordering was a derived-doc embellishment, not a sourced requirement; tests are order-insensitive.)
 
-Arrays are *present but empty* (not omitted) for single-key envs.
+Arrays are always present (never omitted/null). `sdkKeys` always contains at least the anchor; `mobileKeys` may be empty for an environment with no mobile key (e.g. server-side only).
 
 ### T5.a — Integration test harness
 
@@ -448,7 +448,7 @@ These scenarios live in code (as integration tests). This list is the *registry*
 
 | # | Scenario | Owner |
 |---|---|---|
-| 20 | Status endpoint: scalar fields = anchor (obscured); arrays = full accepted set; per-key `expiry` visible when present; entries stably ordered (anchor first, identifier-alphabetical). | T4 |
+| 20 | Status endpoint: scalar fields = anchor (obscured); arrays = full accepted set incl. anchor/primary; per-key `expiry` visible when present; arrays always present (`sdkKeys` ≥ 1, `mobileKeys` may be empty); order unspecified. | T4 |
 | 21 | Analytics events forwarded under the env's anchor key per kind, regardless of which accepted key the request came in on. | T2.c, T5.b |
 | 22 | Diagnostic events proxy verbatim under the originating credential (deliberate asymmetry — preserved, not collapsed). | T2.c |
 
