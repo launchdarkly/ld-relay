@@ -31,9 +31,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/configsource"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -432,32 +434,56 @@ func TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient(t *testing.T) {
 }
 
 // A downstream SDK connected on a non-anchor key stays connected when the anchor is rotated out from
-// under it.
+// under it. This uses a real (dummy) SDK client + RAC mock — rather than the FakeLDClient harness —
+// because FakeLDClient never serves a put on the SSE stream, so it couldn't confirm the connection
+// was actually established before rotating (and thus couldn't genuinely exercise "rotate while
+// connected"). The connection-survival property holds even before the T2.c store-handover work,
+// which addresses the empty-store data window during the swap, not connection drops.
 func TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation(t *testing.T) {
 	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
-		client1 := p.awaitClient()
-		assert.Equal(t, anchorSDKKey, client1.Key)
-		env := p.awaitEnvironment(multiKeyEnvID)
-		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+	racMock := configsource.NewRACMock(t, &putEvent)
 
-		// Connect a downstream SDK on the non-anchor key, then rotate the anchor while it is connected.
-		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
-		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
-			p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(rotatedAnchorRep(rotatedAnchorSDKKey, 2)))
+	cfg := config.Config{AutoConfig: config.AutoConfigConfig{Key: testAutoConfKey}}
+	cfg.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(racMock.URL)
 
-			// The new anchor's upstream client comes up...
-			client2 := p.awaitClient()
-			assert.Equal(t, rotatedAnchorSDKKey, client2.Key)
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
 
-			// ...and the non-anchor key's open stream is not disconnected by the swap.
-			assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
-		})
-
-		// The non-anchor key still authenticates after the rotation; the old anchor is gone.
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
-		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
+	relay, err := newRelayInternal(cfg, relayInternalOptions{
+		loggers:       mockLog.Loggers,
+		clientFactory: testclient.CreateDummyClient,
 	})
+	require.NoError(t, err)
+	defer relay.Close()
+
+	h := relayTestHelper{t: t, relay: relay}
+	env := h.awaitEnvironment(multiKeyEnvID)
+	require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+	// Connect a downstream SDK on the non-anchor key.
+	req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
+	sharedtest.WithStreamRequest(t, req, relay, func(eventCh <-chan eventsource.Event) {
+		// Confirm the non-anchor stream is live before rotating, so this genuinely exercises
+		// "rotate while connected" rather than racing the connection setup.
+		sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
+
+		// Rotate the anchor to a brand-new key while the non-anchor stream is connected.
+		racMock.Send(configsource.MakeAutoConfigPatchEvent(rotatedAnchorRep(rotatedAnchorSDKKey, 2)))
+
+		// Wait for the rotation to take effect: the new anchor resolves, the old anchor is gone.
+		require.Eventually(t, func() bool {
+			_, errNew := relay.getEnvironment(sdkauth.New(rotatedAnchorSDKKey))
+			_, errOld := relay.getEnvironment(sdkauth.New(anchorSDKKey))
+			return errNew == nil && errOld != nil
+		}, 5*time.Second, 5*time.Millisecond)
+
+		// The non-anchor key's open stream is not disconnected by the swap (a duplicate put may
+		// arrive from the new anchor's initial sync — that's fine; only a close would fail here).
+		assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
+	})
+
+	// The non-anchor key still authenticates after the rotation.
+	h.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
 }
 
 // awaitStreamClosed reads from a WithStreamRequest event channel until the stream-closed sentinel
