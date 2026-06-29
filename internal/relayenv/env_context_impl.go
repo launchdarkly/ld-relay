@@ -625,7 +625,7 @@ func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 }
 
 func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
-	return c.keyRotator.PrimaryCredentials()
+	return c.keyRotator.AllCredentials()
 }
 
 func (c *envContextImpl) GetAnchorKey() config.SDKKey {
