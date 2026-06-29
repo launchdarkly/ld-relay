@@ -61,7 +61,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, expiringSDKKeys(r))
 }
 
 func TestReconcileMultipleSDKKeys(t *testing.T) {
@@ -79,7 +79,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, expiringSDKKeys(r))
 }
 
 func TestReconcileMultipleMobileKeys(t *testing.T) {
@@ -147,7 +147,7 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
 	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
 	// path treats it as accepted-only.
-	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, r.DeprecatedCredentials())
+	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, expiringSDKKeys(r))
 }
 
 func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
@@ -247,7 +247,7 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 			WithSDKKey(SDKKeyParams{Value: key, Expiry: util.PtrOrNil(expiry)})),
 		now)
 	r.StepTime(now)
-	require.ElementsMatch(t, []SDKCredential{key}, r.DeprecatedCredentials())
+	require.ElementsMatch(t, []SDKCredential{key}, expiringSDKKeys(r))
 
 	// Second reconcile: same key, no expiry (de-expiry).
 	r.Reconcile(
@@ -259,12 +259,26 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 
 	// The key is still accepted and permanent: no longer deprecated, not evicted by StepTime.
 	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, expiringSDKKeys(r))
 
 	additions, expirations := r.StepTime(expiry.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
+}
+
+// expiringSDKKeys returns the non-anchor accepted SDK keys that carry a non-nil expiry. This is the
+// set that DeprecatedCredentials used to return before it was removed; tests use it to assert
+// rotation/expiry state without depending on that deleted method.
+func expiringSDKKeys(r *Rotator) []SDKCredential {
+	anchor := r.AnchorKey()
+	var out []SDKCredential
+	for _, ak := range r.AcceptedKeys() {
+		if ak.Type == KeyTypeServer && ak.Expiry != nil && ak.Value != string(anchor) {
+			out = append(out, config.SDKKey(ak.Value))
+		}
+	}
+	return out
 }
 
 // findAcceptedKey returns the entry with the given value, or nil. Used because AcceptedKeys order is

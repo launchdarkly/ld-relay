@@ -636,10 +636,6 @@ func (c *envContextImpl) GetMobileKey() config.MobileKey {
 	return c.keyRotator.MobileKey()
 }
 
-func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
-	return c.keyRotator.DeprecatedCredentials()
-}
-
 func (c *envContextImpl) GetAcceptedKeys() []credential.AcceptedKey {
 	return c.keyRotator.AcceptedKeys()
 }

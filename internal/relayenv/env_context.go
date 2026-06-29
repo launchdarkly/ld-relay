@@ -67,9 +67,6 @@ type EnvContext interface {
 	// GetCredentials returns all currently enabled and non-deprecated credentials for the environment.
 	GetCredentials() []credential.SDKCredential
 
-	// GetDeprecatedCredentials returns all deprecated and not-yet-removed credentials for the environment.
-	GetDeprecatedCredentials() []credential.SDKCredential
-
 	// GetClient returns the SDK client instance for this environment. This is nil if initialization is not yet
 	// complete. Rather than providing the full client object, we use the simpler sdks.LDClientContext which
 	// includes only the operations Relay needs to do.

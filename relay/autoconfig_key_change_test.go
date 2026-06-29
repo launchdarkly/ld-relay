@@ -124,7 +124,7 @@ func TestAutoConfigUpdateEnvironmentSDKKeyWithExpiry(t *testing.T) {
 
 		p.awaitCredentialsUpdated(env, modified.params())
 		p.assertEnvLookup(env, testAutoConfEnv1.params()) // looking up env by old key still works
-		assert.Equal(t, []credential.SDKCredential{testAutoConfEnv1.sdkKey.Value}, env.GetDeprecatedCredentials())
+		assert.Equal(t, []credential.SDKCredential{testAutoConfEnv1.sdkKey.Value}, expiringSDKKeys(env))
 
 		if !helpers.AssertChannelNotClosed(t, client1.CloseCh, time.Millisecond*300, "should not have closed client for deprecated key yet") {
 			t.FailNow()

@@ -175,6 +175,20 @@ func assertEnvProps(t *testing.T, expected envfactory.EnvironmentParams, env rel
 		env.GetIdentifiers().GetDisplayName())
 }
 
+// expiringSDKKeys returns the non-anchor accepted SDK keys that carry a non-nil expiry. This is the
+// set that GetDeprecatedCredentials used to return before it was removed; tests use it to assert
+// rotation/expiry state without depending on that deleted method.
+func expiringSDKKeys(env relayenv.EnvContext) []credential.SDKCredential {
+	anchor := env.GetAnchorKey()
+	var out []credential.SDKCredential
+	for _, ak := range env.GetAcceptedKeys() {
+		if ak.Type == credential.KeyTypeServer && ak.Expiry != nil && ak.Value != string(anchor) {
+			out = append(out, config.SDKKey(ak.Value))
+		}
+	}
+	return out
+}
+
 func credentialsAsSet(cs ...credential.SDKCredential) map[credential.SDKCredential]struct{} {
 	ret := make(map[credential.SDKCredential]struct{}, len(cs))
 	for _, c := range cs {
