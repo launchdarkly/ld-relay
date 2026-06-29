@@ -187,9 +187,6 @@ func mustBuildAcceptedSet(t *testing.T, b *credential.AcceptedSetBuilder) creden
 	return set
 }
 
-// expiryPtr returns a pointer to t, for building credential param structs in these tests.
-func expiryPtr(t time.Time) *time.Time { return &t }
-
 func TestAddRemoveCredential(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -206,7 +203,7 @@ func TestAddRemoveCredential(t *testing.T) {
 
 	// Reconcile to the full set: the SDK key (anchor) plus a mobile key and an environment ID.
 	env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}).WithEnvironmentID(envID)))
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}).WithEnvironmentID(envID)))
 
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -217,7 +214,7 @@ func TestAddRemoveCredential(t *testing.T) {
 	// Reconciling with a different mobile key evicts the previous one.
 	newMobileKey := config.MobileKey("evict-the-previous-key")
 	env.ReconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: newMobileKey}).WithEnvironmentID(envID)))
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: newMobileKey}).WithEnvironmentID(envID)))
 
 	creds = env.GetCredentials()
 	assert.Len(t, creds, 3)
@@ -239,7 +236,7 @@ func TestAddExistingCredentialDoesNothing(t *testing.T) {
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
 
 	mobileKey := st.EnvWithAllCredentials.Config.MobileKey
-	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}))
+	set := mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).WithPrimaryMobileKey(credential.MobileKeyParams{Value: mobileKey}))
 
 	env.ReconcileCredentials(set)
 
@@ -289,8 +286,8 @@ func TestChangeSDKKey(t *testing.T) {
 
 	// Upon rotating to key2, the original key should still be valid for an hour.
 	rotationSet, err := credential.NewAcceptedSetBuilder().
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: key2}).
-		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: expiryPtr(start.Add(1 * time.Hour))}).
+		WithAnchor(credential.SDKKeyParams{Value: key2}).
+		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: util.PtrOrNil(start.Add(1 * time.Hour))}).
 		Build()
 	require.NoError(t, err)
 	envImpl.reconcileCredentials(rotationSet, start)
@@ -335,45 +332,6 @@ func TestChangeSDKKey(t *testing.T) {
 
 }
 
-// TestMobileKeyGraceExpiry drives a deprecated mobile key (legacy RotateWithGrace path) to expiry
-// through the cleanup ticker (triggerCredentialChanges → StepTime), mirroring the SDK-key flow in
-// TestChangeSDKKey.
-func TestMobileKeyGraceExpiry(t *testing.T) {
-	envConfig := st.EnvMobile.Config
-	readyCh := make(chan EnvContext, 1)
-
-	mob1 := envConfig.MobileKey
-	mob2 := config.MobileKey("mob2-new-key")
-
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactory(true), mockLog.Loggers, readyCh)
-	defer env.Close()
-	envImpl := env.(*envContextImpl)
-
-	assert.Equal(t, env, requireEnvReady(t, readyCh))
-
-	start := time.Unix(2000, 0)
-	graceDuration := 1 * time.Hour
-
-	// Rotate mob1 → mob2 with a grace period; mob1 is deprecated but still valid.
-	envImpl.keyRotator.RotateWithGrace(mob2, credential.NewGracePeriod(config.SDKKey(""), start.Add(graceDuration), start))
-	envImpl.triggerCredentialChanges(start)
-
-	assert.Contains(t, env.GetDeprecatedCredentials(), mob1)
-
-	// Before the grace period ends, mob1 is still deprecated (not yet expired).
-	envImpl.triggerCredentialChanges(start.Add(30 * time.Minute))
-	assert.Contains(t, env.GetDeprecatedCredentials(), mob1)
-
-	// One moment past the grace period: the cleanup ticker evicts mob1 entirely.
-	envImpl.triggerCredentialChanges(start.Add(graceDuration + 1*time.Millisecond))
-
-	assert.NotContains(t, env.GetCredentials(), mob1)
-	assert.NotContains(t, env.GetDeprecatedCredentials(), mob1)
-}
-
 // TestMobileKeyReconcileExpiry drives a mobile key carrying a per-key expiry end-to-end through the
 // reconcile path: ReconcileCredentials records the expiry as data on the accepted entry, and the
 // cleanup ticker (triggerCredentialChanges → StepTime) later evicts the key once its expiry elapses.
@@ -400,9 +358,9 @@ func TestMobileKeyReconcileExpiry(t *testing.T) {
 	// carries a per-key expiry.
 	envImpl.reconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
 			WithPrimaryMobileKey(credential.MobileKeyParams{Value: primaryMobile}).
-			WithMobileKey(credential.MobileKeyParams{Value: expiringMobile, Expiry: expiryPtr(expiry)})),
+			WithMobileKey(credential.MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(expiry)})),
 		start)
 
 	// Reconcile stores the expiry as data, so before it elapses the key is accepted (not deprecated).
@@ -445,7 +403,7 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	// open an upstream client.
 	env.ReconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
 			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey1}).
 			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey2})))
 
@@ -490,7 +448,7 @@ func TestGetClientReturnsAnchorInMultiKeyEnv(t *testing.T) {
 
 	env.ReconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
 			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey1}).
 			WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey2})))
 
@@ -533,7 +491,7 @@ func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
 		// non-primary mobile key. Accepting the non-primary key must NOT repoint event forwarding —
 		// events collapse to the primary mobile key, mirroring the SDK anchor.
 		env.ReconcileCredentials(mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithPrimarySDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
 			WithPrimaryMobileKey(credential.MobileKeyParams{Value: primaryMobile}).
 			WithMobileKey(credential.MobileKeyParams{Value: nonPrimaryMobile}).
 			WithEnvironmentID(envConfig.EnvID)))
@@ -593,8 +551,8 @@ func TestReAnchoringToKeyStillInGraceReusesItsClient(t *testing.T) {
 	// alive because keyA is still accepted during the grace window.
 	env.(*envContextImpl).reconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
-			WithPrimarySDKKey(credential.SDKKeyParams{Value: keyB}).
-			WithSDKKey(credential.SDKKeyParams{Value: keyA, Expiry: expiryPtr(start.Add(1 * time.Hour))})),
+			WithAnchor(credential.SDKKeyParams{Value: keyB}).
+			WithSDKKey(credential.SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(start.Add(1 * time.Hour))})),
 		start)
 
 	clientB := requireClientReady(t, clientCh)
@@ -608,7 +566,7 @@ func TestReAnchoringToKeyStillInGraceReusesItsClient(t *testing.T) {
 	// being started -- so there is no stale client to orphan. keyB is omitted from the set (no expiry),
 	// so it is revoked immediately and its client is closed.
 	env.(*envContextImpl).reconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(credential.SDKKeyParams{Value: keyA})),
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: keyA})),
 		start.Add(10*time.Minute))
 
 	// keyB was revoked by the re-anchor, so its client is closed.
@@ -683,7 +641,7 @@ func TestRevokingSDKKeyWhileClientIsStartingDoesNotLeakTheClient(t *testing.T) {
 	// runs now -- but c.clients[keyA] is still nil because the initial goroutine is blocked in the factory,
 	// so nothing is closed and the mapping is simply removed.
 	env.(*envContextImpl).reconcileCredentials(
-		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithPrimarySDKKey(credential.SDKKeyParams{Value: keyB})),
+		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: keyB})),
 		time.Unix(1000, 0))
 
 	creds := env.GetCredentials()

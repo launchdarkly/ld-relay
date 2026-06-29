@@ -57,7 +57,7 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"})) // mobile has no identifier in makeParams fixture
 	assert.Equal(t, expected, set)
 }
@@ -81,7 +81,7 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-service-a", Key: util.PtrOrNil("service-a")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key"), Expiry: util.PtrOrNil(expiry1)}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
@@ -113,12 +113,12 @@ func TestBuildAcceptedSet_Rename(t *testing.T) {
 	assert.NotEqual(t, setOld, setNew, "rename changes the identifier map, so the AcceptedSets differ")
 	expectedOld := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("old-name")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("old-name")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expectedOld, setOld)
 	expectedNew := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("new-name")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("new-name")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expectedNew, setNew)
 }
@@ -156,7 +156,7 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	// The set built without expiry must include sdk-old as a permanent key.
 	expectedPermanent := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key")}). // permanent, no expiry
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expectedPermanent, setNoExpiry)
@@ -205,7 +205,7 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor"}))
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor"}))
 	assert.Equal(t, expected, set)
 }
 
@@ -265,7 +265,7 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-new-anchor", Key: util.PtrOrNil("new-default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-new-anchor", Key: util.PtrOrNil("new-default")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("service-b")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-c", Key: util.PtrOrNil("service-c")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
@@ -292,7 +292,7 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	// Anchor is permanent (WithPrimarySDKKey), not expiring — identical to a payload with no anchor expiry.
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithSDKKey(credential.SDKKeyParams{Value: "sdk-service-a", Key: util.PtrOrNil("service-a")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expected, set)
@@ -317,7 +317,7 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithMobileKey(credential.MobileKeyParams{Value: "mob-secondary", Key: util.PtrOrNil("mob-2")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")}))
 	assert.Equal(t, expected, set)
@@ -343,7 +343,7 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithMobileKey(credential.MobileKeyParams{Value: "mob-old", Key: util.PtrOrNil("mob-old"), Expiry: util.PtrOrNil(expiry1)}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")}))
 	assert.Equal(t, expected, set, "expiring mobile key must land as an expiring key in the set")
@@ -372,7 +372,7 @@ func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
 	assert.Equal(t, expected, set, "legacy sdkKey.expiring slot must not appear in AcceptedSet")
 }

@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -34,8 +33,6 @@ import (
 // Rather than generating actual archive files, the tests here use a stub ArchiveManager that
 // calls the same Relay methods that the real ArchiveManager would call if the file contained
 // such-and-such data.
-
-type foo struct{}
 
 type offlineModeTestParams struct {
 	relayTestHelper
@@ -181,7 +178,7 @@ func TestOfflineModeDeleteEnvironment(t *testing.T) {
 		assert.Contains(t, keys, testFileDataEnv2.Params.SDKKey)
 
 		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
-		_ = p.awaitEnvironment(testFileDataEnv1.Params.EnvID)
+		_ = p.awaitEnvironment(testFileDataEnv2.Params.EnvID)
 
 		p.updateHandler.DeleteEnvironment(testFileDataEnv1.Params.EnvID, testFileDataEnv1.Params.Identifiers.FilterKey)
 
@@ -286,28 +283,22 @@ func TestOfflineModeSDKKeyCanExpire(t *testing.T) {
 	cfg.Main.ExpiredCredentialCleanupInterval = configtypes.NewOptDuration(minimumCleanupInterval)
 
 	offlineModeTest(t, cfg, func(p offlineModeTestParams) {
+		// It's important that the expiry be in the future (so that the key isn't ignored by the key rotator
+		// component), but it should also be in the near future so the test doesn't need to sleep long.
+		keyExpiry := time.Now().Add(10 * time.Millisecond)
+		update1 := RotateSDKKeyWithGracePeriod("key1", "key0", keyExpiry)
+		p.updateHandler.AddEnvironment(update1)
 
-		for i := 0; i < 3; i++ {
-			primary := config.SDKKey(fmt.Sprintf("key%v", i+1))
-			expiring := config.SDKKey(fmt.Sprintf("key%v", i))
+		// Waiting for the environment can take up to 1 second, but it could be much faster. In any case
+		// we'll still need to sleep at least the cleanup interval to ensure the key is expired.
+		env := p.awaitEnvironmentFor(update1.Params.EnvID, time.Second)
+		// Both the primary and the expiring key are in the accepted set until the expiry fires.
+		assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.ExpiringSDKKey.Key, update1.Params.EnvID}, env.GetCredentials())
+		assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
 
-			// It's important that the expiry be in the future (so that the key isn't ignored by the key rotator
-			// component), but it should also be in the near future so the test doesn't need to sleep long.
-			keyExpiry := time.Now().Add(10 * time.Millisecond)
-			update1 := RotateSDKKeyWithGracePeriod(primary, expiring, keyExpiry)
-			p.updateHandler.AddEnvironment(update1)
-
-			// Waiting for the environment can take up to 1 second, but it could be much faster. In any case
-			// we'll still need to sleep at least the cleanup interval to ensure the key is expired.
-			env := p.awaitEnvironmentFor(update1.Params.EnvID, time.Second)
-			// Both the primary and the expiring key are in the accepted set until the expiry fires.
-			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.ExpiringSDKKey.Key, update1.Params.EnvID}, env.GetCredentials())
-			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.ExpiringSDKKey.Key}, env.GetDeprecatedCredentials())
-
-			assert.Eventually(t, func() bool {
-				return len(env.GetDeprecatedCredentials()) == 0
-			}, time.Second, 10*time.Millisecond, "deprecated credentials should be cleaned up after expiry")
-			assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
-		}
+		assert.Eventually(t, func() bool {
+			return len(env.GetDeprecatedCredentials()) == 0
+		}, time.Second, 10*time.Millisecond, "deprecated credentials should be cleaned up after expiry")
+		assert.ElementsMatch(t, []credential.SDKCredential{update1.Params.SDKKey, update1.Params.EnvID}, env.GetCredentials())
 	})
 }

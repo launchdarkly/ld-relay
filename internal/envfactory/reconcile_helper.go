@@ -30,10 +30,10 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	anchor := params.SDKKey
 	b := credential.NewAcceptedSetBuilder().WithEnvironmentID(params.EnvID)
 
-	// Add every accepted SDK key, designating the anchor as we encounter it. WithPrimarySDKKey both
-	// adds and designates, and forces the anchor permanent — so a payload that (wrongly) carries an
-	// expiry on the anchor's own entry cannot demote it. An undefined anchor never matches a (defined)
-	// array value, so it is never designated and Build returns a *MalformedCredentialSetError.
+	// Add every accepted SDK key, designating the anchor as we encounter it. WithAnchor both adds and
+	// designates, and forces the anchor permanent — so a payload that (wrongly) carries an expiry on
+	// the anchor's own entry cannot demote it. An undefined anchor never matches a (defined) array
+	// value, so it is never designated and Build returns a *MalformedCredentialSetError.
 	//
 	// Entries with an empty value are structurally malformed: relay would silently accept them but
 	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.
@@ -44,7 +44,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		}
 		if k.Value == anchor {
 			anchorInArray = true
-			b.WithPrimarySDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
+			b.WithAnchor(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
 		} else {
 			b.WithSDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}

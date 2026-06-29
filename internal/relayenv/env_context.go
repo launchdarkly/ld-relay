@@ -40,12 +40,12 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
-	// GetSDKKey returns the anchor SDK key — the primary key that owns the upstream connection.
+	// GetAnchorKey returns the anchor SDK key — the key that owns the upstream connection.
 	// Use this when you need exactly the anchor (e.g. the status endpoint's sdkKey field) rather
 	// than the full accepted set returned by GetCredentials.
-	GetSDKKey() config.SDKKey
+	GetAnchorKey() config.SDKKey
 
-	// GetMobileKey returns the primary (default) mobile key. Like GetSDKKey for the anchor, use this
+	// GetMobileKey returns the primary (default) mobile key. Like GetAnchorKey for the anchor, use this
 	// for the status endpoint's mobileKey field rather than iterating GetCredentials, which may return
 	// several accepted mobile keys (primary + expiring) in nondeterministic order.
 	GetMobileKey() config.MobileKey
@@ -54,10 +54,6 @@ type EnvContext interface {
 	// all mobile keys, including the anchor and the primary mobile key. The status endpoint partitions
 	// the result by type to populate the full sdkKeys[] / mobileKeys[] arrays.
 	GetAcceptedKeys() []credential.AcceptedKey
-
-	// GetDeprecatedSDKKeys returns server-side SDK keys in the legacy grace-period map with their
-	// expiry. The status endpoint folds these into the expiringSdkKey computation for back-compat.
-	GetDeprecatedSDKKeys() []credential.AcceptedKey
 
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and

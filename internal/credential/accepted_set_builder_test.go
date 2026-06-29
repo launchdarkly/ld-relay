@@ -22,25 +22,25 @@ func TestAcceptedSetBuilderValidation(t *testing.T) {
 	_, err = NewAcceptedSetBuilder().WithSDKKey(SDKKeyParams{Value: "sdk"}).Build()
 	require.ErrorAs(t, err, &malformed)
 
-	// WithPrimarySDKKey adds the key and designates it as the anchor, so Build succeeds.
-	set, err := NewAcceptedSetBuilder().WithPrimarySDKKey(SDKKeyParams{Value: "sdk"}).Build()
+	// WithAnchor adds the key and designates it as the anchor, so Build succeeds.
+	set, err := NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: "sdk"}).Build()
 	require.NoError(t, err)
 	assert.True(t, set.hasSDKKey(config.SDKKey("sdk")))
-	assert.Equal(t, config.SDKKey("sdk"), set.primarySdkKey)
+	assert.Equal(t, config.SDKKey("sdk"), set.anchor)
 }
 
 func TestAcceptedSetBuilderDeduplicates(t *testing.T) {
 	// Adding the same key more than once (including via WithPrimary*) keeps a single entry.
 	set := mustBuild(t, NewAcceptedSetBuilder().
 		WithSDKKey(SDKKeyParams{Value: "sdk"}).
-		WithPrimarySDKKey(SDKKeyParams{Value: "sdk"}).
+		WithAnchor(SDKKeyParams{Value: "sdk"}).
 		WithSDKKey(SDKKeyParams{Value: "sdk"}).
 		WithMobileKey(MobileKeyParams{Value: "mob"}).
 		WithPrimaryMobileKey(MobileKeyParams{Value: "mob"}))
 
 	assert.Len(t, set.sdkKeys, 1)
 	assert.Len(t, set.mobileKeys, 1)
-	assert.Equal(t, config.SDKKey("sdk"), set.primarySdkKey)
+	assert.Equal(t, config.SDKKey("sdk"), set.anchor)
 	assert.Equal(t, config.MobileKey("mob"), set.primaryMobileKey)
 }
 

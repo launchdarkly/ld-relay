@@ -32,6 +32,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -103,8 +104,8 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
 	set, err := credential.NewAcceptedSetBuilder().
-		WithPrimarySDKKey(credential.SDKKeyParams{Value: newKey}).
-		WithSDKKey(credential.SDKKeyParams{Value: oldKey, Expiry: expiryPtr(now.Add(time.Hour))}).
+		WithAnchor(credential.SDKKeyParams{Value: newKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: oldKey, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
 		Build()
 	require.NoError(t, err)
 	env.(*envContextImpl).reconcileCredentials(set, now)
@@ -562,8 +563,8 @@ func TestReanchorPoC_H6_AnchorPointerFlipsBeforeNewClientIsRegistered(t *testing
 	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
 	// FINDING: there is a window where the anchor pointer already names the new key but no client exists
-	// for it yet, so GetClient() returns nil. GetClient() == clients[rotator.SDKKey()], and the rotator's
-	// primary flipped to the new key before startSDKClient registered the client. A request arriving in
+	// for it yet, so GetClient() returns nil. GetClient() == clients[rotator.AnchorKey()], and the rotator's
+	// anchor flipped to the new key before startSDKClient registered the client. A request arriving in
 	// this window gets a nil client. T2.c must not advance the anchor pointer until the new client is
 	// registered (and ideally Initialized()).
 	assert.Nil(t, env.GetClient(), "GetClient() is nil during the swap window")

@@ -49,7 +49,7 @@ func statusHandler(relay *Relay) http.Handler {
 			}
 
 			// Scalar fields: anchor SDK key and primary mobile key.
-			if key := clientCtx.GetSDKKey(); key.Defined() {
+			if key := clientCtx.GetAnchorKey(); key.Defined() {
 				status.SDKKey = sdks.ObscureKey(string(key))
 			}
 			if key := clientCtx.GetMobileKey(); key.Defined() {
@@ -64,7 +64,7 @@ func statusHandler(relay *Relay) http.Handler {
 			// sdkKeys[] / mobileKeys[]: the full accepted set — including the anchor and primary mobile
 			// key — partitioned by type. The scalar sdkKey/mobileKey above designate which entry is the
 			// anchor/primary. Order is unspecified.
-			anchor := string(clientCtx.GetSDKKey())
+			anchor := string(clientCtx.GetAnchorKey())
 			var expiringCandidates []credential.AcceptedKey
 			for _, k := range clientCtx.GetAcceptedKeys() {
 				ks := keyStatus(k)
@@ -87,10 +87,8 @@ func statusHandler(relay *Relay) http.Handler {
 				status.MobileKeys = []api.KeyStatus{}
 			}
 
-			// expiringSdkKey (back-compat): the soonest-expiring non-anchor SDK key. Fold in the legacy
-			// grace-period keys, which may not appear in the accepted set above. Picking the soonest
+			// expiringSdkKey (back-compat): the soonest-expiring non-anchor SDK key. Picking the soonest
 			// expiry makes the value deterministic when several keys are expiring at once.
-			expiringCandidates = append(expiringCandidates, clientCtx.GetDeprecatedSDKKeys()...)
 			if len(expiringCandidates) > 0 {
 				earliest := slices.MinFunc(expiringCandidates, func(a, b credential.AcceptedKey) int {
 					return a.Expiry.Compare(*b.Expiry)
