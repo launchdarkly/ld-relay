@@ -165,14 +165,10 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 	assert.NotEqual(t, setWithExpiry, setNoExpiry)
 }
 
-// TestBuildAcceptedSet_AnchorNotInArray verifies that an anchor absent from AcceptedSDKKeys is no
-// longer rejected here: WithPrimarySDKKey adds and designates the anchor regardless, so the
-// resulting set contains both the anchor and the array entry. Structural validation of the wire
-// payload (anchor-absent-from-array) happens upstream when the payload is parsed into params.
 // TestBuildAcceptedSet_AnchorNotInArray verifies that a defined anchor absent from the sdkKeys[] array
-// yields a *credential.MalformedCredentialSetError per design §9: the payload is structurally
-// inconsistent (the designated primary is not in the authoritative array), so it must be rejected
-// rather than silently synthesized into the set.
+// yields a *credential.MalformedCredentialSetError: the payload is structurally inconsistent (the
+// designated anchor is not in the authoritative array), so it must be rejected rather than silently
+// synthesized into the set.
 func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	params := makeParams(
 		"sdk-anchor",
@@ -310,7 +306,7 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
 
-	// Anchor is permanent (WithPrimarySDKKey), not expiring — identical to a payload with no anchor expiry.
+	// Anchor is permanent (WithAnchor), not expiring — identical to a payload with no anchor expiry.
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).

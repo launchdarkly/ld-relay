@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -87,11 +88,15 @@ func statusHandler(relay *Relay) http.Handler {
 				status.MobileKeys = []api.KeyStatus{}
 			}
 
-			// expiringSdkKey: the soonest-expiring non-anchor SDK key. Picking the soonest expiry makes
-			// the value deterministic when several keys are expiring at once.
+			// expiringSdkKey: the soonest-expiring non-anchor SDK key. Comparing by expiry then by value
+			// gives a total order, so the chosen key is deterministic even when several keys share the
+			// same expiry (map iteration order, and hence MinFunc's pick on a tie, is otherwise unstable).
 			if len(expiringCandidates) > 0 {
 				earliest := slices.MinFunc(expiringCandidates, func(a, b credential.AcceptedKey) int {
-					return a.Expiry.Compare(*b.Expiry)
+					if c := a.Expiry.Compare(*b.Expiry); c != 0 {
+						return c
+					}
+					return strings.Compare(a.Value, b.Value)
 				})
 				status.ExpiringSDKKey = sdks.ObscureKey(earliest.Value)
 			}

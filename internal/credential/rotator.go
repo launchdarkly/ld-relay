@@ -25,21 +25,8 @@ const (
 	KeyTypeMobile
 )
 
-// String returns the lowercase wire-style name of the key type ("server" or "mobile").
-func (t KeyType) String() string {
-	switch t {
-	case KeyTypeServer:
-		return "server"
-	case KeyTypeMobile:
-		return "mobile"
-	default:
-		return "unknown"
-	}
-}
-
-// AcceptedKey is metadata for one accepted credential, returned by AcceptedKeys (and, for the legacy
-// grace-period set, DeprecatedSDKKeys). The status endpoint uses it to populate the sdkKeys[] /
-// mobileKeys[] response arrays.
+// AcceptedKey is metadata for one accepted credential, returned by AcceptedKeys. The status endpoint
+// uses it to populate the sdkKeys[] / mobileKeys[] response arrays.
 type AcceptedKey struct {
 	// Type is the kind of key — server-side SDK or mobile.
 	Type KeyType
@@ -159,12 +146,10 @@ func (r *Rotator) allCredentials() []SDKCredential {
 
 // DeprecatedCredentials returns the SDK keys being phased out — every accepted SDK key, other than the
 // anchor, that carries a future expiry. (Per-key expiry is stored as data on the accepted entry; the
-// cleanup ticker drops the key once it elapses.) EnvContext.GetDeprecatedCredentials delegates here to
-// populate the status endpoint's expiringSdkKey field.
+// cleanup ticker drops the key once it elapses.)
 //
 // Mobile keys are deliberately not returned even though they expire the same way SDK keys do — carried
-// as per-key expiry and dropped by the same cleanup ticker. They are omitted only because the status
-// endpoint has no expiringMobileKey field to populate, not because mobile-key expiry is unimplemented.
+// as per-key expiry and dropped by the same cleanup ticker.
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

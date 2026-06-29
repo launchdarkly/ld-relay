@@ -12,6 +12,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
@@ -159,6 +160,90 @@ func TestEndpointsStatus(t *testing.T) {
 			st.AssertJSONPathMatch(t, "VALID", status, "environments", st.EnvMobile.Name, "connectionStatus", "state")
 
 			st.AssertJSONPathMatch(t, "degraded", status, "status")
+		})
+	})
+}
+
+// findKeyStatusByValue returns the sdkKeys[]/mobileKeys[] entry whose obscured "value" matches, or a
+// null value. Array entry order is unspecified, so callers look entries up by value.
+func findKeyStatusByValue(arr ldvalue.Value, obscuredValue string) ldvalue.Value {
+	for i := 0; i < arr.Count(); i++ {
+		if arr.GetByIndex(i).GetByKey("value").StringValue() == obscuredValue {
+			return arr.GetByIndex(i)
+		}
+	}
+	return ldvalue.Null()
+}
+
+// TestEndpointsStatusExpiringSDKKey drives a multi-key environment through the real /status handler:
+// it reconciles an env to an anchor plus two non-anchor expiring SDK keys and asserts the
+// expiringSdkKey selection, the per-key expiry/identifier serialization in sdkKeys[], and that the
+// soonest-expiry pick is deterministic on an exact expiry tie.
+func TestEndpointsStatusExpiringSDKKey(t *testing.T) {
+	getStatus := func(t *testing.T, p relayTestParams, set credential.AcceptedSet) ldvalue.Value {
+		env, err := p.relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+		require.NoError(t, err)
+		require.NotNil(t, env)
+		env.ReconcileCredentials(set)
+
+		r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+		result, body := st.DoRequest(r, p.relay)
+		require.Equal(t, http.StatusOK, result.StatusCode)
+		return ldvalue.Parse(body).GetByKey("environments").GetByKey(st.EnvMain.Name)
+	}
+
+	t.Run("soonest-expiring non-anchor key, with expiry and identifier surfaced", func(t *testing.T) {
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(st.EnvMain)
+		withStartedRelay(t, config, func(p relayTestParams) {
+			anchor := st.EnvMain.Config.SDKKey
+			soon := time.Now().Add(1 * time.Hour)
+			later := time.Now().Add(2 * time.Hour)
+			set, err := credential.NewAcceptedSetBuilder().
+				WithAnchor(credential.SDKKeyParams{Value: anchor}).
+				WithSDKKey(credential.SDKKeyParams{Value: "sdk-soon", Key: util.PtrOrNil("soon-key"), Expiry: util.PtrOrNil(soon)}).
+				WithSDKKey(credential.SDKKeyParams{Value: "sdk-later", Expiry: util.PtrOrNil(later)}).
+				Build()
+			require.NoError(t, err)
+
+			envStatus := getStatus(t, p, set)
+
+			// expiringSdkKey is the obscured soonest-expiring non-anchor key.
+			st.AssertJSONPathMatch(t, sdks.ObscureKey("sdk-soon"), envStatus, "expiringSdkKey")
+
+			// sdkKeys[] carries the full set (anchor + both non-anchor keys).
+			sdkKeys := envStatus.GetByKey("sdkKeys")
+			require.Equal(t, 3, sdkKeys.Count())
+
+			// The expiring key surfaces its identifier and Unix-millis expiry.
+			soonEntry := findKeyStatusByValue(sdkKeys, sdks.ObscureKey("sdk-soon"))
+			require.False(t, soonEntry.IsNull())
+			assert.Equal(t, "soon-key", soonEntry.GetByKey("key").StringValue())
+			assert.Equal(t, float64(soon.UnixMilli()), soonEntry.GetByKey("expiry").Float64Value())
+
+			// A key with no identifier omits "key" entirely (omitempty, nil pointer).
+			laterEntry := findKeyStatusByValue(sdkKeys, sdks.ObscureKey("sdk-later"))
+			require.False(t, laterEntry.IsNull())
+			assert.True(t, laterEntry.GetByKey("key").IsNull(), `"key" must be omitted when the source carried no identifier`)
+		})
+	})
+
+	t.Run("tie on expiry resolves deterministically to the smaller value", func(t *testing.T) {
+		var config c.Config
+		config.Environment = st.MakeEnvConfigs(st.EnvMain)
+		withStartedRelay(t, config, func(p relayTestParams) {
+			anchor := st.EnvMain.Config.SDKKey
+			sameExpiry := time.Now().Add(1 * time.Hour)
+			set, err := credential.NewAcceptedSetBuilder().
+				WithAnchor(credential.SDKKeyParams{Value: anchor}).
+				WithSDKKey(credential.SDKKeyParams{Value: "sdk-bbb", Expiry: util.PtrOrNil(sameExpiry)}).
+				WithSDKKey(credential.SDKKeyParams{Value: "sdk-aaa", Expiry: util.PtrOrNil(sameExpiry)}).
+				Build()
+			require.NoError(t, err)
+
+			envStatus := getStatus(t, p, set)
+			// With equal expiries, the smaller value (sdk-aaa) wins deterministically.
+			st.AssertJSONPathMatch(t, sdks.ObscureKey("sdk-aaa"), envStatus, "expiringSdkKey")
 		})
 	})
 }
