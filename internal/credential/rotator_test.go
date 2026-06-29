@@ -328,3 +328,31 @@ func TestAcceptedKeys(t *testing.T) {
 		assert.Nil(t, mob.Key)
 	})
 }
+
+// TestReconcileClearsStaleKeyIdentifier verifies that when a later reconcile carries no identifier for
+// a key that previously had one (e.g. an old-format payload after a new-format one), the rotator
+// clears the stale identifier rather than retaining it — so /status never shows an identifier the
+// current credential set no longer carries.
+func TestReconcileClearsStaleKeyIdentifier(t *testing.T) {
+	r := newTestRotator()
+	now := time.Unix(0, 0)
+
+	// First reconcile: sdk-b carries the identifier "b-service".
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: "sdk-anchor"}).
+		WithSDKKey(SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("b-service")})), now)
+
+	b := findAcceptedKey(r.AcceptedKeys(), "sdk-b")
+	require.NotNil(t, b)
+	require.NotNil(t, b.Key)
+	assert.Equal(t, "b-service", *b.Key)
+
+	// Second reconcile: same credential value, but no identifier this time.
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: "sdk-anchor"}).
+		WithSDKKey(SDKKeyParams{Value: "sdk-b"})), now)
+
+	b = findAcceptedKey(r.AcceptedKeys(), "sdk-b")
+	require.NotNil(t, b)
+	assert.Nil(t, b.Key, "identifier must be cleared when the new payload carries none")
+}
