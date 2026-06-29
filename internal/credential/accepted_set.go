@@ -18,8 +18,8 @@ import (
 //
 // WithAnchor / WithPrimaryMobileKey both add the key to the set and designate it, so adding a
 // single key takes one call. Build requires that an anchor was designated. (Structural validation of
-// the wire payload — undefined credentials, an anchor absent from the array — happens upstream when
-// the payload is parsed into the set; see SDK-2547.)
+// the wire payload — undefined credentials, a designated key absent from its array — happens upstream
+// when the payload is parsed into the set.)
 //
 // A key's expiry is taken from its entry in this set; the legacy sdkKey.expiring{} wire slot is not
 // consulted when building it.
@@ -54,11 +54,13 @@ func (s AcceptedSet) hasMobileKey(key config.MobileKey) bool {
 var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must contain at least one SDK key")
 
 // MalformedCredentialSetError is returned when a credential payload cannot produce a valid
-// AcceptedSet. This covers two cases:
+// AcceptedSet. This covers:
 //
-//  1. The anchor SDK key (sdkKey.value) is absent or undefined — a violation of the backend
-//     invariant that an anchor is always designated.
-//  2. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
+//  1. The anchor SDK key (sdkKey.value) is absent or undefined, or defined but not present in
+//     sdkKeys[] — a violation of the invariant that the designated anchor is one of the accepted keys.
+//  2. The primary mobile key (mobKey) is defined but not present in mobileKeys[] — the mobile-key
+//     analogue of the anchor invariant.
+//  3. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
 //     accepted by relay but can never authenticate any SDK.
 //
 // Validation happens before Reconcile is called; Rotator.Reconcile trusts the set it is handed.
@@ -86,6 +88,14 @@ func newMissingAnchorError() *MalformedCredentialSetError {
 // anchor value is a secret, so it is deliberately not included in the message.
 func NewAnchorNotInSetError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is not present in sdkKeys[]"}
+}
+
+// NewPrimaryMobileKeyNotInSetError returns a MalformedCredentialSetError for a payload whose
+// designated primary mobile key (mobKey) is defined but not present in the mobileKeys[] array — the
+// mobile-key analogue of NewAnchorNotInSetError. The key value is a secret, so it is deliberately not
+// included in the message.
+func NewPrimaryMobileKeyNotInSetError() *MalformedCredentialSetError {
+	return &MalformedCredentialSetError{msg: "malformed credential set: primary mobile key is not present in mobileKeys[]"}
 }
 
 // NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose

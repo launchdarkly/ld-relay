@@ -87,8 +87,8 @@ func statusHandler(relay *Relay) http.Handler {
 				status.MobileKeys = []api.KeyStatus{}
 			}
 
-			// expiringSdkKey (back-compat): the soonest-expiring non-anchor SDK key. Picking the soonest
-			// expiry makes the value deterministic when several keys are expiring at once.
+			// expiringSdkKey: the soonest-expiring non-anchor SDK key. Picking the soonest expiry makes
+			// the value deterministic when several keys are expiring at once.
 			if len(expiringCandidates) > 0 {
 				earliest := slices.MinFunc(expiringCandidates, func(a, b credential.AcceptedKey) int {
 					return a.Expiry.Compare(*b.Expiry)

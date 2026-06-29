@@ -52,20 +52,33 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 
 	// The anchor must be one of the accepted SDK keys: the backend lists it in sdkKeys[] (and ToParams
 	// synthesizes it into the array for old-format payloads). A defined anchor absent from the array is
-	// a structurally malformed payload — reject it per §9.
+	// a structurally malformed payload — reject it.
 	if anchor.Defined() && !anchorInArray {
 		return credential.AcceptedSet{}, anchor, credential.NewAnchorNotInSetError()
 	}
 
+	// Add every accepted mobile key, designating the primary as we encounter it. Like the anchor,
+	// WithPrimaryMobileKey forces the primary permanent, so an expiry the payload may carry on the
+	// primary's own entry cannot demote it.
+	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
 			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
 		}
 		if k.Value == params.MobileKey {
+			primaryMobileInArray = true
 			b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
 		} else {
 			b.WithMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}
+	}
+
+	// The primary mobile key, when the environment has one, must be in mobileKeys[] — the mobile
+	// analogue of the anchor invariant above. A defined mobKey absent from the array is malformed:
+	// without this guard the primary would be silently left undesignated, clearing it on reconcile and
+	// breaking event forwarding. (An undefined mobKey is valid — a server-side-only environment.)
+	if params.MobileKey.Defined() && !primaryMobileInArray {
+		return credential.AcceptedSet{}, anchor, credential.NewPrimaryMobileKeyNotInSetError()
 	}
 
 	set, err := b.Build()
