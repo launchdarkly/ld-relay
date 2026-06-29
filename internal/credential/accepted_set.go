@@ -3,7 +3,6 @@ package credential
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
@@ -28,21 +27,13 @@ import (
 // Construct an AcceptedSet with AcceptedSetBuilder (see accepted_set_builder.go).
 type AcceptedSet struct {
 	// sdkKeys and mobileKeys store each accepted key once, keyed by value (the secret), so duplicates
-	// collapse without a containment scan. The map value carries the key's metadata. A nil map is a
-	// valid empty set (reads return absent; only the builder writes).
-	sdkKeys          map[config.SDKKey]acceptedKeyMeta
+	// collapse without a containment scan. The map value carries the key's metadata (see
+	// acceptedKeyInfo). A nil map is a valid empty set (reads return absent; only the builder writes).
+	sdkKeys          map[config.SDKKey]acceptedKeyInfo
 	primarySdkKey    config.SDKKey
-	mobileKeys       map[config.MobileKey]acceptedKeyMeta
+	mobileKeys       map[config.MobileKey]acceptedKeyInfo
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
-}
-
-// acceptedKeyMeta is the per-key metadata stored in an AcceptedSet alongside the credential value:
-// the optional wire "key" identifier (nil when the source carried none — manual config or an
-// old-format payload) and the optional expiry (nil = permanent).
-type acceptedKeyMeta struct {
-	key    *string
-	expiry *time.Time
 }
 
 // hasSDKKey reports whether key is one of the set's accepted SDK keys.

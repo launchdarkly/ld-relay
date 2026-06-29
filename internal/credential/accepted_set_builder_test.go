@@ -2,7 +2,6 @@ package credential
 
 import (
 	"testing"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 
@@ -52,25 +51,4 @@ func mustBuild(t *testing.T, b *AcceptedSetBuilder) AcceptedSet {
 	set, err := b.Build()
 	require.NoError(t, err)
 	return set
-}
-
-// sdkP / sdkPExp / mobP / mobPExp build credential param structs for the Reconcile tests, mapping an
-// empty identifier to a nil Key pointer.
-func sdkP(value config.SDKKey, key string) SDKKeyParams {
-	return SDKKeyParams{Value: value, Key: strPtrOrNil(key)}
-}
-func sdkPExp(value config.SDKKey, key string, expiry time.Time) SDKKeyParams {
-	return SDKKeyParams{Value: value, Key: strPtrOrNil(key), Expiry: &expiry}
-}
-func mobP(value config.MobileKey, key string) MobileKeyParams {
-	return MobileKeyParams{Value: value, Key: strPtrOrNil(key)}
-}
-func mobPExp(value config.MobileKey, key string, expiry time.Time) MobileKeyParams {
-	return MobileKeyParams{Value: value, Key: strPtrOrNil(key), Expiry: &expiry}
-}
-func strPtrOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

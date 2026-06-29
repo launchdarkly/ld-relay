@@ -33,8 +33,8 @@ type KeyStatus struct {
 //
 // This is exported for use in integration test code.
 type EnvironmentStatusRep struct {
-	// SDKKey is the obscured anchor SDK key — the key relay uses for its upstream connection. Kept for
-	// back-compat; it designates which SDKKeys entry is the anchor.
+	// SDKKey is the obscured anchor SDK key — the key relay uses for its upstream connection. It
+	// designates which SDKKeys entry is the anchor.
 	SDKKey string `json:"sdkKey"`
 	// SDKKeys carries the full accepted set of server-side SDK keys — including the anchor — with their
 	// identifiers, obscured values, and optional expiry. Always present; always contains at least the
@@ -45,8 +45,7 @@ type EnvironmentStatusRep struct {
 	EnvName  string      `json:"envName,omitempty"`
 	ProjKey  string      `json:"projKey,omitempty"`
 	ProjName string      `json:"projName,omitempty"`
-	// MobileKey is the obscured primary mobile key. Kept for back-compat; it designates which
-	// MobileKeys entry is the primary.
+	// MobileKey is the obscured primary mobile key. It designates which MobileKeys entry is the primary.
 	MobileKey string `json:"mobileKey,omitempty"`
 	// MobileKeys carries the full accepted set of mobile keys — including the primary. Always present;
 	// empty for an environment with no mobile keys (e.g. server-side only).

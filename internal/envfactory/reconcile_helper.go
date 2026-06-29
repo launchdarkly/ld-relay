@@ -1,28 +1,10 @@
 package envfactory
 
 import (
-	"time"
-
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 )
-
-// keyPtr returns a pointer to the wire identifier, or nil when it is empty (old-format payloads and
-// manual config carry no identifier).
-func keyPtr(identifier string) *string {
-	if identifier == "" {
-		return nil
-	}
-	return &identifier
-}
-
-// expiryPtr returns a pointer to the expiry time, or nil when it is the zero time (a permanent key).
-func expiryPtr(expiry time.Time) *time.Time {
-	if expiry.IsZero() {
-		return nil
-	}
-	return &expiry
-}
 
 // BuildAcceptedSet converts an EnvironmentParams into the AcceptedSet and anchor
 // credential needed by EnvContext.ReconcileCredentials.
@@ -62,9 +44,9 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		}
 		if k.Value == anchor {
 			anchorInArray = true
-			b.WithPrimarySDKKey(credential.SDKKeyParams{Value: k.Value, Key: keyPtr(k.Key)})
+			b.WithPrimarySDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
 		} else {
-			b.WithSDKKey(credential.SDKKeyParams{Value: k.Value, Key: keyPtr(k.Key), Expiry: expiryPtr(k.Expiry)})
+			b.WithSDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}
 	}
 
@@ -80,9 +62,9 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
 		}
 		if k.Value == params.MobileKey {
-			b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: k.Value, Key: keyPtr(k.Key)})
+			b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
 		} else {
-			b.WithMobileKey(credential.MobileKeyParams{Value: k.Value, Key: keyPtr(k.Key), Expiry: expiryPtr(k.Expiry)})
+			b.WithMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}
 	}
 
