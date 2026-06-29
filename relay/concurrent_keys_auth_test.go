@@ -19,6 +19,7 @@ package relay
 // (proving the anchor owns the only upstream connection).
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +52,9 @@ const (
 	anchorMobileKey = config.MobileKey("mob-anchor")
 	extraMobileKey  = config.MobileKey("mob-extra")
 	multiKeyFlagKey = "multikey-flag"
+
+	// rotatedAnchorSDKKey is a brand-new SDK key that becomes the anchor when the anchor is rotated.
+	rotatedAnchorSDKKey = config.SDKKey("sdk-rotated-anchor")
 )
 
 var multiKeyIdentifiers = relayenv.EnvIdentifiers{
@@ -127,6 +131,26 @@ func multiKeySDKData() []ldstoretypes.Collection {
 				{Key: multiKeyFlagKey, Item: sharedtest.FlagDesc(flag)},
 			},
 		},
+	}
+}
+
+// rotatedAnchorRep returns the env rep after the anchor has rotated to newAnchor, keeping the
+// existing non-anchor SDK key (extraSDKKey) accepted and the mobile keys unchanged.
+func rotatedAnchorRep(newAnchor config.SDKKey, version int) envfactory.EnvironmentRep {
+	return envfactory.EnvironmentRep{
+		EnvID:    multiKeyEnvID,
+		EnvKey:   multiKeyIdentifiers.EnvKey,
+		EnvName:  multiKeyIdentifiers.EnvName,
+		ProjKey:  multiKeyIdentifiers.ProjKey,
+		ProjName: multiKeyIdentifiers.ProjName,
+		SDKKey:   envfactory.SDKKeyRep{Value: newAnchor},
+		MobKey:   anchorMobileKey,
+		SDKKeys: []envfactory.ConcurrentKeyRep{
+			{Key: "rotated-anchor-sdk", Value: string(newAnchor)},
+			{Key: "extra-sdk", Value: string(extraSDKKey)},
+		},
+		MobileKeys: defaultMobileKeyReps(),
+		Version:    version,
 	}
 }
 
@@ -273,7 +297,8 @@ func TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires(t *testing
 
 	t.Run("sdk key", func(t *testing.T) { run(t, "/all", "put", extraSDKKey, true) })
 	t.Run("mobile key", func(t *testing.T) {
-		run(t, "/meval/eyJrZXkiOiJ1c2Vya2V5In0=", "ping", extraMobileKey, false)
+		// base64 of {"key":"userkey","kind":"user"} — a valid context, not the legacy user format.
+		run(t, "/meval/eyJrZXkiOiJ1c2Vya2V5Iiwia2luZCI6InVzZXIifQ==", "ping", extraMobileKey, false)
 	})
 }
 
@@ -374,6 +399,67 @@ func TestConcurrentKeysRAC_KeyWithFutureExpiryStillAuthenticates(t *testing.T) {
 	})
 }
 
+// Rotating the anchor in the accepted set.
+//
+// Both tests run on the FakeLDClient harness, so they verify the routing/credential-level behavior
+// of an anchor swap. The real-upstream store handover (avoiding an empty-store window) and
+// rollback-on-init-failure robustness is the re-anchor work owned by T2.c.
+
+// When a new anchor arrives via RAC (sdkKey.value changes to a brand-new key), the upstream client
+// swaps to the new anchor and the old anchor is dropped, while the non-anchor key stays accepted.
+func TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient(t *testing.T) {
+	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
+	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
+		client1 := p.awaitClient()
+		assert.Equal(t, anchorSDKKey, client1.Key)
+		_ = p.awaitEnvironment(multiKeyEnvID)
+
+		// A new anchor arrives; the old anchor is rotated out, the non-anchor extra key is retained.
+		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(rotatedAnchorRep(rotatedAnchorSDKKey, 2)))
+
+		// The new anchor opens the single upstream client; the old anchor's client closes.
+		client2 := p.awaitClient()
+		assert.Equal(t, rotatedAnchorSDKKey, client2.Key)
+		client1.AwaitClose(t, 5*time.Second)
+
+		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
+
+		// The new anchor and the retained non-anchor key authenticate; the old anchor no longer does.
+		p.assertSDKEndpointsAvailability(true, rotatedAnchorSDKKey, anchorMobileKey, multiKeyEnvID)
+		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
+		p.assertSDKEndpointsAvailability(false, anchorSDKKey, "", "")
+	})
+}
+
+// A downstream SDK connected on a non-anchor key stays connected when the anchor is rotated out from
+// under it.
+func TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation(t *testing.T) {
+	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
+	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
+		client1 := p.awaitClient()
+		assert.Equal(t, anchorSDKKey, client1.Key)
+		env := p.awaitEnvironment(multiKeyEnvID)
+		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+		// Connect a downstream SDK on the non-anchor key, then rotate the anchor while it is connected.
+		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
+		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+			p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(rotatedAnchorRep(rotatedAnchorSDKKey, 2)))
+
+			// The new anchor's upstream client comes up...
+			client2 := p.awaitClient()
+			assert.Equal(t, rotatedAnchorSDKKey, client2.Key)
+
+			// ...and the non-anchor key's open stream is not disconnected by the swap.
+			assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
+		})
+
+		// The non-anchor key still authenticates after the rotation; the old anchor is gone.
+		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
+		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
+	})
+}
+
 // awaitStreamClosed reads from a WithStreamRequest event channel until the stream-closed sentinel
 // (a nil event) arrives, failing if the timeout elapses first. Non-nil events are ignored.
 func awaitStreamClosed(t *testing.T, eventCh <-chan eventsource.Event, timeout time.Duration) {
@@ -414,12 +500,7 @@ func assertStreamStaysOpen(t *testing.T, eventCh <-chan eventsource.Event, windo
 func msPtr(v int64) *int64 { return &v }
 
 func credsContain(creds []credential.SDKCredential, target credential.SDKCredential) bool {
-	for _, cr := range creds {
-		if cr == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(creds, target)
 }
 
 // awaitCredentialRemoved blocks until the given credential no longer resolves to an environment.
