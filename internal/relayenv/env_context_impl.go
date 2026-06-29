@@ -451,7 +451,7 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
 	switch key := newCredential.(type) {
 	case config.SDKKey:
-		if key == c.keyRotator.SDKKey() {
+		if key == c.keyRotator.AnchorKey() {
 			if !c.offline {
 				go c.startSDKClient(key, nil, false)
 			}
@@ -628,8 +628,8 @@ func (c *envContextImpl) GetCredentials() []credential.SDKCredential {
 	return c.keyRotator.AllCredentials()
 }
 
-func (c *envContextImpl) GetSDKKey() config.SDKKey {
-	return c.keyRotator.SDKKey()
+func (c *envContextImpl) GetAnchorKey() config.SDKKey {
+	return c.keyRotator.AnchorKey()
 }
 
 func (c *envContextImpl) GetMobileKey() config.MobileKey {
@@ -656,7 +656,7 @@ func (c *envContextImpl) GetClient() sdks.LDClientContext {
 		}
 		return nil
 	}
-	return c.clients[c.keyRotator.SDKKey()]
+	return c.clients[c.keyRotator.AnchorKey()]
 }
 
 func (c *envContextImpl) GetStore() subsystems.DataStore {

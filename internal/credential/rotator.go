@@ -23,8 +23,8 @@ type Rotator struct {
 	// here to allow setting it in a deferred manner.
 	primaryEnvironmentID config.EnvironmentID
 
-	// There can be multiple SDK keys active at a given time, but only one is primary.
-	primarySdkKey config.SDKKey
+	// There can be multiple SDK keys active at a given time, but only one is the anchor.
+	anchorKey config.SDKKey
 
 	// acceptedSDKKeys is the full set of accepted SDK keys with optional per-key expiry.
 	// A nil expiry means the key is permanent. The anchor is always present with a nil expiry.
@@ -69,7 +69,7 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 		}
 		switch cred := cred.(type) {
 		case config.SDKKey:
-			r.primarySdkKey = cred
+			r.anchorKey = cred
 			r.acceptedSDKKeys[cred] = &acceptedKeyInfo{}
 		case config.MobileKey:
 			r.primaryMobileKey = cred
@@ -87,11 +87,11 @@ func (r *Rotator) MobileKey() config.MobileKey {
 	return r.primaryMobileKey
 }
 
-// SDKKey returns the primary SDK key.
-func (r *Rotator) SDKKey() config.SDKKey {
+// AnchorKey returns the anchor SDK key — the key that owns the upstream connection.
+func (r *Rotator) AnchorKey() config.SDKKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.primarySdkKey
+	return r.anchorKey
 }
 
 // EnvironmentID returns the environment ID.
@@ -131,7 +131,7 @@ func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 
 	var out []SDKCredential
 	for key, info := range r.acceptedSDKKeys {
-		if info.expiry != nil && key != r.primarySdkKey {
+		if info.expiry != nil && key != r.anchorKey {
 			out = append(out, key)
 		}
 	}
@@ -199,13 +199,13 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // rather than reconcile.
 //
 // The set is assumed well-formed: AcceptedSetBuilder.Build validates that an anchor was designated
-// (and, because WithPrimarySDKKey adds the key as it designates it, that the anchor is among the SDK
+// (and, because WithAnchor adds the key as it designates it, that the anchor is among the SDK
 // keys), so Reconcile trusts what it is handed rather than re-validating.
 func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.reconcileSDKKeys(set, set.primarySdkKey, now)
+	r.reconcileSDKKeys(set, set.anchor, now)
 	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
 }
@@ -266,7 +266,7 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
-	r.primarySdkKey = anchor
+	r.anchorKey = anchor
 }
 
 // reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The primary mobile key — the wire's
