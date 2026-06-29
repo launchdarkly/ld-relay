@@ -36,12 +36,12 @@ func (b *AcceptedSetBuilder) WithExpiringSDKKey(key config.SDKKey, expiry time.T
 	return b
 }
 
-// WithPrimarySDKKey adds key (if not already present) and designates it as the anchor — the SDK key
+// WithAnchor adds key (if not already present) and designates it as the anchor — the SDK key
 // that owns the environment's upstream connection. It is a no-op if the key is undefined.
-func (b *AcceptedSetBuilder) WithPrimarySDKKey(key config.SDKKey) *AcceptedSetBuilder {
+func (b *AcceptedSetBuilder) WithAnchor(key config.SDKKey) *AcceptedSetBuilder {
 	if key.Defined() {
 		b.addSDKKey(key, nil)
-		b.set.primarySdkKey = key
+		b.set.anchor = key
 	}
 	return b
 }
@@ -99,13 +99,13 @@ func (b *AcceptedSetBuilder) WithEnvironmentID(id config.EnvironmentID) *Accepte
 
 // Build validates and returns the accumulated AcceptedSet. It returns errAcceptedSetMissingSDKKey if
 // no SDK key was added, or a *MalformedCredentialSetError if no anchor was designated (via
-// WithPrimarySDKKey). Because WithPrimarySDKKey also adds the key, a designated anchor is always
-// among the accepted SDK keys.
+// WithAnchor). Because WithAnchor also adds the key, a designated anchor is always among the
+// accepted SDK keys.
 func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 	if len(b.set.sdkKeys) == 0 {
 		return AcceptedSet{}, errAcceptedSetMissingSDKKey
 	}
-	if !b.set.primarySdkKey.Defined() {
+	if !b.set.anchor.Defined() {
 		return AcceptedSet{}, newMissingAnchorError()
 	}
 	return b.set, nil

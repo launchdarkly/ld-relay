@@ -28,8 +28,8 @@ type Rotator struct {
 	// here to allow setting it in a deferred manner.
 	primaryEnvironmentID config.EnvironmentID
 
-	// There can be multiple SDK keys active at a given time, but only one is primary.
-	primarySdkKey config.SDKKey
+	// There can be multiple SDK keys active at a given time, but only one is the anchor.
+	anchorKey config.SDKKey
 
 	// Deprecated keys are stored in a map with a started timer for each key representing the deprecation period.
 	// Upon expiration, they are removed.
@@ -76,7 +76,7 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 		}
 		switch cred := cred.(type) {
 		case config.SDKKey:
-			r.primarySdkKey = cred
+			r.anchorKey = cred
 			r.acceptedSDKKeys[cred] = &acceptedKeyInfo{}
 		case config.MobileKey:
 			r.primaryMobileKey = cred
@@ -94,11 +94,11 @@ func (r *Rotator) MobileKey() config.MobileKey {
 	return r.primaryMobileKey
 }
 
-// SDKKey returns the primary SDK key.
-func (r *Rotator) SDKKey() config.SDKKey {
+// AnchorKey returns the anchor SDK key — the key that owns the upstream connection.
+func (r *Rotator) AnchorKey() config.SDKKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.primarySdkKey
+	return r.anchorKey
 }
 
 // EnvironmentID returns the environment ID.
@@ -170,7 +170,7 @@ func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	out := r.deprecatedCredentials()
 
 	for key, info := range r.acceptedSDKKeys {
-		if info.expiry != nil && key != r.primarySdkKey {
+		if info.expiry != nil && key != r.anchorKey {
 			out = append(out, key)
 		}
 	}
@@ -285,22 +285,22 @@ func (r *Rotator) updateMobileKey(mobileKey config.MobileKey, grace *GracePeriod
 		previous.Masked(), grace.expiry, mobileKey.Masked())
 }
 
-func (r *Rotator) swapPrimaryKey(newKey config.SDKKey) config.SDKKey {
-	if newKey == r.primarySdkKey {
-		// There's no swap to be done, we already are using this as primary.
+func (r *Rotator) swapAnchor(newKey config.SDKKey) config.SDKKey {
+	if newKey == r.anchorKey {
+		// There's no swap to be done, we already are using this as the anchor.
 		return ""
 	}
-	previous := r.primarySdkKey
-	r.primarySdkKey = newKey
+	previous := r.anchorKey
+	r.anchorKey = newKey
 	// Keep the accepted-set map (the source of truth for PrimaryCredentials) consistent: the new
-	// primary is accepted and is no longer deprecated, even if it was being phased out before. Mirrors
+	// anchor is accepted and is no longer deprecated, even if it was being phased out before. Mirrors
 	// updateMobileKey for mobile keys.
 	if _, ok := r.acceptedSDKKeys[newKey]; !ok {
 		r.acceptedSDKKeys[newKey] = &acceptedKeyInfo{}
 	}
 	delete(r.deprecatedSdkKeys, newKey)
 	r.additions = append(r.additions, newKey)
-	r.loggers.Infof("New primary SDK key is %s", newKey.Masked())
+	r.loggers.Infof("New anchor SDK key is %s", newKey.Masked())
 
 	return previous
 }
@@ -317,8 +317,8 @@ func (r *Rotator) updateSDKKey(sdkKey config.SDKKey, grace *GracePeriod) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Previous will only be .Defined() if there was a previous primary key.
-	previous := r.swapPrimaryKey(sdkKey)
+	// Previous will only be .Defined() if there was a previous anchor key.
+	previous := r.swapAnchor(sdkKey)
 
 	// If there's no deprecation notice, then the previous key (if any) needs to be immediately revoked so it doesn't
 	// hang around forever. This case is also true when there is a grace period, but we need to inspect the grace period
@@ -427,13 +427,13 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // rather than reconcile.
 //
 // The set is assumed well-formed: AcceptedSetBuilder.Build validates that an anchor was designated
-// (and, because WithPrimarySDKKey adds the key as it designates it, that the anchor is among the SDK
+// (and, because WithAnchor adds the key as it designates it, that the anchor is among the SDK
 // keys), so Reconcile trusts what it is handed rather than re-validating.
 func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.reconcileSDKKeys(set, set.primarySdkKey, now)
+	r.reconcileSDKKeys(set, set.anchor, now)
 	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
 }
@@ -500,7 +500,7 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, r.deprecatedSdkKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
-	r.primarySdkKey = anchor
+	r.anchorKey = anchor
 }
 
 // reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The primary mobile key — the wire's
