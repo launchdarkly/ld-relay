@@ -11,6 +11,7 @@ import (
 // acceptedKeyInfo holds per-key metadata for the accepted-set maps.
 type acceptedKeyInfo struct {
 	expiry *time.Time // nil = permanent
+	key    *string    // wire "key" identifier — non-secret human-readable name; nil when absent
 }
 
 type Rotator struct {
@@ -258,14 +259,21 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // payload may carry for it. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
 	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
-	for key, expiry := range set.sdkKeys {
-		if expiry != nil && !now.Before(*expiry) {
+	for key, info := range set.sdkKeys {
+		if info.expiry != nil && !now.Before(*info.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = expiry
+		desired[key] = info.expiry
 	}
 	desired[anchor] = nil
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
+	// Refresh the wire "key" identifier for every key now in the accepted set, including clearing it
+	// when the new payload carries none — otherwise a stale identifier would linger in /status.
+	for key, info := range set.sdkKeys {
+		if accepted, ok := r.acceptedSDKKeys[key]; ok {
+			accepted.key = info.key
+		}
+	}
 	r.anchorKey = anchor
 }
 
@@ -274,16 +282,23 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 // and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
-	for key, expiry := range set.mobileKeys {
-		if expiry != nil && !now.Before(*expiry) {
+	for key, info := range set.mobileKeys {
+		if info.expiry != nil && !now.Before(*info.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = expiry
+		desired[key] = info.expiry
 	}
 	if set.primaryMobileKey.Defined() {
 		desired[set.primaryMobileKey] = nil
 	}
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
+	// Refresh the wire "key" identifier for every key now in the accepted set, including clearing it
+	// when the new payload carries none — otherwise a stale identifier would linger in /status.
+	for key, info := range set.mobileKeys {
+		if accepted, ok := r.acceptedMobileKeys[key]; ok {
+			accepted.key = info.key
+		}
+	}
 	r.primaryMobileKey = set.primaryMobileKey
 }
 
