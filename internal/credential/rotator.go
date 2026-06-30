@@ -29,11 +29,11 @@ type Rotator struct {
 
 	// acceptedSDKKeys is the full set of accepted SDK keys with optional per-key expiry.
 	// A nil expiry means the key is permanent. The anchor is always present with a nil expiry.
-	acceptedSDKKeys map[config.SDKKey]*acceptedKeyInfo
+	acceptedSDKKeys map[config.SDKKey]acceptedKeyInfo
 
 	// acceptedMobileKeys is the full set of accepted mobile keys with optional per-key expiry.
 	// A nil expiry means the key is permanent.
-	acceptedMobileKeys map[config.MobileKey]*acceptedKeyInfo
+	acceptedMobileKeys map[config.MobileKey]acceptedKeyInfo
 
 	expirations []SDKCredential
 	additions   []SDKCredential
@@ -52,8 +52,8 @@ type InitialCredentials struct {
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
 		loggers:            loggers,
-		acceptedSDKKeys:    make(map[config.SDKKey]*acceptedKeyInfo),
-		acceptedMobileKeys: make(map[config.MobileKey]*acceptedKeyInfo),
+		acceptedSDKKeys:    make(map[config.SDKKey]acceptedKeyInfo),
+		acceptedMobileKeys: make(map[config.MobileKey]acceptedKeyInfo),
 	}
 	return r
 }
@@ -71,10 +71,10 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 		switch cred := cred.(type) {
 		case config.SDKKey:
 			r.anchorKey = cred
-			r.acceptedSDKKeys[cred] = &acceptedKeyInfo{}
+			r.acceptedSDKKeys[cred] = acceptedKeyInfo{}
 		case config.MobileKey:
 			r.primaryMobileKey = cred
-			r.acceptedMobileKeys[cred] = &acceptedKeyInfo{}
+			r.acceptedMobileKeys[cred] = acceptedKeyInfo{}
 		case config.EnvironmentID:
 			r.primaryEnvironmentID = cred
 		}
@@ -224,26 +224,22 @@ type reconcilableKey interface {
 // the accepted entry; the cleanup ticker is what later acts on it. The caller must hold the write lock.
 func reconcileAcceptedKeys[K reconcilableKey](
 	desired map[K]acceptedKeyInfo,
-	accepted map[K]*acceptedKeyInfo,
+	accepted map[K]acceptedKeyInfo,
 	additions *[]SDKCredential,
 	expirations *[]SDKCredential,
 	loggers ldlog.Loggers,
 	kind string,
 ) {
-	// First pass: walk every key the set wants us to accept. If we already accept it, refresh its
-	// metadata in place — both the expiry and the wire "key" identifier, clearing the identifier when
-	// the new payload carries none so a stale name never lingers in /status. If it's new, start
-	// accepting it and queue it as an addition.
+	// First pass: walk every key the set wants us to accept. Writing the desired entry over the
+	// accepted one refreshes its metadata — both the expiry and the wire "key" identifier, clearing
+	// the identifier when the new payload carries none so a stale name never lingers in /status. A key
+	// we don't yet accept is also queued as an addition.
 	for key, want := range desired {
-		if info, ok := accepted[key]; ok {
-			info.expiry = want.expiry
-			info.key = want.key
-		} else {
-			info := want
-			accepted[key] = &info
+		if _, ok := accepted[key]; !ok {
 			*additions = append(*additions, key)
 			loggers.Infof("%s %s is now accepted", kind, key.Masked())
 		}
+		accepted[key] = want
 	}
 	// Second pass: walk every key we currently accept and drop the ones the set no longer wants.
 	// Keys still desired were handled above, so skip them; the rest are revoked outright (removed
@@ -259,8 +255,9 @@ func reconcileAcceptedKeys[K reconcilableKey](
 }
 
 // reconcileSDKKeys diffs the desired SDK keys against the accepted set and applies the result via
-// reconcileAcceptedKeys. The anchor is always accepted and permanent, regardless of any expiry the
-// payload may carry for it. The caller must hold the write lock.
+// reconcileAcceptedKeys. The set is trusted as well-formed: BuildAcceptedSet / the builder guarantee
+// the anchor is present and permanent (WithAnchor forces a nil expiry), so no special handling is
+// needed here. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
 	desired := make(map[config.SDKKey]acceptedKeyInfo, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {
@@ -269,18 +266,14 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 		}
 		desired[key] = info
 	}
-	// The anchor is always accepted and permanent regardless of any expiry the payload carries; keep
-	// its wire identifier from the set.
-	anchorInfo := set.sdkKeys[anchor]
-	anchorInfo.expiry = nil
-	desired[anchor] = anchorInfo
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
 	r.anchorKey = anchor
 }
 
-// reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The primary mobile key — the wire's
-// singular mobKey, used where one mobile key is required (e.g. event forwarding) — is always accepted
-// and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
+// reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The set is trusted as well-formed:
+// when a primary mobile key is designated, the builder guarantees it is present and permanent
+// (WithPrimaryMobileKey forces a nil expiry). An empty primary means the set declared no mobile key.
+// The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.MobileKey]acceptedKeyInfo, len(set.mobileKeys))
 	for key, info := range set.mobileKeys {
@@ -288,12 +281,6 @@ func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 			continue // already expired; treat as absent
 		}
 		desired[key] = info
-	}
-	// The primary mobile key is always accepted and permanent; keep its wire identifier from the set.
-	if set.primaryMobileKey.Defined() {
-		primaryInfo := set.mobileKeys[set.primaryMobileKey]
-		primaryInfo.expiry = nil
-		desired[set.primaryMobileKey] = primaryInfo
 	}
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
 	r.primaryMobileKey = set.primaryMobileKey
