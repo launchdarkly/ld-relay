@@ -82,8 +82,8 @@ func (h relayTestHelper) assertSDKEndpointsAvailability(
 	// appropriate HTTP status. These are tested more thoroughly in test suites like DoStreamEndpointsTests,
 	// but we use this simpler test when we're dynamically changing what the credentials are.
 
-	simpleUserJSON := []byte(`{"key":"userkey"}`)
-	simpleUserBase64 := "eyJrZXkiOiJ1c2Vya2V5In0="
+	simpleUserJSON := []byte(`{"key":"userkey","kind":"user"}`)
+	simpleUserBase64 := "eyJrZXkiOiJ1c2Vya2V5Iiwia2luZCI6InVzZXIifQ=="
 	status200Or401, status200Or404 := 200, 200
 	if !shouldBeAvailable {
 		status200Or401 = 401
