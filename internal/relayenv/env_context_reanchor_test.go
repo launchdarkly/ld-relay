@@ -637,11 +637,13 @@ func TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor(t *testing.T) {
 	start := time.Unix(1000, 0)
 	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
-	assert.Equal(t, fakeErr, env.GetInitError(), "the failed new-client init surfaces as an init error")
-
-	// Post-T2.c: the re-anchor rolled back. The anchor pointer stayed on the old key, whose client is
-	// still alive and serving, so GetClient() never returns nil and no client is installed for the
-	// failed new anchor.
+	// Post-T2.c: the re-anchor rolled back. The env stays healthy on the old anchor, so GetInitError
+	// stays nil — setting it would 401 a still-serving env at the request middleware. The failure
+	// surfaces via a structured Error log instead. The anchor pointer stayed on the old key, whose
+	// client is still alive and serving, so GetClient() never returns nil and no client is installed
+	// for the failed new anchor.
+	assert.NoError(t, env.GetInitError(), "a failed re-anchor must not mark the still-serving env as failed")
+	mockLog.AssertMessageMatch(t, true, ldlog.Error, "Re-anchor to SDK key .* failed")
 	assert.Same(t, client1, env.GetClient(), "GetClient() still returns the old anchor's client after rollback")
 	envImpl := env.(*envContextImpl)
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "the anchor pointer stays on the old key")

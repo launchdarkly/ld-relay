@@ -706,17 +706,17 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 	if err != nil || client == nil || !client.Initialized() {
 		// Init failure: do NOT CommitAnchor (rollback). The rotator's anchor pointer stays on the
 		// previous key, GetClient() continues to return the still-serving old client, and the
-		// reconciled accepted set is preserved. Log a structured error — relay has no dedicated
-		// alarm infrastructure today, so Errorf is the strongest signal available (design §7
-		// "Failure handling"). See PoC H7 for the no-rollback baseline this replaces.
+		// reconciled accepted set is preserved. Deliberately do NOT set c.initErr: the environment is
+		// still healthy on the previous anchor, and initErr feeds the request middleware — setting it
+		// to the new anchor's ErrInitializationFailed would make relay reject all traffic (401) for an
+		// environment that is serving correctly, defeating the rollback. Log a structured error
+		// instead — relay has no dedicated alarm infrastructure today, so Errorf is the strongest
+		// signal available (design §7 "Failure handling").
 		var initialized bool
 		if client != nil {
 			initialized = client.Initialized()
 			_ = client.Close()
 		}
-		c.mu.Lock()
-		c.initErr = err
-		c.mu.Unlock()
 		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
 			"preserving previous anchor %s",
 			newAnchor.Masked(), err, initialized, previousAnchor.Masked())

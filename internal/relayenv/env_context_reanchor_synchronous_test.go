@@ -18,6 +18,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -147,8 +148,11 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
 
-	// Rollback: anchor pointer unchanged, no new client installed, old client still in place.
-	require.Equal(t, fakeErr, env.GetInitError(), "init failure surfaces on the env")
+	// Rollback: the env stays healthy on the previous anchor, so GetInitError stays nil — setting it
+	// would 401 a still-serving env at the request middleware. The failure surfaces via a structured
+	// Error log instead. Anchor pointer unchanged, no new client installed, old client still in place.
+	assert.NoError(t, env.GetInitError(), "a failed re-anchor must not mark the still-serving env as failed")
+	mockLog.AssertMessageMatch(t, true, ldlog.Error, "Re-anchor to SDK key .* failed")
 	assert.Same(t, originalClient, env.GetClient(), "GetClient still returns the previous anchor's client")
 	assert.Equal(t, envConfig.SDKKey, env.(*envContextImpl).keyRotator.AnchorKey(), "anchor pointer stayed on the previous key")
 
