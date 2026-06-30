@@ -42,15 +42,16 @@ func reanchorViaReconcile(
 	now time.Time,
 ) {
 	t.Helper()
-	builder := credential.NewAcceptedSetBuilder().WithPrimarySDKKey(newKey)
+	builder := credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: newKey})
 	if oldKey.Defined() && oldKey != newKey {
-		builder = builder.WithExpiringSDKKey(oldKey, now.Add(time.Hour))
+		expiry := now.Add(time.Hour)
+		builder = builder.WithSDKKey(credential.SDKKeyParams{Value: oldKey, Expiry: &expiry})
 	}
 	if extraAcceptedSDK.Defined() && extraAcceptedSDK != newKey {
-		builder = builder.WithSDKKey(extraAcceptedSDK)
+		builder = builder.WithSDKKey(credential.SDKKeyParams{Value: extraAcceptedSDK})
 	}
 	if primaryMobile.Defined() {
-		builder = builder.WithPrimaryMobileKey(primaryMobile)
+		builder = builder.WithPrimaryMobileKey(credential.MobileKeyParams{Value: primaryMobile})
 	}
 	if envID.Defined() {
 		builder = builder.WithEnvironmentID(envID)
@@ -95,7 +96,7 @@ func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 	assert.Nil(t, env.GetInitError(), "successful re-anchor clears any prior init error")
 
 	// The rotator's primary now names the new key (CommitAnchor ran).
-	assert.Equal(t, reanchorSyncTestKey2, env.(*envContextImpl).keyRotator.SDKKey())
+	assert.Equal(t, reanchorSyncTestKey2, env.(*envContextImpl).keyRotator.AnchorKey())
 	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncTestKey2))
 
 	// Store handover: the wrapper is the same instance, still initialized, data intact.
@@ -149,7 +150,7 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 	// Rollback: anchor pointer unchanged, no new client installed, old client still in place.
 	require.Equal(t, fakeErr, env.GetInitError(), "init failure surfaces on the env")
 	assert.Same(t, originalClient, env.GetClient(), "GetClient still returns the previous anchor's client")
-	assert.Equal(t, envConfig.SDKKey, env.(*envContextImpl).keyRotator.SDKKey(), "anchor pointer stayed on the previous key")
+	assert.Equal(t, envConfig.SDKKey, env.(*envContextImpl).keyRotator.AnchorKey(), "anchor pointer stayed on the previous key")
 
 	envImpl := env.(*envContextImpl)
 	envImpl.mu.RLock()
@@ -206,7 +207,7 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 	}
 
 	assert.Same(t, originalClient, env.GetClient(), "Case B reuses the existing client for the re-anchored key")
-	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.SDKKey(), "anchor flipped back to the original key")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
 }
 
 // TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey covers the gap left by PR #712's gate:
@@ -239,9 +240,9 @@ func TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey(t *testing.T) {
 
 	// Accept both mobile keys, mob1 primary. mob2 is accepted but not primary.
 	set1, err := credential.NewAcceptedSetBuilder().
-		WithPrimarySDKKey(envConfig.SDKKey).
-		WithPrimaryMobileKey(mob1).
-		WithMobileKey(mob2).
+		WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: mob1}).
+		WithMobileKey(credential.MobileKeyParams{Value: mob2}).
 		WithEnvironmentID(envConfig.EnvID).
 		Build()
 	require.NoError(t, err)
@@ -251,9 +252,9 @@ func TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey(t *testing.T) {
 
 	// Now make mob2 (already accepted) the primary mobile key. No SDK anchor change here.
 	set2, err := credential.NewAcceptedSetBuilder().
-		WithPrimarySDKKey(envConfig.SDKKey).
-		WithPrimaryMobileKey(mob2).
-		WithMobileKey(mob1).
+		WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: mob2}).
+		WithMobileKey(credential.MobileKeyParams{Value: mob1}).
 		WithEnvironmentID(envConfig.EnvID).
 		Build()
 	require.NoError(t, err)

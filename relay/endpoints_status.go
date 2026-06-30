@@ -3,10 +3,13 @@ package relay
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/api"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 
@@ -46,21 +49,53 @@ func statusHandler(relay *Relay) http.Handler {
 				ProjName: identifiers.ProjName,
 			}
 
+			// One consistent snapshot of the accepted credential set drives every credential field
+			// below — the scalar anchor/primary designations, the full sdkKeys[]/mobileKeys[] arrays,
+			// and expiringSdkKey — so they cannot drift relative to each other under a concurrent
+			// reconcile.
+			accepted := clientCtx.GetAcceptedKeys()
+
+			// Scalar fields: the anchor SDK key and primary mobile key designate which array entry is
+			// the anchor / primary.
+			if accepted.Anchor.Defined() {
+				status.SDKKey = sdks.ObscureKey(string(accepted.Anchor))
+			}
+			if accepted.PrimaryMobile.Defined() {
+				status.MobileKey = sdks.ObscureKey(string(accepted.PrimaryMobile))
+			}
 			for _, c := range clientCtx.GetCredentials() {
-				switch c := c.(type) {
-				case config.SDKKey:
-					status.SDKKey = sdks.ObscureKey(string(c))
-				case config.MobileKey:
-					status.MobileKey = sdks.ObscureKey(string(c))
-				case config.EnvironmentID:
-					status.EnvID = string(c)
+				if envID, ok := c.(config.EnvironmentID); ok {
+					status.EnvID = string(envID)
 				}
 			}
 
-			for _, c := range clientCtx.GetDeprecatedCredentials() {
-				if key, ok := c.(config.SDKKey); ok {
-					status.ExpiringSDKKey = sdks.ObscureKey(string(key))
+			// sdkKeys[] / mobileKeys[]: the full accepted set, grouped by kind. Always present (never
+			// null): a server-only env has an empty mobileKeys. Order is unspecified.
+			status.SDKKeys = make([]api.KeyStatus, 0, len(accepted.Server))
+			var expiringCandidates []expiringSDKKey
+			for value, info := range accepted.Server {
+				status.SDKKeys = append(status.SDKKeys, keyStatus(string(value), info))
+				// expiringSdkKey considers non-anchor server keys that carry an expiry.
+				if value != accepted.Anchor && info.Expiry != nil {
+					expiringCandidates = append(expiringCandidates, expiringSDKKey{value: string(value), expiry: *info.Expiry})
 				}
+			}
+			status.MobileKeys = make([]api.KeyStatus, 0, len(accepted.Mobile))
+			for value, info := range accepted.Mobile {
+				status.MobileKeys = append(status.MobileKeys, keyStatus(string(value), info))
+			}
+
+			// expiringSdkKey: the soonest-expiring non-anchor SDK key. Comparing by expiry then by value
+			// gives a total order, so the chosen key is deterministic even when several keys share the
+			// same expiry (map iteration order, and hence MinFunc's pick on a tie, is otherwise unstable).
+			if len(expiringCandidates) > 0 {
+				earliest := slices.MinFunc(expiringCandidates, func(a, b expiringSDKKey) int {
+					if c := a.expiry.Compare(b.expiry); c != 0 {
+						return c
+					}
+					return strings.Compare(a.value, b.value)
+				})
+				status.ExpiringSDKKey = sdks.ObscureKey(earliest.value)
 			}
 
 			client := clientCtx.GetClient()
@@ -151,4 +186,25 @@ func statusHandler(relay *Relay) http.Handler {
 
 		_, _ = w.Write(data)
 	})
+}
+
+// expiringSDKKey is a candidate for the status endpoint's expiringSdkKey field: a non-anchor SDK key
+// that carries an expiry. value is the plain credential; expiry is its (non-nil) expiry.
+type expiringSDKKey struct {
+	value  string
+	expiry time.Time
+}
+
+// keyStatus converts an accepted key — its credential value plus metadata — into its status-endpoint
+// JSON representation, obscuring the secret value and surfacing the optional identifier and expiry.
+func keyStatus(value string, k credential.AcceptedKey) api.KeyStatus {
+	ks := api.KeyStatus{Value: sdks.ObscureKey(value)}
+	if k.Key != nil {
+		ks.Key = *k.Key
+	}
+	if k.Expiry != nil {
+		ms := k.Expiry.UnixMilli()
+		ks.Expiry = &ms
+	}
+	return ks
 }

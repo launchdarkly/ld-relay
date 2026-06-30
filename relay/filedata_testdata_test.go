@@ -66,6 +66,12 @@ func RotateSDKKey(primary config.SDKKey) filedata.ArchiveEnvironment {
 }
 
 func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, expiry time.Time) filedata.ArchiveEnvironment {
+	// Populate AcceptedSDKKeys — the field BuildAcceptedSet uses — mirroring what env_rep.go's
+	// synthesis path produces for old-format payloads that carry sdkKey.expiring.
+	acceptedKeys := []envfactory.AcceptedSDKKey{{Value: primary}}
+	if expiring.Defined() {
+		acceptedKeys = append(acceptedKeys, envfactory.AcceptedSDKKey{Value: expiring, Expiry: expiry})
+	}
 	return filedata.ArchiveEnvironment{
 		Params: envfactory.EnvironmentParams{
 			EnvID:  "env1",
@@ -74,6 +80,7 @@ func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, 
 				Key:        expiring,
 				Expiration: expiry,
 			},
+			AcceptedSDKKeys: acceptedKeys,
 			Identifiers: relayenv.EnvIdentifiers{
 				ProjName: "Project",
 				ProjKey:  "project",

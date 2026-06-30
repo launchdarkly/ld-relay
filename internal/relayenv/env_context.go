@@ -21,43 +21,6 @@ import (
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
 
-// CredentialUpdate specifies the primary credential of a given credential kind for an environment.
-// For example, an environment may have a primary SDK key and a primary mobile key at the same time; each would
-// be specified in individual CredentialUpdate objects.
-type CredentialUpdate struct {
-	// The new primary credential
-	primary credential.SDKCredential
-	// An optional deprecated credential (only SDK keys are supported currently)
-	deprecated config.SDKKey
-	// When the deprecated credential expires
-	expiry time.Time
-	// The current time
-	now time.Time
-}
-
-// NewCredentialUpdate creates a CredentialUpdate from a given primary credential.
-// The default behavior of the environment is to immediately revoke the previous credential of this kind.
-func NewCredentialUpdate(primary credential.SDKCredential) *CredentialUpdate {
-	return &CredentialUpdate{primary: primary, now: time.Now()}
-}
-
-// WithGracePeriod modifies the default behavior from immediate revocation to a delayed revocation of the previous
-// credential. During the grace period, the previous credential continues to function.
-func (c *CredentialUpdate) WithGracePeriod(deprecated config.SDKKey, expiry time.Time) *CredentialUpdate {
-	c.deprecated = deprecated
-	c.expiry = expiry
-	return c
-}
-
-// WithTime overrides the update's current time for testing purposes.
-// Because the environment's credential rotation algorithm compares the current time to the specific expiry of
-// each credential, this can be used to trigger behavior in a more predictable way than relying on the actual time
-// in the test.
-func (c *CredentialUpdate) WithTime(t time.Time) *CredentialUpdate {
-	c.now = t
-	return c
-}
-
 // EnvContext is the interface for all Relay operations that are specific to one configured LD environment.
 //
 // The EnvContext is normally associated with an LDClient instance from the Go SDK, and allows direct access
@@ -77,13 +40,21 @@ type EnvContext interface {
 	// SetIdentifiers updates the environment and project names and keys.
 	SetIdentifiers(EnvIdentifiers)
 
-	// UpdateCredential updates the environment with a new credential, optionally deprecating a previous one
-	// with a grace period.
-	//
-	// This is the legacy single-credential rotation API. It is retained while the action handlers still
-	// drive rotation through it; the full-set ReconcileCredentials below will take over once the handlers
-	// are migrated to it.
-	UpdateCredential(update *CredentialUpdate)
+	// GetAnchorKey returns the anchor SDK key — the key that owns the upstream connection.
+	// Use this when you need exactly the anchor (e.g. the status endpoint's sdkKey field) rather
+	// than the full accepted set returned by GetCredentials.
+	GetAnchorKey() config.SDKKey
+
+	// GetMobileKey returns the primary (default) mobile key. Like GetAnchorKey for the anchor, use this
+	// for the status endpoint's mobileKey field rather than iterating GetCredentials, which may return
+	// several accepted mobile keys (primary + expiring) in nondeterministic order.
+	GetMobileKey() config.MobileKey
+
+	// GetAcceptedKeys returns a consistent snapshot of the full accepted credential set — all
+	// server-side SDK keys and all mobile keys (anchor and primary mobile key included), grouped by
+	// kind, plus which keys are the designated anchor and primary. The status endpoint maps each group
+	// to the full sdkKeys[] / mobileKeys[] arrays.
+	GetAcceptedKeys() credential.AcceptedKeySet
 
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and

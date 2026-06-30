@@ -25,12 +25,14 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
+	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/httpconfig"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v8/internal/store"
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
@@ -101,9 +103,12 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 // reconcileCredentials directly so the grace-period math is deterministic.
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
-	env.(*envContextImpl).UpdateCredential(NewCredentialUpdate(newKey).
-		WithGracePeriod(oldKey, now.Add(time.Hour)).
-		WithTime(now))
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: newKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: oldKey, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
+		Build()
+	require.NoError(t, err)
+	env.(*envContextImpl).reconcileCredentials(set, now)
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -526,7 +531,13 @@ func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
 // Hypothesis 6: Behavior during the swap window (requests arriving mid-swap).
 // -----------------------------------------------------------------------------------------------
 
-func TestReanchorPoC_H6_AnchorPointerFlipsBeforeNewClientIsRegistered(t *testing.T) {
+// TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady is the inversion of the original H6 finding.
+// Before T2.c, reconcileCredentials flipped the rotator's anchor synchronously and then built the new
+// client asynchronously, opening a window where GetClient() (== clients[AnchorKey()]) returned nil for
+// the not-yet-registered new key. T2.c builds the new client synchronously and only commits the anchor
+// once it reports Initialized, so no such nil window exists: while the new client is still building, the
+// anchor stays on the old key and GetClient() keeps returning the old, still-serving client.
+func TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
@@ -536,10 +547,13 @@ func TestReanchorPoC_H6_AnchorPointerFlipsBeforeNewClientIsRegistered(t *testing
 	inner := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
 
 	// gate blocks construction of the NEW anchor's client so we can observe the swap window
-	// deterministically (no sleeps / no racing).
+	// deterministically. entered signals that the synchronous build has reached the factory (and is now
+	// blocked on gate) — at which point the re-anchor is mid-flight but has not yet committed.
 	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
 	gatedFactory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 		if sdkKey == reanchorTestKey2 {
+			entered <- struct{}{}
 			<-gate
 		}
 		return inner(sdkKey, cfg, timeout)
@@ -553,30 +567,46 @@ func TestReanchorPoC_H6_AnchorPointerFlipsBeforeNewClientIsRegistered(t *testing
 	client1 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client1 }, time.Second, 10*time.Millisecond)
 
-	// Re-anchor. reconcileCredentials flips the rotator's primary SDK key synchronously, then starts the
-	// new client on a background goroutine (which blocks in the factory on `gate`).
+	// T2.c re-anchors synchronously, so the reconcile blocks in the gated factory until we release it.
+	// Drive it on a background goroutine and build the set up front (keeping require off that goroutine).
 	start := time.Unix(1000, 0)
-	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: reanchorTestKey2}).
+		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: util.PtrOrNil(start.Add(time.Hour))}).
+		Build()
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		env.(*envContextImpl).reconcileCredentials(set, start)
+	}()
 
-	// FINDING: there is a window where the anchor pointer already names the new key but no client exists
-	// for it yet, so GetClient() returns nil. GetClient() == clients[rotator.SDKKey()], and the rotator's
-	// primary flipped to the new key before startSDKClient registered the client. A request arriving in
-	// this window gets a nil client. T2.c must not advance the anchor pointer until the new client is
-	// registered (and ideally Initialized()).
-	assert.Nil(t, env.GetClient(), "GetClient() is nil during the swap window")
+	// The build has reached the factory and is blocked: the re-anchor is mid-flight, pre-commit.
+	<-entered
+	envImpl := env.(*envContextImpl)
+	assert.Same(t, client1, env.GetClient(), "GetClient() keeps returning the old client during the build — never nil")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "the anchor stays on the old key until the new client is ready")
 
-	// Release the gate; the new client registers and GetClient() recovers.
+	// Release the gate; the new client initializes, the anchor commits, and GetClient() advances.
 	close(gate)
+	<-done
 	client2 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond,
-		"GetClient() recovers once the new client is registered")
+		"GetClient() returns the new client once it is registered and the anchor commits")
+	assert.Equal(t, reanchorTestKey2, envImpl.keyRotator.AnchorKey())
 }
 
 // -----------------------------------------------------------------------------------------------
 // Hypothesis 7: Failure modes — new client init fails.
 // -----------------------------------------------------------------------------------------------
 
-func TestReanchorPoC_H7_FailedNewClientLeavesEnvWithoutAnchorClient(t *testing.T) {
+// TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor is the inversion of the original H7 finding.
+// Before T2.c, a failed new-client init left the anchor already flipped to a key with no client, so
+// GetClient() returned nil and the environment was broken even though the old client was still alive.
+// T2.c builds and validates the new client before committing: on init failure it does NOT commit the
+// anchor, surfaces the error, and leaves the old anchor authoritative (its client keeps serving). This
+// is the §8 atomicity requirement applied to re-anchor.
+func TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	fakeErr := errors.New("new anchor client failed to initialize")
 
@@ -602,25 +632,23 @@ func TestReanchorPoC_H7_FailedNewClientLeavesEnvWithoutAnchorClient(t *testing.T
 	client1 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client1 }, time.Second, 10*time.Millisecond)
 
-	// Re-anchor onto a key whose client init fails (old key kept valid for a grace hour).
+	// Re-anchor onto a key whose client init fails (old key kept valid for a grace hour). The re-anchor
+	// is synchronous, so the init failure and rollback are complete by the time reanchor returns.
 	start := time.Unix(1000, 0)
 	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
-	require.Eventually(t, func() bool { return env.GetInitError() != nil }, time.Second, 10*time.Millisecond,
-		"the failed new-client init should surface as an init error")
-	assert.Equal(t, fakeErr, env.GetInitError())
+	assert.Equal(t, fakeErr, env.GetInitError(), "the failed new-client init surfaces as an init error")
 
-	// FINDING: the rotator already flipped the anchor to the new key, but no client exists for it, so
-	// GetClient() returns nil -- even though the OLD anchor's client is still alive and valid during its
-	// grace period. A failed re-anchor breaks the environment with today's code. This is exactly the §8
-	// atomicity requirement: T2.c must validate that the new client initializes BEFORE swapping the
-	// anchor pointer, and roll back to the old anchor on failure (preserving the previous accepted set).
-	assert.Nil(t, env.GetClient(), "GetClient() is nil after a failed re-anchor")
-
+	// Post-T2.c: the re-anchor rolled back. The anchor pointer stayed on the old key, whose client is
+	// still alive and serving, so GetClient() never returns nil and no client is installed for the
+	// failed new anchor.
+	assert.Same(t, client1, env.GetClient(), "GetClient() still returns the old anchor's client after rollback")
 	envImpl := env.(*envContextImpl)
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "the anchor pointer stays on the old key")
 	envImpl.mu.RLock()
 	_, oldStillPresent := envImpl.clients[envConfig.SDKKey]
+	_, newInstalled := envImpl.clients[reanchorTestKey2]
 	envImpl.mu.RUnlock()
-	assert.True(t, oldStillPresent,
-		"the old anchor's client is still alive -- the data path could have been preserved by rolling back")
+	assert.True(t, oldStillPresent, "the old anchor's client is preserved")
+	assert.False(t, newInstalled, "no client is installed for the failed new anchor")
 }

@@ -16,77 +16,69 @@ type AcceptedSetBuilder struct {
 func NewAcceptedSetBuilder() *AcceptedSetBuilder {
 	return &AcceptedSetBuilder{
 		set: AcceptedSet{
-			sdkKeys:    make(map[config.SDKKey]*time.Time),
-			mobileKeys: make(map[config.MobileKey]*time.Time),
+			sdkKeys:    make(map[config.SDKKey]AcceptedKey),
+			mobileKeys: make(map[config.MobileKey]AcceptedKey),
 		},
 	}
 }
 
-// WithSDKKey adds a permanent (non-expiring) SDK key. It is a no-op if the key is undefined or
-// already present.
-func (b *AcceptedSetBuilder) WithSDKKey(key config.SDKKey) *AcceptedSetBuilder {
-	b.addSDKKey(key, nil)
-	return b
+// SDKKeyParams describes one accepted server-side SDK key for the builder: the credential value plus
+// the optional wire "key" identifier (nil when absent) and optional expiry (nil = permanent).
+type SDKKeyParams struct {
+	Value  config.SDKKey
+	Key    *string
+	Expiry *time.Time
 }
 
-// WithExpiringSDKKey adds an SDK key that should be accepted until the given expiry. It is a no-op
-// if the key is undefined or already present.
-func (b *AcceptedSetBuilder) WithExpiringSDKKey(key config.SDKKey, expiry time.Time) *AcceptedSetBuilder {
-	b.addSDKKey(key, &expiry)
-	return b
+// MobileKeyParams describes one accepted mobile key for the builder. See SDKKeyParams.
+type MobileKeyParams struct {
+	Value  config.MobileKey
+	Key    *string
+	Expiry *time.Time
 }
 
-// WithPrimarySDKKey adds key (if not already present) and designates it as the anchor — the SDK key
-// that owns the environment's upstream connection. It is a no-op if the key is undefined.
-func (b *AcceptedSetBuilder) WithPrimarySDKKey(key config.SDKKey) *AcceptedSetBuilder {
-	if key.Defined() {
-		b.addSDKKey(key, nil)
-		b.set.primarySdkKey = key
+// WithSDKKey adds a server-side SDK key. It is a no-op if the value is undefined or already present
+// (the first metadata recorded for a value wins).
+func (b *AcceptedSetBuilder) WithSDKKey(p SDKKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() || b.set.hasSDKKey(p.Value) {
+		return b
 	}
+	b.set.sdkKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
 	return b
 }
 
-// addSDKKey records the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set (the first expiry recorded for a key wins).
-func (b *AcceptedSetBuilder) addSDKKey(key config.SDKKey, expiry *time.Time) {
-	if !key.Defined() || b.set.hasSDKKey(key) {
-		return
+// WithAnchor adds p.Value and designates it as the anchor — the SDK key that owns the environment's
+// upstream connection. The anchor is always permanent, so p.Expiry is ignored. It is a no-op if the
+// value is undefined. Unlike WithSDKKey it overwrites any existing entry for the value, since
+// designating the anchor takes precedence over an earlier non-anchor add.
+func (b *AcceptedSetBuilder) WithAnchor(p SDKKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() {
+		return b
 	}
-	b.set.sdkKeys[key] = expiry
-}
-
-// WithMobileKey adds a permanent (non-expiring) mobile key. It is a no-op if the key is undefined or
-// already present.
-func (b *AcceptedSetBuilder) WithMobileKey(key config.MobileKey) *AcceptedSetBuilder {
-	b.addMobileKey(key, nil)
+	b.set.sdkKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: nil}
+	b.set.anchor = p.Value
 	return b
 }
 
-// WithExpiringMobileKey adds a mobile key that should be accepted until the given expiry. It is a
-// no-op if the key is undefined or already present.
-func (b *AcceptedSetBuilder) WithExpiringMobileKey(key config.MobileKey, expiry time.Time) *AcceptedSetBuilder {
-	b.addMobileKey(key, &expiry)
-	return b
-}
-
-// WithPrimaryMobileKey adds key (if not already present) and designates it as the primary mobile
-// key — the singular default (the wire's mobKey) used where one mobile key is required, e.g. event
-// forwarding. It is a no-op if the key is undefined.
-func (b *AcceptedSetBuilder) WithPrimaryMobileKey(key config.MobileKey) *AcceptedSetBuilder {
-	if key.Defined() {
-		b.addMobileKey(key, nil)
-		b.set.primaryMobileKey = key
+// WithMobileKey adds a mobile key. It is a no-op if the value is undefined or already present.
+func (b *AcceptedSetBuilder) WithMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() || b.set.hasMobileKey(p.Value) {
+		return b
 	}
+	b.set.mobileKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
 	return b
 }
 
-// addMobileKey records the key with the given expiry (nil = permanent), skipping undefined keys and
-// keys already in the set (the first expiry recorded for a key wins).
-func (b *AcceptedSetBuilder) addMobileKey(key config.MobileKey, expiry *time.Time) {
-	if !key.Defined() || b.set.hasMobileKey(key) {
-		return
+// WithPrimaryMobileKey adds p.Value and designates it as the primary mobile key — the singular
+// default (the wire's mobKey) used where one mobile key is required, e.g. event forwarding. The
+// primary is always permanent, so p.Expiry is ignored. It is a no-op if the value is undefined.
+func (b *AcceptedSetBuilder) WithPrimaryMobileKey(p MobileKeyParams) *AcceptedSetBuilder {
+	if !p.Value.Defined() {
+		return b
 	}
-	b.set.mobileKeys[key] = expiry
+	b.set.mobileKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: nil}
+	b.set.primaryMobileKey = p.Value
+	return b
 }
 
 // WithEnvironmentID sets the environment ID. It is a no-op if the ID is undefined.
@@ -99,14 +91,14 @@ func (b *AcceptedSetBuilder) WithEnvironmentID(id config.EnvironmentID) *Accepte
 
 // Build validates and returns the accumulated AcceptedSet. It returns errAcceptedSetMissingSDKKey if
 // no SDK key was added, or a *MalformedCredentialSetError if no anchor was designated (via
-// WithPrimarySDKKey). Because WithPrimarySDKKey also adds the key, a designated anchor is always
-// among the accepted SDK keys.
+// WithAnchor). Because WithAnchor also adds the key, a designated anchor is always among the
+// accepted SDK keys.
 func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 	if len(b.set.sdkKeys) == 0 {
 		return AcceptedSet{}, errAcceptedSetMissingSDKKey
 	}
-	if !b.set.primarySdkKey.Defined() {
-		return AcceptedSet{}, &MalformedCredentialSetError{Anchor: nil}
+	if !b.set.anchor.Defined() {
+		return AcceptedSet{}, newMissingAnchorError()
 	}
 	return b.set, nil
 }
