@@ -682,19 +682,28 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 	offline := c.offline
 	c.mu.RUnlock()
 
+	// Peripheral install is gated solely on NewAnchorPreviouslyAccepted, deliberately NOT on whether a
+	// client already exists. A brand-new anchor (Reconcile stripped it from additions, so addCredential
+	// never ran) needs its envStreams/handler/connection-mapper wiring installed here, mirroring
+	// addCredential; a previously-accepted anchor already had peripherals set up when it was first
+	// accepted, so we skip.
+	//
+	// These two signals are kept independent on purpose. Today they always agree — a client in
+	// c.clients[newAnchor] can only exist for a key that was previously accepted, because
+	// removeCredential deletes the client in lockstep with the rotator dropping the key from its
+	// accepted set, so existingClient != nil implies NewAnchorPreviouslyAccepted. Branching peripheral
+	// install on NewAnchorPreviouslyAccepted rather than on client presence means that even if that
+	// invariant were ever broken (a client present for a not-previously-accepted key), the brand-new
+	// anchor still gets its peripherals and is never stranded without routing.
+	if !change.NewAnchorPreviouslyAccepted {
+		c.installAnchorPeripherals(newAnchor)
+	}
+
 	if existingClient != nil {
 		// Case B: client already exists for the new anchor.
 		c.commitReanchor(newAnchor, previousAnchor, "Case B (reused existing client)")
 		return
 	}
-
-	if !change.NewAnchorPreviouslyAccepted {
-		// Case A with a brand-new key: Reconcile stripped the new anchor from additions, so peripherals
-		// were skipped. Install them here, mirroring addCredential.
-		c.installAnchorPeripherals(newAnchor)
-	}
-	// Else: previously accepted (rare — non-anchor server key becoming anchor, no client). Peripherals
-	// were already set up by the original addCredential when the key was first accepted.
 
 	if offline {
 		// In offline mode there is no upstream client to build. Just commit + ReplaceCredential.
@@ -800,7 +809,20 @@ func (c *envContextImpl) reanchorBigSegmentSync(_ config.SDKKey) {
 	// does not regress on re-anchor.
 }
 
+// triggerCredentialChanges drains the rotator's StepTime queue and applies the resulting additions
+// and expirations. It runs on the cleanup ticker (cleanupExpiredCredentials), so it can fire at any
+// moment — including while a synchronous re-anchor is in flight inside reconcileCredentials.
+//
+// It takes reconcileMu for the whole StepTime + add/remove pass so the ticker is serialized against
+// reconcileCredentials exactly the way concurrent reconciles already are. Without it, a credential
+// expiry firing during an in-flight re-anchor would drain the same StepTime queue the reconcile
+// relies on (the ticker could steal additions a reconcile just queued) and could removeCredential —
+// closing a client — partway through the re-anchor sequence. reconcileCredentials never calls this,
+// so taking reconcileMu here introduces no re-entrancy.
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
 		c.addCredential(cred)

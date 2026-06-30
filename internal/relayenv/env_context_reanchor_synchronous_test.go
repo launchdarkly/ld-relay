@@ -28,6 +28,7 @@ import (
 )
 
 const reanchorSyncTestKey2 = config.SDKKey("reanchor-sync-new-anchor")
+const reanchorSyncExpiringKey = config.SDKKey("reanchor-sync-expiring-key")
 
 // reanchorViaReconcile drives the production ReconcileCredentials path with a payload that
 // designates newKey as the anchor and keeps oldKey accepted with an expiry one hour in the future,
@@ -212,6 +213,124 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 
 	assert.Same(t, originalClient, env.GetClient(), "Case B reuses the existing client for the re-anchored key")
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
+}
+
+// TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized exercises the concurrency gap closed
+// by serializing the cleanup ticker against reconcileMu: a credential expiry firing (via the ticker
+// path, triggerCredentialChanges) while a synchronous re-anchor is mid-build must not run its
+// StepTime + add/remove pass concurrently with the in-flight re-anchor. Both paths drain the same
+// StepTime queue and can close clients, so they must be serialized the way concurrent reconciles are.
+//
+// The test wedges a re-anchor open by blocking the new anchor's client build, then fires the ticker
+// from another goroutine and asserts (a) the ticker is blocked while the re-anchor holds reconcileMu,
+// (b) it completes once the re-anchor releases it, and (c) the final state is consistent — the new
+// anchor committed, the expiring non-anchor key dropped, the demoted old anchor retained in grace.
+func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
+	envConfig := st.EnvMain.Config
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	now := time.Unix(2000, 0)
+	expiringExpiry := now.Add(30 * time.Minute) // the non-anchor key the ticker will drop
+	graceExpiry := now.Add(2 * time.Hour)       // the demoted old anchor stays alive in its grace period
+	tickerTime := now.Add(time.Hour)            // between the two expiries: drops only the expiring key
+
+	// The new anchor's client build blocks until releaseBuild is closed, holding the re-anchor (and
+	// thus reconcileMu) open so the ticker has a window to (try to) run concurrently.
+	buildEntered := make(chan struct{})
+	releaseBuild := make(chan struct{})
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	healthy := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == reanchorSyncTestKey2 {
+			close(buildEntered)
+			<-releaseBuild
+		}
+		return healthy(sdkKey, cfg, timeout)
+	}
+
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	originalClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
+	require.NoError(t, env.GetStore().Init(st.AllData))
+
+	envImpl := env.(*envContextImpl)
+
+	// Accept a second SDK key as a non-anchor server key carrying a future expiry. addCredential's
+	// anchor gate won't build a client for it, so it has no client of its own.
+	initialSet, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: reanchorSyncExpiringKey, Expiry: &expiringExpiry}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
+		WithEnvironmentID(envConfig.EnvID).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(initialSet, now)
+	require.Contains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncExpiringKey))
+
+	// Re-anchor onto a brand-new key (Case A) while keeping both the demoted old anchor and the
+	// expiring key accepted. The build will block, holding reconcileMu.
+	reanchorSet, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
+		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: &graceExpiry}).
+		WithSDKKey(credential.SDKKeyParams{Value: reanchorSyncExpiringKey, Expiry: &expiringExpiry}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
+		WithEnvironmentID(envConfig.EnvID).
+		Build()
+	require.NoError(t, err)
+
+	reconcileDone := make(chan struct{})
+	go func() {
+		defer close(reconcileDone)
+		envImpl.reconcileCredentials(reanchorSet, now)
+	}()
+
+	// Wait until the re-anchor is wedged open inside the client build (holding reconcileMu).
+	<-buildEntered
+
+	// Fire the cleanup ticker's work while the re-anchor holds reconcileMu. With the ticker serialized
+	// against reconcileMu, this must block until the re-anchor releases it.
+	tickerDone := make(chan struct{})
+	go func() {
+		defer close(tickerDone)
+		envImpl.triggerCredentialChanges(tickerTime)
+	}()
+
+	select {
+	case <-tickerDone:
+		t.Fatal("the cleanup ticker ran its StepTime + add/remove pass concurrently with an in-flight " +
+			"re-anchor; reconcileMu did not serialize the ticker against reconcileCredentials")
+	case <-time.After(100 * time.Millisecond):
+		// Expected: the ticker is blocked on reconcileMu.
+	}
+
+	// Release the build; the re-anchor finishes and drops reconcileMu, unblocking the ticker.
+	close(releaseBuild)
+	<-reconcileDone
+	select {
+	case <-tickerDone:
+	case <-time.After(time.Second):
+		t.Fatal("the cleanup ticker did not complete after the re-anchor released reconcileMu")
+	}
+
+	// Final state is consistent: the new anchor committed and serves its client, the expiring
+	// non-anchor key was dropped by the ticker, and the demoted old anchor is retained in grace.
+	newClient := requireClientReady(t, clientCh)
+	assert.Same(t, newClient, env.GetClient(), "the new anchor's client is current after the re-anchor")
+	assert.Equal(t, reanchorSyncTestKey2, envImpl.keyRotator.AnchorKey())
+	assert.NotContains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncExpiringKey),
+		"the expiring non-anchor key was dropped by the ticker")
+
+	envImpl.mu.RLock()
+	_, oldStillPresent := envImpl.clients[envConfig.SDKKey]
+	envImpl.mu.RUnlock()
+	assert.True(t, oldStillPresent, "demoted old anchor's client retained during its grace period")
 }
 
 // TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey covers the gap left by PR #712's gate:
