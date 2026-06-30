@@ -311,14 +311,25 @@ func (s *StreamManager) subscribe(readyCh chan<- error) {
 }
 
 func (s *StreamManager) consumeStream(stream *es.Stream) {
-	// Consume remaining Events and Errors so we can garbage collect
+	// Drain any remaining Events and Errors so the eventsource Stream's goroutines can be garbage
+	// collected. This MUST run in a separate goroutine and must not block consumeStream from
+	// returning: the eventsource library (v1.11.0) can deadlock internally when Close races with an
+	// in-flight event. Its Stream.stream loop, on close, drains its internal errs channel before its
+	// events channel (eventsource stream.go discardCurrentStream), but the decoder goroutine may be
+	// blocked sending on events, so neither side progresses and stream.Events is never closed. If we
+	// drained inline, "for range stream.Events" would block forever, so subscribe would never return,
+	// s.done would never close, and StreamManager.Close (hence Relay.Close) would hang until the test
+	// or process timed out. Backgrounding the drain leaks those wedged goroutines in that rare race,
+	// but only at shutdown, and keeps Close bounded.
 	defer func() {
-		for range stream.Events {
-		} // COVERAGE: no way to cause this condition in unit tests
-		if stream.Errors != nil {
-			for range stream.Errors { // COVERAGE: no way to cause this condition in unit tests
+		go func() {
+			for range stream.Events {
 			}
-		}
+			if stream.Errors != nil {
+				for range stream.Errors {
+				}
+			}
+		}()
 	}()
 
 	for {
