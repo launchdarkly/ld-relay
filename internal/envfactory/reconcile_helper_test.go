@@ -176,6 +176,27 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 	assert.Contains(t, malformed.Error(), "not present in sdkKeys[]")
 }
 
+// TestBuildAcceptedSet_PrimaryMobileNotInArray verifies the mobile analogue of the anchor invariant:
+// a defined mobKey absent from mobileKeys[] is rejected. Without this guard the primary mobile key
+// would be silently left undesignated, clearing it on reconcile and breaking event forwarding.
+func TestBuildAcceptedSet_PrimaryMobileNotInArray(t *testing.T) {
+	params := EnvironmentParams{
+		EnvID:           "env-abc",
+		SDKKey:          "sdk-anchor",
+		MobileKey:       "mob-primary", // defined...
+		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+		AcceptedMobileKeys: []AcceptedMobileKey{
+			{Key: "other", Value: "mob-other"}, // ...but NOT in the array
+		},
+	}
+	_, _, err := BuildAcceptedSet(params)
+
+	require.Error(t, err)
+	var malformed *credential.MalformedCredentialSetError
+	require.True(t, errors.As(err, &malformed))
+	assert.Contains(t, malformed.Error(), "not present in mobileKeys[]")
+}
+
 // TestBuildAcceptedSet_NoMobileKey verifies that an environment with no mobile key (e.g. a
 // server-side-only environment) is valid: ToParams must not synthesize a phantom empty mobileKeys
 // entry that BuildAcceptedSet would reject as malformed.

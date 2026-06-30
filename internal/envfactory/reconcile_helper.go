@@ -66,15 +66,27 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 		return credential.AcceptedSet{}, anchor, credential.NewAnchorNotInSetError()
 	}
 
+	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
 			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
+		}
+		if k.Value == params.MobileKey {
+			primaryMobileInArray = true
 		}
 		if k.Expiry.IsZero() {
 			b.WithMobileKey(k.Value)
 		} else {
 			b.WithExpiringMobileKey(k.Value, k.Expiry)
 		}
+	}
+
+	// The primary mobile key, when the environment has one, must be in mobileKeys[] — the mobile
+	// analogue of the anchor invariant above. A defined mobKey absent from the array is malformed:
+	// without this guard the primary would be silently left undesignated, clearing it on reconcile and
+	// breaking event forwarding. (An undefined mobKey is valid — a server-side-only environment.)
+	if params.MobileKey.Defined() && !primaryMobileInArray {
+		return credential.AcceptedSet{}, anchor, credential.NewPrimaryMobileKeyNotInSetError()
 	}
 
 	set, err := b.Build()
