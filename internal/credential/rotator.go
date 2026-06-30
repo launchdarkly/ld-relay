@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -8,10 +9,29 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
 
-// acceptedKeyInfo holds per-key metadata for the accepted-set maps.
-type acceptedKeyInfo struct {
-	expiry *time.Time // nil = permanent
-	key    *string    // wire "key" identifier — non-secret human-readable name; nil when absent
+// AcceptedKey is the metadata for one accepted credential: its optional expiry and optional wire
+// "key" identifier. The credential value itself is the map key wherever AcceptedKey is stored — the
+// rotator's accepted-key maps, the builder's AcceptedSet, and the AcceptedKeySet returned by
+// AcceptedKeys.
+type AcceptedKey struct {
+	// Expiry is the key's expiry. A nil expiry means the key is permanent.
+	Expiry *time.Time
+	// Key is the non-secret wire "key" identifier — a human-readable name. Nil when the source carried
+	// none (manual configuration, or an old-format payload predating concurrent keys).
+	Key *string
+}
+
+// AcceptedKeySet is a point-in-time snapshot of an environment's full accepted credential set,
+// returned by Rotator.AcceptedKeys. Server and Mobile are keyed by credential value (the secret);
+// the value AcceptedKey carries that key's metadata. Anchor and PrimaryMobile name the designated
+// keys within Server and Mobile. The status endpoint maps Server/Mobile to the sdkKeys[]/mobileKeys[]
+// arrays and uses Anchor to mark the anchor entry. Reads of the maps and the designations are taken
+// under a single lock, so they are mutually consistent.
+type AcceptedKeySet struct {
+	Server        map[config.SDKKey]AcceptedKey
+	Mobile        map[config.MobileKey]AcceptedKey
+	Anchor        config.SDKKey
+	PrimaryMobile config.MobileKey
 }
 
 type Rotator struct {
@@ -29,11 +49,11 @@ type Rotator struct {
 
 	// acceptedSDKKeys is the full set of accepted SDK keys with optional per-key expiry.
 	// A nil expiry means the key is permanent. The anchor is always present with a nil expiry.
-	acceptedSDKKeys map[config.SDKKey]acceptedKeyInfo
+	acceptedSDKKeys map[config.SDKKey]AcceptedKey
 
 	// acceptedMobileKeys is the full set of accepted mobile keys with optional per-key expiry.
 	// A nil expiry means the key is permanent.
-	acceptedMobileKeys map[config.MobileKey]acceptedKeyInfo
+	acceptedMobileKeys map[config.MobileKey]AcceptedKey
 
 	expirations []SDKCredential
 	additions   []SDKCredential
@@ -52,8 +72,8 @@ type InitialCredentials struct {
 func NewRotator(loggers ldlog.Loggers) *Rotator {
 	r := &Rotator{
 		loggers:            loggers,
-		acceptedSDKKeys:    make(map[config.SDKKey]acceptedKeyInfo),
-		acceptedMobileKeys: make(map[config.MobileKey]acceptedKeyInfo),
+		acceptedSDKKeys:    make(map[config.SDKKey]AcceptedKey),
+		acceptedMobileKeys: make(map[config.MobileKey]AcceptedKey),
 	}
 	return r
 }
@@ -71,10 +91,10 @@ func (r *Rotator) Initialize(credentials []SDKCredential) {
 		switch cred := cred.(type) {
 		case config.SDKKey:
 			r.anchorKey = cred
-			r.acceptedSDKKeys[cred] = acceptedKeyInfo{}
+			r.acceptedSDKKeys[cred] = AcceptedKey{}
 		case config.MobileKey:
 			r.primaryMobileKey = cred
-			r.acceptedMobileKeys[cred] = acceptedKeyInfo{}
+			r.acceptedMobileKeys[cred] = AcceptedKey{}
 		case config.EnvironmentID:
 			r.primaryEnvironmentID = cred
 		}
@@ -120,19 +140,17 @@ func (r *Rotator) allCredentials() []SDKCredential {
 
 // DeprecatedCredentials returns the SDK keys being phased out — every accepted SDK key, other than the
 // anchor, that carries a future expiry. (Per-key expiry is stored as data on the accepted entry; the
-// cleanup ticker drops the key once it elapses.) EnvContext.GetDeprecatedCredentials delegates here to
-// populate the status endpoint's expiringSdkKey field.
+// cleanup ticker drops the key once it elapses.)
 //
 // Mobile keys are deliberately not returned even though they expire the same way SDK keys do — carried
-// as per-key expiry and dropped by the same cleanup ticker. They are omitted only because the status
-// endpoint has no expiringMobileKey field to populate, not because mobile-key expiry is unimplemented.
+// as per-key expiry and dropped by the same cleanup ticker.
 func (r *Rotator) DeprecatedCredentials() []SDKCredential {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var out []SDKCredential
 	for key, info := range r.acceptedSDKKeys {
-		if info.expiry != nil && key != r.anchorKey {
+		if info.Expiry != nil && key != r.anchorKey {
 			out = append(out, key)
 		}
 	}
@@ -167,7 +185,7 @@ func (r *Rotator) expireMobileKey(mobileKey config.MobileKey) {
 // expirations for the tracked credentials since the last time this method was called.
 //
 // It enforces per-key expiry for both SDK and mobile keys: expiry is stored as data on the accepted
-// entry (acceptedKeyInfo.expiry); a nil expiry means the key is permanent and is never expired here.
+// entry (AcceptedKey.Expiry); a nil expiry means the key is permanent and is never expired here.
 //
 // Expiry happens strictly after a key's expiry timestamp.
 func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expirations []SDKCredential) {
@@ -175,12 +193,12 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	defer r.mu.Unlock()
 
 	for key, info := range r.acceptedSDKKeys {
-		if info.expiry != nil && now.After(*info.expiry) {
+		if info.Expiry != nil && now.After(*info.Expiry) {
 			r.expireSDKKey(key)
 		}
 	}
 	for key, info := range r.acceptedMobileKeys {
-		if info.expiry != nil && now.After(*info.expiry) {
+		if info.Expiry != nil && now.After(*info.Expiry) {
 			r.expireMobileKey(key)
 		}
 	}
@@ -223,8 +241,8 @@ type reconcilableKey interface {
 // key no longer desired is dropped and queued as an expiration. Per-key expiry is stored as data on
 // the accepted entry; the cleanup ticker is what later acts on it. The caller must hold the write lock.
 func reconcileAcceptedKeys[K reconcilableKey](
-	desired map[K]acceptedKeyInfo,
-	accepted map[K]acceptedKeyInfo,
+	desired map[K]AcceptedKey,
+	accepted map[K]AcceptedKey,
 	additions *[]SDKCredential,
 	expirations *[]SDKCredential,
 	loggers ldlog.Loggers,
@@ -259,9 +277,9 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // the anchor is present and permanent (WithAnchor forces a nil expiry), so no special handling is
 // needed here. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
-	desired := make(map[config.SDKKey]acceptedKeyInfo, len(set.sdkKeys))
+	desired := make(map[config.SDKKey]AcceptedKey, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {
-		if info.expiry != nil && !now.Before(*info.expiry) {
+		if info.Expiry != nil && !now.Before(*info.Expiry) {
 			continue // already expired; treat as absent
 		}
 		desired[key] = info
@@ -275,9 +293,9 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 // (WithPrimaryMobileKey forces a nil expiry). An empty primary means the set declared no mobile key.
 // The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
-	desired := make(map[config.MobileKey]acceptedKeyInfo, len(set.mobileKeys))
+	desired := make(map[config.MobileKey]AcceptedKey, len(set.mobileKeys))
 	for key, info := range set.mobileKeys {
-		if info.expiry != nil && !now.Before(*info.expiry) {
+		if info.Expiry != nil && !now.Before(*info.Expiry) {
 			continue // already expired; treat as absent
 		}
 		desired[key] = info
@@ -297,4 +315,25 @@ func (r *Rotator) reconcileEnvironmentID(set AcceptedSet) {
 	}
 	r.primaryEnvironmentID = set.envID
 	r.additions = append(r.additions, set.envID)
+}
+
+// AcceptedKeys returns a snapshot of the full accepted credential set — all server-side SDK keys and
+// all mobile keys (anchor and primary mobile key included) — grouped by kind, along with which keys
+// are the designated anchor and primary mobile. The maps and the designations are read under a single
+// lock so they are mutually consistent. The status endpoint maps each group to the sdkKeys[] /
+// mobileKeys[] arrays.
+func (r *Rotator) AcceptedKeys() AcceptedKeySet {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	server := make(map[config.SDKKey]AcceptedKey, len(r.acceptedSDKKeys))
+	maps.Copy(server, r.acceptedSDKKeys)
+	mobile := make(map[config.MobileKey]AcceptedKey, len(r.acceptedMobileKeys))
+	maps.Copy(mobile, r.acceptedMobileKeys)
+	return AcceptedKeySet{
+		Server:        server,
+		Mobile:        mobile,
+		Anchor:        r.anchorKey,
+		PrimaryMobile: r.primaryMobileKey,
+	}
 }

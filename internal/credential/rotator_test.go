@@ -34,13 +34,13 @@ func TestInitializePopulatesAcceptedSets(t *testing.T) {
 	// Verify accepted SDK key set: one entry, no expiry.
 	assert.Len(t, rotator.acceptedSDKKeys, 1)
 	if info, ok := rotator.acceptedSDKKeys[sdkKey]; assert.True(t, ok, "acceptedSDKKeys should contain the initialized SDK key") {
-		assert.Nil(t, info.expiry, "a key initialized without expiry should have nil expiry in acceptedKeyInfo")
+		assert.Nil(t, info.Expiry, "a key initialized without expiry should have nil expiry in AcceptedKey")
 	}
 
 	// Verify accepted mobile key set: one entry, no expiry.
 	assert.Len(t, rotator.acceptedMobileKeys, 1)
 	if info, ok := rotator.acceptedMobileKeys[mobileKey]; assert.True(t, ok, "acceptedMobileKeys should contain the initialized mobile key") {
-		assert.Nil(t, info.expiry, "a key initialized without expiry should have nil expiry in acceptedKeyInfo")
+		assert.Nil(t, info.Expiry, "a key initialized without expiry should have nil expiry in AcceptedKey")
 	}
 
 	// Existing public API is unchanged.
@@ -265,4 +265,87 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
+}
+
+// TestAcceptedKeys verifies that AcceptedKeys returns the full accepted set — every server and mobile
+// key, including the anchor and primary mobile key — grouped by kind with identifier and expiry
+// populated, plus the anchor and primary-mobile designations.
+func TestAcceptedKeys(t *testing.T) {
+	t.Run("single anchor plus primary mobile", func(t *testing.T) {
+		r := newTestRotator()
+		r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")})), time.Unix(0, 0))
+
+		set := r.AcceptedKeys()
+		require.Len(t, set.Server, 1)
+		require.Len(t, set.Mobile, 1)
+		assert.Equal(t, config.SDKKey("sdk-anchor"), set.Anchor)
+		assert.Equal(t, config.MobileKey("mob-primary"), set.PrimaryMobile)
+
+		anchor, ok := set.Server["sdk-anchor"]
+		require.True(t, ok)
+		require.NotNil(t, anchor.Key)
+		assert.Equal(t, "default", *anchor.Key)
+		assert.Nil(t, anchor.Expiry)
+
+		mob, ok := set.Mobile["mob-primary"]
+		require.True(t, ok)
+		require.NotNil(t, mob.Key)
+		assert.Equal(t, "mob-1", *mob.Key)
+	})
+
+	t.Run("multiple keys include the anchor; expiry populated", func(t *testing.T) {
+		r := newTestRotator()
+		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
+		r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
+			WithSDKKey(SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("b-service")}).
+			WithSDKKey(SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key"), Expiry: util.PtrOrNil(expiry)}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: "mob-primary"})), time.Unix(0, 0))
+
+		set := r.AcceptedKeys()
+		require.Len(t, set.Server, 3) // anchor + sdk-b + sdk-old
+		require.Len(t, set.Mobile, 1)
+		_, ok := set.Server["sdk-anchor"]
+		assert.True(t, ok, "anchor must be present in the full set")
+
+		old, ok := set.Server["sdk-old"]
+		require.True(t, ok)
+		require.NotNil(t, old.Expiry)
+		assert.Equal(t, expiry, *old.Expiry)
+
+		// A key with no identifier (the primary mobile here) carries a nil Key.
+		mob, ok := set.Mobile["mob-primary"]
+		require.True(t, ok)
+		assert.Nil(t, mob.Key)
+	})
+}
+
+// TestReconcileClearsStaleKeyIdentifier verifies that when a later reconcile carries no identifier for
+// a key that previously had one (e.g. an old-format payload after a new-format one), the rotator
+// clears the stale identifier rather than retaining it — so /status never shows an identifier the
+// current credential set no longer carries.
+func TestReconcileClearsStaleKeyIdentifier(t *testing.T) {
+	r := newTestRotator()
+	now := time.Unix(0, 0)
+
+	// First reconcile: sdk-b carries the identifier "b-service".
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: "sdk-anchor"}).
+		WithSDKKey(SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("b-service")})), now)
+
+	b, ok := r.AcceptedKeys().Server["sdk-b"]
+	require.True(t, ok)
+	require.NotNil(t, b.Key)
+	assert.Equal(t, "b-service", *b.Key)
+
+	// Second reconcile: same credential value, but no identifier this time.
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: "sdk-anchor"}).
+		WithSDKKey(SDKKeyParams{Value: "sdk-b"})), now)
+
+	b, ok = r.AcceptedKeys().Server["sdk-b"]
+	require.True(t, ok)
+	assert.Nil(t, b.Key, "identifier must be cleared when the new payload carries none")
 }
