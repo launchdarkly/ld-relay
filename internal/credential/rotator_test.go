@@ -6,6 +6,7 @@ import (
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +54,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(anchor)), now)
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -70,7 +71,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(anchor).WithSDKKey(other)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithSDKKey(SDKKeyParams{Value: other})), now)
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
@@ -89,7 +90,7 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(anchor).WithPrimaryMobileKey(mob1).WithMobileKey(mob2)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).WithMobileKey(MobileKeyParams{Value: mob2})), now)
 	additions, _ := r.StepTime(now)
 
 	// Every mobile key is accepted; the designated one is the primary.
@@ -106,11 +107,11 @@ func TestReconcileRevokesOmittedKeys(t *testing.T) {
 	now := time.Now()
 
 	r.Reconcile(
-		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(anchor).WithSDKKey(other).WithPrimaryMobileKey(mob)), now)
+		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithSDKKey(SDKKeyParams{Value: other}).WithPrimaryMobileKey(MobileKeyParams{Value: mob})), now)
 	r.StepTime(now)
 
 	// Reconciling to just the anchor revokes the omitted server and mobile keys.
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(anchor)), now)
+	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
 	additions, expirations := r.StepTime(now)
 
 	assert.Empty(t, additions)
@@ -132,10 +133,10 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(anchor).
-			WithExpiringSDKKey(expiringSDK, now.Add(time.Hour)).
-			WithPrimaryMobileKey(mob).
-			WithExpiringMobileKey(expiringMobile, now.Add(time.Hour))),
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: expiringSDK, Expiry: util.PtrOrNil(now.Add(time.Hour))}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
+			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(now.Add(time.Hour))})),
 		now)
 	additions, expirations := r.StepTime(now)
 
@@ -158,9 +159,9 @@ func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
 	now := time.Unix(1000, 0)
 
 	set := mustBuild(t, NewAcceptedSetBuilder().
-		WithAnchor(anchor).
-		WithExpiringMobileKey(mob, now.Add(-time.Hour)). // already expired in the payload...
-		WithPrimaryMobileKey(mob))                       // ...but designated as the primary
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithMobileKey(MobileKeyParams{Value: mob, Expiry: util.PtrOrNil(now.Add(-time.Hour))}). // already expired in the payload...
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob}))                                      // ...but designated as the primary
 	r.Reconcile(set, now)
 	r.StepTime(now)
 
@@ -184,10 +185,10 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(anchor).
-			WithExpiringSDKKey(expiringSDK, expiry).
-			WithPrimaryMobileKey(mob).
-			WithExpiringMobileKey(expiringMobile, expiry)),
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: expiringSDK, Expiry: util.PtrOrNil(expiry)}).
+			WithPrimaryMobileKey(MobileKeyParams{Value: mob}).
+			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(expiry)})),
 		now)
 	additions, expirations := r.StepTime(now)
 	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
@@ -218,8 +219,8 @@ func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
 
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(anchor).
-			WithExpiringSDKKey(staleKey, alreadyExpired)),
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(alreadyExpired)})),
 		now)
 	additions, expirations := r.StepTime(now)
 
@@ -242,8 +243,8 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 	// First reconcile: key is accepted with a future expiry.
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(anchor).
-			WithExpiringSDKKey(key, expiry)),
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: key, Expiry: util.PtrOrNil(expiry)})),
 		now)
 	r.StepTime(now)
 	require.ElementsMatch(t, []SDKCredential{key}, r.DeprecatedCredentials())
@@ -251,8 +252,8 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 	// Second reconcile: same key, no expiry (de-expiry).
 	r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
-			WithAnchor(anchor).
-			WithSDKKey(key)),
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: key})),
 		now)
 	r.StepTime(now)
 

@@ -3,7 +3,6 @@ package credential
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
 )
@@ -27,12 +26,12 @@ import (
 //
 // Construct an AcceptedSet with AcceptedSetBuilder (see accepted_set_builder.go).
 type AcceptedSet struct {
-	// sdkKeys and mobileKeys store each accepted key once, keyed by value, so duplicates collapse
-	// without a containment scan. The map value is the key's expiry: a nil *time.Time means the key
-	// is permanent. A nil map is a valid empty set (reads return absent; only the builder writes).
-	sdkKeys          map[config.SDKKey]*time.Time
+	// sdkKeys and mobileKeys store each accepted key once, keyed by value (the secret), so duplicates
+	// collapse without a containment scan. The map value carries the key's metadata (see
+	// acceptedKeyInfo). A nil map is a valid empty set (reads return absent; only the builder writes).
+	sdkKeys          map[config.SDKKey]acceptedKeyInfo
 	anchor           config.SDKKey
-	mobileKeys       map[config.MobileKey]*time.Time
+	mobileKeys       map[config.MobileKey]acceptedKeyInfo
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
 }
@@ -100,15 +99,15 @@ func NewPrimaryMobileKeyNotInSetError() *MalformedCredentialSetError {
 }
 
 // NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose
-// value field is empty. kind is "sdkKeys" or "mobileKeys"; identifier is the key's identifier
-// string (may be empty for old-format payloads that synthesize from the singular fields).
-func NewEmptyCredentialError(kind, identifier string) *MalformedCredentialSetError {
-	if identifier == "" {
+// value field is empty. kind is "sdkKeys" or "mobileKeys"; key is the entry's wire "key" identifier
+// (may be empty for old-format payloads that synthesize from the singular fields).
+func NewEmptyCredentialError(kind, key string) *MalformedCredentialSetError {
+	if key == "" {
 		return &MalformedCredentialSetError{
 			msg: fmt.Sprintf("malformed credential set: %s entry has an empty value", kind),
 		}
 	}
 	return &MalformedCredentialSetError{
-		msg: fmt.Sprintf("malformed credential set: %s entry %q has an empty value", kind, identifier),
+		msg: fmt.Sprintf("malformed credential set: %s entry %q has an empty value", kind, key),
 	}
 }

@@ -12,18 +12,18 @@ import (
 func TestAcceptedSetBuilderValidation(t *testing.T) {
 	// No SDK key at all is a caller error.
 	_, err := NewAcceptedSetBuilder().
-		WithMobileKey(config.MobileKey("mob")).
+		WithMobileKey(MobileKeyParams{Value: "mob"}).
 		WithEnvironmentID(config.EnvironmentID("env")).
 		Build()
 	require.ErrorIs(t, err, errAcceptedSetMissingSDKKey)
 
 	// An SDK key with no designated anchor is malformed.
 	var malformed *MalformedCredentialSetError
-	_, err = NewAcceptedSetBuilder().WithSDKKey(config.SDKKey("sdk")).Build()
+	_, err = NewAcceptedSetBuilder().WithSDKKey(SDKKeyParams{Value: "sdk"}).Build()
 	require.ErrorAs(t, err, &malformed)
 
 	// WithAnchor adds the key and designates it as the anchor, so Build succeeds.
-	set, err := NewAcceptedSetBuilder().WithAnchor(config.SDKKey("sdk")).Build()
+	set, err := NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: "sdk"}).Build()
 	require.NoError(t, err)
 	assert.True(t, set.hasSDKKey(config.SDKKey("sdk")))
 	assert.Equal(t, config.SDKKey("sdk"), set.anchor)
@@ -32,11 +32,11 @@ func TestAcceptedSetBuilderValidation(t *testing.T) {
 func TestAcceptedSetBuilderDeduplicates(t *testing.T) {
 	// Adding the same key more than once (including via WithPrimary*) keeps a single entry.
 	set := mustBuild(t, NewAcceptedSetBuilder().
-		WithSDKKey(config.SDKKey("sdk")).
-		WithAnchor(config.SDKKey("sdk")).
-		WithSDKKey(config.SDKKey("sdk")).
-		WithMobileKey(config.MobileKey("mob")).
-		WithPrimaryMobileKey(config.MobileKey("mob")))
+		WithSDKKey(SDKKeyParams{Value: "sdk"}).
+		WithAnchor(SDKKeyParams{Value: "sdk"}).
+		WithSDKKey(SDKKeyParams{Value: "sdk"}).
+		WithMobileKey(MobileKeyParams{Value: "mob"}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: "mob"}))
 
 	assert.Len(t, set.sdkKeys, 1)
 	assert.Len(t, set.mobileKeys, 1)
