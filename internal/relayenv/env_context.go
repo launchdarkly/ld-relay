@@ -50,6 +50,12 @@ type EnvContext interface {
 	// several accepted mobile keys (primary + expiring) in nondeterministic order.
 	GetMobileKey() config.MobileKey
 
+	// GetAcceptedKeys returns a consistent snapshot of the full accepted credential set — all
+	// server-side SDK keys and all mobile keys (anchor and primary mobile key included), grouped by
+	// kind, plus which keys are the designated anchor and primary. The status endpoint maps each group
+	// to the full sdkKeys[] / mobileKeys[] arrays.
+	GetAcceptedKeys() credential.AcceptedKeySet
+
 	// ReconcileCredentials atomically reconciles the environment's accepted credentials to match
 	// newSet. The set names its own anchor (the SDK key that owns the upstream connection) and
 	// primary mobile key. The method owns the order of operations internally (add → re-anchor →

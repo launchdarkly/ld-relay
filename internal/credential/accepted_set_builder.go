@@ -16,8 +16,8 @@ type AcceptedSetBuilder struct {
 func NewAcceptedSetBuilder() *AcceptedSetBuilder {
 	return &AcceptedSetBuilder{
 		set: AcceptedSet{
-			sdkKeys:    make(map[config.SDKKey]acceptedKeyInfo),
-			mobileKeys: make(map[config.MobileKey]acceptedKeyInfo),
+			sdkKeys:    make(map[config.SDKKey]AcceptedKey),
+			mobileKeys: make(map[config.MobileKey]AcceptedKey),
 		},
 	}
 }
@@ -43,7 +43,7 @@ func (b *AcceptedSetBuilder) WithSDKKey(p SDKKeyParams) *AcceptedSetBuilder {
 	if !p.Value.Defined() || b.set.hasSDKKey(p.Value) {
 		return b
 	}
-	b.set.sdkKeys[p.Value] = acceptedKeyInfo{key: p.Key, expiry: p.Expiry}
+	b.set.sdkKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
 	return b
 }
 
@@ -55,7 +55,7 @@ func (b *AcceptedSetBuilder) WithAnchor(p SDKKeyParams) *AcceptedSetBuilder {
 	if !p.Value.Defined() {
 		return b
 	}
-	b.set.sdkKeys[p.Value] = acceptedKeyInfo{key: p.Key, expiry: nil}
+	b.set.sdkKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: nil}
 	b.set.anchor = p.Value
 	return b
 }
@@ -65,7 +65,7 @@ func (b *AcceptedSetBuilder) WithMobileKey(p MobileKeyParams) *AcceptedSetBuilde
 	if !p.Value.Defined() || b.set.hasMobileKey(p.Value) {
 		return b
 	}
-	b.set.mobileKeys[p.Value] = acceptedKeyInfo{key: p.Key, expiry: p.Expiry}
+	b.set.mobileKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: p.Expiry}
 	return b
 }
 
@@ -76,7 +76,7 @@ func (b *AcceptedSetBuilder) WithPrimaryMobileKey(p MobileKeyParams) *AcceptedSe
 	if !p.Value.Defined() {
 		return b
 	}
-	b.set.mobileKeys[p.Value] = acceptedKeyInfo{key: p.Key, expiry: nil}
+	b.set.mobileKeys[p.Value] = AcceptedKey{Key: p.Key, Expiry: nil}
 	b.set.primaryMobileKey = p.Value
 	return b
 }

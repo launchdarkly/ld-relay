@@ -28,10 +28,10 @@ import (
 type AcceptedSet struct {
 	// sdkKeys and mobileKeys store each accepted key once, keyed by value (the secret), so duplicates
 	// collapse without a containment scan. The map value carries the key's metadata (see
-	// acceptedKeyInfo). A nil map is a valid empty set (reads return absent; only the builder writes).
-	sdkKeys          map[config.SDKKey]acceptedKeyInfo
+	// AcceptedKey). A nil map is a valid empty set (reads return absent; only the builder writes).
+	sdkKeys          map[config.SDKKey]AcceptedKey
 	anchor           config.SDKKey
-	mobileKeys       map[config.MobileKey]acceptedKeyInfo
+	mobileKeys       map[config.MobileKey]AcceptedKey
 	primaryMobileKey config.MobileKey
 	envID            config.EnvironmentID
 }

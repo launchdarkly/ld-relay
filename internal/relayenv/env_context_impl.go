@@ -640,6 +640,10 @@ func (c *envContextImpl) GetDeprecatedCredentials() []credential.SDKCredential {
 	return c.keyRotator.DeprecatedCredentials()
 }
 
+func (c *envContextImpl) GetAcceptedKeys() credential.AcceptedKeySet {
+	return c.keyRotator.AcceptedKeys()
+}
+
 func (c *envContextImpl) GetClient() sdks.LDClientContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
