@@ -223,20 +223,24 @@ type reconcilableKey interface {
 // key no longer desired is dropped and queued as an expiration. Per-key expiry is stored as data on
 // the accepted entry; the cleanup ticker is what later acts on it. The caller must hold the write lock.
 func reconcileAcceptedKeys[K reconcilableKey](
-	desired map[K]*time.Time,
+	desired map[K]acceptedKeyInfo,
 	accepted map[K]*acceptedKeyInfo,
 	additions *[]SDKCredential,
 	expirations *[]SDKCredential,
 	loggers ldlog.Loggers,
 	kind string,
 ) {
-	// First pass: walk every key the set wants us to accept. If we already accept it, just refresh
-	// its expiry; if it's new, start accepting it and queue it as an addition.
-	for key, expiry := range desired {
+	// First pass: walk every key the set wants us to accept. If we already accept it, refresh its
+	// metadata in place — both the expiry and the wire "key" identifier, clearing the identifier when
+	// the new payload carries none so a stale name never lingers in /status. If it's new, start
+	// accepting it and queue it as an addition.
+	for key, want := range desired {
 		if info, ok := accepted[key]; ok {
-			info.expiry = expiry
+			info.expiry = want.expiry
+			info.key = want.key
 		} else {
-			accepted[key] = &acceptedKeyInfo{expiry: expiry}
+			info := want
+			accepted[key] = &info
 			*additions = append(*additions, key)
 			loggers.Infof("%s %s is now accepted", kind, key.Masked())
 		}
@@ -258,22 +262,19 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // reconcileAcceptedKeys. The anchor is always accepted and permanent, regardless of any expiry the
 // payload may carry for it. The caller must hold the write lock.
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
-	desired := make(map[config.SDKKey]*time.Time, len(set.sdkKeys))
+	desired := make(map[config.SDKKey]acceptedKeyInfo, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {
 		if info.expiry != nil && !now.Before(*info.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = info.expiry
+		desired[key] = info
 	}
-	desired[anchor] = nil
+	// The anchor is always accepted and permanent regardless of any expiry the payload carries; keep
+	// its wire identifier from the set.
+	anchorInfo := set.sdkKeys[anchor]
+	anchorInfo.expiry = nil
+	desired[anchor] = anchorInfo
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
-	// Refresh the wire "key" identifier for every key now in the accepted set, including clearing it
-	// when the new payload carries none — otherwise a stale identifier would linger in /status.
-	for key, info := range set.sdkKeys {
-		if accepted, ok := r.acceptedSDKKeys[key]; ok {
-			accepted.key = info.key
-		}
-	}
 	r.anchorKey = anchor
 }
 
@@ -281,24 +282,20 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 // singular mobKey, used where one mobile key is required (e.g. event forwarding) — is always accepted
 // and permanent; an empty value means the set declared no mobile key. The caller must hold the lock.
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
-	desired := make(map[config.MobileKey]*time.Time, len(set.mobileKeys))
+	desired := make(map[config.MobileKey]acceptedKeyInfo, len(set.mobileKeys))
 	for key, info := range set.mobileKeys {
 		if info.expiry != nil && !now.Before(*info.expiry) {
 			continue // already expired; treat as absent
 		}
-		desired[key] = info.expiry
+		desired[key] = info
 	}
+	// The primary mobile key is always accepted and permanent; keep its wire identifier from the set.
 	if set.primaryMobileKey.Defined() {
-		desired[set.primaryMobileKey] = nil
+		primaryInfo := set.mobileKeys[set.primaryMobileKey]
+		primaryInfo.expiry = nil
+		desired[set.primaryMobileKey] = primaryInfo
 	}
 	reconcileAcceptedKeys(desired, r.acceptedMobileKeys, &r.additions, &r.expirations, r.loggers, "Mobile key")
-	// Refresh the wire "key" identifier for every key now in the accepted set, including clearing it
-	// when the new payload carries none — otherwise a stale identifier would linger in /status.
-	for key, info := range set.mobileKeys {
-		if accepted, ok := r.acceptedMobileKeys[key]; ok {
-			accepted.key = info.key
-		}
-	}
 	r.primaryMobileKey = set.primaryMobileKey
 }
 
