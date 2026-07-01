@@ -436,17 +436,13 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.envStreams.AddCredential(newCredential)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
-			handlers[newCredential] = h
-		}
-	}
+
+	c.registerCredentialMappings(newCredential)
 
 	// A new SDK key means:
 	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
-	//     connection per environment, owned by the anchor key. Non-anchor server keys get envStreams
-	//     + handler bundles above, but no upstream client — matching today's mobile-key behavior.
+	//     connection per environment, owned by the anchor key. Non-anchor server keys get their
+	//     credential mappings registered above, but no upstream client — matching today's mobile-key behavior.
 	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
 	//     again only when it is the anchor, since events collapse to the anchor per kind.
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
@@ -478,8 +474,6 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 			}
 		}
 	}
-
-	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
 }
 
 func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
@@ -611,8 +605,8 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
 // reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
 //
-// Order of operations: add → re-anchor → remove. Additions drain first so peripheral
-// setup is in place before any synchronous re-anchor runs, the re-anchor swaps the upstream client
+// Order of operations: add → re-anchor → remove. Additions drain first so credential mappings
+// are registered before any synchronous re-anchor runs, the re-anchor swaps the upstream client
 // while the old anchor is still serving, and expirations drain last so the old anchor's client
 // (and any other revoked keys) are torn down only after the new anchor is fully operational. addCredential
 // opens an upstream client only for the anchor — non-anchor server keys are accepted and routed
@@ -663,14 +657,14 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 // and before expirations, so the previous anchor's client is still alive while the new client is built
 // (or reused).
 //
-// When there is no existing client for the new anchor: perform peripheral setup if the key is brand
-// new (Reconcile stripped it from additions), build a new SDK client synchronously, wait for
+// When there is no existing client for the new anchor: register the credential mappings if the key is
+// brand new (Reconcile stripped it from additions), build a new SDK client synchronously, wait for
 // Initialized — then CommitAnchor + ReplaceCredential + big-segment re-wire. On init failure, roll
 // back: do not CommitAnchor, leave the previous anchor authoritative, log a structured error. The
 // old client (still alive in its grace period) keeps serving.
 //
 // When a client already exists for the new anchor (e.g. a former anchor still in its grace period):
-// no build, no peripheral setup. CommitAnchor + ReplaceCredential + big-segment re-wire.
+// no build, no mapping registration. CommitAnchor + ReplaceCredential + big-segment re-wire.
 //
 // The old anchor's client is not closed here; its grace-period expiration drives removeCredential.
 func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
@@ -682,21 +676,23 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 	offline := c.offline
 	c.mu.RUnlock()
 
-	// Peripheral install is gated solely on NewAnchorPreviouslyAccepted, deliberately NOT on whether a
-	// client already exists. A brand-new anchor (Reconcile stripped it from additions, so addCredential
-	// never ran) needs its envStreams/handler/connection-mapper wiring installed here, mirroring
-	// addCredential; a previously-accepted anchor already had peripherals set up when it was first
-	// accepted, so we skip.
+	// Registering the credential mappings is gated solely on NewAnchorPreviouslyAccepted, deliberately
+	// NOT on whether a client already exists. A brand-new anchor (Reconcile stripped it from additions,
+	// so addCredential never ran) needs its envStreams/handler/connection-mapper mappings registered
+	// here, the same ones addCredential registers; a previously-accepted anchor already had its mappings
+	// registered when it was first accepted, so we skip.
 	//
 	// These two signals are kept independent on purpose. Today they always agree — a client in
 	// c.clients[newAnchor] can only exist for a key that was previously accepted, because
 	// removeCredential deletes the client in lockstep with the rotator dropping the key from its
-	// accepted set, so existingClient != nil implies NewAnchorPreviouslyAccepted. Branching peripheral
-	// install on NewAnchorPreviouslyAccepted rather than on client presence means that even if that
+	// accepted set, so existingClient != nil implies NewAnchorPreviouslyAccepted. Gating the mapping
+	// registration on NewAnchorPreviouslyAccepted rather than on client presence means that even if that
 	// invariant were ever broken (a client present for a not-previously-accepted key), the brand-new
-	// anchor still gets its peripherals and is never stranded without routing.
+	// anchor still gets its mappings and is never stranded without routing.
 	if !change.NewAnchorPreviouslyAccepted {
-		c.installAnchorPeripherals(newAnchor)
+		c.mu.Lock()
+		c.registerCredentialMappings(newAnchor)
+		c.mu.Unlock()
 	}
 
 	if existingClient != nil {
@@ -781,21 +777,20 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
 }
 
-// installAnchorPeripherals runs the peripheral setup that addCredential normally performs for a new
-// credential — envStreams.AddCredential, per-stream-provider handler construction, and the
-// connection-mapper entry. Used by reanchor when the new anchor is a brand-new key (Reconcile strips
-// the new anchor from additions to keep addCredential's async startSDKClient out of the re-anchor
-// critical path, so the peripherals are installed here instead).
-func (c *envContextImpl) installAnchorPeripherals(newAnchor config.SDKKey) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.envStreams.AddCredential(newAnchor)
+// registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
+// credential with the env's stream machinery, builds the per-stream-provider HTTP handlers, and adds
+// the connection→env mapping, so incoming SDK/client connections that authenticate with cred are
+// served by this env. It does NOT start the upstream SDK client or repoint event/metrics forwarding —
+// those are anchor-only concerns owned by the callers (addCredential, and the re-anchor sequence).
+// The caller must hold c.mu.
+func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
+	c.envStreams.AddCredential(cred)
 	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newAnchor)); h != nil {
-			handlers[newAnchor] = h
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
+			handlers[cred] = h
 		}
 	}
-	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newAnchor), c)
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
 }
 
 // reanchorBigSegmentSync re-points big-segment synchronization at the new anchor SDK key. This

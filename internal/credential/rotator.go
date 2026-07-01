@@ -233,8 +233,8 @@ type ReconcileResult struct {
 //
 // NewAnchorPreviouslyAccepted distinguishes the two re-anchor paths:
 //   - false (the anchor is a new key): the new anchor was not previously in the accepted set. The
-//     synchronous re-anchor must perform peripheral setup (envStreams, handlers, connection mapping),
-//     construct and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
+//     synchronous re-anchor must register the credential mappings (envStreams, handlers, connection
+//     mapping), construct and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
 //   - true (the anchor is a previously-accepted key): the new anchor was already accepted (typically
 //     a former anchor still in its grace period). Peripherals are already in place and a client may
 //     already exist; the synchronous re-anchor reuses it (or constructs one only if missing — see the
@@ -284,7 +284,7 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	if result.AnchorChange != nil && !result.AnchorChange.NewAnchorPreviouslyAccepted {
 		// The anchor is a new key: reconcileAcceptedKeys just appended it to r.additions. Strip it —
 		// the synchronous re-anchor sequence in env_context_impl owns the new anchor's setup
-		// (peripherals + client build + flip + ReplaceCredential). If addCredential drained this
+		// (credential mappings + client build + flip + ReplaceCredential). If addCredential drained this
 		// addition normally, its async startSDKClient would race the synchronous build. When the anchor
 		// is a previously-accepted key it was already in acceptedSDKKeys, so reconcileAcceptedKeys did
 		// not add it — no strip needed.
