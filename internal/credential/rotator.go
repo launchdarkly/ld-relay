@@ -330,18 +330,24 @@ func (r *Rotator) CommitAnchor(key config.SDKKey) {
 // failed and rolled back. Because CommitAnchor was never called, the anchor pointer still names the
 // previous anchor; this realigns the accepted set with it so the two don't disagree.
 //
-//   - If the previous anchor was revoked in the same reconcile (it is no longer accepted — an
-//     immediate revocation rather than a grace demotion), re-admit it as a permanent key, since it
-//     remains the anchor and keeps serving. If it is still accepted (grace demotion), leave it and its
-//     expiry untouched.
+//   - If the previous anchor is a defined key that was revoked in the same reconcile (it is no longer
+//     accepted — an immediate revocation rather than a grace demotion), re-admit it as a permanent
+//     key, since it remains the anchor and keeps serving. If it is still accepted (grace demotion),
+//     leave it and its expiry untouched. An undefined previous anchor (the env's first SDK key) is
+//     never admitted.
 //   - Drop the failed new anchor, but only if it was brand new; a previously-accepted key that was
 //     promoted and failed stays accepted as the non-anchor key it already was.
 func (r *Rotator) RevertAnchorChange(change AnchorChange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, stillAccepted := r.acceptedSDKKeys[change.PreviousAnchor]; !stillAccepted {
-		r.acceptedSDKKeys[change.PreviousAnchor] = AcceptedKey{}
+	// Only re-admit a defined previous anchor. When an env gains its first SDK key, the previous anchor
+	// is the empty (undefined) key — there is nothing to re-admit, and inserting "" would put an
+	// undefined credential into the accepted set (the rotator otherwise only holds defined keys).
+	if change.PreviousAnchor.Defined() {
+		if _, stillAccepted := r.acceptedSDKKeys[change.PreviousAnchor]; !stillAccepted {
+			r.acceptedSDKKeys[change.PreviousAnchor] = AcceptedKey{}
+		}
 	}
 	if !change.NewAnchorPreviouslyAccepted {
 		delete(r.acceptedSDKKeys, change.NewAnchor)

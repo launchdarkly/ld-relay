@@ -504,3 +504,25 @@ func TestRevertAnchorChangeLeavesGraceDemotedPreviousAnchorUntouched(t *testing.
 	_, keyBAccepted := set.Server[keyB]
 	assert.False(t, keyBAccepted, "failed new anchor dropped")
 }
+
+func TestRevertAnchorChangeDoesNotAdmitUndefinedPreviousAnchor(t *testing.T) {
+	// When an env gains its first SDK key, the AnchorChange's previous anchor is the empty (undefined)
+	// key. A rollback must not insert that empty key into the accepted set.
+	r := newTestRotator()
+	keyB := config.SDKKey("keyB")
+	now := time.Now()
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyB})), now)
+	require.NotNil(t, res.AnchorChange)
+	require.False(t, res.AnchorChange.PreviousAnchor.Defined(), "the first SDK key has an undefined previous anchor")
+
+	// Simulate a failed build / rollback.
+	r.RevertAnchorChange(*res.AnchorChange)
+
+	for _, cred := range r.AllCredentials() {
+		if sdkKey, ok := cred.(config.SDKKey); ok {
+			assert.True(t, sdkKey.Defined(), "revert must not insert an undefined SDK key into the accepted set")
+		}
+	}
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyB), "failed new anchor dropped")
+}
