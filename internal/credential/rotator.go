@@ -2,6 +2,7 @@ package credential
 
 import (
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -236,9 +237,9 @@ type ReconcileResult struct {
 //     synchronous re-anchor must register the credential mappings (envStreams, handlers, connection
 //     mapping), construct and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
 //   - true (the anchor is a previously-accepted key): the new anchor was already accepted (typically
-//     a former anchor still in its grace period). Peripherals are already in place and a client may
-//     already exist; the synchronous re-anchor reuses it (or constructs one only if missing — see the
-//     re-anchor sequence in env_context_impl.go), then invokes CommitAnchor + ReplaceCredential.
+//     a former anchor still in its grace period). Its credential mappings are already registered and a
+//     client may already exist; the synchronous re-anchor reuses it (or constructs one only if missing
+//     — see the re-anchor sequence in env_context_impl.go), then invokes CommitAnchor + ReplaceCredential.
 type AnchorChange struct {
 	PreviousAnchor              config.SDKKey
 	NewAnchor                   config.SDKKey
@@ -288,7 +289,7 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 		// addition normally, its async startSDKClient would race the synchronous build. When the anchor
 		// is a previously-accepted key it was already in acceptedSDKKeys, so reconcileAcceptedKeys did
 		// not add it — no strip needed.
-		r.additions = removeCredentialFromList(r.additions, newAnchor)
+		r.additions = slices.DeleteFunc(r.additions, func(c SDKCredential) bool { return c == newAnchor })
 	}
 
 	previousMobile := r.primaryMobileKey
@@ -308,15 +309,6 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.reconcileEnvironmentID(set)
 
 	return result
-}
-
-func removeCredentialFromList(list []SDKCredential, target SDKCredential) []SDKCredential {
-	for i, c := range list {
-		if c == target {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-	return list
 }
 
 // CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. The caller

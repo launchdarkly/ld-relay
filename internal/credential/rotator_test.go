@@ -365,3 +365,84 @@ func TestReconcileClearsStaleKeyIdentifier(t *testing.T) {
 	require.True(t, ok)
 	assert.Nil(t, b.Key, "identifier must be cleared when the new payload carries none")
 }
+
+func TestReconcileAnchorChangeToPreviouslyAcceptedKey(t *testing.T) {
+	// When the anchor moves to a key that was already accepted (a non-anchor server key promoted to
+	// anchor), the AnchorChange reports NewAnchorPreviouslyAccepted == true, and the key is not queued
+	// as a new addition (it was already accepted).
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	other := config.SDKKey("other")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithSDKKey(SDKKeyParams{Value: other})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Move the anchor to `other`, keeping the old anchor accepted.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: other}).
+		WithSDKKey(SDKKeyParams{Value: anchor})), now)
+	require.NotNil(t, result.AnchorChange)
+	assert.Equal(t, anchor, result.AnchorChange.PreviousAnchor)
+	assert.Equal(t, other, result.AnchorChange.NewAnchor)
+	assert.True(t, result.AnchorChange.NewAnchorPreviouslyAccepted, "other was already in the accepted set")
+
+	additions, _ := r.StepTime(now)
+	assert.NotContains(t, additions, SDKCredential(other), "an already-accepted new anchor is not a fresh addition")
+}
+
+func TestReconcileMobilePrimaryRepointToAlreadyAcceptedKey(t *testing.T) {
+	// Switching the primary mobile key to a key that is already accepted must be signaled via
+	// MobilePrimaryRepoint, because addCredential's gate won't fire for it (it's not in additions).
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	mob1 := config.MobileKey("mob1")
+	mob2 := config.MobileKey("mob2")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).
+		WithMobileKey(MobileKeyParams{Value: mob2})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Make mob2 (already accepted) the primary. It is not a new addition, so it must be signaled.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob2}).
+		WithMobileKey(MobileKeyParams{Value: mob1})), now)
+	assert.Nil(t, result.AnchorChange, "the anchor did not change")
+	require.NotNil(t, result.MobilePrimaryRepoint, "an already-accepted new primary mobile key must be signaled")
+	assert.Equal(t, mob2, *result.MobilePrimaryRepoint)
+}
+
+func TestReconcileMobilePrimaryToNewKeyDoesNotSignalRepoint(t *testing.T) {
+	// When the new primary mobile key was NOT already accepted, it arrives via the additions list, so
+	// addCredential's gate handles the ReplaceCredential and MobilePrimaryRepoint stays nil.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	mob1 := config.MobileKey("mob1")
+	mob2 := config.MobileKey("mob2")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob1})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob2})), now)
+	assert.Nil(t, result.MobilePrimaryRepoint, "a brand-new primary mobile key is handled via additions, not the repoint signal")
+
+	additions, _ := r.StepTime(now)
+	assert.Contains(t, additions, SDKCredential(mob2), "a brand-new primary mobile key is queued as an addition")
+}

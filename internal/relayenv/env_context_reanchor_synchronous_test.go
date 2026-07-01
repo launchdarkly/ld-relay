@@ -391,3 +391,91 @@ func TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// TestReanchorSync_PreviouslyAcceptedNonAnchorPromotedToAnchor covers the case the two-signal split in
+// reanchor exists for: a server SDK key accepted as a NON-anchor has its credential mappings registered
+// by addCredential but no client (only the anchor gets one). Promoting it to anchor must NOT re-register
+// its mappings (NewAnchorPreviouslyAccepted == true) but MUST build a client (existingClient == nil).
+func TestReanchorSync_PreviouslyAcceptedNonAnchorPromotedToAnchor(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	nonAnchorKey := config.SDKKey("reanchor-sync-nonanchor")
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactoryWithChannel(true, clientCh), mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	originalClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
+	require.NoError(t, env.GetStore().Init(st.AllData))
+
+	now := time.Unix(2000, 0)
+	envImpl := env.(*envContextImpl)
+
+	// Accept a second server SDK key as a NON-anchor (permanent). Its mappings are registered but no
+	// client is built — only the anchor owns an upstream client.
+	set1, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
+		WithEnvironmentID(envConfig.EnvID).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(set1, now)
+	require.Contains(t, env.GetCredentials(), credential.SDKCredential(nonAnchorKey))
+	select {
+	case c := <-clientCh:
+		t.Fatalf("a non-anchor server key must not build a client, got: %v", c.Key)
+	case <-time.After(100 * time.Millisecond):
+	}
+	envImpl.mu.RLock()
+	_, nonAnchorHasClient := envImpl.clients[nonAnchorKey]
+	envImpl.mu.RUnlock()
+	require.False(t, nonAnchorHasClient, "non-anchor key has no client of its own")
+
+	// Promote the previously-accepted non-anchor key to anchor: mappings already exist (skip
+	// re-registration), but there is no client, so the re-anchor must build one.
+	reanchorViaReconcile(t, env, nonAnchorKey, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
+
+	newClient := requireClientReady(t, clientCh)
+	assert.NotSame(t, originalClient, newClient, "promoting a client-less accepted key builds a fresh client")
+	assert.Same(t, newClient, env.GetClient())
+	assert.Equal(t, nonAnchorKey, envImpl.keyRotator.AnchorKey(), "anchor committed to the promoted key")
+	assert.NoError(t, env.GetInitError())
+}
+
+// TestReanchorSync_Offline_CommitsWithoutBuildingClient covers the offline re-anchor branch: when the
+// env is offline, re-anchoring to a new key must commit the anchor WITHOUT building a new upstream
+// client. (The initial anchor client is still created at startup; offline only skips the re-anchor
+// build.)
+func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	envConfig.Offline = true
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, testclient.FakeLDClientFactoryWithChannel(true, clientCh), mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	_ = requireClientReady(t, clientCh) // drain the initial anchor client
+
+	now := time.Unix(2000, 0)
+	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
+
+	// The anchor commits, but the offline branch builds no new client.
+	assert.Equal(t, reanchorSyncTestKey2, env.(*envContextImpl).keyRotator.AnchorKey(), "offline re-anchor commits the anchor")
+	select {
+	case c := <-clientCh:
+		t.Fatalf("an offline re-anchor must not build a new SDK client, got: %v", c.Key)
+	case <-time.After(100 * time.Millisecond):
+	}
+	assert.NoError(t, env.GetInitError())
+}

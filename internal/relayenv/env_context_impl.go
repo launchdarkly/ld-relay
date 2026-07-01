@@ -528,7 +528,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 
 		// The data store instance is created by the SDK when it creates the client. Now that we have a
 		// data store, we can finish setting up the Evaluator for this environment.
-		c.rebuildEvaluatorLocked()
+		c.rebuildEvaluator()
 	}
 	c.initErr = err
 	c.mu.Unlock()
@@ -647,12 +647,12 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 //
 // When there is no existing client for the new anchor: register the credential mappings if the key is
 // brand new (Reconcile stripped it from additions), build a new SDK client synchronously, wait for
-// Initialized — then CommitAnchor + ReplaceCredential + big-segment re-wire. On init failure, roll
+// Initialized — then CommitAnchor + ReplaceCredential. On init failure, roll
 // back: do not CommitAnchor, leave the previous anchor authoritative, log a structured error. The
 // old client (still alive in its grace period) keeps serving.
 //
 // When a client already exists for the new anchor (e.g. a former anchor still in its grace period):
-// no build, no mapping registration. CommitAnchor + ReplaceCredential + big-segment re-wire.
+// no build, no mapping registration. CommitAnchor + ReplaceCredential.
 //
 // The old anchor's client is not closed here; its grace-period expiration drives removeCredential.
 func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
@@ -719,6 +719,16 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 	}
 
 	c.mu.Lock()
+	if c.closed {
+		// The env was torn down while we were building the client. Close() does not hold reconcileMu, so
+		// it can run concurrently with a re-anchor; by now its client-teardown loop has already finished
+		// and would never close this one. Discard the freshly-built client instead of installing it into
+		// a closed env (mirrors the guard in startSDKClient). No revocation re-check is needed: reconcileMu
+		// serializes reconciles, so the new anchor cannot be revoked mid-build by another reconcile.
+		c.mu.Unlock()
+		_ = client.Close()
+		return
+	}
 	if existing := c.clients[newAnchor]; existing != nil && existing != client {
 		// Stale-client guard: this path entered with no client for newAnchor, but the lock was
 		// released between then and here, so re-check and close any client installed concurrently.
@@ -727,23 +737,28 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 	c.clients[newAnchor] = client
 	// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
 	// evaluator serves the already-populated data immediately (no empty-store window).
-	c.rebuildEvaluatorLocked()
-	c.initErr = nil
+	c.rebuildEvaluator()
 	c.mu.Unlock()
 
+	// commitReanchor moves the anchor pointer and clears initErr now that a healthy client is current.
 	c.commitReanchor(newAnchor, previousAnchor, "built new client")
 }
 
 // commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor
-// pointer, repoint downstream event/metrics forwarding, and re-wire big-segment sync. Shared by both
-// re-anchor paths (build-new-client and reuse-existing-client).
+// pointer, clear any stale init error now that a healthy client is current, and repoint downstream
+// event/metrics forwarding. Shared by all commit paths (build-new-client, reuse-existing-client, and
+// offline).
 func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string) {
 	c.keyRotator.CommitAnchor(newAnchor)
 
-	c.mu.RLock()
+	c.mu.Lock()
+	// The anchor now points at a healthy client (freshly built and Initialized, or a reused live
+	// client), so clear any init error a prior client left behind — otherwise GetInitError() and the
+	// request middleware would keep reporting a still-serving env as failed.
+	c.initErr = nil
 	dispatcher := c.eventDispatcher
 	metricsPub := c.metricsEventPub
-	c.mu.RUnlock()
+	c.mu.Unlock()
 
 	if metricsPub != nil {
 		metricsPub.ReplaceCredential(newAnchor)
@@ -752,18 +767,23 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 		dispatcher.ReplaceCredential(newAnchor)
 	}
 
-	c.reanchorBigSegmentSync(newAnchor)
+	// Big-segment synchronization is intentionally left pointing at the previous anchor key across a
+	// re-anchor: this matches pre-concurrent-keys behavior (there was no re-anchor, so it never moved)
+	// and does not regress. When big-segment re-anchor is implemented, its re-wire hook belongs right
+	// here, after the event/metrics ReplaceCredential calls — either recreate the BigSegmentSynchronizer
+	// for newAnchor, or add a credential-replacement method to it.
 
 	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
 }
 
-// rebuildEvaluatorLocked constructs the environment's Evaluator against the current data store. It is
-// called after (re)creating an SDK client, once the store is available, and is shared by the initial
-// client startup and the re-anchor path. The caller must hold c.mu.
+// rebuildEvaluator constructs the environment's Evaluator against the current data store. It is called
+// after (re)creating an SDK client, once the store is available, and is shared by the initial client
+// startup and the re-anchor path. It reads and writes envContextImpl fields directly, so the caller
+// must hold c.mu.
 //
 // EnableSecondaryKey is set because we may evaluate for client-side SDKs sending old-style user data
 // with the "secondary" attribute; it has no effect for newer SDKs that send contexts.
-func (c *envContextImpl) rebuildEvaluatorLocked() {
+func (c *envContextImpl) rebuildEvaluator() {
 	store := c.storeAdapter.GetStore()
 	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
 	evalOptions := []ldeval.EvaluatorOption{
@@ -789,17 +809,6 @@ func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredentia
 		}
 	}
 	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
-}
-
-// reanchorBigSegmentSync re-points big-segment synchronization at the new anchor SDK key. This
-// defines the call site only; the body (recreating the synchronizer, or adding a credential-replacement
-// method to BigSegmentSynchronizer) is implemented in follow-up work. Until then, big-segment sync
-// continues to use the previous anchor key — this matches today's behavior and does not regress on
-// re-anchor.
-func (c *envContextImpl) reanchorBigSegmentSync(_ config.SDKKey) {
-	// Intentionally a no-op until the big-segment re-wire is implemented. Leaving it unimplemented
-	// matches today's behavior (big-segment sync stays on the previous anchor key) and does not
-	// regress on re-anchor.
 }
 
 // triggerCredentialChanges drains the rotator's StepTime queue and applies the resulting additions

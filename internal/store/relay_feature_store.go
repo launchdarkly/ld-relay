@@ -72,14 +72,15 @@ func NewSSERelayDataStoreAdapter(
 // a prior client construction, that wrapper is returned again instead of building a fresh one. This
 // hands the populated, initialized data store over to the new anchor's client during a re-anchor —
 // no empty-store window, no re-sync. The wrapper refcounts its holders so the underlying store is
-// only torn down by the final Close (see streamUpdatesStoreWrapper.Close).
+// only torn down by the final Close (see streamUpdatesStoreWrapper.Close). If the parked wrapper has
+// already been fully closed (acquire returns false), a fresh one is built rather than resurrecting a
+// wrapper whose underlying store is torn down.
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
 	a.mu.Lock()
 	if existing := a.store; existing != nil {
-		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok {
-			sw.acquire()
+		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok && sw.acquire() {
 			a.mu.Unlock()
 			return sw, nil
 		}
@@ -112,9 +113,11 @@ type streamUpdatesStoreWrapper struct {
 	// refCount tracks how many SDK clients hold this wrapper. The first holder is implicit
 	// (count starts at 1 in newStreamUpdatesStoreWrapper). Each handover (Build reuse) calls
 	// acquire to bump the count; each client's Close decrements. The underlying store is torn
-	// down only when the count reaches zero. Guarded by refMu.
+	// down only when the count reaches zero, at which point closed is set so a later acquire
+	// refuses to hand back a wrapper whose underlying store is gone. Guarded by refMu.
 	refMu    sync.Mutex
 	refCount int
+	closed   bool
 }
 
 func newStreamUpdatesStoreWrapper(
@@ -131,18 +134,27 @@ func newStreamUpdatesStoreWrapper(
 	return relayStore
 }
 
-// acquire records an additional holder of the wrapper, used by SSERelayDataStoreAdapter.Build
-// when it hands this wrapper to a new client during a concurrent-keys re-anchor.
-func (sw *streamUpdatesStoreWrapper) acquire() {
+// acquire records an additional holder of the wrapper, used by SSERelayDataStoreAdapter.Build when it
+// hands this wrapper to a new client during a concurrent-keys re-anchor. It returns false if the
+// wrapper has already been fully closed (refCount reached zero and the underlying store was torn
+// down); the caller must then build a fresh wrapper rather than resurrect a dead one.
+func (sw *streamUpdatesStoreWrapper) acquire() bool {
 	sw.refMu.Lock()
+	defer sw.refMu.Unlock()
+	if sw.closed {
+		return false
+	}
 	sw.refCount++
-	sw.refMu.Unlock()
+	return true
 }
 
 func (sw *streamUpdatesStoreWrapper) Close() error {
 	sw.refMu.Lock()
 	sw.refCount--
 	final := sw.refCount <= 0
+	if final {
+		sw.closed = true
+	}
 	sw.refMu.Unlock()
 	if !final {
 		// Re-anchor handover in progress: another client is still using this underlying store.
