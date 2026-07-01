@@ -60,12 +60,17 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
+	return makeBasicEnvWithMapper(t, envConfig, clientFactory, loggers, readyCh, mockConnectionMapper{})
+}
+
+func makeBasicEnvWithMapper(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
+	loggers ldlog.Loggers, readyCh chan EnvContext, connMapper ConnectionMapper) EnvContext {
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:      EnvIdentifiers{ConfiguredName: envName},
 		EnvConfig:        envConfig,
 		ClientFactory:    clientFactory,
 		Loggers:          loggers,
-		ConnectionMapper: mockConnectionMapper{},
+		ConnectionMapper: connMapper,
 	}, readyCh)
 	require.NoError(t, err)
 	return env
@@ -79,6 +84,34 @@ func (m mockConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.Scop
 }
 func (m mockConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
 
+}
+
+// recordingConnectionMapper tracks which scoped credentials currently have a connection mapping, so a
+// test can assert that a credential's mapping survived (or was torn down).
+type recordingConnectionMapper struct {
+	mu     sync.Mutex
+	mapped map[sdkauth.ScopedCredential]bool
+}
+
+func (m *recordingConnectionMapper) AddConnectionMapping(scopedCredential sdkauth.ScopedCredential, _ EnvContext) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mapped == nil {
+		m.mapped = map[sdkauth.ScopedCredential]bool{}
+	}
+	m.mapped[scopedCredential] = true
+}
+
+func (m *recordingConnectionMapper) RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.mapped, scopedCredential)
+}
+
+func (m *recordingConnectionMapper) isMapped(filterKey config.FilterKey, cred credential.SDKCredential) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mapped[sdkauth.NewScoped(filterKey, cred)]
 }
 
 func TestConstructorBasicProperties(t *testing.T) {

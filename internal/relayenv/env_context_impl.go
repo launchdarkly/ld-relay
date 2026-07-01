@@ -625,14 +625,20 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 	if result.AnchorChange != nil {
 		if committed := c.reanchor(result.AnchorChange); !committed {
 			// The re-anchor rolled back — the new anchor's client never came up. Back out just this
-			// anchor change (other changes in the payload stand): undo the failed new anchor's credential
-			// mappings, tell the rotator to re-admit the previous anchor and drop the failed new key so
-			// its accepted set agrees with the un-moved anchor pointer, and keep the previous anchor's
-			// client serving by not expiring it here — even if this payload revoked it outright (a
-			// grace-demoted previous anchor isn't in expirations anyway, so this only matters for an
-			// immediate revocation).
-			c.removeCredential(result.AnchorChange.NewAnchor)
+			// anchor change (other changes in the payload stand). The env-side undo mirrors
+			// RevertAnchorChange's accepted-set logic exactly:
+			//   - A brand-new anchor: reanchor registered its mappings this cycle, so undo them here;
+			//     RevertAnchorChange drops it from the accepted set.
+			//   - A previously-accepted anchor (e.g. a non-anchor key promoted to anchor): reanchor did
+			//     NOT register mappings (they predate this reconcile), so we must NOT tear them down;
+			//     RevertAnchorChange keeps it accepted. It reverts to the non-anchor key it already was.
+			if !result.AnchorChange.NewAnchorPreviouslyAccepted {
+				c.removeCredential(result.AnchorChange.NewAnchor)
+			}
 			c.keyRotator.RevertAnchorChange(*result.AnchorChange)
+			// Keep the previous anchor's client serving by not expiring it here — even if this payload
+			// revoked it outright. (A grace-demoted previous anchor isn't in expirations anyway, so this
+			// only matters for an immediate revocation.)
 			previousAnchor := result.AnchorChange.PreviousAnchor
 			expirations = slices.DeleteFunc(expirations, func(cred credential.SDKCredential) bool {
 				return cred == previousAnchor

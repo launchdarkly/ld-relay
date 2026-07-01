@@ -538,3 +538,62 @@ func TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing(t *te
 	assert.False(t, newHasClient, "no client for the failed new anchor")
 	assert.True(t, oldHasClient, "previous anchor's client retained")
 }
+
+// TestReanchorSync_PreviouslyAcceptedAnchorPromotionFailureKeepsItsMappings covers a failed promotion
+// of an already-accepted non-anchor key: the rollback must NOT tear down that key's credential
+// mappings (they predate this reconcile), since RevertAnchorChange keeps it accepted. It should revert
+// cleanly to the non-anchor key it already was.
+func TestReanchorSync_PreviouslyAcceptedAnchorPromotionFailureKeepsItsMappings(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	nonAnchorKey := config.SDKKey("reanchor-sync-nonanchor-promote-fail")
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	healthyFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	// Fail the build only when nonAnchorKey is promoted to anchor.
+	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == nonAnchorKey {
+			return nil, errors.New("promotion build refused")
+		}
+		return healthyFactory(sdkKey, cfg, timeout)
+	}
+
+	mapper := &recordingConnectionMapper{}
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnvWithMapper(t, envConfig, factory, mockLog.Loggers, readyCh, mapper)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	originalClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
+	require.NoError(t, env.GetStore().Init(st.AllData))
+
+	envImpl := env.(*envContextImpl)
+	now := time.Unix(2000, 0)
+
+	// Accept nonAnchorKey as a non-anchor server key: mappings are registered (and it becomes mapped),
+	// but no client is built for it.
+	set1, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).
+		WithSDKKey(credential.SDKKeyParams{Value: nonAnchorKey}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
+		WithEnvironmentID(envConfig.EnvID).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(set1, now)
+	require.True(t, mapper.isMapped(envConfig.FilterKey, nonAnchorKey), "non-anchor key is mapped once accepted")
+
+	// Promote nonAnchorKey to anchor; its client build fails, so the re-anchor rolls back.
+	reanchorViaReconcile(t, env, nonAnchorKey, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
+
+	// The failed promotion rolled back: nonAnchorKey stays accepted AND keeps its connection mapping —
+	// the rollback must not strip mappings that existed before this reconcile.
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(nonAnchorKey), "previously-accepted key stays accepted after a failed promotion")
+	assert.True(t, mapper.isMapped(envConfig.FilterKey, nonAnchorKey), "its connection mapping must survive the rollback")
+	// The previous anchor still serves.
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey())
+	assert.Same(t, originalClient, env.GetClient())
+	assert.NoError(t, env.GetInitError())
+}
