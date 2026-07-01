@@ -623,7 +623,21 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 	}
 
 	if result.AnchorChange != nil {
-		c.reanchor(result.AnchorChange)
+		if committed := c.reanchor(result.AnchorChange); !committed {
+			// The re-anchor rolled back — the new anchor's client never came up. Back out just this
+			// anchor change (other changes in the payload stand): undo the failed new anchor's credential
+			// mappings, tell the rotator to re-admit the previous anchor and drop the failed new key so
+			// its accepted set agrees with the un-moved anchor pointer, and keep the previous anchor's
+			// client serving by not expiring it here — even if this payload revoked it outright (a
+			// grace-demoted previous anchor isn't in expirations anyway, so this only matters for an
+			// immediate revocation).
+			c.removeCredential(result.AnchorChange.NewAnchor)
+			c.keyRotator.RevertAnchorChange(*result.AnchorChange)
+			previousAnchor := result.AnchorChange.PreviousAnchor
+			expirations = slices.DeleteFunc(expirations, func(cred credential.SDKCredential) bool {
+				return cred == previousAnchor
+			})
+		}
 	}
 
 	if result.MobilePrimaryRepoint != nil {
@@ -654,8 +668,10 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 // When a client already exists for the new anchor (e.g. a former anchor still in its grace period):
 // no build, no mapping registration. CommitAnchor + ReplaceCredential.
 //
-// The old anchor's client is not closed here; its grace-period expiration drives removeCredential.
-func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
+// Returns true if the anchor was committed, false if it rolled back (so reconcileCredentials can back
+// out the anchor change). The old anchor's client is not closed here; its grace-period expiration
+// drives removeCredential.
+func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	newAnchor := change.NewAnchor
 	previousAnchor := change.PreviousAnchor
 
@@ -685,16 +701,16 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 	if existingClient != nil {
 		// A client already exists for the new anchor — reuse it.
 		c.commitReanchor(newAnchor, previousAnchor, "reused existing client")
-		return
+		return true
 	}
 
 	if offline {
 		// In offline mode there is no upstream client to build. Just commit + ReplaceCredential.
 		c.commitReanchor(newAnchor, previousAnchor, "offline — no client build")
-		return
+		return true
 	}
 
-	c.buildAndCommitNewAnchorClient(newAnchor, previousAnchor)
+	return c.buildAndCommitNewAnchorClient(newAnchor, previousAnchor)
 }
 
 // buildAndCommitNewAnchorClient handles the re-anchor path where the new anchor has no existing client
@@ -704,7 +720,10 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 // healthy on the previous anchor, whose client keeps serving), and the failure is logged. initErr is
 // deliberately not set on failure: it feeds the request middleware, so setting it to the new anchor's
 // ErrInitializationFailed would make relay reject all traffic (401) for an env that is serving fine.
-func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor config.SDKKey) {
+//
+// Returns true if the anchor was committed, false if it rolled back (init failure or the env closed
+// mid-build).
+func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor config.SDKKey) bool {
 	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
 	if err != nil || client == nil || !client.Initialized() {
 		var initialized bool
@@ -715,7 +734,7 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
 			"preserving previous anchor %s",
 			newAnchor.Masked(), err, initialized, previousAnchor.Masked())
-		return
+		return false
 	}
 
 	c.mu.Lock()
@@ -727,7 +746,7 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 		// serializes reconciles, so the new anchor cannot be revoked mid-build by another reconcile.
 		c.mu.Unlock()
 		_ = client.Close()
-		return
+		return false
 	}
 	if existing := c.clients[newAnchor]; existing != nil && existing != client {
 		// Stale-client guard: this path entered with no client for newAnchor, but the lock was
@@ -742,6 +761,7 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 
 	// commitReanchor moves the anchor pointer and clears initErr now that a healthy client is current.
 	c.commitReanchor(newAnchor, previousAnchor, "built new client")
+	return true
 }
 
 // commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor

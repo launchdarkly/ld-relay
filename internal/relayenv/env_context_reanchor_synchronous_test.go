@@ -479,3 +479,62 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	}
 	assert.NoError(t, env.GetInitError())
 }
+
+// TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing covers the edge where a
+// reconcile both moves the anchor to a new key AND immediately revokes the current anchor (no grace
+// expiry), and the new anchor's client fails to build. The re-anchor rolls back, backing out just the
+// anchor change: the previous anchor is kept serving and re-admitted to the accepted set, and the
+// failed new key is dropped.
+func TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	fakeErr := errors.New("re-anchor: new client init refused")
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	healthyFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == reanchorSyncTestKey2 {
+			return nil, fakeErr
+		}
+		return healthyFactory(sdkKey, cfg, timeout)
+	}
+
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	require.Equal(t, env, requireEnvReady(t, readyCh))
+	originalClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
+	require.NoError(t, env.GetStore().Init(st.AllData))
+
+	envImpl := env.(*envContextImpl)
+	now := time.Unix(2000, 0)
+
+	// Re-anchor to a brand-new key that fails to init, while immediately revoking the current anchor —
+	// it is omitted from the payload entirely (no grace expiry).
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
+		WithPrimaryMobileKey(credential.MobileKeyParams{Value: envConfig.MobileKey}).
+		WithEnvironmentID(envConfig.EnvID).
+		Build()
+	require.NoError(t, err)
+	envImpl.reconcileCredentials(set, now)
+
+	// The rollback backed out the anchor change: the previous anchor still serves and is still accepted,
+	// the failed new key is gone, and the env is not marked failed.
+	assert.NoError(t, env.GetInitError(), "a rolled-back re-anchor must not mark the env failed")
+	assert.Same(t, originalClient, env.GetClient(), "the previous anchor's client keeps serving despite the revocation")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor pointer stayed on the previous key")
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(envConfig.SDKKey), "previous anchor re-admitted to the accepted set")
+	assert.NotContains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncTestKey2), "failed new anchor dropped from the accepted set")
+
+	envImpl.mu.RLock()
+	_, newHasClient := envImpl.clients[reanchorSyncTestKey2]
+	_, oldHasClient := envImpl.clients[envConfig.SDKKey]
+	envImpl.mu.RUnlock()
+	assert.False(t, newHasClient, "no client for the failed new anchor")
+	assert.True(t, oldHasClient, "previous anchor's client retained")
+}
