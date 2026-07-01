@@ -743,14 +743,19 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 		return false
 	}
 
+	// Hold c.mu continuously from the closed-check through the commit. Close() also takes c.mu, so a
+	// single hold prevents it from tearing down this client or the dispatcher between installing the
+	// client and committing the anchor. The SDK client is built above, outside the lock, so GetClient /
+	// GetStore stay live during that (potentially seconds-long) build; only the fast install+commit runs
+	// under the lock.
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.closed {
-		// The env was torn down while we were building the client. Close() does not hold reconcileMu, so
-		// it can run concurrently with a re-anchor; by now its client-teardown loop has already finished
-		// and would never close this one. Discard the freshly-built client instead of installing it into
-		// a closed env (mirrors the guard in startSDKClient). No revocation re-check is needed: reconcileMu
+		// The env was torn down while we were building the client (Close() does not hold reconcileMu, so
+		// it can run concurrently with a re-anchor). Its client-teardown loop has already finished and
+		// would never close this one, so discard the freshly-built client rather than install it into a
+		// closed env (mirrors the guard in startSDKClient). No revocation re-check is needed: reconcileMu
 		// serializes reconciles, so the new anchor cannot be revoked mid-build by another reconcile.
-		c.mu.Unlock()
 		_ = client.Close()
 		return false
 	}
@@ -763,34 +768,44 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 	// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
 	// evaluator serves the already-populated data immediately (no empty-store window).
 	c.rebuildEvaluator()
-	c.mu.Unlock()
 
-	// commitReanchor moves the anchor pointer and clears initErr now that a healthy client is current.
-	c.commitReanchor(newAnchor, previousAnchor, "built new client")
+	// Commit under the same lock we installed the client with, so Close() can't interleave.
+	c.commitReanchorLocked(newAnchor, previousAnchor, "built new client")
 	return true
 }
 
-// commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor
-// pointer, clear any stale init error now that a healthy client is current, and repoint downstream
-// event/metrics forwarding. Shared by all commit paths (build-new-client, reuse-existing-client, and
-// offline).
+// commitReanchor is the self-locking entry point to the commit for the paths that do NOT already hold
+// c.mu (reuse-existing-client and offline). The build path holds c.mu across install + commit and calls
+// commitReanchorLocked directly.
 func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string) {
-	c.keyRotator.CommitAnchor(newAnchor)
-
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.commitReanchorLocked(newAnchor, previousAnchor, why)
+}
+
+// commitReanchorLocked is the second half of the re-anchor sequence: atomically move the rotator's
+// anchor pointer, clear any stale init error now that a healthy client is current, and repoint
+// downstream event/metrics forwarding. The caller must hold c.mu. Holding c.mu across the whole commit
+// keeps Close() (which also takes c.mu) from tearing the client or dispatcher out mid-commit. This
+// mirrors addCredential, which likewise repoints event forwarding and reads rotator state under c.mu.
+func (c *envContextImpl) commitReanchorLocked(newAnchor, previousAnchor config.SDKKey, why string) {
+	if c.closed {
+		// Close() ran before we could commit. Don't flip the anchor or touch the (now-closed) dispatcher
+		// and metrics publisher; the env is being torn down.
+		return
+	}
+
+	c.keyRotator.CommitAnchor(newAnchor)
 	// The anchor now points at a healthy client (freshly built and Initialized, or a reused live
 	// client), so clear any init error a prior client left behind — otherwise GetInitError() and the
 	// request middleware would keep reporting a still-serving env as failed.
 	c.initErr = nil
-	dispatcher := c.eventDispatcher
-	metricsPub := c.metricsEventPub
-	c.mu.Unlock()
 
-	if metricsPub != nil {
-		metricsPub.ReplaceCredential(newAnchor)
+	if c.metricsEventPub != nil {
+		c.metricsEventPub.ReplaceCredential(newAnchor)
 	}
-	if dispatcher != nil {
-		dispatcher.ReplaceCredential(newAnchor)
+	if c.eventDispatcher != nil {
+		c.eventDispatcher.ReplaceCredential(newAnchor)
 	}
 
 	// Big-segment synchronization is intentionally left pointing at the previous anchor key across a
