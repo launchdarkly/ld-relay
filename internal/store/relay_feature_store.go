@@ -68,7 +68,7 @@ func NewSSERelayDataStoreAdapter(
 
 // Build is called by the SDK when the LDClient is being created.
 //
-// Store handover (concurrent-keys re-anchor, design §7): if the adapter already holds a wrapper from
+// Store handover (concurrent-keys re-anchor): if the adapter already holds a wrapper from
 // a prior client construction, that wrapper is returned again instead of building a fresh one. This
 // hands the populated, initialized data store over to the new anchor's client during a re-anchor —
 // no empty-store window, no re-sync. The wrapper refcounts its holders so the underlying store is

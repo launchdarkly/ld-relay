@@ -1,19 +1,16 @@
 package relayenv
 
-// T0 — Re-anchoring PoC (SDK-2453 / SDK-2530).
+// Re-anchoring proof-of-concept tests.
 //
-// These tests validate the upstream SDK-client swap mechanism that T2.c will implement. Each test
-// answers one of the seven hypotheses in .agent-docs/concurrent-keys/phase1-design.md §7. They are
-// written as durable, executable probes of today's primitives so they survive into T2 as regression
-// tests and as the executable spec for the re-anchor implementation.
-//
-// A written summary of the findings lives in
-// .agent-docs/concurrent-keys/phase1-T0-reanchor-poc-findings.md.
+// These tests validate the upstream SDK-client swap mechanism that the re-anchor implementation builds
+// on. Each test answers one of the seven hypotheses about how re-anchoring should behave. They are
+// written as durable, executable probes of today's primitives so they survive as regression tests and
+// as the executable spec for the re-anchor implementation.
 //
 // Terminology: "re-anchor" = swapping the single upstream SDK client when sdkKey.value changes.
 // Today there is no dedicated re-anchor method; the closest existing path is ReconcileCredentials with
 // an expiring (grace-period) key (which rotates the primary SDK key and stands up a new client), so
-// several tests drive that path and observe where it falls short of the §7 requirements.
+// several tests drive that path and observe where it falls short of the requirements.
 
 import (
 	"errors"
@@ -120,7 +117,7 @@ func TestReanchorPoC_H1_SharedStoreAdapterRebuildSemantics(t *testing.T) {
 	flagKey := st.Flag1ServerSide.Flag.Key
 
 	// Original PoC finding: each storeAdapter.Build call constructed a fresh wrapper around a fresh
-	// underlying store, so the new anchor's client would start empty. T2.c's store-handover change
+	// underlying store, so the new anchor's client would start empty. The store-handover change
 	// (SSERelayDataStoreAdapter.Build reusing its existing wrapper, with refcounted Close) inverts
 	// this: the second client receives the SAME wrapper, with its data still in place. This sub-test
 	// now asserts the post-fix invariant.
@@ -154,7 +151,7 @@ func TestReanchorPoC_H1_SharedStoreAdapterRebuildSemantics(t *testing.T) {
 	})
 
 	// With a persistent store, the underlying data lives outside the wrapper, so the swap preserves it.
-	// This is the configuration in which the §7 "shared store" assumption actually holds.
+	// This is the configuration in which the "shared store" assumption actually holds.
 	t.Run("shared (persistent) underlying store preserves data across client init", func(t *testing.T) {
 		underlying, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
 		require.NoError(t, err)
@@ -272,7 +269,7 @@ func TestReanchorPoC_H2_NewClientInitialSyncRebroadcastsPut(t *testing.T) {
 
 	// FINDING: the new anchor's initial sync produces a second full "put" to every connected downstream
 	// stream. From a downstream SDK's perspective this is a duplicate put. It is tolerable (SDKs apply
-	// puts idempotently) but T2.c must expect it; it is not a corruption.
+	// puts idempotently) but the re-anchor implementation must expect it; it is not a corruption.
 	assert.Equal(t, 2, rec.allDataCount(), "the new anchor's initial sync re-broadcasts a full put")
 }
 
@@ -366,8 +363,8 @@ func TestReanchorPoC_H3_BigSegmentSyncIsNotReWiredOnReAnchor(t *testing.T) {
 	// FINDING: big-segment sync is wired to the SDK key at construction and is NOT re-wired by today's
 	// swap path -- the synchronizer is neither recreated nor told about the new key (the
 	// BigSegmentSynchronizer interface has no credential-replacement method). After re-anchor it keeps
-	// polling/streaming on the OLD anchor key. T2.d must add a re-wire path (a ReplaceCredential-style
-	// method) or recreate the synchronizer on each re-anchor.
+	// polling/streaming on the OLD anchor key. The big-segment re-wire (follow-up work) must add a
+	// re-wire path (a ReplaceCredential-style method) or recreate the synchronizer on each re-anchor.
 	count, sdkKey = capturing.snapshot()
 	assert.Equal(t, 1, count, "synchronizer was not recreated on re-anchor")
 	assert.Equal(t, envConfig.SDKKey, sdkKey, "synchronizer still references the old anchor key")
@@ -416,12 +413,12 @@ func TestReanchorPoC_H4_HTTPConfigIsKeyIndependentExceptAuthHeader(t *testing.T)
 // Hypothesis 5: Order of operations / the in-memory store window.
 // -----------------------------------------------------------------------------------------------
 
-// TestReanchorPoC_H5_StoreSurvivesReAnchor was originally a PoC test asserting the *broken*
-// pre-T2.c behavior: that re-anchor caused the env's in-memory store to be replaced with a fresh,
-// empty one. Once SSERelayDataStoreAdapter.Build was changed to hand over the existing wrapper to
-// the new client (refcounted Close), that breakage is gone. This now asserts the post-fix
+// TestReanchorPoC_H5_StoreSurvivesReAnchor was originally a proof-of-concept test asserting the
+// *broken* pre-handover behavior: that re-anchor caused the env's in-memory store to be replaced with
+// a fresh, empty one. Once SSERelayDataStoreAdapter.Build was changed to hand over the existing wrapper
+// to the new client (refcounted Close), that breakage is gone. This now asserts the post-fix
 // invariant — the data store instance survives the re-anchor and keeps its data — and is preserved
-// in the PoC file as the executable proof that handover holds end-to-end through env_context.
+// as the executable proof that handover holds end-to-end through env_context.
 func TestReanchorPoC_H5_StoreSurvivesReAnchor(t *testing.T) {
 	featureKind := ldstoreimpl.Features()
 	flagKey := st.Flag1ServerSide.Flag.Key
@@ -455,7 +452,7 @@ func TestReanchorPoC_H5_StoreSurvivesReAnchor(t *testing.T) {
 	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond,
 		"GetClient should return the new anchor's client once it is registered")
 
-	// Post-T2.c: the adapter handed the existing wrapper to the new client, so the env's store is the
+	// Post-fix: the adapter handed the existing wrapper to the new client, so the env's store is the
 	// same instance, still initialized, and the data is intact. There is no empty-store window for the
 	// new anchor.
 	newStore := env.GetStore()
@@ -470,12 +467,12 @@ func TestReanchorPoC_H5_StoreSurvivesReAnchor(t *testing.T) {
 // relay owns the data store implementation (it hands the SDK a single storeAdapter), the re-anchor can
 // hand the existing store over to the new client instead of letting it build a fresh one. Modeled here
 // by a DataStoreFactory that returns the same underlying store on every Build; the production change
-// (T2.c/T2.d) is to make SSERelayDataStoreAdapter reuse its store across the swap. With handover the
-// new anchor's client sees the populated, initialized store immediately -- no empty-store window
-// (contrast TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor).
+// is to make SSERelayDataStoreAdapter reuse its store across the swap. With handover the new anchor's
+// client sees the populated, initialized store immediately -- no empty-store window (contrast
+// TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor).
 //
-// CAVEAT for the implementation (not reproducible with the fake client, so documented here and in the
-// findings): streamUpdatesStoreWrapper.Close() closes the underlying store. If the new client wraps the
+// CAVEAT for the implementation (not reproducible with the fake client, so documented here):
+// streamUpdatesStoreWrapper.Close() closes the underlying store. If the new client wraps the
 // SAME underlying store, closing the retiring client must NOT close it -- the store's lifecycle has to
 // be owned by the adapter, not by the client being retired.
 func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
@@ -532,11 +529,12 @@ func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
 // -----------------------------------------------------------------------------------------------
 
 // TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady is the inversion of the original H6 finding.
-// Before T2.c, reconcileCredentials flipped the rotator's anchor synchronously and then built the new
-// client asynchronously, opening a window where GetClient() (== clients[AnchorKey()]) returned nil for
-// the not-yet-registered new key. T2.c builds the new client synchronously and only commits the anchor
-// once it reports Initialized, so no such nil window exists: while the new client is still building, the
-// anchor stays on the old key and GetClient() keeps returning the old, still-serving client.
+// The originally-observed broken behavior: reconcileCredentials flipped the rotator's anchor
+// synchronously and then built the new client asynchronously, opening a window where GetClient()
+// (== clients[AnchorKey()]) returned nil for the not-yet-registered new key. The fix builds the new
+// client synchronously and only commits the anchor once it reports Initialized, so no such nil window
+// exists: while the new client is still building, the anchor stays on the old key and GetClient() keeps
+// returning the old, still-serving client.
 func TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -567,7 +565,7 @@ func TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady(t *testing.T) {
 	client1 := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == client1 }, time.Second, 10*time.Millisecond)
 
-	// T2.c re-anchors synchronously, so the reconcile blocks in the gated factory until we release it.
+	// The re-anchor is synchronous, so the reconcile blocks in the gated factory until we release it.
 	// Drive it on a background goroutine and build the set up front (keeping require off that goroutine).
 	start := time.Unix(1000, 0)
 	set, err := credential.NewAcceptedSetBuilder().
@@ -601,11 +599,11 @@ func TestReanchorPoC_H6_AnchorHoldsUntilNewClientReady(t *testing.T) {
 // -----------------------------------------------------------------------------------------------
 
 // TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor is the inversion of the original H7 finding.
-// Before T2.c, a failed new-client init left the anchor already flipped to a key with no client, so
-// GetClient() returned nil and the environment was broken even though the old client was still alive.
-// T2.c builds and validates the new client before committing: on init failure it does NOT commit the
-// anchor, surfaces the error, and leaves the old anchor authoritative (its client keeps serving). This
-// is the §8 atomicity requirement applied to re-anchor.
+// The originally-observed broken behavior: a failed new-client init left the anchor already flipped to
+// a key with no client, so GetClient() returned nil and the environment was broken even though the old
+// client was still alive. The fix builds and validates the new client before committing: on init
+// failure it does NOT commit the anchor, surfaces the error, and leaves the old anchor authoritative
+// (its client keeps serving). This is the all-or-nothing atomicity requirement applied to re-anchor.
 func TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	fakeErr := errors.New("new anchor client failed to initialize")
@@ -637,7 +635,7 @@ func TestReanchorPoC_H7_FailedNewClientRollsBackToOldAnchor(t *testing.T) {
 	start := time.Unix(1000, 0)
 	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 
-	// Post-T2.c: the re-anchor rolled back. The env stays healthy on the old anchor, so GetInitError
+	// Post-fix: the re-anchor rolled back. The env stays healthy on the old anchor, so GetInitError
 	// stays nil — setting it would 401 a still-serving env at the request middleware. The failure
 	// surfaces via a structured Error log instead. The anchor pointer stayed on the old key, whose
 	// client is still alive and serving, so GetClient() never returns nil and no client is installed

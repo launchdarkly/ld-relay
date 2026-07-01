@@ -216,7 +216,7 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // its anchor pointer in that case — the caller must drive the synchronous re-anchor sequence
 // (build the new anchor's SDK client if one does not exist, wait for Initialized, then invoke
 // CommitAnchor to atomically move the pointer, then call ReplaceCredential on the event dispatcher
-// and metrics publisher, then re-wire big-segment sync). See .agent-docs/concurrent-keys/phase1-design.md §7.
+// and metrics publisher, then re-wire big-segment sync).
 //
 // MobilePrimaryRepoint is non-nil when the primary mobile key changed AND the new primary was
 // already in the accepted set. In that case it does not appear in StepTime's additions list and
@@ -231,14 +231,14 @@ type ReconcileResult struct {
 
 // AnchorChange describes an SDK anchor transition produced by Reconcile.
 //
-// NewAnchorPreviouslyAccepted distinguishes the two re-anchor paths described in design §7:
-//   - false (Case A): the new anchor was not previously in the accepted set. The synchronous
-//     re-anchor must perform peripheral setup (envStreams, handlers, connection mapping), construct
-//     and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
-//   - true (Case B): the new anchor was already accepted (typically a former anchor still in its
-//     grace period). Peripherals are already in place and a client may already exist; the
-//     synchronous re-anchor reuses it (or constructs one only if missing — see Case A vs B in
-//     env_context_impl.go), then invokes CommitAnchor + ReplaceCredential.
+// NewAnchorPreviouslyAccepted distinguishes the two re-anchor paths:
+//   - false (the anchor is a new key): the new anchor was not previously in the accepted set. The
+//     synchronous re-anchor must perform peripheral setup (envStreams, handlers, connection mapping),
+//     construct and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
+//   - true (the anchor is a previously-accepted key): the new anchor was already accepted (typically
+//     a former anchor still in its grace period). Peripherals are already in place and a client may
+//     already exist; the synchronous re-anchor reuses it (or constructs one only if missing — see the
+//     re-anchor sequence in env_context_impl.go), then invokes CommitAnchor + ReplaceCredential.
 type AnchorChange struct {
 	PreviousAnchor              config.SDKKey
 	NewAnchor                   config.SDKKey
@@ -257,10 +257,10 @@ type AnchorChange struct {
 // (and, because WithAnchor adds the key as it designates it, that the anchor is among the SDK
 // keys), so Reconcile trusts what it is handed rather than re-validating.
 //
-// Reconcile does NOT flip the SDK anchor pointer (primarySdkKey) when the anchor changes — the
-// returned ReconcileResult.AnchorChange signals the change so the caller can drive the synchronous
-// re-anchor sequence, then call CommitAnchor to atomically move the pointer. The new anchor is
-// also stripped from additions in Case A (NewAnchorPreviouslyAccepted == false) so that the async
+// Reconcile does NOT flip the SDK anchor pointer when the anchor changes — the returned
+// ReconcileResult.AnchorChange signals the change so the caller can drive the synchronous re-anchor
+// sequence, then call CommitAnchor to atomically move the pointer. When the new anchor is a new key
+// (NewAnchorPreviouslyAccepted == false) it is also stripped from additions so that the async
 // startSDKClient invocation in addCredential does not race the synchronous client build.
 func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.mu.Lock()
@@ -282,12 +282,12 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.reconcileSDKKeys(set, now)
 
 	if result.AnchorChange != nil && !result.AnchorChange.NewAnchorPreviouslyAccepted {
-		// Case A: reconcileAcceptedKeys just appended the brand-new anchor to r.additions. Strip
-		// it — the synchronous re-anchor sequence in env_context_impl owns the new anchor's setup
+		// The anchor is a new key: reconcileAcceptedKeys just appended it to r.additions. Strip it —
+		// the synchronous re-anchor sequence in env_context_impl owns the new anchor's setup
 		// (peripherals + client build + flip + ReplaceCredential). If addCredential drained this
-		// addition normally, its async startSDKClient would race the synchronous build. In Case B
-		// (anchor previously accepted) the anchor was already in acceptedSDKKeys so
-		// reconcileAcceptedKeys did not add it — no strip needed.
+		// addition normally, its async startSDKClient would race the synchronous build. When the anchor
+		// is a previously-accepted key it was already in acceptedSDKKeys, so reconcileAcceptedKeys did
+		// not add it — no strip needed.
 		r.additions = removeCredentialFromList(r.additions, newAnchor)
 	}
 
@@ -321,10 +321,10 @@ func removeCredentialFromList(list []SDKCredential, target SDKCredential) []SDKC
 
 // CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. The caller
 // invokes this once the synchronous re-anchor sequence is ready to flip — i.e. after the new
-// anchor's client is built and reports Initialized (Case A) or after confirming the existing
-// client will be reused (Case B). Until CommitAnchor is called, the rotator's anchor stays on the
-// previous key so GetClient() returns the still-serving old client and the gate in addCredential
-// does not fire for the pending new anchor.
+// anchor's client is built and reports Initialized (when the anchor is a new key) or after confirming
+// the existing client will be reused (when the anchor is a previously-accepted key). Until CommitAnchor
+// is called, the rotator's anchor stays on the previous key so GetClient() returns the still-serving
+// old client and the gate in addCredential does not fire for the pending new anchor.
 //
 // Aside from Initialize (which establishes the initial anchor), CommitAnchor is the only path that
 // moves the anchor pointer: Reconcile deliberately does not flip it (see reconcileSDKKeys).

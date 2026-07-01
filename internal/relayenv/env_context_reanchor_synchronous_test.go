@@ -1,11 +1,11 @@
 package relayenv
 
-// Regression tests for the synchronous re-anchor sequence (T2.c / SDK-2542).
+// Regression tests for the synchronous re-anchor sequence.
 //
-// These cover the acceptance criteria from .agent-docs/concurrent-keys/phase1-design.md §7:
-// Case A success, Case A init-failure rollback, Case B (reused client), no orphan clients,
-// store-handover survival, and the mobile-primary repoint signal (the gap left by PR #712's gate
-// when the new primary mobile key was already in the accepted set).
+// These cover: re-anchoring to a new key (build success and init-failure rollback), re-anchoring to a
+// previously-accepted key (reuse the existing client), no orphan clients, store-handover survival, and
+// the mobile-primary repoint signal (the gap when the new primary mobile key was already in the
+// accepted set, so the primary-mobile gate does not fire for it).
 
 import (
 	"errors"
@@ -34,7 +34,7 @@ const reanchorSyncExpiringKey = config.SDKKey("reanchor-sync-expiring-key")
 // designates newKey as the anchor and keeps oldKey accepted with an expiry one hour in the future,
 // mirroring the backend's default-rotation behavior (the new anchor is non-expiring; the demoted
 // old anchor carries an expiry). extraAcceptedSDK, if defined, is added as a permanent non-anchor
-// SDK key — used to set up Case B (a key already in the accepted set later becoming the anchor).
+// SDK key — used to set up the reuse path (a key already in the accepted set later becoming the anchor).
 func reanchorViaReconcile(
 	t *testing.T,
 	env EnvContext,
@@ -63,9 +63,9 @@ func reanchorViaReconcile(
 	env.(*envContextImpl).reconcileCredentials(set, now)
 }
 
-// TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor exercises the happy-path Case A re-anchor:
-// the new anchor is a brand-new SDK key with no existing client, the build succeeds, and the anchor
-// commits. The store is handed over (no empty-store window) and the new client becomes current.
+// TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor exercises the happy path where the new anchor
+// is a brand-new SDK key with no existing client: the build succeeds, and the anchor commits. The
+// store is handed over (no empty-store window) and the new client becomes current.
 func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 	featureKind := ldstoreimpl.Features()
 	flagKey := st.Flag1ServerSide.Flag.Key
@@ -93,7 +93,7 @@ func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 
 	// A new client was built synchronously and is now the current anchor's client.
 	newClient := requireClientReady(t, clientCh)
-	assert.NotSame(t, originalClient, newClient, "Case A builds a fresh client for the new anchor")
+	assert.NotSame(t, originalClient, newClient, "a new anchor key builds a fresh client")
 	assert.Same(t, newClient, env.GetClient(), "GetClient returns the new anchor's client after the commit")
 	assert.Nil(t, env.GetInitError(), "successful re-anchor clears any prior init error")
 
@@ -107,8 +107,8 @@ func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.Item, "data survives the re-anchor (no empty-store window)")
 
-	// The old client is still alive — its grace period has not elapsed (PoC H2's "old client keeps
-	// serving" property; closure happens via removeCredential when the expiry fires).
+	// The old client is still alive — its grace period has not elapsed (the old client keeps serving;
+	// closure happens via removeCredential when the expiry fires).
 	envImpl := env.(*envContextImpl)
 	envImpl.mu.RLock()
 	_, oldStillPresent := envImpl.clients[envConfig.SDKKey]
@@ -118,8 +118,9 @@ func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 
 // TestReanchorSync_CaseA_InitFailureRollsBack confirms that a failed new-client init does NOT move
 // the rotator's anchor, does NOT install the broken client, and does NOT close the previous client.
-// The old anchor keeps serving; the failure surfaces as initErr + a structured Errorf log. This is
-// the §8 atomicity requirement applied to re-anchor (PoC H7 baseline, now fixed).
+// The old anchor keeps serving; the failure surfaces as a structured Errorf log (initErr is left
+// untouched so the still-healthy env is not marked failed). This is the all-or-nothing atomicity
+// requirement applied to re-anchor.
 func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	fakeErr := errors.New("re-anchor: new client init refused")
@@ -167,10 +168,9 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 }
 
 // TestReanchorSync_CaseB_ReusesExistingClient covers re-anchoring onto a key that already has a
-// live client. We first accept a second SDK key as a non-anchor server key (which, being the
-// anchor of its own reconcile, would build a client)... but the simplest deterministic Case B is:
-// re-anchor A→B (B's client built), then re-anchor B→A while A is still in its grace period. A's
-// client still exists, so the second re-anchor must reuse it and build nothing new.
+// live client. The simplest deterministic setup: re-anchor A→B (B's client built), then re-anchor
+// B→A while A is still in its grace period. A's client still exists, so the second re-anchor must
+// reuse it and build nothing new.
 func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -187,7 +187,7 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 	require.Eventually(t, func() bool { return env.GetClient() == originalClient }, time.Second, 10*time.Millisecond)
 	require.NoError(t, env.GetStore().Init(st.AllData))
 
-	// First re-anchor: original → key2 (Case A; key2 client built). Keep the original in grace.
+	// First re-anchor: original → key2 (new key; key2 client built). Keep the original in grace.
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
 	key2Client := requireClientReady(t, clientCh)
@@ -198,20 +198,20 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 	envImpl.mu.RLock()
 	originalStillPresent := envImpl.clients[envConfig.SDKKey] == originalClient
 	envImpl.mu.RUnlock()
-	require.True(t, originalStillPresent, "original client retained for Case B reuse")
+	require.True(t, originalStillPresent, "original client retained for reuse")
 
-	// Second re-anchor: key2 → original. The original's client exists, so this is Case B: no Build,
-	// the existing client is reused, the anchor flips, and ReplaceCredential runs.
+	// Second re-anchor: key2 → original. The original's client exists, so this is the reuse path: no
+	// Build, the existing client is reused, the anchor flips, and ReplaceCredential runs.
 	reanchorViaReconcile(t, env, envConfig.SDKKey, reanchorSyncTestKey2, "", envConfig.MobileKey, envConfig.EnvID, now)
 
 	// No new client was created — clientCh must be empty (every prior client was drained).
 	select {
 	case c := <-clientCh:
-		t.Fatalf("Case B must not build a new client, but one was created: %v", c.Key)
+		t.Fatalf("re-anchoring to a key with an existing client must not build a new one, but one was created: %v", c.Key)
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	assert.Same(t, originalClient, env.GetClient(), "Case B reuses the existing client for the re-anchored key")
+	assert.Same(t, originalClient, env.GetClient(), "reuses the existing client for the re-anchored key")
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
 }
 
@@ -274,8 +274,8 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	envImpl.reconcileCredentials(initialSet, now)
 	require.Contains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncExpiringKey))
 
-	// Re-anchor onto a brand-new key (Case A) while keeping both the demoted old anchor and the
-	// expiring key accepted. The build will block, holding reconcileMu.
+	// Re-anchor onto a brand-new key while keeping both the demoted old anchor and the expiring key
+	// accepted. The build will block, holding reconcileMu.
 	reanchorSet, err := credential.NewAcceptedSetBuilder().
 		WithAnchor(credential.SDKKeyParams{Value: reanchorSyncTestKey2}).
 		WithSDKKey(credential.SDKKeyParams{Value: envConfig.SDKKey, Expiry: &graceExpiry}).
@@ -333,7 +333,7 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	assert.True(t, oldStillPresent, "demoted old anchor's client retained during its grace period")
 }
 
-// TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey covers the gap left by PR #712's gate:
+// TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey covers the primary-mobile gate's gap:
 // when the primary mobile key switches to a key that was ALREADY in the accepted set, that key is
 // not in StepTime's additions, so addCredential's gate never fires for it. reconcileCredentials
 // must therefore call eventDispatcher.ReplaceCredential synchronously via MobilePrimaryRepoint.

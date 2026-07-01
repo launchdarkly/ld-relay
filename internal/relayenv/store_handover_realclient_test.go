@@ -1,14 +1,13 @@
 package relayenv
 
-// Spike for SDK-2542 (T2.c) — verifies the real ld.LDClient's Close() behavior against the
-// SSERelayDataStoreAdapter / streamUpdatesStoreWrapper pair, which the T0 PoC could not exercise (it
-// used a fake client). The design (phase1-design.md §7) flags this as the single remaining
-// PoC-unvalidated piece:
+// Spike verifying the real ld.LDClient's Close() behavior against the SSERelayDataStoreAdapter /
+// streamUpdatesStoreWrapper pair, which the fake-client PoC could not exercise. This is the single
+// remaining piece the fake-client PoC could not validate:
 //
 //   > streamUpdatesStoreWrapper.Close() closes the underlying store. With handover the retiring
 //   > and new clients share one underlying store, so closing the retiring client must NOT close
 //   > it — the adapter (not the client) must own the store's lifecycle. (Not reproducible with
-//   > the fake client used in the PoC; verify against the real client in T2.c.)
+//   > the fake client; verified here against the real client.)
 //
 // We answer two questions:
 //   Q1. Does ld.LDClient.Close() invoke Close() on its data store (the wrapper)?
@@ -108,18 +107,18 @@ func TestRealClient_CloseInvokesWrapperClose(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	// The headline finding: closing the real client propagates Close() to the underlying store via
-	// streamUpdatesStoreWrapper.Close(). If this assertion fails, the design's lifecycle caveat is
-	// not a real hazard for this combination and T2.c's store-handover fix only needs the Build()
-	// reuse, not a Close() lifecycle change.
+	// streamUpdatesStoreWrapper.Close(). If this assertion fails, the lifecycle caveat is not a real
+	// hazard for this combination and the store-handover fix only needs the Build() reuse, not a
+	// Close() lifecycle change.
 	assert.Equal(t, 1, factory.observed.closeCount,
 		"ld.LDClient.Close should propagate to the underlying data store via the wrapper")
 }
 
 // TestRealClient_ReadsAfterCloseAreStillFunctional asks the second question: after Close runs, is
-// the underlying in-memory store still usable for Get? The answer tells us whether the fix in T2.c
-// needs to actually prevent Close (because reads will fail after it) or whether reads coincidentally
+// the underlying in-memory store still usable for Get? The answer tells us whether the store-handover
+// fix needs to actually prevent Close (because reads will fail after it) or whether reads coincidentally
 // still work (because the in-memory store's Close is effectively a no-op for read behavior). Even
-// if reads happen to work, T2.c should still gate Close — relying on undocumented "Close is a
+// if reads happen to work, the fix should still gate Close — relying on undocumented "Close is a
 // no-op" behavior is brittle and breaks when persistent stores enter the picture.
 func TestRealClient_ReadsAfterCloseAreStillFunctional(t *testing.T) {
 	factory := &closeObservingStoreFactory{}
@@ -140,9 +139,9 @@ func TestRealClient_ReadsAfterCloseAreStillFunctional(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	// Read after Close. The outcome here is informational, not a pass/fail design gate:
-	//   - If the read succeeds, the in-memory store's Close is effectively a no-op for queries; T2.c
+	//   - If the read succeeds, the in-memory store's Close is effectively a no-op for queries; the fix
 	//     can still safely gate Close to be defensive (persistent stores may differ).
-	//   - If the read fails, T2.c MUST gate Close, since the new anchor would observe a broken store.
+	//   - If the read fails, the fix MUST gate Close, since the new anchor would observe a broken store.
 	gotAfter, errAfter := wrapper.Get(featureKind, flagKey)
 	t.Logf("Get after client.Close: item=%v err=%v initialized=%v",
 		gotAfter.Item != nil, errAfter, wrapper.IsInitialized())
