@@ -377,6 +377,7 @@ func reconcileAcceptedKeys[K reconcilableKey](
 	}
 }
 
+// reconcileSDKKeys diffs the desired SDK keys against the accepted set and applies the result via
 // reconcileAcceptedKeys. The set is trusted as well-formed: BuildAcceptedSet / the builder guarantee
 // the anchor is present and permanent (WithAnchor forces a nil expiry), so no special handling is
 // needed here. The caller must hold the write lock.

@@ -526,21 +526,9 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		}
 		c.clients[sdkKey] = client
 
-		// The data store instance is created by the SDK when it creates the client. Now that
-		// we have a data store, we can finish setting up the Evaluator that we'll use for this
-		// environment.
-		store := c.storeAdapter.GetStore()
-		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		evalOptions := []ldeval.EvaluatorOption{
-			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
-			// are sending old-style user data with the "secondary" attribute. This option doesn't affect
-			// evaluations done for newer client-side SDKs that send contexts.
-			ldeval.EvaluatorOptionEnableSecondaryKey(true),
-		}
-		if c.sdkBigSegments != nil {
-			evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
-		}
-		c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
+		// The data store instance is created by the SDK when it creates the client. Now that we have a
+		// data store, we can finish setting up the Evaluator for this environment.
+		c.rebuildEvaluatorLocked()
 	}
 	c.initErr = err
 	c.mu.Unlock()
@@ -676,19 +664,18 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 	offline := c.offline
 	c.mu.RUnlock()
 
-	// Registering the credential mappings is gated solely on NewAnchorPreviouslyAccepted, deliberately
-	// NOT on whether a client already exists. A brand-new anchor (Reconcile stripped it from additions,
-	// so addCredential never ran) needs its envStreams/handler/connection-mapper mappings registered
-	// here, the same ones addCredential registers; a previously-accepted anchor already had its mappings
-	// registered when it was first accepted, so we skip.
-	//
-	// These two signals are kept independent on purpose. Today they always agree — a client in
-	// c.clients[newAnchor] can only exist for a key that was previously accepted, because
-	// removeCredential deletes the client in lockstep with the rotator dropping the key from its
-	// accepted set, so existingClient != nil implies NewAnchorPreviouslyAccepted. Gating the mapping
-	// registration on NewAnchorPreviouslyAccepted rather than on client presence means that even if that
-	// invariant were ever broken (a client present for a not-previously-accepted key), the brand-new
-	// anchor still gets its mappings and is never stranded without routing.
+	// The two signals below answer two different questions, so they are used independently:
+	//   - NewAnchorPreviouslyAccepted: were this key's credential mappings already registered? If it
+	//     was already accepted (e.g. a non-anchor server key that addCredential registered mappings for
+	//     but never built a client), the mappings exist, so skip re-registering. If it is brand new
+	//     (Reconcile stripped it from additions, so addCredential never ran for it), register them here.
+	//   - existingClient (below): is there already a client for this key? If so, reuse it; otherwise
+	//     build one.
+	// These genuinely differ: promoting a previously-accepted non-anchor key to anchor has mappings but
+	// no client (register: skip, client: build). The one-way invariant existingClient != nil =>
+	// NewAnchorPreviouslyAccepted holds (removeCredential deletes a key's client in lockstep with the
+	// rotator dropping it), which is why gating mapping registration on NewAnchorPreviouslyAccepted is
+	// safe: a key with a live client is always already accepted, so it never re-registers.
 	if !change.NewAnchorPreviouslyAccepted {
 		c.mu.Lock()
 		c.registerCredentialMappings(newAnchor)
@@ -707,16 +694,19 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 		return
 	}
 
+	c.buildAndCommitNewAnchorClient(newAnchor, previousAnchor)
+}
+
+// buildAndCommitNewAnchorClient handles the re-anchor path where the new anchor has no existing client
+// and the env is online: it builds the client synchronously and, on success, installs it, rebuilds the
+// evaluator against the handed-over store, and commits the anchor. On init failure it rolls back — the
+// half-built client is closed, the anchor is NOT committed, initErr is left untouched (the env stays
+// healthy on the previous anchor, whose client keeps serving), and the failure is logged. initErr is
+// deliberately not set on failure: it feeds the request middleware, so setting it to the new anchor's
+// ErrInitializationFailed would make relay reject all traffic (401) for an env that is serving fine.
+func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor config.SDKKey) {
 	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
 	if err != nil || client == nil || !client.Initialized() {
-		// Init failure: do NOT CommitAnchor (rollback). The rotator's anchor pointer stays on the
-		// previous key, GetClient() continues to return the still-serving old client, and the
-		// reconciled accepted set is preserved. Deliberately do NOT set c.initErr: the environment is
-		// still healthy on the previous anchor, and initErr feeds the request middleware — setting it
-		// to the new anchor's ErrInitializationFailed would make relay reject all traffic (401) for an
-		// environment that is serving correctly, defeating the rollback. Log a structured error
-		// instead — relay has no dedicated alarm infrastructure today, so Errorf is the strongest
-		// signal available.
 		var initialized bool
 		if client != nil {
 			initialized = client.Initialized()
@@ -735,19 +725,9 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) {
 		_ = existing.Close()
 	}
 	c.clients[newAnchor] = client
-
-	// Rebuild the evaluator against the (handed-over) store, mirroring startSDKClient. With store
-	// handover, c.storeAdapter.GetStore() returns the SAME wrapper the old client used — the data is
-	// already there, so the new evaluator serves populated data immediately.
-	st := c.storeAdapter.GetStore()
-	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(st, c.loggers)
-	evalOptions := []ldeval.EvaluatorOption{
-		ldeval.EvaluatorOptionEnableSecondaryKey(true),
-	}
-	if c.sdkBigSegments != nil {
-		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
-	}
-	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
+	// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
+	// evaluator serves the already-populated data immediately (no empty-store window).
+	c.rebuildEvaluatorLocked()
 	c.initErr = nil
 	c.mu.Unlock()
 
@@ -775,6 +755,24 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 	c.reanchorBigSegmentSync(newAnchor)
 
 	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
+}
+
+// rebuildEvaluatorLocked constructs the environment's Evaluator against the current data store. It is
+// called after (re)creating an SDK client, once the store is available, and is shared by the initial
+// client startup and the re-anchor path. The caller must hold c.mu.
+//
+// EnableSecondaryKey is set because we may evaluate for client-side SDKs sending old-style user data
+// with the "secondary" attribute; it has no effect for newer SDKs that send contexts.
+func (c *envContextImpl) rebuildEvaluatorLocked() {
+	store := c.storeAdapter.GetStore()
+	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+	evalOptions := []ldeval.EvaluatorOption{
+		ldeval.EvaluatorOptionEnableSecondaryKey(true),
+	}
+	if c.sdkBigSegments != nil {
+		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
+	}
+	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
 }
 
 // registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
