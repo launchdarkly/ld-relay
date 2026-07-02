@@ -665,21 +665,21 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 // and before expirations, so the previous anchor's client is still alive while the new client is built
 // (or reused).
 //
-// reanchor holds c.mu for the whole sequence and releases it only around the SDK client build (see
-// buildAndCommitNewAnchorClient), which must not hold the lock. Holding one continuous lock keeps
-// Close() (which also takes c.mu) from tearing down clients or the dispatcher mid-commit, and lets the
-// downstream helpers assume the lock is held rather than each re-acquiring it.
+// reanchor holds c.mu for the whole sequence and releases it only around the SDK client build (which
+// must not hold the lock — see buildNewAnchorClient). Holding one continuous lock otherwise keeps
+// Close() (which also takes c.mu) from tearing down clients or the dispatcher mid-commit, and lets
+// commitReanchor assume the lock is held rather than re-acquiring it.
 //
-//   - When there is no existing client for the new anchor: register its credential mappings if the key
-//     is brand new (Reconcile stripped it from additions), build a new SDK client, and on Initialized
-//     commit the anchor. On init failure, roll back: do not commit, leave the previous anchor
-//     authoritative (its client keeps serving), and log a structured error.
+//   - When there is no existing client for the new anchor and the env is online: register its credential
+//     mappings if the key is brand new (Reconcile stripped it from additions), build a new SDK client,
+//     and on Initialized commit the anchor. On init failure, roll back: do not commit, leave the previous
+//     anchor authoritative (its client keeps serving), and log a structured error.
 //   - When a client already exists (e.g. a former anchor still in its grace period), or the env is
 //     offline: no build, just commit.
 //
-// Returns true if the anchor was committed, false if it rolled back (so reconcileCredentials can back
-// out the anchor change). The old anchor's client is not closed here; its grace-period expiration
-// drives removeCredential.
+// Returns true if the anchor was committed, false if it rolled back (init failure or the env closed
+// mid-build), so reconcileCredentials can back out the anchor change. The old anchor's client is not
+// closed here; its grace-period expiration drives removeCredential.
 func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	newAnchor := change.NewAnchor
 	previousAnchor := change.PreviousAnchor
@@ -703,33 +703,61 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 		c.registerCredentialMappings(newAnchor)
 	}
 
-	if c.clients[newAnchor] != nil {
-		// A client already exists for the new anchor — reuse it.
-		return c.commitReanchor(newAnchor, previousAnchor, "reused existing client")
+	// A live client for the new anchor is reused as-is; an offline env has no upstream client to build.
+	// Either way there is nothing to build, so fall through to commit.
+	why := "reused existing client"
+	if c.clients[newAnchor] == nil {
+		if c.offline {
+			why = "offline — no client build"
+		} else {
+			// Build the new client without the lock: sdkClientFactory can block for up to sdkInitTimeout,
+			// and holding c.mu that long would stall every GetClient/GetStore caller (see reconcileMu).
+			// reanchor's deferred Unlock releases the lock we re-acquire here on return.
+			c.mu.Unlock()
+			client := c.buildNewAnchorClient(newAnchor, previousAnchor)
+			c.mu.Lock()
+
+			if client == nil {
+				// Init failed; buildNewAnchorClient already logged and closed the half-built client. Do not
+				// commit — leave the previous anchor authoritative.
+				return false
+			}
+			if c.closed {
+				// The env was torn down while the lock was released for the build (Close() does not hold
+				// reconcileMu, so it can run concurrently); its client-teardown loop has already finished and
+				// would never close this one, so discard the freshly-built client rather than install it into
+				// a closed env (mirrors the guard in startSDKClient).
+				_ = client.Close()
+				return false
+			}
+			if existing := c.clients[newAnchor]; existing != nil && existing != client {
+				// Stale-client guard: the lock was released for the build, so re-check and close any client
+				// installed concurrently for newAnchor.
+				_ = existing.Close()
+			}
+			c.clients[newAnchor] = client
+			// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
+			// evaluator serves the already-populated data immediately (no empty-store window).
+			c.rebuildEvaluator()
+			why = "built new client"
+		}
 	}
-	if c.offline {
-		// In offline mode there is no upstream client to build. Just commit + ReplaceCredential.
-		return c.commitReanchor(newAnchor, previousAnchor, "offline — no client build")
-	}
-	return c.buildAndCommitNewAnchorClient(newAnchor, previousAnchor)
+
+	return c.commitReanchor(newAnchor, previousAnchor, why)
 }
 
-// buildAndCommitNewAnchorClient handles the re-anchor path where the new anchor has no existing client
-// and the env is online. The caller (reanchor) must hold c.mu; this releases it only around the SDK
-// client build — which can take up to sdkInitTimeout and must not hold the lock, so GetClient/GetStore
-// stay live during it — then re-acquires it (reanchor's deferred Unlock releases it on return) for the
-// install and commit. On init failure it rolls back: the half-built client is closed, the anchor is NOT
-// committed, and the failure is logged. initErr is deliberately not set on failure: it feeds the
-// request middleware, so setting it to the new anchor's ErrInitializationFailed would 401 an env that
-// is serving fine on the previous anchor.
+// buildNewAnchorClient constructs the SDK client for a re-anchor to newAnchor. It must run without c.mu
+// held: sdkClientFactory can block for up to sdkInitTimeout, and holding the lock that long would stall
+// every GetClient/GetStore caller. It touches only fields fixed at construction (sdkClientFactory,
+// sdkConfig, sdkInitTimeout, globalLoggers), so it needs no lock — mirroring startSDKClient, which also
+// builds before locking.
 //
-// Returns true if the anchor was committed, false if it rolled back (init failure or the env closed
-// mid-build).
-func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor config.SDKKey) bool {
-	c.mu.Unlock()
+// Returns the initialized client, or nil if the build failed, in which case it has already closed any
+// half-built client and logged a structured error. initErr is deliberately left untouched on failure:
+// it feeds the request middleware, and setting it to the new anchor's ErrInitializationFailed would 401
+// an env that is serving fine on the previous anchor.
+func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.SDKKey) sdks.LDClientContext {
 	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
-	c.mu.Lock()
-
 	if err != nil || client == nil || !client.Initialized() {
 		var initialized bool
 		if client != nil {
@@ -739,27 +767,9 @@ func (c *envContextImpl) buildAndCommitNewAnchorClient(newAnchor, previousAnchor
 		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
 			"preserving previous anchor %s",
 			newAnchor.Masked(), err, initialized, previousAnchor.Masked())
-		return false
+		return nil
 	}
-	if c.closed {
-		// The env was torn down while the lock was released for the build (Close() does not hold
-		// reconcileMu, so it can run concurrently); its client-teardown loop has already finished and
-		// would never close this one, so discard the freshly-built client rather than install it into a
-		// closed env (mirrors the guard in startSDKClient).
-		_ = client.Close()
-		return false
-	}
-	if existing := c.clients[newAnchor]; existing != nil && existing != client {
-		// Stale-client guard: the lock was released for the build, so re-check and close any client
-		// installed concurrently for newAnchor.
-		_ = existing.Close()
-	}
-	c.clients[newAnchor] = client
-	// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
-	// evaluator serves the already-populated data immediately (no empty-store window).
-	c.rebuildEvaluator()
-
-	return c.commitReanchor(newAnchor, previousAnchor, "built new client")
+	return client
 }
 
 // commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor
