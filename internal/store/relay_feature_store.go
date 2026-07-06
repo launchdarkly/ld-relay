@@ -150,6 +150,14 @@ func (sw *streamUpdatesStoreWrapper) acquire() bool {
 
 func (sw *streamUpdatesStoreWrapper) Close() error {
 	sw.refMu.Lock()
+	if sw.closed {
+		// Already fully torn down. A stray extra Close (the SDK's LDClient.Close is not idempotent, so
+		// this depends on caller discipline) must not decrement below zero and re-satisfy the final
+		// guard — that would close the underlying store a second time, double-releasing a persistent
+		// store's connection pool. Close is idempotent past the final release.
+		sw.refMu.Unlock()
+		return nil
+	}
 	sw.refCount--
 	final := sw.refCount <= 0
 	if final {

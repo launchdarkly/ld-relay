@@ -44,7 +44,7 @@ func TestStoreAdapterRebuildsAfterFullClose(t *testing.T) {
 	first, err := adapter.Build(ctx)
 	require.NoError(t, err)
 	sw1 := first.(*streamUpdatesStoreWrapper)
-	require.Equal(t, 1, sw1.refCount)
+	require.Equal(t, 1, sw1.currentRefCount())
 
 	// The sole client shuts down: refCount 1 -> 0, wrapper marked closed, underlying store torn down.
 	require.NoError(t, first.Close())
@@ -57,7 +57,7 @@ func TestStoreAdapterRebuildsAfterFullClose(t *testing.T) {
 	sw2 := second.(*streamUpdatesStoreWrapper)
 
 	assert.NotSame(t, sw1, sw2, "adapter must rebuild rather than hand back the torn-down wrapper")
-	assert.Equal(t, 1, sw2.refCount, "the fresh wrapper starts at refCount 1")
+	assert.Equal(t, 1, sw2.currentRefCount(), "the fresh wrapper starts at refCount 1")
 	assert.False(t, sw2.store.(*mockStore).closed, "the fresh wrapper's underlying store is open")
 	assert.Same(t, sw2, adapter.GetStore(), "the adapter now points at the fresh wrapper")
 
