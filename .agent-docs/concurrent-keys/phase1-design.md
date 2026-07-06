@@ -253,6 +253,25 @@ This is the highest-risk piece of Phase 1. The **T0 PoC** validated the swap mec
 
 This order is *necessary* — the PoC found that flipping the pointer too early leaves `GetClient()` nil mid-swap (H6) and breaks the env on init failure (H7) — and *sufficient* only with the store-handling approach below.
 
+### Two re-anchor cases — Case A (new key) vs Case B (already-accepted key)
+
+The sequence above is **Case A**: the new anchor is a key relay has not previously accepted, so no SDK client exists for it. Relay must build one, hand over the store, wait for `Initialized()`, then flip and re-wire.
+
+**Case B** is the abbreviated path taken when the new anchor's key **already has a live SDK client** — most commonly a *former* anchor that is still inside its grace period (it was demoted on an earlier rotation, kept alive to serve downstream traffic, and is now being promoted back). In that situation:
+
+1. **No `Build`.** The existing client is reused as-is — there is no second upstream connection to stand up.
+2. **No store handover.** The store the existing client created is already populated and initialized; nothing is handed over because nothing new is constructed.
+3. **Atomically flip the rotator's anchor pointer** (`CommitAnchor`) — identical to Case A step 3.
+4. **Call `ReplaceCredential`** on the event dispatcher + metrics publisher — identical to Case A step 4.
+5. Big-segment sync is re-wired (T2.d), identical to Case A.
+6. The retiring anchor's client is closed by the existing `removeCredential` path when its own grace period ends — identical to Case A step 6.
+
+The two paths **converge after the flip**: steps 3–6 are the same. The only difference is the front of the sequence — Case A builds + initializes + hands over the store; Case B reuses what is already there and does none of that. The caller branches on whether a client already exists for the new anchor (`c.clients[newAnchor] != nil`).
+
+Because Case B does no client build, there is no init-failure rollback to consider for it — the client it reuses was already initialized and serving. Rollback handling (preserve previous anchor, log a structured error) applies to **Case A only**.
+
+**Reconcile/additions interaction:** so the synchronous re-anchor owns the new anchor's setup end-to-end, `Rotator.Reconcile` does not flip the anchor itself — it returns a `ReconcileResult.AnchorChange` and the caller invokes `CommitAnchor` at the right moment. In **Case A** the new anchor would otherwise appear in the reconcile's `additions` list and `addCredential` would fire an *async* `startSDKClient` that races the synchronous build — so Reconcile strips the new anchor from `additions` in Case A and the synchronous path installs the peripherals (envStreams, handlers, connection mapping) itself. In **Case B** the new anchor was already accepted, so it was never going to appear in `additions` — no stripping is needed there.
+
 ### The data store: hand the existing store over to the new client
 
 An earlier version of this design assumed two SDK clients pointed at the same env would feed the *same* data store as a side-effect. The PoC (H1, H5) showed this is **wrong for the in-memory store**: each SDK client construction calls `storeAdapter.Build()`, which atomically swaps in a *new, empty* store, so the new client would otherwise have to re-sync from scratch (an empty-store window). This affects only the in-memory case; with a persistent store (Redis, DynamoDB) the data lives outside the wrapper and survives the swap.
@@ -276,17 +295,17 @@ This is the concrete form of decoupling the store's lifecycle from the client's.
 
 ### Failure handling
 
-If the new client fails to initialize, the swap **rolls back**: the rotator's anchor pointer stays on the old key, the previous accepted set is preserved, a structured error is logged, and an alarm is raised. The old anchor's client (still alive in its grace period) continues to serve. This is the §8 atomicity principle applied to re-anchor.
+If the new client fails to initialize, the swap **rolls back**: the rotator's anchor pointer stays on the old key (the caller simply does not call `CommitAnchor`), the previous accepted set is preserved, and a structured error is logged. The old anchor's client (still alive in its grace period) continues to serve. This is the §8 atomicity principle applied to re-anchor, and it applies to **Case A only** — Case B reuses an already-initialized client and has nothing to fail. Relay has no dedicated alarm infrastructure today; an `Error`-level structured log (`globalLoggers.Errorf`) is the strongest signal available and is sufficient.
 
 ### Consolidated specification for T2.c / T2.d
 
 | # | Requirement | Source | Owner |
 |---|---|---|---|
-| 1 | Build + initialize the new anchor client *before* flipping the pointer; flip atomically. | H5, H6 | T2.c |
-| 2 | On init failure, roll back to old anchor; preserve previous accepted set; log + alarm. | H7 | T2.c |
-| 3 | Hand the existing store over to the new client (adapter reuses its store); ensure the retiring client's `Close()` does not tear down the shared store. | H1, H5 | T2.c |
-| 4 | Re-wire big-segment sync on re-anchor (recreate or replace-credential). | H3 | T2.d |
-| 5 | Call `ReplaceCredential` on event dispatcher + metrics publisher. | §7 | T2.c (already wired in `addCredential`) |
+| 1 | **Case A**: build + initialize the new anchor client *before* flipping the pointer; flip atomically via `CommitAnchor`. **Case B** (new anchor already has a live client): skip the build, reuse it, then flip. | H5, H6 | T2.c |
+| 2 | **Case A** init failure: roll back (do not `CommitAnchor`); preserve previous accepted set; log a structured error. Not applicable to Case B. | H7 | T2.c |
+| 3 | **Case A**: hand the existing store over to the new client (adapter reuses its store, refcounted so the retiring client's `Close()` does not tear it down). **Case B**: no handover — the store is already populated. | H1, H5 | T2.c |
+| 4 | Re-wire big-segment sync on re-anchor (recreate or replace-credential). Same for both cases. | H3 | T2.d |
+| 5 | Call `ReplaceCredential` on event dispatcher + metrics publisher (synchronously, in the re-anchor sequence — not via `addCredential`, since Reconcile strips the new anchor from `additions`). Same for both cases. | §7 | T2.c |
 | 6 | Expect duplicate downstream `put`; retain connections for credentials still in the accepted set. | H2 | T2.c (awareness) |
 | 7 | No `httpconfig` change. | H4 | n/a |
 

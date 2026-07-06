@@ -124,10 +124,10 @@ type envContextImpl struct {
 	offline                   bool
 	closed                    bool
 
-	// reconcileMu serializes credential reconciliation. Both reconcileCredentials and the cleanup
-	// ticker's triggerCredentialChanges hold it, so they never interleave: the anchor flip (deferred
-	// to CommitAnchor) stays atomic with the addition it queues, and the ticker cannot drain a queued
-	// addition while reconcile has committed the accepted set but not yet moved the anchor pointer.
+	// reconcileMu serializes reconcileCredentials calls — only one runs at a time, including the
+	// synchronous re-anchor sequence inside it. Held separately from mu so that GetClient / GetStore /
+	// GetEvaluator / addCredential continue to run during the (potentially seconds-long) SDK client
+	// construction when re-anchoring to a new key.
 	reconcileMu sync.Mutex
 }
 
@@ -476,21 +476,6 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	}
 }
 
-// registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
-// credential with the env's stream machinery, builds the per-stream-provider HTTP handlers, and adds
-// the connection->env mapping, so incoming SDK/client connections that authenticate with cred are
-// served by this env. It does NOT start the upstream SDK client or repoint event/metrics forwarding --
-// those are anchor-only concerns owned by the caller. The caller must hold c.mu.
-func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
-	c.envStreams.AddCredential(cred)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
-			handlers[cred] = h
-		}
-	}
-	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
-}
-
 func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -575,24 +560,6 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	}
 }
 
-// rebuildEvaluator constructs the environment's Evaluator against the current data store. It is called
-// after (re)creating an SDK client, once the store is available. It reads and writes envContextImpl
-// fields directly, so the caller must hold c.mu.
-//
-// EnableSecondaryKey is set because we may evaluate for client-side SDKs sending old-style user data
-// with the "secondary" attribute; it has no effect for newer SDKs that send contexts.
-func (c *envContextImpl) rebuildEvaluator() {
-	store := c.storeAdapter.GetStore()
-	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-	evalOptions := []ldeval.EvaluatorOption{
-		ldeval.EvaluatorOptionEnableSecondaryKey(true),
-	}
-	if c.sdkBigSegments != nil {
-		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
-	}
-	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
-}
-
 // sdkKeyIsActive reports whether the given SDK key is still a tracked credential -- either the primary
 // key or one within its deprecation grace period -- according to the rotator. startSDKClient uses this
 // to avoid installing (and thereby leaking) a client for a key that was revoked while the client was
@@ -626,44 +593,273 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // reconcileCredentials is the time-injectable implementation of ReconcileCredentials. now is the
 // reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
 //
-// The Rotator owns the diff (add → re-anchor → remove) and queues the resulting additions and
-// expirations; drainCredentialChanges then applies them, draining additions before expirations so
-// the accepted set is a superset during the transition. addCredential opens an upstream client only
-// for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+// Order of operations: add → re-anchor → remove. Additions drain first so credential mappings
+// are registered before any synchronous re-anchor runs, the re-anchor swaps the upstream client
+// while the old anchor is still serving, and expirations drain last so the old anchor's client
+// (and any other revoked keys) are torn down only after the new anchor is fully operational. addCredential
+// opens an upstream client only for the anchor — non-anchor server keys are accepted and routed
+// without a second connection.
 //
-// Reconcile no longer flips the SDK anchor pointer itself; it reports an anchor change and the pointer
-// is moved here via CommitAnchor. Committing immediately (before the drain) reproduces the previous
-// in-place-flip behavior: by the time addCredential runs for the new anchor, AnchorKey() already names
-// it, so its upstream client is started exactly as before.
+// Re-anchor handling: Reconcile defers the SDK anchor flip and strips the new anchor from additions
+// so this method owns the new anchor's setup. The synchronous re-anchor sequence — build a new client
+// (new anchor key) or reuse an existing one (previously-accepted anchor key), CommitAnchor,
+// ReplaceCredential on event dispatcher + metrics publisher, re-wire big-segment sync — happens between the addition
+// and expiration phases. The MobilePrimaryRepoint case (primary mobile key changed to a key that
+// was already in the accepted set) is handled in the same window: addCredential's gate won't fire
+// for it because the key isn't in additions, so ReplaceCredential is called synchronously.
 //
-// reconcileMu is held across Reconcile → CommitAnchor → drain so the whole sequence is atomic against
-// the cleanup ticker's triggerCredentialChanges. Without it, the ticker could drain the queued new-anchor
-// addition in the window after Reconcile queued it but before CommitAnchor moved the pointer, so
-// addCredential's anchor gate would not fire and the new anchor would never get its upstream client.
+// reconcileMu serializes concurrent reconciles. If two reconciles arrive while a synchronous build
+// is in flight, the second blocks here until the first completes — matching the all-or-nothing
+// atomicity requirement.
 func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
 
 	result := c.keyRotator.Reconcile(newSet, now)
-	if result.AnchorChange != nil {
-		c.keyRotator.CommitAnchor(result.AnchorChange.NewAnchor)
+	additions, expirations := c.keyRotator.StepTime(now)
+
+	for _, cred := range additions {
+		c.addCredential(cred)
 	}
-	c.drainCredentialChanges(now)
+
+	if result.AnchorChange != nil {
+		if committed := c.reanchor(result.AnchorChange); !committed {
+			// The re-anchor rolled back — the new anchor's client never came up. Back out just this
+			// anchor change (other changes in the payload stand). The env-side undo mirrors
+			// RevertAnchorChange's accepted-set logic exactly:
+			//   - A brand-new anchor: reanchor registered its mappings this cycle, so undo them here;
+			//     RevertAnchorChange drops it from the accepted set.
+			//   - A previously-accepted anchor (e.g. a non-anchor key promoted to anchor): reanchor did
+			//     NOT register mappings (they predate this reconcile), so we must NOT tear them down;
+			//     RevertAnchorChange keeps it accepted. It reverts to the non-anchor key it already was.
+			if !result.AnchorChange.NewAnchorPreviouslyAccepted {
+				c.removeCredential(result.AnchorChange.NewAnchor)
+			}
+			c.keyRotator.RevertAnchorChange(*result.AnchorChange)
+			// Keep the previous anchor's client serving by not expiring it here — even if this payload
+			// revoked it outright. (A grace-demoted previous anchor isn't in expirations anyway, so this
+			// only matters for an immediate revocation.)
+			previousAnchor := result.AnchorChange.PreviousAnchor
+			expirations = slices.DeleteFunc(expirations, func(cred credential.SDKCredential) bool {
+				return cred == previousAnchor
+			})
+		}
+	}
+
+	if result.MobilePrimaryRepoint != nil {
+		c.mu.RLock()
+		dispatcher := c.eventDispatcher
+		c.mu.RUnlock()
+		if dispatcher != nil {
+			dispatcher.ReplaceCredential(*result.MobilePrimaryRepoint)
+		}
+	}
+
+	for _, cred := range expirations {
+		c.removeCredential(cred)
+	}
 }
 
-// triggerCredentialChanges is the cleanup ticker's entry point (cleanupExpiredCredentials). It takes
-// reconcileMu so it is serialized against reconcileCredentials the same way concurrent reconciles are —
-// it never interleaves with an in-flight reconcile's Reconcile/CommitAnchor pair. reconcileCredentials
-// must NOT call this (it would re-enter reconcileMu); it calls drainCredentialChanges directly.
+// reanchor drives the synchronous re-anchor sequence for an SDK anchor change signaled by Reconcile's
+// ReconcileResult.AnchorChange. Invoked by reconcileCredentials after additions have been processed
+// and before expirations, so the previous anchor's client is still alive while the new client is built
+// (or reused).
+//
+// reanchor holds c.mu for the whole sequence and releases it only around the SDK client build (which
+// must not hold the lock — see buildNewAnchorClient). Holding one continuous lock otherwise keeps
+// Close() (which also takes c.mu) from tearing down clients or the dispatcher mid-commit, and lets
+// commitReanchor assume the lock is held rather than re-acquiring it.
+//
+//   - When there is no existing client for the new anchor and the env is online: register its credential
+//     mappings if the key is brand new (Reconcile stripped it from additions), build a new SDK client,
+//     and on Initialized commit the anchor. On init failure, roll back: do not commit, leave the previous
+//     anchor authoritative (its client keeps serving), and log a structured error.
+//   - When a client already exists (e.g. a former anchor still in its grace period), or the env is
+//     offline: no build, just commit.
+//
+// Returns true if the anchor was committed, false if it rolled back (init failure or the env closed
+// mid-build), so reconcileCredentials can back out the anchor change. The old anchor's client is not
+// closed here; its grace-period expiration drives removeCredential.
+func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
+	newAnchor := change.NewAnchor
+	previousAnchor := change.PreviousAnchor
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// The two signals below answer two different questions, so they are used independently:
+	//   - NewAnchorPreviouslyAccepted: were this key's credential mappings already registered? If it
+	//     was already accepted (e.g. a non-anchor server key that addCredential registered mappings for
+	//     but never built a client), the mappings exist, so skip re-registering. If it is brand new
+	//     (Reconcile stripped it from additions, so addCredential never ran for it), register them here.
+	//   - the client check below: is there already a client for this key? If so, reuse it; otherwise
+	//     build one.
+	// These genuinely differ: promoting a previously-accepted non-anchor key to anchor has mappings but
+	// no client (register: skip, client: build). The one-way invariant "a client exists =>
+	// NewAnchorPreviouslyAccepted" holds (removeCredential deletes a key's client in lockstep with the
+	// rotator dropping it), which is why gating mapping registration on NewAnchorPreviouslyAccepted is
+	// safe: a key with a live client is always already accepted, so it never re-registers.
+	if !change.NewAnchorPreviouslyAccepted {
+		c.registerCredentialMappings(newAnchor)
+	}
+
+	// A live client for the new anchor is reused as-is; an offline env has no upstream client to build.
+	// Either way there is nothing to build, so fall through to commit.
+	why := "reused existing client"
+	if c.clients[newAnchor] == nil {
+		if c.offline {
+			why = "offline — no client build"
+		} else {
+			// Build the new client without the lock: sdkClientFactory can block for up to sdkInitTimeout,
+			// and holding c.mu that long would stall every GetClient/GetStore caller (see reconcileMu).
+			// reanchor's deferred Unlock releases the lock we re-acquire here on return.
+			c.mu.Unlock()
+			client := c.buildNewAnchorClient(newAnchor, previousAnchor)
+			c.mu.Lock()
+
+			if client == nil {
+				// Init failed; buildNewAnchorClient already logged and closed the half-built client. Do not
+				// commit — leave the previous anchor authoritative.
+				return false
+			}
+			if c.closed {
+				// The env was torn down while the lock was released for the build (Close() does not hold
+				// reconcileMu, so it can run concurrently); its client-teardown loop has already finished and
+				// would never close this one, so discard the freshly-built client rather than install it into
+				// a closed env (mirrors the guard in startSDKClient).
+				_ = client.Close()
+				return false
+			}
+			if existing := c.clients[newAnchor]; existing != nil && existing != client {
+				// Stale-client guard: the lock was released for the build, so re-check and close any client
+				// installed concurrently for newAnchor.
+				_ = existing.Close()
+			}
+			c.clients[newAnchor] = client
+			// With store handover, GetStore() returns the SAME wrapper the old client used, so the rebuilt
+			// evaluator serves the already-populated data immediately (no empty-store window).
+			c.rebuildEvaluator()
+			why = "built new client"
+		}
+	}
+
+	return c.commitReanchor(newAnchor, previousAnchor, why)
+}
+
+// buildNewAnchorClient constructs the SDK client for a re-anchor to newAnchor. It must run without c.mu
+// held: sdkClientFactory can block for up to sdkInitTimeout, and holding the lock that long would stall
+// every GetClient/GetStore caller. It touches only fields fixed at construction (sdkClientFactory,
+// sdkConfig, sdkInitTimeout, globalLoggers), so it needs no lock — mirroring startSDKClient, which also
+// builds before locking.
+//
+// Returns the initialized client, or nil if the build failed, in which case it has already closed any
+// half-built client and logged a structured error. initErr is deliberately left untouched on failure:
+// it feeds the request middleware, and setting it to the new anchor's ErrInitializationFailed would 401
+// an env that is serving fine on the previous anchor.
+func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.SDKKey) sdks.LDClientContext {
+	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
+	if err != nil || client == nil || !client.Initialized() {
+		var initialized bool
+		if client != nil {
+			initialized = client.Initialized()
+			_ = client.Close()
+		}
+		c.globalLoggers.Errorf("Re-anchor to SDK key %s failed (err=%v initialized=%v); "+
+			"preserving previous anchor %s",
+			newAnchor.Masked(), err, initialized, previousAnchor.Masked())
+		return nil
+	}
+	return client
+}
+
+// commitReanchor is the second half of the re-anchor sequence: atomically move the rotator's anchor
+// pointer, clear any stale init error now that a healthy client is current, and repoint downstream
+// event/metrics forwarding. The caller must hold c.mu — reanchor holds it across the whole sequence, so
+// the commit and Close() (which also takes c.mu) are mutually exclusive and Close can't tear the client
+// or dispatcher out mid-commit. This mirrors addCredential, which likewise repoints event forwarding
+// and reads rotator state under c.mu.
+//
+// Returns false without committing if the env was closed first, so callers report the rollback rather
+// than a phantom success.
+func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey, why string) bool {
+	if c.closed {
+		// Close() ran before we could commit. Don't flip the anchor or touch the (now-closed) dispatcher
+		// and metrics publisher; the env is being torn down.
+		return false
+	}
+
+	c.keyRotator.CommitAnchor(newAnchor)
+	// The anchor now points at a healthy client (freshly built and Initialized, or a reused live
+	// client), so clear any init error a prior client left behind — otherwise GetInitError() and the
+	// request middleware would keep reporting a still-serving env as failed.
+	c.initErr = nil
+
+	if c.metricsEventPub != nil {
+		c.metricsEventPub.ReplaceCredential(newAnchor)
+	}
+	if c.eventDispatcher != nil {
+		c.eventDispatcher.ReplaceCredential(newAnchor)
+	}
+
+	// Big-segment synchronization is intentionally left pointing at the previous anchor key across a
+	// re-anchor: this matches pre-concurrent-keys behavior (there was no re-anchor, so it never moved)
+	// and does not regress. When big-segment re-anchor is implemented, its re-wire hook belongs right
+	// here, after the event/metrics ReplaceCredential calls — either recreate the BigSegmentSynchronizer
+	// for newAnchor, or add a credential-replacement method to it.
+
+	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
+	return true
+}
+
+// rebuildEvaluator constructs the environment's Evaluator against the current data store. It is called
+// after (re)creating an SDK client, once the store is available, and is shared by the initial client
+// startup and the re-anchor path. It reads and writes envContextImpl fields directly, so the caller
+// must hold c.mu.
+//
+// EnableSecondaryKey is set because we may evaluate for client-side SDKs sending old-style user data
+// with the "secondary" attribute; it has no effect for newer SDKs that send contexts.
+func (c *envContextImpl) rebuildEvaluator() {
+	store := c.storeAdapter.GetStore()
+	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+	evalOptions := []ldeval.EvaluatorOption{
+		ldeval.EvaluatorOptionEnableSecondaryKey(true),
+	}
+	if c.sdkBigSegments != nil {
+		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
+	}
+	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
+}
+
+// registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
+// credential with the env's stream machinery, builds the per-stream-provider HTTP handlers, and adds
+// the connection→env mapping, so incoming SDK/client connections that authenticate with cred are
+// served by this env. It does NOT start the upstream SDK client or repoint event/metrics forwarding —
+// those are anchor-only concerns owned by the callers (addCredential, and the re-anchor sequence).
+// The caller must hold c.mu.
+func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
+	c.envStreams.AddCredential(cred)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
+			handlers[cred] = h
+		}
+	}
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
+}
+
+// triggerCredentialChanges drains the rotator's StepTime queue and applies the resulting additions
+// and expirations. It runs on the cleanup ticker (cleanupExpiredCredentials), so it can fire at any
+// moment — including while a synchronous re-anchor is in flight inside reconcileCredentials.
+//
+// It takes reconcileMu for the whole StepTime + add/remove pass so the ticker is serialized against
+// reconcileCredentials exactly the way concurrent reconciles already are. Without it, a credential
+// expiry firing during an in-flight re-anchor would drain the same StepTime queue the reconcile
+// relies on (the ticker could steal additions a reconcile just queued) and could removeCredential —
+// closing a client — partway through the re-anchor sequence. reconcileCredentials never calls this,
+// so taking reconcileMu here introduces no re-entrancy.
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
-	c.drainCredentialChanges(now)
-}
 
-// drainCredentialChanges applies the rotator's queued additions (before expirations, so the accepted
-// set is a superset during the transition). The caller must hold reconcileMu.
-func (c *envContextImpl) drainCredentialChanges(now time.Time) {
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
 		c.addCredential(cred)
