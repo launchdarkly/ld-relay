@@ -220,13 +220,57 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // The set is assumed well-formed: AcceptedSetBuilder.Build validates that an anchor was designated
 // (and, because WithAnchor adds the key as it designates it, that the anchor is among the SDK
 // keys), so Reconcile trusts what it is handed rather than re-validating.
-func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) {
+//
+// Reconcile does NOT flip the SDK anchor pointer when the anchor changes. Instead it reports the
+// change in the returned ReconcileResult.AnchorChange so the caller can move the pointer at the right
+// moment via CommitAnchor. The accepted-set diff (additions/expirations) is applied as before.
+func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.reconcileSDKKeys(set, set.anchor, now)
+	var result ReconcileResult
+
+	previousAnchor := r.anchorKey
+	newAnchor := set.anchor
+	if previousAnchor != newAnchor && newAnchor.Defined() {
+		result.AnchorChange = &AnchorChange{
+			PreviousAnchor: previousAnchor,
+			NewAnchor:      newAnchor,
+		}
+	}
+
+	r.reconcileSDKKeys(set, now)
 	r.reconcileMobileKeys(set, now)
 	r.reconcileEnvironmentID(set)
+
+	return result
+}
+
+// ReconcileResult reports state changes from Reconcile that the caller must act on outside the normal
+// addCredential / removeCredential flow driven by StepTime.
+//
+// AnchorChange is non-nil when the SDK anchor changed. The rotator does NOT flip its anchor pointer in
+// that case -- the caller invokes CommitAnchor to move the pointer once it is ready to do so.
+type ReconcileResult struct {
+	AnchorChange *AnchorChange
+}
+
+// AnchorChange describes an SDK anchor transition produced by Reconcile: the anchor moved from
+// PreviousAnchor to NewAnchor. PreviousAnchor is the undefined (empty) key when the environment is
+// gaining its first SDK anchor.
+type AnchorChange struct {
+	PreviousAnchor config.SDKKey
+	NewAnchor      config.SDKKey
+}
+
+// CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. Reconcile
+// deliberately does not flip the anchor when it changes; the caller invokes CommitAnchor to move the
+// pointer. Aside from Initialize (which establishes the initial anchor), CommitAnchor is the only path
+// that moves the anchor pointer.
+func (r *Rotator) CommitAnchor(key config.SDKKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.anchorKey = key
 }
 
 // reconcilableKey constrains the generic reconcile helper to a comparable credential (so it can key a
@@ -276,7 +320,10 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // reconcileAcceptedKeys. The set is trusted as well-formed: BuildAcceptedSet / the builder guarantee
 // the anchor is present and permanent (WithAnchor forces a nil expiry), so no special handling is
 // needed here. The caller must hold the write lock.
-func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now time.Time) {
+//
+// reconcileSDKKeys does NOT flip r.anchorKey when the anchor changes. Reconcile reports the change via
+// ReconcileResult.AnchorChange and the caller invokes CommitAnchor to move the pointer.
+func (r *Rotator) reconcileSDKKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.SDKKey]AcceptedKey, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {
 		if info.Expiry != nil && !now.Before(*info.Expiry) {
@@ -285,7 +332,6 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, anchor config.SDKKey, now ti
 		desired[key] = info
 	}
 	reconcileAcceptedKeys(desired, r.acceptedSDKKeys, &r.additions, &r.expirations, r.loggers, "SDK key")
-	r.anchorKey = anchor
 }
 
 // reconcileMobileKeys mirrors reconcileSDKKeys for mobile keys. The set is trusted as well-formed:

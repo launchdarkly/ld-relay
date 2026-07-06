@@ -54,7 +54,9 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	anchor := config.SDKKey("anchor")
 	now := time.Now()
 
-	r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
+	require.NotNil(t, result.AnchorChange, "anchor transition from empty to defined is signaled")
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
 	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
@@ -70,8 +72,10 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	other := config.SDKKey("other")
 	now := time.Now()
 
-	r.Reconcile(
+	result := r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithSDKKey(SDKKeyParams{Value: other})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
 	// Both server keys are accepted; only the anchor is primary.
@@ -80,6 +84,49 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
 	assert.Empty(t, r.DeprecatedCredentials())
+}
+
+func TestReconcileDefersAnchorFlipUntilCommit(t *testing.T) {
+	r := newTestRotator()
+	first := config.SDKKey("first-anchor")
+	second := config.SDKKey("second-anchor")
+	now := time.Now()
+
+	// Establishing the initial anchor is itself a transition from the undefined key.
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: first})), now)
+	require.NotNil(t, result.AnchorChange)
+	assert.Equal(t, config.SDKKey(""), result.AnchorChange.PreviousAnchor)
+	assert.Equal(t, first, result.AnchorChange.NewAnchor)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	require.Equal(t, first, r.AnchorKey())
+
+	// Re-anchor to a new key while the old one stays valid in a grace period. Reconcile must report
+	// the change but leave the pointer on the previous anchor until CommitAnchor is called.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: second}).
+		WithSDKKey(SDKKeyParams{Value: first, Expiry: util.PtrOrNil(now.Add(time.Hour))})), now)
+	require.NotNil(t, result.AnchorChange)
+	assert.Equal(t, first, result.AnchorChange.PreviousAnchor)
+	assert.Equal(t, second, result.AnchorChange.NewAnchor)
+	assert.Equal(t, first, r.AnchorKey(), "Reconcile must not flip the anchor before CommitAnchor")
+
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	assert.Equal(t, second, r.AnchorKey())
+}
+
+func TestReconcileWithoutAnchorChangeSignalsNil(t *testing.T) {
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+
+	// Reconciling again with the same anchor is not a transition.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
+	assert.Nil(t, result.AnchorChange, "no anchor change when the anchor is unchanged")
+	assert.Equal(t, anchor, r.AnchorKey())
 }
 
 func TestReconcileMultipleMobileKeys(t *testing.T) {
@@ -273,9 +320,11 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 func TestAcceptedKeys(t *testing.T) {
 	t.Run("single anchor plus primary mobile", func(t *testing.T) {
 		r := newTestRotator()
-		r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
 			WithAnchor(SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 			WithPrimaryMobileKey(MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")})), time.Unix(0, 0))
+		require.NotNil(t, result.AnchorChange)
+		r.CommitAnchor(result.AnchorChange.NewAnchor)
 
 		set := r.AcceptedKeys()
 		require.Len(t, set.Server, 1)
@@ -298,11 +347,13 @@ func TestAcceptedKeys(t *testing.T) {
 	t.Run("multiple keys include the anchor; expiry populated", func(t *testing.T) {
 		r := newTestRotator()
 		expiry := time.Date(2099, 6, 1, 0, 0, 0, 0, time.UTC)
-		r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
 			WithAnchor(SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
 			WithSDKKey(SDKKeyParams{Value: "sdk-b", Key: util.PtrOrNil("b-service")}).
 			WithSDKKey(SDKKeyParams{Value: "sdk-old", Key: util.PtrOrNil("old-key"), Expiry: util.PtrOrNil(expiry)}).
 			WithPrimaryMobileKey(MobileKeyParams{Value: "mob-primary"})), time.Unix(0, 0))
+		require.NotNil(t, result.AnchorChange)
+		r.CommitAnchor(result.AnchorChange.NewAnchor)
 
 		set := r.AcceptedKeys()
 		require.Len(t, set.Server, 3) // anchor + sdk-b + sdk-old
