@@ -1,19 +1,16 @@
 package relayenv
 
-// T0 — Re-anchoring PoC (SDK-2453 / SDK-2530).
+// Re-anchoring proof-of-concept tests.
 //
-// These tests validate the upstream SDK-client swap mechanism that T2.c will implement. Each test
-// answers one of the seven hypotheses in .agent-docs/concurrent-keys/phase1-design.md §7. They are
-// written as durable, executable probes of today's primitives so they survive into T2 as regression
-// tests and as the executable spec for the re-anchor implementation.
-//
-// A written summary of the findings lives in
-// .agent-docs/concurrent-keys/phase1-T0-reanchor-poc-findings.md.
+// These tests validate the upstream SDK-client swap mechanism that the re-anchor implementation builds
+// on. Each test answers one of the seven hypotheses about how re-anchoring should behave. They are
+// written as durable, executable probes of today's primitives so they survive as regression tests and
+// as the executable spec for the re-anchor implementation.
 //
 // Terminology: "re-anchor" = swapping the single upstream SDK client when sdkKey.value changes.
 // Today there is no dedicated re-anchor method; the closest existing path is ReconcileCredentials with
 // an expiring (grace-period) key (which rotates the primary SDK key and stands up a new client), so
-// several tests drive that path and observe where it falls short of the §7 requirements.
+// several tests drive that path and observe where it falls short of the requirements.
 
 import (
 	"errors"
@@ -119,12 +116,10 @@ func TestReanchorPoC_H1_SharedStoreAdapterRebuildSemantics(t *testing.T) {
 	featureKind := ldstoreimpl.Features()
 	flagKey := st.Flag1ServerSide.Flag.Key
 
-	// The design (§7) assumes "two SDK clients pointed at the same env can feed the same store as a
-	// side-effect." This sub-test shows that assumption is FALSE for the default in-memory store: each
-	// client init calls storeAdapter.Build, which constructs a brand-new wrapper around a brand-new
-	// underlying store and atomically swaps it in. No corruption occurs, but the new client starts from
-	// an empty store.
-	t.Run("in-memory factory builds a fresh empty store on each client init", func(t *testing.T) {
+	// A second storeAdapter.Build hands back the SAME wrapper, with its data still in place, rather
+	// than constructing a fresh wrapper around a fresh (empty) underlying store. This is what lets a
+	// re-anchor's new client keep serving the populated store instead of starting empty.
+	t.Run("in-memory factory reuses the existing store on a second client init (store handover)", func(t *testing.T) {
 		rec := &recordingStreamUpdates{}
 		adapter := store.NewSSERelayDataStoreAdapter(ldcomponents.InMemoryDataStore(), rec)
 
@@ -142,20 +137,19 @@ func TestReanchorPoC_H1_SharedStoreAdapterRebuildSemantics(t *testing.T) {
 		s2, err := adapter.Build(subsystems.BasicClientContext{})
 		require.NoError(t, err)
 
-		// FINDING: Build swaps in a new store instance...
-		assert.NotSame(t, s1, s2, "each Build creates a new store wrapper")
-		assert.Same(t, s2, adapter.GetStore(), "the adapter now points at the new store")
+		// Post-fix: Build hands the existing wrapper to the new client and the adapter still points at it.
+		assert.Same(t, s1, s2, "store handover: Build returns the existing wrapper")
+		assert.Same(t, s2, adapter.GetStore(), "the adapter still points at the shared wrapper")
 
-		// ...and that store is empty + uninitialized. So the two clients do NOT share data through the
-		// in-memory store; the new anchor must re-sync from scratch.
-		assert.False(t, adapter.GetStore().IsInitialized(), "the new in-memory store starts uninitialized")
+		// The wrapper stays initialized and the data survives — no empty-store window for the new anchor.
+		assert.True(t, adapter.GetStore().IsInitialized(), "the shared store remains initialized")
 		got2, err := adapter.GetStore().Get(featureKind, flagKey)
 		require.NoError(t, err)
-		assert.Nil(t, got2.Item, "the new in-memory store starts empty")
+		assert.NotNil(t, got2.Item, "data persists across handover")
 	})
 
 	// With a persistent store, the underlying data lives outside the wrapper, so the swap preserves it.
-	// This is the configuration in which the §7 "shared store" assumption actually holds.
+	// This is the configuration in which the "shared store" assumption actually holds.
 	t.Run("shared (persistent) underlying store preserves data across client init", func(t *testing.T) {
 		underlying, err := ldcomponents.InMemoryDataStore().Build(subsystems.BasicClientContext{})
 		require.NoError(t, err)
@@ -273,7 +267,7 @@ func TestReanchorPoC_H2_NewClientInitialSyncRebroadcastsPut(t *testing.T) {
 
 	// FINDING: the new anchor's initial sync produces a second full "put" to every connected downstream
 	// stream. From a downstream SDK's perspective this is a duplicate put. It is tolerable (SDKs apply
-	// puts idempotently) but T2.c must expect it; it is not a corruption.
+	// puts idempotently) but the re-anchor implementation must expect it; it is not a corruption.
 	assert.Equal(t, 2, rec.allDataCount(), "the new anchor's initial sync re-broadcasts a full put")
 }
 
@@ -367,8 +361,8 @@ func TestReanchorPoC_H3_BigSegmentSyncIsNotReWiredOnReAnchor(t *testing.T) {
 	// FINDING: big-segment sync is wired to the SDK key at construction and is NOT re-wired by today's
 	// swap path -- the synchronizer is neither recreated nor told about the new key (the
 	// BigSegmentSynchronizer interface has no credential-replacement method). After re-anchor it keeps
-	// polling/streaming on the OLD anchor key. T2.d must add a re-wire path (a ReplaceCredential-style
-	// method) or recreate the synchronizer on each re-anchor.
+	// polling/streaming on the OLD anchor key. The big-segment re-wire (follow-up work) must add a
+	// re-wire path (a ReplaceCredential-style method) or recreate the synchronizer on each re-anchor.
 	count, sdkKey = capturing.snapshot()
 	assert.Equal(t, 1, count, "synchronizer was not recreated on re-anchor")
 	assert.Equal(t, envConfig.SDKKey, sdkKey, "synchronizer still references the old anchor key")
@@ -417,7 +411,12 @@ func TestReanchorPoC_H4_HTTPConfigIsKeyIndependentExceptAuthHeader(t *testing.T)
 // Hypothesis 5: Order of operations / the in-memory store window.
 // -----------------------------------------------------------------------------------------------
 
-func TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor(t *testing.T) {
+// TestReanchorPoC_H5_StoreSurvivesReAnchor asserts that a re-anchor keeps the env's in-memory data
+// store instance intact: the same instance, still initialized, with its data preserved. This holds
+// because SSERelayDataStoreAdapter.Build hands its existing wrapper over to the new anchor's client
+// (with refcounted Close) rather than building a fresh, empty store. It is the end-to-end proof that
+// store handover holds through env_context.
+func TestReanchorPoC_H5_StoreSurvivesReAnchor(t *testing.T) {
 	featureKind := ldstoreimpl.Features()
 	flagKey := st.Flag1ServerSide.Flag.Key
 	envConfig := st.EnvMain.Config
@@ -450,33 +449,27 @@ func TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor(t *testing.T) {
 	require.Eventually(t, func() bool { return env.GetClient() == client2 }, time.Second, 10*time.Millisecond,
 		"GetClient should return the new anchor's client once it is registered")
 
-	// FINDING: starting the new client replaced the data store with a fresh, empty, uninitialized one.
-	// This happens regardless of operation order, because building the new client is what rebuilds the
-	// store. So "start-new -> swap-pointer -> close-old" alone is NOT sufficient with an in-memory store:
-	// there is a window in which evaluations see an empty store until the new anchor finishes its initial
-	// sync. T2.c must either (a) keep the old store/anchor authoritative until the new client reports
-	// Initialized()==true, (b) require a persistent store for graceful re-anchor, or (c) decouple the
-	// data store lifecycle from the client lifecycle so a new client does not rebuild it.
+	// Post-fix: the adapter handed the existing wrapper to the new client, so the env's store is the
+	// same instance, still initialized, and the data is intact. There is no empty-store window for the
+	// new anchor.
 	newStore := env.GetStore()
-	assert.NotSame(t, oldStore, newStore, "the data store instance was replaced by the new client")
-	assert.False(t, newStore.IsInitialized(), "the new store is uninitialized until the new anchor re-syncs")
+	assert.Same(t, oldStore, newStore, "the data store instance survives re-anchor (store handover)")
+	assert.True(t, newStore.IsInitialized(), "the store stays initialized across re-anchor")
 	got2, err := newStore.Get(featureKind, flagKey)
 	require.NoError(t, err)
-	assert.Nil(t, got2.Item, "data is absent in the new store until the new anchor re-syncs")
+	assert.NotNil(t, got2.Item, "data is preserved across re-anchor")
 }
 
-// TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow validates the reviewer suggestion that, because
-// relay owns the data store implementation (it hands the SDK a single storeAdapter), the re-anchor can
-// hand the existing store over to the new client instead of letting it build a fresh one. Modeled here
-// by a DataStoreFactory that returns the same underlying store on every Build; the production change
-// (T2.c/T2.d) is to make SSERelayDataStoreAdapter reuse its store across the swap. With handover the
-// new anchor's client sees the populated, initialized store immediately -- no empty-store window
-// (contrast TestReanchorPoC_H5_InMemoryStoreIsWipedByReAnchor).
+// TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow exercises store handover at the store layer:
+// because relay owns the data store implementation (it hands the SDK a single storeAdapter), the
+// re-anchor hands the existing store to the new client instead of letting it build a fresh one. It is
+// modeled here by a DataStoreFactory that returns the same underlying store on every Build, so the new
+// anchor's client sees the populated, initialized store immediately with no empty-store window.
 //
-// CAVEAT for the implementation (not reproducible with the fake client, so documented here and in the
-// findings): streamUpdatesStoreWrapper.Close() closes the underlying store. If the new client wraps the
-// SAME underlying store, closing the retiring client must NOT close it -- the store's lifecycle has to
-// be owned by the adapter, not by the client being retired.
+// The store's lifecycle is owned by the adapter, not the client: streamUpdatesStoreWrapper.Close()
+// closes the underlying store, so when the retiring and new clients share one underlying store the
+// retiring client's Close() must not tear it down. The fake client cannot exercise the real client's
+// Close(), so that half of the contract is covered by TestRealClient_HandoverPreservesUnderlyingStore.
 func TestReanchorPoC_H5_StoreHandoverAvoidsEmptyWindow(t *testing.T) {
 	featureKind := ldstoreimpl.Features()
 	flagKey := st.Flag1ServerSide.Flag.Key
