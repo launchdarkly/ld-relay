@@ -476,7 +476,10 @@ func TestRevertAnchorChangeReadmitsRevokedPreviousAnchor(t *testing.T) {
 
 func TestRevertAnchorChangeLeavesGraceDemotedPreviousAnchorUntouched(t *testing.T) {
 	// When the previous anchor was demoted with a grace expiry (still accepted) rather than revoked,
-	// RevertAnchorChange must leave it — and its expiry — untouched, and must not make it permanent.
+	// RevertAnchorChange leaves it — and its expiry — untouched (it does not re-admit it as permanent).
+	// That is safe because StepTime refuses to expire the current anchor even when its entry carries a
+	// stale expiry (see TestStepTimeDoesNotExpireCurrentAnchor); RevertAnchorChange itself does not need
+	// to clear the expiry.
 	r := newTestRotator()
 	keyA := config.SDKKey("keyA")
 	keyB := config.SDKKey("keyB")
@@ -503,6 +506,71 @@ func TestRevertAnchorChangeLeavesGraceDemotedPreviousAnchorUntouched(t *testing.
 	assert.Equal(t, expiry, *kaInfo.Expiry)
 	_, keyBAccepted := set.Server[keyB]
 	assert.False(t, keyBAccepted, "failed new anchor dropped")
+}
+
+// TestStepTimeDoesNotExpireCurrentAnchor is the rotator-level guard for the re-anchor-rollback outage:
+// even if the current anchor's accepted entry carries an expiry (as it does after a grace-demotion
+// re-anchor rolls back before CommitAnchor), StepTime must not expire it. Non-vacuous: without the
+// anchor guard in StepTime, this returns keyA in expirations and drops it from the accepted set.
+func TestStepTimeDoesNotExpireCurrentAnchor(t *testing.T) {
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Re-anchor A->B with A grace-demoted; then roll back (never CommitAnchor(keyB), and RevertAnchorChange
+	// leaves A's expiry). A is still the anchor but now carries a grace expiry.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyB}).
+		WithSDKKey(SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(expiry)})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.RevertAnchorChange(*res.AnchorChange)
+	require.Equal(t, keyA, r.AnchorKey(), "anchor stayed on keyA after rollback")
+
+	// The cleanup ticker fires past the grace deadline. The anchor must survive.
+	_, expirations := r.StepTime(expiry.Add(time.Minute))
+
+	assert.NotContains(t, expirations, SDKCredential(keyA), "StepTime must not expire the current anchor")
+	assert.Contains(t, r.AllCredentials(), SDKCredential(keyA), "the anchor stays accepted")
+	assert.Equal(t, keyA, r.AnchorKey())
+}
+
+// TestStepTimeExpiresDemotedFormerAnchorAfterSuccessfulReanchor pins the narrowness of the anchor guard:
+// it protects only the CURRENT anchor. After a SUCCESSFUL re-anchor A->B (CommitAnchor moved the pointer
+// to B), the grace-demoted former anchor A is no longer r.anchorKey, so StepTime expires it normally once
+// its grace window passes -- the old client must not be pinned alive forever.
+func TestStepTimeExpiresDemotedFormerAnchorAfterSuccessfulReanchor(t *testing.T) {
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Successful re-anchor A->B: the pointer moves to B; A is grace-demoted.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyB}).
+		WithSDKKey(SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(expiry)})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	require.Equal(t, keyB, r.AnchorKey())
+
+	// Past A's grace window: A (a non-anchor demoted key now) expires; B (the anchor) survives.
+	_, expirations := r.StepTime(expiry.Add(time.Minute))
+	assert.Contains(t, expirations, SDKCredential(keyA), "the demoted former anchor expires normally")
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyA), "and is dropped from the accepted set")
+	assert.Contains(t, r.AllCredentials(), SDKCredential(keyB), "the new anchor survives")
+	assert.Equal(t, keyB, r.AnchorKey())
 }
 
 func TestRevertAnchorChangeDoesNotAdmitUndefinedPreviousAnchor(t *testing.T) {

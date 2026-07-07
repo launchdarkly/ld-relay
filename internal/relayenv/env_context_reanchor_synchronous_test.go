@@ -537,6 +537,13 @@ func TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing(t *te
 	envImpl.mu.RUnlock()
 	assert.False(t, newHasClient, "no client for the failed new anchor")
 	assert.True(t, oldHasClient, "previous anchor's client retained")
+
+	// A later cleanup ticker must not reap the re-admitted anchor: RevertAnchorChange re-admits it as a
+	// permanent (nil-expiry) key, so there is nothing to expire. (Complements the grace-demotion case,
+	// where the anchor keeps a stale expiry and the StepTime guard is what protects it.)
+	envImpl.triggerCredentialChanges(now.Add(2 * time.Hour))
+	assert.Same(t, originalClient, env.GetClient(), "the re-admitted anchor still serves after a later ticker")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey())
 }
 
 // TestReanchorSync_PreviouslyAcceptedAnchorPromotionFailureKeepsItsMappings covers a failed promotion
