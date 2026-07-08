@@ -2,6 +2,7 @@ package credential
 
 import (
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -193,6 +194,11 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	defer r.mu.Unlock()
 
 	for key, info := range r.acceptedSDKKeys {
+		if key == r.anchorKey {
+			// Never expire the current anchor, even if a stale expiry was left on its entry (a
+			// rolled-back re-anchor can). Same guard as DeprecatedCredentials.
+			continue
+		}
 		if info.Expiry != nil && now.After(*info.Expiry) {
 			r.expireSDKKey(key)
 		}
@@ -209,6 +215,42 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	return additions, expirations
 }
 
+// ReconcileResult signals state changes that the caller must apply synchronously rather than rely
+// on the normal addCredential / removeCredential flow driven by StepTime.
+//
+// AnchorChange is non-nil when the SDK anchor changed during Reconcile. The rotator does NOT flip
+// its anchor pointer in that case — the caller must drive the synchronous re-anchor sequence
+// (build the new anchor's SDK client if one does not exist, wait for Initialized, then invoke
+// CommitAnchor to atomically move the pointer, then call ReplaceCredential on the event dispatcher
+// and metrics publisher, then re-wire big-segment sync).
+//
+// MobilePrimaryRepoint is non-nil when the primary mobile key changed AND the new primary was
+// already in the accepted set. In that case it does not appear in StepTime's additions list and
+// addCredential's primary-mobile gate will not fire for it, so the caller must invoke
+// eventDispatcher.ReplaceCredential synchronously. When nil, either the primary mobile key did not
+// change, or it changed to a newly-accepted key — in which case the normal addCredential path
+// handles the ReplaceCredential call via the existing gate.
+type ReconcileResult struct {
+	AnchorChange         *AnchorChange
+	MobilePrimaryRepoint *config.MobileKey
+}
+
+// AnchorChange describes an SDK anchor transition produced by Reconcile.
+//
+// NewAnchorPreviouslyAccepted distinguishes the two re-anchor paths:
+//   - false (the anchor is a new key): the new anchor was not previously in the accepted set. The
+//     synchronous re-anchor must register the credential mappings (envStreams, handlers, connection
+//     mapping), construct and initialize a new SDK client, then invoke CommitAnchor + ReplaceCredential.
+//   - true (the anchor is a previously-accepted key): the new anchor was already accepted (typically
+//     a former anchor still in its grace period). Its credential mappings are already registered and a
+//     client may already exist; the synchronous re-anchor reuses it (or constructs one only if missing
+//     — see the re-anchor sequence in env_context_impl.go), then invokes CommitAnchor + ReplaceCredential.
+type AnchorChange struct {
+	PreviousAnchor              config.SDKKey
+	NewAnchor                   config.SDKKey
+	NewAnchorPreviouslyAccepted bool
+}
+
 // Reconcile updates the rotator to match set. The set names its own anchor (the primary SDK key) and
 // primary mobile key. It diffs the desired accepted set against the current one and queues additions
 // and expirations (drained by the next StepTime call); keys newly present are accepted, and keys no
@@ -221,9 +263,11 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 // (and, because WithAnchor adds the key as it designates it, that the anchor is among the SDK
 // keys), so Reconcile trusts what it is handed rather than re-validating.
 //
-// Reconcile does NOT flip the SDK anchor pointer when the anchor changes. Instead it reports the
-// change in the returned ReconcileResult.AnchorChange so the caller can move the pointer at the right
-// moment via CommitAnchor. The accepted-set diff (additions/expirations) is applied as before.
+// Reconcile does NOT flip the SDK anchor pointer when the anchor changes — the returned
+// ReconcileResult.AnchorChange signals the change so the caller can drive the synchronous re-anchor
+// sequence, then call CommitAnchor to atomically move the pointer. When the new anchor is a new key
+// (NewAnchorPreviouslyAccepted == false) it is also stripped from additions so that the async
+// startSDKClient invocation in addCredential does not race the synchronous client build.
 func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -233,44 +277,86 @@ func (r *Rotator) Reconcile(set AcceptedSet, now time.Time) ReconcileResult {
 	previousAnchor := r.anchorKey
 	newAnchor := set.anchor
 	if previousAnchor != newAnchor && newAnchor.Defined() {
+		_, alreadyAccepted := r.acceptedSDKKeys[newAnchor]
 		result.AnchorChange = &AnchorChange{
-			PreviousAnchor: previousAnchor,
-			NewAnchor:      newAnchor,
+			PreviousAnchor:              previousAnchor,
+			NewAnchor:                   newAnchor,
+			NewAnchorPreviouslyAccepted: alreadyAccepted,
 		}
 	}
 
 	r.reconcileSDKKeys(set, now)
+
+	if result.AnchorChange != nil && !result.AnchorChange.NewAnchorPreviouslyAccepted {
+		// The anchor is a new key: reconcileAcceptedKeys just appended it to r.additions. Strip it —
+		// the synchronous re-anchor sequence in env_context_impl owns the new anchor's setup
+		// (credential mappings + client build + flip + ReplaceCredential). If addCredential drained this
+		// addition normally, its async startSDKClient would race the synchronous build. When the anchor
+		// is a previously-accepted key it was already in acceptedSDKKeys, so reconcileAcceptedKeys did
+		// not add it — no strip needed.
+		r.additions = slices.DeleteFunc(r.additions, func(c SDKCredential) bool { return c == newAnchor })
+	}
+
+	previousMobile := r.primaryMobileKey
+	newMobile := set.primaryMobileKey
+	var newMobileAlreadyAccepted bool
+	if newMobile.Defined() {
+		_, newMobileAlreadyAccepted = r.acceptedMobileKeys[newMobile]
+	}
 	r.reconcileMobileKeys(set, now)
+	if previousMobile != newMobile && newMobile.Defined() && newMobileAlreadyAccepted {
+		// Primary mobile key changed to a key already in the accepted set: addCredential's gate will
+		// not fire for it (it's not in additions), so the caller must call ReplaceCredential itself.
+		m := newMobile
+		result.MobilePrimaryRepoint = &m
+	}
+
 	r.reconcileEnvironmentID(set)
 
 	return result
 }
 
-// ReconcileResult reports state changes from Reconcile that the caller must act on outside the normal
-// addCredential / removeCredential flow driven by StepTime.
+// CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. The caller
+// invokes this once the synchronous re-anchor sequence is ready to flip — i.e. after the new
+// anchor's client is built and reports Initialized (when the anchor is a new key) or after confirming
+// the existing client will be reused (when the anchor is a previously-accepted key). Until CommitAnchor
+// is called, the rotator's anchor stays on the previous key so GetClient() returns the still-serving
+// old client and the gate in addCredential does not fire for the pending new anchor.
 //
-// AnchorChange is non-nil when the SDK anchor changed. The rotator does NOT flip its anchor pointer in
-// that case -- the caller invokes CommitAnchor to move the pointer once it is ready to do so.
-type ReconcileResult struct {
-	AnchorChange *AnchorChange
-}
-
-// AnchorChange describes an SDK anchor transition produced by Reconcile: the anchor moved from
-// PreviousAnchor to NewAnchor. PreviousAnchor is the undefined (empty) key when the environment is
-// gaining its first SDK anchor.
-type AnchorChange struct {
-	PreviousAnchor config.SDKKey
-	NewAnchor      config.SDKKey
-}
-
-// CommitAnchor atomically moves the rotator's SDK anchor pointer to the given key. Reconcile
-// deliberately does not flip the anchor when it changes; the caller invokes CommitAnchor to move the
-// pointer. Aside from Initialize (which establishes the initial anchor), CommitAnchor is the only path
-// that moves the anchor pointer.
+// Aside from Initialize (which establishes the initial anchor), CommitAnchor is the only path that
+// moves the anchor pointer: Reconcile deliberately does not flip it (see reconcileSDKKeys).
 func (r *Rotator) CommitAnchor(key config.SDKKey) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.anchorKey = key
+}
+
+// RevertAnchorChange undoes the accepted-set effects of an AnchorChange whose synchronous re-anchor
+// failed and rolled back. Because CommitAnchor was never called, the anchor pointer still names the
+// previous anchor; this realigns the accepted set with it so the two don't disagree.
+//
+//   - If the previous anchor is a defined key that was revoked in the same reconcile (it is no longer
+//     accepted — an immediate revocation rather than a grace demotion), re-admit it as a permanent
+//     key, since it remains the anchor and keeps serving. If it is still accepted (grace demotion),
+//     leave it and its expiry untouched. An undefined previous anchor (the env's first SDK key) is
+//     never admitted.
+//   - Drop the failed new anchor, but only if it was brand new; a previously-accepted key that was
+//     promoted and failed stays accepted as the non-anchor key it already was.
+func (r *Rotator) RevertAnchorChange(change AnchorChange) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Only re-admit a defined previous anchor. When an env gains its first SDK key, the previous anchor
+	// is the empty (undefined) key — there is nothing to re-admit, and inserting "" would put an
+	// undefined credential into the accepted set (the rotator otherwise only holds defined keys).
+	if change.PreviousAnchor.Defined() {
+		if _, stillAccepted := r.acceptedSDKKeys[change.PreviousAnchor]; !stillAccepted {
+			r.acceptedSDKKeys[change.PreviousAnchor] = AcceptedKey{}
+		}
+	}
+	if !change.NewAnchorPreviouslyAccepted {
+		delete(r.acceptedSDKKeys, change.NewAnchor)
+	}
 }
 
 // reconcilableKey constrains the generic reconcile helper to a comparable credential (so it can key a
@@ -321,8 +407,9 @@ func reconcileAcceptedKeys[K reconcilableKey](
 // the anchor is present and permanent (WithAnchor forces a nil expiry), so no special handling is
 // needed here. The caller must hold the write lock.
 //
-// reconcileSDKKeys does NOT flip r.anchorKey when the anchor changes. Reconcile reports the change via
-// ReconcileResult.AnchorChange and the caller invokes CommitAnchor to move the pointer.
+// NOTE: reconcileSDKKeys does NOT flip r.anchorKey when the anchor changes. The Reconcile caller
+// signals the anchor change via ReconcileResult.AnchorChange and invokes CommitAnchor to move the
+// pointer once the synchronous re-anchor sequence is ready (see Reconcile + CommitAnchor).
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.SDKKey]AcceptedKey, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {

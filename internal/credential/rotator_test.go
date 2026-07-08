@@ -59,7 +59,8 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
-	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
+	// The anchor is stripped from additions — the synchronous re-anchor sequence owns its setup.
+	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
@@ -78,55 +79,13 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
-	// Both server keys are accepted; only the anchor is primary.
-	assert.ElementsMatch(t, []SDKCredential{anchor, other}, additions)
+	// Both server keys are accepted; only the non-anchor server key is in additions (the anchor is
+	// owned by the synchronous re-anchor sequence in env_context_impl).
+	assert.ElementsMatch(t, []SDKCredential{other}, additions)
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
 	assert.Empty(t, r.DeprecatedCredentials())
-}
-
-func TestReconcileDefersAnchorFlipUntilCommit(t *testing.T) {
-	r := newTestRotator()
-	first := config.SDKKey("first-anchor")
-	second := config.SDKKey("second-anchor")
-	now := time.Now()
-
-	// Establishing the initial anchor is itself a transition from the undefined key.
-	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: first})), now)
-	require.NotNil(t, result.AnchorChange)
-	assert.Equal(t, config.SDKKey(""), result.AnchorChange.PreviousAnchor)
-	assert.Equal(t, first, result.AnchorChange.NewAnchor)
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-	require.Equal(t, first, r.AnchorKey())
-
-	// Re-anchor to a new key while the old one stays valid in a grace period. Reconcile must report
-	// the change but leave the pointer on the previous anchor until CommitAnchor is called.
-	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
-		WithAnchor(SDKKeyParams{Value: second}).
-		WithSDKKey(SDKKeyParams{Value: first, Expiry: util.PtrOrNil(now.Add(time.Hour))})), now)
-	require.NotNil(t, result.AnchorChange)
-	assert.Equal(t, first, result.AnchorChange.PreviousAnchor)
-	assert.Equal(t, second, result.AnchorChange.NewAnchor)
-	assert.Equal(t, first, r.AnchorKey(), "Reconcile must not flip the anchor before CommitAnchor")
-
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-	assert.Equal(t, second, r.AnchorKey())
-}
-
-func TestReconcileWithoutAnchorChangeSignalsNil(t *testing.T) {
-	r := newTestRotator()
-	anchor := config.SDKKey("anchor")
-	now := time.Now()
-
-	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
-	require.NotNil(t, result.AnchorChange)
-	r.CommitAnchor(result.AnchorChange.NewAnchor)
-
-	// Reconciling again with the same anchor is not a transition.
-	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor})), now)
-	assert.Nil(t, result.AnchorChange, "no anchor change when the anchor is unchanged")
-	assert.Equal(t, anchor, r.AnchorKey())
 }
 
 func TestReconcileMultipleMobileKeys(t *testing.T) {
@@ -140,8 +99,9 @@ func TestReconcileMultipleMobileKeys(t *testing.T) {
 		mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: anchor}).WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).WithMobileKey(MobileKeyParams{Value: mob2})), now)
 	additions, _ := r.StepTime(now)
 
-	// Every mobile key is accepted; the designated one is the primary.
-	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, additions)
+	// Every mobile key is accepted; the anchor is owned by the synchronous re-anchor (stripped from
+	// additions). The designated primary mobile key and the other mobile key remain in additions.
+	assert.ElementsMatch(t, []SDKCredential{mob1, mob2}, additions)
 	assert.Equal(t, mob1, r.MobileKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, mob1, mob2}, r.AllCredentials())
 }
@@ -187,7 +147,8 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 		now)
 	additions, expirations := r.StepTime(now)
 
-	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
+	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
+	assert.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
 	assert.Empty(t, expirations)
 	// Every key is accepted (still authenticates)...
 	assert.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, r.AllCredentials())
@@ -238,7 +199,8 @@ func TestReconcileExpiringKeysAreEvictedByStepTime(t *testing.T) {
 			WithMobileKey(MobileKeyParams{Value: expiringMobile, Expiry: util.PtrOrNil(expiry)})),
 		now)
 	additions, expirations := r.StepTime(now)
-	require.ElementsMatch(t, []SDKCredential{anchor, expiringSDK, mob, expiringMobile}, additions)
+	// Anchor is stripped from additions (owned by the synchronous re-anchor); other keys flow through.
+	require.ElementsMatch(t, []SDKCredential{expiringSDK, mob, expiringMobile}, additions)
 	require.Empty(t, expirations)
 
 	// At the exact expiry, expiry is strict (now must be strictly after), so nothing is dropped yet.
@@ -264,15 +226,18 @@ func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
 	now := time.Unix(2000, 0)
 	alreadyExpired := now.Add(-time.Hour)
 
-	r.Reconcile(
+	result := r.Reconcile(
 		mustBuild(t, NewAcceptedSetBuilder().
 			WithAnchor(SDKKeyParams{Value: anchor}).
 			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(alreadyExpired)})),
 		now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
 	additions, expirations := r.StepTime(now)
 
-	// Only the anchor is added; the stale key is never accepted.
-	assert.ElementsMatch(t, []SDKCredential{anchor}, additions)
+	// The fresh anchor is stripped from additions (the synchronous re-anchor sequence owns its setup),
+	// and the already-expired stale key is never accepted — so nothing is added.
+	assert.Empty(t, additions)
 	assert.Empty(t, expirations)
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 }
@@ -399,4 +364,233 @@ func TestReconcileClearsStaleKeyIdentifier(t *testing.T) {
 	b, ok = r.AcceptedKeys().Server["sdk-b"]
 	require.True(t, ok)
 	assert.Nil(t, b.Key, "identifier must be cleared when the new payload carries none")
+}
+
+func TestReconcileAnchorChangeToPreviouslyAcceptedKey(t *testing.T) {
+	// When the anchor moves to a key that was already accepted (a non-anchor server key promoted to
+	// anchor), the AnchorChange reports NewAnchorPreviouslyAccepted == true, and the key is not queued
+	// as a new addition (it was already accepted).
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	other := config.SDKKey("other")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithSDKKey(SDKKeyParams{Value: other})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Move the anchor to `other`, keeping the old anchor accepted.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: other}).
+		WithSDKKey(SDKKeyParams{Value: anchor})), now)
+	require.NotNil(t, result.AnchorChange)
+	assert.Equal(t, anchor, result.AnchorChange.PreviousAnchor)
+	assert.Equal(t, other, result.AnchorChange.NewAnchor)
+	assert.True(t, result.AnchorChange.NewAnchorPreviouslyAccepted, "other was already in the accepted set")
+
+	additions, _ := r.StepTime(now)
+	assert.NotContains(t, additions, SDKCredential(other), "an already-accepted new anchor is not a fresh addition")
+}
+
+func TestReconcileMobilePrimaryRepointToAlreadyAcceptedKey(t *testing.T) {
+	// Switching the primary mobile key to a key that is already accepted must be signaled via
+	// MobilePrimaryRepoint, because addCredential's gate won't fire for it (it's not in additions).
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	mob1 := config.MobileKey("mob1")
+	mob2 := config.MobileKey("mob2")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob1}).
+		WithMobileKey(MobileKeyParams{Value: mob2})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Make mob2 (already accepted) the primary. It is not a new addition, so it must be signaled.
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob2}).
+		WithMobileKey(MobileKeyParams{Value: mob1})), now)
+	assert.Nil(t, result.AnchorChange, "the anchor did not change")
+	require.NotNil(t, result.MobilePrimaryRepoint, "an already-accepted new primary mobile key must be signaled")
+	assert.Equal(t, mob2, *result.MobilePrimaryRepoint)
+}
+
+func TestReconcileMobilePrimaryToNewKeyDoesNotSignalRepoint(t *testing.T) {
+	// When the new primary mobile key was NOT already accepted, it arrives via the additions list, so
+	// addCredential's gate handles the ReplaceCredential and MobilePrimaryRepoint stays nil.
+	r := newTestRotator()
+	anchor := config.SDKKey("anchor")
+	mob1 := config.MobileKey("mob1")
+	mob2 := config.MobileKey("mob2")
+	now := time.Now()
+
+	result := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob1})), now)
+	require.NotNil(t, result.AnchorChange)
+	r.CommitAnchor(result.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	result = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: anchor}).
+		WithPrimaryMobileKey(MobileKeyParams{Value: mob2})), now)
+	assert.Nil(t, result.MobilePrimaryRepoint, "a brand-new primary mobile key is handled via additions, not the repoint signal")
+
+	additions, _ := r.StepTime(now)
+	assert.Contains(t, additions, SDKCredential(mob2), "a brand-new primary mobile key is queued as an addition")
+}
+
+func TestRevertAnchorChangeReadmitsRevokedPreviousAnchor(t *testing.T) {
+	// When the previous anchor was immediately revoked in the same reconcile (dropped from the accepted
+	// set) and the re-anchor rolled back, RevertAnchorChange re-admits it and drops the failed new key.
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Now()
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Move the anchor to keyB, omitting keyA entirely (immediate revocation). Reconcile drops keyA.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyB})), now)
+	require.NotNil(t, res.AnchorChange)
+	require.False(t, res.AnchorChange.NewAnchorPreviouslyAccepted)
+
+	// Simulate the rollback: the caller did NOT CommitAnchor, so the pointer still names keyA.
+	r.RevertAnchorChange(*res.AnchorChange)
+
+	assert.Equal(t, keyA, r.AnchorKey())
+	creds := r.AllCredentials()
+	assert.Contains(t, creds, SDKCredential(keyA), "previous anchor re-admitted")
+	assert.NotContains(t, creds, SDKCredential(keyB), "failed new anchor dropped")
+}
+
+func TestRevertAnchorChangeLeavesGraceDemotedPreviousAnchorUntouched(t *testing.T) {
+	// When the previous anchor was demoted with a grace expiry (still accepted) rather than revoked,
+	// RevertAnchorChange leaves it — and its expiry — untouched (it does not re-admit it as permanent).
+	// That is safe because StepTime refuses to expire the current anchor even when its entry carries a
+	// stale expiry (see TestStepTimeDoesNotExpireCurrentAnchor); RevertAnchorChange itself does not need
+	// to clear the expiry.
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Move the anchor to keyB while keeping keyA accepted with a grace expiry.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyB}).
+		WithSDKKey(SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(expiry)})), now)
+	require.NotNil(t, res.AnchorChange)
+
+	r.RevertAnchorChange(*res.AnchorChange)
+
+	set := r.AcceptedKeys()
+	kaInfo, ok := set.Server[keyA]
+	require.True(t, ok, "grace-demoted previous anchor stays accepted")
+	require.NotNil(t, kaInfo.Expiry, "RevertAnchorChange must not wipe the grace expiry / make it permanent")
+	assert.Equal(t, expiry, *kaInfo.Expiry)
+	_, keyBAccepted := set.Server[keyB]
+	assert.False(t, keyBAccepted, "failed new anchor dropped")
+}
+
+// TestStepTimeDoesNotExpireCurrentAnchor is the rotator-level guard for the re-anchor-rollback outage:
+// even if the current anchor's accepted entry carries an expiry (as it does after a grace-demotion
+// re-anchor rolls back before CommitAnchor), StepTime must not expire it. Non-vacuous: without the
+// anchor guard in StepTime, this returns keyA in expirations and drops it from the accepted set.
+func TestStepTimeDoesNotExpireCurrentAnchor(t *testing.T) {
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Re-anchor A->B with A grace-demoted; then roll back (never CommitAnchor(keyB), and RevertAnchorChange
+	// leaves A's expiry). A is still the anchor but now carries a grace expiry.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyB}).
+		WithSDKKey(SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(expiry)})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.RevertAnchorChange(*res.AnchorChange)
+	require.Equal(t, keyA, r.AnchorKey(), "anchor stayed on keyA after rollback")
+
+	// The cleanup ticker fires past the grace deadline. The anchor must survive.
+	_, expirations := r.StepTime(expiry.Add(time.Minute))
+
+	assert.NotContains(t, expirations, SDKCredential(keyA), "StepTime must not expire the current anchor")
+	assert.Contains(t, r.AllCredentials(), SDKCredential(keyA), "the anchor stays accepted")
+	assert.Equal(t, keyA, r.AnchorKey())
+}
+
+// TestStepTimeExpiresDemotedFormerAnchorAfterSuccessfulReanchor pins the narrowness of the anchor guard:
+// it protects only the CURRENT anchor. After a SUCCESSFUL re-anchor A->B (CommitAnchor moved the pointer
+// to B), the grace-demoted former anchor A is no longer r.anchorKey, so StepTime expires it normally once
+// its grace window passes -- the old client must not be pinned alive forever.
+func TestStepTimeExpiresDemotedFormerAnchorAfterSuccessfulReanchor(t *testing.T) {
+	r := newTestRotator()
+	keyA := config.SDKKey("keyA")
+	keyB := config.SDKKey("keyB")
+	now := time.Unix(1000, 0)
+	expiry := now.Add(time.Hour)
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyA})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	r.StepTime(now)
+
+	// Successful re-anchor A->B: the pointer moves to B; A is grace-demoted.
+	res = r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().
+		WithAnchor(SDKKeyParams{Value: keyB}).
+		WithSDKKey(SDKKeyParams{Value: keyA, Expiry: util.PtrOrNil(expiry)})), now)
+	require.NotNil(t, res.AnchorChange)
+	r.CommitAnchor(res.AnchorChange.NewAnchor)
+	require.Equal(t, keyB, r.AnchorKey())
+
+	// Past A's grace window: A (a non-anchor demoted key now) expires; B (the anchor) survives.
+	_, expirations := r.StepTime(expiry.Add(time.Minute))
+	assert.Contains(t, expirations, SDKCredential(keyA), "the demoted former anchor expires normally")
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyA), "and is dropped from the accepted set")
+	assert.Contains(t, r.AllCredentials(), SDKCredential(keyB), "the new anchor survives")
+	assert.Equal(t, keyB, r.AnchorKey())
+}
+
+func TestRevertAnchorChangeDoesNotAdmitUndefinedPreviousAnchor(t *testing.T) {
+	// When an env gains its first SDK key, the AnchorChange's previous anchor is the empty (undefined)
+	// key. A rollback must not insert that empty key into the accepted set.
+	r := newTestRotator()
+	keyB := config.SDKKey("keyB")
+	now := time.Now()
+
+	res := r.Reconcile(mustBuild(t, NewAcceptedSetBuilder().WithAnchor(SDKKeyParams{Value: keyB})), now)
+	require.NotNil(t, res.AnchorChange)
+	require.False(t, res.AnchorChange.PreviousAnchor.Defined(), "the first SDK key has an undefined previous anchor")
+
+	// Simulate a failed build / rollback.
+	r.RevertAnchorChange(*res.AnchorChange)
+
+	for _, cred := range r.AllCredentials() {
+		if sdkKey, ok := cred.(config.SDKKey); ok {
+			assert.True(t, sdkKey.Defined(), "revert must not insert an undefined SDK key into the accepted set")
+		}
+	}
+	assert.NotContains(t, r.AllCredentials(), SDKCredential(keyB), "failed new anchor dropped")
 }
