@@ -123,6 +123,12 @@ type envContextImpl struct {
 	connectionMapper          ConnectionMapper
 	offline                   bool
 	closed                    bool
+
+	// reconcileMu serializes credential reconciliation. Both reconcileCredentials and the cleanup
+	// ticker's triggerCredentialChanges hold it, so they never interleave: the anchor flip (deferred
+	// to CommitAnchor) stays atomic with the addition it queues, and the ticker cannot drain a queued
+	// addition while reconcile has committed the accepted set but not yet moved the anchor pointer.
+	reconcileMu sync.Mutex
 }
 
 // Implementation of the DataStoreQueries interface that the streams package uses as an abstraction of
@@ -621,15 +627,43 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // reference time for expiry math; production callers pass time.Now() via ReconcileCredentials.
 //
 // The Rotator owns the diff (add → re-anchor → remove) and queues the resulting additions and
-// expirations; triggerCredentialChanges then applies them, draining additions before expirations so
+// expirations; drainCredentialChanges then applies them, draining additions before expirations so
 // the accepted set is a superset during the transition. addCredential opens an upstream client only
 // for the anchor, so non-anchor server keys are accepted and routed without a second connection.
+//
+// Reconcile no longer flips the SDK anchor pointer itself; it reports an anchor change and the pointer
+// is moved here via CommitAnchor. Committing immediately (before the drain) reproduces the previous
+// in-place-flip behavior: by the time addCredential runs for the new anchor, AnchorKey() already names
+// it, so its upstream client is started exactly as before.
+//
+// reconcileMu is held across Reconcile → CommitAnchor → drain so the whole sequence is atomic against
+// the cleanup ticker's triggerCredentialChanges. Without it, the ticker could drain the queued new-anchor
+// addition in the window after Reconcile queued it but before CommitAnchor moved the pointer, so
+// addCredential's anchor gate would not fire and the new anchor would never get its upstream client.
 func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now time.Time) {
-	c.keyRotator.Reconcile(newSet, now)
-	c.triggerCredentialChanges(now)
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+
+	result := c.keyRotator.Reconcile(newSet, now)
+	if result.AnchorChange != nil {
+		c.keyRotator.CommitAnchor(result.AnchorChange.NewAnchor)
+	}
+	c.drainCredentialChanges(now)
 }
 
+// triggerCredentialChanges is the cleanup ticker's entry point (cleanupExpiredCredentials). It takes
+// reconcileMu so it is serialized against reconcileCredentials the same way concurrent reconciles are —
+// it never interleaves with an in-flight reconcile's Reconcile/CommitAnchor pair. reconcileCredentials
+// must NOT call this (it would re-enter reconcileMu); it calls drainCredentialChanges directly.
 func (c *envContextImpl) triggerCredentialChanges(now time.Time) {
+	c.reconcileMu.Lock()
+	defer c.reconcileMu.Unlock()
+	c.drainCredentialChanges(now)
+}
+
+// drainCredentialChanges applies the rotator's queued additions (before expirations, so the accepted
+// set is a superset during the transition). The caller must hold reconcileMu.
+func (c *envContextImpl) drainCredentialChanges(now time.Time) {
 	additions, expirations := c.keyRotator.StepTime(now)
 	for _, cred := range additions {
 		c.addCredential(cred)
