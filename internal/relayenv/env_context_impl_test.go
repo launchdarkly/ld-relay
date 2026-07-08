@@ -1194,8 +1194,15 @@ func (s *mockBigSegmentSynchronizer) SegmentUpdatesCh() <-chan bigsegments.Updat
 
 func (s *mockBigSegmentSynchronizer) Close() {
 	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.closed {
+		return
+	}
 	s.closed = true
-	s.lock.Unlock()
+	// Mirror the real synchronizer: Close closes the update channel, which is what terminates the
+	// consumer goroutine ranging over SegmentUpdatesCh(). Without this the tests would leak a consumer
+	// per re-anchor and never actually exercise the "old consumer exits on Close" invariant.
+	close(s.updateCh)
 }
 
 func (s *mockBigSegmentSynchronizer) isStarted() bool {
