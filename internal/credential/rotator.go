@@ -195,11 +195,8 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 
 	for key, info := range r.acceptedSDKKeys {
 		if key == r.anchorKey {
-			// The anchor is never expired while it is the anchor, even if an entry left a stale expiry on
-			// it (e.g. a re-anchor that grace-demoted this key then rolled back before CommitAnchor). This
-			// enforces the "anchor is always permanent" invariant at the source; without it the cleanup
-			// ticker would reap the still-authoritative anchor and close the env's only client. Mirrors the
-			// anchor guard in DeprecatedCredentials.
+			// Never expire the current anchor, even if a stale expiry was left on its entry (a
+			// rolled-back re-anchor can). Same guard as DeprecatedCredentials.
 			continue
 		}
 		if info.Expiry != nil && now.After(*info.Expiry) {
