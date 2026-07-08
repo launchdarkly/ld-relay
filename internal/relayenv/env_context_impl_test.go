@@ -432,8 +432,8 @@ func TestNonAnchorSDKKeysDoNotOpenUpstreamClient(t *testing.T) {
 	nonAnchorKey2 := config.SDKKey("non-anchor-key-2")
 
 	// Reconcile to anchor + 2 non-anchor SDK keys. The anchor is unchanged, so no new anchor client
-	// is needed. Non-anchor keys must get envStreams + handlers + connection mapping but must NOT
-	// open an upstream client.
+	// is needed. Non-anchor keys must get envStreams + connection mapping but must NOT open an upstream
+	// client.
 	env.ReconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 			WithAnchor(credential.SDKKeyParams{Value: envConfig.SDKKey}).

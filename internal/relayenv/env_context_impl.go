@@ -97,7 +97,6 @@ type envContextImpl struct {
 	secureMode      bool
 	envStreams      *streams.EnvStreams
 	streamProviders []streams.StreamProvider
-	handlers        map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
 	jsContext       JSClientContext
 	evaluator       ldeval.Evaluator
 	eventDispatcher *events.EventDispatcher
@@ -196,7 +195,6 @@ func NewEnvContext(
 		loggers:                   envLoggers,
 		secureMode:                envConfig.SecureMode,
 		streamProviders:           params.StreamProviders,
-		handlers:                  make(map[streams.StreamProvider]map[credential.SDKCredential]http.Handler),
 		jsContext:                 params.JSClientContext,
 		sdkClientFactory:          params.ClientFactory,
 		sdkInitTimeout:            allConfig.Main.InitTimeout.GetOrElse(config.DefaultInitTimeout),
@@ -269,16 +267,6 @@ func NewEnvContext(
 	allCreds := envContext.keyRotator.AllCredentials()
 	for _, c := range allCreds {
 		envStreams.AddCredential(c)
-	}
-	for _, sp := range params.StreamProviders {
-		handlers := make(map[credential.SDKCredential]http.Handler)
-		for _, c := range allCreds {
-			h := sp.Handler(sdkauth.NewScoped(envContext.filterKey, c))
-			if h != nil {
-				handlers[c] = h
-			}
-		}
-		envContext.handlers[sp] = handlers
 	}
 
 	dataStoreFactory := params.DataStoreFactory
@@ -481,9 +469,6 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	defer c.mu.Unlock()
 	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
 	c.envStreams.RemoveCredential(oldCredential)
-	for _, handlers := range c.handlers {
-		delete(handlers, oldCredential)
-	}
 	// See the comment in addCredential for more context. In offline mode, there's no need to close the SDK client
 	// because our data comes from a file, not a streaming connection.
 	if !c.offline {
@@ -815,18 +800,13 @@ func (c *envContextImpl) rebuildEvaluator() {
 }
 
 // registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
-// credential with the env's stream machinery, builds the per-stream-provider HTTP handlers, and adds
-// the connection→env mapping, so incoming SDK/client connections that authenticate with cred are
-// served by this env. It does NOT start the upstream SDK client or repoint event/metrics forwarding —
-// those are anchor-only concerns owned by the callers (addCredential, and the re-anchor sequence).
-// The caller must hold c.mu.
+// credential with the env's stream machinery and adds the connection→env mapping, so incoming
+// SDK/client connections that authenticate with cred are served by this env. Stream handlers are built
+// on demand per request in GetStreamHandler, so there is nothing per-credential to construct here. It
+// does NOT start the upstream SDK client or repoint event/metrics forwarding — those are anchor-only
+// concerns owned by the callers (addCredential, and the re-anchor sequence). The caller must hold c.mu.
 func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
 	c.envStreams.AddCredential(cred)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
-			handlers[cred] = h
-		}
-	}
 	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
 }
 
@@ -918,14 +898,15 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
 
-func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	h := c.handlers[streamProvider][credential]
-	if h == nil {
-		return http.HandlerFunc(invalidStreamHandler)
+func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+	// Build the handler on demand rather than storing one per (credential, provider): every handler in a
+	// (filter, provider) slot is identical except for the credential-derived channel id, which we resolve
+	// here from the request's already-authenticated credential. c.filterKey is immutable after
+	// construction, so this needs no lock.
+	if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
+		return h
 	}
-	return h
+	return http.HandlerFunc(invalidStreamHandler)
 }
 
 func invalidStreamHandler(w http.ResponseWriter, req *http.Request) {
