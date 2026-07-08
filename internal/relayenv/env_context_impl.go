@@ -430,17 +430,13 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.envStreams.AddCredential(newCredential)
-	for streamProvider, handlers := range c.handlers {
-		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
-			handlers[newCredential] = h
-		}
-	}
+
+	c.registerCredentialMappings(newCredential)
 
 	// A new SDK key means:
 	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
-	//     connection per environment, owned by the anchor key. Non-anchor server keys get envStreams
-	//     + handler bundles above, but no upstream client — matching today's mobile-key behavior.
+	//     connection per environment, owned by the anchor key. Non-anchor server keys get their
+	//     credential mappings registered above, but no upstream client — matching today's mobile-key behavior.
 	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
 	//     again only when it is the anchor, since events collapse to the anchor per kind.
 	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
@@ -472,8 +468,21 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 			}
 		}
 	}
+}
 
-	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, newCredential), c)
+// registerCredentialMappings wires relay's downstream-facing routing for cred: it registers the
+// credential with the env's stream machinery, builds the per-stream-provider HTTP handlers, and adds
+// the connection->env mapping, so incoming SDK/client connections that authenticate with cred are
+// served by this env. It does NOT start the upstream SDK client or repoint event/metrics forwarding --
+// those are anchor-only concerns owned by the caller. The caller must hold c.mu.
+func (c *envContextImpl) registerCredentialMappings(cred credential.SDKCredential) {
+	c.envStreams.AddCredential(cred)
+	for streamProvider, handlers := range c.handlers {
+		if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
+			handlers[cred] = h
+		}
+	}
+	c.connectionMapper.AddConnectionMapping(sdkauth.NewScoped(c.filterKey, cred), c)
 }
 
 func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential) {
@@ -526,21 +535,9 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		}
 		c.clients[sdkKey] = client
 
-		// The data store instance is created by the SDK when it creates the client. Now that
-		// we have a data store, we can finish setting up the Evaluator that we'll use for this
-		// environment.
-		store := c.storeAdapter.GetStore()
-		dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
-		evalOptions := []ldeval.EvaluatorOption{
-			// We're setting EnableSecondaryKey because we may be doing evaluations for client-side SDKs that
-			// are sending old-style user data with the "secondary" attribute. This option doesn't affect
-			// evaluations done for newer client-side SDKs that send contexts.
-			ldeval.EvaluatorOptionEnableSecondaryKey(true),
-		}
-		if c.sdkBigSegments != nil {
-			evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
-		}
-		c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
+		// The data store instance is created by the SDK when it creates the client. Now that we have a
+		// data store, we can finish setting up the Evaluator for this environment.
+		c.rebuildEvaluator()
 	}
 	c.initErr = err
 	c.mu.Unlock()
@@ -570,6 +567,24 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	if readyCh != nil {
 		readyCh <- c
 	}
+}
+
+// rebuildEvaluator constructs the environment's Evaluator against the current data store. It is called
+// after (re)creating an SDK client, once the store is available. It reads and writes envContextImpl
+// fields directly, so the caller must hold c.mu.
+//
+// EnableSecondaryKey is set because we may evaluate for client-side SDKs sending old-style user data
+// with the "secondary" attribute; it has no effect for newer SDKs that send contexts.
+func (c *envContextImpl) rebuildEvaluator() {
+	store := c.storeAdapter.GetStore()
+	dataProvider := ldstoreimpl.NewDataStoreEvaluatorDataProvider(store, c.loggers)
+	evalOptions := []ldeval.EvaluatorOption{
+		ldeval.EvaluatorOptionEnableSecondaryKey(true),
+	}
+	if c.sdkBigSegments != nil {
+		evalOptions = append(evalOptions, ldeval.EvaluatorOptionBigSegmentProvider(c.sdkBigSegments))
+	}
+	c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
 }
 
 // sdkKeyIsActive reports whether the given SDK key is still a tracked credential -- either the primary
