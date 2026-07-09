@@ -23,6 +23,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -458,8 +459,10 @@ func TestReanchorSync_PreviouslyAcceptedNonAnchorPromotedToAnchor(t *testing.T) 
 
 // TestReanchorSync_Offline_CommitsWithoutBuildingClient covers the offline re-anchor branch: when the
 // env is offline, re-anchoring to a new key must commit the anchor WITHOUT building a new upstream
-// client. (The initial anchor client is still created at startup; offline only skips the re-anchor
-// build.)
+// client, and the environment's single file-data client must keep serving. (The initial anchor
+// client is still created at startup; offline skips both the re-anchor build and the demoted-anchor
+// client teardown -- closing the only client with no replacement would flip /status to disconnected
+// and, with a persistent store, tear down the backing store.)
 func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	envConfig.Offline = true
@@ -473,7 +476,8 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	defer env.Close()
 
 	require.Equal(t, env, requireEnvReady(t, readyCh))
-	_ = requireClientReady(t, clientCh) // drain the initial anchor client
+	initialClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
 
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
@@ -486,6 +490,13 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	assert.NoError(t, env.GetInitError())
+
+	// The single offline client survives the rotation: it is not closed and GetClient still finds it.
+	if !helpers.AssertChannelNotClosed(t, initialClient.CloseCh, 100*time.Millisecond,
+		"the offline env's only client must not be closed by a re-anchor") {
+		t.FailNow()
+	}
+	assert.Same(t, initialClient, env.GetClient(), "GetClient keeps returning the offline client after re-anchor")
 }
 
 // TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing covers the edge where a

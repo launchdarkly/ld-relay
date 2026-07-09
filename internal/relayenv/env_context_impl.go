@@ -724,10 +724,14 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	// The new anchor's client is now authoritative, so tear down the previous anchor's client
 	// whether the key was grace-demoted or revoked outright (an undefined previous anchor has no
 	// entry, and a rolled-back commit never reaches here). The shared store wrapper survives: it is
-	// refcounted and the new anchor's client holds it.
-	if oldClient := c.clients[previousAnchor]; oldClient != nil {
-		delete(c.clients, previousAnchor)
-		_ = oldClient.Close()
+	// refcounted and the new anchor's client holds it. Offline mode is exempt, mirroring
+	// removeCredential: the offline branch above built no replacement, and the env's single
+	// file-data client (found by GetClient's map iteration) must keep serving across rotations.
+	if !c.offline {
+		if oldClient := c.clients[previousAnchor]; oldClient != nil {
+			delete(c.clients, previousAnchor)
+			_ = oldClient.Close()
+		}
 	}
 	return true
 }
