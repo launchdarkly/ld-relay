@@ -160,12 +160,14 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideBulkEventsRouter.Handle("/bulk", bulkEventHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	serverSideBulkEventsRouter.Handle("/diagnostic", bulkEventHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
-	serverSideRouter.Handle("/all", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	streamLimiter := middleware.NewStreamAdmissionController(r.config.Main.MaxStreamingConnections.GetOrElse(0))
+
+	serverSideRouter.Handle("/all", streamLimiter.Limit(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideStreamProvider, serverSideStreamLogMessage),
-	)))).Methods("GET")
-	serverSideRouter.Handle("/flags", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	))))).Methods("GET")
+	serverSideRouter.Handle("/flags", streamLimiter.Limit(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandler(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
-	)))).Methods("GET")
+	))))).Methods("GET")
 
 	return router
 }
