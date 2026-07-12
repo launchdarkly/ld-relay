@@ -43,7 +43,7 @@ func (c *StreamAdmissionController) Limit(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", "5")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"error":"relay is at its configured stream connection limit (%d); back off and retry"}`, c.limit)
+			_, _ = fmt.Fprintf(w, `{"error":"relay is at its configured stream connection limit (%d); back off and retry"}`, c.limit)
 			return
 		}
 		defer atomic.AddInt64(&c.active, -1)
