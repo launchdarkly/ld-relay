@@ -25,6 +25,8 @@ var (
 	requestMeasure         = stats.Int64(requestMeasureName, "Number of hits to a route", stats.UnitDimensionless)
 	requestDurationMeasure = stats.Float64(requestDurationMeasureName, "request duration in microseconds", stats.UnitDimensionless)
 
+	streamAdmissionsRejectedMeasure = stats.Int64(streamAdmissionsRejectedMeasureName, "total number of streaming connections rejected due to the concurrency limit", stats.UnitDimensionless)
+
 	// For internal event exporter
 	privateConnMeasure            = stats.Int64(privateConnMeasureName, "current number of connections", stats.UnitDimensionless)
 	privateNewConnMeasure         = stats.Int64(privateNewConnMeasureName, "total number of connections", stats.UnitDimensionless)
@@ -59,6 +61,10 @@ var (
 
 	// PollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
 	PollingRequests = Measure{measures: []*stats.Int64Measure{privatePollingRequestsMeasure}, tags: makeServerTags()}
+
+	// StreamAdmissionsRejected is a Measure representing the number of streaming connections
+	// rejected because a concurrency limit was reached.
+	StreamAdmissionsRejected = Measure{measures: []*stats.Int64Measure{streamAdmissionsRejectedMeasure}, tags: makeServerTags()}
 )
 
 // Measure represents one of the types of metrics that can be passed to WithCount, WithGauge, or WithRouteCount.

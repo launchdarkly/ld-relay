@@ -163,6 +163,7 @@ type MainConfig struct {
 	BigSegmentsStaleAsDegraded       bool                     `conf:"BIG_SEGMENTS_STALE_AS_DEGRADED"`
 	BigSegmentsStaleThreshold        ct.OptDuration           `conf:"BIG_SEGMENTS_STALE_THRESHOLD"`
 	ExpiredCredentialCleanupInterval ct.OptDuration           `conf:"EXPIRED_CREDENTIAL_CLEANUP_INTERVAL"`
+	MaxStreamingConnections          ct.OptIntGreaterThanZero `conf:"MAX_STREAMING_CONNECTIONS"`
 }
 
 // AutoConfigConfig contains configuration parameters for the auto-configuration feature.

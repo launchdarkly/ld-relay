@@ -42,13 +42,18 @@ var (
 		Aggregation: view.Sum(),
 		TagKeys:     privateTags,
 	}
+	streamAdmissionsRejectedView *view.View = &view.View{ //nolint:gochecknoglobals
+		Measure:     streamAdmissionsRejectedMeasure,
+		Aggregation: view.Count(),
+		TagKeys:     publicTags,
+	}
 
 	registerPublicViewsOnce  sync.Once //nolint:gochecknoglobals
 	registerPrivateViewsOnce sync.Once //nolint:gochecknoglobals
 )
 
 func getPublicViews() []*view.View {
-	return []*view.View{publicConnView, publicNewConnView, requestView, requestDurationView}
+	return []*view.View{publicConnView, publicNewConnView, requestView, requestDurationView, streamAdmissionsRejectedView}
 }
 
 func getPrivateViews() []*view.View {

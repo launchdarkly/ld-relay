@@ -21,6 +21,8 @@ const (
 
 	privatePollingRequestsMeasureName = "internal_polling_requests"
 
+	streamAdmissionsRejectedMeasureName = "stream_admissions_rejected"
+
 	requestMeasureName         = "requests"
 	requestDurationMeasureName = "request_duration"
 
