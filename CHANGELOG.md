@@ -2,6 +2,15 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.19.6](https://github.com/launchdarkly/ld-relay/compare/v8.19.5...v8.19.6) (2026-07-08)
+
+
+### Bug Fixes
+
+* add X-LaunchDarkly-Instance-Id to browser CORS allowlist ([#734](https://github.com/launchdarkly/ld-relay/issues/734)) ([710b5be](https://github.com/launchdarkly/ld-relay/commit/710b5beca93b4c8b5bae6dfe39e1dd7abbfda911))
+* **deps:** bump supported Go versions to 1.26.5 and 1.25.12 ([#740](https://github.com/launchdarkly/ld-relay/issues/740)) ([1db120e](https://github.com/launchdarkly/ld-relay/commit/1db120e67f248b0a10c6984d363e9a2c496712ae))
+* **server:** eliminate send-on-closed-channel race in StartHTTPServer ([#708](https://github.com/launchdarkly/ld-relay/issues/708)) ([33cbf23](https://github.com/launchdarkly/ld-relay/commit/33cbf23b93f08edf2c60a5e855c77895a6a53396))
+
 ## [8.19.5](https://github.com/launchdarkly/ld-relay/compare/v8.19.4...v8.19.5) (2026-06-16)
 
 
