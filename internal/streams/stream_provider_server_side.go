@@ -227,7 +227,11 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 }
 
 func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEventV2", func() (interface{}, error) {
+	// The result depends on the caller's basis: a client whose basis matches the current
+	// selector state gets an "up-to-date" event, while any other client gets a full data
+	// transfer. Only requests with the same basis may share a result, so the basis must be
+	// part of the key.
+	data, err, _ := r.flightGroup.Do("getReplayEventV2:"+basis, func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
