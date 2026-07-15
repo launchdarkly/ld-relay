@@ -102,11 +102,12 @@ type HTTPEventPublisher struct {
 	disableQueue chan interface{}
 	disabled     bool
 
-	queues       map[EventPayloadMetadata]*publisherQueue
-	capacity     int
-	overflowed   bool
-	eventMetrics EventMetrics
-	lock         sync.RWMutex
+	queues          map[EventPayloadMetadata]*publisherQueue
+	capacity        int
+	initialCapacity int
+	overflowed      bool
+	eventMetrics    EventMetrics
+	lock            sync.RWMutex
 }
 
 type eventBatch struct {
@@ -167,6 +168,19 @@ type OptionEventMetrics struct {
 
 func (o OptionEventMetrics) apply(p *HTTPEventPublisher) error {
 	p.eventMetrics = o.EventMetrics
+	return nil
+}
+
+// OptionInitialCapacity specifies how many events to preallocate space for in each event queue.
+// The queue still grows on demand (via append) up to OptionCapacity, and events are only dropped
+// once OptionCapacity is reached; this option only controls the initial allocation so that a
+// publisher with a large capacity does not reserve all of that memory up front. If unset, or not
+// smaller than the capacity, the full capacity is preallocated, preserving the original behavior.
+type OptionInitialCapacity int
+
+//nolint:unparam // the error result is required by the OptionType interface
+func (o OptionInitialCapacity) apply(p *HTTPEventPublisher) error {
+	p.initialCapacity = int(o)
 	return nil
 }
 
@@ -258,10 +272,22 @@ func NewHTTPEventPublisher(authKey credential.SDKCredential, httpConfig httpconf
 	return p, nil
 }
 
+// initialQueueCapacity returns the number of events to preallocate space for in a new queue.
+// It is the smaller of the configured initial capacity and the maximum capacity; when no initial
+// capacity is configured (<= 0), the full maximum capacity is preallocated, which is the original
+// behavior. The queue can still grow (via append) up to the maximum capacity regardless.
+func initialQueueCapacity(capacity, initialCapacity int) int {
+	if initialCapacity > 0 && initialCapacity < capacity {
+		return initialCapacity
+	}
+	return capacity
+}
+
 func (p *HTTPEventPublisher) append(batch eventBatch) {
 	queue := p.queues[batch.metadata]
 	if queue == nil {
-		queue = &publisherQueue{events: make([]json.RawMessage, 0, p.capacity)}
+		// The queue still grows up to p.capacity via append regardless of the initial allocation.
+		queue = &publisherQueue{events: make([]json.RawMessage, 0, initialQueueCapacity(p.capacity, p.initialCapacity))}
 		p.queues[batch.metadata] = queue
 	}
 	available := p.capacity - len(queue.events)

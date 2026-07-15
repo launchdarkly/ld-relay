@@ -293,7 +293,9 @@ func NewEnvContext(
 	if params.MetricsManager != nil {
 		if enableDiagnostics {
 			eventsPublisher, err := events.NewHTTPEventPublisher(envConfig.SDKKey, httpConfig, envLogger,
-				events.OptionBaseURI(eventsURI))
+				events.OptionBaseURI(eventsURI),
+				events.OptionCapacity(allConfig.Events.MetricsCapacity.GetOrElse(config.DefaultMetricsCapacity)),
+				events.OptionInitialCapacity(config.DefaultMetricsInitialCapacity))
 			if err != nil {
 				return nil, errInitPublisher(err)
 			}
