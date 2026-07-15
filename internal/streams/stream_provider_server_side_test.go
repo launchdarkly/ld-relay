@@ -341,5 +341,57 @@ func TestStreamProviderServerSide(t *testing.T) {
 			assert.Equal(t, 1, getFlagFromEventData(t, events1[0]).Version)
 			assert.Equal(t, 1, getFlagFromEventData(t, events2[0]).Version) // only one computation was done
 		})
+
+		t.Run("v2 clients with different basis values connect concurrently", func(t *testing.T) {
+			const currentState = "current-state"
+			flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+			replayStarted := make(chan struct{}, 2)
+			replayCanFinish := make(chan struct{})
+			var gateFirstReplay sync.Once
+			store := newMockStoreQueries()
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				replayStarted <- struct{}{}
+				gateFirstReplay.Do(func() {
+					<-replayCanFinish
+				})
+				return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+					ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+					ldstoreimpl.Segments(): {},
+				}, subsystems.NewSelector(currentState, 1), nil
+			})
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true}
+
+			// The first client's basis matches the store's current state, so its replay should be
+			// an "up-to-date" intent with no data.
+			eventCh1 := repo.Replay("", currentState)
+			<-replayStarted
+
+			// The second client has no basis, so it needs a full data transfer. Its result must
+			// not be shared with the first client's, even though the two replays are concurrent.
+			eventCh2 := repo.Replay("", "")
+
+			time.Sleep(time.Millisecond * 200)
+			// This delay gives the second replay's goroutine time to reach the flight group while
+			// the first computation is still in progress, which is the scenario under test. (See
+			// the comment in the previous subtest about timing sensitivity.)
+
+			close(replayCanFinish)
+
+			events1 := expectReplayedEvents(t, eventCh1)
+			require.Len(t, events1, 1)
+			assert.Equal(t, string(subsystems.EventServerIntent), events1[0].Event())
+			assert.Contains(t, events1[0].Data(), `"intentCode":"none"`)
+
+			events2 := expectReplayedEvents(t, eventCh2)
+			eventNames := make([]string, 0, len(events2))
+			for _, e := range events2 {
+				eventNames = append(eventNames, e.Event())
+			}
+			assert.Equal(t, []string{
+				string(subsystems.EventServerIntent),
+				string(subsystems.EventPutObject),
+				string(subsystems.EventPayloadTransferred),
+			}, eventNames)
+		})
 	})
 }
