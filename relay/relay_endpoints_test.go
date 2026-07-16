@@ -44,6 +44,22 @@ func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
 	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
 }
 
+func TestReportFlagEvalRejectsOversizedBody(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
+
+	oversized := make([]byte, maxContextBodyBytes+1)
+	for i := range oversized {
+		oversized[i] = 'a'
+	}
+	req := buildPreRoutedRequest("REPORT", oversized, headers, nil, ctx)
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.Code)
+}
+
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")

@@ -4,6 +4,7 @@ import (
 	"crypto/sha1" //nolint:gosec // we're not using SHA1 for encryption, just for generating an insecure hash
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// maxContextBodyBytes is the maximum size of a REPORT request body that the client-side and mobile
+// evaluation endpoints will read into memory when decoding a context. An evaluation context is small
+// (typically well under a kilobyte), so this generous limit protects the process from memory
+// exhaustion via oversized request bodies without rejecting legitimate payloads.
+const maxContextBodyBytes = 5 << 20 // 5 MiB
+
 func getClientSideContextProperties(
 	clientCtx relayenv.EnvContext,
 	sdkKind basictypes.SDKKind,
@@ -45,7 +52,20 @@ func getClientSideContextProperties(
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return ldContext, false
 		}
-		body, _ := io.ReadAll(req.Body)
+		body, readErr := io.ReadAll(http.MaxBytesReader(w, req.Body, maxContextBodyBytes))
+		if readErr != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(readErr, &maxBytesErr) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				_, _ = w.Write(util.ErrorJSONMsg("Request body exceeds maximum allowed size."))
+				return ldContext, false
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write(util.ErrorJSONMsg(readErr.Error()))
+			return ldContext, false
+		}
 		contextDecodeErr = json.Unmarshal(body, &ldContext)
 	} else {
 		base64Context := mux.Vars(req)["context"] // this assumes we have used {context} as a placeholder in the route
