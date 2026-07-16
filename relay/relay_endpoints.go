@@ -21,6 +21,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -31,15 +32,10 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// maxContextBodyBytes is the maximum size of a REPORT request body that the client-side and mobile
-// evaluation endpoints will read into memory when decoding a context. An evaluation context is small
-// (typically well under a kilobyte), so this generous limit protects the process from memory
-// exhaustion via oversized request bodies without rejecting legitimate payloads.
-const maxContextBodyBytes = 5 << 20 // 5 MiB
-
 func getClientSideContextProperties(
 	clientCtx relayenv.EnvContext,
 	sdkKind basictypes.SDKKind,
+	maxBodySize ct.OptBase2Bytes,
 	req *http.Request,
 	w http.ResponseWriter,
 ) (ldcontext.Context, bool) {
@@ -52,7 +48,11 @@ func getClientSideContextProperties(
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return ldContext, false
 		}
-		body, readErr := io.ReadAll(http.MaxBytesReader(w, req.Body, maxContextBodyBytes))
+		bodyReader := req.Body
+		if maxBodySize.IsDefined() {
+			bodyReader = http.MaxBytesReader(w, req.Body, int64(maxBodySize.GetOrElse(0)))
+		}
+		body, readErr := io.ReadAll(bodyReader)
 		if readErr != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(readErr, &maxBytesErr) {
@@ -108,12 +108,12 @@ func pingStreamHandler(streamProvider streams.StreamProvider) http.Handler {
 
 // This handler is used for client-side streaming endpoints that require context properties. Currently it is
 // implemented the same as the ping stream once we have validated the context.
-func pingStreamHandlerWithContext(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithContext(sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLoggers().Debug("Application requested client-side ping stream")
 
-		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
+		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w); ok {
 			clientCtx.Env.GetStreamHandler(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
 	})
@@ -204,19 +204,19 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 // /sdk/evalx/{envId}/user (REPORT)
 // /sdk/evalx/users/{context} (GET - with SDK key auth; this is a Relay-only endpoint)
 // /sdk/evalx/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
-func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, sdkKind)
+		evaluateAllShared(w, req, sdkKind, maxBodySize)
 	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	loggers := clientCtx.Env.GetLoggers()
 
-	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
+	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w)
 	if !ok {
 		return
 	}

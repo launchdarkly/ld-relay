@@ -12,6 +12,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testenv"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-test-helpers/v3/jsonhelpers"
 
 	"github.com/gorilla/mux"
@@ -35,7 +36,7 @@ func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(false))
 	req := buildPreRoutedRequest("REPORT", []byte(`{"key": "my-user"}`), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+	evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
 
@@ -44,20 +45,33 @@ func TestReportFlagEvalFailsWithUninitializedClientAndStore(t *testing.T) {
 	assert.JSONEq(t, `{"message":"Service not initialized"}`, string(b))
 }
 
-func TestReportFlagEvalRejectsOversizedBody(t *testing.T) {
+func TestReportFlagEvalRejectsOversizedBodyWhenLimitConfigured(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
 
-	oversized := make([]byte, maxContextBodyBytes+1)
+	maxBodySize, _ := ct.NewOptBase2BytesFromString("1KiB")
+	oversized := make([]byte, 1024*2)
 	for i := range oversized {
 		oversized[i] = 'a'
 	}
 	req := buildPreRoutedRequest("REPORT", oversized, headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+	evaluateAllFeatureFlags(basictypes.JSClientSDK, maxBodySize)(resp, req)
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.Code)
+}
+
+func TestReportFlagEvalAllowsLargeBodyWhenNoLimitConfigured(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
+
+	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
+	resp := httptest.NewRecorder()
+	evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
 }
 
 func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testing.T) {
@@ -66,7 +80,7 @@ func TestReportFlagEvalWorksWithUninitializedClientButInitializedStore(t *testin
 	ctx := testenv.NewTestEnvContext("", false, st.MakeStoreWithData(true))
 	req := buildPreRoutedRequest("REPORT", jsonhelpers.ToJSON(st.BasicUserForTestFlags), headers, nil, ctx)
 	resp := httptest.NewRecorder()
-	evaluateAllFeatureFlags(basictypes.JSClientSDK)(resp, req)
+	evaluateAllFeatureFlags(basictypes.JSClientSDK, ct.OptBase2Bytes{})(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 

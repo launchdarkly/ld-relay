@@ -153,6 +153,7 @@ type MainConfig struct {
 	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	MaxClientRequestBodySize         ct.OptBase2Bytes         `conf:"MAX_CLIENT_REQUEST_BODY_SIZE"`
 	PingStreamJitterTime             ct.OptDuration           `conf:"PING_STREAM_JITTER_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`
