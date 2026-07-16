@@ -2,6 +2,16 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [9.0.0-rc.5](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.4...v9.0.0-rc.5) (2026-07-16)
+
+
+### Bug Fixes
+
+* **deps:** bump supported Go versions to 1.26.5 and 1.25.12 ([#751](https://github.com/launchdarkly/ld-relay/issues/751)) ([eafcceb](https://github.com/launchdarkly/ld-relay/commit/eafcceb8673f23421066c966b37e75a20d2c7923))
+* **deps:** update Dockerfiles from 3.23.4 to alpine:3.24.1 ([#752](https://github.com/launchdarkly/ld-relay/issues/752)) ([ecc7c6a](https://github.com/launchdarkly/ld-relay/commit/ecc7c6a3bc3b665658870f054227a2a2602bd0ca))
+* include basis in FDv2 replay singleflight key ([#748](https://github.com/launchdarkly/ld-relay/issues/748)) ([77c0c88](https://github.com/launchdarkly/ld-relay/commit/77c0c88b485fe96fe140b39675f070e9091ae91c))
+* **v9:** bump SDK deps for EasyJSON removal (v4 cascade) ([#689](https://github.com/launchdarkly/ld-relay/issues/689)) ([7d04d5d](https://github.com/launchdarkly/ld-relay/commit/7d04d5dcd02d72369acd8e1cdf8b94ad260df2aa))
+
 ## [9.0.0-rc.4](https://github.com/launchdarkly/ld-relay/compare/v9.0.0-rc.3...v9.0.0-rc.4) (2026-06-08)
 
 
