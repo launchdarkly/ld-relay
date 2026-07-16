@@ -89,19 +89,23 @@ type EnvContextImplParams struct {
 }
 
 type envContextImpl struct {
-	mu                        sync.RWMutex
-	clients                   map[config.SDKKey]sdks.LDClientContext
-	storeAdapter              *store.SSERelayDataStoreAdapter
-	loggers                   ldlog.Loggers
-	identifiers               EnvIdentifiers
-	secureMode                bool
-	envStreams                *streams.EnvStreams
-	streamProviders           []streams.StreamProvider
-	handlers                  map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
-	jsContext                 JSClientContext
-	evaluator                 ldeval.Evaluator
-	eventDispatcher           *events.EventDispatcher
-	bigSegmentSync            bigsegments.BigSegmentSynchronizer
+	mu              sync.RWMutex
+	clients         map[config.SDKKey]sdks.LDClientContext
+	storeAdapter    *store.SSERelayDataStoreAdapter
+	loggers         ldlog.Loggers
+	identifiers     EnvIdentifiers
+	secureMode      bool
+	envStreams      *streams.EnvStreams
+	streamProviders []streams.StreamProvider
+	handlers        map[streams.StreamProvider]map[credential.SDKCredential]http.Handler
+	jsContext       JSClientContext
+	evaluator       ldeval.Evaluator
+	eventDispatcher *events.EventDispatcher
+	bigSegmentSync  bigsegments.BigSegmentSynchronizer
+	// makeBigSegmentSync builds a BigSegmentSynchronizer for a given anchor SDK key, binding the
+	// construction-time inputs (http config, store, URIs, env ID, loggers). A re-anchor uses it to
+	// rebuild the synchronizer on the new anchor. nil when big segments are not configured.
+	makeBigSegmentSync        func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer
 	bigSegmentStore           bigsegments.BigSegmentStore
 	bigSegmentsExist          bool
 	sdkBigSegments            *ldstoreimpl.BigSegmentStoreWrapper
@@ -231,33 +235,20 @@ func NewEnvContext(
 		if factory == nil {
 			factory = bigsegments.DefaultBigSegmentSynchronizerFactory
 		}
-		envContext.bigSegmentSync = factory(
-			httpConfig, bigSegmentStore, allConfig.Main.BaseURI.String(), allConfig.Main.StreamURI.String(),
-			envConfig.EnvID, envConfig.SDKKey, envLoggers, logPrefix)
-		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
-		segmentUpdateCh := envContext.bigSegmentSync.SegmentUpdatesCh()
-		if segmentUpdateCh != nil {
-			go func() {
-				for range segmentUpdateCh {
-					// BigSegmentSynchronizer sends to this channel after processing a batch of
-					// big segment updates. The value it sends is a list of segment keys, but in
-					// the current implementation, we don't care what those keys are because we'll
-					// just be broadcasting a "ping" to all connected client-side SDKs. In the future
-					// if we have real evaluation streams, we'll need to determine which flags should
-					// be re-evaluated based on the segments.
-					if envContext.sdkBigSegments != nil {
-						envContext.sdkBigSegments.ClearCache()
-					}
-					if envContext.envStreams != nil {
-						envContext.envStreams.InvalidateClientSideState()
-					}
-					// If we shut down the environment, the BigSegmentSynchronizer will be closed which
-					// will also cause this channel to be closed, exiting this goroutine.
-				}
-			}()
+		// Bind the construction-time inputs so a re-anchor can rebuild the synchronizer on the new anchor
+		// key (see reanchorBigSegmentSync). The synchronizer authenticates from the SDK key it is handed
+		// (bigsegments/sync sets the Authorization header from it directly), so re-anchoring only needs
+		// the new key; httpConfig is transport configuration and is reused as-is.
+		baseURI := allConfig.Main.BaseURI.String()
+		streamURI := allConfig.Main.StreamURI.String()
+		envContext.makeBigSegmentSync = func(anchor config.SDKKey) bigsegments.BigSegmentSynchronizer {
+			return factory(httpConfig, bigSegmentStore, baseURI, streamURI, envConfig.EnvID, anchor, envLoggers, logPrefix)
 		}
-		// We deliberate do not call bigSegmentSync.Start() here because we don't want the synchronizer to
-		// start until we know that at least one big segment exists. That's implemented by the
+		envContext.bigSegmentSync = envContext.makeBigSegmentSync(envConfig.SDKKey)
+		thingsToCleanUp.AddFunc(envContext.bigSegmentSync.Close)
+		envContext.consumeBigSegmentUpdates(envContext.bigSegmentSync)
+		// We deliberately do not call bigSegmentSync.Start() here because we don't want the synchronizer
+		// to start until we know that at least one big segment exists. That's implemented by the
 		// envContextStreamUpdates methods.
 	}
 
@@ -796,11 +787,9 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 		c.eventDispatcher.ReplaceCredential(newAnchor)
 	}
 
-	// Big-segment synchronization is intentionally left pointing at the previous anchor key across a
-	// re-anchor: this matches pre-concurrent-keys behavior (there was no re-anchor, so it never moved)
-	// and does not regress. When big-segment re-anchor is implemented, its re-wire hook belongs right
-	// here, after the event/metrics ReplaceCredential calls — either recreate the BigSegmentSynchronizer
-	// for newAnchor, or add a credential-replacement method to it.
+	// Re-wire big-segment synchronization onto the new anchor: its poll/stream requests authenticate
+	// with the anchor SDK key, so it must follow the anchor like the event/metrics forwarding above.
+	c.reanchorBigSegmentSync(newAnchor)
 
 	c.globalLoggers.Infof("Re-anchored SDK from %s to %s (%s)", previousAnchor.Masked(), newAnchor.Masked(), why)
 	return true
@@ -1061,16 +1050,82 @@ func (c *envContextImpl) Close() error {
 	return nil
 }
 
+// consumeBigSegmentUpdates spawns a goroutine that drains sync's update channel, broadcasting a
+// cache-clear + client-side invalidation for each batch. The goroutine exits when the channel closes
+// (i.e. when sync is Closed). Called for the initial synchronizer and for each re-anchor replacement, so
+// each synchronizer instance gets its own consumer bound to its own channel.
+func (c *envContextImpl) consumeBigSegmentUpdates(sync bigsegments.BigSegmentSynchronizer) {
+	ch := sync.SegmentUpdatesCh()
+	if ch == nil {
+		return
+	}
+	go func() {
+		for range ch {
+			// The batch's segment keys are not needed today: we just ping all connected client-side SDKs.
+			// (A future evaluation-stream design would use the keys to target re-evaluation.)
+			if c.sdkBigSegments != nil {
+				c.sdkBigSegments.ClearCache()
+			}
+			if c.envStreams != nil {
+				c.envStreams.InvalidateClientSideState()
+			}
+		}
+	}()
+}
+
+// reanchorBigSegmentSync rebuilds the big-segment synchronizer on the new anchor when the SDK anchor
+// changes. The synchronizer bakes in its SDK key at construction and is not restartable, so re-anchoring
+// recreates it rather than mutating it. The caller (commitReanchor) holds c.mu.
+//
+// If a big segment had already appeared (bigSegmentsExist -> the old synchronizer was Started), the
+// replacement is Started immediately so synchronization continues without a gap. The old synchronizer is
+// Closed last, which also ends its update-consumer goroutine. When big segments are not configured for
+// this env there is no synchronizer and this is a no-op. sdkBigSegments (the SDK-facing store wrapper)
+// persists across the re-anchor, so its polling-active state does not need re-setting here.
+func (c *envContextImpl) reanchorBigSegmentSync(newAnchor config.SDKKey) {
+	if c.bigSegmentSync == nil {
+		return
+	}
+	wasStarted := c.bigSegmentsExist
+	old := c.bigSegmentSync
+	c.bigSegmentSync = c.makeBigSegmentSync(newAnchor)
+	c.consumeBigSegmentUpdates(c.bigSegmentSync)
+	if wasStarted {
+		c.bigSegmentSync.Start()
+	}
+	old.Close()
+}
+
 func (c *envContextImpl) setBigSegmentsExist() {
 	c.mu.Lock()
-	alreadyExisted := c.bigSegmentsExist
+	firstTime := !c.bigSegmentsExist
 	c.bigSegmentsExist = true
+	// Start the CURRENT synchronizer while holding the lock. Capturing the pointer and starting it after
+	// unlocking would let a concurrent re-anchor swap and Close that instance in between, so we'd Start()
+	// a synchronizer that was just retired. Starting c.bigSegmentSync under the lock guarantees we start
+	// whichever synchronizer is current -- the same one reanchorBigSegmentSync starts under this lock --
+	// and never a retired one. Start() only launches a goroutine (it is non-blocking), so holding c.mu is
+	// fine, exactly as in reanchorBigSegmentSync.
+	started := firstTime && c.bigSegmentSync != nil
+	if started {
+		c.bigSegmentSync.Start()
+	}
 	c.mu.Unlock()
 
-	if !alreadyExisted && c.bigSegmentSync != nil {
-		c.bigSegmentSync.Start()
+	if started {
 		c.sdkBigSegments.SetPollingActive(true) // has no effect if already active
 	}
+}
+
+// bigSegmentSyncConfigured reports whether this env has a big-segment synchronizer. The field's
+// nil-ness is invariant over the env's life (nil iff big segments were never configured; a re-anchor
+// only swaps one non-nil synchronizer for another), but the read must still be synchronized against
+// that concurrent reassign in reanchorBigSegmentSync -- the store-update sink below runs on the SDK
+// data-source goroutine while a re-anchor runs on the reconcile goroutine.
+func (c *envContextImpl) bigSegmentSyncConfigured() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.bigSegmentSync != nil
 }
 
 func (q envContextStoreQueries) IsInitialized() bool {
@@ -1091,7 +1146,7 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 	// We use this delegator, rather than sending updates directory to context.envStreams, so that we
 	// can detect the presence of a big segment and turn on the big segment synchronizer as needed.
 	u.context.envStreams.SendAllDataUpdate(allData)
-	if u.context.bigSegmentSync == nil {
+	if !u.context.bigSegmentSyncConfigured() {
 		return
 	}
 
@@ -1114,7 +1169,7 @@ func (u *envContextStreamUpdates) SendAllDataUpdate(allData []ldstoretypes.Colle
 func (u *envContextStreamUpdates) SendSingleItemUpdate(kind ldstoretypes.DataKind, key string, item ldstoretypes.ItemDescriptor) {
 	// See comments in SendAllDataUpdate.
 	u.context.envStreams.SendSingleItemUpdate(kind, key, item)
-	if u.context.bigSegmentSync == nil {
+	if !u.context.bigSegmentSyncConfigured() {
 		return
 	}
 	hasBigSegment := false

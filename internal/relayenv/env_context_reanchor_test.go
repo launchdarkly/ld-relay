@@ -246,7 +246,11 @@ func TestReanchorPoC_H2_DownstreamConnectionSurvivesReAnchor(t *testing.T) {
 		}, time.Second, 10*time.Millisecond, "rotation to the new anchor should be applied")
 
 		// FINDING: the open client-side connection survives the swap and still delivers events.
-		synchronizer.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
+		// T2.d re-anchors the big-segment synchronizer, so a post-re-anchor update arrives on the CURRENT
+		// (rebuilt) synchronizer, not the retired one (whose channel is now closed).
+		current := fakeSynchronizerFactory.synchronizer
+		require.NotSame(t, synchronizer, current, "the synchronizer was rebuilt on re-anchor")
+		current.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"fake-segment-key"}}
 		pingEvent := helpers.RequireValue(t, eventCh, time.Second)
 		assert.Equal(t, "ping", pingEvent.Event(), "downstream connection should survive the re-anchor")
 	})
@@ -310,7 +314,14 @@ func (f *capturingBigSegmentSynchronizerFactory) snapshot() (int, config.SDKKey)
 	return f.createCount, f.lastSDKKey
 }
 
-func TestReanchorPoC_H3_BigSegmentSyncIsNotReWiredOnReAnchor(t *testing.T) {
+// latest returns the most recently created synchronizer (the current one after a re-anchor rebuild).
+func (f *capturingBigSegmentSynchronizerFactory) latest() *mockBigSegmentSynchronizer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.synchronizer
+}
+
+func TestReanchorPoC_H3_BigSegmentSyncFollowsAnchorOnReAnchor(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	fakeBigSegmentStoreFactory := func(config.EnvConfig, config.Config, ldlog.Loggers) (bigsegments.BigSegmentStore, error) {
@@ -354,20 +365,13 @@ func TestReanchorPoC_H3_BigSegmentSyncIsNotReWiredOnReAnchor(t *testing.T) {
 		return false
 	}, time.Second, 10*time.Millisecond, "rotation to the new anchor should be applied")
 
-	// Give any (hypothetical) re-wire a chance to run.
-	require.Never(t, func() bool {
-		c, _ := capturing.snapshot()
-		return c != 1
-	}, 200*time.Millisecond, 20*time.Millisecond, "synchronizer must not be recreated by the re-anchor")
-
-	// FINDING: big-segment sync is wired to the SDK key at construction and is NOT re-wired by today's
-	// swap path -- the synchronizer is neither recreated nor told about the new key (the
-	// BigSegmentSynchronizer interface has no credential-replacement method). After re-anchor it keeps
-	// polling/streaming on the OLD anchor key. The big-segment re-wire (follow-up work) must add a
-	// re-wire path (a ReplaceCredential-style method) or recreate the synchronizer on each re-anchor.
+	// T2.d: the re-anchor recreates the big-segment synchronizer on the NEW anchor key, so its
+	// poll/stream requests authenticate with the current anchor instead of the retired one. The
+	// synchronizer bakes its SDK key in at construction and is not restartable, so re-anchoring rebuilds
+	// it. (reconcileCredentials -> commitReanchor -> reanchorBigSegmentSync runs synchronously.)
 	count, sdkKey = capturing.snapshot()
-	assert.Equal(t, 1, count, "synchronizer was not recreated on re-anchor")
-	assert.Equal(t, envConfig.SDKKey, sdkKey, "synchronizer still references the old anchor key")
+	assert.Equal(t, 2, count, "the synchronizer is recreated on re-anchor")
+	assert.Equal(t, reanchorTestKey2, sdkKey, "the new synchronizer references the new anchor key")
 }
 
 // -----------------------------------------------------------------------------------------------
