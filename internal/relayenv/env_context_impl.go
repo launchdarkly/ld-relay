@@ -581,9 +581,10 @@ func (c *envContextImpl) ReconcileCredentials(newSet credential.AcceptedSet) {
 // reference time for expiry math).
 //
 // Order: add -> re-anchor -> remove. Adding first registers the new keys' mappings; the re-anchor then
-// swaps the upstream client while the old anchor is still serving; removing last tears down the old
-// anchor (and any revoked keys) only once the new one is up. addCredential opens an upstream client
-// only for the anchor -- non-anchor server keys are routed without a second connection.
+// swaps the upstream client while the old anchor is still serving, closing the old anchor's client
+// once the new one is committed; removing last tears down revoked keys' mappings only once the new
+// anchor is up. addCredential opens an upstream client only for the anchor -- non-anchor server keys
+// are routed without a second connection.
 //
 // reconcileMu serializes this whole method against concurrent reconciles and the cleanup ticker (see
 // triggerCredentialChanges). See reanchor for the SDK-anchor swap; MobilePrimaryRepoint is handled
@@ -648,12 +649,17 @@ func (c *envContextImpl) reconcileCredentials(newSet credential.AcceptedSet, now
 //     mappings if the key is brand new (Reconcile stripped it from additions), build a new SDK client,
 //     and on Initialized commit the anchor. On init failure, roll back: do not commit, leave the previous
 //     anchor authoritative (its client keeps serving), and log a structured error.
-//   - When a client already exists (e.g. a former anchor still in its grace period), or the env is
-//     offline: no build, just commit.
+//   - When a client already exists for the new anchor, or the env is offline: no build, just commit.
+//     (A demoted former anchor no longer has a client -- it was closed when its demotion committed --
+//     so re-promoting an in-grace key builds a fresh client.)
 //
 // Returns true if the anchor was committed, false if it rolled back (init failure or the env closed
-// mid-build), so reconcileCredentials can back out the anchor change. The old anchor's client is not
-// closed here; its grace-period expiration drives removeCredential.
+// mid-build), so reconcileCredentials can back out the anchor change. On commit, the previous
+// anchor's client is closed here: the anchor owns the environment's single upstream connection, and
+// leaving the demoted key's client running would hold a second upstream stream feeding the same
+// shared store wrapper, broadcasting every update twice to connected clients. Only the client goes;
+// the demoted key's credential mappings stay registered so it keeps authenticating downstream
+// connections until its grace period expires (removeCredential then finds no client to close).
 func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 	newAnchor := change.NewAnchor
 	previousAnchor := change.PreviousAnchor
@@ -711,7 +717,23 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 		}
 	}
 
-	return c.commitReanchor(newAnchor, previousAnchor, why)
+	if !c.commitReanchor(newAnchor, previousAnchor, why) {
+		return false
+	}
+
+	// The new anchor's client is now authoritative, so tear down the previous anchor's client
+	// whether the key was grace-demoted or revoked outright (an undefined previous anchor has no
+	// entry, and a rolled-back commit never reaches here). The shared store wrapper survives: it is
+	// refcounted and the new anchor's client holds it. Offline mode is exempt, mirroring
+	// removeCredential: the offline branch above built no replacement, and the env's single
+	// file-data client (found by GetClient's map iteration) must keep serving across rotations.
+	if !c.offline {
+		if oldClient := c.clients[previousAnchor]; oldClient != nil {
+			delete(c.clients, previousAnchor)
+			_ = oldClient.Close()
+		}
+	}
+	return true
 }
 
 // buildNewAnchorClient constructs the SDK client for a re-anchor to newAnchor. It must run without c.mu

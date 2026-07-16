@@ -94,10 +94,11 @@ func (f *sharedStoreFactory) Build(_ subsystems.ClientContext) (subsystems.DataS
 	return f.store, nil
 }
 
-// reanchor re-anchors env onto newKey while keeping oldKey valid for a grace hour (so the old client
-// is not torn down during the swap). This mirrors the backend's default-rotation behavior: the new
-// anchor is non-expiring, the demoted old anchor carries an expiry. It drives the time-injectable
-// reconcileCredentials directly so the grace-period math is deterministic.
+// reanchor re-anchors env onto newKey while keeping oldKey accepted for a grace hour (the old
+// client stays up while the new one is built, then closes when the commit lands). This mirrors the
+// backend's default-rotation behavior: the new anchor is non-expiring, the demoted old anchor
+// carries an expiry. It drives the time-injectable reconcileCredentials directly so the
+// grace-period math is deterministic.
 func reanchor(t *testing.T, env EnvContext, newKey, oldKey config.SDKKey, now time.Time) {
 	t.Helper()
 	set, err := credential.NewAcceptedSetBuilder().
@@ -447,8 +448,8 @@ func TestReanchorPoC_H5_StoreSurvivesReAnchor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Item)
 
-	// Re-anchor onto a new key (old key kept valid for a grace hour, so the old client is not closed --
-	// i.e. this exercises the recommended "start-new-before-close-old" ordering).
+	// Re-anchor onto a new key (old key kept accepted for a grace hour; the old client serves while
+	// the new one is built and closes once the commit lands -- the "start-new-before-close-old" ordering).
 	start := time.Unix(1000, 0)
 	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, start)
 

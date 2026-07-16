@@ -2,10 +2,11 @@ package relayenv
 
 // Regression tests for the synchronous re-anchor sequence.
 //
-// These cover: re-anchoring to a new key (build success and init-failure rollback), re-anchoring to a
-// previously-accepted key (reuse the existing client), no orphan clients, store-handover survival, and
-// the mobile-primary repoint signal (the gap when the new primary mobile key was already in the
-// accepted set, so the primary-mobile gate does not fire for it).
+// These cover: re-anchoring to a new key (build success and init-failure rollback), re-anchoring back
+// to a previously-accepted key (fresh client build -- the demoted key's client was closed when its
+// demotion committed), no orphan clients, store-handover survival, and the mobile-primary repoint
+// signal (the gap when the new primary mobile key was already in the accepted set, so the
+// primary-mobile gate does not fire for it).
 
 import (
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
+	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,13 +109,18 @@ func TestReanchorSync_CaseA_BuildsNewClientAndMovesAnchor(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.Item, "data survives the re-anchor (no empty-store window)")
 
-	// The old client is still alive — its grace period has not elapsed (the old client keeps serving;
-	// closure happens via removeCredential when the expiry fires).
+	// The demoted old anchor's client is closed as part of the commit: the anchor owns the env's
+	// single upstream connection, and a second live stream would feed the shared store wrapper and
+	// broadcast every update twice to connected clients. Only the client goes -- the key itself stays
+	// accepted, so it keeps authenticating downstream connections during its grace period.
+	originalClient.AwaitClose(t, time.Second)
 	envImpl := env.(*envContextImpl)
 	envImpl.mu.RLock()
 	_, oldStillPresent := envImpl.clients[envConfig.SDKKey]
 	envImpl.mu.RUnlock()
-	assert.True(t, oldStillPresent, "old anchor's client retained during its grace period")
+	assert.False(t, oldStillPresent, "demoted old anchor's client is removed at commit")
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(envConfig.SDKKey),
+		"the demoted key remains accepted for downstream auth during its grace period")
 }
 
 // TestReanchorSync_CaseA_InitFailureRollsBack confirms that a failed new-client init does NOT move
@@ -167,11 +174,12 @@ func TestReanchorSync_CaseA_InitFailureRollsBack(t *testing.T) {
 	assert.True(t, oldStillPresent, "old anchor's client preserved on rollback")
 }
 
-// TestReanchorSync_CaseB_ReusesExistingClient covers re-anchoring onto a key that already has a
-// live client. The simplest deterministic setup: re-anchor A→B (B's client built), then re-anchor
-// B→A while A is still in its grace period. A's client still exists, so the second re-anchor must
-// reuse it and build nothing new.
-func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
+// TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient covers re-anchoring back onto a
+// previously-accepted key: re-anchor A→B (B's client built, A's client closed at commit), then
+// re-anchor B→A while A is still in its grace period. A's credential mappings survived the
+// demotion, but its client did not, so the second re-anchor must build a fresh client for A and
+// close B's client at commit.
+func TestReanchorSync_CaseB_RepromoteInGraceKeyBuildsFreshClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
 	mockLog := ldlogtest.NewMockLog()
@@ -193,26 +201,23 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 	key2Client := requireClientReady(t, clientCh)
 	require.Same(t, key2Client, env.GetClient())
 
-	// The original anchor's client is still alive in its grace period.
+	// The original anchor's client was closed at commit; only its credential mappings survive.
+	originalClient.AwaitClose(t, time.Second)
 	envImpl := env.(*envContextImpl)
 	envImpl.mu.RLock()
-	originalStillPresent := envImpl.clients[envConfig.SDKKey] == originalClient
+	_, originalStillPresent := envImpl.clients[envConfig.SDKKey]
 	envImpl.mu.RUnlock()
-	require.True(t, originalStillPresent, "original client retained for reuse")
+	require.False(t, originalStillPresent, "demoted original anchor's client removed at commit")
 
-	// Second re-anchor: key2 → original. The original's client exists, so this is the reuse path: no
-	// Build, the existing client is reused, the anchor flips, and ReplaceCredential runs.
+	// Second re-anchor: key2 → original. The original key is still accepted (its mappings were never
+	// torn down) but it has no client, so a fresh one is built; key2's client closes at commit.
 	reanchorViaReconcile(t, env, envConfig.SDKKey, reanchorSyncTestKey2, "", envConfig.MobileKey, envConfig.EnvID, now)
 
-	// No new client was created — clientCh must be empty (every prior client was drained).
-	select {
-	case c := <-clientCh:
-		t.Fatalf("re-anchoring to a key with an existing client must not build a new one, but one was created: %v", c.Key)
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	assert.Same(t, originalClient, env.GetClient(), "reuses the existing client for the re-anchored key")
+	freshClient := requireClientReady(t, clientCh)
+	assert.NotSame(t, originalClient, freshClient, "re-promoting an in-grace key builds a fresh client")
+	assert.Same(t, freshClient, env.GetClient(), "the fresh client is current after the re-anchor")
 	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "anchor flipped back to the original key")
+	key2Client.AwaitClose(t, time.Second)
 }
 
 // TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized exercises the concurrency gap closed
@@ -224,7 +229,8 @@ func TestReanchorSync_CaseB_ReusesExistingClient(t *testing.T) {
 // The test wedges a re-anchor open by blocking the new anchor's client build, then fires the ticker
 // from another goroutine and asserts (a) the ticker is blocked while the re-anchor holds reconcileMu,
 // (b) it completes once the re-anchor releases it, and (c) the final state is consistent — the new
-// anchor committed, the expiring non-anchor key dropped, the demoted old anchor retained in grace.
+// anchor committed, the expiring non-anchor key dropped, the demoted old anchor still accepted in
+// grace (though its client was closed when the re-anchor committed).
 func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	envConfig := st.EnvMain.Config
 
@@ -233,7 +239,7 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 
 	now := time.Unix(2000, 0)
 	expiringExpiry := now.Add(30 * time.Minute) // the non-anchor key the ticker will drop
-	graceExpiry := now.Add(2 * time.Hour)       // the demoted old anchor stays alive in its grace period
+	graceExpiry := now.Add(2 * time.Hour)       // the demoted old anchor stays accepted in its grace period
 	tickerTime := now.Add(time.Hour)            // between the two expiries: drops only the expiring key
 
 	// The new anchor's client build blocks until releaseBuild is closed, holding the re-anchor (and
@@ -327,10 +333,13 @@ func TestReanchorSync_CredentialExpiryDuringReanchorIsSerialized(t *testing.T) {
 	assert.NotContains(t, env.GetCredentials(), credential.SDKCredential(reanchorSyncExpiringKey),
 		"the expiring non-anchor key was dropped by the ticker")
 
+	originalClient.AwaitClose(t, time.Second)
 	envImpl.mu.RLock()
 	_, oldStillPresent := envImpl.clients[envConfig.SDKKey]
 	envImpl.mu.RUnlock()
-	assert.True(t, oldStillPresent, "demoted old anchor's client retained during its grace period")
+	assert.False(t, oldStillPresent, "demoted old anchor's client closed when the re-anchor committed")
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(envConfig.SDKKey),
+		"demoted old anchor remains accepted for downstream auth during its grace period")
 }
 
 // TestReanchorSync_MobilePrimaryRepoint_AlreadyAcceptedKey covers the primary-mobile gate's gap:
@@ -450,8 +459,10 @@ func TestReanchorSync_PreviouslyAcceptedNonAnchorPromotedToAnchor(t *testing.T) 
 
 // TestReanchorSync_Offline_CommitsWithoutBuildingClient covers the offline re-anchor branch: when the
 // env is offline, re-anchoring to a new key must commit the anchor WITHOUT building a new upstream
-// client. (The initial anchor client is still created at startup; offline only skips the re-anchor
-// build.)
+// client, and the environment's single file-data client must keep serving. (The initial anchor
+// client is still created at startup; offline skips both the re-anchor build and the demoted-anchor
+// client teardown -- closing the only client with no replacement would flip /status to disconnected
+// and, with a persistent store, tear down the backing store.)
 func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	envConfig.Offline = true
@@ -465,7 +476,8 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	defer env.Close()
 
 	require.Equal(t, env, requireEnvReady(t, readyCh))
-	_ = requireClientReady(t, clientCh) // drain the initial anchor client
+	initialClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
 
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
@@ -478,6 +490,13 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	assert.NoError(t, env.GetInitError())
+
+	// The single offline client survives the rotation: it is not closed and GetClient still finds it.
+	if !helpers.AssertChannelNotClosed(t, initialClient.CloseCh, 100*time.Millisecond,
+		"the offline env's only client must not be closed by a re-anchor") {
+		t.FailNow()
+	}
+	assert.Same(t, initialClient, env.GetClient(), "GetClient keeps returning the offline client after re-anchor")
 }
 
 // TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing covers the edge where a

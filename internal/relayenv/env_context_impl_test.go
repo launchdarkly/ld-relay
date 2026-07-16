@@ -342,27 +342,23 @@ func TestChangeSDKKey(t *testing.T) {
 		return env.GetClient() == client2
 	}, time.Second, 10*time.Millisecond, "env.GetClient() should return client2 after rotation")
 
-	// The client for the original SDK key should not have been closed, since it's valid for an hour.
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
+	// The demoted key's client is closed as soon as the rotation commits: the anchor owns the env's
+	// single upstream connection, and leaving the old client running would broadcast every update
+	// twice through the shared store wrapper. The key itself stays accepted (asserted above), so
+	// downstream clients can still authenticate with it during the grace window.
+	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed at rotation") {
 		t.FailNow()
 	}
 
-	// Simulate an amount of time passing that is less than the expiry window. The original key should still be valid.
+	// Simulate an amount of time passing that is less than the expiry window. The original key is
+	// still accepted for authentication.
 	envImpl.triggerCredentialChanges(start.Add(45 * time.Minute))
-	if !helpers.AssertChannelNotClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should not have been closed yet") {
-		t.FailNow()
-	}
+	assert.Contains(t, env.GetCredentials(), credential.SDKCredential(envConfig.SDKKey))
 
-	// We are now an instant after the expiry. This should cause the original key to be removed
-	// and trigger its client to close.
+	// We are now an instant after the expiry. This should cause the original key to be removed.
 	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
 	assert.Empty(t, env.GetDeprecatedCredentials())
-
-	if !helpers.AssertChannelClosed(t, client1.CloseCh, 1*time.Second, "client for envConfig.SDKKey should have been closed") {
-		t.FailNow()
-	}
-
 }
 
 // TestMobileKeyReconcileExpiry drives a mobile key carrying a per-key expiry end-to-end through the
@@ -551,15 +547,14 @@ func TestNonPrimaryMobileKeyDoesNotStealEventForwarding(t *testing.T) {
 	})
 }
 
-// When an SDK key that is still alive in its grace period is re-anchored back into the primary slot,
-// a fresh SDK client is started for it. The previously-created client for that same key must be closed
-// rather than silently dropped from the clients map, otherwise its upstream connection leaks.
-// Originally a regression test from #716 for the old UpdateCredential path, where re-anchoring to a
-// key still in its grace period spawned a fresh client and orphaned the old one. Under the
-// ReconcileCredentials model that leak is structurally impossible: re-anchoring to a still-accepted key
-// emits no "addition", so its existing client is reused rather than re-spawned, and the displaced
-// anchor's client is closed by removeCredential. This test now verifies that reuse-and-no-leak guarantee.
-func TestReAnchoringToKeyStillInGraceReusesItsClient(t *testing.T) {
+// When an SDK key that is still accepted in its grace period is re-anchored back into the primary
+// slot, a fresh SDK client is built for it (its previous client was closed when its demotion
+// committed -- the anchor owns the env's single upstream connection, so a demoted key keeps only its
+// credential mappings). Originally a regression test from #716 for the old UpdateCredential path,
+// where re-anchoring to a key still in its grace period spawned a fresh client and orphaned the old
+// one. Under the ReconcileCredentials model that leak is structurally impossible: every displaced
+// anchor's client is closed at commit, so no rotation sequence can leave two live upstream clients.
+func TestReAnchoringToKeyStillInGraceBuildsFreshClient(t *testing.T) {
 	envConfig := st.EnvMain.Config
 	keyA := envConfig.SDKKey
 	keyB := config.SDKKey("keyB")
@@ -580,8 +575,8 @@ func TestReAnchoringToKeyStillInGraceReusesItsClient(t *testing.T) {
 
 	start := time.Unix(1000, 0)
 
-	// Rotate keyA -> keyB, deprecating keyA with an hour-long grace. keyA's client (clientA1) stays
-	// alive because keyA is still accepted during the grace window.
+	// Rotate keyA -> keyB, deprecating keyA with an hour-long grace. keyA stays accepted during the
+	// grace window, but its client (clientA1) is closed as soon as the re-anchor commits.
 	env.(*envContextImpl).reconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().
 			WithAnchor(credential.SDKKeyParams{Value: keyB}).
@@ -590,35 +585,28 @@ func TestReAnchoringToKeyStillInGraceReusesItsClient(t *testing.T) {
 
 	clientB := requireClientReady(t, clientCh)
 	assert.NotEqual(t, clientA1, clientB)
-	if !helpers.AssertChannelNotClosed(t, clientA1.CloseCh, time.Second, "clientA1 should still be alive during keyA's grace") {
+	if !helpers.AssertChannelClosed(t, clientA1.CloseCh, time.Second, "clientA1 should have been closed when keyA was demoted") {
 		t.FailNow()
 	}
 
-	// Re-anchor back to keyA while it is still within its grace period. Because keyA is still an accepted
-	// credential, its existing client (clientA1) is reused as the anchor client rather than a new one
-	// being started -- so there is no stale client to orphan. keyB is omitted from the set (no expiry),
-	// so it is revoked immediately and its client is closed.
+	// Re-anchor back to keyA while it is still within its grace period. keyA's credential mappings
+	// survived the demotion but its client did not, so a fresh client is built for it. keyB is omitted
+	// from the set (no expiry), so it is revoked immediately; its client closes at commit.
 	env.(*envContextImpl).reconcileCredentials(
 		mustBuildAcceptedSet(t, credential.NewAcceptedSetBuilder().WithAnchor(credential.SDKKeyParams{Value: keyA})),
 		start.Add(10*time.Minute))
 
-	// keyB was revoked by the re-anchor, so its client is closed.
-	if !helpers.AssertChannelClosed(t, clientB.CloseCh, time.Second, "client for the revoked keyB should have been closed") {
-		t.FailNow()
-	}
-	// clientA1 is reused, not closed or churned: re-anchoring to a still-accepted key must not tear down
-	// its working upstream connection.
-	if !helpers.AssertChannelNotClosed(t, clientA1.CloseCh, time.Second, "clientA1 should be reused as the anchor client, not closed") {
-		t.FailNow()
-	}
-	// No new client is started for keyA -- the existing one is reused.
-	if !helpers.AssertNoMoreValues(t, clientCh, time.Second, "re-anchoring to an in-grace key must not start a new client") {
+	// A fresh client was built for keyA -- the demotion closed its original one.
+	clientA2 := requireClientReady(t, clientCh)
+	assert.NotEqual(t, clientA1, clientA2)
+	// keyB was displaced by the re-anchor, so its client is closed.
+	if !helpers.AssertChannelClosed(t, clientB.CloseCh, time.Second, "client for the displaced keyB should have been closed") {
 		t.FailNow()
 	}
 
 	require.Eventually(t, func() bool {
-		return env.GetClient() == clientA1
-	}, time.Second, 10*time.Millisecond, "env.GetClient() should return the reused client for keyA after re-anchor")
+		return env.GetClient() == clientA2
+	}, time.Second, 10*time.Millisecond, "env.GetClient() should return the fresh client for keyA after re-anchor")
 
 	creds := env.GetCredentials()
 	assert.Contains(t, creds, keyA)
