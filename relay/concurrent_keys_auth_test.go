@@ -760,48 +760,67 @@ func TestConcurrentKeysRAC_DeExpiryCancelsScheduledDrop(t *testing.T) {
 //
 // Credential identity is by value, so changing only the wire "key" identifier neither drops nor re-adds
 // the credential (no new upstream client, uninterrupted authentication). The reconcile does refresh the
-// stored identifier, so the status endpoint surfaces the new name in sdkKeys[].
+// stored identifier, so the status endpoint surfaces the new name in sdkKeys[]. This holds whether the
+// renamed key is a non-anchor or the anchor itself: the anchor is selected by value, so renaming its
+// identifier — while its value stays put — is a plain rename, not a re-anchor.
 func TestConcurrentKeysRAC_RenamePreservesCredentialAndUpdatesStatusIdentifier(t *testing.T) {
-	const renamedID = "extra-sdk-renamed"
-	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
-	autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
-		_ = p.awaitClient()
-		env := p.awaitEnvironment(multiKeyEnvID)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+	const renamedID = "sdk-renamed"
+	tests := []struct {
+		name       string
+		renamedKey config.SDKKey
+	}{
+		{"non-anchor key", extraSDKKey},
+		{"anchor key", anchorSDKKey},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
+			autoConfTest(t, testAutoConfDefaultConfig, &putEvent, func(p autoConfTestParams) {
+				_ = p.awaitClient()
+				env := p.awaitEnvironment(multiKeyEnvID)
+				p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+				p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
 
-		// Rename the non-anchor SDK key's identifier while keeping its value.
-		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(multiKeyEnvRep(
-			[]envfactory.ConcurrentKeyRep{
-				{Key: "anchor-sdk", Value: string(anchorSDKKey)},
-				{Key: renamedID, Value: string(extraSDKKey)},
-			},
-			defaultMobileKeyReps(),
-			2,
-		)))
+				// Rebuild the sdkKeys array with the target key's identifier changed. The anchor's value
+				// (sdkKey.value) is left as anchorSDKKey either way, so this is a rename, not a re-anchor.
+				sdkKeys := defaultSDKKeyReps()
+				for i := range sdkKeys {
+					if config.SDKKey(sdkKeys[i].Value) == tt.renamedKey {
+						sdkKeys[i].Key = renamedID
+					}
+				}
+				p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(multiKeyEnvRep(sdkKeys, defaultMobileKeyReps(), 2)))
 
-		// The identifier is refreshed in place — the credential itself is untouched.
-		require.Eventually(t, func() bool {
-			info, ok := env.GetAcceptedKeys().Server[extraSDKKey]
-			return ok && info.Key != nil && *info.Key == renamedID
-		}, time.Second, 5*time.Millisecond, "the renamed identifier was not applied")
-		p.shouldNotCreateClient(200 * time.Millisecond)
-		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+				// The identifier is refreshed in place — the credential itself is untouched.
+				require.Eventually(t, func() bool {
+					info, ok := env.GetAcceptedKeys().Server[tt.renamedKey]
+					return ok && info.Key != nil && *info.Key == renamedID
+				}, time.Second, 5*time.Millisecond, "the renamed identifier was not applied")
 
-		// The status endpoint reflects the new identifier for that key.
-		req, _ := http.NewRequest("GET", "/status", nil)
-		result, body := sharedtest.DoRequest(req, p.relay)
-		require.Equal(t, http.StatusOK, result.StatusCode)
-		var status api.StatusRep
-		require.NoError(t, json.Unmarshal(body, &status))
-		require.Len(t, status.Environments, 1)
-		var envStatus api.EnvironmentStatusRep
-		for _, e := range status.Environments {
-			envStatus = e
-		}
-		renamed := findSDKKeyStatus(envStatus.SDKKeys, sdks.ObscureKey(string(extraSDKKey)))
-		require.NotNil(t, renamed, "renamed key not present in status sdkKeys[]")
-		assert.Equal(t, renamedID, renamed.Key)
-	})
+				// No re-anchor and no credential churn: the anchor is unchanged, no new client is built,
+				// and both keys keep authenticating.
+				assert.Equal(t, anchorSDKKey, env.GetAcceptedKeys().Anchor)
+				p.shouldNotCreateClient(200 * time.Millisecond)
+				p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+				p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
+
+				// The status endpoint reflects the new identifier for that key.
+				req, _ := http.NewRequest("GET", "/status", nil)
+				result, body := sharedtest.DoRequest(req, p.relay)
+				require.Equal(t, http.StatusOK, result.StatusCode)
+				var status api.StatusRep
+				require.NoError(t, json.Unmarshal(body, &status))
+				require.Len(t, status.Environments, 1)
+				var envStatus api.EnvironmentStatusRep
+				for _, e := range status.Environments {
+					envStatus = e
+				}
+				renamed := findSDKKeyStatus(envStatus.SDKKeys, sdks.ObscureKey(string(tt.renamedKey)))
+				require.NotNil(t, renamed, "renamed key not present in status sdkKeys[]")
+				assert.Equal(t, renamedID, renamed.Key)
+			})
+		})
+	}
 }
 
 // findSDKKeyStatus returns the sdkKeys[] entry whose obscured value matches, or nil if absent.
