@@ -898,12 +898,12 @@ func (c *envContextImpl) GetLoggers() ldlog.Loggers {
 	return c.loggers
 }
 
-func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, cred credential.SDKCredential) http.Handler {
+func (c *envContextImpl) GetStreamHandler(streamProvider streams.StreamProvider, credential credential.SDKCredential) http.Handler {
 	// Build the handler on demand rather than storing one per (credential, provider): every handler in a
 	// (filter, provider) slot is identical except for the credential-derived channel id, which we resolve
 	// here from the request's already-authenticated credential. c.filterKey is immutable after
 	// construction, so this needs no lock.
-	if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, cred)); h != nil {
+	if h := streamProvider.Handler(sdkauth.NewScoped(c.filterKey, credential)); h != nil {
 		return h
 	}
 	return http.HandlerFunc(invalidStreamHandler)
