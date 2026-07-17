@@ -80,6 +80,15 @@ func TestAutoConfigKeyRotationClosesOldClientAndDoesNotDuplicateUpdates(t *testi
 			initialStreamReq := helpers.RequireValue(t, sdkRequestsCh, time.Second*5)
 			assert.Equal(t, string(oldKey), initialStreamReq.Request.Header.Get("Authorization"))
 
+			// awaitEnvironment only waits for the environment to be registered; the real SDK client is
+			// built asynchronously (startSDKClient runs in a goroutine), so wait for it to finish
+			// initializing before issuing the downstream request below. Otherwise the request can race the
+			// client install and get a 503 "client was not initialized". This mirrors waitForSuccessfulInit
+			// in relay_end_to_end_test.go, and the "Closing LaunchDarkly client" wait later in this test.
+			require.Eventually(t, func() bool {
+				return mockLog.HasMessageMatch(ldlog.Info, "Initialized LaunchDarkly client for")
+			}, time.Second*2, time.Millisecond*20, "the environment's SDK client did not finish initializing")
+
 			httphelpers.WithServer(relay, func(relayServer *httptest.Server) {
 				// Connect a downstream server-side SDK client authenticated with the ORIGINAL key. It
 				// stays connected across the rotation, since the old key remains valid for its grace period.
