@@ -17,6 +17,7 @@ var (
 	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
+	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
@@ -85,6 +86,7 @@ func ValidateConfig(c *Config, loggers ldlog.Loggers) error {
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
+	validateMaxClientRequestBodySize(&result, c)
 
 	return result.GetError()
 }
@@ -230,6 +232,15 @@ func validateMaxInboundPayloadSize(result *ct.ValidationResult, c *Config) {
 		size := c.Events.MaxInboundPayloadSize.GetOrElse(0)
 		if size <= 0 {
 			result.AddError(nil, errMaxInboundPayloadSize)
+		}
+	}
+}
+
+func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
+	if c.Main.MaxClientRequestBodySize.IsDefined() {
+		size := c.Main.MaxClientRequestBodySize.GetOrElse(0)
+		if size <= 0 {
+			result.AddError(nil, errMaxClientRequestBodySize)
 		}
 	}
 }
