@@ -62,12 +62,6 @@ type Rotator struct {
 	mu sync.RWMutex
 }
 
-type InitialCredentials struct {
-	SDKKey        config.SDKKey
-	MobileKey     config.MobileKey
-	EnvironmentID config.EnvironmentID
-}
-
 // NewRotator constructs a rotator with the provided loggers. A new rotator
 // contains no credentials and can optionally be initialized via Initialize.
 func NewRotator(loggers ldlog.Loggers) *Rotator {

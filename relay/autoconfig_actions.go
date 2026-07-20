@@ -11,7 +11,6 @@ const (
 	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
-	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level

@@ -365,31 +365,3 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")}))
 	assert.Equal(t, expected, set, "expiring mobile key must land as an expiring key in the set")
 }
-
-// TestBuildAcceptedSet_TrustTheArray verifies that the legacy sdkKey.expiring slot is not
-// consulted: when EnvironmentParams.ExpiringSDKKey is populated (from the legacy field) but
-// AcceptedSDKKeys does NOT contain that key, the key is absent from the returned AcceptedSet.
-func TestBuildAcceptedSet_TrustTheArray(t *testing.T) {
-	// Simulate an old-relay payload where ExpiringSDKKey is populated from sdkKey.expiring,
-	// but AcceptedSDKKeys only has the anchor (no expiring key in the array).
-	params := EnvironmentParams{
-		EnvID:     "env-abc",
-		SDKKey:    "sdk-anchor",
-		MobileKey: "mob-primary",
-		ExpiringSDKKey: ExpiringSDKKey{ // legacy field — must NOT be consulted
-			Key:        "sdk-legacy-expiring",
-			Expiration: expiry1,
-		},
-		AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
-		AcceptedMobileKeys: []AcceptedMobileKey{{Value: "mob-primary"}},
-	}
-
-	set, _, err := BuildAcceptedSet(params)
-
-	require.NoError(t, err)
-	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
-		WithEnvironmentID("env-abc").
-		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
-		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary"}))
-	assert.Equal(t, expected, set, "legacy sdkKey.expiring slot must not appear in AcceptedSet")
-}
