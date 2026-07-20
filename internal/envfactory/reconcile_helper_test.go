@@ -50,11 +50,9 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 		[]AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
-
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
@@ -74,11 +72,9 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
-
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}).
@@ -103,8 +99,8 @@ func TestBuildAcceptedSet_Rename(t *testing.T) {
 		"mob-primary",
 	)
 
-	setOld, _, errOld := BuildAcceptedSet(paramsOldName)
-	setNew, _, errNew := BuildAcceptedSet(paramsNewName)
+	setOld, errOld := BuildAcceptedSet(paramsOldName)
+	setNew, errNew := BuildAcceptedSet(paramsNewName)
 
 	require.NoError(t, errOld)
 	require.NoError(t, errNew)
@@ -147,8 +143,8 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 		"mob-primary",
 	)
 
-	setWithExpiry, _, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
-	setNoExpiry, _, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
+	setWithExpiry, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
+	setNoExpiry, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
 
 	require.NoError(t, errWithExpiry)
 	require.NoError(t, errNoExpiry)
@@ -177,7 +173,7 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	_, _, err := BuildAcceptedSet(params)
+	_, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -198,7 +194,7 @@ func TestBuildAcceptedSet_PrimaryMobileNotInArray(t *testing.T) {
 			{Key: "other", Value: "mob-other"}, // ...but NOT in the array
 		},
 	}
-	_, _, err := BuildAcceptedSet(params)
+	_, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -215,11 +211,9 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 		SDKKey: SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
 		// no MobKey, no MobileKeys
 	}
-	set, anchor, err := BuildAcceptedSet(rep.ToParams())
+	set, err := BuildAcceptedSet(rep.ToParams())
 
 	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
-
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor"}))
@@ -236,7 +230,7 @@ func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	_, _, err := BuildAcceptedSet(params)
+	_, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -252,7 +246,7 @@ func TestBuildAcceptedSet_NoSDKKeys(t *testing.T) {
 		AcceptedSDKKeys:    []AcceptedSDKKey{},
 		AcceptedMobileKeys: []AcceptedMobileKey{},
 	}
-	_, _, err := BuildAcceptedSet(params)
+	_, err := BuildAcceptedSet(params)
 	require.Error(t, err, "a set with no SDK key at all must be rejected")
 }
 
@@ -275,11 +269,9 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-new-anchor"), anchor)
-
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
 		WithAnchor(credential.SDKKeyParams{Value: "sdk-new-anchor", Key: util.PtrOrNil("new-default")}).
@@ -301,11 +293,9 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, anchor, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
-	assert.Equal(t, config.SDKKey("sdk-anchor"), anchor)
-
 	// Anchor is permanent (WithAnchor), not expiring — identical to a payload with no anchor expiry.
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
 		WithEnvironmentID("env-abc").
@@ -329,7 +319,7 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 			{Key: "mob-2", Value: "mob-secondary"},
 		},
 	}
-	set, _, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -355,7 +345,7 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 			{Key: "mob-old", Value: "mob-old", Expiry: expiry1}, // expiring
 		},
 	}
-	set, _, err := BuildAcceptedSet(params)
+	set, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().

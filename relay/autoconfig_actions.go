@@ -32,7 +32,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		return
 	}
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	set, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
 		return
@@ -51,7 +51,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	set, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
 		// being dispatched here, so a malformed set should not reach this point. Log defensively and
