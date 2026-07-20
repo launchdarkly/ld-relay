@@ -79,12 +79,7 @@ func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
 	// The lock is held across the whole build so two concurrent Build calls cannot each construct and
-	// install their own wrapper (the last writer would win, and if its client were later discarded as
-	// superseded, its Close would tear down the store the adapter is serving). A second caller blocks
-	// until the first installs its store, then adopts it via the fast path below. This can block
-	// GetStore only while a store is built from nothing — the first build at startup — since every
-	// later Build, including a re-anchor handover, returns the already-built wrapper without calling
-	// the wrapped factory.
+	// install their own wrapper.
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
