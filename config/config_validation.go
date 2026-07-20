@@ -17,6 +17,7 @@ var (
 	errOfflineModePropertiesWithNoFile = errors.New("must specify offline mode filename if other offline mode properties are set")
 	errOfflineModeWithEnvironments     = errors.New("cannot configure specific environments if offline mode is enabled")
 	errMaxInboundPayloadSize           = errors.New("max inbound payload size must be greater than zero")
+	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
 	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
@@ -89,6 +90,7 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateOfflineMode(&result, c)
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
+	validateMaxClientRequestBodySize(&result, c)
 	validateConfigMetrics(&result, c)
 	validateMetricsCapacity(c, logger)
 
@@ -252,6 +254,15 @@ func validateMetricsCapacity(c *Config, logger *slog.Logger) {
 		// This value is a constant known to be greater than zero, so the constructor cannot fail.
 		clamped, _ := ct.NewOptIntGreaterThanZero(minimumMetricsCapacity)
 		c.Events.MetricsCapacity = clamped
+	}
+}
+
+func validateMaxClientRequestBodySize(result *ct.ValidationResult, c *Config) {
+	if c.Main.MaxClientRequestBodySize.IsDefined() {
+		size := c.Main.MaxClientRequestBodySize.GetOrElse(0)
+		if size <= 0 {
+			result.AddError(nil, errMaxClientRequestBodySize)
+		}
 	}
 }
 

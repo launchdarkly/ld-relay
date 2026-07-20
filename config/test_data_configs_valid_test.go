@@ -50,6 +50,14 @@ func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
 	return o
 }
 
+func mustOptBase2Bytes(s string) ct.OptBase2Bytes {
+	o, err := ct.NewOptBase2BytesFromString(s)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
 func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
 	o, err := ct.NewOptURLAbsoluteFromString(urlString)
 	if err != nil {
@@ -107,6 +115,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			IgnoreConnectionErrors:           true,
 			HeartbeatInterval:                ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime:          ct.NewOptDuration(30 * time.Minute),
+			MaxClientRequestBodySize:         mustOptBase2Bytes("5MiB"),
 			DisconnectedStatusTime:           ct.NewOptDuration(3 * time.Minute),
 			TLSEnabled:                       true,
 			TLSCert:                          "cert",
@@ -158,6 +167,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"IGNORE_CONNECTION_ERRORS":            "1",
 		"HEARTBEAT_INTERVAL":                  "90s",
 		"MAX_CLIENT_CONNECTION_TIME":          "30m",
+		"MAX_CLIENT_REQUEST_BODY_SIZE":        "5MiB",
 		"DISCONNECTED_STATUS_TIME":            "3m",
 		"TLS_ENABLED":                         "1",
 		"TLS_CERT":                            "cert",
@@ -200,6 +210,7 @@ ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
+MaxClientRequestBodySize = "5MiB"
 PingStreamJitterTime = 5m
 DisconnectedStatusTime = 3m
 TLSEnabled = 1
