@@ -371,7 +371,7 @@ func TestConcurrentKeysOffline_ConnectionSurvivesWhenKeyGainsFutureExpiry(t *tes
 		})
 
 		// The key is now in the deprecated-but-accepted set (its expiry was applied) and still authenticates.
-		require.Eventually(t, func() bool { return credsContain(env.GetDeprecatedCredentials(), extraSDKKey) },
+		require.Eventually(t, func() bool { return credsContain(deprecatedSDKKeys(env), extraSDKKey) },
 			time.Second, 5*time.Millisecond, "expiry was not applied to the connected key")
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
 	})
@@ -402,7 +402,7 @@ func TestConcurrentKeysRAC_KeyWithFutureExpiryStillAuthenticates(t *testing.T) {
 
 		// Confirm the expiry was applied (the key is now deprecated-but-accepted) and, after the
 		// cleanup ticker has had time to run, the future-dated key still authenticates.
-		require.Eventually(t, func() bool { return credsContain(env.GetDeprecatedCredentials(), extraSDKKey) },
+		require.Eventually(t, func() bool { return credsContain(deprecatedSDKKeys(env), extraSDKKey) },
 			time.Second, 5*time.Millisecond, "future expiry was not applied")
 		p.assertSDKEndpointsAvailability(true, extraSDKKey, extraMobileKey, "")
 		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
@@ -535,6 +535,20 @@ func msPtr(v int64) *int64 { return &v }
 
 func credsContain(creds []credential.SDKCredential, target credential.SDKCredential) bool {
 	return slices.Contains(creds, target)
+}
+
+// deprecatedSDKKeys returns the environment's accepted SDK keys being phased out — every non-anchor
+// server key carrying a future expiry — derived from the accepted-set snapshot, the same data the
+// /status endpoint reads via GetAcceptedKeys.
+func deprecatedSDKKeys(env relayenv.EnvContext) []credential.SDKCredential {
+	set := env.GetAcceptedKeys()
+	var out []credential.SDKCredential
+	for key, info := range set.Server {
+		if info.Expiry != nil && key != set.Anchor {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // awaitCredentialRemoved blocks until the given credential no longer resolves to an environment.
@@ -737,13 +751,13 @@ func TestConcurrentKeysRAC_DeExpiryCancelsScheduledDrop(t *testing.T) {
 			defaultMobileKeyReps(),
 			2,
 		)))
-		require.Eventually(t, func() bool { return credsContain(env.GetDeprecatedCredentials(), extraSDKKey) },
+		require.Eventually(t, func() bool { return credsContain(deprecatedSDKKeys(env), extraSDKKey) },
 			time.Second, 5*time.Millisecond, "expiry was not applied — nothing to cancel")
 
 		// A later payload carries the key with no expiry: the scheduled drop is cancelled.
 		p.stream.Enqueue(configsource.MakeAutoConfigPatchEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 3)))
 
-		require.Eventually(t, func() bool { return !credsContain(env.GetDeprecatedCredentials(), extraSDKKey) },
+		require.Eventually(t, func() bool { return !credsContain(deprecatedSDKKeys(env), extraSDKKey) },
 			time.Second, 5*time.Millisecond, "de-expiry did not return the key to the permanent set")
 
 		// The key is permanent again: its expiry is cleared, so the cleanup ticker has nothing to drop.

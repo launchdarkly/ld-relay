@@ -133,25 +133,6 @@ func (r *Rotator) allCredentials() []SDKCredential {
 	return creds
 }
 
-// DeprecatedCredentials returns the SDK keys being phased out — every accepted SDK key, other than the
-// anchor, that carries a future expiry. (Per-key expiry is stored as data on the accepted entry; the
-// cleanup ticker drops the key once it elapses.)
-//
-// Mobile keys are deliberately not returned even though they expire the same way SDK keys do — carried
-// as per-key expiry and dropped by the same cleanup ticker.
-func (r *Rotator) DeprecatedCredentials() []SDKCredential {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var out []SDKCredential
-	for key, info := range r.acceptedSDKKeys {
-		if info.Expiry != nil && key != r.anchorKey {
-			out = append(out, key)
-		}
-	}
-	return out
-}
-
 // AllCredentials returns every accepted credential: every accepted SDK key, every accepted mobile
 // key (including those carrying a future expiry — they still authenticate until the cleanup ticker
 // drops them), and the environment ID.
@@ -190,7 +171,7 @@ func (r *Rotator) StepTime(now time.Time) (additions []SDKCredential, expiration
 	for key, info := range r.acceptedSDKKeys {
 		if key == r.anchorKey {
 			// Never expire the current anchor, even if a stale expiry was left on its entry (a
-			// rolled-back re-anchor can). Same guard as DeprecatedCredentials.
+			// rolled-back re-anchor can).
 			continue
 		}
 		if info.Expiry != nil && now.After(*info.Expiry) {

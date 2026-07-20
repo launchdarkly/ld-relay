@@ -15,6 +15,20 @@ func newTestRotator() *Rotator {
 	return NewRotator(ldlogtest.NewMockLog().Loggers)
 }
 
+// deprecatedSDKKeys returns the accepted SDK keys being phased out — every non-anchor server key
+// carrying a future expiry — derived from the accepted-set snapshot, the same data the /status
+// endpoint reads via AcceptedKeys.
+func deprecatedSDKKeys(r *Rotator) []SDKCredential {
+	set := r.AcceptedKeys()
+	var out []SDKCredential
+	for key, info := range set.Server {
+		if info.Expiry != nil && key != set.Anchor {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
 func TestNewRotator(t *testing.T) {
 	mockLog := ldlogtest.NewMockLog()
 	rotator := NewRotator(mockLog.Loggers)
@@ -64,7 +78,7 @@ func TestReconcileAnchorOnly(t *testing.T) {
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, deprecatedSDKKeys(r))
 }
 
 func TestReconcileMultipleSDKKeys(t *testing.T) {
@@ -85,7 +99,7 @@ func TestReconcileMultipleSDKKeys(t *testing.T) {
 	assert.Empty(t, expirations)
 	assert.Equal(t, anchor, r.AnchorKey())
 	assert.ElementsMatch(t, []SDKCredential{anchor, other}, r.AllCredentials())
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, deprecatedSDKKeys(r))
 }
 
 func TestReconcileMultipleMobileKeys(t *testing.T) {
@@ -155,7 +169,7 @@ func TestReconcileAcceptsExpiringKeysAsData(t *testing.T) {
 	// ...and the non-anchor SDK key carrying an expiry is also reported as deprecated (being phased
 	// out). The expiring mobile key is not: there is no expiringMobileKey status field, so the reconcile
 	// path treats it as accepted-only.
-	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, r.DeprecatedCredentials())
+	assert.ElementsMatch(t, []SDKCredential{expiringSDK}, deprecatedSDKKeys(r))
 }
 
 func TestReconcilePrimaryMobileKeyIsAlwaysAccepted(t *testing.T) {
@@ -259,7 +273,7 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 			WithSDKKey(SDKKeyParams{Value: key, Expiry: util.PtrOrNil(expiry)})),
 		now)
 	r.StepTime(now)
-	require.ElementsMatch(t, []SDKCredential{key}, r.DeprecatedCredentials())
+	require.ElementsMatch(t, []SDKCredential{key}, deprecatedSDKKeys(r))
 
 	// Second reconcile: same key, no expiry (de-expiry).
 	r.Reconcile(
@@ -271,7 +285,7 @@ func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 
 	// The key is still accepted and permanent: no longer deprecated, not evicted by StepTime.
 	assert.Contains(t, r.AllCredentials(), SDKCredential(key))
-	assert.Empty(t, r.DeprecatedCredentials())
+	assert.Empty(t, deprecatedSDKKeys(r))
 
 	additions, expirations := r.StepTime(expiry.Add(1 * time.Millisecond))
 	assert.Empty(t, additions)

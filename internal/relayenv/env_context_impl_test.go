@@ -58,6 +58,20 @@ func requireClientReady(t *testing.T, clientCh chan *testclient.FakeLDClient) *t
 	return helpers.RequireValue(t, clientCh, time.Second, "timed out waiting for client")
 }
 
+// deprecatedSDKKeys returns the environment's accepted SDK keys being phased out — every non-anchor
+// server key carrying a future expiry — derived from the accepted-set snapshot, the same data the
+// /status endpoint reads via GetAcceptedKeys.
+func deprecatedSDKKeys(env EnvContext) []credential.SDKCredential {
+	set := env.GetAcceptedKeys()
+	var out []credential.SDKCredential
+	for key, info := range set.Server {
+		if info.Expiry != nil && key != set.Anchor {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
 func makeBasicEnv(t *testing.T, envConfig config.EnvConfig, clientFactory sdks.ClientFactoryFunc,
 	loggers ldlog.Loggers, readyCh chan EnvContext) EnvContext {
 	return makeBasicEnvWithMapper(t, envConfig, clientFactory, loggers, readyCh, mockConnectionMapper{})
@@ -310,7 +324,7 @@ func TestChangeSDKKey(t *testing.T) {
 	// The environment should have been initialized with a single SDK key (found in the envConfig.)
 	// At this point, there's no deprecated credentials.
 	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetCredentials())
-	assert.Empty(t, env.GetDeprecatedCredentials())
+	assert.Empty(t, deprecatedSDKKeys(env))
 
 	// For the purposes of key rotation, we'll make time deterministic. We build an AcceptedSet
 	// with key2 as anchor and envConfig.SDKKey expiring in one hour, then drive the time-injectable
@@ -326,13 +340,14 @@ func TestChangeSDKKey(t *testing.T) {
 	envImpl.reconcileCredentials(rotationSet, start)
 
 	// In the new accepted-set model both keys are accepted (GetCredentials includes both) until
-	// the old key's expiry elapses. GetDeprecatedCredentials reports the expiring accepted key so
-	// callers like the status endpoint can surface it without distinguishing the rotation path.
+	// the old key's expiry elapses. The expiring accepted key still carries its expiry in the
+	// accepted-set snapshot (GetAcceptedKeys) so callers like the status endpoint can surface it
+	// without distinguishing the rotation path.
 	creds := env.GetCredentials()
 	assert.Len(t, creds, 2)
 	assert.Contains(t, creds, key2)
 	assert.Contains(t, creds, envConfig.SDKKey)
-	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, env.GetDeprecatedCredentials())
+	assert.Equal(t, []credential.SDKCredential{envConfig.SDKKey}, deprecatedSDKKeys(env))
 
 	client2 := requireClientReady(t, clientCh)
 	assert.NotEqual(t, client1, client2)
@@ -358,7 +373,7 @@ func TestChangeSDKKey(t *testing.T) {
 	// We are now an instant after the expiry. This should cause the original key to be removed.
 	envImpl.triggerCredentialChanges(start.Add(1*time.Hour + 1*time.Millisecond))
 	assert.Equal(t, []credential.SDKCredential{key2}, env.GetCredentials())
-	assert.Empty(t, env.GetDeprecatedCredentials())
+	assert.Empty(t, deprecatedSDKKeys(env))
 }
 
 // TestMobileKeyReconcileExpiry drives a mobile key carrying a per-key expiry end-to-end through the
@@ -394,7 +409,7 @@ func TestMobileKeyReconcileExpiry(t *testing.T) {
 
 	// Reconcile stores the expiry as data, so before it elapses the key is accepted (not deprecated).
 	assert.Contains(t, env.GetCredentials(), expiringMobile)
-	assert.NotContains(t, env.GetDeprecatedCredentials(), expiringMobile)
+	assert.NotContains(t, deprecatedSDKKeys(env), expiringMobile)
 
 	// Halfway through, still accepted.
 	envImpl.triggerCredentialChanges(start.Add(30 * time.Minute))
