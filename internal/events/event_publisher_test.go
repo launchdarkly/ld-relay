@@ -189,6 +189,43 @@ func TestHTTPEventPublisherCapacity(t *testing.T) {
 	})
 }
 
+func TestInitialQueueCapacity(t *testing.T) {
+	// Unset initial capacity preallocates the full capacity -- the original behavior, used by the
+	// analytics publisher, which never sets OptionInitialCapacity.
+	assert.Equal(t, 1000, initialQueueCapacity(1000, 0))
+	assert.Equal(t, 10000, initialQueueCapacity(10000, 0))
+	// A smaller initial capacity is used as-is, letting the queue start small and grow.
+	assert.Equal(t, 1000, initialQueueCapacity(10000, 1000))
+	// The initial allocation is never larger than the maximum capacity.
+	assert.Equal(t, 1000, initialQueueCapacity(1000, 1000))
+	assert.Equal(t, 1000, initialQueueCapacity(1000, 5000))
+}
+
+func TestHTTPEventPublisherInitialCapacityGrowsToCapacity(t *testing.T) {
+	// With an initial capacity smaller than the (maximum) capacity, the queue must still grow past
+	// the initial allocation and only drop events once the maximum capacity is reached.
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.HandlerWithStatus(202))
+	httphelpers.WithServer(handler, func(server *httptest.Server) {
+		publisher, _ := NewHTTPEventPublisher(config.SDKKey("my-key"), defaultHTTPConfig(), mockLog.Loggers,
+			OptionBaseURI(server.URL), OptionCapacity(3), OptionInitialCapacity(1))
+		defer publisher.Close()
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"a"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"b"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"c"`))
+		publisher.Publish(EventPayloadMetadata{}, json.RawMessage(`"d"`))
+		publisher.Flush()
+		r := helpers.RequireValue(t, requestsCh, time.Second)
+
+		uncompressed, err := util.DecompressGzipData(r.Body)
+		assert.NoError(t, err)
+
+		// The queue grew from the initial capacity of 1 up to the capacity of 3, then dropped "d".
+		m.In(t).Assert(uncompressed, m.JSONStrEqual(`["a","b","c"]`))
+	})
+}
+
 func TestHTTPEventPublisherErrorRetry(t *testing.T) {
 	testRecoverableError := func(t *testing.T, errorHandler http.Handler) {
 		mockLog := ldlogtest.NewMockLog()
