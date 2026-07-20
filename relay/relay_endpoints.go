@@ -4,6 +4,7 @@ import (
 	"crypto/sha1" //nolint:gosec // we're not using SHA1 for encryption, just for generating an insecure hash
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
 	"github.com/launchdarkly/go-sdk-common/v4/ldcontext"
 	"github.com/launchdarkly/go-sdk-common/v4/ldreason"
@@ -39,6 +41,7 @@ import (
 func getClientSideContextProperties(
 	clientCtx relayenv.EnvContext,
 	sdkKind basictypes.SDKKind,
+	maxBodySize ct.OptBase2Bytes,
 	req *http.Request,
 	w http.ResponseWriter,
 ) (ldcontext.Context, bool) {
@@ -51,7 +54,24 @@ func getClientSideContextProperties(
 			_, _ = w.Write([]byte("Content-Type must be application/json."))
 			return ldContext, false
 		}
-		body, _ := io.ReadAll(req.Body)
+		bodyReader := req.Body
+		if maxBodySize.IsDefined() {
+			bodyReader = http.MaxBytesReader(w, req.Body, int64(maxBodySize.GetOrElse(0)))
+		}
+		body, readErr := io.ReadAll(bodyReader)
+		if readErr != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(readErr, &maxBytesErr) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				_, _ = w.Write(util.ErrorJSONMsg("Request body exceeds maximum allowed size."))
+				return ldContext, false
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write(util.ErrorJSONMsg(readErr.Error()))
+			return ldContext, false
+		}
 		contextDecodeErr = json.Unmarshal(body, &ldContext)
 	} else {
 		base64Context := mux.Vars(req)["context"] // this assumes we have used {context} as a placeholder in the route
@@ -104,12 +124,12 @@ func sdkKindFromCredential(cred credential.SDKCredential) basictypes.SDKKind {
 
 // This handler is used for client-side streaming endpoints that require context properties. Currently it is
 // implemented the same as the ping stream once we have validated the context.
-func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes, streamProvider streams.StreamProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLogger().Debug("application requested client-side ping stream")
 
-		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
+		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w); ok {
 			clientCtx.Env.GetStreamHandlerV1(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
 	})
@@ -117,7 +137,7 @@ func pingStreamHandlerWithContextV1(sdkKind basictypes.SDKKind, streamProvider s
 
 // pingStreamHandlerWithContextV2 handles FDv2 client-side ping streams. It accepts two stream providers
 // (mobile and JS client) and selects the appropriate one based on the credential type.
-func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.StreamProvider) http.Handler {
+func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.StreamProvider, maxBodySize ct.OptBase2Bytes) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		clientCtx := middleware.GetEnvContextInfo(req.Context())
 		clientCtx.Env.GetLogger().Debug("application requested client-side ping stream (FDv2)")
@@ -130,7 +150,7 @@ func pingStreamHandlerWithContextV2(mobileProvider, jsClientProvider streams.Str
 			streamProvider = jsClientProvider
 		}
 
-		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w); ok {
+		if _, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w); ok {
 			clientCtx.Env.GetStreamHandlerV2(streamProvider, clientCtx.Credential).ServeHTTP(w, req)
 		}
 	})
@@ -287,7 +307,13 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 }
 
 // FDv2 client-side polling endpoint that evaluates flags against a context.
-func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
+func pollEvalHandlerV2(maxBodySize ct.OptBase2Bytes) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		pollEvalHandlerV2Shared(w, req, maxBodySize)
+	}
+}
+
+func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySize ct.OptBase2Bytes) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
@@ -295,7 +321,7 @@ func pollEvalHandlerV2(w http.ResponseWriter, req *http.Request) {
 
 	sdkKind := sdkKindFromCredential(clientCtx.Credential)
 
-	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
+	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w)
 	if !ok {
 		return
 	}
@@ -512,9 +538,9 @@ func bulkEventHandler(sdkKind basictypes.SDKKind, eventsKind ldevents.EventDataK
 // /sdk/evalx/{envId}/user (REPORT)
 // /sdk/evalx/users/{context} (GET - with SDK key auth; this is a Relay-only endpoint)
 // /sdk/evalx/user (REPORT - with SDK key auth; this is a Relay-only endpoint)
-func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind) func(w http.ResponseWriter, req *http.Request) {
+func evaluateAllFeatureFlags(sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		evaluateAllShared(w, req, sdkKind)
+		evaluateAllShared(w, req, sdkKind, maxBodySize)
 	}
 }
 
@@ -580,13 +606,13 @@ func writePrerequisites(obj *jwriter.ObjectState, prerequisites []string) {
 	}
 }
 
-func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind) {
+func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	logger := clientCtx.Env.GetLogger()
 
-	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, req, w)
+	ldContext, ok := getClientSideContextProperties(clientCtx.Env, sdkKind, maxBodySize, req, w)
 	if !ok {
 		return
 	}

@@ -3,6 +3,8 @@ package config
 import (
 	"time"
 
+	"github.com/alecthomas/units"
+
 	ct "github.com/launchdarkly/go-configtypes"
 )
 
@@ -62,6 +64,11 @@ const (
 
 	// DefaultBigSegmentsStaleThreshold is the default value for MainConfig.BigSegmentsStaleThreshold if not specified.
 	DefaultBigSegmentsStaleThreshold = time.Minute * 5
+
+	// DefaultMaxClientRequestBodySize is the default value for MainConfig.MaxClientRequestBodySize if not specified.
+	// It bounds how much of a REPORT evaluation request body the Relay Proxy will read into memory, protecting the
+	// process from memory exhaustion caused by oversized request bodies.
+	DefaultMaxClientRequestBodySize = 5 * units.MiB
 
 	// AutoConfigEnvironmentIDPlaceholder is a string that can appear within
 	// AutoConfigConfig.EnvDataStorePrefix or AutoConfigConfig.EnvDataStoreTableName to indicate that
@@ -157,6 +164,7 @@ type MainConfig struct {
 	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	MaxClientRequestBodySize         ct.OptBase2Bytes         `conf:"MAX_CLIENT_REQUEST_BODY_SIZE"`
 	PingStreamJitterTime             ct.OptDuration           `conf:"PING_STREAM_JITTER_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`

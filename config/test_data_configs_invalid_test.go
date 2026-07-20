@@ -44,7 +44,19 @@ func makeInvalidConfigs() []testDataInvalidConfig {
 		makeInvalidConfigDynamoDBAutoConfNoPrefixOrTableName(),
 		makeInvalidConfigMultipleDatabases(),
 		makeInvalidConfigOTLPInvalidProtocol(),
+		makeInvalidConfigMaxClientRequestBodySize("0B"),
 	}
+}
+
+func makeInvalidConfigMaxClientRequestBodySize(size string) testDataInvalidConfig {
+	c := testDataInvalidConfig{name: "max client request body size " + size}
+	c.envVarsError = errMaxClientRequestBodySize.Error()
+	c.envVars = map[string]string{"MAX_CLIENT_REQUEST_BODY_SIZE": size}
+	c.fileContent = `
+[Main]
+MaxClientRequestBodySize = ` + size + `
+`
+	return c
 }
 
 func makeInvalidConfigMissingSDKKey() testDataInvalidConfig {
