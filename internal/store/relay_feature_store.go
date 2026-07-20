@@ -75,6 +75,11 @@ func NewSSERelayDataStoreAdapter(
 // only torn down by the final Close (see streamUpdatesStoreWrapper.Close). If the parked wrapper has
 // already been fully closed (acquire returns false), a fresh one is built rather than resurrecting a
 // wrapper whose underlying store is torn down.
+//
+// The already-present check runs again after the wrapped factory builds: two Builds can race through
+// the nil check above (the environment's initial anchor-client build and a re-anchor's synchronous
+// build both run without the env lock held), and the one that finishes last must adopt the wrapper
+// the other installed rather than overwrite it.
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
@@ -98,8 +103,22 @@ func (a *SSERelayDataStoreAdapter) Build(
 	)
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	if existing := a.store; existing != nil {
+		if esw, ok := existing.(*streamUpdatesStoreWrapper); ok && esw.acquire() {
+			// A concurrent Build installed a wrapper while ours was being constructed. Hand the
+			// installed wrapper over, exactly as the fast path above does, and discard ours: an
+			// unconditional overwrite would let the last writer win, and if the last writer's client
+			// is later discarded as superseded, its Close would tear down the store the adapter is
+			// serving while the live client feeds a store nothing reads. Close the discarded wrapper
+			// outside the lock — a persistent store's Close does I/O, and GetStore must not block
+			// behind it.
+			a.mu.Unlock()
+			_ = sw.Close()
+			return esw, nil
+		}
+	}
 	a.store = sw
+	a.mu.Unlock()
 	return sw, nil
 }
 
