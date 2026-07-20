@@ -12,8 +12,12 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/filedata"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/configsource"
+	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,5 +88,81 @@ func TestConcurrentKeysOffline_MixedUpdateAddsReanchorsAndRemovesInOneReload(t *
 		p.assertSDKEndpointsAvailability(true, "", extraMobileKey, "")
 		p.assertSDKEndpointsAvailability(false, anchorSDKKey, "", "")
 		p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
+	})
+}
+
+// A non-anchor key omitted from the next RAC patch is revoked immediately (not on a grace timer), and
+// a downstream SDK connected on that key is disconnected as part of the revocation. The anchor, which
+// the patch retains, keeps authenticating. Uses a real (dummy) client + RAC mock so there is a live
+// stream to observe being torn down.
+func TestConcurrentKeysRAC_ConnectedStreamClosedWhenKeyRevokedByOmission(t *testing.T) {
+	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
+	racMock := configsource.NewRACMock(t, &putEvent)
+
+	cfg := config.Config{AutoConfig: config.AutoConfigConfig{Key: testAutoConfKey}}
+	cfg.Main.StreamURI, _ = configtypes.NewOptURLAbsoluteFromString(racMock.URL)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	relay, err := newRelayInternal(cfg, relayInternalOptions{
+		loggers:       mockLog.Loggers,
+		clientFactory: testclient.CreateDummyClient,
+	})
+	require.NoError(t, err)
+	defer relay.Close()
+
+	h := relayTestHelper{t: t, relay: relay}
+	env := h.awaitEnvironment(multiKeyEnvID)
+	require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+	// Connect a downstream SDK on the non-anchor key that the next patch will omit.
+	req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
+	sharedtest.WithStreamRequest(t, req, relay, func(eventCh <-chan eventsource.Event) {
+		sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
+
+		// Revoke by omission: a patch that carries only the anchor SDK key (extraSDKKey dropped), keeping
+		// the mobile keys. The reconcile revokes the omitted key now rather than on a grace timer.
+		racMock.Send(configsource.MakeAutoConfigPatchEvent(multiKeyEnvRep(
+			[]envfactory.ConcurrentKeyRep{{Key: "anchor-sdk", Value: string(anchorSDKKey)}},
+			defaultMobileKeyReps(),
+			2,
+		)))
+
+		// The revoked key's open stream is disconnected.
+		awaitStreamClosed(t, eventCh, 5*time.Second)
+	})
+
+	awaitCredentialRemoved(t, relay, extraSDKKey)
+	h.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
+	h.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
+}
+
+// The offline-reload twin of the RAC revocation-by-omission case: a key dropped from the reloaded
+// archive is revoked immediately and its connected downstream SDK is disconnected, while the retained
+// anchor keeps authenticating.
+func TestConcurrentKeysOffline_ConnectedStreamClosedWhenKeyRevokedByOmission(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
+		_ = p.awaitClient()
+		env := p.awaitEnvironment(multiKeyEnvID)
+		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
+		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+			sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
+
+			// Reload with the non-anchor key omitted: it is revoked immediately.
+			p.updateHandler.UpdateEnvironment(multiKeyArchiveEnv(
+				[]envfactory.AcceptedSDKKey{{Value: anchorSDKKey}},
+				defaultAcceptedMobileKeys(),
+			))
+
+			awaitStreamClosed(t, eventCh, 5*time.Second)
+		})
+
+		awaitCredentialRemoved(t, p.relay, extraSDKKey)
+		p.assertSDKEndpointsAvailability(false, extraSDKKey, "", "")
+		p.assertSDKEndpointsAvailability(true, anchorSDKKey, anchorMobileKey, multiKeyEnvID)
 	})
 }
