@@ -242,6 +242,32 @@ func TestReconcileAlreadyExpiredKeyIsIgnoredOnAdd(t *testing.T) {
 	assert.ElementsMatch(t, []SDKCredential{anchor}, r.AllCredentials())
 }
 
+func TestReconcileExpiryBoundaryIsStrictlyAfter(t *testing.T) {
+	// The reconcile-side filter that treats an already-expired key as absent must honor the same
+	// strictly-after contract as StepTime (see the doc comment on StepTime): a key whose expiry lands
+	// exactly on `now` is still accepted by Reconcile, and only becomes absent once `now` is one instant
+	// past the expiry.
+	anchor := config.SDKKey("anchor")
+	staleKey := config.SDKKey("stale")
+	expiry := time.Unix(2000, 0)
+
+	atBoundary := newTestRotator()
+	atBoundary.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(expiry)})),
+		expiry)
+	assert.Contains(t, atBoundary.AllCredentials(), SDKCredential(staleKey), "a key expiring exactly at now is still accepted by Reconcile")
+
+	pastBoundary := newTestRotator()
+	pastBoundary.Reconcile(
+		mustBuild(t, NewAcceptedSetBuilder().
+			WithAnchor(SDKKeyParams{Value: anchor}).
+			WithSDKKey(SDKKeyParams{Value: staleKey, Expiry: util.PtrOrNil(expiry)})),
+		expiry.Add(1*time.Millisecond))
+	assert.NotContains(t, pastBoundary.AllCredentials(), SDKCredential(staleKey), "a key one instant past its expiry is treated as absent by Reconcile")
+}
+
 func TestReconcileDeExpiryRestoresKey(t *testing.T) {
 	// When a key was accepted with a future expiry and a subsequent reconcile removes that expiry
 	// (de-expiry), the key becomes permanent: the cleanup ticker will no longer drop it, and it is
