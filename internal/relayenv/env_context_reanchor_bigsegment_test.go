@@ -326,3 +326,47 @@ func TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree(t 
 	assert.Equal(t, 2, count, "the synchronizer was recreated on re-anchor")
 	assert.Equal(t, reanchorTestKey2, sdkKey, "on the new anchor key")
 }
+
+// TestReanchorBigSegmentSync_RepromoteInGraceFormerAnchorRewires re-anchors A->B, then B->A while A is
+// still accepted (an in-grace former anchor whose client was closed when its demotion committed).
+// Promoting a previously-accepted key must re-wire big segments identically to a brand-new key: a fresh
+// synchronizer bound to A is created and Started (a segment already exists), and B's synchronizer is
+// Closed. This pins that the "previously-accepted key" promotion path does not shortcut the big-segment
+// re-wire.
+func TestReanchorBigSegmentSync_RepromoteInGraceFormerAnchorRewires(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	capturing := &capturingBigSegmentSynchronizerFactory{}
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	env := newBigSegmentTestEnv(t, nullBigSegmentStoreFactory,
+		testclient.FakeLDClientFactoryWithChannel(true, clientCh), capturing, mockLog.Loggers)
+	defer env.Close()
+	envImpl := env.(*envContextImpl)
+
+	envImpl.setBigSegmentsExist()
+	syncA := capturing.latest()
+	require.True(t, syncA.isStarted(), "the synchronizer is started once a big segment exists")
+
+	// A -> B. A stays accepted in its grace period; its client is closed at commit.
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
+	syncB := capturing.latest()
+	require.NotSame(t, syncA, syncB)
+	require.True(t, syncA.isClosed(), "A's synchronizer is closed after A->B")
+	require.True(t, syncB.isStarted(), "B's synchronizer is started (a segment already existed)")
+
+	// B -> A. A is still in the accepted set (its mappings survived the demotion) but has no client, so a
+	// fresh client is built and the big-segment sync must be re-wired onto A just like a brand-new key.
+	reanchor(t, env, envConfig.SDKKey, reanchorTestKey2, time.Unix(1000, 0))
+	syncARepromoted := capturing.latest()
+	assert.NotSame(t, syncB, syncARepromoted, "re-promoting A builds a THIRD synchronizer instance")
+	assert.NotSame(t, syncA, syncARepromoted, "and a fresh instance, not the retired original A synchronizer")
+
+	count, sdkKey := capturing.snapshot()
+	assert.Equal(t, 3, count, "one synchronizer per anchor commit: A, B, A-again")
+	assert.Equal(t, envConfig.SDKKey, sdkKey, "the third synchronizer is bound to the re-promoted key A")
+	assert.True(t, syncARepromoted.isStarted(), "the re-promoted anchor's synchronizer is Started (a segment exists)")
+	assert.True(t, syncB.isClosed(), "B's synchronizer is Closed on the re-promotion")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "the SDK anchor is back on A")
+}
