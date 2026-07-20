@@ -2,12 +2,12 @@ package store
 
 // Regression test for a race in SSERelayDataStoreAdapter.Build: two Build calls that both observe
 // no existing store — the environment's initial anchor-client build racing the first re-anchor's
-// synchronous build — each construct their own wrapper. Build must re-check under the lock before
-// installing, and the build that finishes last must adopt the already-installed wrapper (a normal
-// handover) instead of overwriting it. Without the re-check, the last writer wins adapter.store,
-// and when that writer's client is then discarded as superseded, its Close tears down the store the
-// adapter is serving — evaluations and stream queries read a closed store while the live upstream
-// client feeds one nothing reads.
+// synchronous build — must not each construct and install their own wrapper. If they did, the last
+// writer would win adapter.store, and when that writer's client is later discarded as superseded, its
+// Close would tear down the store the adapter is serving — evaluations and stream queries would read
+// a closed store while the live upstream client fed one nothing reads. Build holds the adapter lock
+// across the whole build, so the two calls are serialized: the first installs its wrapper and the
+// second adopts that same wrapper via the fast path rather than building its own.
 //
 // The realistic trigger is a persistent store whose construction is slow at startup (e.g. Redis
 // briefly unreachable) while a rotation patch re-anchors the environment.
@@ -15,6 +15,7 @@ package store
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 
@@ -39,12 +40,12 @@ func (f *gatedStoreFactory) Build(ctx subsystems.ClientContext) (subsystems.Data
 	return f.inner.Build(ctx)
 }
 
-func TestConcurrentBuildAdoptsInstalledWrapperInsteadOfOverwriting(t *testing.T) {
+func TestConcurrentBuildSerializesAndSharesOneWrapper(t *testing.T) {
 	factory := &gatedStoreFactory{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	adapter := NewSSERelayDataStoreAdapter(factory, &mockEnvStreamsUpdates{})
 
-	// The initial anchor client's build: passes Build's fast-path nil check, then stalls inside
-	// the wrapped factory before any store assignment.
+	// The initial anchor client's build stalls inside the wrapped factory. Because Build holds the
+	// adapter lock across the whole build, it holds the lock for the duration of this stall.
 	firstResult := make(chan subsystems.DataStore, 1)
 	go func() {
 		sw, err := adapter.Build(subsystems.BasicClientContext{})
@@ -53,41 +54,45 @@ func TestConcurrentBuildAdoptsInstalledWrapperInsteadOfOverwriting(t *testing.T)
 	}()
 	<-factory.entered
 
-	// A re-anchor's synchronous build runs while the first build is stalled: it also sees no
-	// existing store, builds its own wrapper, and installs it. Its client goes on to initialize
-	// and become the committed anchor, so this is the wrapper the environment serves from.
-	secondStore, err := adapter.Build(subsystems.BasicClientContext{})
-	require.NoError(t, err)
-	require.Same(t, secondStore, adapter.GetStore(),
-		"sanity: the second build's wrapper is installed while the first is still stalled")
+	// A re-anchor's synchronous build starts while the first is stalled. It must block on the adapter
+	// lock — it cannot build and install its own wrapper.
+	secondResult := make(chan subsystems.DataStore, 1)
+	go func() {
+		sw, err := adapter.Build(subsystems.BasicClientContext{})
+		assert.NoError(t, err)
+		secondResult <- sw
+	}()
 
-	// The stalled build completes. It must adopt the installed wrapper (handover) rather than
-	// overwrite it with its own.
+	select {
+	case <-secondResult:
+		t.Fatal("the second build returned while the first still held the lock; builds were not serialized")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Release the stalled build. It installs its wrapper; the second build then adopts that same
+	// wrapper via the fast path rather than building its own.
 	close(factory.release)
 	firstStore := <-firstResult
-	require.Same(t, secondStore, firstStore,
-		"the late build must return the already-installed wrapper, not its own")
+	secondStore := <-secondResult
 
-	// The late build's own underlying store was never exposed and must have been closed; the
-	// installed wrapper's underlying store stays open. (The factory builds in completion order:
-	// index 0 is the second/installed build, index 1 is the late/discarded one.)
+	require.Same(t, firstStore, secondStore, "both builds must share the one installed wrapper")
+	require.Same(t, firstStore, adapter.GetStore())
+	require.Equal(t, int32(1), factory.calls.Load(), "the wrapped factory must be built exactly once")
+
 	built := factory.inner.allBuilt()
-	require.Len(t, built, 2)
-	assert.Equal(t, 0, built[0].closeCount(), "the surviving underlying store remains open")
-	assert.Equal(t, 1, built[1].closeCount(), "the discarded build's underlying store is closed once")
+	require.Len(t, built, 1, "no discarded second wrapper was ever constructed")
 
-	// The first build's client is later discarded as superseded and closed. That releases its
-	// handover reference; the adapter keeps serving an open store.
+	// The first build's client is later discarded as superseded and closed. That releases one handover
+	// reference; the adapter keeps serving an open store.
 	require.NoError(t, firstStore.Close())
-	current := adapter.GetStore()
-	require.Same(t, secondStore, current)
-	sw, ok := current.(*streamUpdatesStoreWrapper)
+	require.Same(t, secondStore, adapter.GetStore())
+	sw, ok := adapter.GetStore().(*streamUpdatesStoreWrapper)
 	require.True(t, ok)
 	sw.refMu.Lock()
 	closed := sw.closed
 	sw.refMu.Unlock()
 	require.False(t, closed, "the adapter must not be serving a torn-down store")
-	assert.Equal(t, 0, built[0].closeCount())
+	assert.Equal(t, 0, built[0].closeCount(), "the underlying store remains open while a holder remains")
 
 	// The final holder's release (environment teardown) closes the underlying store exactly once.
 	require.NoError(t, secondStore.Close())

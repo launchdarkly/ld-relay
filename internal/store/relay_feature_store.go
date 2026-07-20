@@ -78,14 +78,21 @@ func NewSSERelayDataStoreAdapter(
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
+	// The lock is held across the whole build so two concurrent Build calls cannot each construct and
+	// install their own wrapper (the last writer would win, and if its client were later discarded as
+	// superseded, its Close would tear down the store the adapter is serving). A second caller blocks
+	// until the first installs its store, then adopts it via the fast path below. This can block
+	// GetStore only while a store is built from nothing — the first build at startup — since every
+	// later Build, including a re-anchor handover, returns the already-built wrapper without calling
+	// the wrapped factory.
 	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if existing := a.store; existing != nil {
 		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok && sw.acquire() {
-			a.mu.Unlock()
 			return sw, nil
 		}
 	}
-	a.mu.Unlock()
 
 	wrappedStore, err := a.wrappedFactory.Build(context)
 	if err != nil {
@@ -96,24 +103,7 @@ func (a *SSERelayDataStoreAdapter) Build(
 		wrappedStore,
 		context.GetLogging().Loggers,
 	)
-
-	a.mu.Lock()
-	if existing := a.store; existing != nil {
-		if esw, ok := existing.(*streamUpdatesStoreWrapper); ok && esw.acquire() {
-			// A concurrent Build installed a wrapper while ours was being constructed. Hand the
-			// installed wrapper over, exactly as the fast path above does, and discard ours: an
-			// unconditional overwrite would let the last writer win, and if the last writer's client
-			// is later discarded as superseded, its Close would tear down the store the adapter is
-			// serving while the live client feeds a store nothing reads. Close the discarded wrapper
-			// outside the lock — a persistent store's Close does I/O, and GetStore must not block
-			// behind it.
-			a.mu.Unlock()
-			_ = sw.Close()
-			return esw, nil
-		}
-	}
 	a.store = sw
-	a.mu.Unlock()
 	return sw, nil
 }
 
