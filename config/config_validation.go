@@ -32,6 +32,8 @@ var (
 	errInvalidCredentialCleanupInterval        = fmt.Errorf("expired credential cleanup interval must be >= %s", minimumCredentialCleanupInterval)
 )
 
+const warnMetricsCapacityBelowMinimum = "configured usage metrics event capacity of %d is below the minimum of %d; using %[2]d instead"
+
 func errEnvironmentWithNoSDKKey(envName string) error {
 	return fmt.Errorf("SDK key is required for environment %q", envName)
 }
@@ -88,6 +90,7 @@ func ValidateConfig(c *Config, logger *slog.Logger) error {
 	validateCredentialCleanupInterval(&result, c)
 	validateMaxInboundPayloadSize(&result, c)
 	validateConfigMetrics(&result, c)
+	validateMetricsCapacity(c, logger)
 
 	return result.GetError()
 }
@@ -234,6 +237,21 @@ func validateMaxInboundPayloadSize(result *ct.ValidationResult, c *Config) {
 		if size <= 0 {
 			result.AddError(nil, errMaxInboundPayloadSize)
 		}
+	}
+}
+
+// validateMetricsCapacity enforces the minimum queue capacity for the usage-metrics event publisher.
+// Rather than fail startup on a too-small value, it clamps the value up to the minimum and warns, so
+// that a misconfiguration never prevents Relay from running while still protecting usage telemetry.
+func validateMetricsCapacity(c *Config, logger *slog.Logger) {
+	if !c.Events.MetricsCapacity.IsDefined() {
+		return
+	}
+	if c.Events.MetricsCapacity.GetOrElse(0) < minimumMetricsCapacity {
+		logger.Warn(fmt.Sprintf(warnMetricsCapacityBelowMinimum, c.Events.MetricsCapacity.GetOrElse(0), minimumMetricsCapacity))
+		// This value is a constant known to be greater than zero, so the constructor cannot fail.
+		clamped, _ := ct.NewOptIntGreaterThanZero(minimumMetricsCapacity)
+		c.Events.MetricsCapacity = clamped
 	}
 }
 
