@@ -232,6 +232,8 @@ On default rotation the backend mirrors expiry info into both:
 
 **Decision**: new relays trust the array. The legacy `sdkKey.expiring{}` field is treated as a write-only back-compat shim — new relays do not read it. (Working assumption pending team confirmation.)
 
+**Precision (as shipped):** "do not read it" applies when the arrays are present. For an *old-format* payload (no `sdkKeys[]`), the legacy slot is the only source for the deprecated key, and relay does read it there — synthesizing it into the accepted set with its expiry. The rule as implemented: arrays present ⇒ legacy slot ignored; arrays absent ⇒ legacy slot honored.
+
 ---
 
 ## 7. Re-anchoring
@@ -252,6 +254,12 @@ This is the highest-risk piece of Phase 1. The **T0 PoC** validated the swap mec
 ```
 
 This order is *necessary* — the PoC found that flipping the pointer too early leaves `GetClient()` nil mid-swap (H6) and breaks the env on init failure (H7) — and *sufficient* only with the store-handling approach below.
+
+> **Implementation notes — as shipped (recorded at final review, 2026-07-18):**
+>
+> - **Step 6 as implemented:** the demoted anchor's *upstream client* is closed at commit time, not after the grace period. With store handover, a second live upstream client would double-broadcast every update into the shared store wrapper. The demoted key's *credential mappings* stay registered until its grace expires, so downstream SDKs authenticating with it keep working through the window — only the upstream connection goes early (`removeCredential` later finds no client to close).
+> - **Case B in practice:** because the demoted client is closed at commit, a re-promoted former anchor has no live client and takes the build path. The "reuse a live client" branch survives defensively; `NewAnchorPreviouslyAccepted` governs credential-mapping registration only.
+> - **Operational characteristic:** the synchronous client build runs on the shared RAC dispatch goroutine. While one environment re-anchors, other environments' config updates (and the expiry tickers, which share the reconcile lock) wait — up to `InitTimeout` (default 10s) per re-anchoring environment in the worst case. Data-plane serving is unaffected throughout. This is the accepted cost of build-before-flip; a mass rotation across N environments serializes to roughly N × build time on the config plane.
 
 ### Two re-anchor cases — Case A (new key) vs Case B (already-accepted key)
 
@@ -295,7 +303,9 @@ This is the concrete form of decoupling the store's lifecycle from the client's.
 
 ### Failure handling
 
-If the new client fails to initialize, the swap **rolls back**: the rotator's anchor pointer stays on the old key (the caller simply does not call `CommitAnchor`), the previous accepted set is preserved, and a structured error is logged. The old anchor's client (still alive in its grace period) continues to serve. This is the §8 atomicity principle applied to re-anchor, and it applies to **Case A only** — Case B reuses an already-initialized client and has nothing to fail. Relay has no dedicated alarm infrastructure today; an `Error`-level structured log (`globalLoggers.Errorf`) is the strongest signal available and is sufficient.
+If the new client fails to initialize, the swap **rolls back**: the rotator's anchor pointer stays on the old key (the caller simply does not call `CommitAnchor`), the anchor-related changes are reverted — the previous anchor is re-admitted and kept serving even if the payload revoked it outright, and a brand-new failed anchor is dropped — and a structured error is logged. The old anchor's client continues to serve. It applies to **Case A only** — Case B reuses an already-initialized client and has nothing to fail. Relay has no dedicated alarm infrastructure today; an `Error`-level structured log (`globalLoggers.Errorf`) is the strongest signal available and is sufficient.
+
+**As-shipped rollback scope (recorded at final review, 2026-07-18):** the rollback is scoped to the *anchor change*, not the whole reconcile — other credential changes in the same payload (adds and removals of non-anchor keys) stand. **Recovery:** the payload's version was already recorded at the stream parse boundary, so an identical retry — or a reconnect's fresh `put` at the same version — is deduplicated; the environment stays on the previous anchor until the backend sends a *version-bumped* update.
 
 ### Consolidated specification for T2.c / T2.d
 
@@ -333,7 +343,7 @@ This order ensures the accepted set is a *superset* during the transition. The n
 
 ### Atomicity
 
-Reconcile is **all-or-nothing**. On partial failure (malformed payload, new-client init failure, etc.), log a structured error and preserve the previous accepted set. Working assumption — open question for the team. Aligns with the malformed-payload policy (§9).
+**As shipped (this resolves the earlier open question):** a **malformed payload** is all-or-nothing — it is rejected at the stream parse boundary before any state mutation, so the previous accepted set is fully preserved (§9). A **re-anchor init failure** rolls back the anchor change only; the payload's other adds and removals stand (§7 failure handling). Full-reconcile rollback was considered and rejected: it would add snapshot/restore machinery across mappings and streams for no clear benefit given trusted sources, and the partial semantics are strictly safer for the non-anchor keys involved (valid new keys start working; revoked keys stay revoked; the anchor never breaks).
 
 ### Edge cases
 
@@ -355,6 +365,8 @@ When relay receives a malformed RAC payload — most importantly, `sdkKey.value`
 4. Do *not* leave the env in a half-applied state.
 
 This is the same atomicity principle as §8, applied at the boundary between trusted-source input and relay's internal state, with the added piece (reconnect) needed because RAC has no acknowledgment mechanism for failed-payload rejection.
+
+**Implementation notes (recorded at final review, 2026-07-18):** validation runs at the stream parse boundary, *before* the message's version is recorded — this is what makes the forced fresh `put` (which carries the same version) re-processable rather than deduplicated away. The shipped validation is also stricter than the two cases named above: array entries with empty `value`s, and a defined `mobKey` absent from `mobileKeys[]` (the mobile analogue of the anchor invariant), are also rejected as malformed.
 
 ---
 
