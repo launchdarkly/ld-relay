@@ -60,7 +60,10 @@ var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must conta
 //     sdkKeys[] — a violation of the invariant that the designated anchor is one of the accepted keys.
 //  2. The primary mobile key (mobKey) is defined but not present in mobileKeys[] — the mobile-key
 //     analogue of the anchor invariant.
-//  3. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
+//  3. mobileKeys[] is non-empty but no primary mobile key (mobKey) is designated — accepting it would
+//     clear the environment's primary mobile key on reconcile with no repoint, so event forwarding
+//     would keep using the previous (possibly revoked) primary. (No mobile keys at all is valid.)
+//  4. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
 //     accepted by relay but can never authenticate any SDK.
 //
 // Validation happens before Reconcile is called; Rotator.Reconcile trusts the set it is handed.
@@ -96,6 +99,15 @@ func NewAnchorNotInSetError() *MalformedCredentialSetError {
 // included in the message.
 func NewPrimaryMobileKeyNotInSetError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: primary mobile key is not present in mobileKeys[]"}
+}
+
+// NewPrimaryMobileKeyMissingError returns a MalformedCredentialSetError for a payload that carries a
+// non-empty mobileKeys[] array but leaves the primary mobile key (mobKey) undefined — no default is
+// designated. Accepting it would clear the environment's primary mobile key on reconcile with no
+// repoint, so event forwarding would keep using the previous (possibly revoked) primary. There are no
+// secrets to omit from the message.
+func NewPrimaryMobileKeyMissingError() *MalformedCredentialSetError {
+	return &MalformedCredentialSetError{msg: "malformed credential set: mobileKeys[] is non-empty but no primary mobile key is designated"}
 }
 
 // NewEmptyCredentialError returns a MalformedCredentialSetError for a key-array entry whose

@@ -22,7 +22,9 @@ import (
 //
 // A *credential.MalformedCredentialSetError is returned (with an empty AcceptedSet) for a
 // structurally malformed payload: an undefined anchor (params.SDKKey not set), a defined anchor that
-// is absent from params.AcceptedSDKKeys, or an array entry with an empty value. The caller must
+// is absent from params.AcceptedSDKKeys, a defined primary mobile key (params.MobileKey) that is
+// absent from params.AcceptedMobileKeys, a non-empty params.AcceptedMobileKeys with no designated
+// primary (params.MobileKey undefined), or an array entry with an empty value. The caller must
 // preserve the previous accepted state and, for RAC handlers, reconnect the stream with jitter to
 // force a fresh put. This is the single home for the anchor invariant.
 func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) {
@@ -78,6 +80,16 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) 
 	// breaking event forwarding. (An undefined mobKey is valid — a server-side-only environment.)
 	if params.MobileKey.Defined() && !primaryMobileInArray {
 		return credential.AcceptedSet{}, credential.NewPrimaryMobileKeyNotInSetError()
+	}
+
+	// A non-empty mobileKeys[] with no designated primary (undefined mobKey) is malformed: the reconcile
+	// would clear the rotator's primary mobile key without a repoint, so event forwarding would keep
+	// using the previous (possibly revoked) primary — silent misattribution rather than a loud
+	// rejection. (No mobile keys at all — empty array and undefined mobKey — stays valid: a
+	// server-side-only environment. Old-format payloads synthesize the array from mobKey only, so an
+	// undefined mobKey yields an empty array and is unaffected.)
+	if len(params.AcceptedMobileKeys) > 0 && !params.MobileKey.Defined() {
+		return credential.AcceptedSet{}, credential.NewPrimaryMobileKeyMissingError()
 	}
 
 	set, err := b.Build()
