@@ -135,6 +135,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			EventsURI:             newOptURLAbsoluteMustBeValid("http://events"),
 			FlushInterval:         ct.NewOptDuration(120 * time.Second),
 			Capacity:              mustOptIntGreaterThanZero(500),
+			MetricsCapacity:       mustOptIntGreaterThanZero(50000),
 			InlineUsers:           true,
 			MaxInboundPayloadSize: ct.OptBase2Bytes{},
 		}
@@ -183,6 +184,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"EVENTS_HOST":                         "http://events",
 		"EVENTS_FLUSH_INTERVAL":               "120s",
 		"EVENTS_CAPACITY":                     "500",
+		"EVENTS_METRICS_CAPACITY":             "50000",
 		"EVENTS_INLINE_USERS":                 "1",
 		"LD_ENV_earth":                        "earth-sdk",
 		"LD_MOBILE_KEY_earth":                 "earth-mob",
@@ -230,6 +232,7 @@ SendEvents = 1
 EventsUri = "http://events"
 FlushInterval = 120s
 Capacity = 500
+MetricsCapacity = 50000
 InlineUsers = 1
 
 [Environment "earth"]
