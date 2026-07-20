@@ -970,8 +970,8 @@ func (c *envContextImpl) GetFilter() config.FilterKey {
 }
 
 func (c *envContextImpl) GetInitError() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	return c.initErr
 }
