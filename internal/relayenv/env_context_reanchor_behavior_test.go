@@ -1,7 +1,7 @@
 package relayenv
 
 // Permanent behavioral regression tests for re-anchoring. These pin three properties of the
-// upstream-client swap that no other test in this package covers:
+// upstream-client swap:
 //
 //   - an open downstream (client-side) connection survives a re-anchor and keeps receiving events,
 //     with the re-wired big-segment synchronizer driving its invalidations;
