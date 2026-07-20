@@ -427,39 +427,17 @@ func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 
 	c.registerCredentialMappings(newCredential)
 
-	// A new SDK key means:
-	//  1. we should start a new SDK client*, but only for the anchor: there is a single upstream
-	//     connection per environment, owned by the anchor key. Non-anchor server keys get their
-	//     credential mappings registered above, but no upstream client — matching today's mobile-key behavior.
-	//  2. we should tell all event forwarding components that use an SDK key to use the new one,
-	//     again only when it is the anchor, since events collapse to the anchor per kind.
-	// A new mobile key does not require starting a new SDK client, but does requiring updating any event forwarding
-	// components that use a mobile key.
-	// *Note: we only start a new SDK client in online mode. This is somewhat of an architectural hack because EnvContextImpl
-	// is used for both offline and online mode, yet starting up an SDK client is only relevant in online mode. This is
-	// because in offline mode, we already have the data (from a file) - there's no need to open a new streaming connection.
-	// So, the effect in offline mode when adding/removing credentials is just setting up the new credential mappings.
-	switch key := newCredential.(type) {
-	case config.SDKKey:
-		if key == c.keyRotator.AnchorKey() {
-			if !c.offline {
-				go c.startSDKClient(key, nil, false, c.anchorClientGen)
-			}
-			if c.metricsEventPub != nil { // metrics event publisher always uses SDK key
-				c.metricsEventPub.ReplaceCredential(key)
-			}
-			if c.eventDispatcher != nil {
-				c.eventDispatcher.ReplaceCredential(key)
-			}
-		}
-	case config.MobileKey:
-		// Mobile-key event forwarding collapses to the primary mobile key, mirroring the anchor-only
-		// behavior for SDK keys above: only the primary mobile key repoints the event dispatcher, so a
-		// non-primary mobile key accepted in the same reconcile does not steal event forwarding.
-		if key == c.keyRotator.MobileKey() {
-			if c.eventDispatcher != nil {
-				c.eventDispatcher.ReplaceCredential(key)
-			}
+	// Registering the credential mappings above is all that most keys require. The one extra step is
+	// event forwarding for mobile keys: mobile-key event forwarding collapses to the primary mobile key,
+	// so a newly added mobile key repoints the event dispatcher only when it is the primary mobile key
+	// (a non-primary mobile key accepted in the same reconcile does not steal event forwarding).
+	// The upstream client lifecycle and SDK-key event repointing are deliberately not handled here: there
+	// is a single upstream connection per environment owned by the anchor key, and it is set up exclusively
+	// by construction (NewEnvContext) and moved by the re-anchor sequence (commitReanchor), which also
+	// repoints the SDK-key event forwarders since events collapse to the anchor per kind.
+	if mobileKey, ok := newCredential.(config.MobileKey); ok && mobileKey == c.keyRotator.MobileKey() {
+		if c.eventDispatcher != nil {
+			c.eventDispatcher.ReplaceCredential(mobileKey)
 		}
 	}
 }
@@ -469,8 +447,8 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	defer c.mu.Unlock()
 	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
 	c.envStreams.RemoveCredential(oldCredential)
-	// See the comment in addCredential for more context. In offline mode, there's no need to close the SDK client
-	// because our data comes from a file, not a streaming connection.
+	// In offline mode, there's no need to close the SDK client because our data comes from a file,
+	// not a streaming connection.
 	if !c.offline {
 		if sdkKey, ok := oldCredential.(config.SDKKey); ok {
 			// The SDK client instance is tied to the SDK key, so get rid of it
