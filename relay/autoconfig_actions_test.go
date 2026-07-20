@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 
 	c "github.com/launchdarkly/ld-relay/v8/config"
+	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
 
 	"github.com/launchdarkly/go-configtypes"
@@ -44,6 +45,24 @@ func autoConfTest(
 	initialEvent *httphelpers.SSEEvent,
 	action func(p autoConfTestParams),
 ) {
+	autoConfTestWithClientFactory(t, config, initialEvent,
+		func(createdCh chan<- *testclient.FakeLDClient) sdks.ClientFactoryFunc {
+			return testclient.FakeLDClientFactoryWithChannel(true, createdCh)
+		}, action)
+}
+
+// autoConfTestWithClientFactory is autoConfTest with a caller-supplied SDK client factory, so a test
+// can inject a factory that fails or hangs for specific keys (e.g. to exercise the re-anchor
+// init-failure rollback through the real RAC handler). makeClientFactory receives the channel that
+// created clients are reported on; the usual body wraps testclient.FakeLDClientFactoryWithChannel and
+// special-cases only the keys it wants to treat differently, forwarding the rest to the healthy factory.
+func autoConfTestWithClientFactory(
+	t *testing.T,
+	config c.Config,
+	initialEvent *httphelpers.SSEEvent,
+	makeClientFactory func(createdCh chan<- *testclient.FakeLDClient) sdks.ClientFactoryFunc,
+	action func(p autoConfTestParams),
+) {
 	mockLog := ldlogtest.NewMockLog()
 	defer mockLog.DumpIfTestFailed(t)
 
@@ -78,7 +97,7 @@ func autoConfTest(
 
 			relay, err := newRelayInternal(config, relayInternalOptions{
 				loggers:       mockLog.Loggers,
-				clientFactory: testclient.FakeLDClientFactoryWithChannel(true, clientsCreatedCh),
+				clientFactory: makeClientFactory(clientsCreatedCh),
 			})
 			if err != nil {
 				panic(err)
