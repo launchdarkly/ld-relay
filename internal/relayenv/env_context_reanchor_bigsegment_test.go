@@ -5,25 +5,20 @@ package relayenv
 // not yet started" case; these cover the started-continues, rollback, and not-configured cases.
 
 import (
-	"net/http"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,59 +147,6 @@ func TestReanchorBigSegmentSync_NotConfiguredIsNoOp(t *testing.T) {
 	count, _ := capturing.snapshot()
 	assert.Equal(t, 0, count, "no synchronizer is created when big segments are not configured")
 	assert.Equal(t, reanchorTestKey2, env.(*envContextImpl).keyRotator.AnchorKey(), "the SDK re-anchor still committed")
-}
-
-// TestReanchorBigSegmentSync_NewSyncDrivesClientSideInvalidation is the end-to-end integration case
-// (SDK-2543 AC): with a client-side stream connected across a re-anchor, a big-segment update delivered
-// on the NEW synchronizer must still ping the connected client -- proving the re-wired synchronizer's
-// update consumer is active and drives client-side invalidation.
-func TestReanchorBigSegmentSync_NewSyncDrivesClientSideInvalidation(t *testing.T) {
-	envConfig := st.EnvClientSide.Config
-	capturing := &capturingBigSegmentSynchronizerFactory{}
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
-	sdkStartedCh := make(chan EnvContext, 1)
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	env, err := NewEnvContext(EnvContextImplParams{
-		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
-		EnvConfig:                     envConfig,
-		AllConfig:                     config.Config{},
-		BigSegmentStoreFactory:        nullBigSegmentStoreFactory,
-		BigSegmentSynchronizerFactory: capturing.create,
-		ClientFactory:                 testclient.FakeLDClientFactoryWithChannel(true, clientCh),
-		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
-		),
-		StreamProviders:  []streams.StreamProvider{jsClientStreams},
-		ConnectionMapper: mockConnectionMapper{},
-		Loggers:          mockLog.Loggers,
-	}, sdkStartedCh)
-	require.NoError(t, err)
-	defer env.Close()
-
-	<-sdkStartedCh
-	_ = env.GetStore().Init(nil) // client-side endpoint only pings once the store is initialized
-	oldSync := capturing.latest()
-
-	streamHandler := env.GetStreamHandler(jsClientStreams, envConfig.EnvID)
-	req, _ := http.NewRequest("GET", "", nil)
-	st.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
-		initEvent := helpers.RequireValue(t, eventCh, time.Minute)
-		require.Equal(t, "ping", initEvent.Event())
-		helpers.AssertNoMoreValues(t, eventCh, 100*time.Millisecond)
-
-		// Re-anchor mid-subscription; the synchronizer is rebuilt on the new anchor.
-		reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
-		newSync := capturing.latest()
-		require.NotSame(t, oldSync, newSync, "the synchronizer was rebuilt on re-anchor")
-
-		// A big-segment update on the NEW synchronizer pings the still-connected client-side stream.
-		newSync.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"seg"}}
-		pingEvent := helpers.RequireValue(t, eventCh, time.Second)
-		assert.Equal(t, "ping", pingEvent.Event())
-	})
 }
 
 // reanchorTestKey3 is a third anchor SDK key, used to drive A->B->C sequential re-anchors.

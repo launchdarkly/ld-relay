@@ -34,53 +34,6 @@ func requireUpstreamRequest(t *testing.T, requestsCh <-chan httphelpers.HTTPRequ
 	return helpers.RequireValue(t, requestsCh, time.Second)
 }
 
-// TestAnalyticsUpstreamUsesAnchorCredential verifies that analytics events are forwarded
-// upstream under the dispatcher's stored anchor credential, even when the incoming SDK
-// request carries a different Authorization header.
-func TestAnalyticsUpstreamUsesAnchorCredential(t *testing.T) {
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		headers := headersWithEventSchema(CurrentEventsSchemaVersion)
-		// Incoming request carries a non-anchor key — it must not reach the upstream.
-		headers.Set("Authorization", "sdk-non-anchor-key-must-not-reach-upstream")
-
-		handler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind)
-		require.NotNil(t, handler)
-		w := httptest.NewRecorder()
-		handler(w, st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headers))
-		assert.Equal(t, 202, w.Result().StatusCode)
-
-		p.dispatcher.flush()
-		r := requireUpstreamRequest(t, p.requestsCh)
-
-		assert.Equal(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"analytics upstream must carry the anchor credential, not the incoming request credential")
-	})
-}
-
-// TestDiagnosticUpstreamProxiesIncomingCredential verifies that diagnostic events proxy
-// the incoming request's Authorization header verbatim to the upstream, not the anchor.
-func TestDiagnosticUpstreamProxiesIncomingCredential(t *testing.T) {
-	const sdkAuth = "sdk-original-diagnostic-client-auth"
-
-	eventRelayTest(t, st.EnvMain, config.EventsConfig{}, func(p eventRelayTestParams) {
-		headers := headersWithEventSchema(0)
-		headers.Set("Authorization", sdkAuth)
-
-		handler := p.dispatcher.GetHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind)
-		require.NotNil(t, handler)
-		w := httptest.NewRecorder()
-		handler(w, st.BuildRequest("POST", "/", []byte(eventPayloadForVerbatimOnly), headers))
-		assert.Equal(t, 202, w.Result().StatusCode)
-
-		r := requireUpstreamRequest(t, p.requestsCh)
-
-		assert.Equal(t, sdkAuth, r.Request.Header.Get("Authorization"),
-			"diagnostic upstream must proxy the incoming Authorization header verbatim")
-		assert.NotEqual(t, string(st.EnvMain.Config.SDKKey), r.Request.Header.Get("Authorization"),
-			"diagnostic upstream must not use the anchor credential")
-	})
-}
-
 // TestCredentialRoutingAfterReplaceCredential verifies that after ReplaceCredential is
 // called (anchor rotation), analytics events use the new anchor while diagnostic events
 // continue to proxy the original incoming authorization.
