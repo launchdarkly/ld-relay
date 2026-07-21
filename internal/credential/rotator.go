@@ -407,7 +407,7 @@ func reconcileAcceptedKeys[K reconcilableKey](
 func (r *Rotator) reconcileSDKKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.SDKKey]AcceptedKey, len(set.sdkKeys))
 	for key, info := range set.sdkKeys {
-		if info.Expiry != nil && !now.Before(*info.Expiry) {
+		if info.Expiry != nil && now.After(*info.Expiry) {
 			continue // already expired; treat as absent
 		}
 		desired[key] = info
@@ -422,7 +422,7 @@ func (r *Rotator) reconcileSDKKeys(set AcceptedSet, now time.Time) {
 func (r *Rotator) reconcileMobileKeys(set AcceptedSet, now time.Time) {
 	desired := make(map[config.MobileKey]AcceptedKey, len(set.mobileKeys))
 	for key, info := range set.mobileKeys {
-		if info.Expiry != nil && !now.Before(*info.Expiry) {
+		if info.Expiry != nil && now.After(*info.Expiry) {
 			continue // already expired; treat as absent
 		}
 		desired[key] = info

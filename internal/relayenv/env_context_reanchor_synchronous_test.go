@@ -479,11 +479,16 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	initialClient := requireClientReady(t, clientCh)
 	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
 
+	envImpl := env.(*envContextImpl)
+	envImpl.mu.RLock()
+	genBefore := envImpl.anchorClientGen
+	envImpl.mu.RUnlock()
+
 	now := time.Unix(2000, 0)
 	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
 
 	// The anchor commits, but the offline branch builds no new client.
-	assert.Equal(t, reanchorSyncTestKey2, env.(*envContextImpl).keyRotator.AnchorKey(), "offline re-anchor commits the anchor")
+	assert.Equal(t, reanchorSyncTestKey2, envImpl.keyRotator.AnchorKey(), "offline re-anchor commits the anchor")
 	select {
 	case c := <-clientCh:
 		t.Fatalf("an offline re-anchor must not build a new SDK client, got: %v", c.Key)
@@ -491,12 +496,72 @@ func TestReanchorSync_Offline_CommitsWithoutBuildingClient(t *testing.T) {
 	}
 	assert.NoError(t, env.GetInitError())
 
+	// The generation guard exists to protect a replacement client's install from a stale, still-in-flight
+	// build. An offline commit installs no replacement, so bumping it protects nothing -- it would only
+	// strand a build launched before this commit (e.g. the initial client at construction, generation 0)
+	// by making it see itself as superseded when it later finishes. Offline commits leave it untouched.
+	envImpl.mu.RLock()
+	genAfter := envImpl.anchorClientGen
+	envImpl.mu.RUnlock()
+	assert.Equal(t, genBefore, genAfter, "an offline re-anchor commit must not advance anchorClientGen")
+
 	// The single offline client survives the rotation: it is not closed and GetClient still finds it.
 	if !helpers.AssertChannelNotClosed(t, initialClient.CloseCh, 100*time.Millisecond,
 		"the offline env's only client must not be closed by a re-anchor") {
 		t.FailNow()
 	}
 	assert.Same(t, initialClient, env.GetClient(), "GetClient keeps returning the offline client after re-anchor")
+}
+
+// TestReanchorSync_Offline_ReanchorDuringInitialBuildDoesNotStrandClient drives the failure scenario
+// the anchorClientGen guard above prevents: an offline re-anchor commits while the environment's
+// initial client build (launched at construction with generation 0) is still in flight. Before the
+// fix, that commit's unconditional generation bump made the in-flight build see itself as superseded
+// once it finished, so it discarded itself -- and because an offline re-anchor never builds a
+// replacement, the environment was left with GetClient() permanently nil. With the fix, the offline
+// commit leaves the generation untouched, so the initial build is not superseded and installs
+// normally once it completes.
+func TestReanchorSync_Offline_ReanchorDuringInitialBuildDoesNotStrandClient(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	envConfig.Offline = true
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	healthy := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	factory := func(sdkKey config.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == envConfig.SDKKey {
+			// The initial anchor build: block until the offline re-anchor below has committed.
+			entered <- struct{}{}
+			<-gate
+		}
+		return healthy(sdkKey, cfg, timeout)
+	}
+
+	readyCh := make(chan EnvContext, 1)
+	env := makeBasicEnv(t, envConfig, factory, mockLog.Loggers, readyCh)
+	defer env.Close()
+
+	envImpl := env.(*envContextImpl)
+	<-entered // the initial build is blocked; no client is installed yet.
+
+	// While that build is in flight, an offline re-anchor commits to a new anchor. The offline branch
+	// builds no replacement client, so nothing is installed for the new anchor either.
+	now := time.Unix(2000, 0)
+	reanchorViaReconcile(t, env, reanchorSyncTestKey2, envConfig.SDKKey, "", envConfig.MobileKey, envConfig.EnvID, now)
+	require.Equal(t, reanchorSyncTestKey2, envImpl.keyRotator.AnchorKey(), "offline re-anchor commits the anchor")
+	assert.Nil(t, env.GetClient(), "no client is installed yet: the initial build is still blocked and the offline commit built none")
+
+	// Release the initial build. It must not see itself as superseded (the offline commit above did not
+	// advance anchorClientGen), so it installs normally and GetClient starts returning it.
+	close(gate)
+	initialClient := requireClientReady(t, clientCh)
+	require.Eventually(t, func() bool { return env.GetClient() == initialClient }, time.Second, 10*time.Millisecond)
+	assert.NoError(t, env.GetInitError())
 }
 
 // TestReanchorSync_RollbackWithImmediateRevocationKeepsOldAnchorServing covers the edge where a

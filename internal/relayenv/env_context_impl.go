@@ -759,7 +759,14 @@ func (c *envContextImpl) commitReanchor(newAnchor, previousAnchor config.SDKKey,
 	c.keyRotator.CommitAnchor(newAnchor)
 	// A new anchor client is now authoritative, so any startSDKClient build still in flight from before
 	// this commit is stale: bump the generation so it discards itself instead of clobbering this client.
-	c.anchorClientGen++
+	// Only do this online: an offline commit (see reanchor above) installs no replacement client, so
+	// there is nothing for the bump to protect. Bumping anyway would strand the env's initial client
+	// build (launched with generation 0 at construction) if it is still in flight when this offline
+	// re-anchor commits: startSDKClient would see its generation superseded and discard the build,
+	// leaving GetClient() nil forever with no other build ever attempted.
+	if !c.offline {
+		c.anchorClientGen++
+	}
 	// The anchor now points at a healthy client (freshly built and Initialized, or a reused live
 	// client), so clear any init error a prior client left behind — otherwise GetInitError() and the
 	// request middleware would keep reporting a still-serving env as failed.
