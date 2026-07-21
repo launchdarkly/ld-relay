@@ -507,7 +507,7 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 // not advanced, so the fresh put — which carries the same version — is not deduplicated away by the
 // MessageReceiver. Any error from BuildAcceptedSet is a *MalformedCredentialSetError.
 func (s *StreamManager) validateCredentialPayload(rep envfactory.EnvironmentRep) error {
-	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
+	_, err := envfactory.BuildAcceptedSet(rep.ToParams())
 	return err
 }
 

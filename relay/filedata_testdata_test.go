@@ -74,12 +74,8 @@ func RotateSDKKeyWithGracePeriod(primary config.SDKKey, expiring config.SDKKey, 
 	}
 	return filedata.ArchiveEnvironment{
 		Params: envfactory.EnvironmentParams{
-			EnvID:  "env1",
-			SDKKey: primary,
-			ExpiringSDKKey: envfactory.ExpiringSDKKey{
-				Key:        expiring,
-				Expiration: expiry,
-			},
+			EnvID:           "env1",
+			SDKKey:          primary,
 			AcceptedSDKKeys: acceptedKeys,
 			Identifiers: relayenv.EnvIdentifiers{
 				ProjName: "Project",

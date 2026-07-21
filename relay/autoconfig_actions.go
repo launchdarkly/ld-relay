@@ -11,7 +11,6 @@ const (
 	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
-	logMsgKeyExpiryUnknownEnv             = "Got auto-configuration key expiry message for environment %s but did not have previous configuration - ignoring"
 )
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
@@ -33,7 +32,7 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		return
 	}
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	set, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
 		return
@@ -52,7 +51,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(params)
+	set, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
 		// being dispatched here, so a malformed set should not reach this point. Log defensively and

@@ -256,7 +256,7 @@ func TestAutoConfigAddEnvironmentWithExpiringSDKKeyDoesNotPanicWhenInitFails(t *
 	initialEvent := makeAutoConfPutEvent()
 	autoConfTest(t, testAutoConfDefaultConfig, &initialEvent, func(p autoConfTestParams) {
 		params := envWithKeys.params()
-		require.True(t, params.ExpiringSDKKey.Defined(),
+		require.Len(t, params.AcceptedSDKKeys, 2,
 			"precondition: params must carry an expiring SDK key to reach the credential-update branch")
 
 		// Closing the Relay makes the next addEnvironment return (nil, nil, errAlreadyClosed).

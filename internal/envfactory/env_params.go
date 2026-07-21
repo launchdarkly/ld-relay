@@ -26,10 +26,6 @@ type EnvironmentParams struct {
 	// MobileKey is the environment's mobile key.
 	MobileKey config.MobileKey
 
-	// ExpiringSDKKey is an additional SDK key that should also be allowed (but not surfaced as
-	// the canonical one).
-	ExpiringSDKKey ExpiringSDKKey
-
 	// AcceptedSDKKeys is the full accepted set of SDK keys for this environment, including the
 	// anchor. Always non-nil after ToParams(): non-empty sdkKeys arrays populate directly; absent
 	// or empty sdkKeys are synthesized from the singular sdkKey field so there is always at least
@@ -62,15 +58,6 @@ type AcceptedMobileKey struct {
 	Key    string
 	Value  config.MobileKey
 	Expiry time.Time
-}
-
-type ExpiringSDKKey struct {
-	Key        config.SDKKey
-	Expiration time.Time
-}
-
-func (e ExpiringSDKKey) Defined() bool {
-	return e.Key.Defined()
 }
 
 func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {

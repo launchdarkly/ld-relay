@@ -58,7 +58,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return
 	}
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	set, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
@@ -101,7 +101,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	set, _, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	set, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {

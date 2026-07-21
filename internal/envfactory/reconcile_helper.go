@@ -1,13 +1,12 @@
 package envfactory
 
 import (
-	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 )
 
-// BuildAcceptedSet converts an EnvironmentParams into the AcceptedSet and anchor
-// credential needed by EnvContext.ReconcileCredentials.
+// BuildAcceptedSet converts an EnvironmentParams into the AcceptedSet needed by
+// EnvContext.ReconcileCredentials.
 //
 // Credential identity is keyed by value (the secret string), not by key (the human-readable
 // identifier). A rename — same value, different identifier — therefore produces the same
@@ -26,7 +25,7 @@ import (
 // is absent from params.AcceptedSDKKeys, or an array entry with an empty value. The caller must
 // preserve the previous accepted state and, for RAC handlers, reconnect the stream with jitter to
 // force a fresh put. This is the single home for the anchor invariant.
-func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.SDKKey, error) {
+func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) {
 	anchor := params.SDKKey
 	b := credential.NewAcceptedSetBuilder().WithEnvironmentID(params.EnvID)
 
@@ -40,7 +39,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	anchorInArray := false
 	for _, k := range params.AcceptedSDKKeys {
 		if !k.Value.Defined() {
-			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("sdkKeys", k.Key)
+			return credential.AcceptedSet{}, credential.NewEmptyCredentialError("sdkKeys", k.Key)
 		}
 		if k.Value == anchor {
 			anchorInArray = true
@@ -54,7 +53,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	// synthesizes it into the array for old-format payloads). A defined anchor absent from the array is
 	// a structurally malformed payload — reject it.
 	if anchor.Defined() && !anchorInArray {
-		return credential.AcceptedSet{}, anchor, credential.NewAnchorNotInSetError()
+		return credential.AcceptedSet{}, credential.NewAnchorNotInSetError()
 	}
 
 	// Add every accepted mobile key, designating the primary as we encounter it. Like the anchor,
@@ -63,7 +62,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
-			return credential.AcceptedSet{}, anchor, credential.NewEmptyCredentialError("mobileKeys", k.Key)
+			return credential.AcceptedSet{}, credential.NewEmptyCredentialError("mobileKeys", k.Key)
 		}
 		if k.Value == params.MobileKey {
 			primaryMobileInArray = true
@@ -78,12 +77,12 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, config.
 	// without this guard the primary would be silently left undesignated, clearing it on reconcile and
 	// breaking event forwarding. (An undefined mobKey is valid — a server-side-only environment.)
 	if params.MobileKey.Defined() && !primaryMobileInArray {
-		return credential.AcceptedSet{}, anchor, credential.NewPrimaryMobileKeyNotInSetError()
+		return credential.AcceptedSet{}, credential.NewPrimaryMobileKeyNotInSetError()
 	}
 
 	set, err := b.Build()
 	if err != nil {
-		return credential.AcceptedSet{}, anchor, err
+		return credential.AcceptedSet{}, err
 	}
-	return set, anchor, nil
+	return set, nil
 }
