@@ -78,14 +78,16 @@ func NewSSERelayDataStoreAdapter(
 func (a *SSERelayDataStoreAdapter) Build(
 	context subsystems.ClientContext,
 ) (subsystems.DataStore, error) {
+	// The lock is held across the whole build so two concurrent Build calls cannot each construct and
+	// install their own wrapper.
 	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if existing := a.store; existing != nil {
 		if sw, ok := existing.(*streamUpdatesStoreWrapper); ok && sw.acquire() {
-			a.mu.Unlock()
 			return sw, nil
 		}
 	}
-	a.mu.Unlock()
 
 	wrappedStore, err := a.wrappedFactory.Build(context)
 	if err != nil {
@@ -96,9 +98,6 @@ func (a *SSERelayDataStoreAdapter) Build(
 		wrappedStore,
 		context.GetLogging().Loggers,
 	)
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.store = sw
 	return sw, nil
 }
