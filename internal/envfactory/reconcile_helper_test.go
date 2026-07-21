@@ -220,6 +220,49 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 	assert.Equal(t, expected, set)
 }
 
+// TestBuildAcceptedSet_MobileKeysWithoutPrimary verifies the complement of the primary-mobile-in-array
+// invariant: a non-empty mobileKeys[] with no designated primary (undefined mobKey) is rejected as a
+// *credential.MalformedCredentialSetError. Without this guard the reconcile would clear the rotator's
+// primary mobile key with no repoint, silently forwarding events under the previous (possibly revoked)
+// primary instead of loudly rejecting the payload.
+func TestBuildAcceptedSet_MobileKeysWithoutPrimary(t *testing.T) {
+	params := EnvironmentParams{
+		EnvID:           "env-abc",
+		SDKKey:          "sdk-anchor",
+		MobileKey:       "", // no primary designated...
+		AcceptedSDKKeys: []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+		AcceptedMobileKeys: []AcceptedMobileKey{
+			{Key: "mob-1", Value: "mob-primary"}, // ...but the array is non-empty
+		},
+	}
+	_, err := BuildAcceptedSet(params)
+
+	require.Error(t, err)
+	var malformed *credential.MalformedCredentialSetError
+	require.True(t, errors.As(err, &malformed))
+	assert.Contains(t, malformed.Error(), "no primary mobile key is designated")
+}
+
+// TestBuildAcceptedSet_EmptyMobileArrayValid verifies the boundary of the guard above: an empty
+// mobileKeys[] with an undefined mobKey (a server-side-only environment) is valid — the guard fires
+// only when the array is non-empty, so no primary mobile key is designated and nothing is rejected.
+func TestBuildAcceptedSet_EmptyMobileArrayValid(t *testing.T) {
+	params := EnvironmentParams{
+		EnvID:              "env-abc",
+		SDKKey:             "sdk-anchor",
+		MobileKey:          "", // undefined
+		AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
+		AcceptedMobileKeys: []AcceptedMobileKey{}, // empty
+	}
+	set, err := BuildAcceptedSet(params)
+
+	require.NoError(t, err)
+	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
+		WithEnvironmentID("env-abc").
+		WithAnchor(credential.SDKKeyParams{Value: "sdk-anchor", Key: util.PtrOrNil("default")}))
+	assert.Equal(t, expected, set)
+}
+
 // TestBuildAcceptedSet_AnchorUndefined verifies that an undefined anchor (empty SDKKey) yields a
 // *credential.MalformedCredentialSetError: no anchor was designated, so Build rejects the set.
 func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
