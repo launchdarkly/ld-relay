@@ -331,8 +331,8 @@ github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e 
 github.com/launchdarkly/api-client-go/v13 v13.0.1-0.20230420175109-f5469391a13e/go.mod h1:cQRkOAs0LGcfIs6RSsHNqwhzItUZooyhpqPv0hgiQZM=
 github.com/launchdarkly/ccache v1.1.0 h1:voD1M+ZJXR3MREOKtBwgTF9hYHl1jg+vFKS/+VAkR2k=
 github.com/launchdarkly/ccache v1.1.0/go.mod h1:TlxzrlnzvYeXiLHmesMuvoZetu4Z97cV1SsdqqBJi1Q=
-github.com/launchdarkly/eventsource v1.11.0 h1:aAdvh2XmtXA17QsRFL0XKHURMqhxg7J+CceQmhSzBas=
-github.com/launchdarkly/eventsource v1.11.0/go.mod h1:dU+rZxkPOlGPsyJPpiDqiepAcFwIITDUClY9+A6RrMw=
+github.com/launchdarkly/eventsource v1.11.1 h1:R0g6QbfuIByA43wkcKswOg5Ku6pgIW0TJEGOqLTP6vE=
+github.com/launchdarkly/eventsource v1.11.1/go.mod h1:dU+rZxkPOlGPsyJPpiDqiepAcFwIITDUClY9+A6RrMw=
 github.com/launchdarkly/go-configtypes v1.2.2 h1:IXfC7puQpUSctkNfd0L3t6kvlVIQwszBDWpnoiYxk8g=
 github.com/launchdarkly/go-configtypes v1.2.2/go.mod h1:KAwNI0N8ZuAZecfBga9sAv/LwlChEA1RDJ6+pxbxwhk=
 github.com/launchdarkly/go-jsonstream/v3 v3.1.1 h1:ugupp2eNtwVbr69KCdeUrm1vUf1/3ju4Wdliaob95uY=
