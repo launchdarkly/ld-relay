@@ -134,7 +134,7 @@ func TestSubscriberAddedIncrementsActive(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().SubscriberAdded(eventsource.SubscriberAddedInfo{Channel: testChannel})
+	h.trace().SubscriberAdded(context.Background(), eventsource.SubscriberAddedInfo{Channel: testChannel})
 
 	dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.subscribers.active"))
 	assert.Equal(t, int64(1), dp.Value)
@@ -147,8 +147,8 @@ func TestSubscriberRemovedDecrementsActiveAndRecordsDuration(t *testing.T) {
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 	tr := h.trace()
 
-	tr.SubscriberAdded(eventsource.SubscriberAddedInfo{Channel: testChannel})
-	tr.SubscriberRemoved(eventsource.SubscriberRemovedInfo{
+	tr.SubscriberAdded(context.Background(), eventsource.SubscriberAddedInfo{Channel: testChannel})
+	tr.SubscriberRemoved(context.Background(), eventsource.SubscriberRemovedInfo{
 		Channel:      testChannel,
 		Reason:       eventsource.ReasonClientClosed,
 		ConnDuration: 3 * time.Second,
@@ -183,7 +183,7 @@ func TestEventSentRecordsCountWithTypeAndSize(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().EventSent(eventsource.EventSentInfo{Channel: testChannel, EventType: "put", DataSize: 128})
+	h.trace().EventSent(context.Background(), eventsource.EventSentInfo{Channel: testChannel, EventType: "put", DataSize: 128})
 
 	rm := h.collect(t)
 
@@ -223,7 +223,7 @@ func TestEventSentBucketsUnknownAndFDv2Types(t *testing.T) {
 			h := newBridgeHarness(t)
 			h.bridge.RegisterChannel(testChannel, envAttrs())
 
-			h.trace().EventSent(eventsource.EventSentInfo{Channel: testChannel, EventType: c.raw, DataSize: 1})
+			h.trace().EventSent(context.Background(), eventsource.EventSentInfo{Channel: testChannel, EventType: c.raw, DataSize: 1})
 
 			dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.events.sent"))
 			assert.Equal(t, c.expected, attrValue(t, dp.Attributes, eventTypeAttrKey))
@@ -235,7 +235,7 @@ func TestCommentSent(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().CommentSent(eventsource.CommentSentInfo{Channel: testChannel})
+	h.trace().CommentSent(context.Background(), eventsource.CommentSentInfo{Channel: testChannel})
 
 	dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.comments.sent"))
 	assert.Equal(t, int64(1), dp.Value)
@@ -247,7 +247,7 @@ func TestEventDiscarded(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().EventDiscarded(eventsource.EventDiscardedInfo{
+	h.trace().EventDiscarded(context.Background(), eventsource.EventDiscardedInfo{
 		Channel: testChannel,
 		Reason:  eventsource.DiscardReasonJitterCoalesce,
 	})
@@ -262,7 +262,7 @@ func TestWriteError(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().WriteError(eventsource.WriteErrorInfo{Channel: testChannel, Err: errors.New("broken pipe")})
+	h.trace().WriteError(context.Background(), eventsource.WriteErrorInfo{Channel: testChannel, Err: errors.New("broken pipe")})
 
 	dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.write.errors"))
 	assert.Equal(t, int64(1), dp.Value)
@@ -274,7 +274,7 @@ func TestReplayFinishedRecordsEventsAndDuration(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
-	h.trace().ReplayFinished(eventsource.ReplayFinishedInfo{
+	h.trace().ReplayFinished(context.Background(), eventsource.ReplayFinishedInfo{
 		Channel:       testChannel,
 		EventCount:    5,
 		DrainDuration: 250 * time.Millisecond,
@@ -296,7 +296,7 @@ func TestUnknownChannelUsesFallbackAttributes(t *testing.T) {
 	h := newBridgeHarness(t)
 	// No RegisterChannel: the channel is unknown.
 
-	h.trace().SubscriberAdded(eventsource.SubscriberAddedInfo{Channel: "never-registered"})
+	h.trace().SubscriberAdded(context.Background(), eventsource.SubscriberAddedInfo{Channel: "never-registered"})
 
 	dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.subscribers.active"))
 	assert.Equal(t, int64(1), dp.Value, "measurement must not be dropped for an unknown channel")
@@ -312,7 +312,7 @@ func TestUnregisterChannelRevertsToFallback(t *testing.T) {
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 	h.bridge.UnregisterChannel(testChannel)
 
-	h.trace().SubscriberAdded(eventsource.SubscriberAddedInfo{Channel: testChannel})
+	h.trace().SubscriberAdded(context.Background(), eventsource.SubscriberAddedInfo{Channel: testChannel})
 
 	dp := sumPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.subscribers.active"))
 	_, hasEnv := dp.Attributes.Value(envNameKey)

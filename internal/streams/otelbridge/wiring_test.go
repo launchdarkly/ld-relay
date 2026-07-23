@@ -23,6 +23,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // wiringStore is a minimal EnvStoreQueries whose initialized-but-empty state makes the server-side
@@ -46,6 +48,13 @@ func TestStreamProviderWiringRecordsMetrics(t *testing.T) {
 
 	bridge := New(instruments.StreamInstruments(), []attribute.KeyValue{relayIDKey.String(testRelayID)})
 
+	// Record spans into memory and point the bridge at that tracer, standing in for relay's global
+	// tracer when OTLP is enabled.
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	tracer := tracerProvider.Tracer("test")
+	bridge.tracer = tracer
+
 	sp := streams.NewStreamProvider(basictypes.ServerSideStream, 0, 0, bridge.TraceFor)
 	require.NotNil(t, sp)
 	defer sp.Close()
@@ -62,8 +71,16 @@ func TestStreamProviderWiringRecordsMetrics(t *testing.T) {
 	handler := sp.HandlerV1(cred)
 	require.NotNil(t, handler)
 
+	// Relay's otelmux middleware holds a request span open for the connection; stand in for it so the
+	// handler goroutine sees a recording span on its request context and the bridge emits child spans.
+	tracedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := tracer.Start(r.Context(), "request")
+		defer span.End()
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+
 	req, _ := http.NewRequest("GET", "", nil)
-	sharedtest.WithStreamRequest(t, req, handler, func(eventCh <-chan eventsource.Event) {
+	sharedtest.WithStreamRequest(t, req, tracedHandler, func(eventCh <-chan eventsource.Event) {
 		e := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for replayed event")
 		require.Equal(t, "put", e.Event())
 
@@ -84,7 +101,23 @@ func TestStreamProviderWiringRecordsMetrics(t *testing.T) {
 		assert.GreaterOrEqual(t, sent.Value, int64(1))
 		assert.Equal(t, "put", attrValue(t, sent.Attributes, eventTypeAttrKey))
 		assertEnvAttrs(t, sent.Attributes)
+
+		// The same write produces a child span under the request span. It ends immediately, so it is
+		// exported once the flush completes; poll until it appears.
+		require.Eventually(t, func() bool {
+			return writeSpanCount(spanRecorder) >= 1
+		}, time.Second, 5*time.Millisecond, "no eventsource.write span was recorded")
 	})
+}
+
+func writeSpanCount(recorder *tracetest.SpanRecorder) int {
+	count := 0
+	for _, s := range recorder.Ended() {
+		if s.Name() == spanWrite {
+			count++
+		}
+	}
+	return count
 }
 
 func collectRM(t *testing.T, reader sdkmetric.Reader) *metricdata.ResourceMetrics {
