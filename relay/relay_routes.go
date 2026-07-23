@@ -99,11 +99,16 @@ func (r *Relay) makeRouter() *mux.Router {
 	// because it will not be run if it matches any earlier prefix.  Until it is fixed, we have to apply the middleware explicitly
 	// sdkRouter.Use(sdkRouterMiddleware)
 
+	// Every poll returns the full basis, so polls draw from the shared basis-delivery
+	// budget (the same one full-basis stream replays use). A disabled limiter is a
+	// pass-through.
+	pollLimit := middleware.LimitConcurrency(r.concurrency.basisDelivery)
+
 	// FDv2 server-side endpoints
 	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
@@ -130,8 +135,8 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
-	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("GET", "OPTIONS")
-	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("POST", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("/{context}", pollLimit(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("GET", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", pollLimit(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("POST", "OPTIONS")
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
@@ -141,10 +146,10 @@ func (r *Relay) makeRouter() *mux.Router {
 	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
 	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 
-	// PHP SDK endpoints
-	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
-	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
-	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
+	// PHP SDK endpoints (FDv1 polling)
+	sdkRouter.Handle("/flags", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler))))).Methods("GET")
+	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler))))).Methods("GET")
+	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler))))).Methods("GET")
 
 	// Mobile evaluation
 	mobileMiddlewareStack := middleware.Chain(

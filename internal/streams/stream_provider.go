@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -63,8 +64,33 @@ type EnvStreamProvider interface {
 	Close()
 }
 
+// Option customizes a StreamProvider created by NewStreamProvider.
+type Option func(*providerOptions)
+
+type providerOptions struct {
+	basisLimiter   *concurrency.Limiter
+	putSendTimeout time.Duration
+}
+
+// WithBasisLimiter bounds how many stream replays may send a FULL basis at once,
+// drawing from the shared basis-delivery budget (the same limiter polls use).
+// Replays that are already up-to-date, and deltas, do not consume the budget. Only
+// the server-side stream provider honors this; it is a no-op for other kinds. A nil
+// or disabled limiter imposes no limit. putSendTimeout frees a slot if a put cannot
+// be delivered to a (disconnected/stuck) client within it.
+func WithBasisLimiter(limiter *concurrency.Limiter, putSendTimeout time.Duration) Option {
+	return func(o *providerOptions) {
+		o.basisLimiter = limiter
+		o.putSendTimeout = putSendTimeout
+	}
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, opts ...Option) StreamProvider {
+	var o providerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
@@ -85,8 +111,10 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 		}
 	default:
 		return &serverSideStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server:     newSSEServer(maxConnTime),
+			fdv2Server:     newSSEServer(maxConnTime),
+			basisLimiter:   o.basisLimiter,
+			putSendTimeout: o.putSendTimeout,
 		}
 	}
 }

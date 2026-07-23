@@ -1,11 +1,14 @@
 package streams
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -20,9 +23,11 @@ import (
 // This is the standard implementation of the /sdk/stream (fdv2) & /all (fdv1)
 // stream endpoints for server-side SDKs.
 type serverSideStreamProvider struct {
-	fdv1Server *eventsource.Server
-	fdv2Server *eventsource.Server
-	closeOnce  sync.Once
+	fdv1Server     *eventsource.Server
+	fdv2Server     *eventsource.Server
+	basisLimiter   *concurrency.Limiter
+	putSendTimeout time.Duration
+	closeOnce      sync.Once
 }
 
 type serverSideEnvStreamProvider struct {
@@ -35,6 +40,14 @@ type serverSideEnvStreamRepository struct {
 	store  EnvStoreQueries
 	logger *slog.Logger
 	isV2   bool
+
+	// basisLimiter is the shared basis-delivery budget; a replay draws from it only
+	// when it must send a FULL basis (FDv1 always; FDv2 cold/stale), not when it is
+	// up-to-date. envKey scopes per-environment fairness; putSendTimeout frees a slot
+	// if a client disconnects mid-put. basisLimiter may be nil/disabled (no limit).
+	basisLimiter   *concurrency.Limiter
+	envKey         string
+	putSendTimeout time.Duration
 
 	flightGroup singleflight.Group
 }
@@ -77,7 +90,10 @@ func (s *serverSideStreamProvider) RegisterV1(
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: false}
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: logger, isV2: false,
+		basisLimiter: s.basisLimiter, envKey: credential.String(), putSendTimeout: s.putSendTimeout,
+	}
 	s.fdv1Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv1Server, channels: []string{credential.String()}, isV2: false}
 	return envStream
@@ -91,7 +107,10 @@ func (s *serverSideStreamProvider) RegisterV2(
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: true}
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: logger, isV2: true,
+		basisLimiter: s.basisLimiter, envKey: credential.String(), putSendTimeout: s.putSendTimeout,
+	}
 	s.fdv2Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv2Server, channels: []string{credential.String()}, isV2: true}
 	return envStream
@@ -176,21 +195,65 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 	}
 	go func() {
 		defer close(out)
+
+		// Charge the shared basis-delivery budget around GENERATION only, then release
+		// it BEFORE the client send.
+		//
+		// Generation (store snapshot + serialize; singleflight-deduped so concurrent
+		// replays don't multiply it) is the bounded work that genuinely contends with
+		// polls for CPU/memory, so it belongs under the shared budget. The subsequent
+		// send is client-paced, and the producer here CANNOT observe the client's
+		// disconnect: the eventsource handler goroutine detects it immediately (the
+		// request context fires), but Repository.Replay(channel, id) has no context or
+		// cancellation hook, so that knowledge never reaches this goroutine. Holding the
+		// slot across the send therefore let a dead or slow client pin a scarce shared
+		// slot for the whole send-timeout window — turning a private per-goroutine stall
+		// into system-wide livelock of the shared pool.
+		//
+		// Releasing after generation keeps dead clients out of the slot pool. The
+		// slot-free send below carries only the shared, memoized payload; the send
+		// timeout remains a backstop that unblocks an abandoned producer (until the
+		// eventsource library propagates disconnects to producers, which removes the
+		// blind hop entirely).
+		release, ok := r.basisLimiter.Acquire(context.Background(), r.envKey)
+		if !ok {
+			// Budget saturated during generation: shed this replay. The connection
+			// stays open but receives no data (the SSE 200/preamble already went out,
+			// so we cannot respond 503 here); the SDK times out init and reconnects.
+			r.logger.Debug("basis-delivery limit reached; shedding stream replay", "env", r.envKey)
+			return
+		}
+
 		var events []eventsource.Event
 		var err error
 		if r.isV2 {
 			// See the note in HandlerV2 about how we use the Last-Event-ID header to
 			// pass the basis.
-			events, err = r.getReplayEventsV2(id)
+			events, _, err = r.getReplayEventsV2(id)
 		} else {
 			events, err = r.getReplayEventsV1()
 		}
-
+		release() // released after generation — NOT held across the client send below
 		if err != nil {
 			return
 		}
+
+		sendTimeout := r.putSendTimeout
+		if sendTimeout <= 0 {
+			sendTimeout = 30 * time.Second
+		}
+		// Backstop only: this send holds no slot, but a bounded deadline still lets an
+		// abandoned producer (dead client, blind hop) unblock and exit rather than
+		// leaking the goroutine + payload forever (stock v9's bare `out <- event`).
+		deadline := time.NewTimer(sendTimeout)
+		defer deadline.Stop()
 		for _, event := range events {
-			out <- event
+			// out is consumed by the connection's handler goroutine.
+			select {
+			case out <- event:
+			case <-deadline.C:
+				return
+			}
 		}
 	}()
 	return out
@@ -226,7 +289,15 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 	return []eventsource.Event{event}, nil
 }
 
-func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
+// v2ReplayResult is the singleflight-shared result of an FDv2 replay: the events to
+// send and whether they constitute a full basis (heavy) versus an up-to-date reply
+// (cheap). fullBasis drives whether the send draws from the basis-delivery budget.
+type v2ReplayResult struct {
+	events    []eventsource.Event
+	fullBasis bool
+}
+
+func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, bool, error) {
 	// The result depends on the caller's basis: a client whose basis matches the current
 	// selector state gets an "up-to-date" event, while any other client gets a full data
 	// transfer. Only requests with the same basis may share a result, so the basis must be
@@ -239,7 +310,7 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]event
 		}
 
 		if basis != "" && selector.IsDefined() && selector.State() == basis {
-			return MakeEventsForUpToDate(selector), nil
+			return v2ReplayResult{events: MakeEventsForUpToDate(selector), fullBasis: false}, nil
 		}
 
 		changes := []subsystems.Change{}
@@ -271,13 +342,14 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]event
 			}
 		}
 
-		return MakeEventsForSetBasis(changes, selector), nil
+		return v2ReplayResult{events: MakeEventsForSetBasis(changes, selector), fullBasis: true}, nil
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	// panic if it's not an eventsource.Event - as this should be impossible
-	return data.([]eventsource.Event), nil
+	// panic if it's not a v2ReplayResult - as this should be impossible
+	res := data.(v2ReplayResult)
+	return res.events, res.fullBasis, nil
 }
