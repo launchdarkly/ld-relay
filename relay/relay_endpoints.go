@@ -207,103 +207,126 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	numItems := 2
-	if len(collection) > 0 {
-		for _, keyedItems := range collection {
-			numItems += len(keyedItems)
-		}
-	}
+	payloadJSON, ok := func() ([]byte, bool) {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		defer span.End()
 
-	pollingPayload := pollingPayload{
-		Events: make([]payloadEvent, 0, numItems),
-	}
-
-	basis := req.URL.Query().Get("basis")
-	if selector.IsDefined() && basis != "" && selector.State() == basis {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentNone,
-				Reason: "up-to-date",
-			}},
-		})
-	} else {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentTransferFull,
-				Reason: "cant-catchup",
-			}},
-		})
-		for kind, keyedItems := range collection {
-			for _, keyedItem := range keyedItems {
-				if keyedItem.Item.Item == nil {
-					continue // this should not happen, but just in case
-				}
-				switch kind {
-				case ldstoreimpl.Features():
-					if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
-						writer := jwriter.NewWriter()
-						ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
-
-						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-							Event: "put-object",
-							EventData: subsystems.PutObject{
-								Version: keyedItem.Item.Version,
-								Kind:    subsystems.FlagKind,
-								Key:     keyedItem.Key,
-								Object:  writer.Bytes(),
-							},
-						})
-					} else {
-						clientCtx.Env.GetLogger().Error("error casting keyed item to feature flag")
-						w.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-				case ldstoreimpl.Segments():
-					if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
-						writer := jwriter.NewWriter()
-						ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
-
-						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-							Event: "put-object",
-							EventData: subsystems.PutObject{
-								Version: keyedItem.Item.Version,
-								Kind:    subsystems.SegmentKind,
-								Key:     keyedItem.Key,
-								Object:  writer.Bytes(),
-							},
-						})
-					} else {
-						clientCtx.Env.GetLogger().Error("error casting keyed item to feature segment")
-						w.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-				default:
-					clientCtx.Env.GetLogger().Error("unexpected data kind in store snapshot", "kind", kind)
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
+		numItems := 2
+		if len(collection) > 0 {
+			for _, keyedItems := range collection {
+				numItems += len(keyedItems)
 			}
 		}
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event:     "payload-transferred",
-			EventData: selector,
-		})
-	}
 
-	json, err := json.Marshal(pollingPayload)
-	if err != nil {
-		clientCtx.Env.GetLogger().Error("error marshaling polling response", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		pollingPayload := pollingPayload{
+			Events: make([]payloadEvent, 0, numItems),
+		}
+
+		basis := req.URL.Query().Get("basis")
+		if selector.IsDefined() && basis != "" && selector.State() == basis {
+			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+				Event: "server-intent",
+				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+					ID:     selector.State(),
+					Target: selector.Version(),
+					Code:   subsystems.IntentNone,
+					Reason: "up-to-date",
+				}},
+			})
+		} else {
+			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+				Event: "server-intent",
+				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+					ID:     selector.State(),
+					Target: selector.Version(),
+					Code:   subsystems.IntentTransferFull,
+					Reason: "cant-catchup",
+				}},
+			})
+			for kind, keyedItems := range collection {
+				for _, keyedItem := range keyedItems {
+					if keyedItem.Item.Item == nil {
+						continue // this should not happen, but just in case
+					}
+					switch kind {
+					case ldstoreimpl.Features():
+						if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
+							writer := jwriter.NewWriter()
+							ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
+
+							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+								Event: "put-object",
+								EventData: subsystems.PutObject{
+									Version: keyedItem.Item.Version,
+									Kind:    subsystems.FlagKind,
+									Key:     keyedItem.Key,
+									Object:  writer.Bytes(),
+								},
+							})
+						} else {
+							clientCtx.Env.GetLogger().Error("error casting keyed item to feature flag")
+							span.SetStatus(codes.Error, "error casting keyed item to feature flag")
+							w.WriteHeader(http.StatusInternalServerError)
+							return nil, false
+						}
+					case ldstoreimpl.Segments():
+						if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
+							writer := jwriter.NewWriter()
+							ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
+
+							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+								Event: "put-object",
+								EventData: subsystems.PutObject{
+									Version: keyedItem.Item.Version,
+									Kind:    subsystems.SegmentKind,
+									Key:     keyedItem.Key,
+									Object:  writer.Bytes(),
+								},
+							})
+						} else {
+							clientCtx.Env.GetLogger().Error("error casting keyed item to feature segment")
+							span.SetStatus(codes.Error, "error casting keyed item to feature segment")
+							w.WriteHeader(http.StatusInternalServerError)
+							return nil, false
+						}
+					default:
+						clientCtx.Env.GetLogger().Error("unexpected data kind in store snapshot", "kind", kind)
+						span.SetStatus(codes.Error, "unexpected data kind in store snapshot")
+						w.WriteHeader(http.StatusInternalServerError)
+						return nil, false
+					}
+				}
+			}
+			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+				Event:     "payload-transferred",
+				EventData: selector,
+			})
+		}
+
+		data, err := json.Marshal(pollingPayload)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			clientCtx.Env.GetLogger().Error("error marshaling polling response", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return nil, false
+		}
+		span.SetAttributes(
+			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
+			tracing.PayloadBytesKey.Int(len(data)),
+		)
+		return data, true
+	}()
+	if !ok {
 		return
 	}
 
-	writeCacheableJSONResponse(w, req, clientCtx.Env, json, selector.State())
+	func() {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+		defer span.End()
+		span.SetAttributes(tracing.ResponseBytesKey.Int(len(payloadJSON)))
+		writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
+	}()
 }
 
 // FDv2 client-side polling endpoint that evaluates flags against a context.
@@ -366,9 +389,13 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 	pollingPayload := pollingPayload{
 		Events: make([]payloadEvent, 0),
 	}
+	flagEvalKind := subsystems.ObjectKind("flag-eval")
 
 	basis := req.URL.Query().Get("basis")
-	if selector.IsDefined() && basis != "" && selector.State() == basis {
+	upToDate := selector.IsDefined() && basis != "" && selector.State() == basis
+
+	var evalResults []flagEvalResult
+	if upToDate {
 		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
 			Event: "server-intent",
 			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
@@ -390,7 +417,6 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		})
 
 		evaluator := clientCtx.Env.GetEvaluator()
-		flagEvalKind := subsystems.ObjectKind("flag-eval")
 
 		var allItems []ldstoretypes.KeyedItemDescriptor
 		for kind, keyedItems := range collection {
@@ -401,54 +427,76 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		}
 
 		_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
-		evalResults := evaluateFlags(evaluator, allItems, sdkKind, ldContext)
+		evalResults = evaluateFlags(evaluator, allItems, sdkKind, ldContext)
 		evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 		evalSpan.End()
+	}
 
-		for _, er := range evalResults {
-			evalWriter := jwriter.NewWriter()
-			evalObj := evalWriter.Object()
-			er.Detail.Value.WriteToJSONWriter(evalObj.Name("value"))
-			er.Detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
-			evalObj.Name("flagVersion").Int(er.Flag.Version)
-			writePrerequisites(&evalObj, er.Prerequisites)
-			evalObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
-			evalObj.Maybe("trackReason", er.IsExperiment).Bool(true)
-			if withReasons || er.IsExperiment {
-				er.Detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
+	jsonData, ok := func() ([]byte, bool) {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		defer span.End()
+
+		if !upToDate {
+			for _, er := range evalResults {
+				evalWriter := jwriter.NewWriter()
+				evalObj := evalWriter.Object()
+				er.Detail.Value.WriteToJSONWriter(evalObj.Name("value"))
+				er.Detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
+				evalObj.Name("flagVersion").Int(er.Flag.Version)
+				writePrerequisites(&evalObj, er.Prerequisites)
+				evalObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
+				evalObj.Maybe("trackReason", er.IsExperiment).Bool(true)
+				if withReasons || er.IsExperiment {
+					er.Detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
+				}
+				evalObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
+					Float64(float64(er.Flag.DebugEventsUntilDate))
+				if er.Flag.SamplingRatio.IsDefined() {
+					evalObj.Name("samplingRatio").Int(er.Flag.SamplingRatio.IntValue())
+				}
+				evalObj.End()
+
+				pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+					Event: "put-object",
+					EventData: subsystems.PutObject{
+						Version: er.Flag.Version,
+						Kind:    flagEvalKind,
+						Key:     er.Flag.Key,
+						Object:  evalWriter.Bytes(),
+					},
+				})
 			}
-			evalObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
-				Float64(float64(er.Flag.DebugEventsUntilDate))
-			if er.Flag.SamplingRatio.IsDefined() {
-				evalObj.Name("samplingRatio").Int(er.Flag.SamplingRatio.IntValue())
-			}
-			evalObj.End()
 
 			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "put-object",
-				EventData: subsystems.PutObject{
-					Version: er.Flag.Version,
-					Kind:    flagEvalKind,
-					Key:     er.Flag.Key,
-					Object:  evalWriter.Bytes(),
-				},
+				Event:     "payload-transferred",
+				EventData: selector,
 			})
 		}
 
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event:     "payload-transferred",
-			EventData: selector,
-		})
-	}
-
-	jsonData, err := json.Marshal(pollingPayload)
-	if err != nil {
-		logger.Error("error marshaling polling response", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		data, err := json.Marshal(pollingPayload)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			logger.Error("error marshaling polling response", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return nil, false
+		}
+		span.SetAttributes(
+			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
+			tracing.PayloadBytesKey.Int(len(data)),
+		)
+		return data, true
+	}()
+	if !ok {
 		return
 	}
 
-	writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
+	func() {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+		defer span.End()
+		span.SetAttributes(tracing.ResponseBytesKey.Int(len(jsonData)))
+		writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
+	}()
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
@@ -468,15 +516,31 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	respData := serializeFlagsAsMap(data)
-	// Compute an overall Etag for the data set by hashing flag keys and versions
-	hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
-	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
-	for _, item := range data {
-		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
-	}
-	etag := hex.EncodeToString(hash.Sum(nil))[:15]
-	writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
+	respData, etag := func() ([]byte, string) {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		defer span.End()
+
+		respData := serializeFlagsAsMap(data)
+		// Compute an overall Etag for the data set by hashing flag keys and versions
+		hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
+		sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
+		for _, item := range data {
+			_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
+		}
+		etag := hex.EncodeToString(hash.Sum(nil))[:15]
+		span.SetAttributes(
+			tracing.FlagCountKey.Int(len(data)),
+			tracing.PayloadBytesKey.Int(len(respData)),
+		)
+		return respData, etag
+	}()
+
+	func() {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+		defer span.End()
+		span.SetAttributes(tracing.ResponseBytesKey.Int(len(respData)))
+		writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
+	}()
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
@@ -662,28 +726,43 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 	evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 	evalSpan.End()
 
-	responseWriter := jwriter.NewWriter()
-	responseObj := responseWriter.Object()
-	for _, er := range evalResults {
-		valueObj := responseObj.Name(er.Flag.Key).Object()
-		er.Detail.Value.WriteToJSONWriter(valueObj.Name("value"))
-		er.Detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
-		valueObj.Name("version").Int(er.Flag.Version)
-		valueObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
-		valueObj.Maybe("trackReason", er.IsExperiment).Bool(true)
-		if withReasons || er.IsExperiment {
-			er.Detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
-		}
-		valueObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
-			Float64(float64(er.Flag.DebugEventsUntilDate))
-		writePrerequisites(&valueObj, er.Prerequisites)
-		valueObj.End()
-	}
-	responseObj.End()
-	result := responseWriter.Bytes()
+	result := func() []byte {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		defer span.End()
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result)
+		responseWriter := jwriter.NewWriter()
+		responseObj := responseWriter.Object()
+		for _, er := range evalResults {
+			valueObj := responseObj.Name(er.Flag.Key).Object()
+			er.Detail.Value.WriteToJSONWriter(valueObj.Name("value"))
+			er.Detail.VariationIndex.WriteToJSONWriter(valueObj.Name("variation"))
+			valueObj.Name("version").Int(er.Flag.Version)
+			valueObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
+			valueObj.Maybe("trackReason", er.IsExperiment).Bool(true)
+			if withReasons || er.IsExperiment {
+				er.Detail.Reason.WriteToJSONWriter(valueObj.Name("reason"))
+			}
+			valueObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
+				Float64(float64(er.Flag.DebugEventsUntilDate))
+			writePrerequisites(&valueObj, er.Prerequisites)
+			valueObj.End()
+		}
+		responseObj.End()
+		data := responseWriter.Bytes()
+		span.SetAttributes(
+			tracing.FlagCountKey.Int(len(evalResults)),
+			tracing.PayloadBytesKey.Int(len(data)),
+		)
+		return data
+	}()
+
+	func() {
+		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+		defer span.End()
+		span.SetAttributes(tracing.ResponseBytesKey.Int(len(result)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(result)
+	}()
 }
 
 func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
@@ -706,15 +785,33 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		}
 		if item.Item == nil {
 			w.WriteHeader(http.StatusNotFound)
-		} else {
-			bytes, err := json.Marshal(item.Item)
-			if err == nil {
-				writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
-			} else {
+			return
+		}
+
+		bytes, ok := func() ([]byte, bool) {
+			_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+			defer span.End()
+			data, err := json.Marshal(item.Item)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 				clientContext.GetLogger().Error("error marshaling JSON", "error", err)
 				w.WriteHeader(http.StatusInternalServerError)
+				return nil, false
 			}
+			span.SetAttributes(tracing.PayloadBytesKey.Int(len(data)))
+			return data, true
+		}()
+		if !ok {
+			return
 		}
+
+		func() {
+			_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+			defer span.End()
+			span.SetAttributes(tracing.ResponseBytesKey.Int(len(bytes)))
+			writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
+		}()
 	}
 }
 
