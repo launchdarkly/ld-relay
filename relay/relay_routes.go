@@ -8,12 +8,14 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
+	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/logging"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
 	"github.com/launchdarkly/ld-relay/v9/internal/middleware"
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 
 	"github.com/gorilla/mux"
@@ -58,6 +60,11 @@ func (r *Relay) makeRouter() *mux.Router {
 	mobileKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.MobileSDK, environmentGetters)
 	jsClientSelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.JSClientSDK, environmentGetters)
 	offlineMode := r.config.OfflineMode.FileDataSource != ""
+	// Resolve the maximum client request body size once, applying the default when unset. This is always
+	// defined so that REPORT evaluation bodies are bounded by default (customers may override or disable it).
+	maxClientRequestBodySize := ct.NewOptBase2Bytes(
+		r.config.Main.MaxClientRequestBodySize.GetOrElse(config.DefaultMaxClientRequestBodySize),
+	)
 
 	// Client-side evaluation (for JS, not mobile)
 	jsClientSideMiddlewareStack := func(subrouter *mux.Router) mux.MiddlewareFunc {
@@ -76,10 +83,10 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
 	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter))
-	clientSideSdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("REPORT", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("GET", "OPTIONS")
-	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.JSClientSDK)).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("REPORT", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
+	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("REPORT", "OPTIONS")
 
 	serverSideMiddlewareStack := middleware.Chain(
 		sdkKeySelector,
@@ -110,7 +117,7 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2StreamRouter.Use(clientSideFDv2StreamMiddleware, middleware.Streaming)
-	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider)
+	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider, maxClientRequestBodySize)
 	clientSideFDv2StreamRouter.Handle("/{context}", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("GET", "OPTIONS")
 	clientSideFDv2StreamRouter.Handle("", middleware.DynamicUsageActivityStreamMonitoring(middleware.CountClientConns(clientSideFDv2PingHandler))).Methods("POST", "OPTIONS")
 
@@ -123,16 +130,16 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
-	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("GET", "OPTIONS")
-	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2))).Methods("POST", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("GET", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("POST", "OPTIONS")
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 
 	// PHP SDK endpoints
 	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
@@ -149,16 +156,16 @@ func (r *Relay) makeRouter() *mux.Router {
 	msdkRouter.Use(mobileMiddlewareStack)
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
-	msdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK)).Methods("GET")
-	msdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.MobileSDK)).Methods("REPORT")
+	msdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	msdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK)).Methods("GET")
-	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.MobileSDK)).Methods("REPORT")
+	msdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("GET")
+	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
 	mobileStreamRouter.Use(mobileMiddlewareStack, middleware.Streaming)
-	mobilePingWithUser := pingStreamHandlerWithContextV1(basictypes.MobileSDK, r.mobileStreamProvider)
+	mobilePingWithUser := pingStreamHandlerWithContextV1(basictypes.MobileSDK, maxClientRequestBodySize, r.mobileStreamProvider)
 	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
 	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
@@ -166,7 +173,7 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandlerV1(r.mobileStreamProvider)))))).Methods("GET")
 
 	jsPing := pingStreamHandlerV1(r.jsClientStreamProvider)
-	jsPingWithUser := pingStreamHandlerWithContextV1(basictypes.JSClientSDK, r.jsClientStreamProvider)
+	jsPingWithUser := pingStreamHandlerWithContextV1(basictypes.JSClientSDK, maxClientRequestBodySize, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
 	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter), middleware.Streaming)
