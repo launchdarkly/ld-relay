@@ -19,6 +19,19 @@ const (
 	eventsDroppedMeasureName    = "launchdarkly.relay.events.dropped"
 	eventsPendingMeasureName    = "launchdarkly.relay.events.pending"
 
+	// Instrument names for the eventsource server SSE streams. These are recorded by the
+	// otelbridge package from eventsource ServerTrace callbacks.
+	streamSubscribersActiveMeasureName   = "launchdarkly.relay.stream.subscribers.active"
+	streamConnectionDurationMeasureName  = "launchdarkly.relay.stream.connection.duration"
+	streamSubscribersDroppedMeasureName  = "launchdarkly.relay.stream.subscribers.dropped"
+	streamEventsSentMeasureName          = "launchdarkly.relay.stream.events.sent"
+	streamEventsSentSizeMeasureName      = "launchdarkly.relay.stream.events.sent.size"
+	streamCommentsSentMeasureName        = "launchdarkly.relay.stream.comments.sent"
+	streamEventsDiscardedMeasureName     = "launchdarkly.relay.stream.events.discarded"
+	streamWriteErrorsMeasureName         = "launchdarkly.relay.stream.write.errors"
+	streamReplayEventsMeasureName        = "launchdarkly.relay.stream.replay.events"
+	streamReplayDrainDurationMeasureName = "launchdarkly.relay.stream.replay.drain.duration"
+
 	defaultFlushInterval = time.Minute
 
 	BrowserPlatformCategory = "browser"

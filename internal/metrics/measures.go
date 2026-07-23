@@ -19,6 +19,109 @@ type Instruments struct {
 	eventsFailedSend    metric.Int64Counter       // cumulative count of events that failed to send
 	eventsBytesSent     metric.Int64Counter       // cumulative bytes of event payloads successfully sent
 	pendingEvents       metric.Int64Gauge         // current number of events pending delivery
+	stream              StreamInstruments
+}
+
+// StreamInstruments holds the OTel instruments for the eventsource server SSE streams. They are
+// recorded by the otelbridge package from eventsource ServerTrace callbacks. The fields are
+// exported because the bridge lives in another package and assembles the per-channel attributes
+// itself; instrument creation still happens once in NewManager, as with all other instruments.
+type StreamInstruments struct {
+	SubscribersActive   metric.Int64UpDownCounter // active SSE subscribers (+1/-1)
+	ConnectionDuration  metric.Float64Histogram   // SSE connection lifetime in seconds
+	SubscribersDropped  metric.Int64Counter       // subscribers force-dropped for buffer overflow
+	EventsSent          metric.Int64Counter       // events written to subscribers
+	EventsSentSize      metric.Int64Histogram     // size in bytes of event payloads written
+	CommentsSent        metric.Int64Counter       // comments (heartbeats) written to subscribers
+	EventsDiscarded     metric.Int64Counter       // events discarded before delivery (jitter coalescing)
+	WriteErrors         metric.Int64Counter       // encode/write failures to a subscriber
+	ReplayEvents        metric.Int64Histogram     // events drained per replay
+	ReplayDrainDuration metric.Float64Histogram   // time to drain a replay batch, in seconds
+}
+
+// StreamInstruments returns the eventsource stream instruments for use by the otelbridge package.
+func (i *Instruments) StreamInstruments() StreamInstruments {
+	return i.stream
+}
+
+// newStreamInstruments creates the eventsource stream instruments from the given meter. The
+// subscribers.active description calls out that it counts SSE subscriptions inside the eventsource
+// server, which is a finer granularity than the http.server.active_requests metric emitted by the
+// HTTP middleware.
+func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
+	subscribersActive, err := meter.Int64UpDownCounter(streamSubscribersActiveMeasureName,
+		metric.WithDescription("Number of active SSE subscriptions inside the eventsource server; "+
+			"finer-grained than http.server.active_requests, which counts HTTP requests"),
+		metric.WithUnit("{subscriber}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	connectionDuration, err := meter.Float64Histogram(streamConnectionDurationMeasureName,
+		metric.WithDescription("Lifetime of an SSE subscription connection"),
+		metric.WithUnit("s"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	subscribersDropped, err := meter.Int64Counter(streamSubscribersDroppedMeasureName,
+		metric.WithDescription("SSE subscribers force-disconnected after falling behind the buffer"),
+		metric.WithUnit("{subscriber}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	eventsSent, err := meter.Int64Counter(streamEventsSentMeasureName,
+		metric.WithDescription("Events written to SSE subscribers"),
+		metric.WithUnit("{event}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	eventsSentSize, err := meter.Int64Histogram(streamEventsSentSizeMeasureName,
+		metric.WithDescription("Size of event payloads written to SSE subscribers"),
+		metric.WithUnit("By"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	commentsSent, err := meter.Int64Counter(streamCommentsSentMeasureName,
+		metric.WithDescription("Comments written to SSE subscribers"),
+		metric.WithUnit("{comment}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	eventsDiscarded, err := meter.Int64Counter(streamEventsDiscardedMeasureName,
+		metric.WithDescription("Events discarded before delivery, such as by jitter coalescing"),
+		metric.WithUnit("{event}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	writeErrors, err := meter.Int64Counter(streamWriteErrorsMeasureName,
+		metric.WithDescription("Failures encoding or writing an event to a subscriber"),
+		metric.WithUnit("{error}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	replayEvents, err := meter.Int64Histogram(streamReplayEventsMeasureName,
+		metric.WithDescription("Events drained to a subscriber per replay"),
+		metric.WithUnit("{event}"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	replayDrainDuration, err := meter.Float64Histogram(streamReplayDrainDurationMeasureName,
+		metric.WithDescription("Time to drain a replay batch to a subscriber"),
+		metric.WithUnit("s"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
+	return StreamInstruments{
+		SubscribersActive:   subscribersActive,
+		ConnectionDuration:  connectionDuration,
+		SubscribersDropped:  subscribersDropped,
+		EventsSent:          eventsSent,
+		EventsSentSize:      eventsSentSize,
+		CommentsSent:        commentsSent,
+		EventsDiscarded:     eventsDiscarded,
+		WriteErrors:         writeErrors,
+		ReplayEvents:        replayEvents,
+		ReplayDrainDuration: replayDrainDuration,
+	}, nil
 }
 
 // Measure identifies what to record. Each pre-defined Measure var specifies which
@@ -96,6 +199,10 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
+	stream, err := newStreamInstruments(meter)
+	if err != nil {
+		return nil, err
+	}
 	return &Instruments{
 		connections:         connections,
 		requestDuration:     requestDuration,
@@ -105,6 +212,7 @@ func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
 		eventsFailedSend:    eventsFailedSend,
 		eventsBytesSent:     eventsBytesSent,
 		pendingEvents:       pendingEvents,
+		stream:              stream,
 	}, nil
 }
 

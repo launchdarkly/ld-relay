@@ -63,49 +63,67 @@ type EnvStreamProvider interface {
 	Close()
 }
 
+// ServerTraceFactory produces the eventsource.ServerTrace to attach to a Server for a given stream
+// kind and wire protocol ("v1" or "v2"), or nil to leave tracing disabled. It lets the relay package
+// wire the OTel bridge into the SSE servers without the streams package depending on the bridge.
+type ServerTraceFactory func(streamKind, protocol string) *eventsource.ServerTrace
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
+// If traceFactory is non-nil, it is used to attach a ServerTrace to each of the provider's two SSE
+// servers (fdv1 and fdv2), tagged with the stream kind and protocol.
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, traceFactory ServerTraceFactory) StreamProvider {
+	v1Trace, v2Trace := traces(kind, traceFactory)
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServer(maxConnTime, v1Trace),
+			fdv2Server: newSSEServer(maxConnTime, v2Trace),
 		}
 	case basictypes.MobilePingStream:
 		return &clientSidePingStreamProvider{
-			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
-			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, v1Trace),
+			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, v2Trace),
 			isJSClient: false,
 		}
 	case basictypes.JSClientPingStream:
 		return &clientSidePingStreamProvider{
-			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
-			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime),
+			fdv1Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, v1Trace),
+			fdv2Server: newSSEServerWithJitter(maxConnTime, pingStreamJitterTime, v2Trace),
 			isJSClient: true,
 		}
 	default:
 		return &serverSideStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server: newSSEServer(maxConnTime, v1Trace),
+			fdv2Server: newSSEServer(maxConnTime, v2Trace),
 		}
 	}
 }
 
-func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
+// traces builds the fdv1 and fdv2 ServerTraces for a stream kind, or nils if there is no factory.
+func traces(kind basictypes.StreamKind, traceFactory ServerTraceFactory) (v1Trace, v2Trace *eventsource.ServerTrace) {
+	if traceFactory == nil {
+		return nil, nil
+	}
+	return traceFactory(string(kind), "v1"), traceFactory(string(kind), "v2")
+}
+
+func newSSEServer(maxConnTime time.Duration, trace *eventsource.ServerTrace) *eventsource.Server {
 	s := eventsource.NewServer()
 	s.Gzip = false
 	s.AllowCORS = true
 	s.ReplayAll = true
 	s.MaxConnTime = maxConnTime
+	s.Trace = trace
 	return s
 }
 
-func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration) *eventsource.Server {
+func newSSEServerWithJitter(maxConnTime time.Duration, jitter time.Duration, trace *eventsource.ServerTrace) *eventsource.Server {
 	s := eventsource.NewServerWithJitter(jitter)
 	s.Gzip = false
 	s.AllowCORS = true
 	s.ReplayAll = true
 	s.MaxConnTime = maxConnTime
+	s.Trace = trace
 	return s
 }
 
