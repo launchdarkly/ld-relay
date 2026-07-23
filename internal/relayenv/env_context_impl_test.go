@@ -640,7 +640,7 @@ func TestReceivingBigSegmentsUpdateCausesClientSideInvalidationEvent(t *testing.
 	}
 	fakeSynchronizerFactory := &mockBigSegmentSynchronizerFactory{}
 
-	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
+	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0, nil)
 	sdkStartedCh := make(chan EnvContext)
 	env, err := NewEnvContext(EnvContextImplParams{
 		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},

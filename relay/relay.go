@@ -25,6 +25,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+	"github.com/launchdarkly/ld-relay/v9/internal/streams/otelbridge"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 	"github.com/launchdarkly/ld-relay/v9/relay/version"
 
@@ -51,6 +52,7 @@ type Relay struct {
 	http.Handler
 	envsByCredential              *EnvironmentLookup
 	metricsManager                *metrics.Manager
+	streamMetricsBridge           *otelbridge.Bridge
 	clientFactory                 sdks.ClientFactoryFunc
 	serverSideStreamProvider      streams.StreamProvider
 	serverSideFlagsStreamProvider streams.StreamProvider
@@ -145,13 +147,24 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 
 	userAgent := "LDRelay/" + version.Version
 
+	// When OTLP metrics are enabled, build the eventsource OTel bridge and attach its ServerTrace to
+	// every SSE server. When disabled, streamTraceFactory stays nil so each Server.Trace stays nil and
+	// the library takes its zero-overhead path.
+	var streamMetricsBridge *otelbridge.Bridge
+	var streamTraceFactory streams.ServerTraceFactory
+	if c.OpenTelemetry.Enabled {
+		streamMetricsBridge = otelbridge.New(metricsManager.GetInstruments().StreamInstruments(), metricsManager.BaseAttributes())
+		streamTraceFactory = streamMetricsBridge.TraceFor
+	}
+
 	r := &Relay{
 		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0),
-		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
-		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
-		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),
+		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0, streamTraceFactory),
+		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0, streamTraceFactory),
+		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime, streamTraceFactory),
+		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime, streamTraceFactory),
 		metricsManager:                metricsManager,
+		streamMetricsBridge:           streamMetricsBridge,
 		clientFactory:                 clientFactory,
 		clientInitCh:                  clientInitCh,
 		version:                       version.Version,
@@ -483,7 +496,7 @@ func (r *Relay) addEnvironment(
 		}
 		return r.clientFactory(sdkKey, config, timeout)
 	}
-	clientContext, err := relayenv.NewEnvContext(relayenv.EnvContextImplParams{
+	params := relayenv.EnvContextImplParams{
 		Identifiers:                      identifiers,
 		EnvConfig:                        envConfig,
 		AllConfig:                        r.config,
@@ -498,7 +511,13 @@ func (r *Relay) addEnvironment(
 		Logger:                           r.logger,
 		ConnectionMapper:                 r,
 		ExpiredCredentialCleanupInterval: r.config.Main.ExpiredCredentialCleanupInterval.GetOrElse(0),
-	}, resultCh)
+	}
+	// Only set the registry when the bridge exists; a nil *otelbridge.Bridge stored in the interface
+	// field would be a non-nil interface value and defeat the nil checks in envContextImpl.
+	if r.streamMetricsBridge != nil {
+		params.StreamChannelRegistry = r.streamMetricsBridge
+	}
+	clientContext, err := relayenv.NewEnvContext(params, resultCh)
 	if err != nil {
 		return nil, nil, errNewClientContextFailed(identifiers.GetDisplayName(), err)
 	}

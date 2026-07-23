@@ -25,7 +25,7 @@ func TestStreamProviderMobilePing(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testEnvID)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0, nil)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -69,7 +69,7 @@ func TestStreamProviderJSClientPing(t *testing.T) {
 	invalidCredential2 := sdkauth.New(testMobileKey)
 
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, 0, nil)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)
@@ -114,7 +114,7 @@ func TestStreamProviderAllClientSidePing(t *testing.T) {
 
 	validCredential := sdkauth.New(testMobileKey)
 	withStreamProvider := func(t *testing.T, maxConnTime time.Duration, action func(StreamProvider)) {
-		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0)
+		sp := NewStreamProvider(basictypes.MobilePingStream, maxConnTime, 0, nil)
 		require.NotNil(t, sp)
 		defer sp.Close()
 		action(sp)

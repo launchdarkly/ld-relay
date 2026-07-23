@@ -115,6 +115,8 @@ func NewManager(
 		otelmetric.WithDescription("Events buffered in the queue"),
 		otelmetric.WithUnit("{event}"))
 
+	stream, _ := newStreamInstruments(meter)
+
 	instruments := &Instruments{
 		connections:         connections,
 		requestDuration:     requestDuration,
@@ -124,6 +126,7 @@ func NewManager(
 		eventsFailedSend:    eventsFailedSend,
 		eventsBytesSent:     eventsBytesSent,
 		pendingEvents:       pendingEvents,
+		stream:              stream,
 	}
 
 	usageChan := make(chan any, 256)
@@ -148,6 +151,13 @@ func NewManager(
 // GetInstruments returns the OTel instruments for recording metrics.
 func (m *Manager) GetInstruments() *Instruments {
 	return m.instruments
+}
+
+// BaseAttributes returns the process-level attributes shared by every metric this Manager records,
+// currently just relay.id. It is used as the fallback attribute set for stream metrics whose channel
+// cannot be mapped to an environment.
+func (m *Manager) BaseAttributes() []attribute.KeyValue {
+	return []attribute.KeyValue{relayIDAttrKey.String(m.metricsRelayID)}
 }
 
 // SetInstrumentsForTest replaces the instruments on this Manager. Intended for testing only.

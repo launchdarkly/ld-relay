@@ -23,6 +23,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/interfaces"
@@ -65,6 +67,15 @@ type ConnectionMapper interface {
 	RemoveConnectionMapping(scopedCredential sdkauth.ScopedCredential)
 }
 
+// StreamChannelRegistry maps SSE channel strings to the metric attributes for this environment, for
+// the eventsource OTel bridge. The environment registers a channel when it registers a credential
+// with the SSE servers and unregisters it when the credential is removed. It is implemented by the
+// otelbridge.Bridge and is nil when OTLP metrics are disabled.
+type StreamChannelRegistry interface {
+	RegisterChannel(channel string, attrs attribute.Set)
+	UnregisterChannel(channel string)
+}
+
 // EnvContextImplParams contains the constructor parameters for NewEnvContextImpl. These have their
 // own type because there are a lot of them, and many are irrelevant in tests.
 type EnvContextImplParams struct {
@@ -84,6 +95,7 @@ type EnvContextImplParams struct {
 	LogNameMode                      LogNameMode
 	Logger                           *slog.Logger
 	ConnectionMapper                 ConnectionMapper
+	StreamChannelRegistry            StreamChannelRegistry
 	ExpiredCredentialCleanupInterval time.Duration
 }
 
@@ -121,6 +133,8 @@ type envContextImpl struct {
 	stopMonitoringCredentials chan struct{}
 	doneMonitoringCredentials chan struct{}
 	connectionMapper          ConnectionMapper
+	streamChannelRegistry     StreamChannelRegistry
+	streamChannels            map[string]struct{} // channel strings registered with streamChannelRegistry
 	offline                   bool
 	closed                    bool
 }
@@ -188,6 +202,8 @@ func NewEnvContext(
 		stopMonitoringCredentials: make(chan struct{}),
 		doneMonitoringCredentials: make(chan struct{}),
 		connectionMapper:          params.ConnectionMapper,
+		streamChannelRegistry:     params.StreamChannelRegistry,
+		streamChannels:            make(map[string]struct{}),
 		offline:                   envConfig.Offline,
 	}
 
@@ -315,6 +331,11 @@ func NewEnvContext(
 	}
 
 	envContext.metricsEnv = em
+
+	// Register the SSE channel strings for the initial credentials with the stream metrics bridge,
+	// now that the environment's metric attributes (em) exist. envStreams.AddCredential above already
+	// registered the same channels with the eventsource servers.
+	envContext.registerInitialStreamChannels(allCreds)
 
 	// Create an EventMetrics recorder for the event dispatchers to use when reporting
 	// internal metrics like dropped events. This must be done after the EnvironmentManager
@@ -449,10 +470,43 @@ func (c *envContextImpl) cleanupExpiredCredentials(interval time.Duration) {
 	}
 }
 
+// registerInitialStreamChannels registers the SSE channels for the environment's initial set of
+// credentials. It runs during construction before any credential-mutating goroutine has started, so
+// it needs no lock.
+func (c *envContextImpl) registerInitialStreamChannels(creds []credential.SDKCredential) {
+	for _, cred := range creds {
+		c.registerStreamChannel(cred)
+	}
+}
+
+// registerStreamChannel registers the SSE channel for a credential with the stream metrics bridge,
+// using this environment's metric attributes. It is a no-op when OTLP metrics are disabled. Callers
+// must hold c.mu, except during construction before any credential-mutating goroutine has started.
+func (c *envContextImpl) registerStreamChannel(cred credential.SDKCredential) {
+	if c.streamChannelRegistry == nil || c.metricsEnv == nil || !cred.Defined() {
+		return
+	}
+	channel := sdkauth.NewScoped(c.filterKey, cred).String()
+	c.streamChannelRegistry.RegisterChannel(channel, c.metricsEnv.GetAttributes())
+	c.streamChannels[channel] = struct{}{}
+}
+
+// unregisterStreamChannel removes the SSE channel for a credential from the stream metrics bridge.
+// Callers must hold c.mu.
+func (c *envContextImpl) unregisterStreamChannel(cred credential.SDKCredential) {
+	if c.streamChannelRegistry == nil || !cred.Defined() {
+		return
+	}
+	channel := sdkauth.NewScoped(c.filterKey, cred).String()
+	c.streamChannelRegistry.UnregisterChannel(channel)
+	delete(c.streamChannels, channel)
+}
+
 func (c *envContextImpl) addCredential(newCredential credential.SDKCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.envStreams.AddCredential(newCredential)
+	c.registerStreamChannel(newCredential)
 	for streamProvider, handlers := range c.handlersV1 {
 		if h := streamProvider.HandlerV1(sdkauth.NewScoped(c.filterKey, newCredential)); h != nil {
 			handlers[newCredential] = h
@@ -498,6 +552,7 @@ func (c *envContextImpl) removeCredential(oldCredential credential.SDKCredential
 	defer c.mu.Unlock()
 	c.connectionMapper.RemoveConnectionMapping(sdkauth.NewScoped(c.filterKey, oldCredential))
 	c.envStreams.RemoveCredential(oldCredential)
+	c.unregisterStreamChannel(oldCredential)
 	for _, handlers := range c.handlersV1 {
 		delete(handlers, oldCredential)
 	}
@@ -762,6 +817,17 @@ func (c *envContextImpl) Close() error {
 	<-c.doneMonitoringCredentials
 
 	_ = c.envStreams.Close()
+
+	// Unregister any channels still in the bridge for this environment. The credential-monitoring
+	// goroutine has already stopped (above), so no add/removeCredential can race this.
+	if c.streamChannelRegistry != nil {
+		c.mu.Lock()
+		for channel := range c.streamChannels {
+			c.streamChannelRegistry.UnregisterChannel(channel)
+		}
+		c.streamChannels = make(map[string]struct{})
+		c.mu.Unlock()
+	}
 
 	if c.metricsManager != nil && c.metricsEnv != nil {
 		c.metricsManager.RemoveEnvironment(c.metricsEnv)
