@@ -120,7 +120,12 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			// would fire only after the whole chain returns, and the auth span
 			// would incorrectly encompass all downstream handling time.
 			req, ok := func() (*http.Request, bool) {
-				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
+				// The request handed to the next handler must carry parentCtx, not the
+				// auth span's context: the auth span is ended when this scope exits, and
+				// a downstream handler that finds an ended span in its context cannot
+				// attach child spans or span events to the request's trace.
+				parentCtx := req.Context()
+				ctx, span := tracing.Tracer().Start(parentCtx, tracing.SpanAuth)
 				defer span.End()
 				span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
 				req = req.WithContext(ctx)
@@ -187,11 +192,11 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					Env:        clientCtx,
 					Credential: credential,
 				}
-				req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
+				downstreamCtx := WithEnvContextInfo(parentCtx, contextInfo)
 				if sdkKind == basictypes.JSClientSDK {
-					req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
+					downstreamCtx = browser.WithCORSContext(downstreamCtx, clientCtx.GetJSClientContext())
 				}
-				return req, true
+				return req.WithContext(downstreamCtx), true
 			}()
 			if !ok {
 				return
@@ -220,7 +225,10 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 			// would fire only after the whole chain returns, and the auth span
 			// would incorrectly encompass all downstream handling time.
 			req, ok := func() (*http.Request, bool) {
-				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
+				// As above: hand parentCtx to the next handler, not the ended auth
+				// span's context.
+				parentCtx := req.Context()
+				ctx, span := tracing.Tracer().Start(parentCtx, tracing.SpanAuth)
 				defer span.End()
 				req = req.WithContext(ctx)
 
@@ -289,9 +297,8 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					Env:        clientCtx,
 					Credential: cred,
 				}
-				req = req.WithContext(WithEnvContextInfo(req.Context(), contextInfo))
-				req = req.WithContext(browser.WithCORSContext(req.Context(), clientCtx.GetJSClientContext()))
-				return req, true
+				downstreamCtx := browser.WithCORSContext(WithEnvContextInfo(parentCtx, contextInfo), clientCtx.GetJSClientContext())
+				return req.WithContext(downstreamCtx), true
 			}()
 			if !ok {
 				return
