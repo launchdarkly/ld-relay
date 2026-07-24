@@ -185,7 +185,18 @@ type payloadEvent struct {
 }
 
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
-func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
+//
+// precompress mirrors the HTTP compression config: when set, cached payloads carry a
+// pre-gzipped variant that is served directly to clients that accept gzip, so each
+// data version is compressed once instead of once per response. (The gzip middleware
+// passes through responses whose Content-Encoding is already set.)
+func pollHandlerV2(precompress bool) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		pollHandlerV2Shared(w, req, precompress)
+	}
+}
+
+func pollHandlerV2Shared(w http.ResponseWriter, req *http.Request, precompress bool) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 
 	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
@@ -225,7 +236,11 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 			var err error
 			payload, cacheHit, err = pollPayloadCacheForEnv(clientCtx.Env).getOrBuild(selector,
 				func() (*serializedPollPayload, error) {
-					return encodeServerPollPayload(collection, selector)
+					built, err := encodeServerPollPayload(collection, selector)
+					if err == nil && precompress {
+						err = built.compress()
+					}
+					return built, err
 				})
 			if err != nil {
 				span.RecordError(err)
@@ -249,8 +264,30 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	func() {
 		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
 		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(payload.data)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, payload.data, selector.State())
+
+		data, encoding := payload.data, "identity"
+		if payload.gzipped != nil && acceptsGzip(req) {
+			data, encoding = payload.gzipped, "gzip"
+		}
+		span.SetAttributes(
+			tracing.ResponseBytesKey.Int(len(data)),
+			tracing.ResponseEncodingKey.String(encoding),
+		)
+
+		setResponseCacheTTLHeaders(w, clientCtx.Env)
+		if payload.gzipped != nil {
+			// The representation varies by Accept-Encoding whenever a compressed
+			// variant exists, regardless of which variant this response uses.
+			addVaryValue(w, "Accept-Encoding")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Etag", etagForState(selector.State()))
+		if encoding == "gzip" {
+			w.Header().Set("Content-Encoding", "gzip")
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
 	}()
 }
 
@@ -697,6 +734,17 @@ func setResponseCacheTTLHeaders(w http.ResponseWriter, clientContext relayenv.En
 
 func etagForState(etagValue string) string {
 	return fmt.Sprintf("W/\"%s\"", etagValue)
+}
+
+// addVaryValue appends a value to the Vary header unless it is already present
+// (the gzip middleware may have added it).
+func addVaryValue(w http.ResponseWriter, value string) {
+	for _, existing := range w.Header().Values("Vary") {
+		if existing == value {
+			return
+		}
+	}
+	w.Header().Add("Vary", value)
 }
 
 // writeNotModifiedIfEtagMatches responds 304 Not Modified and returns true when the

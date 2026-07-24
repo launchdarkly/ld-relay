@@ -1,8 +1,11 @@
 package relay
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -278,6 +281,86 @@ func TestPollPayloadCacheAcrossRequests(t *testing.T) {
 		assert.Zero(t, countStarted(recorder.Started(), tracing.SpanSerializePayload),
 			"an If-None-Match match should be answered before serialization")
 		assert.Zero(t, countStarted(recorder.Started(), tracing.SpanWriteResponse))
+	})
+}
+
+// TestConcurrencyWaitSpanInRequestTrace verifies that when the basis-delivery limiter
+// is enabled, the time spent in admission appears in the trace as a
+// relay.concurrency.wait span that ends before the handler's spans begin.
+func TestConcurrencyWaitSpanInRequestTrace(t *testing.T) {
+	recorder := installSpanRecorder(t)
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+	maxConcurrent, err := ct.NewOptIntGreaterThanZero(2)
+	require.NoError(t, err)
+	config.Concurrency.BasisDeliveryMaxConcurrent = maxConcurrent
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		recorder.Reset()
+		result, _ := st.DoRequest(st.BuildRequestWithAuth("GET", "/sdk/poll", st.EnvMain.Config.SDKKey, nil), p.relay)
+		require.Equal(t, http.StatusOK, result.StatusCode)
+
+		spans := recorder.Ended()
+		root := rootSpan(t, spans)
+		wait := requireSpan(t, spans, tracing.SpanConcurrencyWait)
+		assertChildOfEnded(t, wait, root)
+
+		attrs := spanAttrs(wait)
+		assert.Equal(t, "basis_delivery", attrs[tracing.ConcurrencyLimiterKey].AsString())
+		assert.True(t, attrs[tracing.ConcurrencyAdmittedKey].AsBool())
+		assert.Equal(t, int64(2), attrs[tracing.ConcurrencyMaxKey].AsInt64())
+
+		serialize := requireSpan(t, spans, tracing.SpanSerializePayload)
+		assert.False(t, wait.EndTime().After(serialize.StartTime()),
+			"wait span should end before serialization begins")
+	})
+}
+
+// TestPollPayloadPrecompression verifies that with compression enabled, gzip-accepting
+// polls are served the pre-compressed cache variant (Content-Encoding set by the
+// handler, identical decoded bytes, shared ETag) while identity requests are unaffected.
+func TestPollPayloadPrecompression(t *testing.T) {
+	recorder := installSpanRecorder(t)
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+	config.HTTP.EnableCompression = true
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		serverSDKKey := st.EnvMain.Config.SDKKey
+
+		recorder.Reset()
+		plainResult, plainBody := st.DoRequest(st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil), p.relay)
+		require.Equal(t, http.StatusOK, plainResult.StatusCode)
+		writeAttrs := spanAttrs(requireSpan(t, recorder.Ended(), tracing.SpanWriteResponse))
+		assert.Equal(t, "identity", writeAttrs[tracing.ResponseEncodingKey].AsString())
+
+		recorder.Reset()
+		req := st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		gzResult, gzBody := st.DoRequest(req, p.relay)
+		require.Equal(t, http.StatusOK, gzResult.StatusCode)
+		assert.Equal(t, "gzip", gzResult.Header.Get("Content-Encoding"))
+		assert.Contains(t, gzResult.Header.Values("Vary"), "Accept-Encoding")
+
+		writeAttrs = spanAttrs(requireSpan(t, recorder.Ended(), tracing.SpanWriteResponse))
+		assert.Equal(t, "gzip", writeAttrs[tracing.ResponseEncodingKey].AsString())
+		serializeAttrs := spanAttrs(requireSpan(t, recorder.Ended(), tracing.SpanSerializePayload))
+		assert.True(t, serializeAttrs[tracing.PayloadCacheHitKey].AsBool(),
+			"gzip request should reuse the cached payload")
+
+		gz, err := gzip.NewReader(bytes.NewReader(gzBody))
+		require.NoError(t, err)
+		decompressed, err := io.ReadAll(gz)
+		require.NoError(t, err)
+		assert.Equal(t, plainBody, decompressed, "gzip variant should decode to the identity payload")
+
+		req = st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set("If-None-Match", gzResult.Header.Get("Etag"))
+		notModified, _ := st.DoRequest(req, p.relay)
+		assert.Equal(t, http.StatusNotModified, notModified.StatusCode)
 	})
 }
 

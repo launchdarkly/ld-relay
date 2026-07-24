@@ -23,6 +23,10 @@ const (
 	SpanEventsDispatch   = "relay.events.dispatch"
 	SpanSerializePayload = "relay.payload.serialize"
 	SpanWriteResponse    = "relay.response.write"
+	// SpanConcurrencyWait covers a request's time inside Limiter.Acquire: queueing
+	// for a token when the limiter is saturated. It ends when the request is
+	// admitted or rejected, before any handler work runs.
+	SpanConcurrencyWait = "relay.concurrency.wait"
 )
 
 // Relay-specific span attribute keys.
@@ -41,4 +45,16 @@ const (
 	// PayloadStreamedKey reports that the payload was encoded directly to the network,
 	// so the serialize span also covers the response write.
 	PayloadStreamedKey = attribute.Key("relay.payload.streamed")
+	// ResponseEncodingKey is the content encoding of the response body ("gzip" or
+	// "identity"), recorded when the handler chooses between pre-encoded variants.
+	ResponseEncodingKey = attribute.Key("relay.response.encoding")
+
+	// Attributes of the relay.concurrency.wait span. Held and waiting are sampled on
+	// entry, before this request acquires, so they describe the congestion the
+	// request encountered.
+	ConcurrencyLimiterKey  = attribute.Key("relay.concurrency.limiter")
+	ConcurrencyAdmittedKey = attribute.Key("relay.concurrency.admitted")
+	ConcurrencyHeldKey     = attribute.Key("relay.concurrency.held")
+	ConcurrencyWaitingKey  = attribute.Key("relay.concurrency.waiting")
+	ConcurrencyMaxKey      = attribute.Key("relay.concurrency.max_concurrent")
 )

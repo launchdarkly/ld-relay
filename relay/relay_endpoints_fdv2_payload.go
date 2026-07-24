@@ -1,11 +1,16 @@
 package relay
 
 import (
+	"bytes"
 	"errors"
 	"io"
+	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/relayenv"
+
+	"github.com/klauspost/compress/gzip"
 
 	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
@@ -32,7 +37,46 @@ type serializedPollPayload struct {
 	state   string
 	version int
 	data    []byte
+	// gzipped is the gzip encoding of data, populated only when the payload is
+	// built for caching and compression is enabled, so each data version is
+	// compressed once instead of once per response.
+	gzipped []byte
 	events  int
+}
+
+// compress populates the payload's gzipped variant.
+func (p *serializedPollPayload) compress() error {
+	var buf bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&buf, gzip.DefaultCompression)
+	if err != nil {
+		return err
+	}
+	if _, err := gz.Write(p.data); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	p.gzipped = buf.Bytes()
+	return nil
+}
+
+// acceptsGzip reports whether the request allows a gzip response body. It accepts
+// the simple forms SDKs and proxies actually send; a q-value of 0 disables it.
+func acceptsGzip(req *http.Request) bool {
+	for _, part := range strings.Split(req.Header.Get("Accept-Encoding"), ",") {
+		token, q, hasQ := strings.Cut(strings.TrimSpace(part), ";")
+		if encoding := strings.TrimSpace(token); encoding != "gzip" && encoding != "*" {
+			continue
+		}
+		if hasQ {
+			if qv := strings.TrimSpace(q); qv == "q=0" || strings.HasPrefix(qv, "q=0.0") || qv == "q=0." {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // pollPayloadCache holds the most recently encoded full-transfer polling payload for

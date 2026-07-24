@@ -108,7 +108,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2(r.config.HTTP.EnableCompression)))))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)

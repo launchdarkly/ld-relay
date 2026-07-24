@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 )
 
 // LimitConcurrency wraps a handler with a concurrency limiter keyed by the
@@ -17,7 +18,20 @@ func LimitConcurrency(limiter *concurrency.Limiter) func(http.Handler) http.Hand
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The wait span accounts for queueing time that would otherwise appear as
+			// an unattributed gap between the auth span and the handler's spans. It
+			// ends as soon as admission is decided, before the handler runs.
+			_, span := tracing.Tracer().Start(r.Context(), tracing.SpanConcurrencyWait)
+			entryStats := limiter.Stats()
 			release, ok := limiter.Acquire(r.Context(), concurrencyEnvKey(r))
+			span.SetAttributes(
+				tracing.ConcurrencyLimiterKey.String(limiter.Name()),
+				tracing.ConcurrencyAdmittedKey.Bool(ok),
+				tracing.ConcurrencyHeldKey.Int(entryStats.Held),
+				tracing.ConcurrencyWaitingKey.Int(entryStats.Waiting),
+				tracing.ConcurrencyMaxKey.Int(entryStats.MaxConcurrent),
+			)
+			span.End()
 			if !ok {
 				w.Header().Set("Retry-After", "1")
 				w.WriteHeader(http.StatusServiceUnavailable)
