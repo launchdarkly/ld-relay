@@ -494,6 +494,61 @@ func TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation(t *testing.
 	h.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
 }
 
+// multiKeyArchiveEnvWithAnchor is multiKeyArchiveEnv with a caller-chosen anchor SDK key, used to
+// rotate the anchor across an archive reload. The chosen anchor must also appear in sdkKeys.
+func multiKeyArchiveEnvWithAnchor(anchor config.SDKKey, sdkKeys []envfactory.AcceptedSDKKey, mobileKeys []envfactory.AcceptedMobileKey) filedata.ArchiveEnvironment {
+	env := multiKeyArchiveEnv(sdkKeys, mobileKeys)
+	env.Params.SDKKey = anchor
+	return env
+}
+
+// Rotating the anchor via an offline archive reload.
+//
+// A downstream SDK connected on a non-anchor key keeps its stream when the archive reloads with the
+// anchor rotated to a brand-new key: the new anchor authenticates, the old anchor stops, and the
+// non-anchor sibling is undisturbed. Offline re-anchoring reuses the environment's single file-data
+// client rather than swapping an upstream connection (that swap is the RAC path, exercised by
+// TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient), so no new client is built and the open
+// connection survives. The non-anchor expiry-via-reload half of the offline reload-rotation scenario is
+// covered by TestConcurrentKeysOffline_ConnectedSDKDisconnectedWhenKeyExpires.
+func TestConcurrentKeysOffline_AnchorRotationViaArchiveReload(t *testing.T) {
+	offlineModeTest(t, config.Config{}, func(p offlineModeTestParams) {
+		p.updateHandler.AddEnvironment(multiKeyArchiveEnv(defaultAcceptedSDKKeys(), defaultAcceptedMobileKeys()))
+		anchorClient := p.awaitClient()
+		assert.Equal(t, anchorSDKKey, anchorClient.Key)
+		env := p.awaitEnvironment(multiKeyEnvID)
+		require.Eventually(t, func() bool { return env.GetClient() != nil }, 5*time.Second, 5*time.Millisecond)
+
+		// Connect a downstream SDK on the non-anchor key and confirm it is live before rotating.
+		req := sharedtest.BuildRequestWithAuth("GET", "/all", extraSDKKey, nil)
+		sharedtest.WithStreamRequest(t, req, p.relay, func(eventCh <-chan eventsource.Event) {
+			sharedtest.AwaitEventOfType(t, eventCh, "put", 5*time.Second)
+
+			// Reload the archive with the anchor rotated to a brand-new key; the non-anchor extra SDK key
+			// stays accepted and the mobile keys are unchanged.
+			p.updateHandler.UpdateEnvironment(multiKeyArchiveEnvWithAnchor(
+				rotatedAnchorSDKKey,
+				[]envfactory.AcceptedSDKKey{{Value: rotatedAnchorSDKKey}, {Value: extraSDKKey}},
+				defaultAcceptedMobileKeys(),
+			))
+
+			// The offline re-anchor reuses the single file-data client, so the non-anchor stream is not
+			// torn down by the swap.
+			assertStreamStaysOpen(t, eventCh, 500*time.Millisecond)
+		})
+
+		// Offline re-anchoring commits without building a replacement upstream client.
+		p.shouldNotCreateClient(200 * time.Millisecond)
+
+		awaitCredentialRemoved(t, p.relay, anchorSDKKey)
+
+		// The rotated anchor and the retained non-anchor key authenticate; the old anchor no longer does.
+		p.assertSDKEndpointsAvailability(true, rotatedAnchorSDKKey, anchorMobileKey, multiKeyEnvID)
+		p.assertSDKEndpointsAvailability(true, extraSDKKey, "", "")
+		p.assertSDKEndpointsAvailability(false, anchorSDKKey, "", "")
+	})
+}
+
 // awaitStreamClosed reads from a WithStreamRequest event channel until the stream-closed sentinel
 // (a nil event) arrives, failing if the timeout elapses first. Non-nil events are ignored.
 func awaitStreamClosed(t *testing.T, eventCh <-chan eventsource.Event, timeout time.Duration) {
