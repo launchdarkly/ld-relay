@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -392,6 +393,41 @@ func TestStreamProviderServerSide(t *testing.T) {
 				string(subsystems.EventPutObject),
 				string(subsystems.EventPayloadTransferred),
 			}, eventNames)
+		})
+
+		t.Run("ReplayWithContext stops producing when the subscriber's context is cancelled", func(t *testing.T) {
+			// A subscriber that disconnects mid-replay cancels the request context. The producer must
+			// stop sending promptly instead of blocking forever on a send that nobody will receive.
+			snapshotReturned := make(chan struct{}, 1)
+			underlyingQuery := queryThatIncrementsFlagVersionOnEachCall()
+			store := newMockStoreQueries()
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				data, selector, err := underlyingQuery()
+				snapshotReturned <- struct{}{}
+				return data, selector, err
+			})
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default()}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eventCh := repo.ReplayWithContext(ctx, "", "")
+
+			// Wait until the producer has computed the events and is parked on its (unbuffered,
+			// unread) send, then cancel without ever consuming an event.
+			<-snapshotReturned
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+
+			// The channel must close promptly. Before context propagation, an unread producer would
+			// block forever here and the channel would never close.
+			for {
+				_, ok, closed := helpers.TryReceive(eventCh, time.Second)
+				if closed {
+					return
+				}
+				if !ok {
+					require.Fail(t, "producer did not stop after context cancellation (channel never closed)")
+				}
+			}
 		})
 	})
 }

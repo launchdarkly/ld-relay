@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -164,7 +165,22 @@ func (e *serverSideEnvStreamProvider) Close() {
 	}
 }
 
+// Replay satisfies the eventsource.Repository interface. It delegates to replay with a background
+// context; in practice the eventsource server prefers ReplayWithContext (see below) whenever the
+// repository implements it, so this context-less path is only a fallback.
 func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
+	return r.replay(context.Background(), id)
+}
+
+// ReplayWithContext satisfies the eventsource.RepositoryWithContext interface. The eventsource server
+// passes the subscribing request's context, which is cancelled when the SDK client disconnects. This
+// lets the producer goroutine below stop sending immediately on disconnect instead of blocking on a
+// send whose reader has gone away.
+func (r *serverSideEnvStreamRepository) ReplayWithContext(ctx context.Context, channel, id string) <-chan eventsource.Event {
+	return r.replay(ctx, id)
+}
+
+func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) chan eventsource.Event {
 	out := make(chan eventsource.Event)
 	if !r.store.IsInitialized() {
 		// If the data store has never been populated, we won't send an initial event. This is desirable
@@ -190,7 +206,13 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 			return
 		}
 		for _, event := range events {
-			out <- event
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				// The subscriber disconnected before consuming the whole replay; stop producing so
+				// this goroutine and its payload are released promptly instead of leaking.
+				return
+			}
 		}
 	}()
 	return out
