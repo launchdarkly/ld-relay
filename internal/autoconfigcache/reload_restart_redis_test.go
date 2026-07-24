@@ -7,7 +7,7 @@ package autoconfigcache
 // process restart: a fresh StreamManager, given the same Redis cache but a config stream that delivers
 // nothing, reloads the environment from the cache with its sdkKeys[]/mobileKeys[] arrays intact.
 //
-// This is the restart-survival half of the "cache integrity across restart" scenario (SDK-2609 #10);
+// This is the restart-survival half of the "cache integrity across restart" scenario;
 // the malformed-put-preserves-cache half is covered by the StreamManager unit test
 // TestMalformedCredentialPayloadPreservesEnvironmentCache. It exercises the production classes
 // (StreamManager + redisStore) against an actual Redis, with no test doubles for the cache itself.

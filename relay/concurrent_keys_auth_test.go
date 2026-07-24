@@ -413,7 +413,7 @@ func TestConcurrentKeysRAC_KeyWithFutureExpiryStillAuthenticates(t *testing.T) {
 //
 // Both tests run on the FakeLDClient harness, so they verify the routing/credential-level behavior
 // of an anchor swap. The real-upstream store handover (avoiding an empty-store window) and
-// rollback-on-init-failure robustness is the re-anchor work owned by T2.c.
+// rollback-on-init-failure robustness is covered by the re-anchor tests in internal/relayenv.
 
 // When a new anchor arrives via RAC (sdkKey.value changes to a brand-new key), the upstream client
 // swaps to the new anchor and the old anchor is dropped, while the non-anchor key stays accepted.
@@ -445,7 +445,7 @@ func TestConcurrentKeysRAC_RotatingAnchorUpdatesUpstreamClient(t *testing.T) {
 // under it. This uses a real (dummy) SDK client + RAC mock — rather than the FakeLDClient harness —
 // because FakeLDClient never serves a put on the SSE stream, so it couldn't confirm the connection
 // was actually established before rotating (and thus couldn't genuinely exercise "rotate while
-// connected"). The connection-survival property holds even before the T2.c store-handover work,
+// connected"). The connection-survival property holds independently of the store-handover work,
 // which addresses the empty-store data window during the swap, not connection drops.
 func TestConcurrentKeysRAC_NonAnchorConnectionSurvivesAnchorRotation(t *testing.T) {
 	putEvent := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))

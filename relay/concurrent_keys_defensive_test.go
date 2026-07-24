@@ -26,7 +26,7 @@ import (
 // A malformed patch (anchor absent from sdkKeys[]) is rejected without being applied: the previously
 // accepted credentials keep authenticating and no new key leaks in. The rejection forces the config
 // stream to restart, and on the reconnection the backend serves a corrected put whose new key then
-// authenticates — completing the preserve-then-recover loop from the design's malformed-payload policy.
+// authenticates — completing the preserve-then-recover loop of the malformed-payload recovery policy.
 func TestConcurrentKeysRAC_MalformedPayloadRecoversAfterReconnect(t *testing.T) {
 	firstPut := configsource.MakeAutoConfigPutEvent(multiKeyEnvRep(defaultSDKKeyReps(), defaultMobileKeyReps(), 1))
 

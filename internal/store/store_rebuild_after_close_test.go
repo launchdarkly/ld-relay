@@ -1,6 +1,6 @@
 package store
 
-// Regression test for the store-handover refcount contract (concurrent-keys re-anchor).
+// Regression test for the store-handover refcount contract (re-anchor).
 //
 // SSERelayDataStoreAdapter.Build reuses whatever wrapper is parked in a.store so a re-anchor can hand
 // the populated store to the new client. The hazard: once the wrapper's refCount reaches zero and its

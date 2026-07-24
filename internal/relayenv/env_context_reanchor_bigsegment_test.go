@@ -1,8 +1,8 @@
 package relayenv
 
-// Tests for T2.d (SDK-2543): the big-segment synchronizer follows the anchor across a re-anchor.
-// TestReanchorPoC_H3_BigSegmentSyncFollowsAnchorOnReAnchor covers the basic "recreated on the new key,
-// not yet started" case; these cover the started-continues, rollback, and not-configured cases.
+// Tests that the big-segment synchronizer follows the anchor across a re-anchor: recreated on the
+// new anchor key, an already-started sync continues while the old one closes, a rolled-back
+// re-anchor does not rewire, and a not-configured environment is a no-op.
 
 import (
 	"testing"
@@ -150,7 +150,7 @@ func TestReanchorBigSegmentSync_NotConfiguredIsNoOp(t *testing.T) {
 }
 
 // reanchorTestKey3 is a third anchor SDK key, used to drive A->B->C sequential re-anchors.
-const reanchorTestKey3 = config.SDKKey("reanchor-poc-new-anchor-3")
+const reanchorTestKey3 = config.SDKKey("reanchor-new-anchor-3")
 
 // TestReanchorBigSegmentSync_ReanchorBeforeFirstSegmentThenStartsNewSync covers the ordering where a
 // re-anchor happens BEFORE any big segment has appeared (so the replacement is built but not started),
