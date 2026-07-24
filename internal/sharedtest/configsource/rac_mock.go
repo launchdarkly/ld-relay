@@ -40,6 +40,28 @@ func NewRACMock(t testing.TB, initialEvent *httphelpers.SSEEvent) *RACMock {
 	return m
 }
 
+// NewRACMockWithReconnect creates a RACMock that serves firstEvent to the first client that connects
+// and reconnectEvent to the next client — modeling a stream that a client restarts and reconnects to.
+// This supports the design's malformed-payload recovery (§9): a rejected patch forces Relay to restart
+// its config stream, and the backend serves a fresh, corrected put on the reconnection.
+//
+// Send delivers to the first connection; use it to push the event that forces the restart (e.g. the
+// malformed patch). initialEvent replay applies per handler, so the first connection sees firstEvent
+// and the reconnection sees reconnectEvent. Cleanup is registered with t.Cleanup.
+func NewRACMockWithReconnect(t testing.TB, firstEvent, reconnectEvent *httphelpers.SSEEvent) *RACMock {
+	firstHandler, firstStream := httphelpers.SSEHandler(firstEvent)
+	reconnectHandler, _ := httphelpers.SSEHandler(reconnectEvent)
+	handler := httphelpers.SequentialHandler(firstHandler, reconnectHandler)
+	server := httptest.NewServer(handler)
+	m := &RACMock{
+		URL:    server.URL,
+		server: server,
+		stream: firstStream,
+	}
+	t.Cleanup(m.Close)
+	return m
+}
+
 // Enqueue queues an event to be delivered to the next client that connects. Use this before Relay
 // has connected to ensure the event is not dropped.
 func (m *RACMock) Enqueue(event httphelpers.SSEEvent) {

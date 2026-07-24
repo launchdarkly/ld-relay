@@ -15,6 +15,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 
 	ct "github.com/launchdarkly/go-configtypes"
+	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
@@ -246,6 +247,97 @@ func TestEndpointsStatusExpiringSDKKey(t *testing.T) {
 			st.AssertJSONPathMatch(t, sdks.ObscureKey("sdk-aaa"), envStatus, "expiringSdkKey")
 		})
 	})
+}
+
+// TestEndpointsStatusDuringInFlightRotation drives the real /status handler while an SDK-key re-anchor
+// is in flight: the new anchor's client build is wedged via a gated client factory, so the rotation has
+// been reconciled but not yet committed. The status request must complete with 200, report the
+// PRE-rotation anchor (the rotator has not flipped its anchor pointer until the build is committed), and
+// expose a self-consistent accepted set (the reported anchor is present in sdkKeys[]). Once the build is
+// released and the rotation commits, /status reports the new anchor. Run under -race to catch any
+// unsynchronized read between the status handler and the concurrent re-anchor.
+func TestEndpointsStatusDuringInFlightRotation(t *testing.T) {
+	const newAnchor = c.SDKKey("sdk-status-rotation-new-anchor")
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	// Gated factory: healthy for every key except newAnchor, whose build wedges until released. This
+	// holds the re-anchor mid-flight (pre-commit) so /status observes the pre-rotation anchor.
+	buildEntered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	inner := testclient.FakeLDClientFactory(true)
+	gated := func(sdkKey c.SDKKey, cfg ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if sdkKey == newAnchor {
+			buildEntered <- struct{}{}
+			<-release
+		}
+		return inner(sdkKey, cfg, timeout)
+	}
+
+	relay, err := newRelayInternal(config, relayInternalOptions{
+		loggers:       mockLog.Loggers,
+		clientFactory: gated,
+	})
+	require.NoError(t, err)
+	defer relay.Close()
+	require.NoError(t, relay.waitForAllClients(time.Second))
+
+	env, err := relay.getEnvironment(sdkauth.New(st.EnvMain.Config.SDKKey))
+	require.NoError(t, err)
+	require.NotNil(t, env)
+
+	anchor := st.EnvMain.Config.SDKKey
+	graceExpiry := time.Now().Add(time.Hour)
+	set, err := credential.NewAcceptedSetBuilder().
+		WithAnchor(credential.SDKKeyParams{Value: newAnchor}).
+		WithSDKKey(credential.SDKKeyParams{Value: anchor, Expiry: util.PtrOrNil(graceExpiry)}).
+		Build()
+	require.NoError(t, err)
+
+	// Drive the re-anchor on a background goroutine; it blocks in the gated build, holding the rotation
+	// mid-flight (pre-commit).
+	reconcileDone := make(chan struct{})
+	go func() {
+		defer close(reconcileDone)
+		env.ReconcileCredentials(set)
+	}()
+	<-buildEntered // the new anchor's build is wedged: the rotation is in flight, not yet committed.
+
+	// /status must complete and report the pre-rotation anchor while the rotation is in flight.
+	r, _ := http.NewRequest("GET", "http://localhost/status", nil)
+	result, body := st.DoRequest(r, relay)
+	assert.Equal(t, http.StatusOK, result.StatusCode)
+	envStatus := ldvalue.Parse(body).GetByKey("environments").GetByKey(st.EnvMain.Name)
+
+	// The scalar anchor is still the pre-rotation key (the anchor pointer flips only on commit).
+	assert.Equal(t, sdks.ObscureKey(string(anchor)), envStatus.GetByKey("sdkKey").StringValue(),
+		"status reports the pre-rotation anchor while the rotation is mid-flight")
+
+	// The arrays are self-consistent: the reported anchor is present in sdkKeys[].
+	sdkKeys := envStatus.GetByKey("sdkKeys")
+	require.False(t, findKeyStatusByValue(sdkKeys, sdks.ObscureKey(string(anchor))).IsNull(),
+		"the reported anchor must be present in sdkKeys[]")
+
+	// The env still serves the previous anchor's client, so it reports connected.
+	assert.Equal(t, "connected", envStatus.GetByKey("status").StringValue())
+
+	// Release the build; the rotation commits.
+	close(release)
+	<-reconcileDone
+
+	// After the commit, /status reports the new anchor, still present in a consistent sdkKeys[].
+	r2, _ := http.NewRequest("GET", "http://localhost/status", nil)
+	result2, body2 := st.DoRequest(r2, relay)
+	assert.Equal(t, http.StatusOK, result2.StatusCode)
+	envStatus2 := ldvalue.Parse(body2).GetByKey("environments").GetByKey(st.EnvMain.Name)
+	assert.Equal(t, sdks.ObscureKey(string(newAnchor)), envStatus2.GetByKey("sdkKey").StringValue(),
+		"after the commit, status reports the new anchor")
+	require.False(t, findKeyStatusByValue(envStatus2.GetByKey("sdkKeys"), sdks.ObscureKey(string(newAnchor))).IsNull(),
+		"the new anchor must be present in sdkKeys[] after the commit")
 }
 
 // TestKeyStatus verifies the helper that converts an accepted key into its status-endpoint JSON form.

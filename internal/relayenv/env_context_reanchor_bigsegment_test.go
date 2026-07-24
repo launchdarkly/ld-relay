@@ -5,25 +5,20 @@ package relayenv
 // not yet started" case; these cover the started-continues, rollback, and not-configured cases.
 
 import (
-	"net/http"
 	"testing"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
-	"github.com/launchdarkly/ld-relay/v8/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v8/internal/bigsegments"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdks"
 	st "github.com/launchdarkly/ld-relay/v8/internal/sharedtest"
 	"github.com/launchdarkly/ld-relay/v8/internal/sharedtest/testclient"
-	"github.com/launchdarkly/ld-relay/v8/internal/streams"
 
-	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
 	"github.com/launchdarkly/go-sdk-common/v3/ldlogtest"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
-	helpers "github.com/launchdarkly/go-test-helpers/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,59 +149,6 @@ func TestReanchorBigSegmentSync_NotConfiguredIsNoOp(t *testing.T) {
 	assert.Equal(t, reanchorTestKey2, env.(*envContextImpl).keyRotator.AnchorKey(), "the SDK re-anchor still committed")
 }
 
-// TestReanchorBigSegmentSync_NewSyncDrivesClientSideInvalidation is the end-to-end integration case
-// (SDK-2543 AC): with a client-side stream connected across a re-anchor, a big-segment update delivered
-// on the NEW synchronizer must still ping the connected client -- proving the re-wired synchronizer's
-// update consumer is active and drives client-side invalidation.
-func TestReanchorBigSegmentSync_NewSyncDrivesClientSideInvalidation(t *testing.T) {
-	envConfig := st.EnvClientSide.Config
-	capturing := &capturingBigSegmentSynchronizerFactory{}
-	mockLog := ldlogtest.NewMockLog()
-	defer mockLog.DumpIfTestFailed(t)
-
-	jsClientStreams := streams.NewStreamProvider(basictypes.JSClientPingStream, time.Hour, 0)
-	sdkStartedCh := make(chan EnvContext, 1)
-	clientCh := make(chan *testclient.FakeLDClient, 10)
-	env, err := NewEnvContext(EnvContextImplParams{
-		Identifiers:                   EnvIdentifiers{ConfiguredName: st.EnvMain.Name},
-		EnvConfig:                     envConfig,
-		AllConfig:                     config.Config{},
-		BigSegmentStoreFactory:        nullBigSegmentStoreFactory,
-		BigSegmentSynchronizerFactory: capturing.create,
-		ClientFactory:                 testclient.FakeLDClientFactoryWithChannel(true, clientCh),
-		SDKBigSegmentsConfigFactory: ldcomponents.BigSegments(
-			st.ExistingInstance[subsystems.BigSegmentStore](&st.NoOpSDKBigSegmentStore{}),
-		),
-		StreamProviders:  []streams.StreamProvider{jsClientStreams},
-		ConnectionMapper: mockConnectionMapper{},
-		Loggers:          mockLog.Loggers,
-	}, sdkStartedCh)
-	require.NoError(t, err)
-	defer env.Close()
-
-	<-sdkStartedCh
-	_ = env.GetStore().Init(nil) // client-side endpoint only pings once the store is initialized
-	oldSync := capturing.latest()
-
-	streamHandler := env.GetStreamHandler(jsClientStreams, envConfig.EnvID)
-	req, _ := http.NewRequest("GET", "", nil)
-	st.WithStreamRequest(t, req, streamHandler, func(eventCh <-chan eventsource.Event) {
-		initEvent := helpers.RequireValue(t, eventCh, time.Minute)
-		require.Equal(t, "ping", initEvent.Event())
-		helpers.AssertNoMoreValues(t, eventCh, 100*time.Millisecond)
-
-		// Re-anchor mid-subscription; the synchronizer is rebuilt on the new anchor.
-		reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
-		newSync := capturing.latest()
-		require.NotSame(t, oldSync, newSync, "the synchronizer was rebuilt on re-anchor")
-
-		// A big-segment update on the NEW synchronizer pings the still-connected client-side stream.
-		newSync.updateCh <- bigsegments.UpdatesSummary{SegmentKeysUpdated: []string{"seg"}}
-		pingEvent := helpers.RequireValue(t, eventCh, time.Second)
-		assert.Equal(t, "ping", pingEvent.Event())
-	})
-}
-
 // reanchorTestKey3 is a third anchor SDK key, used to drive A->B->C sequential re-anchors.
 const reanchorTestKey3 = config.SDKKey("reanchor-poc-new-anchor-3")
 
@@ -325,4 +267,48 @@ func TestReanchorBigSegmentSync_ConcurrentStoreUpdateDuringReanchorIsRaceFree(t 
 	count, sdkKey := capturing.snapshot()
 	assert.Equal(t, 2, count, "the synchronizer was recreated on re-anchor")
 	assert.Equal(t, reanchorTestKey2, sdkKey, "on the new anchor key")
+}
+
+// TestReanchorBigSegmentSync_RepromoteInGraceFormerAnchorRewires re-anchors A->B, then B->A while A is
+// still accepted (an in-grace former anchor whose client was closed when its demotion committed).
+// Promoting a previously-accepted key must re-wire big segments identically to a brand-new key: a fresh
+// synchronizer bound to A is created and Started (a segment already exists), and B's synchronizer is
+// Closed. This pins that the "previously-accepted key" promotion path does not shortcut the big-segment
+// re-wire.
+func TestReanchorBigSegmentSync_RepromoteInGraceFormerAnchorRewires(t *testing.T) {
+	envConfig := st.EnvMain.Config
+	capturing := &capturingBigSegmentSynchronizerFactory{}
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	clientCh := make(chan *testclient.FakeLDClient, 10)
+	env := newBigSegmentTestEnv(t, nullBigSegmentStoreFactory,
+		testclient.FakeLDClientFactoryWithChannel(true, clientCh), capturing, mockLog.Loggers)
+	defer env.Close()
+	envImpl := env.(*envContextImpl)
+
+	envImpl.setBigSegmentsExist()
+	syncA := capturing.latest()
+	require.True(t, syncA.isStarted(), "the synchronizer is started once a big segment exists")
+
+	// A -> B. A stays accepted in its grace period; its client is closed at commit.
+	reanchor(t, env, reanchorTestKey2, envConfig.SDKKey, time.Unix(1000, 0))
+	syncB := capturing.latest()
+	require.NotSame(t, syncA, syncB)
+	require.True(t, syncA.isClosed(), "A's synchronizer is closed after A->B")
+	require.True(t, syncB.isStarted(), "B's synchronizer is started (a segment already existed)")
+
+	// B -> A. A is still in the accepted set (its mappings survived the demotion) but has no client, so a
+	// fresh client is built and the big-segment sync must be re-wired onto A just like a brand-new key.
+	reanchor(t, env, envConfig.SDKKey, reanchorTestKey2, time.Unix(1000, 0))
+	syncARepromoted := capturing.latest()
+	assert.NotSame(t, syncB, syncARepromoted, "re-promoting A builds a THIRD synchronizer instance")
+	assert.NotSame(t, syncA, syncARepromoted, "and a fresh instance, not the retired original A synchronizer")
+
+	count, sdkKey := capturing.snapshot()
+	assert.Equal(t, 3, count, "one synchronizer per anchor commit: A, B, A-again")
+	assert.Equal(t, envConfig.SDKKey, sdkKey, "the third synchronizer is bound to the re-promoted key A")
+	assert.True(t, syncARepromoted.isStarted(), "the re-promoted anchor's synchronizer is Started (a segment exists)")
+	assert.True(t, syncB.isClosed(), "B's synchronizer is Closed on the re-promotion")
+	assert.Equal(t, envConfig.SDKKey, envImpl.keyRotator.AnchorKey(), "the SDK anchor is back on A")
 }

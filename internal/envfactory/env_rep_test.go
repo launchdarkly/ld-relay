@@ -188,3 +188,77 @@ func TestEnvironmentRepOldFormatNoArrays(t *testing.T) {
 	require.Len(t, params.AcceptedMobileKeys, 1)
 	assert.Equal(t, AcceptedMobileKey{Value: config.MobileKey("mob-default")}, params.AcceptedMobileKeys[0])
 }
+
+// TestNewFormatPayloadDecodesIntoOldFormatStruct pins the wire-format additive guarantee directly. The
+// local oldEnvironmentRep mirrors EnvironmentRep as it was before concurrent keys: only the singular
+// sdkKey (with the legacy sdkKey.expiring rotation slot) and mobKey, and none of the new sdkKeys/
+// mobileKeys arrays or per-key expiry. Decoding a full new-format payload into it must succeed and yield
+// exactly the singular values an old relay binary saw before the arrays existed — because the parse path
+// uses the default JSON decoder (never DisallowUnknownFields), so the unknown new fields are ignored.
+func TestNewFormatPayloadDecodesIntoOldFormatStruct(t *testing.T) {
+	// oldEnvironmentRep is the pre-concurrent-keys shape. Do not add sdkKeys/mobileKeys/expiry here — the
+	// whole point is that an old binary that never knew about them still decodes a new payload cleanly.
+	type oldEnvironmentRep struct {
+		EnvID    config.EnvironmentID `json:"envID"`
+		EnvKey   string               `json:"envKey"`
+		EnvName  string               `json:"envName"`
+		MobKey   config.MobileKey     `json:"mobKey"`
+		ProjKey  string               `json:"projKey"`
+		ProjName string               `json:"projName"`
+		SDKKey   struct {
+			Value    config.SDKKey `json:"value"`
+			Expiring struct {
+				Value     config.SDKKey              `json:"value"`
+				Timestamp ldtime.UnixMillisecondTime `json:"timestamp"`
+			} `json:"expiring"`
+		} `json:"sdkKey"`
+		DefaultTTL int  `json:"defaultTtl"`
+		SecureMode bool `json:"secureMode"`
+		Version    int  `json:"version"`
+	}
+
+	// A realistic full new-format payload: singular fields plus the legacy expiring slot, the new
+	// sdkKeys/mobileKeys arrays, and per-key expiry — everything a current backend can emit.
+	jsonStr := `{
+		"envID": "68e5179e8307e4099c277e2a",
+		"envKey": "production",
+		"envName": "Production",
+		"mobKey": "mob-f41c",
+		"projKey": "my-project",
+		"projName": "My Project",
+		"sdkKey": {
+			"value": "sdk-anchor",
+			"expiring": { "value": "sdk-old-anchor", "timestamp": 1699000000000 }
+		},
+		"sdkKeys": [
+			{ "key": "default-sdk", "value": "sdk-anchor" },
+			{ "key": "service-a",   "value": "sdk-service-a", "expiry": 1700000000000 }
+		],
+		"mobileKeys": [
+			{ "key": "mob-key-1", "value": "mob-f41c" },
+			{ "key": "mob-key-2", "value": "mob-second", "expiry": 1700000000000 }
+		],
+		"defaultTtl": 5,
+		"secureMode": true,
+		"version": 26
+	}`
+
+	var rep oldEnvironmentRep
+	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
+
+	// The singular fields an old relay relies on populate exactly as before; the arrays are ignored.
+	assert.Equal(t, config.SDKKey("sdk-anchor"), rep.SDKKey.Value)
+	assert.Equal(t, config.SDKKey("sdk-old-anchor"), rep.SDKKey.Expiring.Value)
+	assert.Equal(t, ldtime.UnixMillisecondTime(1699000000000), rep.SDKKey.Expiring.Timestamp)
+	assert.Equal(t, config.MobileKey("mob-f41c"), rep.MobKey)
+
+	// The remaining scalar fields also decode unchanged.
+	assert.Equal(t, config.EnvironmentID("68e5179e8307e4099c277e2a"), rep.EnvID)
+	assert.Equal(t, "production", rep.EnvKey)
+	assert.Equal(t, "Production", rep.EnvName)
+	assert.Equal(t, "my-project", rep.ProjKey)
+	assert.Equal(t, "My Project", rep.ProjName)
+	assert.Equal(t, 5, rep.DefaultTTL)
+	assert.True(t, rep.SecureMode)
+	assert.Equal(t, 26, rep.Version)
+}
