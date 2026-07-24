@@ -35,4 +35,10 @@ const (
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
 	ResponseBytesKey = attribute.Key("relay.response.bytes")
+	// PayloadCacheHitKey reports whether a serialize span was satisfied from the
+	// per-environment payload cache instead of encoding the snapshot.
+	PayloadCacheHitKey = attribute.Key("relay.payload.cache_hit")
+	// PayloadStreamedKey reports that the payload was encoded directly to the network,
+	// so the serialize span also covers the response write.
+	PayloadStreamedKey = attribute.Key("relay.payload.streamed")
 )

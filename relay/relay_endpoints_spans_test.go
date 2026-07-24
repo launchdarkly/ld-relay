@@ -130,6 +130,9 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 			// countKey is the attribute expected to hold the item/event count on the
 			// serialize span, or "" when the handler records no count.
 			countKey attribute.Key
+			// streamed handlers encode directly to the network, so the serialize span
+			// also covers the response write and no separate write span exists.
+			streamed bool
 		}{
 			{
 				name: "pollHandlerV2 GET /sdk/poll",
@@ -144,6 +147,7 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 					return st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
 				},
 				countKey: tracing.PayloadEventsKey,
+				streamed: true,
 			},
 			{
 				name: "evaluateAllShared REPORT /sdk/evalx/context",
@@ -181,20 +185,28 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				spans := recorder.Ended()
 				root := rootSpan(t, spans)
 				serialize := requireSpan(t, spans, tracing.SpanSerializePayload)
-				write := requireSpan(t, spans, tracing.SpanWriteResponse)
-
 				assertChildOfEnded(t, serialize, root)
-				assertChildOfEnded(t, write, root)
-
 				serializeAttrs := spanAttrs(serialize)
-				writeAttrs := spanAttrs(write)
 
 				payloadBytes, ok := serializeAttrs[tracing.PayloadBytesKey]
 				require.True(t, ok, "serialize span is missing the payload bytes attribute")
 				assert.Positive(t, payloadBytes.AsInt64())
 
-				responseBytes, ok := writeAttrs[tracing.ResponseBytesKey]
-				require.True(t, ok, "write span is missing the response bytes attribute")
+				var responseBytes attribute.Value
+				if tc.streamed {
+					assert.Empty(t, spansNamed(spans, tracing.SpanWriteResponse),
+						"streamed handler should not emit a separate write span")
+					streamedAttr, ok := serializeAttrs[tracing.PayloadStreamedKey]
+					require.True(t, ok, "streamed serialize span is missing the streamed attribute")
+					assert.True(t, streamedAttr.AsBool())
+					responseBytes, ok = serializeAttrs[tracing.ResponseBytesKey]
+					require.True(t, ok, "streamed serialize span is missing the response bytes attribute")
+				} else {
+					write := requireSpan(t, spans, tracing.SpanWriteResponse)
+					assertChildOfEnded(t, write, root)
+					responseBytes, ok = spanAttrs(write)[tracing.ResponseBytesKey]
+					require.True(t, ok, "write span is missing the response bytes attribute")
+				}
 				assert.Equal(t, payloadBytes.AsInt64(), responseBytes.AsInt64(),
 					"response bytes should equal the serialized payload size")
 
@@ -213,9 +225,59 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				// have ended.
 				started := recorder.Started()
 				assert.Equal(t, 1, countStarted(started, tracing.SpanSerializePayload))
-				assert.Equal(t, 1, countStarted(started, tracing.SpanWriteResponse))
+				expectedWriteSpans := 1
+				if tc.streamed {
+					expectedWriteSpans = 0
+				}
+				assert.Equal(t, expectedWriteSpans, countStarted(started, tracing.SpanWriteResponse))
 			})
 		}
+	})
+}
+
+// TestPollPayloadCacheAcrossRequests verifies that repeated polls for the same basis
+// are served from the payload cache — identical bytes, with the serialize span
+// reporting a miss on the first request and a hit on the second — and that an
+// If-None-Match request short-circuits before any serialize span is started.
+func TestPollPayloadCacheAcrossRequests(t *testing.T) {
+	recorder := installSpanRecorder(t)
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		serverSDKKey := st.EnvMain.Config.SDKKey
+		poll := func() (*http.Response, []byte) {
+			result, body := st.DoRequest(st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil), p.relay)
+			return result, body
+		}
+
+		cacheHitAttr := func() bool {
+			serialize := requireSpan(t, recorder.Ended(), tracing.SpanSerializePayload)
+			attr, ok := spanAttrs(serialize)[tracing.PayloadCacheHitKey]
+			require.True(t, ok, "serialize span is missing the cache_hit attribute")
+			return attr.AsBool()
+		}
+
+		recorder.Reset()
+		first, firstBody := poll()
+		require.Equal(t, http.StatusOK, first.StatusCode)
+		assert.False(t, cacheHitAttr(), "first poll should build the payload")
+
+		recorder.Reset()
+		second, secondBody := poll()
+		require.Equal(t, http.StatusOK, second.StatusCode)
+		assert.True(t, cacheHitAttr(), "second poll should be served from the cache")
+		assert.Equal(t, firstBody, secondBody, "cached poll should return identical bytes")
+
+		recorder.Reset()
+		req := st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil)
+		req.Header.Set("If-None-Match", first.Header.Get("Etag"))
+		notModified, _ := st.DoRequest(req, p.relay)
+		require.Equal(t, http.StatusNotModified, notModified.StatusCode)
+		assert.Zero(t, countStarted(recorder.Started(), tracing.SpanSerializePayload),
+			"an If-None-Match match should be answered before serialization")
+		assert.Zero(t, countStarted(recorder.Started(), tracing.SpanWriteResponse))
 	})
 }
 

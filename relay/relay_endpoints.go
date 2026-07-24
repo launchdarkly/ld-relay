@@ -30,7 +30,6 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v4/ldreason"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
-	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 
@@ -207,115 +206,41 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	payloadJSON, ok := func() ([]byte, bool) {
+	// The response body for a given selector state is fixed, so a client that already
+	// has it can be answered before any payload work happens.
+	if writeNotModifiedIfEtagMatches(w, req, clientCtx.Env, selector.State()) {
+		return
+	}
+
+	var payload *serializedPollPayload
+	ok := func() bool {
 		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
-		numItems := 2
-		if len(collection) > 0 {
-			for _, keyedItems := range collection {
-				numItems += len(keyedItems)
-			}
-		}
-
-		pollingPayload := pollingPayload{
-			Events: make([]payloadEvent, 0, numItems),
-		}
-
+		cacheHit := false
 		basis := req.URL.Query().Get("basis")
-		if selector.IsDefined() && basis != "" && selector.State() == basis {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentNone,
-					Reason: "up-to-date",
-				}},
-			})
+		if basis != "" && selector.State() == basis {
+			payload = encodeUpToDatePollPayload(selector)
 		} else {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentTransferFull,
-					Reason: "cant-catchup",
-				}},
-			})
-			for kind, keyedItems := range collection {
-				for _, keyedItem := range keyedItems {
-					if keyedItem.Item.Item == nil {
-						continue // this should not happen, but just in case
-					}
-					switch kind {
-					case ldstoreimpl.Features():
-						if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
-
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.FlagKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
-						} else {
-							clientCtx.Env.GetLogger().Error("error casting keyed item to feature flag")
-							span.SetStatus(codes.Error, "error casting keyed item to feature flag")
-							w.WriteHeader(http.StatusInternalServerError)
-							return nil, false
-						}
-					case ldstoreimpl.Segments():
-						if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
-
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.SegmentKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
-						} else {
-							clientCtx.Env.GetLogger().Error("error casting keyed item to feature segment")
-							span.SetStatus(codes.Error, "error casting keyed item to feature segment")
-							w.WriteHeader(http.StatusInternalServerError)
-							return nil, false
-						}
-					default:
-						clientCtx.Env.GetLogger().Error("unexpected data kind in store snapshot", "kind", kind)
-						span.SetStatus(codes.Error, "unexpected data kind in store snapshot")
-						w.WriteHeader(http.StatusInternalServerError)
-						return nil, false
-					}
-				}
+			var err error
+			payload, cacheHit, err = pollPayloadCacheForEnv(clientCtx.Env).getOrBuild(selector,
+				func() (*serializedPollPayload, error) {
+					return encodeServerPollPayload(collection, selector)
+				})
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				clientCtx.Env.GetLogger().Error("error serializing polling response", "error", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return false
 			}
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event:     "payload-transferred",
-				EventData: selector,
-			})
-		}
-
-		data, err := json.Marshal(pollingPayload)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			clientCtx.Env.GetLogger().Error("error marshaling polling response", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return nil, false
 		}
 		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
-			tracing.PayloadBytesKey.Int(len(data)),
+			tracing.PayloadEventsKey.Int(payload.events),
+			tracing.PayloadBytesKey.Int(len(payload.data)),
+			tracing.PayloadCacheHitKey.Bool(cacheHit),
 		)
-		return data, true
+		return true
 	}()
 	if !ok {
 		return
@@ -324,8 +249,8 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	func() {
 		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
 		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(payloadJSON)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
+		span.SetAttributes(tracing.ResponseBytesKey.Int(len(payload.data)))
+		writeCacheableJSONResponse(w, req, clientCtx.Env, payload.data, selector.State())
 	}()
 }
 
@@ -386,36 +311,17 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		return
 	}
 
-	pollingPayload := pollingPayload{
-		Events: make([]payloadEvent, 0),
+	// The response body for a given selector state and context is fixed, so a client
+	// that already has it can be answered before evaluating or serializing anything.
+	if writeNotModifiedIfEtagMatches(w, req, clientCtx.Env, selector.State()) {
+		return
 	}
-	flagEvalKind := subsystems.ObjectKind("flag-eval")
 
 	basis := req.URL.Query().Get("basis")
-	upToDate := selector.IsDefined() && basis != "" && selector.State() == basis
+	upToDate := basis != "" && selector.State() == basis
 
 	var evalResults []flagEvalResult
-	if upToDate {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentNone,
-				Reason: "up-to-date",
-			}},
-		})
-	} else {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentTransferFull,
-				Reason: "cant-catchup",
-			}},
-		})
-
+	if !upToDate {
 		evaluator := clientCtx.Env.GetEvaluator()
 
 		var allItems []ldstoretypes.KeyedItemDescriptor
@@ -432,70 +338,33 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		evalSpan.End()
 	}
 
-	jsonData, ok := func() ([]byte, bool) {
+	// Eval results are per-context and cannot be cached, so the payload is encoded
+	// directly to the network in a single pass; the serialize span therefore also
+	// covers the response write.
+	func() {
 		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
-		if !upToDate {
-			for _, er := range evalResults {
-				evalWriter := jwriter.NewWriter()
-				evalObj := evalWriter.Object()
-				er.Detail.Value.WriteToJSONWriter(evalObj.Name("value"))
-				er.Detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
-				evalObj.Name("flagVersion").Int(er.Flag.Version)
-				writePrerequisites(&evalObj, er.Prerequisites)
-				evalObj.Maybe("trackEvents", er.Flag.TrackEvents || er.IsExperiment).Bool(true)
-				evalObj.Maybe("trackReason", er.IsExperiment).Bool(true)
-				if withReasons || er.IsExperiment {
-					er.Detail.Reason.WriteToJSONWriter(evalObj.Name("reason"))
-				}
-				evalObj.Maybe("debugEventsUntilDate", er.Flag.DebugEventsUntilDate != 0).
-					Float64(float64(er.Flag.DebugEventsUntilDate))
-				if er.Flag.SamplingRatio.IsDefined() {
-					evalObj.Name("samplingRatio").Int(er.Flag.SamplingRatio.IntValue())
-				}
-				evalObj.End()
+		setResponseCacheTTLHeaders(w, clientCtx.Env)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Etag", etagForState(selector.State()))
+		w.WriteHeader(http.StatusOK)
 
-				pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-					Event: "put-object",
-					EventData: subsystems.PutObject{
-						Version: er.Flag.Version,
-						Kind:    flagEvalKind,
-						Key:     er.Flag.Key,
-						Object:  evalWriter.Bytes(),
-					},
-				})
-			}
-
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event:     "payload-transferred",
-				EventData: selector,
-			})
-		}
-
-		data, err := json.Marshal(pollingPayload)
+		bytesWritten, numEvents, err := streamEvalPollPayload(w, evalResults, selector, withReasons, upToDate)
 		if err != nil {
+			// The status line is already on the wire, so this cannot become a 500;
+			// the truncated body will fail to parse on the client, which is the same
+			// outcome as a failed write of a fully buffered payload.
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			logger.Error("error marshaling polling response", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return nil, false
+			logger.Error("error streaming polling response", "error", err)
 		}
 		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
-			tracing.PayloadBytesKey.Int(len(data)),
+			tracing.PayloadEventsKey.Int(numEvents),
+			tracing.PayloadBytesKey.Int64(bytesWritten),
+			tracing.ResponseBytesKey.Int64(bytesWritten),
+			tracing.PayloadStreamedKey.Bool(true),
 		)
-		return data, true
-	}()
-	if !ok {
-		return
-	}
-
-	func() {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(jsonData)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
 	}()
 }
 
@@ -815,11 +684,8 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 	}
 }
 
-func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
-	bytes []byte, etagValue string,
-) {
-	ttl := clientContext.GetTTL()
-	if ttl > 0 {
+func setResponseCacheTTLHeaders(w http.ResponseWriter, clientContext relayenv.EnvContext) {
+	if ttl := clientContext.GetTTL(); ttl > 0 {
 		w.Header().Set("Vary", "Authorization")
 		expiresAt := time.Now().UTC().Add(ttl)
 		w.Header().Set("Expires", expiresAt.Format(http.TimeFormat))
@@ -827,15 +693,36 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 		// HTTP cache in front of ld-relay, multiple clients hitting the cache at different times
 		// will all see the same expiration time.
 	}
+}
 
-	etag := fmt.Sprintf("W/\"%s\"", etagValue)
-	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
-		w.WriteHeader(http.StatusNotModified)
+func etagForState(etagValue string) string {
+	return fmt.Sprintf("W/\"%s\"", etagValue)
+}
+
+// writeNotModifiedIfEtagMatches responds 304 Not Modified and returns true when the
+// request's If-None-Match matches the etag for etagValue. The etag is derived from
+// the store state, which is known before any payload is built, so handlers call this
+// before doing serialization work.
+func writeNotModifiedIfEtagMatches(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
+	etagValue string,
+) bool {
+	if req.Header.Get("If-None-Match") != etagForState(etagValue) {
+		return false
+	}
+	setResponseCacheTTLHeaders(w, clientContext)
+	w.WriteHeader(http.StatusNotModified)
+	return true
+}
+
+func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
+	bytes []byte, etagValue string,
+) {
+	if writeNotModifiedIfEtagMatches(w, req, clientContext, etagValue) {
 		return
 	}
-
+	setResponseCacheTTLHeaders(w, clientContext)
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Etag", etag)
+	w.Header().Set("Etag", etagForState(etagValue))
 	w.WriteHeader(http.StatusOK)
 
 	_, _ = w.Write(bytes)
