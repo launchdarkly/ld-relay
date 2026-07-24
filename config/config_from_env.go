@@ -57,6 +57,8 @@ func LoadConfigFromEnvironmentBase(c *Config) ct.ValidationResult {
 		c.AutoConfig.EnvDatastoreTableName = ""
 	}
 
+	reader.ReadStruct(&c.Concurrency, false)
+
 	reader.ReadStruct(&c.Events, false)
 	rejectObsoleteVariableName("EVENTS_SAMPLING_INTERVAL", "", reader)
 

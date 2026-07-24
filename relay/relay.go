@@ -70,6 +70,7 @@ type Relay struct {
 	archiveManager                filedata.ArchiveManagerInterface
 	config                        config.Config
 	logger                        *slog.Logger
+	concurrency                   concurrencyLimiters
 }
 
 // ClientFactoryFunc is a function that can be used with NewRelay to specify custom behavior when
@@ -157,9 +158,13 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		streamTraceFactory = streamMetricsBridge.TraceFor
 	}
 
+	clims := newConcurrencyLimiters(c.Concurrency)
+	clims.logEnabled(logger)
+
 	r := &Relay{
-		envsByCredential:              NewEnvironmentLookup(),
-		serverSideStreamProvider:      streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0, streamTraceFactory),
+		envsByCredential: NewEnvironmentLookup(),
+		serverSideStreamProvider: streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0, streamTraceFactory,
+			streams.WithBasisLimiter(clims.basisDelivery, clims.streamPutSendTimeout)),
 		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0, streamTraceFactory),
 		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime, streamTraceFactory),
 		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime, streamTraceFactory),
@@ -172,6 +177,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 		envLogNameMode:                logNameMode,
 		config:                        c,
 		logger:                        logger,
+		concurrency:                   clims,
 	}
 
 	thingsToCleanUp.AddCloser(r)
@@ -349,6 +355,8 @@ func (r *Relay) Close() error {
 	for _, sp := range r.allStreamProviders() {
 		sp.Close()
 	}
+
+	r.concurrency.close()
 
 	return nil
 }

@@ -122,4 +122,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/launchdarkly/eventsource => /home/mkeeler/code/launchdarkly/eventsource.git/server-trace-hooks
+replace github.com/launchdarkly/eventsource => /home/rlamb/tmpfs/sdk-research/eventsource-flushclose

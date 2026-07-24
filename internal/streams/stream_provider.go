@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -68,10 +69,36 @@ type EnvStreamProvider interface {
 // wire the OTel bridge into the SSE servers without the streams package depending on the bridge.
 type ServerTraceFactory func(streamKind, protocol string) *eventsource.ServerTrace
 
+// Option customizes a StreamProvider created by NewStreamProvider.
+type Option func(*providerOptions)
+
+type providerOptions struct {
+	basisLimiter   *concurrency.Limiter
+	putSendTimeout time.Duration
+}
+
+// WithBasisLimiter bounds how many stream replays may send a FULL basis at once,
+// drawing from the shared basis-delivery budget (the same limiter polls use).
+// Replays that are already up-to-date, and deltas, do not consume the budget. Only
+// the server-side stream provider honors this; it is a no-op for other kinds. A nil
+// or disabled limiter imposes no limit. putSendTimeout frees a slot if a put cannot
+// be delivered to a (disconnected/stuck) client within it.
+func WithBasisLimiter(limiter *concurrency.Limiter, putSendTimeout time.Duration) Option {
+	return func(o *providerOptions) {
+		o.basisLimiter = limiter
+		o.putSendTimeout = putSendTimeout
+	}
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
 // If traceFactory is non-nil, it is used to attach a ServerTrace to each of the provider's two SSE
-// servers (fdv1 and fdv2), tagged with the stream kind and protocol.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, traceFactory ServerTraceFactory) StreamProvider {
+// servers (fdv1 and fdv2), tagged with the stream kind and protocol. opts customize the provider
+// (e.g. WithBasisLimiter for the server-side stream).
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, traceFactory ServerTraceFactory, opts ...Option) StreamProvider {
+	var o providerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	v1Trace, v2Trace := traces(kind, traceFactory)
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
@@ -93,8 +120,10 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 		}
 	default:
 		return &serverSideStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime, v1Trace),
-			fdv2Server: newSSEServer(maxConnTime, v2Trace),
+			fdv1Server:     newSSEServer(maxConnTime, v1Trace),
+			fdv2Server:     newSSEServer(maxConnTime, v2Trace),
+			basisLimiter:   o.basisLimiter,
+			putSendTimeout: o.putSendTimeout,
 		}
 	}
 }

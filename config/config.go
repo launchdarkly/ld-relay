@@ -141,8 +141,42 @@ type Config struct {
 	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
+	Concurrency ConcurrencyConfig
 
 	OpenTelemetry OpenTelemetryConfig
+}
+
+// ConcurrencyConfig corresponds to the [Concurrency] section in the configuration
+// file. It bounds how many *full-basis deliveries* Relay performs at once.
+//
+// A "full-basis delivery" is any response that serializes and sends the entire
+// flag/segment payload (~MBs): every polling request (FDv2 /sdk/poll and PHP
+// /sdk/flags always return the full basis), and any streaming connection whose
+// replay must send the full basis (FDv1 /all always; FDv2 /sdk/stream when the
+// client presents no basis or a stale one). Streaming replays that are already
+// up-to-date (the client's basis matches the store), and incremental deltas, are
+// cheap and are NOT counted against this budget.
+//
+// Because polls and full-basis streams contend for the same CPU (serialization),
+// memory (holding the payload), and egress bandwidth, they share ONE budget rather
+// than separate per-endpoint limits. MaxConcurrent bounds deliveries in flight;
+// MaxQueued bounds the FIFO backlog of callers waiting for a slot (0 = shed as soon
+// as concurrency is saturated, which avoids a backlog that cannot drain under slow
+// egress; >0 = queue up to the backlog, then shed). A MaxConcurrent that is unset
+// or <= 0 disables the limit entirely (Relay behaves exactly as unconfigured).
+type ConcurrencyConfig struct {
+	BasisDeliveryMaxConcurrent ct.OptIntGreaterThanZero `conf:"BASIS_DELIVERY_MAX_CONCURRENT"`
+	BasisDeliveryMaxQueued     ct.OptInt                `conf:"BASIS_DELIVERY_MAX_QUEUED"`
+
+	// PerEnvMaxPercent caps how much of the budget one environment may occupy
+	// (held + queued), as a percentage of MaxConcurrent+MaxQueued, so a storm
+	// against one environment cannot starve the others on a multi-env Relay.
+	// 0 disables per-environment fairness (global-only).
+	PerEnvMaxPercent ct.OptInt `conf:"PER_ENV_MAX_PERCENT"`
+
+	// StreamPutSendTimeout frees a delivery slot if a streaming put cannot be
+	// handed to a (disconnected/stuck) client within this window. Default 30s.
+	StreamPutSendTimeout ct.OptDuration `conf:"STREAM_PUT_SEND_TIMEOUT"`
 }
 
 // MainConfig contains global configuration options for Relay.
