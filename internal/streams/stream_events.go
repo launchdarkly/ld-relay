@@ -9,7 +9,6 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
-	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldservicesv2"
 )
 
 // This file defines the format for all SSE events published by Relay. Its functions are normally only
@@ -34,80 +33,114 @@ func (e deferredEvent) Event() string { return e.name }
 func (e deferredEvent) Id() string    { return "" } //nolint:revive
 func (e deferredEvent) Data() string  { return e.result.Get() }
 
+// fdv2Event is a pre-rendered SSE event for the FDv2 protocol. The data string is
+// encoded exactly once, when the event is constructed.
+type fdv2Event struct {
+	name subsystems.EventName
+	data string
+}
+
+func (e fdv2Event) Event() string { return string(e.name) }
+func (e fdv2Event) Id() string    { return "" } //nolint:revive
+func (e fdv2Event) Data() string  { return e.data }
+
+// The encoders below produce the same JSON as marshaling the corresponding
+// subsystems event types (ServerIntent, PutObject, DeleteObject, Selector), but in a
+// single jwriter pass. In particular, a change's pre-serialized object is embedded
+// verbatim instead of being re-parsed and compacted by encoding/json.
+
+func makeServerIntentEvent(payload subsystems.Payload) eventsource.Event {
+	w := jwriter.NewWriter()
+	obj := w.Object()
+	payloads := obj.Name("payloads").Array()
+	payloadObj := payloads.Object()
+	payloadObj.Name("id").String(payload.ID)
+	payloadObj.Name("target").Int(payload.Target)
+	payloadObj.Name("intentCode").String(string(payload.Code))
+	payloadObj.Name("reason").String(payload.Reason)
+	payloadObj.End()
+	payloads.End()
+	obj.End()
+	return fdv2Event{name: subsystems.EventServerIntent, data: string(w.Bytes())}
+}
+
+func makePutObjectEvent(change subsystems.Change) eventsource.Event {
+	w := jwriter.NewWriter()
+	obj := w.Object()
+	obj.Name("version").Int(change.Version)
+	obj.Name("kind").String(string(change.Kind))
+	obj.Name("key").String(change.Key)
+	if len(change.Object) == 0 {
+		obj.Name("object").Null()
+	} else {
+		obj.Name("object").Raw(change.Object)
+	}
+	obj.End()
+	return fdv2Event{name: subsystems.EventPutObject, data: string(w.Bytes())}
+}
+
+func makeDeleteObjectEvent(change subsystems.Change) eventsource.Event {
+	w := jwriter.NewWriter()
+	obj := w.Object()
+	obj.Name("version").Int(change.Version)
+	obj.Name("kind").String(string(change.Kind))
+	obj.Name("key").String(change.Key)
+	obj.End()
+	return fdv2Event{name: subsystems.EventDeleteObject, data: string(w.Bytes())}
+}
+
+func makePayloadTransferredEvent(selector subsystems.Selector) eventsource.Event {
+	w := jwriter.NewWriter()
+	obj := w.Object()
+	obj.Name("state").String(selector.State())
+	obj.Name("version").Int(selector.Version())
+	obj.End()
+	return fdv2Event{name: subsystems.EventPayloadTransferred, data: string(w.Bytes())}
+}
+
 func MakeEventsForUpToDate(selector subsystems.Selector) []eventsource.Event {
-	// First create a new streaming protocol builder
-	protocol := ldservicesv2.NewStreamingProtocol()
-
-	// Add the server intent event
-	protocol = protocol.WithIntent(subsystems.ServerIntent{
-		Payload: subsystems.Payload{
-			ID:     selector.State(),
-			Target: selector.Version(),
-			Code:   subsystems.IntentNone,
-			Reason: "up-to-date",
-		},
-	})
-
-	return protocol.SSEEvents()
+	return []eventsource.Event{makeServerIntentEvent(subsystems.Payload{
+		ID:     selector.State(),
+		Target: selector.Version(),
+		Code:   subsystems.IntentNone,
+		Reason: "up-to-date",
+	})}
 }
 
 func MakeEventsForSetBasis(changes []subsystems.Change, selector subsystems.Selector) []eventsource.Event {
-	// First create a new streaming protocol builder
-	protocol := ldservicesv2.NewStreamingProtocol()
-
-	// Add the server intent event
-	protocol = protocol.WithIntent(subsystems.ServerIntent{
-		Payload: subsystems.Payload{
-			ID:     selector.State(),
-			Target: selector.Version(),
-			Code:   subsystems.IntentTransferFull,
-			Reason: "cant-catchup",
-		},
-	})
+	events := make([]eventsource.Event, 0, len(changes)+2)
+	events = append(events, makeServerIntentEvent(subsystems.Payload{
+		ID:     selector.State(),
+		Target: selector.Version(),
+		Code:   subsystems.IntentTransferFull,
+		Reason: "cant-catchup",
+	}))
 
 	for _, change := range changes {
 		// NOTE: We don't have to worry about delete events here since this is
 		// meant as a full replacement.
 		if change.Action == subsystems.ChangeTypePut {
-			protocol = protocol.WithPutObject(subsystems.PutObject{
-				Version: change.Version,
-				Kind:    change.Kind,
-				Key:     change.Key,
-				Object:  change.Object,
-			})
+			events = append(events, makePutObjectEvent(change))
 		}
 	}
 
-	// Add the payload transferred event with the selector
-	protocol = protocol.WithTransferred(selector.State(), selector.Version())
-
-	return protocol.SSEEvents()
+	events = append(events, makePayloadTransferredEvent(selector))
+	return events
 }
 
 func MakeEventsForApplyDelta(changes []subsystems.Change, selector subsystems.Selector) []eventsource.Event {
-	protocol := ldservicesv2.NewStreamingProtocol()
-
+	events := make([]eventsource.Event, 0, len(changes)+1)
 	for _, change := range changes {
 		switch change.Action {
 		case subsystems.ChangeTypePut:
-			protocol = protocol.WithPutObject(subsystems.PutObject{
-				Version: change.Version,
-				Kind:    change.Kind,
-				Key:     change.Key,
-				Object:  change.Object,
-			})
+			events = append(events, makePutObjectEvent(change))
 		case subsystems.ChangeTypeDelete:
-			protocol = protocol.WithDeleteObject(subsystems.DeleteObject{
-				Version: change.Version,
-				Kind:    change.Kind,
-				Key:     change.Key,
-			})
+			events = append(events, makeDeleteObjectEvent(change))
 		}
 	}
 
-	protocol = protocol.WithTransferred(selector.State(), selector.Version())
-
-	return protocol.SSEEvents()
+	events = append(events, makePayloadTransferredEvent(selector))
+	return events
 }
 
 // MakeServerSidePutEvent creates a "put" event for server-side SDKs.
