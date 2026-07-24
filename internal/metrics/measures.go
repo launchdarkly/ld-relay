@@ -30,12 +30,13 @@ type StreamInstruments struct {
 	SubscribersActive   metric.Int64UpDownCounter // active SSE subscribers (+1/-1)
 	ConnectionDuration  metric.Float64Histogram   // SSE connection lifetime in seconds
 	SubscribersDropped  metric.Int64Counter       // subscribers force-dropped for buffer overflow
-	EventsSent          metric.Int64Counter       // events written to subscribers
-	EventsSentSize      metric.Int64Histogram     // size in bytes of event payloads written
+	EventsSent          metric.Int64Counter       // individually-flushed live events written to subscribers
+	EventsSentSize      metric.Int64Histogram     // size in bytes of individually-flushed live event payloads
 	CommentsSent        metric.Int64Counter       // comments (heartbeats) written to subscribers
 	EventsDiscarded     metric.Int64Counter       // events discarded before delivery (jitter coalescing)
 	WriteErrors         metric.Int64Counter       // encode/write failures to a subscriber
 	ReplayEvents        metric.Int64Histogram     // events drained per replay
+	ReplayBytes         metric.Int64Histogram     // size in bytes of event payloads drained per replay
 	ReplayDrainDuration metric.Float64Histogram   // time to drain a replay batch, in seconds
 }
 
@@ -69,13 +70,15 @@ func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
 		return StreamInstruments{}, err
 	}
 	eventsSent, err := meter.Int64Counter(streamEventsSentMeasureName,
-		metric.WithDescription("Events written to SSE subscribers"),
+		metric.WithDescription("Individually-flushed live events written to SSE subscribers; "+
+			"replayed events are reported via the stream.replay.* instruments"),
 		metric.WithUnit("{event}"))
 	if err != nil {
 		return StreamInstruments{}, err
 	}
 	eventsSentSize, err := meter.Int64Histogram(streamEventsSentSizeMeasureName,
-		metric.WithDescription("Size of event payloads written to SSE subscribers"),
+		metric.WithDescription("Size of individually-flushed live event payloads written to SSE subscribers; "+
+			"replayed events are reported via the stream.replay.* instruments"),
 		metric.WithUnit("By"))
 	if err != nil {
 		return StreamInstruments{}, err
@@ -104,8 +107,14 @@ func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
 	if err != nil {
 		return StreamInstruments{}, err
 	}
+	replayBytes, err := meter.Int64Histogram(streamReplayBytesMeasureName,
+		metric.WithDescription("Size of event payloads drained to a subscriber per replay"),
+		metric.WithUnit("By"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
 	replayDrainDuration, err := meter.Float64Histogram(streamReplayDrainDurationMeasureName,
-		metric.WithDescription("Time to drain a replay batch to a subscriber"),
+		metric.WithDescription("Time to drain a replay batch to a subscriber, including the single flush at the end of the batch"),
 		metric.WithUnit("s"))
 	if err != nil {
 		return StreamInstruments{}, err
@@ -120,6 +129,7 @@ func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
 		EventsDiscarded:     eventsDiscarded,
 		WriteErrors:         writeErrors,
 		ReplayEvents:        replayEvents,
+		ReplayBytes:         replayBytes,
 		ReplayDrainDuration: replayDrainDuration,
 	}, nil
 }

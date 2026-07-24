@@ -163,6 +163,7 @@ func TestReplayFinishedEmitsBackDatedReplaySpan(t *testing.T) {
 		h.trace().ReplayFinished(ctx, eventsource.ReplayFinishedInfo{
 			Channel:       testChannel,
 			EventCount:    7,
+			TotalDataSize: 384,
 			DrainDuration: drainDuration,
 		})
 	})
@@ -171,6 +172,7 @@ func TestReplayFinishedEmitsBackDatedReplaySpan(t *testing.T) {
 	assert.Equal(t, parent.SpanContext().SpanID(), span.Parent().SpanID(), "replay span must be a child of the request span")
 	assert.Equal(t, drainDuration, span.EndTime().Sub(span.StartTime()), "replay span is back-dated by DrainDuration")
 	assert.Equal(t, int64(7), spanAttr(t, span, eventCountAttrKey).AsInt64())
+	assert.Equal(t, int64(384), spanAttr(t, span, payloadSizeAttrKey).AsInt64())
 	assert.Equal(t, testStreamKd, spanAttr(t, span, streamKindAttrKey).AsString())
 	assert.Equal(t, testProtocol, spanAttr(t, span, streamProtocolAttrKey).AsString())
 	assert.Equal(t, testEnvName, spanAttr(t, span, envNameKey).AsString())

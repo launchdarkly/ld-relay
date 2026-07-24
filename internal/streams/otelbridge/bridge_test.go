@@ -270,13 +270,14 @@ func TestWriteError(t *testing.T) {
 	assertStreamKindAndProtocol(t, dp.Attributes)
 }
 
-func TestReplayFinishedRecordsEventsAndDuration(t *testing.T) {
+func TestReplayFinishedRecordsEventsBytesAndDuration(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
 	h.trace().ReplayFinished(context.Background(), eventsource.ReplayFinishedInfo{
 		Channel:       testChannel,
 		EventCount:    5,
+		TotalDataSize: 512,
 		DrainDuration: 250 * time.Millisecond,
 	})
 
@@ -286,6 +287,12 @@ func TestReplayFinishedRecordsEventsAndDuration(t *testing.T) {
 	assert.Equal(t, uint64(1), events.Count)
 	assert.Equal(t, int64(5), events.Sum)
 	assertEnvAttrs(t, events.Attributes)
+
+	bytesHist := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.bytes"))
+	assert.Equal(t, uint64(1), bytesHist.Count)
+	assert.Equal(t, int64(512), bytesHist.Sum)
+	assertEnvAttrs(t, bytesHist.Attributes)
+	assertStreamKindAndProtocol(t, bytesHist.Attributes)
 
 	drain := histFloatPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.drain.duration"))
 	assert.Equal(t, uint64(1), drain.Count)

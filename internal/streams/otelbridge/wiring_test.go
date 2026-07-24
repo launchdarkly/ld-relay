@@ -14,6 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
 
 	"github.com/launchdarkly/eventsource"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
@@ -40,6 +42,11 @@ func (wiringStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedIte
 // TestStreamProviderWiringRecordsMetrics exercises the whole path: a real StreamProvider built with
 // the bridge's TraceFor, a real eventsource Server, an HTTP subscription, and a manual reader that
 // captures what the ServerTrace callbacks record.
+//
+// With batch replay, the initial "put" a fresh subscriber receives is drained as a replay batch and
+// flushed once, so it surfaces through the replay.* instruments and an eventsource.replay span rather
+// than through events.sent / eventsource.write. A subsequent live "patch" published on the open stream
+// is flushed individually and exercises the EventSent path end to end.
 func TestStreamProviderWiringRecordsMetrics(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -91,29 +98,85 @@ func TestStreamProviderWiringRecordsMetrics(t *testing.T) {
 		assert.Equal(t, "server", attrValue(t, active.Attributes, streamKindAttrKey))
 		assert.Equal(t, "v1", attrValue(t, active.Attributes, streamProtocolAttrKey))
 
-		// EventSent is recorded just after the flush the client observed, so poll for it.
+		// The initial "put" is drained as a replay batch, so it is reported through ReplayFinished
+		// rather than EventSent. The batch flush that ends the batch is what the client observed, so
+		// poll for the replay.events metric to appear.
 		require.Eventually(t, func() bool {
-			m := findMetricByName(collectRM(t, reader), "launchdarkly.relay.stream.events.sent")
-			return m != nil
-		}, time.Second, 5*time.Millisecond, "events.sent was never recorded")
+			return findMetricByName(collectRM(t, reader), "launchdarkly.relay.stream.replay.events") != nil
+		}, time.Second, 5*time.Millisecond, "replay.events was never recorded")
+
+		rm := collectRM(t, reader)
+		replayEvents := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.events"))
+		assert.GreaterOrEqual(t, replayEvents.Sum, int64(1))
+		assertEnvAttrs(t, replayEvents.Attributes)
+
+		replayBytes := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.bytes"))
+		assert.Greater(t, replayBytes.Sum, int64(0), "the replayed put carries a non-empty data payload")
+		assertEnvAttrs(t, replayBytes.Attributes)
+
+		// The replay drain produces an eventsource.replay child span carrying the payload size.
+		require.Eventually(t, func() bool {
+			return replaySpanCount(spanRecorder) >= 1
+		}, time.Second, 5*time.Millisecond, "no eventsource.replay span was recorded")
+		replaySpan := endedSpanByName(t, spanRecorder.Ended(), spanReplay)
+		assert.Greater(t, spanAttr(t, replaySpan, payloadSizeAttrKey).AsInt64(), int64(0))
+
+		// Publish a live update on the open stream. It is flushed individually, so it exercises the
+		// EventSent path: a "patch" event, an events.sent metric, and an eventsource.write span.
+		esp.Apply(*makeLivePatch(t))
+
+		patch := helpers.RequireValue(t, eventCh, time.Second, "timed out waiting for live patch event")
+		require.Equal(t, "patch", patch.Event())
+
+		require.Eventually(t, func() bool {
+			return findMetricByName(collectRM(t, reader), "launchdarkly.relay.stream.events.sent") != nil
+		}, time.Second, 5*time.Millisecond, "events.sent was never recorded for the live publish")
 
 		sent := sumPoint(t, metricByName(t, collectRM(t, reader), "launchdarkly.relay.stream.events.sent"))
 		assert.GreaterOrEqual(t, sent.Value, int64(1))
-		assert.Equal(t, "put", attrValue(t, sent.Attributes, eventTypeAttrKey))
+		assert.Equal(t, "patch", attrValue(t, sent.Attributes, eventTypeAttrKey))
 		assertEnvAttrs(t, sent.Attributes)
 
-		// The same write produces a child span under the request span. It ends immediately, so it is
-		// exported once the flush completes; poll until it appears.
 		require.Eventually(t, func() bool {
 			return writeSpanCount(spanRecorder) >= 1
-		}, time.Second, 5*time.Millisecond, "no eventsource.write span was recorded")
+		}, time.Second, 5*time.Millisecond, "no eventsource.write span was recorded for the live publish")
 	})
+}
+
+// makeLivePatch builds an FDv1 delta change set that publishes a single flag put, which the
+// server-side provider turns into a live "patch" event on the open stream.
+func makeLivePatch(t *testing.T) *subsystems.ChangeSet {
+	t.Helper()
+	flag := ldbuilders.NewFlagBuilder("wiring-flag").Version(1).On(true).Build()
+	flagJSON, err := ldmodel.NewJSONDataModelSerialization().MarshalFeatureFlag(flag)
+	require.NoError(t, err)
+	changeSet, err := subsystems.NewChangeSetBuilder().Start(subsystems.ServerIntent{
+		Payload: subsystems.Payload{
+			ID:     "state",
+			Target: 1,
+			Code:   subsystems.IntentTransferChanges,
+			Reason: "wiring-live-update",
+		},
+	}).AddPut(subsystems.FlagKind, flag.Key, 1, flagJSON).
+		Finish(subsystems.NewSelector("state", 1))
+	require.NoError(t, err)
+	return changeSet
 }
 
 func writeSpanCount(recorder *tracetest.SpanRecorder) int {
 	count := 0
 	for _, s := range recorder.Ended() {
 		if s.Name() == spanWrite {
+			count++
+		}
+	}
+	return count
+}
+
+func replaySpanCount(recorder *tracetest.SpanRecorder) int {
+	count := 0
+	for _, s := range recorder.Ended() {
+		if s.Name() == spanReplay {
 			count++
 		}
 	}

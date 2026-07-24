@@ -184,13 +184,14 @@ func (t *streamTrace) writeSpan(ctx context.Context, channel, writeType string, 
 }
 
 // replaySpan emits a short eventsource.replay span nested under the request span, back-dated by the
-// drain duration the handler observed. Same recording gate as writeSpan.
-func (t *streamTrace) replaySpan(ctx context.Context, channel string, count int, duration time.Duration) {
+// drain duration the handler observed. Same recording gate as writeSpan. The payload size is the
+// summed data-payload bytes of the batch, matching the write span's payload.size attribute.
+func (t *streamTrace) replaySpan(ctx context.Context, channel string, count int, dataSize int, duration time.Duration) {
 	if !trace.SpanFromContext(ctx).IsRecording() {
 		return
 	}
 	end := time.Now()
-	attrs := t.channelAttrs(channel, eventCountAttrKey.Int(count))
+	attrs := t.channelAttrs(channel, eventCountAttrKey.Int(count), payloadSizeAttrKey.Int(dataSize))
 	_, span := t.bridge.tracer.Start(ctx, spanReplay,
 		trace.WithTimestamp(end.Add(-duration)),
 		trace.WithAttributes(attrs...))
@@ -225,6 +226,8 @@ func (t *streamTrace) subscriberDropped(info eventsource.SubscriberDroppedInfo) 
 	t.bridge.instruments.SubscribersDropped.Add(context.Background(), 1, t.attrs(info.Channel))
 }
 
+// eventSent fires only for individually-flushed live events; replayed events are batched and reported
+// through replayFinished, so the events.sent instruments here count live traffic only.
 func (t *streamTrace) eventSent(ctx context.Context, info eventsource.EventSentInfo) {
 	eventType := eventTypeValue(info.EventType)
 	t.bridge.instruments.EventsSent.Add(context.Background(), 1,
@@ -258,8 +261,9 @@ func (t *streamTrace) writeError(ctx context.Context, info eventsource.WriteErro
 
 func (t *streamTrace) replayFinished(ctx context.Context, info eventsource.ReplayFinishedInfo) {
 	t.bridge.instruments.ReplayEvents.Record(context.Background(), int64(info.EventCount), t.attrs(info.Channel))
+	t.bridge.instruments.ReplayBytes.Record(context.Background(), int64(info.TotalDataSize), t.attrs(info.Channel))
 	t.bridge.instruments.ReplayDrainDuration.Record(context.Background(), info.DrainDuration.Seconds(), t.attrs(info.Channel))
-	t.replaySpan(ctx, info.Channel, info.EventCount, info.DrainDuration)
+	t.replaySpan(ctx, info.Channel, info.EventCount, info.TotalDataSize, info.DrainDuration)
 }
 
 // eventTypeValue maps an event type to itself if it is on the relay allowlist, otherwise to the
