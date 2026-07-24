@@ -165,6 +165,10 @@ func (e *serverSideEnvStreamProvider) Close() {
 	}
 }
 
+// Ensure the repository advertises context support so the eventsource server calls
+// ReplayWithContext (and thus propagates the connection's lifetime) rather than Replay.
+var _ eventsource.RepositoryWithContext = (*serverSideEnvStreamRepository)(nil)
+
 // Replay satisfies the eventsource.Repository interface. It delegates to replay with a background
 // context; in practice the eventsource server prefers ReplayWithContext (see below) whenever the
 // repository implements it, so this context-less path is only a fallback.
@@ -192,6 +196,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 	}
 	go func() {
 		defer close(out)
+		if ctx.Err() != nil {
+			// The subscriber already disconnected; don't bother building a payload nobody will read.
+			return
+		}
 		var events []eventsource.Event
 		var err error
 		if r.isV2 {
