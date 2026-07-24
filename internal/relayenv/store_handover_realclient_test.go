@@ -1,8 +1,8 @@
 package relayenv
 
-// Spike verifying the real ld.LDClient's Close() behavior against the SSERelayDataStoreAdapter /
-// streamUpdatesStoreWrapper pair, which the fake-client PoC could not exercise. This is the single
-// remaining piece the fake-client PoC could not validate:
+// Verifies the real ld.LDClient's Close() behavior against the SSERelayDataStoreAdapter /
+// streamUpdatesStoreWrapper pair, which the fake-client tests could not exercise. This is the single
+// remaining piece the fake-client tests could not validate:
 //
 //   > streamUpdatesStoreWrapper.Close() closes the underlying store. With handover the retiring
 //   > and new clients share one underlying store, so closing the retiring client must NOT close

@@ -501,7 +501,7 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 // set. It is run at the stream parse boundary — before the rep's version is recorded via Upsert —
 // mirroring how an unparseable event is handled by gotMalformedEvent.
 //
-// Per design §9 a malformed credential payload must preserve the previous accepted set and force a
+// A malformed credential payload must preserve the previous accepted set and force a
 // stream reconnect (RAC is one-way push with no NAK channel, so the reconnect is what makes the
 // backend resend a fresh put). Validating here rather than after Upsert is essential: the version is
 // not advanced, so the fresh put — which carries the same version — is not deduplicated away by the
@@ -535,7 +535,7 @@ func (s *StreamManager) applyCachedContent(content *PutContent) {
 // is on. We will never be processing more than one stream message at the same time.
 //
 // handlePut returns true if the stream should be restarted — a malformed credential payload in any of
-// the environments triggers a reconnect (design §9), while still processing the well-formed ones.
+// the environments triggers a reconnect, while still processing the well-formed ones.
 func (s *StreamManager) handlePut(content PutContent) bool {
 	// A "put" message represents a full environment set. We will compare them one at a time to the
 	// current set of environments (if any), calling the handler's AddEnvironment for any new ones,

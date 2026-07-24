@@ -68,7 +68,7 @@ func NewSSERelayDataStoreAdapter(
 
 // Build is called by the SDK when the LDClient is being created.
 //
-// Store handover (concurrent-keys re-anchor): if the adapter already holds a wrapper from
+// Store handover (re-anchor): if the adapter already holds a wrapper from
 // a prior client construction, that wrapper is returned again instead of building a fresh one. This
 // hands the populated, initialized data store over to the new anchor's client during a re-anchor —
 // no empty-store window, no re-sync. The wrapper refcounts its holders so the underlying store is
@@ -134,7 +134,7 @@ func newStreamUpdatesStoreWrapper(
 }
 
 // acquire records an additional holder of the wrapper, used by SSERelayDataStoreAdapter.Build when it
-// hands this wrapper to a new client during a concurrent-keys re-anchor. It returns false if the
+// hands this wrapper to a new client during a re-anchor. It returns false if the
 // wrapper has already been fully closed (refCount reached zero and the underlying store was torn
 // down); the caller must then build a fresh wrapper rather than resurrect a dead one.
 func (sw *streamUpdatesStoreWrapper) acquire() bool {

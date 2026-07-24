@@ -1,6 +1,6 @@
 package relayenv
 
-// Tests for T2.e (SDK-2544): stream handlers are no longer built or stored per credential. Instead
+// Stream handlers are no longer built or stored per credential. Instead
 // GetStreamHandler resolves the request's credential to a scoped channel and asks the StreamProvider to
 // build the handler on demand, scoping it with the env's (immutable) filter key. These tests exercise
 // that on-demand path directly: that the provider is asked for the right scoped credential, that a valid

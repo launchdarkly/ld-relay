@@ -1,6 +1,6 @@
 package store
 
-// Refcount contract tests for the store-handover wrapper (concurrent-keys re-anchor).
+// Refcount contract tests for the store-handover wrapper (re-anchor).
 //
 // These cover the two properties the refcount design hinges on but the original suite left
 // unexercised (multi-agent review, PR #736): Close idempotency past the final release, and safety of a

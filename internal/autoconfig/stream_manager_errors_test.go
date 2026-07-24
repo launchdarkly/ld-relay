@@ -36,7 +36,7 @@ func eventShouldCauseStreamRestart(t *testing.T, event httphelpers.SSEEvent) {
 // A credential payload that is valid JSON and a structurally valid event, but whose credential set
 // cannot be built (e.g. an undefined anchor SDK key, or mobile keys with no designated primary), must
 // be caught at the parse boundary: the previous state is preserved (no AddEnvironment/UpdateEnvironment
-// dispatched) and the stream is restarted so the backend resends a fresh put (design §9). This is
+// dispatched) and the stream is restarted so the backend resends a fresh put. This is
 // verified for both patch and put, since both paths run the validation before the version is recorded.
 func TestMalformedCredentialPayloadCausesStreamRestart(t *testing.T) {
 	// Each shape is a distinct way BuildAcceptedSet rejects a structurally malformed payload; all ride

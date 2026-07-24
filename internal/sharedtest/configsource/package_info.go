@@ -1,5 +1,5 @@
-// Package configsource contains test helpers that mock or build the sources Relay loads its
-// environment configuration from: the Relay Auto Config (RAC) SSE stream and offline-mode archives.
+// Package configsource contains test helpers that mock the source Relay loads its
+// environment configuration from: the Relay Auto Config (RAC) SSE stream.
 //
 // These live in sharedtest/configsource rather than sharedtest itself because they reference the
 // envfactory package, which transitively imports relayenv and streams. Putting them in a subpackage
