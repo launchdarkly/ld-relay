@@ -184,14 +184,31 @@ func (e *serverSideEnvStreamProvider) Close() {
 }
 
 func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsource.Event {
+	// Legacy entry point for an eventsource server that cannot supply the subscriber's
+	// context. The producer then waits non-cancellably for a budget slot; the server's
+	// background drain remains its unblocking safety net.
 	out := make(chan eventsource.Event)
+	r.startReplay(context.Background(), id, out)
+	return out
+}
+
+func (r *serverSideEnvStreamRepository) ReplayWithContext(ctx context.Context, channel, id string) <-chan eventsource.Event {
+	out := make(chan eventsource.Event)
+	r.startReplay(ctx, id, out)
+	return out
+}
+
+// startReplay begins producing this subscriber's replay onto out. ctx is the
+// subscriber's request context (cancelled when it disconnects) when the server supports
+// passing it, or Background for the legacy Replay path.
+func (r *serverSideEnvStreamRepository) startReplay(ctx context.Context, id string, out chan eventsource.Event) {
 	if !r.store.IsInitialized() {
 		// If the data store has never been populated, we won't send an initial event. This is desirable
 		// behavior because, if Relay is still waiting on flag data from LD, we want SDK clients to stay
 		// waiting on Relay; then once Relay gets a "put" event from the LD stream, it will broadcast that
 		// event to this stream.
 		close(out)
-		return out
+		return
 	}
 	go func() {
 		defer close(out)
@@ -201,26 +218,28 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 		//
 		// Generation (store snapshot + serialize; singleflight-deduped so concurrent
 		// replays don't multiply it) is the bounded work that genuinely contends with
-		// polls for CPU/memory, so it belongs under the shared budget. The subsequent
-		// send is client-paced, and the producer here CANNOT observe the client's
-		// disconnect: the eventsource handler goroutine detects it immediately (the
-		// request context fires), but Repository.Replay(channel, id) has no context or
-		// cancellation hook, so that knowledge never reaches this goroutine. Holding the
-		// slot across the send therefore let a dead or slow client pin a scarce shared
-		// slot for the whole send-timeout window — turning a private per-goroutine stall
-		// into system-wide livelock of the shared pool.
+		// polls for CPU/memory and egress, so it belongs under the shared budget. The
+		// subsequent send is client-paced and holds no slot, so a dead or slow client
+		// cannot pin a scarce shared slot for the whole send-timeout window.
 		//
-		// Releasing after generation keeps dead clients out of the slot pool. The
-		// slot-free send below carries only the shared, memoized payload; the send
-		// timeout remains a backstop that unblocks an abandoned producer (until the
-		// eventsource library propagates disconnects to producers, which removes the
-		// blind hop entirely).
-		release, ok := r.basisLimiter.Acquire(context.Background(), r.envKey)
+		// The wait for a slot is FIFO and cancellable: a subscriber that disconnects
+		// while queued leaves the backlog immediately via ctx.
+		release, ok := r.basisLimiter.Acquire(ctx, r.envKey)
 		if !ok {
-			// Budget saturated during generation: shed this replay. The connection
-			// stays open but receives no data (the SSE 200/preamble already went out,
-			// so we cannot respond 503 here); the SDK times out init and reconnects.
-			r.logger.Debug("basis-delivery limit reached; shedding stream replay", "env", r.envKey)
+			if ctx.Err() != nil {
+				// The subscriber disconnected while waiting for a slot; nothing to do.
+				return
+			}
+			// The budget's backlog is full (or the per-env gate refused us). Tell the
+			// server to close this connection so the SDK reconnects with backoff and
+			// retries the replay. Ending the batch silently instead would leave the
+			// SDK attached to a stream that never delivers its basis: SSE clients
+			// treat a silent connection as healthy, so they would never recover.
+			r.logger.Debug("basis-delivery backlog full; closing subscriber connection", "env", r.envKey)
+			select {
+			case out <- eventsource.CloseSubscription:
+			case <-ctx.Done():
+			}
 			return
 		}
 
@@ -242,21 +261,21 @@ func (r *serverSideEnvStreamRepository) Replay(channel, id string) chan eventsou
 		if sendTimeout <= 0 {
 			sendTimeout = 30 * time.Second
 		}
-		// Backstop only: this send holds no slot, but a bounded deadline still lets an
-		// abandoned producer (dead client, blind hop) unblock and exit rather than
-		// leaking the goroutine + payload forever (stock v9's bare `out <- event`).
+		// The deadline is a backstop for the legacy Replay path, whose Background ctx
+		// never fires; with a real subscriber ctx the disconnect case unblocks first.
 		deadline := time.NewTimer(sendTimeout)
 		defer deadline.Stop()
 		for _, event := range events {
 			// out is consumed by the connection's handler goroutine.
 			select {
 			case out <- event:
+			case <-ctx.Done():
+				return
 			case <-deadline.C:
 				return
 			}
 		}
 	}()
-	return out
 }
 
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.

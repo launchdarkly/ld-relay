@@ -122,4 +122,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/launchdarkly/eventsource => /home/rlamb/tmpfs/sdk-research/eventsource-flushclose
+replace github.com/launchdarkly/eventsource => /home/rlamb/tmpfs/sdk-research/eventsource-combined-disconnect
