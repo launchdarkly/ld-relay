@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v4"
+	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
@@ -25,11 +25,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	ct "github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
-	"github.com/launchdarkly/go-sdk-common/v4/ldcontext"
-	"github.com/launchdarkly/go-sdk-common/v4/ldreason"
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
+	"github.com/launchdarkly/go-sdk-common/v3/ldreason"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"

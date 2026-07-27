@@ -9,7 +9,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
-	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/stretchr/testify/require"
 )
 

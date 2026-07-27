@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/ld-relay/v9/internal/credential"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"

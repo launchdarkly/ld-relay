@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/launchdarkly/go-jsonstream/v4/jwriter"
+	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
