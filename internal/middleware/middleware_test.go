@@ -22,7 +22,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testclient"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest/testenv"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldcontext"
+	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"

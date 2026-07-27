@@ -23,14 +23,14 @@ require (
 	github.com/kardianos/minwinsvc v1.0.2
 	github.com/launchdarkly/eventsource v1.11.0
 	github.com/launchdarkly/go-configtypes v1.2.2
-	github.com/launchdarkly/go-jsonstream/v4 v4.0.0
-	github.com/launchdarkly/go-sdk-common/v4 v4.0.0
-	github.com/launchdarkly/go-sdk-events/v3 v3.6.1
-	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.1
-	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.2
-	github.com/launchdarkly/go-server-sdk-evaluation/v4 v4.0.0
-	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.3
-	github.com/launchdarkly/go-server-sdk/v7 v7.15.2
+	github.com/launchdarkly/go-jsonstream/v3 v3.1.1
+	github.com/launchdarkly/go-sdk-common/v3 v3.5.0
+	github.com/launchdarkly/go-sdk-events/v3 v3.6.2
+	github.com/launchdarkly/go-server-sdk-consul/v3 v3.0.2
+	github.com/launchdarkly/go-server-sdk-dynamodb/v4 v4.0.3
+	github.com/launchdarkly/go-server-sdk-evaluation/v3 v3.0.1
+	github.com/launchdarkly/go-server-sdk-redis-redigo/v3 v3.0.4
+	github.com/launchdarkly/go-server-sdk/v7 v7.15.4
 	github.com/launchdarkly/go-test-helpers/v3 v3.1.0
 	github.com/pborman/uuid v1.2.1
 	github.com/stretchr/testify v1.11.1
@@ -94,10 +94,14 @@ require (
 	github.com/hashicorp/go-version v1.6.0 // indirect
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/josharian/intern v1.0.0 // indirect
 	github.com/launchdarkly/ccache v1.1.0 // indirect
+	github.com/launchdarkly/go-jsonstream/v4 v4.0.0 // indirect
 	github.com/launchdarkly/go-ntlm-proxy-auth v1.0.3 // indirect
 	github.com/launchdarkly/go-ntlmssp v1.0.3 // indirect
+	github.com/launchdarkly/go-sdk-common/v4 v4.0.0 // indirect
 	github.com/launchdarkly/go-semver v1.0.3 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.58 // indirect
