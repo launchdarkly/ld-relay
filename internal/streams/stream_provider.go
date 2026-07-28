@@ -8,6 +8,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 
 	"github.com/launchdarkly/eventsource"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -63,8 +64,35 @@ type EnvStreamProvider interface {
 	Close()
 }
 
+// Option customizes a StreamProvider created by NewStreamProvider.
+type Option func(*providerOptions)
+
+type providerOptions struct {
+	initLimiter *concurrency.Limiter
+	sendTimeout time.Duration
+}
+
+// WithInitLimiter bounds how many stream replays may send a FULL basis at once, drawing
+// from the shared initialization-delivery budget (the same limiter polls use). Replays
+// that are already up-to-date, and deltas, do not draw from it. Only the server-side
+// stream provider honors this; it is a no-op for the other stream kinds. A nil or
+// disabled limiter imposes no limit. sendTimeout frees a slot if an initialization
+// payload makes no progress reaching a (stalled) client within it.
+func WithInitLimiter(limiter *concurrency.Limiter, sendTimeout time.Duration) Option {
+	return func(o *providerOptions) {
+		o.initLimiter = limiter
+		o.sendTimeout = sendTimeout
+	}
+}
+
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration) StreamProvider {
+// opts customize the provider (e.g. WithInitLimiter for the server-side stream); they are ignored by
+// the stream kinds that do not deliver a full basis.
+func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, opts ...Option) StreamProvider {
+	var o providerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	switch kind {
 	case basictypes.ServerSideFlagsOnlyStream:
 		return &serverSideFlagsOnlyStreamProvider{
@@ -85,8 +113,10 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 		}
 	default:
 		return &serverSideStreamProvider{
-			fdv1Server: newSSEServer(maxConnTime),
-			fdv2Server: newSSEServer(maxConnTime),
+			fdv1Server:  newSSEServer(maxConnTime),
+			fdv2Server:  newSSEServer(maxConnTime),
+			initLimiter: o.initLimiter,
+			sendTimeout: o.sendTimeout,
 		}
 	}
 }

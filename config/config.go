@@ -141,8 +141,45 @@ type Config struct {
 	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
+	Concurrency ConcurrencyConfig
 
 	OpenTelemetry OpenTelemetryConfig
+}
+
+// ConcurrencyConfig corresponds to the [Concurrency] section in the configuration file.
+//
+// It bounds how many initialization deliveries -- the full-dataset payloads Relay
+// materializes and writes to an SDK when it first receives its data -- may be in flight
+// at once, across polling and streaming for both FDv1 and FDv2. This bounds resident
+// payload memory (roughly MaxConcurrent times the dataset size) and egress concurrency
+// (each admitted client gets bandwidth / MaxConcurrent). Cheap operations -- FDv2
+// up-to-date replies, deltas, heartbeats, and pings -- are never gated.
+//
+// Every field defaults to disabled, so Relay behaves exactly as it does today unless an
+// operator opts in.
+type ConcurrencyConfig struct {
+	// MaxConcurrent is the number of initialization deliveries that may be in flight at
+	// once. Unset, 0, or negative disables the limiter entirely (pass-through) -- this is
+	// deliberately an OptInt rather than OptIntGreaterThanZero so that an explicit 0 (a
+	// natural way to turn the feature off) disables gracefully instead of failing config
+	// validation and crashlooping the Relay.
+	MaxConcurrent ct.OptInt `conf:"INIT_MAX_CONCURRENT"`
+
+	// MaxQueued is how many clients may wait (bounded FIFO) when all slots are held.
+	// Waiters hold no payload buffer. 0 means never wait -- shed immediately when full.
+	MaxQueued ct.OptInt `conf:"INIT_MAX_QUEUED"`
+
+	// PerEnvMaxPercent caps how much of the budget one environment may occupy (held +
+	// queued), as a percentage of MaxConcurrent+MaxQueued, so a storm against one
+	// environment cannot starve the others on a multi-env Relay. 0 disables
+	// per-environment fairness (global-only).
+	PerEnvMaxPercent ct.OptInt `conf:"INIT_PER_ENV_MAX_PERCENT"`
+
+	// SendTimeout frees a delivery slot if a streaming initialization payload makes no
+	// progress reaching a client within this window -- a backstop for a client that has
+	// stalled without disconnecting. Normal disconnects free the slot immediately via
+	// context cancellation. Default 30s.
+	SendTimeout ct.OptDuration `conf:"INIT_SEND_TIMEOUT"`
 }
 
 // MainConfig contains global configuration options for Relay.
