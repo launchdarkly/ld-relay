@@ -14,8 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/config"
 
 	ldapi "github.com/launchdarkly/api-client-go/v13"
-	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
-	"github.com/launchdarkly/go-sdk-common/v4/ldvalue"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 
 	"github.com/pborman/uuid"
 )

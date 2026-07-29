@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v4/ldtime"
+	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
 
 	"github.com/pborman/uuid"
 	"github.com/stretchr/testify/assert"

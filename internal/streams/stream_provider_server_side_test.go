@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -13,8 +14,8 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldbuilders"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
@@ -392,6 +393,39 @@ func TestStreamProviderServerSide(t *testing.T) {
 				string(subsystems.EventPutObject),
 				string(subsystems.EventPayloadTransferred),
 			}, eventNames)
+		})
+
+		t.Run("ReplayWithContext stops producing when the subscriber's context is cancelled", func(t *testing.T) {
+			// A subscriber that disconnects mid-replay cancels the request context. The producer must
+			// stop sending promptly instead of blocking forever on a send that nobody will receive.
+			snapshotReturned := make(chan struct{}, 1)
+			underlyingQuery := queryThatIncrementsFlagVersionOnEachCall()
+			store := newMockStoreQueries()
+			store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+				data, selector, err := underlyingQuery()
+				snapshotReturned <- struct{}{}
+				return data, selector, err
+			})
+			repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default()}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eventCh := repo.ReplayWithContext(ctx, "", "")
+
+			// Wait until the producer has computed the events and is parked on its (unbuffered,
+			// unread) send, then cancel without ever consuming an event.
+			<-snapshotReturned
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+
+			// Let the producer observe cancellation while no receiver exists: its select then has
+			// only the ctx.Done case ready, so it must exit without delivering anything. Only then
+			// attach a receiver. Asserting closed-with-no-event on the first receive is what makes
+			// this test fail against a producer that ignores the context — such a producer would be
+			// rescued by the receive, deliver its event, and only then close the channel.
+			time.Sleep(50 * time.Millisecond)
+			_, ok, closed := helpers.TryReceive(eventCh, time.Second)
+			require.False(t, ok, "producer delivered an event after cancellation")
+			require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
 		})
 	})
 }
