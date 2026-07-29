@@ -199,6 +199,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		select {
 		case <-ctx.Done():
 			// The subscriber already disconnected; don't bother building a payload nobody will read.
+			r.logger.Info("subscriber disconnected before replay started; skipping replay")
 			return
 		default:
 		}
@@ -221,6 +222,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			case <-ctx.Done():
 				// The subscriber disconnected before consuming the whole replay; stop producing so
 				// this goroutine and its payload are released promptly instead of leaking.
+				r.logger.Info("subscriber disconnected mid-replay; stopping replay")
 				return
 			}
 		}
