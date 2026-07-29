@@ -417,17 +417,15 @@ func TestStreamProviderServerSide(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 			cancel()
 
-			// The channel must close promptly. Before context propagation, an unread producer would
-			// block forever here and the channel would never close.
-			for {
-				_, ok, closed := helpers.TryReceive(eventCh, time.Second)
-				if closed {
-					return
-				}
-				if !ok {
-					require.Fail(t, "producer did not stop after context cancellation (channel never closed)")
-				}
-			}
+			// Let the producer observe cancellation while no receiver exists: its select then has
+			// only the ctx.Done case ready, so it must exit without delivering anything. Only then
+			// attach a receiver. Asserting closed-with-no-event on the first receive is what makes
+			// this test fail against a producer that ignores the context — such a producer would be
+			// rescued by the receive, deliver its event, and only then close the channel.
+			time.Sleep(50 * time.Millisecond)
+			_, ok, closed := helpers.TryReceive(eventCh, time.Second)
+			require.False(t, ok, "producer delivered an event after cancellation")
+			require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
 		})
 	})
 }
