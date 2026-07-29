@@ -24,6 +24,7 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -96,6 +97,20 @@ func parseApplicationTags(req *http.Request) (applicationID, applicationVersion 
 		}
 	}
 	return
+}
+
+// authEnvSpanAttributes returns the relay.auth span attributes identifying the authenticated
+// environment: the human-readable environment name, plus the environment ID when an
+// EnvironmentID credential is configured (it may be absent for SDK-key-only environments in a
+// manual configuration).
+func authEnvSpanAttributes(clientCtx relayenv.EnvContext) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		tracing.AuthEnvNameKey.String(clientCtx.GetIdentifiers().GetDisplayName()),
+	}
+	if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
+		attrs = append(attrs, tracing.AuthEnvIDKey.String(string(envID)))
+	}
+	return attrs
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.
@@ -185,6 +200,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				}
 
 				span.SetAttributes(tracing.AuthResultKey.String("success"))
+				span.SetAttributes(authEnvSpanAttributes(clientCtx)...)
 
 				contextInfo := EnvContextInfo{
 					Env:        clientCtx,
@@ -293,6 +309,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				}
 
 				span.SetAttributes(tracing.AuthResultKey.String("success"))
+				span.SetAttributes(authEnvSpanAttributes(clientCtx)...)
 
 				contextInfo := EnvContextInfo{
 					Env:        clientCtx,

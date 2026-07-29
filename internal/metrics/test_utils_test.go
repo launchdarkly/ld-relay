@@ -62,7 +62,7 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	// environment name for test isolation.
 	envName := "env-" + uuid.New()
 
-	env, err := manager.AddEnvironment(envName, nil)
+	env, err := manager.AddEnvironment(envName, "", nil)
 	require.NoError(t, err)
 
 	action(testWithOTelParams{

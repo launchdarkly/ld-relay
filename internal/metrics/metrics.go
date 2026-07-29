@@ -228,8 +228,8 @@ func (m *Manager) Close() {
 }
 
 // AddEnvironment creates a new EnvironmentManager with its own attribute set that includes
-// the environment name.
-func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher) (*EnvironmentManager, error) {
+// the environment name, and the environment ID when one is available.
+func (m *Manager) AddEnvironment(envName, envID string, publisher events.EventPublisher) (*EnvironmentManager, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.closed {
@@ -239,6 +239,9 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 	envKVs := []attribute.KeyValue{
 		relayIDAttrKey.String(m.metricsRelayID),
 		envNameAttrKey.String(sanitizeTagValue(envName)),
+	}
+	if envID != "" {
+		envKVs = append(envKVs, envIDAttrKey.String(envID))
 	}
 
 	var collector *RelayMetricsCollector

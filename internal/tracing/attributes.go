@@ -29,6 +29,8 @@ const (
 const (
 	SDKKindKey       = attribute.Key("relay.sdk_kind")
 	AuthResultKey    = attribute.Key("relay.auth.result")
+	AuthEnvNameKey   = attribute.Key("relay.auth.environment.name")
+	AuthEnvIDKey     = attribute.Key("relay.auth.environment.id")
 	FlagCountKey     = attribute.Key("relay.flags.count")
 	EventsKindKey    = attribute.Key("relay.events.kind")
 	StoreKeyKey      = attribute.Key("relay.store.key")

@@ -303,7 +303,7 @@ func NewEnvContext(
 			envContext.metricsEventPub = eventsPublisher
 		}
 
-		em, err = params.MetricsManager.AddEnvironment(params.Identifiers.GetDisplayName(), envContext.metricsEventPub)
+		em, err = params.MetricsManager.AddEnvironment(params.Identifiers.GetDisplayName(), string(envConfig.EnvID), envContext.metricsEventPub)
 		if err != nil {
 			return nil, errInitMetrics(err)
 		}

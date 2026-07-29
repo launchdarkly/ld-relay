@@ -41,11 +41,31 @@ func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 
 	assert.NoError(t, err)
 	require.NotNil(t, env)
 	assert.NotEqual(t, attribute.Set{}, env.GetAttributes())
+
+	// With no environment ID, the environment.id attribute is omitted.
+	attrs := env.GetAttributes()
+	_, ok := attrs.Value(envIDAttrKey)
+	assert.False(t, ok)
+}
+
+func TestAddEnvironmentIncludesEnvironmentIDWhenProvided(t *testing.T) {
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("name", "my-env-id", nil)
+	require.NoError(t, err)
+	require.NotNil(t, env)
+
+	attrs := env.GetAttributes()
+	value, ok := attrs.Value(envIDAttrKey)
+	require.True(t, ok)
+	assert.Equal(t, "my-env-id", value.AsString())
 }
 
 func TestAddEnvironmentWithEventPublisher(t *testing.T) {
@@ -55,7 +75,7 @@ func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", publisher)
+	env, err := manager.AddEnvironment("name", "", publisher)
 
 	assert.NoError(t, err)
 	require.NotNil(t, env)
@@ -75,7 +95,7 @@ func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	manager.Close()
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 	assert.Nil(t, env)
 	assert.Error(t, err)
 }
@@ -85,7 +105,7 @@ func TestRemoveEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 
@@ -342,7 +362,7 @@ func TestWithCountRecordsPolling(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("polling-test", publisher)
+	env, err := manager.AddEnvironment("polling-test", "", publisher)
 	require.NoError(t, err)
 
 	called := false

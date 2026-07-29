@@ -32,6 +32,7 @@ var (
 	userAgentAttrKey          = attribute.Key("user_agent")          //nolint:gochecknoglobals
 	sdkWrapperAttrKey         = attribute.Key("sdk.wrapper")         //nolint:gochecknoglobals
 	envNameAttrKey            = attribute.Key("environment.name")    //nolint:gochecknoglobals
+	envIDAttrKey              = attribute.Key("environment.id")      //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instance.id")         //nolint:gochecknoglobals
