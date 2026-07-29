@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -18,12 +20,24 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
+// defaultStreamSendTimeout backstops a streaming initialization send when the provider
+// was built without an explicit timeout. It bounds only a client that stalls without
+// disconnecting; a normal disconnect frees the slot at once via context cancellation.
+const defaultStreamSendTimeout = 30 * time.Second
+
 // This is the standard implementation of the /sdk/stream (fdv2) & /all (fdv1)
 // stream endpoints for server-side SDKs.
 type serverSideStreamProvider struct {
 	fdv1Server *eventsource.Server
 	fdv2Server *eventsource.Server
-	closeOnce  sync.Once
+
+	// initLimiter is the shared initialization-delivery budget (nil or disabled means no
+	// limit); sendTimeout backstops a stalled streaming send. Both are threaded to each
+	// per-environment repository at Register time.
+	initLimiter *concurrency.Limiter
+	sendTimeout time.Duration
+
+	closeOnce sync.Once
 }
 
 type serverSideEnvStreamProvider struct {
@@ -36,6 +50,13 @@ type serverSideEnvStreamRepository struct {
 	store  EnvStoreQueries
 	logger *slog.Logger
 	isV2   bool
+
+	// initLimiter is the shared initialization-delivery budget; a replay draws from it
+	// only when it must send a full basis (FDv1 always; FDv2 when the client's basis is
+	// stale or absent), never for a cheap up-to-date reply. sendTimeout backstops a
+	// stalled send. initLimiter may be nil or disabled, meaning no limit.
+	initLimiter *concurrency.Limiter
+	sendTimeout time.Duration
 
 	flightGroup singleflight.Group
 }
@@ -78,7 +99,10 @@ func (s *serverSideStreamProvider) RegisterV1(
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: false}
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: logger, isV2: false,
+		initLimiter: s.initLimiter, sendTimeout: s.sendTimeout,
+	}
 	s.fdv1Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv1Server, channels: []string{credential.String()}, isV2: false}
 	return envStream
@@ -92,7 +116,10 @@ func (s *serverSideStreamProvider) RegisterV2(
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	repo := &serverSideEnvStreamRepository{store: store, logger: logger, isV2: true}
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: logger, isV2: true,
+		initLimiter: s.initLimiter, sendTimeout: s.sendTimeout,
+	}
 	s.fdv2Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv2Server, channels: []string{credential.String()}, isV2: true}
 	return envStream
@@ -203,115 +230,165 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			return
 		default:
 		}
-		var events []eventsource.Event
-		var err error
-		if r.isV2 {
-			// See the note in HandlerV2 about how we use the Last-Event-ID header to
-			// pass the basis.
-			events, err = r.getReplayEventsV2(id)
-		} else {
-			events, err = r.getReplayEventsV1()
-		}
 
+		// Read the current data set once for this set of concurrent replays. peek holds
+		// references to the stored data rather than a serialized copy, so it is cheap; the
+		// expensive serialization happens later, under the budget.
+		snapshot, selector, err := r.peek()
 		if err != nil {
+			r.logger.Error("error getting all flags", "error", err)
 			return
 		}
-		for _, event := range events {
-			select {
-			case out <- event:
-			case <-ctx.Done():
-				// The subscriber disconnected before consuming the whole replay; stop producing so
-				// this goroutine and its payload are released promptly instead of leaking.
-				r.logger.Info("subscriber disconnected mid-replay; stopping replay")
+
+		// An FDv2 client whose basis already matches the store gets a small up-to-date
+		// reply. It builds no payload, so it does not draw from the budget. The basis is
+		// carried as the Last-Event-ID; see the note in HandlerV2.
+		if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
+			r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
+			return
+		}
+
+		// This is a full-basis delivery. Draw from the shared budget before serializing,
+		// so the budget bounds both the memory of the payload we are about to build and
+		// the egress of sending it. The slot is held across the send and released when the
+		// send finishes, the client disconnects, or the stall backstop fires.
+		if r.initLimiter.Enabled() {
+			release, ok := r.initLimiter.Acquire(ctx)
+			if !ok {
+				// The budget is full, so shed this replay. The connection receives no data,
+				// and the SDK times out initialization and reconnects with backoff. The SSE
+				// response has already started, so we cannot answer with a 503 here.
+				r.logger.Debug("initialization concurrency limit reached; shedding stream replay")
 				return
 			}
+			defer release()
 		}
+
+		var events []eventsource.Event
+		if r.isV2 {
+			events = r.serializeBasisV2(id, snapshot, selector)
+		} else {
+			events = r.serializePutV1(snapshot)
+		}
+		r.sendEvents(ctx, out, events)
 	}()
 	return out
 }
 
-// getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
-func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
-		snapshot, _, err := r.store.Snapshot()
-		if err != nil {
-			r.logger.Error("error getting all flags", "error", err)
-			return nil, err
-		}
-
-		flags := snapshot[ldstoreimpl.Features()]
-		segments := snapshot[ldstoreimpl.Segments()]
-
-		allData := []ldstoretypes.Collection{
-			{Kind: ldstoreimpl.Features(), Items: removeDeleted(flags)},
-			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(segments)},
-		}
-
-		event := MakeServerSidePutEvent(allData)
-		return event, nil
-	})
-
-	if err != nil {
-		return nil, err
+// sendEvents streams the events to the connection's handler while the held slot, if any,
+// is still charged. A client disconnect (ctx) stops it and frees the slot. The idle timer
+// is a backstop for a client that stalls without disconnecting: it fires only if a single
+// event cannot be handed off within sendTimeout. It resets on each successful send, so a
+// slow but still-progressing client is never abandoned.
+func (r *serverSideEnvStreamRepository) sendEvents(ctx context.Context, out chan<- eventsource.Event, events []eventsource.Event) {
+	sendTimeout := r.sendTimeout
+	if sendTimeout <= 0 {
+		sendTimeout = defaultStreamSendTimeout
 	}
-
-	// panic if it's not an eventsource.Event - as this should be impossible
-	event := data.(eventsource.Event)
-	return []eventsource.Event{event}, nil
+	idle := time.NewTimer(sendTimeout)
+	defer idle.Stop()
+	for _, event := range events {
+		select {
+		case out <- event:
+		case <-ctx.Done():
+			// The subscriber disconnected before consuming the whole replay; stop producing so
+			// this goroutine, its payload, and any held slot are released promptly.
+			r.logger.Info("subscriber disconnected mid-replay; stopping replay")
+			return
+		case <-idle.C:
+			return
+		}
+		if !idle.Stop() {
+			select {
+			case <-idle.C:
+			default:
+			}
+		}
+		idle.Reset(sendTimeout)
+	}
 }
 
-func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
-	// The result depends on the caller's basis: a client whose basis matches the current
-	// selector state gets an "up-to-date" event, while any other client gets a full data
-	// transfer. Only requests with the same basis may share a result, so the basis must be
-	// part of the key.
-	data, err, _ := r.flightGroup.Do("getReplayEventV2:"+basis, func() (interface{}, error) {
+// peekResult is the single-flight-shared result of reading the store: the data set and
+// its selector.
+type peekResult struct {
+	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor
+	selector subsystems.Selector
+}
+
+// peek reads the current data set and selector, deduplicating concurrent reads with a
+// single flight. It uses a fixed key (not the basis) because the store state is the same
+// for every caller, so a herd of reconnects at any basis shares one read. The result
+// holds references to the stored data rather than a serialized copy, so it is cheap.
+func (r *serverSideEnvStreamRepository) peek() (
+	map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
+	subsystems.Selector,
+	error,
+) {
+	data, err, _ := r.flightGroup.Do("snapshot", func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
-			r.logger.Error("error getting all flags", "error", err)
 			return nil, err
 		}
+		return peekResult{snapshot: snapshot, selector: selector}, nil
+	})
+	if err != nil {
+		return nil, subsystems.NoSelector(), err
+	}
+	res := data.(peekResult)
+	return res.snapshot, res.selector, nil
+}
 
-		if basis != "" && selector.IsDefined() && selector.State() == basis {
-			return MakeEventsForUpToDate(selector), nil
+// serializePutV1 builds the FDv1 "put" event containing the entire data set from an
+// already-read snapshot. It is single-flight-deduplicated so concurrent reconnects share
+// one serialization.
+func (r *serverSideEnvStreamRepository) serializePutV1(
+	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
+) []eventsource.Event {
+	data, _, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
+		allData := []ldstoretypes.Collection{
+			{Kind: ldstoreimpl.Features(), Items: removeDeleted(snapshot[ldstoreimpl.Features()])},
+			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(snapshot[ldstoreimpl.Segments()])},
 		}
+		return MakeServerSidePutEvent(allData), nil
+	})
+	// The value is always an eventsource.Event.
+	return []eventsource.Event{data.(eventsource.Event)}
+}
 
+// serializeBasisV2 builds the FDv2 basis events from an already-read snapshot. It is
+// single-flight-deduplicated by basis, so concurrent reconnects at the same basis share
+// one serialization.
+func (r *serverSideEnvStreamRepository) serializeBasisV2(
+	basis string,
+	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
+	selector subsystems.Selector,
+) []eventsource.Event {
+	data, _, _ := r.flightGroup.Do("getReplayEventV2:"+basis, func() (interface{}, error) {
 		changes := []subsystems.Change{}
 		kinds := map[ldstoretypes.DataKind]subsystems.ObjectKind{
 			ldstoreimpl.Features(): subsystems.FlagKind,
 			ldstoreimpl.Segments(): subsystems.SegmentKind,
 		}
 		for dataKind, objectKind := range kinds {
-			items, ok := snapshot[dataKind]
-			if ok {
-				for _, item := range items {
-					// This replay event is always replacing the entire payload, so we
-					// can ignore deleted / missing items to reduce the payload size.
-					if item.Item.Item == nil {
-						continue
-					}
-
-					writer := jwriter.NewWriter()
-					serializeItem(dataKind, item.Item, &writer)
-					json := writer.Bytes()
-					changes = append(changes, subsystems.Change{
-						Action:  subsystems.ChangeTypePut,
-						Kind:    objectKind,
-						Key:     item.Key,
-						Version: item.Item.Version,
-						Object:  json,
-					})
+			for _, item := range snapshot[dataKind] {
+				// A basis replaces the entire payload, so deleted or missing items are
+				// skipped to reduce its size.
+				if item.Item.Item == nil {
+					continue
 				}
+				writer := jwriter.NewWriter()
+				serializeItem(dataKind, item.Item, &writer)
+				changes = append(changes, subsystems.Change{
+					Action:  subsystems.ChangeTypePut,
+					Kind:    objectKind,
+					Key:     item.Key,
+					Version: item.Item.Version,
+					Object:  writer.Bytes(),
+				})
 			}
 		}
-
 		return MakeEventsForSetBasis(changes, selector), nil
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// panic if it's not an eventsource.Event - as this should be impossible
-	return data.([]eventsource.Event), nil
+	// The value is always a []eventsource.Event.
+	return data.([]eventsource.Event)
 }

@@ -161,12 +161,6 @@ type ConcurrencyConfig struct {
 	// of queueing them.
 	MaxQueued ct.OptInt `conf:"INIT_MAX_QUEUED"`
 
-	// PerEnvMaxPercent limits the share of the budget that any single environment may
-	// use, as a percentage of MaxConcurrent plus MaxQueued. This keeps one busy
-	// environment from starving the others. A value of 0 applies no per-environment
-	// limit.
-	PerEnvMaxPercent ct.OptInt `conf:"INIT_PER_ENV_MAX_PERCENT"`
-
 	// SendTimeout releases a delivery slot if a streaming initialization payload cannot
 	// make progress to its client within this duration. It defaults to 30s.
 	SendTimeout ct.OptDuration `conf:"INIT_SEND_TIMEOUT"`
