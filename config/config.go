@@ -141,8 +141,35 @@ type Config struct {
 	Filters     map[string]*FiltersConfig
 	Proxy       ProxyConfig
 	HTTP        HTTPConfig
+	Concurrency ConcurrencyConfig
 
 	OpenTelemetry OpenTelemetryConfig
+}
+
+// ConcurrencyConfig corresponds to the [Concurrency] section in the configuration file.
+//
+// It limits how many SDK initialization deliveries the Relay Proxy performs at the same
+// time, covering both polling and streaming. This caps the memory and egress that a burst
+// of connecting SDKs can consume. The limit is disabled unless MaxConcurrent is set.
+type ConcurrencyConfig struct {
+	// MaxConcurrent is the maximum number of initialization deliveries allowed in flight
+	// at once. A value of 0 or less disables the limit.
+	MaxConcurrent ct.OptInt `conf:"INIT_MAX_CONCURRENT"`
+
+	// MaxQueued is the maximum number of clients that may wait for a slot once
+	// MaxConcurrent is reached. A value of 0 rejects excess clients immediately instead
+	// of queueing them.
+	MaxQueued ct.OptInt `conf:"INIT_MAX_QUEUED"`
+
+	// PerEnvMaxPercent limits the share of the budget that any single environment may
+	// use, as a percentage of MaxConcurrent plus MaxQueued. This keeps one busy
+	// environment from starving the others. A value of 0 applies no per-environment
+	// limit.
+	PerEnvMaxPercent ct.OptInt `conf:"INIT_PER_ENV_MAX_PERCENT"`
+
+	// SendTimeout releases a delivery slot if a streaming initialization payload cannot
+	// make progress to its client within this duration. It defaults to 30s.
+	SendTimeout ct.OptDuration `conf:"INIT_SEND_TIMEOUT"`
 }
 
 // MainConfig contains global configuration options for Relay.
