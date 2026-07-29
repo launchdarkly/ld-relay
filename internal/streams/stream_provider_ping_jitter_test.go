@@ -11,7 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/launchdarkly/go-server-sdk-evaluation/v4/ldmodel"
+	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldmodel"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 

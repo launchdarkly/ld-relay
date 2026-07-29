@@ -10,7 +10,7 @@ import (
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/go-configtypes"
-	"github.com/launchdarkly/go-sdk-common/v4/lduser"
+	"github.com/launchdarkly/go-sdk-common/v3/lduser"
 
 	"github.com/stretchr/testify/assert"
 )
