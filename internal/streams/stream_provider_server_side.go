@@ -196,9 +196,11 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 	}
 	go func() {
 		defer close(out)
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			// The subscriber already disconnected; don't bother building a payload nobody will read.
 			return
+		default:
 		}
 		var events []eventsource.Event
 		var err error
