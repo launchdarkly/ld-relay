@@ -8,7 +8,11 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 )
 
-const defaultInitSendTimeout = 30 * time.Second
+// defaultInitSendTimeout is the absolute cap on how long a single gated delivery may hold a
+// slot. It is generous because the throughput floor (see internal/initwrite) does the
+// fast-stall detection; this only backstops a client that stays right at the floor on a very
+// large payload. It matches the streamer service's message cap.
+const defaultInitSendTimeout = 2 * time.Minute
 
 // initConcurrency holds Relay's shared initialization-delivery budget. Every poll and
 // every full-basis stream replay -- across FDv1 and FDv2 -- draws from this one

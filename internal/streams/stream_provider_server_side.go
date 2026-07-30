@@ -9,6 +9,7 @@ import (
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -20,10 +21,10 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
-// defaultStreamSendTimeout is the write-deadline fallback used when the provider was built
-// without an explicit timeout. It bounds only a client that stalls without disconnecting;
-// a normal disconnect frees the slot at once via context cancellation.
-const defaultStreamSendTimeout = 30 * time.Second
+// defaultStreamSendTimeout is the absolute per-delivery cap used when the provider was built
+// without an explicit timeout. The throughput floor (see internal/initwrite) does the
+// fast-stall detection; this only backstops a client stuck at the floor on a large payload.
+const defaultStreamSendTimeout = 2 * time.Minute
 
 // This is the standard implementation of the /sdk/stream (fdv2) & /all (fdv1)
 // stream endpoints for server-side SDKs.
@@ -98,11 +99,13 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 type closeConnectionKey struct{}
 
 // withInitDeadline wraps an SSE handler so a client that holds a budget slot cannot park it
-// indefinitely. When the init limiter is enabled it (1) arms a write deadline on each write
-// so a client that stalls without disconnecting has its connection closed once a write
-// blocks past sendTimeout, which frees the slot and prompts a clean reconnect, and (2) makes
-// the request context cancelable and exposes a close function so a shed replay can close the
-// connection. When the limiter is disabled this is a pass-through, preserving base behavior.
+// indefinitely. When the init limiter is enabled it (1) wraps the response in a
+// progress-aware write deadline (see initwrite): a client sustaining at least the throughput
+// floor keeps its connection, while one that stalls or drops below the floor has its write
+// fail and its connection closed, freeing the slot and prompting a clean reconnect; and (2)
+// makes the request context cancelable and exposes a close function so a shed replay can
+// close the connection. When the limiter is disabled this is a pass-through, preserving base
+// behavior.
 func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.initLimiter.Enabled() {
@@ -116,39 +119,9 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
-		dw := &deadlineWriter{ResponseWriter: w, rc: http.NewResponseController(w), timeout: timeout}
-		h.ServeHTTP(dw, r.WithContext(ctx))
+		h.ServeHTTP(initwrite.Wrap(w, timeout), r.WithContext(ctx))
 	}
 }
-
-// deadlineWriter bounds how long a single write to a stalled SSE client may block. Before
-// each write it arms a write deadline on the connection; a write that blocks past it fails,
-// which makes the eventsource handler tear the connection down (freeing any held budget
-// slot and prompting the SDK to reconnect) instead of parking the slot on a client that has
-// stopped reading. An idle stream is unaffected because the deadline is cleared after each
-// flush.
-type deadlineWriter struct {
-	http.ResponseWriter
-	rc      *http.ResponseController
-	timeout time.Duration
-}
-
-func (dw *deadlineWriter) Write(b []byte) (int, error) {
-	_ = dw.rc.SetWriteDeadline(time.Now().Add(dw.timeout))
-	return dw.ResponseWriter.Write(b)
-}
-
-func (dw *deadlineWriter) Flush() {
-	f, ok := dw.ResponseWriter.(http.Flusher)
-	if !ok {
-		return
-	}
-	_ = dw.rc.SetWriteDeadline(time.Now().Add(dw.timeout))
-	f.Flush()
-	_ = dw.rc.SetWriteDeadline(time.Time{})
-}
-
-func (dw *deadlineWriter) Unwrap() http.ResponseWriter { return dw.ResponseWriter }
 
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
