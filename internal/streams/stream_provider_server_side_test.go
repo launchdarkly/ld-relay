@@ -11,6 +11,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
+	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
@@ -428,4 +429,45 @@ func TestStreamProviderServerSide(t *testing.T) {
 			require.True(t, closed, "producer did not stop after context cancellation (channel never closed)")
 		})
 	})
+}
+
+func TestStreamReplayShedClosesConnectionWhenBudgetFull(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	// A budget with its only slot already held, so the replay must shed.
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+	release, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+	defer release()
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), initLimiter: limiter}
+
+	// The connection's close hook, as withInitDeadline would install it. A shed replay must
+	// invoke it so the SDK reconnects instead of stranding on an open, uninitialized stream.
+	closed := make(chan struct{})
+	ctx := context.WithValue(context.Background(), closeConnectionKey{}, func() { close(closed) })
+
+	eventCh := repo.ReplayWithContext(ctx, "", "")
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "shed replay did not close the connection")
+	}
+
+	// It also delivers no events: the channel is closed with nothing sent.
+	select {
+	case e, ok := <-eventCh:
+		assert.False(t, ok, "shed replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after shed")
+	}
 }

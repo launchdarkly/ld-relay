@@ -94,12 +94,16 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DurationMetrics(metrics.ServerDuration),
 	)
 
-	// pollLimit charges each polling request against the shared initialization-delivery
-	// budget (a full poll response is a full-dataset write, the same resource a
-	// full-basis stream replay consumes). It is applied inside an environment-selecting
-	// stack so the limiter can key by environment, and sheds with 503 when saturated.
-	// Disabled by default (pass-through).
-	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter)
+	// The FDv1 all-flags poll response is always a full-dataset write, the same resource a
+	// full-basis stream replay consumes, so pollLimit charges every such request against the
+	// shared initialization-delivery budget on entry, shedding with 503 when saturated and
+	// bounding how long a held slot can be parked by a slow client.
+	//
+	// The FDv2 poll endpoints instead have provideInitLimiter make the budget available to
+	// the handler, which acquires only on its full-basis branch; a cheap up-to-date reply is
+	// never charged. Both are disabled by default (pass-through).
+	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
+	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
 
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
@@ -110,7 +114,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(provideInitLimiter(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2))))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
@@ -137,8 +141,8 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DynamicDurationMetrics(),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
-	clientSideFDv2PollRouter.Handle("/{context}", pollLimit(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("GET", "OPTIONS")
-	clientSideFDv2PollRouter.Handle("", pollLimit(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("POST", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("/{context}", provideInitLimiter(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("GET", "OPTIONS")
+	clientSideFDv2PollRouter.Handle("", provideInitLimiter(middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize))))).Methods("POST", "OPTIONS")
 
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
 	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")

@@ -20,9 +20,9 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
-// defaultStreamSendTimeout backstops a streaming initialization send when the provider
-// was built without an explicit timeout. It bounds only a client that stalls without
-// disconnecting; a normal disconnect frees the slot at once via context cancellation.
+// defaultStreamSendTimeout is the write-deadline fallback used when the provider was built
+// without an explicit timeout. It bounds only a client that stalls without disconnecting;
+// a normal disconnect frees the slot at once via context cancellation.
 const defaultStreamSendTimeout = 30 * time.Second
 
 // This is the standard implementation of the /sdk/stream (fdv2) & /all (fdv1)
@@ -32,8 +32,9 @@ type serverSideStreamProvider struct {
 	fdv2Server *eventsource.Server
 
 	// initLimiter is the shared initialization-delivery budget (nil or disabled means no
-	// limit); sendTimeout backstops a stalled streaming send. Both are threaded to each
-	// per-environment repository at Register time.
+	// limit); it is threaded to each per-environment repository at Register time.
+	// sendTimeout bounds how long a single write to a stalled client may block before the
+	// connection is closed to reclaim its budget slot (see withInitDeadline).
 	initLimiter *concurrency.Limiter
 	sendTimeout time.Duration
 
@@ -53,10 +54,9 @@ type serverSideEnvStreamRepository struct {
 
 	// initLimiter is the shared initialization-delivery budget; a replay draws from it
 	// only when it must send a full basis (FDv1 always; FDv2 when the client's basis is
-	// stale or absent), never for a cheap up-to-date reply. sendTimeout backstops a
-	// stalled send. initLimiter may be nil or disabled, meaning no limit.
+	// stale or absent), never for a cheap up-to-date reply. It may be nil or disabled,
+	// meaning no limit.
 	initLimiter *concurrency.Limiter
-	sendTimeout time.Duration
 
 	flightGroup singleflight.Group
 }
@@ -65,7 +65,7 @@ func (s *serverSideStreamProvider) HandlerV1(credential sdkauth.ScopedCredential
 	if _, ok := credential.SDKCredential.(config.SDKKey); !ok {
 		return nil
 	}
-	return s.fdv1Server.Handler(credential.String())
+	return s.withInitDeadline(s.fdv1Server.Handler(credential.String()))
 }
 
 func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential) http.HandlerFunc {
@@ -73,7 +73,8 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 		return nil
 	}
 
-	return func(w http.ResponseWriter, r *http.Request) {
+	inner := s.fdv2Server.Handler(credential.String())
+	return s.withInitDeadline(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// While FDv2 supports a basis parameter, the SSE spec and by proxy, the eventsource pkg, does not.
 		//
 		// To allow us to support the basis feature, we are going to send the basis value as the
@@ -87,9 +88,67 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 			r.Header.Set("Last-Event-ID", basis)
 		}
 
-		s.fdv2Server.Handler(credential.String()).ServeHTTP(w, r)
+		inner.ServeHTTP(w, r)
+	}))
+}
+
+// closeConnectionKey is the context key under which withInitDeadline stashes a function
+// that closes the current SSE connection. A shed replay reads it to make the SDK reconnect
+// instead of sitting connected but uninitialized.
+type closeConnectionKey struct{}
+
+// withInitDeadline wraps an SSE handler so a client that holds a budget slot cannot park it
+// indefinitely. When the init limiter is enabled it (1) arms a write deadline on each write
+// so a client that stalls without disconnecting has its connection closed once a write
+// blocks past sendTimeout, which frees the slot and prompts a clean reconnect, and (2) makes
+// the request context cancelable and exposes a close function so a shed replay can close the
+// connection. When the limiter is disabled this is a pass-through, preserving base behavior.
+func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.initLimiter.Enabled() {
+			h.ServeHTTP(w, r)
+			return
+		}
+		timeout := s.sendTimeout
+		if timeout <= 0 {
+			timeout = defaultStreamSendTimeout
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
+		dw := &deadlineWriter{ResponseWriter: w, rc: http.NewResponseController(w), timeout: timeout}
+		h.ServeHTTP(dw, r.WithContext(ctx))
 	}
 }
+
+// deadlineWriter bounds how long a single write to a stalled SSE client may block. Before
+// each write it arms a write deadline on the connection; a write that blocks past it fails,
+// which makes the eventsource handler tear the connection down (freeing any held budget
+// slot and prompting the SDK to reconnect) instead of parking the slot on a client that has
+// stopped reading. An idle stream is unaffected because the deadline is cleared after each
+// flush.
+type deadlineWriter struct {
+	http.ResponseWriter
+	rc      *http.ResponseController
+	timeout time.Duration
+}
+
+func (dw *deadlineWriter) Write(b []byte) (int, error) {
+	_ = dw.rc.SetWriteDeadline(time.Now().Add(dw.timeout))
+	return dw.ResponseWriter.Write(b)
+}
+
+func (dw *deadlineWriter) Flush() {
+	f, ok := dw.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	_ = dw.rc.SetWriteDeadline(time.Now().Add(dw.timeout))
+	f.Flush()
+	_ = dw.rc.SetWriteDeadline(time.Time{})
+}
+
+func (dw *deadlineWriter) Unwrap() http.ResponseWriter { return dw.ResponseWriter }
 
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
@@ -101,7 +160,7 @@ func (s *serverSideStreamProvider) RegisterV1(
 	}
 	repo := &serverSideEnvStreamRepository{
 		store: store, logger: logger, isV2: false,
-		initLimiter: s.initLimiter, sendTimeout: s.sendTimeout,
+		initLimiter: s.initLimiter,
 	}
 	s.fdv1Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv1Server, channels: []string{credential.String()}, isV2: false}
@@ -118,7 +177,7 @@ func (s *serverSideStreamProvider) RegisterV2(
 	}
 	repo := &serverSideEnvStreamRepository{
 		store: store, logger: logger, isV2: true,
-		initLimiter: s.initLimiter, sendTimeout: s.sendTimeout,
+		initLimiter: s.initLimiter,
 	}
 	s.fdv2Server.Register(credential.String(), repo)
 	envStream := &serverSideEnvStreamProvider{server: s.fdv2Server, channels: []string{credential.String()}, isV2: true}
@@ -255,10 +314,14 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		if r.initLimiter.Enabled() {
 			release, ok := r.initLimiter.Acquire(ctx)
 			if !ok {
-				// The budget is full, so shed this replay. The connection receives no data,
-				// and the SDK times out initialization and reconnects with backoff. The SSE
-				// response has already started, so we cannot answer with a 503 here.
-				r.logger.Debug("initialization concurrency limit reached; shedding stream replay")
+				// The budget is full, so shed this replay. The SSE response has already
+				// started, so we cannot answer with a 503; instead close the connection so
+				// the SDK reconnects with backoff rather than sitting connected but
+				// uninitialized.
+				r.logger.Warn("initialization concurrency limit reached; closing stream so the SDK reconnects")
+				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
+					closeConn()
+				}
 				return
 			}
 			defer release()
@@ -276,17 +339,12 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 }
 
 // sendEvents streams the events to the connection's handler while the held slot, if any,
-// is still charged. A client disconnect (ctx) stops it and frees the slot. The idle timer
-// is a backstop for a client that stalls without disconnecting: it fires only if a single
-// event cannot be handed off within sendTimeout. It resets on each successful send, so a
-// slow but still-progressing client is never abandoned.
+// is still charged. A client disconnect (ctx) stops it and frees the slot. There is
+// deliberately no idle timeout here: abandoning a partly-sent basis while the connection
+// stays open would let a later delta complete it into a corrupt data set. A client that
+// stalls without disconnecting is bounded instead by the connection's write deadline (see
+// withInitDeadline), which closes the connection so the SDK reconnects cleanly.
 func (r *serverSideEnvStreamRepository) sendEvents(ctx context.Context, out chan<- eventsource.Event, events []eventsource.Event) {
-	sendTimeout := r.sendTimeout
-	if sendTimeout <= 0 {
-		sendTimeout = defaultStreamSendTimeout
-	}
-	idle := time.NewTimer(sendTimeout)
-	defer idle.Stop()
 	for _, event := range events {
 		select {
 		case out <- event:
@@ -295,16 +353,7 @@ func (r *serverSideEnvStreamRepository) sendEvents(ctx context.Context, out chan
 			// this goroutine, its payload, and any held slot are released promptly.
 			r.logger.Info("subscriber disconnected mid-replay; stopping replay")
 			return
-		case <-idle.C:
-			return
 		}
-		if !idle.Stop() {
-			select {
-			case <-idle.C:
-			default:
-			}
-		}
-		idle.Reset(sendTimeout)
 	}
 }
 
@@ -349,7 +398,13 @@ func (r *serverSideEnvStreamRepository) serializePutV1(
 			{Kind: ldstoreimpl.Features(), Items: removeDeleted(snapshot[ldstoreimpl.Features()])},
 			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(snapshot[ldstoreimpl.Segments()])},
 		}
-		return MakeServerSidePutEvent(allData), nil
+		event := MakeServerSidePutEvent(allData)
+		// The put event serializes its payload lazily. Force that here, inside the single
+		// flight and while the budget slot is held, so the payload's memory is accounted
+		// under the slot and shared by everyone in this flight rather than re-serialized
+		// per connection after the slot is released.
+		_ = event.Data()
+		return event, nil
 	})
 	// The value is always an eventsource.Event.
 	return []eventsource.Event{data.(eventsource.Event)}

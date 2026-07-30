@@ -161,8 +161,9 @@ type ConcurrencyConfig struct {
 	// of queueing them.
 	MaxQueued ct.OptInt `conf:"INIT_MAX_QUEUED"`
 
-	// SendTimeout releases a delivery slot if a streaming initialization payload cannot
-	// make progress to its client within this duration. It defaults to 30s.
+	// SendTimeout bounds how long a single read or write for an initialization delivery may
+	// block while holding a slot. If a client stalls past it, the connection is closed to
+	// reclaim the slot (and the SDK reconnects). It defaults to 30s.
 	SendTimeout ct.OptDuration `conf:"INIT_SEND_TIMEOUT"`
 }
 

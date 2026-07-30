@@ -31,12 +31,19 @@ func newInitConcurrency(c config.ConcurrencyConfig) initConcurrency {
 		maxQueued = 0
 	}
 
+	// A zero or negative timeout (unset, or explicitly 0) falls back to the default so both
+	// the poll and stream paths get a consistent, non-zero deadline rather than none.
+	sendTimeout := c.SendTimeout.GetOrElse(defaultInitSendTimeout)
+	if sendTimeout <= 0 {
+		sendTimeout = defaultInitSendTimeout
+	}
+
 	return initConcurrency{
 		limiter: concurrency.New("init_delivery", concurrency.Params{
 			MaxConcurrent: maxConcurrent,
 			MaxQueued:     maxQueued,
 		}),
-		sendTimeout: c.SendTimeout.GetOrElse(defaultInitSendTimeout),
+		sendTimeout: sendTimeout,
 	}
 }
 

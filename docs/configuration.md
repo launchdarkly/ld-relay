@@ -137,6 +137,19 @@ _(9)_ The `metricsCapacity` setting controls the queue for usage metrics events,
 _(9)_ The `maxClientRequestBodySize` setting limits how much of a `REPORT` evaluation request body the Relay Proxy will read into memory before decoding the context, protecting the process from memory exhaustion caused by oversized request bodies. It applies to the `evalx` context/user endpoints for client-side, mobile, and server-side SDKs. The default value is `5MiB`. Requests whose body exceeds the limit receive an HTTP `413 Request Entity Too Large` response. Setting a non-positive value (such as `0B`) is rejected at startup; to raise or lower the limit, specify a positive value using the same units as `maxInboundPayloadSize` (for example, `10MiB`).
 
 
+### File section: `[Concurrency]`
+
+This section bounds how many SDK *initialization deliveries* — the full data-set payload the Relay Proxy serializes and sends when an SDK first connects — it will perform at once, across both polling and streaming and both the FDv1 and FDv2 protocols. It protects the Relay Proxy from the memory and egress spikes a large burst of connecting or reconnecting SDKs can cause. It is disabled by default, so behavior is unchanged unless you set `maxConcurrent`.
+
+| Property in file | Environment var       |   Type   | Default | Description                                                                                                                                                                                                       |
+|------------------|-----------------------|:--------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `maxConcurrent`  | `INIT_MAX_CONCURRENT` |  Number  | none    | Maximum number of initialization deliveries in flight at once. `0` or unset disables the limit. Cheap operations (an up-to-date reply, deltas, heartbeats, and single-item lookups) are never counted.            |
+| `maxQueued`      | `INIT_MAX_QUEUED`     |  Number  | `0`     | Maximum number of requests that may wait for a slot once `maxConcurrent` is reached. `0` sheds excess requests immediately rather than queueing them. Only meaningful when `maxConcurrent` is set.                 |
+| `sendTimeout`    | `INIT_SEND_TIMEOUT`   | Duration | `30s`   | How long a single read or write for a gated delivery may block while holding a slot. If a client stalls past this, its connection is closed so the slot is reclaimed. Only meaningful when `maxConcurrent` is set. |
+
+When the budget is full, a polling request is shed with an HTTP `503` and a `Retry-After` header; a streaming request, whose response has already started, has its connection closed so the SDK reconnects with backoff.
+
+
 ### File section: `[Environment "NAME"]`
 
 The Relay Proxy allows you to proxy any number of LaunchDarkly environments; there must be at least one. In a configuration file, each of these is a separate section in the format `[Environment "MyEnvName"]`, where `MyEnvName` is a unique identifier for the environment (this does not have to match the environment name on your LaunchDarkly dashboard, but it is recommended to). If you are using environment variables, you will add the `MyEnvName` identifier to the variable name prefix for each property. See examples below.
