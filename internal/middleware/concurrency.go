@@ -99,5 +99,5 @@ func AcquireInitSlotFromContext(w http.ResponseWriter, r *http.Request) (release
 // retryAfterSeconds returns a small jittered Retry-After (in seconds) so a shed herd does
 // not retry in lockstep and re-synchronize the next burst.
 func retryAfterSeconds() int {
-	return 2 + rand.IntN(4) // 2..5 seconds
+	return 2 + rand.IntN(4) //nolint:gosec // Retry-After jitter is not security-sensitive; a fast PRNG is fine. 2..5 seconds
 }
