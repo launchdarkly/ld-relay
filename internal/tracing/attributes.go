@@ -1,6 +1,8 @@
 package tracing
 
 import (
+	"strings"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -38,3 +40,17 @@ const (
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
 	ResponseBytesKey = attribute.Key("relay.response.bytes")
 )
+
+// SanitizeAttributeValue ensures telemetry attribute values are valid. Empty values are replaced
+// with a descriptive default, and slashes are replaced with underscores. This is appropriate for
+// free-form values such as environment names, user agent strings, and SDK wrapper names, but not
+// for routes, where slashes are meaningful.
+//
+// Span and metric attributes derived from the same source must use this so that the values can be
+// correlated across signals.
+func SanitizeAttributeValue(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "not-provided"
+	}
+	return strings.ReplaceAll(v, "/", "_")
+}

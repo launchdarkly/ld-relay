@@ -103,9 +103,12 @@ func parseApplicationTags(req *http.Request) (applicationID, applicationVersion 
 // environment: the human-readable environment name, plus the environment ID when an
 // EnvironmentID credential is configured (it may be absent for SDK-key-only environments in a
 // manual configuration).
+//
+// The display name is sanitized the same way the environment.name metric attribute is, so that
+// spans and metrics report an identical value for the same environment.
 func authEnvSpanAttributes(clientCtx relayenv.EnvContext) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
-		tracing.AuthEnvNameKey.String(clientCtx.GetIdentifiers().GetDisplayName()),
+		tracing.AuthEnvNameKey.String(tracing.SanitizeAttributeValue(clientCtx.GetIdentifiers().GetDisplayName())),
 	}
 	if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
 		attrs = append(attrs, tracing.AuthEnvIDKey.String(string(envID)))

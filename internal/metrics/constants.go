@@ -48,7 +48,8 @@ var (
 )
 
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
-// where applicable. All string values should be pre-sanitized via sanitizeTagValue before calling this function.
+// where applicable. All string values should be pre-sanitized via tracing.SanitizeAttributeValue before
+// calling this function.
 func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapper, route, method, urlScheme, applicationID, applicationVersion, instanceID string) attribute.Set {
 	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+9)
 	copy(attrs, baseKVs)
@@ -94,18 +95,8 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, platform, userAgent, 
 	return attribute.NewSet(attrs...)
 }
 
-// sanitizeTagValue ensures attribute values are valid.
-// Empty values are replaced with descriptive defaults, and slashes are replaced with underscores.
-// This is appropriate for user agent strings and SDK wrapper names, but not for routes.
-func sanitizeTagValue(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "not-provided"
-	}
-	return strings.ReplaceAll(v, "/", "_")
-}
-
 // sanitizeRouteValue ensures route attribute values are valid.
-// Empty values are replaced with descriptive defaults. Unlike sanitizeTagValue,
+// Empty values are replaced with descriptive defaults. Unlike tracing.SanitizeAttributeValue,
 // slashes are preserved since they are meaningful in route paths.
 func sanitizeRouteValue(v string) string {
 	if strings.TrimSpace(v) == "" {

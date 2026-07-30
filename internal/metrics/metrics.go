@@ -238,7 +238,7 @@ func (m *Manager) AddEnvironment(envName, envID string, publisher events.EventPu
 
 	envKVs := []attribute.KeyValue{
 		relayIDAttrKey.String(m.metricsRelayID),
-		envNameAttrKey.String(sanitizeTagValue(envName)),
+		envNameAttrKey.String(tracing.SanitizeAttributeValue(envName)),
 	}
 	if envID != "" {
 		envKVs = append(envKVs, envIDAttrKey.String(envID))

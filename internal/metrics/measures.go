@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
+
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -125,13 +127,13 @@ type RequestInfo struct {
 }
 
 func (ri RequestInfo) sanitized() (ua, wrapper, route, method, appID, appVersion, instanceID string) {
-	return sanitizeTagValue(ri.UserAgent),
-		sanitizeTagValue(ri.SDKWrapper),
+	return tracing.SanitizeAttributeValue(ri.UserAgent),
+		tracing.SanitizeAttributeValue(ri.SDKWrapper),
 		sanitizeRouteValue(ri.Route),
-		sanitizeTagValue(ri.Method),
-		sanitizeTagValue(ri.ApplicationID),
-		sanitizeTagValue(ri.ApplicationVersion),
-		sanitizeTagValue(ri.InstanceID)
+		tracing.SanitizeAttributeValue(ri.Method),
+		tracing.SanitizeAttributeValue(ri.ApplicationID),
+		tracing.SanitizeAttributeValue(ri.ApplicationVersion),
+		tracing.SanitizeAttributeValue(ri.InstanceID)
 }
 
 // WithGauge increments the specified metric before running the function and then decrements it (for use with

@@ -398,13 +398,6 @@ func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 	})
 }
 
-func TestSanitizeTagValue(t *testing.T) {
-	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "not-provided", sanitizeTagValue(""))
-	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
-	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
-}
-
 func TestSanitizeRouteValue(t *testing.T) {
 	assert.Equal(t, "/sdk/evalx/contexts/{context}", sanitizeRouteValue("/sdk/evalx/contexts/{context}"))
 	assert.Equal(t, "not-provided", sanitizeRouteValue(""))

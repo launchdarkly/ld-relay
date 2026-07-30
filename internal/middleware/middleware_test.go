@@ -880,3 +880,30 @@ func TestContextFromBase64(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestAuthEnvSpanAttributes(t *testing.T) {
+	t.Run("sanitizes the display name", func(t *testing.T) {
+		env := testenv.NewTestEnvContext("My Project/My Env", false, nil)
+
+		attrs := authEnvSpanAttributes(env)
+
+		require.Len(t, attrs, 1)
+		assert.Equal(t, tracing.AuthEnvNameKey, attrs[0].Key)
+		assert.Equal(t, "My Project_My Env", attrs[0].Value.AsString())
+	})
+
+	t.Run("includes the environment ID when one is configured", func(t *testing.T) {
+		const testEnvID = config.EnvironmentID("507f1f77bcf86cd79943902a")
+		env := testenv.NewTestEnvContextWithEnvConfig("env-with-id", config.EnvConfig{
+			EnvID: testEnvID,
+		}, false, nil)
+
+		attrs := authEnvSpanAttributes(env)
+
+		require.Len(t, attrs, 2)
+		assert.Equal(t, tracing.AuthEnvNameKey, attrs[0].Key)
+		assert.Equal(t, "env-with-id", attrs[0].Value.AsString())
+		assert.Equal(t, tracing.AuthEnvIDKey, attrs[1].Key)
+		assert.Equal(t, string(testEnvID), attrs[1].Value.AsString())
+	})
+}
