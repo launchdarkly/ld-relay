@@ -93,3 +93,9 @@ func (w *loggingHTTPResponseWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap exposes the wrapped ResponseWriter so that http.NewResponseController can reach the
+// underlying connection (e.g. to set read/write deadlines) through this logging wrapper.
+func (w *loggingHTTPResponseWriter) Unwrap() http.ResponseWriter {
+	return w.writer
+}

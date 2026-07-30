@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,4 +114,27 @@ func TestRequestLoggerMiddlewareAuth(t *testing.T) {
 	}
 	assert.True(t, foundRedacted, "expected to find log entry with redacted auth '*fghij'")
 	assert.True(t, foundShort, "expected to find log entry with short auth 'abcd'")
+}
+
+// deadlineProbeWriter records whether SetWriteDeadline reached it through a wrapper chain.
+type deadlineProbeWriter struct {
+	http.ResponseWriter
+	gotWriteDeadline bool
+}
+
+func (d *deadlineProbeWriter) SetWriteDeadline(time.Time) error {
+	d.gotWriteDeadline = true
+	return nil
+}
+
+// TestLoggingResponseWriterUnwrapExposesConnectionDeadline guards that the request-logging
+// wrapper implements Unwrap, so http.NewResponseController can reach the underlying
+// connection through it. Without this, deadlines set downstream (e.g. by the init-delivery
+// limiter) would silently become no-ops for every request while request logging is enabled.
+func TestLoggingResponseWriterUnwrapExposesConnectionDeadline(t *testing.T) {
+	base := &deadlineProbeWriter{ResponseWriter: httptest.NewRecorder()}
+	lw := &loggingHTTPResponseWriter{logger: slog.Default(), writer: base}
+	err := http.NewResponseController(lw).SetWriteDeadline(time.Now().Add(time.Second))
+	assert.NoError(t, err, "controller could not set a deadline through loggingHTTPResponseWriter")
+	assert.True(t, base.gotWriteDeadline, "SetWriteDeadline did not reach the base writer through loggingHTTPResponseWriter")
 }

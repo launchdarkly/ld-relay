@@ -45,6 +45,13 @@ func (sr *statusRecorder) Flush() {
 	}
 }
 
+// Unwrap exposes the wrapped ResponseWriter so that http.NewResponseController can reach
+// the underlying connection (e.g. to set read/write deadlines). Without this, a controller
+// built on top of this recorder silently loses those capabilities.
+func (sr *statusRecorder) Unwrap() http.ResponseWriter {
+	return sr.ResponseWriter
+}
+
 // countingReader wraps an io.ReadCloser and counts the bytes read.
 type countingReader struct {
 	reader    io.ReadCloser
