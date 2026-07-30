@@ -41,16 +41,18 @@ const (
 	ResponseBytesKey = attribute.Key("relay.response.bytes")
 )
 
-// SanitizeAttributeValue ensures telemetry attribute values are valid. Empty values are replaced
-// with a descriptive default, and slashes are replaced with underscores. This is appropriate for
-// free-form values such as environment names, user agent strings, and SDK wrapper names, but not
-// for routes, where slashes are meaningful.
+// SanitizeAttributeValue ensures telemetry attribute values are valid. Blank values are replaced
+// with a descriptive default, surrounding whitespace is trimmed, and slashes are replaced with
+// underscores. This is appropriate for free-form values such as environment names, user agent
+// strings, and SDK wrapper names, but not for routes, where slashes are meaningful.
 //
-// Span and metric attributes derived from the same source must use this so that the values can be
-// correlated across signals.
+// A value that reaches both spans and metrics must go through this in both places, so that each
+// signal reports it in the same form. Distinct values can collapse onto the same sanitized value
+// (both "a/b" and "a_b" become "a_b"), which merges them wherever they are used as an attribute.
 func SanitizeAttributeValue(v string) string {
-	if strings.TrimSpace(v) == "" {
+	trimmed := strings.TrimSpace(v)
+	if trimmed == "" {
 		return "not-provided"
 	}
-	return strings.ReplaceAll(v, "/", "_")
+	return strings.ReplaceAll(trimmed, "/", "_")
 }

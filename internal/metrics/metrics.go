@@ -285,9 +285,12 @@ func (m *Manager) RemoveEnvironmentForUsage(envName string) {
 	m.usageChan <- removeEnvironment{envName: envName}
 }
 
-// GetAttributes returns the attribute set for this EnvironmentManager.
+// GetAttributes returns the attribute set for this EnvironmentManager. It copies the environment
+// attributes first, because attribute.NewSet sorts the slice it is given in place.
 func (em *EnvironmentManager) GetAttributes() attribute.Set {
-	return attribute.NewSet(em.envKVs...)
+	envKVsCopy := make([]attribute.KeyValue, len(em.envKVs))
+	copy(envKVsCopy, em.envKVs)
+	return attribute.NewSet(envKVsCopy...)
 }
 
 // NewEventMetricsRecorder creates an EventMetricsRecorder that records event processing metrics
