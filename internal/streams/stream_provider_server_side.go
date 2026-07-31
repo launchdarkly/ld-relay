@@ -136,7 +136,7 @@ type initWriterKey struct{}
 // race -- the interleaving under which reading a stale done channel (rather than the one
 // captured before the close) would leak the budget slot. Always false in production; an
 // atomic so a test can toggle it while producer goroutines read it.
-var testHookSlowBasisClose atomic.Bool
+var testHookSlowBasisClose atomic.Bool //nolint:gochecknoglobals // test-only seam; production reads observe the zero value (false)
 
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
