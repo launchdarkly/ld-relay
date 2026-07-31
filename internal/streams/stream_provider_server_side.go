@@ -260,8 +260,13 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		close(out)
 		return out
 	}
+	// close the batch channel exactly once: normally at the end of the producer goroutine, but
+	// the full-basis path closes it explicitly (before waiting for the send to finish) so the
+	// eventsource handler performs its end-of-batch flush.
+	var closeOnce sync.Once
+	closeOut := func() { closeOnce.Do(func() { close(out) }) }
 	go func() {
-		defer close(out)
+		defer closeOut()
 		select {
 		case <-ctx.Done():
 			// The subscriber already disconnected; don't bother building a payload nobody will read.
@@ -289,11 +294,8 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		}
 
 		// This is a full-basis delivery. Draw from the shared budget before serializing, so the
-		// budget bounds how many full bases are built (and held resident) at once and lets
-		// same-basis reconnects share one serialization. The slot is released when this replay
-		// goroutine returns -- which is at the channel handoff, before the eventsource handler
-		// has written the events -- so it does NOT bound per-connection egress; a stalled send is
-		// bounded instead by the write deadline (see initwrite and the Begin/End below).
+		// budget bounds how many full bases are built and sent at once, and lets same-basis
+		// reconnects share one serialization.
 		if r.initLimiter.Enabled() {
 			release, ok := r.initLimiter.Acquire(ctx)
 			if !ok {
@@ -307,16 +309,31 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				}
 				return
 			}
-			defer release()
-		}
 
-		// Scope the write deadline to this gated basis: arm from here, and clear it at the
-		// end-of-delivery flush (End is deferred so it runs before close(out), which triggers
-		// that flush). Live delta/heartbeat traffic after the basis then carries no deadline,
-		// which matters on HTTP/2 where a lingering deadline would reset an idle stream.
-		if iw, ok := ctx.Value(initWriterKey{}).(*initwrite.Writer); ok {
-			iw.Begin()
-			defer iw.End()
+			// Hold the slot for the actual send, not just until the channel handoff. The
+			// eventsource handler writes the events on another goroutine and signals Done when it
+			// has flushed the last one. Begin also scopes (and later clears) the write deadline
+			// to this basis. On return we End (before closeOut, so the end-of-batch flush observes
+			// it), close the batch channel to trigger that flush, then wait for Done -- or for the
+			// connection to end (ctx), which covers a client that disconnects or a send the write
+			// deadline cuts -- before releasing. This makes MaxConcurrent bound concurrent sends
+			// and resident payloads, including the single-event FDv1 /all put.
+			if iw, ok := ctx.Value(initWriterKey{}).(*initwrite.Writer); ok {
+				iw.Begin()
+				defer func() {
+					iw.End()
+					closeOut()
+					select {
+					case <-iw.Done():
+					case <-ctx.Done():
+					}
+					release()
+				}()
+			} else {
+				// No progress-aware writer on this path (e.g. the context-less Replay fallback);
+				// release when the producer returns.
+				defer release()
+			}
 		}
 
 		var events []eventsource.Event

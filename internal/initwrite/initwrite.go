@@ -56,6 +56,7 @@ type Writer struct {
 	ending       bool
 	msgStart     time.Time
 	lastDeadline time.Time
+	done         chan struct{} // closed at the end-of-delivery flush; nil outside a gated delivery
 }
 
 // Wrap returns a Writer for a poll (request/response) delivery: the deadline is armed on every
@@ -78,7 +79,19 @@ func (w *Writer) Begin() {
 	w.ending = false
 	w.msgStart = time.Time{}
 	w.lastDeadline = time.Time{}
+	w.done = make(chan struct{})
 	w.mu.Unlock()
+}
+
+// Done returns a channel closed once the gated delivery's last byte has been flushed to the
+// client. The producer waits on it (or on the request context) before releasing the budget
+// slot, so the slot is held for the actual send rather than only until the channel handoff.
+// It returns a nil channel if no delivery is in progress (a nil channel never fires, so a
+// caller that also selects on ctx.Done is unaffected).
+func (w *Writer) Done() <-chan struct{} {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.done
 }
 
 // End signals that the producer has handed off the whole delivery. The deadline is cleared at
@@ -149,8 +162,13 @@ func (w *Writer) Flush() {
 	if active && ending {
 		w.mu.Lock()
 		w.active = false
+		done := w.done
+		w.done = nil
 		w.mu.Unlock()
 		_ = w.rc.SetWriteDeadline(time.Time{})
+		if done != nil {
+			close(done) // the basis is fully written; let the producer release the slot
+		}
 	}
 }
 

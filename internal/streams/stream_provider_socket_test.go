@@ -2,7 +2,9 @@ package streams
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -59,15 +61,23 @@ func manyFlags(n int) []ldmodel.FeatureFlag {
 // serveStream builds a server-side stream provider with the init limiter enabled and serves
 // HandlerV2 over the given listener wrapper (nil for a normal listener). It returns the server
 // and the env stream provider (for publishing deltas).
-func serveStream(t *testing.T, maxHold time.Duration, flags []ldmodel.FeatureFlag, wrapListener func(net.Listener) net.Listener) (*httptest.Server, EnvStreamProvider) {
+func serveStream(t *testing.T, limiter *concurrency.Limiter, maxHold time.Duration, flags []ldmodel.FeatureFlag, fdv1 bool, wrapListener func(net.Listener) net.Listener) (*httptest.Server, EnvStreamProvider) {
 	t.Helper()
-	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10})
 	sp := NewStreamProvider(basictypes.ServerSideStream, 0, 0, WithInitLimiter(limiter, maxHold)).(*serverSideStreamProvider)
 	cred := sdkauth.New(testSDKKey)
-	esp := sp.RegisterV2(cred, makeMockStore(flags, nil), slog.Default())
+	store := makeMockStore(flags, nil)
+	var esp EnvStreamProvider
+	var h http.HandlerFunc
+	if fdv1 {
+		esp = sp.RegisterV1(cred, store, slog.Default())
+		h = sp.HandlerV1(cred)
+	} else {
+		esp = sp.RegisterV2(cred, store, slog.Default())
+		h = sp.HandlerV2(cred)
+	}
 	require.NotNil(t, esp)
 
-	srv := httptest.NewUnstartedServer(sp.HandlerV2(cred))
+	srv := httptest.NewUnstartedServer(h)
 	if wrapListener != nil {
 		srv.Listener = wrapListener(srv.Listener)
 	}
@@ -80,7 +90,7 @@ func serveStream(t *testing.T, maxHold time.Duration, flags []ldmodel.FeatureFla
 // that stops reading has its connection torn down around maxHold rather than parking a slot.
 func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {
 	const maxHold = 800 * time.Millisecond
-	srv, _ := serveStream(t, maxHold, manyFlags(400), func(l net.Listener) net.Listener {
+	srv, _ := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, manyFlags(400), false, func(l net.Listener) net.Listener {
 		return smallSndbufListener{l}
 	})
 
@@ -135,7 +145,7 @@ func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {
 // regression), delta writes after maxHold would fail and the client would stop receiving.
 func TestSocketBusyStreamSurvivesPastMaxHold(t *testing.T) {
 	const maxHold = 700 * time.Millisecond
-	srv, esp := serveStream(t, maxHold, []ldmodel.FeatureFlag{ldbuilders.NewFlagBuilder("f").Version(1).Build()}, nil)
+	srv, esp := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, []ldmodel.FeatureFlag{ldbuilders.NewFlagBuilder("f").Version(1).Build()}, false, nil)
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
 	req.Header.Set("Authorization", string(testSDKKey))
@@ -204,4 +214,61 @@ func TestSocketBusyStreamSurvivesPastMaxHold(t *testing.T) {
 
 func mustFlagJSON(version int) []byte {
 	return []byte(fmt.Sprintf(`{"key":"f","version":%d,"on":false,"variations":[false,true],"offVariation":0,"fallthrough":{"variation":0},"salt":"s"}`, version))
+}
+
+// TestSocketSlotHeldAcrossSend verifies the round-4 fix (M1): the budget slot is held for the
+// actual send, not just until the channel handoff. With MaxConcurrent=1 and no queue, a client
+// that stalls mid-basis holds the only slot, so a second full-basis client is shed (its
+// connection is closed with no basis). Before the fix, the first client's slot was released at
+// the handoff, so the second client would have been admitted.
+func TestSocketSlotHeldAcrossSend(t *testing.T) {
+	const maxHold = 10 * time.Second // long, so A's deadline does not release the slot before B connects
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
+	srv, _ := serveStream(t, limiter, maxHold, manyFlags(400), true, func(l net.Listener) net.Listener {
+		return smallSndbufListener{l}
+	})
+	addr := strings.TrimPrefix(srv.URL, "http://")
+
+	tinyRcvbuf := &net.Dialer{Control: func(_, _ string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 2048)
+		})
+	}}
+
+	// Client A connects, reads only headers, then stalls -- so its basis write blocks and it
+	// holds the only slot.
+	connA, err := tinyRcvbuf.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer connA.Close()
+	fmt.Fprintf(connA, "GET / HTTP/1.1\r\nHost: x\r\nAuthorization: %s\r\nAccept: text/event-stream\r\n\r\n", testSDKKey)
+	readHeaders(t, bufio.NewReader(connA))
+	time.Sleep(400 * time.Millisecond) // let A's replay acquire the slot and block on the send
+
+	// Client B asks for a full basis while A holds the slot. It must be shed: its stream ends
+	// (the SDK will reconnect) having received no basis. Use an http client so we observe the
+	// response body ending rather than the possibly-kept-alive TCP connection.
+	ctxB, cancelB := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelB()
+	reqB, _ := http.NewRequestWithContext(ctxB, "GET", srv.URL, nil)
+	reqB.Header.Set("Authorization", string(testSDKKey))
+	reqB.Header.Set("Accept", "text/event-stream")
+	respB, err := http.DefaultClient.Do(reqB)
+	require.NoError(t, err)
+	defer respB.Body.Close()
+	body, err := io.ReadAll(respB.Body) // returns when the shed ends the response body
+	require.NoError(t, err, "shed client's stream did not end (it was admitted, so the slot was not held) ")
+	// An FDv1 basis is an "event: put". A shed client must receive none.
+	assert.NotContains(t, string(body), "event: put", "second client got a basis: the slot was NOT held across the first client's send (M1)")
+	assert.NotContains(t, string(body), "\"flags\"", "second client got basis data: the slot was NOT held across the first client's send (M1)")
+}
+
+func readHeaders(t *testing.T, br *bufio.Reader) {
+	t.Helper()
+	for {
+		line, err := br.ReadString('\n')
+		require.NoError(t, err)
+		if line == "\r\n" {
+			return
+		}
+	}
 }
