@@ -200,3 +200,28 @@ func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName, platform
 	}
 	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
 }
+
+// deadlineProbeWriter is a ResponseWriter that records whether SetWriteDeadline reached it
+// through a wrapper chain.
+type deadlineProbeWriter struct {
+	http.ResponseWriter
+	gotWriteDeadline bool
+}
+
+func (d *deadlineProbeWriter) SetWriteDeadline(time.Time) error {
+	d.gotWriteDeadline = true
+	return nil
+}
+
+// TestStatusRecorderUnwrapExposesConnectionDeadline guards the Unwrap contract that the
+// init-delivery limiter relies on: if statusRecorder does not implement Unwrap,
+// http.NewResponseController cannot reach the underlying connection, and the limiter's
+// read/write deadlines silently become no-ops (a slow client would then park a budget slot
+// indefinitely).
+func TestStatusRecorderUnwrapExposesConnectionDeadline(t *testing.T) {
+	base := &deadlineProbeWriter{ResponseWriter: httptest.NewRecorder()}
+	sr := &statusRecorder{ResponseWriter: base, statusCode: 200}
+	err := http.NewResponseController(sr).SetWriteDeadline(time.Now().Add(time.Second))
+	assert.NoError(t, err, "controller could not set a deadline through statusRecorder")
+	assert.True(t, base.gotWriteDeadline, "SetWriteDeadline did not reach the base writer through statusRecorder")
+}
