@@ -116,12 +116,19 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 		if timeout <= 0 {
 			timeout = defaultStreamSendTimeout
 		}
+		iw := initwrite.WrapGated(w, timeout)
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
-		h.ServeHTTP(initwrite.Wrap(w, timeout), r.WithContext(ctx))
+		ctx = context.WithValue(ctx, initWriterKey{}, iw)
+		h.ServeHTTP(iw, r.WithContext(ctx))
 	}
 }
+
+// initWriterKey is the context key under which withInitDeadline stashes the progress-aware
+// writer wrapping the connection, so the replay producer (a different goroutine) can scope
+// the write deadline to the gated basis via Begin/End.
+type initWriterKey struct{}
 
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
@@ -299,6 +306,15 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				return
 			}
 			defer release()
+		}
+
+		// Scope the write deadline to this gated basis: arm from here, and clear it at the
+		// end-of-delivery flush (End is deferred so it runs before close(out), which triggers
+		// that flush). Live delta/heartbeat traffic after the basis then carries no deadline,
+		// which matters on HTTP/2 where a lingering deadline would reset an idle stream.
+		if iw, ok := ctx.Value(initWriterKey{}).(*initwrite.Writer); ok {
+			iw.Begin()
+			defer iw.End()
 		}
 
 		var events []eventsource.Event

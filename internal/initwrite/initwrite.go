@@ -1,95 +1,179 @@
 // Package initwrite provides a progress-aware write deadline for initialization-delivery
 // responses -- SSE stream replays and poll responses. It bounds how long a slow or stalled
-// client can hold a budget slot, without false-killing a slow-but-steady client, mirroring
-// the approach used by the streamer service: a minimum-throughput floor drives a per-chunk
-// deadline, and a separate absolute cap bounds a single delivery.
+// client can hold a budget slot without false-killing a slow-but-steady client, mirroring
+// the streamer service: a minimum-throughput floor drives a per-write deadline, and an
+// absolute cap bounds a single delivery.
 //
-// A client that sustains at least the throughput floor keeps re-arming the per-chunk
-// deadline and is never cut for being slow; one that drops below the floor (or stalls) on a
-// chunk has its write fail, which the HTTP server turns into a closed connection. The
-// absolute cap backstops a client that stays exactly at the floor on a very large payload.
+// Two shapes are supported:
+//
+//   - Poll (Wrap): a request/response delivery. The deadline is armed on every write for the
+//     lifetime of the wrapper; net/http clears the connection's deadline when the handler
+//     returns, so nothing leaks into the next request on a kept-alive connection.
+//   - Stream (WrapGated): a persistent SSE connection, where net/http does NOT clear the
+//     deadline between the initial delivery and later delta/heartbeat traffic. The deadline is
+//     armed only between Begin and the end-of-delivery flush, and is cleared there, so live
+//     traffic and idle periods carry no deadline (important on HTTP/2, where a lingering
+//     deadline is a self-firing timer that would reset an idle stream).
+//
+// A client sustaining at least the throughput floor per write keeps re-arming and is not cut
+// for being slow; one that stalls or drops below the floor on a write has its write fail,
+// which the HTTP server turns into a closed connection. The absolute cap (maxHold) backstops
+// a client that stays at the floor on a very large payload: because the cap governs once a
+// delivery would exceed maxHold at the floor (~7.5 MiB at the 64 KiB/s floor and the 2m
+// default), such a client is cut at maxHold. See docs/configuration.md.
 package initwrite
 
 import (
+	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
 const (
-	// minBytesPerSec is the throughput floor: a client sustaining at least this rate is never
-	// cut for being slow. It matches the streamer service's default.
+	// minBytesPerSec is the throughput floor a full-size chunk must sustain.
 	minBytesPerSec = 64 * 1024
 	// chunkSize bounds how much is written under a single deadline. Large writes are sliced
-	// only to re-arm the deadline mid-write; no data is buffered or copied.
+	// only to re-arm the deadline mid-write; the string path copies at most one chunk at a
+	// time rather than the whole payload.
 	chunkSize = 1 << 20 // 1 MiB
-	// slack is added to each per-chunk deadline to tolerate brief stalls without a false cut.
+	// slack is added to each per-write deadline to tolerate a brief stall.
 	slack = 5 * time.Second
-	// perChunkDeadline is the time budget for one chunk at the throughput floor, plus slack.
-	perChunkDeadline = (chunkSize/minBytesPerSec)*time.Second + slack
-	// idleReset starts a fresh message (resets the absolute-cap clock) after a gap between
-	// writes, so a long-lived stream's periodic deltas are each bounded on their own rather
-	// than against the whole connection lifetime.
-	idleReset = time.Second
 	// minExtension avoids a SetWriteDeadline syscall for a trivially small change.
 	minExtension = 100 * time.Millisecond
 )
 
 // Writer wraps an http.ResponseWriter and arms a progress-aware write deadline on the
-// underlying connection as it writes. maxHold is the absolute cap on a single message's
-// total write time; <= 0 disables the cap (only the per-chunk floor applies).
+// underlying connection while a delivery is active.
 type Writer struct {
 	http.ResponseWriter
 	rc      *http.ResponseController
 	maxHold time.Duration
 
+	mu           sync.Mutex
+	active       bool
+	ending       bool
 	msgStart     time.Time
-	lastWrite    time.Time
 	lastDeadline time.Time
 }
 
-// Wrap returns a Writer around w. maxHold is the absolute per-message cap.
+// Wrap returns a Writer for a poll (request/response) delivery: the deadline is armed on every
+// write. net/http clears the connection deadline when the handler returns.
 func Wrap(w http.ResponseWriter, maxHold time.Duration) *Writer {
+	return &Writer{ResponseWriter: w, rc: http.NewResponseController(w), maxHold: maxHold, active: true}
+}
+
+// WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and clears
+// the deadline at the end-of-delivery flush after End.
+func WrapGated(w http.ResponseWriter, maxHold time.Duration) *Writer {
 	return &Writer{ResponseWriter: w, rc: http.NewResponseController(w), maxHold: maxHold}
+}
+
+// Begin marks the start of a gated delivery; writes from here on arm the deadline. It is
+// called from the producer before it starts producing events.
+func (w *Writer) Begin() {
+	w.mu.Lock()
+	w.active = true
+	w.ending = false
+	w.msgStart = time.Time{}
+	w.lastDeadline = time.Time{}
+	w.mu.Unlock()
+}
+
+// End signals that the producer has handed off the whole delivery. The deadline is cleared at
+// the next flush -- the eventsource server flushes exactly once at end-of-batch -- so it is
+// called before the producer closes the batch channel, guaranteeing that flush observes it.
+func (w *Writer) End() {
+	w.mu.Lock()
+	w.ending = true
+	w.mu.Unlock()
 }
 
 // Unwrap exposes the wrapped ResponseWriter so http.NewResponseController and other wrappers
 // can reach the underlying connection through this one.
 func (w *Writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// Write slices p into chunks and arms the per-chunk deadline before each, so a write that
-// cannot keep up with the throughput floor (or stalls) fails fast, while a slow-but-steady
-// write keeps extending its deadline. It buffers nothing.
+// Write slices p into chunks and arms the per-chunk deadline before each.
 func (w *Writer) Write(p []byte) (int, error) {
-	if len(p) == 0 {
+	if !w.isActive() || len(p) == 0 {
 		return w.ResponseWriter.Write(p)
-	}
-	now := time.Now()
-	// A gap since the last write (or the first write) starts a new message: reset the
-	// absolute-cap clock and force a fresh deadline.
-	if w.msgStart.IsZero() || now.Sub(w.lastWrite) > idleReset {
-		w.msgStart = now
-		w.lastDeadline = time.Time{}
 	}
 	total := 0
 	for total < len(p) {
 		end := min(total+chunkSize, len(p))
-		w.arm(time.Now())
+		w.arm(end - total)
 		n, err := w.ResponseWriter.Write(p[total:end])
 		total += n
 		if err != nil {
-			w.lastWrite = time.Now()
 			return total, err
 		}
 	}
-	w.lastWrite = time.Now()
 	return total, nil
 }
 
-// arm sets the write deadline for the next chunk to now + perChunkDeadline, capped by the
-// message's absolute deadline (msgStart + maxHold). It never shortens an existing deadline
-// within a message and skips trivial changes to avoid syscall churn.
-func (w *Writer) arm(now time.Time) {
-	dl := now.Add(perChunkDeadline)
+// WriteString satisfies io.StringWriter so eventsource's io.WriteString does not allocate a
+// []byte copy of the entire payload per connection. It slices the string and copies at most
+// one chunk at a time.
+func (w *Writer) WriteString(s string) (int, error) {
+	if !w.isActive() || len(s) == 0 {
+		return io.WriteString(w.ResponseWriter, s)
+	}
+	total := 0
+	for total < len(s) {
+		end := min(total+chunkSize, len(s))
+		w.arm(end - total)
+		n, err := io.WriteString(w.ResponseWriter, s[total:end])
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
+
+// Flush bounds the flush under the deadline and, at the end-of-delivery flush, clears the
+// deadline so later traffic on a persistent stream is not governed by it.
+func (w *Writer) Flush() {
+	f, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	w.mu.Lock()
+	active, ending := w.active, w.ending
+	w.mu.Unlock()
+	if active {
+		w.arm(0)
+	}
+	f.Flush()
+	if active && ending {
+		w.mu.Lock()
+		w.active = false
+		w.mu.Unlock()
+		_ = w.rc.SetWriteDeadline(time.Time{})
+	}
+}
+
+func (w *Writer) isActive() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.active
+}
+
+// arm sets the write deadline for the next chunk to now + (time to send n bytes at the
+// throughput floor) + slack, capped by the delivery's absolute deadline (msgStart + maxHold).
+// It never shortens an existing deadline within a delivery and skips trivial changes.
+func (w *Writer) arm(n int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.active {
+		return
+	}
+	now := time.Now()
+	if w.msgStart.IsZero() {
+		w.msgStart = now
+	}
+	budget := time.Duration(n)*time.Second/time.Duration(minBytesPerSec) + slack
+	dl := now.Add(budget)
 	if w.maxHold > 0 {
 		if capDL := w.msgStart.Add(w.maxHold); dl.After(capDL) {
 			dl = capDL
@@ -101,15 +185,8 @@ func (w *Writer) arm(now time.Time) {
 	}
 }
 
-// Flush forwards to the underlying flusher. eventsource requires the writer to be an
-// http.Flusher; keeping the method here ensures it does not type-assert past this wrapper.
-func (w *Writer) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
 var (
 	_ http.ResponseWriter = (*Writer)(nil)
 	_ http.Flusher        = (*Writer)(nil)
+	_ io.StringWriter     = (*Writer)(nil)
 )
