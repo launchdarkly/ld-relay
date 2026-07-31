@@ -65,9 +65,17 @@ func LimitConcurrency(limiter *concurrency.Limiter, maxHold time.Duration) func(
 				return
 			}
 			defer release()
+			defer clearWriteDeadline(w)
 			next.ServeHTTP(initwrite.Wrap(w, maxHold), r)
 		})
 	}
+}
+
+// clearWriteDeadline removes any write deadline the progress-aware writer armed on the
+// connection, so it cannot linger on a kept-alive connection and fire during a later request.
+// This server sets no http.Server.WriteTimeout, so net/http does not reset it for us.
+func clearWriteDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 }
 
 // ProvideInitLimiter makes the shared initialization-delivery limiter available to a
@@ -81,6 +89,7 @@ func ProvideInitLimiter(limiter *concurrency.Limiter, maxHold time.Duration) fun
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer clearWriteDeadline(w)
 			ctx := context.WithValue(r.Context(), initLimiterCtxKey{}, initLimiterHolder{limiter: limiter, maxHold: maxHold})
 			next.ServeHTTP(initwrite.Wrap(w, maxHold), r.WithContext(ctx))
 		})

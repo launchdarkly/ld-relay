@@ -7,8 +7,9 @@
 // Two shapes are supported:
 //
 //   - Poll (Wrap): a request/response delivery. The deadline is armed on every write for the
-//     lifetime of the wrapper; net/http clears the connection's deadline when the handler
-//     returns, so nothing leaks into the next request on a kept-alive connection.
+//     lifetime of the wrapper. The caller (the poll middleware) clears the connection's write
+//     deadline when the handler returns, so it cannot linger on a kept-alive connection and
+//     fire during a later request.
 //   - Stream (WrapGated): a persistent SSE connection, where net/http does NOT clear the
 //     deadline between the initial delivery and later delta/heartbeat traffic. The deadline is
 //     armed only between Begin and the end-of-delivery flush, and is cleared there, so live

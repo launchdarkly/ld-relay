@@ -288,10 +288,12 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			return
 		}
 
-		// This is a full-basis delivery. Draw from the shared budget before serializing,
-		// so the budget bounds both the memory of the payload we are about to build and
-		// the egress of sending it. The slot is held across the send and released when the
-		// send finishes, the client disconnects, or the stall backstop fires.
+		// This is a full-basis delivery. Draw from the shared budget before serializing, so the
+		// budget bounds how many full bases are built (and held resident) at once and lets
+		// same-basis reconnects share one serialization. The slot is released when this replay
+		// goroutine returns -- which is at the channel handoff, before the eventsource handler
+		// has written the events -- so it does NOT bound per-connection egress; a stalled send is
+		// bounded instead by the write deadline (see initwrite and the Begin/End below).
 		if r.initLimiter.Enabled() {
 			release, ok := r.initLimiter.Acquire(ctx)
 			if !ok {
