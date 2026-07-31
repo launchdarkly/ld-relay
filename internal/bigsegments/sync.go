@@ -24,7 +24,7 @@ const (
 	streamReadTimeout          = 5 * time.Minute
 	revisionsPollTimeout       = 90 * time.Second
 	defaultStreamRetryInterval = 10 * time.Second
-	synchronizedOnInterval     = 30 * time.Second
+	defaultReconcileInterval   = 30 * time.Second
 
 	segmentUpdatesChannelBufferSize = 20
 )
@@ -90,6 +90,7 @@ type defaultBigSegmentSynchronizer struct {
 	envID               config.EnvironmentID
 	sdkKey              config.SDKKey
 	streamRetryInterval time.Duration
+	reconcileInterval   time.Duration
 	segmentUpdatesChan  chan UpdatesSummary
 	hasSynced           bool
 	syncedLock          sync.RWMutex
@@ -143,6 +144,7 @@ func newDefaultBigSegmentSynchronizer(
 		envID:               envID,
 		sdkKey:              sdkKey,
 		streamRetryInterval: defaultStreamRetryInterval,
+		reconcileInterval:   defaultReconcileInterval,
 		segmentUpdatesChan:  make(chan UpdatesSummary, segmentUpdatesChannelBufferSize),
 		closeChan:           make(chan struct{}),
 		logger:              logger.With("component", component),
@@ -201,11 +203,17 @@ func (s *defaultBigSegmentSynchronizer) syncSupervisor() {
 				}
 			}
 		}
-		s.logger.Warn("will retry")
-		timer := time.NewTimer(s.streamRetryInterval)
-		defer timer.Stop()
 		select {
 		case <-s.closeChan:
+			close(s.segmentUpdatesChan)
+			return
+		default:
+		}
+		s.logger.Warn("will retry")
+		timer := time.NewTimer(s.streamRetryInterval)
+		select {
+		case <-s.closeChan:
+			timer.Stop()
 			close(s.segmentUpdatesChan)
 			return
 		case <-timer.C:
@@ -375,7 +383,7 @@ func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 
 func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 	for {
-		timer := time.NewTimer(synchronizedOnInterval)
+		timer := time.NewTimer(s.reconcileInterval)
 		select {
 		case event, ok := <-stream.Events:
 			timer.Stop()
@@ -398,8 +406,14 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				return err
 			}
 		case <-timer.C:
-			err := s.setSynced()
-			if err != nil {
+			// The stream has been quiet for a while. Updates normally arrive as stream
+			// events, but an event can be missed - for example, if it was published
+			// while the upstream subscription was still being established - and a missed
+			// event is never redelivered on the stream. Reconciling against the polling
+			// endpoint (which is cheap when there are no changes, since the request
+			// carries our cursor) bounds how long such a missed update can remain
+			// unapplied.
+			if err := s.reconcile(); err != nil {
 				return err
 			}
 		case <-s.closeChan:
@@ -407,6 +421,24 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 			return nil
 		}
 	}
+}
+
+// reconcile fetches and applies any revisions that were not delivered as stream events,
+// then refreshes the store's synchronization timestamp.
+func (s *defaultBigSegmentSynchronizer) reconcile() error {
+	segmentsUpdated := make(segmentChangesSummary)
+	for {
+		done, updates, err := s.poll()
+		if err != nil {
+			return err
+		}
+		segmentsUpdated.addAll(updates)
+		if done {
+			break
+		}
+	}
+	s.notifySegmentsUpdated(segmentsUpdated)
+	return s.setSynced()
 }
 
 // Returns total number of patches, number of patches applied, raw segment IDs, error

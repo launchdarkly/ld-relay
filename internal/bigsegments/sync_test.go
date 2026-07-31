@@ -416,6 +416,92 @@ func TestSyncSkipsOutOfOrderUpdateFromStreamAndRestartsStream(t *testing.T) {
 	})
 }
 
+func TestSyncReconcilesWhenStreamIsQuiet(t *testing.T) {
+	// Scenario:
+	// - The initial poll+stream cycle completes with patch1.
+	// - The stream stays connected but delivers no events, even though another revision
+	//   (patch2) has been published upstream; this simulates a stream event that was
+	//   missed and will never be redelivered.
+	// - The periodic reconciliation poll picks up patch2, without a stream reconnection.
+	mockLogger, mockLog := logtest.NewMockLogger()
+
+	patch1 := newPatchBuilder("segment.g1", "1", "").addIncludes("included1").build()
+	patch2 := newPatchBuilder("segment.g1", "2", "1").addIncludes("included2").build()
+
+	pollHandler, requestsCh := httphelpers.RecordingHandler(
+		httphelpers.SequentialHandler(
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{patch1}, nil), // poll 1: initial connection
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 2: completion of poll 1
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 3: done in conjunction with stream
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{patch2}, nil), // poll 4: first reconciliation finds a missed revision
+			httphelpers.HandlerWithJSONResponse([]bigSegmentPatch{}, nil),       // poll 5 and later: nothing further
+		),
+	)
+
+	// The stream connects successfully but never sends any events
+	sseHandler, _ := httphelpers.SSEHandler(nil)
+	streamHandler, streamRequestsCh := httphelpers.RecordingHandler(sseHandler)
+
+	httphelpers.WithServer(pollHandler, func(pollServer *httptest.Server) {
+		httphelpers.WithServer(streamHandler, func(streamServer *httptest.Server) {
+			startTime := ldtime.UnixMillisNow()
+
+			storeMock := newBigSegmentStoreMock()
+			defer storeMock.Close()
+
+			segmentSync := newDefaultBigSegmentSynchronizer(sharedtest.MakeBasicHTTPConfig(), storeMock,
+				pollServer.URL, streamServer.URL, config.EnvironmentID("env-xyz"), testSDKKey, mockLogger, "")
+			segmentSync.reconcileInterval = time.Millisecond * 100
+			defer segmentSync.Close()
+			segmentSync.Start()
+
+			updatesCh := segmentSync.SegmentUpdatesCh()
+
+			pollReq1 := helpers.RequireValue(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq1, "")
+			requirePatch(t, storeMock, patch1)
+
+			pollReq2 := helpers.RequireValue(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq2, patch1.Version)
+
+			pollReq3 := helpers.RequireValue(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq3, patch1.Version)
+
+			requireUpdates(t, updatesCh, []string{"segment"})
+
+			syncTime := <-storeMock.syncTimeCh
+			assert.True(t, syncTime >= startTime)
+			assert.True(t, syncTime <= ldtime.UnixMillisNow())
+
+			streamReq1 := helpers.RequireValue(t, streamRequestsCh, time.Second)
+			assertStreamRequest(t, streamReq1)
+
+			// The reconciliation poll should find and apply the missed revision
+			pollReq4 := helpers.RequireValue(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq4, patch1.Version)
+			requirePatch(t, storeMock, patch2)
+			requireUpdates(t, updatesCh, []string{"segment"})
+
+			pollReq5 := helpers.RequireValue(t, requestsCh, time.Second)
+			assertPollRequest(t, pollReq5, patch2.Version)
+
+			// The stream connection should still be in use - reconciliation is not a reconnect
+			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {
+				t.FailNow()
+			}
+
+			requireNoMorePatches(t, storeMock)
+
+			assert.Equal(t, []string{
+				"applied updates",
+				"applied updates",
+			}, mockLog.Messages(slog.LevelInfo))
+			assert.Len(t, mockLog.Messages(slog.LevelWarn), 0)
+			assert.Len(t, mockLog.Messages(slog.LevelError), 0)
+		})
+	})
+}
+
 func TestSyncRetryIfStreamFails(t *testing.T) {
 	// In this test, we set up a successful poll and stream. Then we force the stream to close.
 	// The synchronizer should start over with a new poll and stream.
