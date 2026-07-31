@@ -155,7 +155,8 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	r := &Relay{
 		envsByCredential: NewEnvironmentLookup(),
 		serverSideStreamProvider: streams.NewStreamProvider(basictypes.ServerSideStream, maxConnTime, 0,
-			streams.WithInitLimiter(initConc.limiter, initConc.sendTimeout)),
+			streams.WithInitLimiter(initConc.limiter, initConc.sendTimeout),
+			streams.WithLogger(logger)),
 		serverSideFlagsStreamProvider: streams.NewStreamProvider(basictypes.ServerSideFlagsOnlyStream, maxConnTime, 0),
 		mobileStreamProvider:          streams.NewStreamProvider(basictypes.MobilePingStream, maxConnTime, pingStreamJitterTime),
 		jsClientStreamProvider:        streams.NewStreamProvider(basictypes.JSClientPingStream, maxConnTime, pingStreamJitterTime),

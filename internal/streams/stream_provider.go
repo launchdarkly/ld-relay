@@ -1,8 +1,11 @@
 package streams
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
@@ -70,6 +73,17 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	initLimiter *concurrency.Limiter
 	sendTimeout time.Duration
+	logger      *slog.Logger
+}
+
+// WithLogger routes the underlying SSE server's connection-write errors to a logger, so that
+// a connection the init limiter cut (its write deadline exceeded) is visible rather than
+// silently dropped. Only the server-side stream provider uses it. Without it, those errors go
+// nowhere.
+func WithLogger(logger *slog.Logger) Option {
+	return func(o *providerOptions) {
+		o.logger = logger
+	}
 }
 
 // WithInitLimiter bounds how many stream replays may send a FULL basis at once, drawing
@@ -112,13 +126,39 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 			isJSClient: true,
 		}
 	default:
+		fdv1, fdv2 := newSSEServer(maxConnTime), newSSEServer(maxConnTime)
+		if o.logger != nil {
+			l := sseLogger{log: o.logger}
+			fdv1.Logger = l
+			fdv2.Logger = l
+		}
 		return &serverSideStreamProvider{
-			fdv1Server:  newSSEServer(maxConnTime),
-			fdv2Server:  newSSEServer(maxConnTime),
+			fdv1Server:  fdv1,
+			fdv2Server:  fdv2,
 			initLimiter: o.initLimiter,
 			sendTimeout: o.sendTimeout,
 		}
 	}
+}
+
+// sseLogger adapts a slog.Logger to the eventsource.Logger interface. The eventsource server
+// uses it only to report a connection-write failure. A write the init limiter's deadline cut
+// surfaces as a deadline-exceeded error and is logged at warn (a relay-initiated close, worth
+// seeing); an ordinary client disconnect is logged at debug so it does not spam the logs.
+type sseLogger struct{ log *slog.Logger }
+
+func (l sseLogger) Println(v ...interface{}) {
+	for _, a := range v {
+		if err, ok := a.(error); ok && errors.Is(err, os.ErrDeadlineExceeded) {
+			l.log.Warn("stream write deadline exceeded; connection closed to reclaim the initialization-delivery slot", "error", err)
+			return
+		}
+	}
+	l.log.Debug("stream connection write ended", "detail", fmt.Sprint(v...))
+}
+
+func (l sseLogger) Printf(format string, v ...interface{}) {
+	l.log.Debug(fmt.Sprintf(format, v...))
 }
 
 func newSSEServer(maxConnTime time.Duration) *eventsource.Server {
