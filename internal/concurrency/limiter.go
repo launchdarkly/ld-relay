@@ -1,8 +1,7 @@
 // Package concurrency provides an admission limiter that bounds how much concurrent
 // work a burst of requests or connections can impose on Relay. It uses two limits: a
 // maximum number of slots held at once, and a bounded FIFO queue of callers waiting for
-// a slot. An optional per-environment gate keeps one environment from using the whole
-// budget.
+// a slot.
 package concurrency
 
 import (
@@ -19,13 +18,9 @@ type Params struct {
 	// MaxQueued is the number of callers that may wait in FIFO order for a slot once all
 	// slots are held. A value of 0 rejects callers immediately instead of waiting.
 	MaxQueued int
-	// PerEnvMax limits how many of a single environment's callers may participate,
-	// counting both held and waiting, at once. A value of 0 applies no per-environment
-	// limit. The per-environment gate never blocks; it only rejects.
-	PerEnvMax int
 }
 
-// Stats is a point-in-time snapshot of a Limiter's counters, for logging/metrics.
+// Stats is a point-in-time snapshot of a Limiter's counters for logging and metrics.
 type Stats struct {
 	Enabled       bool
 	MaxConcurrent int
@@ -36,30 +31,23 @@ type Stats struct {
 	Rejected      int64
 }
 
-// Limiter bounds concurrency with two limits plus an optional per-environment gate that
-// never blocks and only rejects. The zero value is not usable; construct one with New.
+// Limiter bounds concurrency with two limits: a maximum number of slots held at once and
+// a bounded FIFO queue of waiters. The zero value is not usable; construct one with New.
 type Limiter struct {
 	name    string
 	enabled bool
 
-	tokens    chan struct{} // holds MaxConcurrent slots; receive to acquire, send to release
+	tokens    chan struct{} // holds the free slots; receive to acquire one, send to release one
 	maxQueued int64
 	waiting   int64
 	shutdown  chan struct{}
 	closeOnce sync.Once
 
-	perEnvMax int
-	perEnv    sync.Map // envKey -> *envGate
-
 	admitted atomic.Int64
 	rejected atomic.Int64
 }
 
-type envGate struct {
-	slots chan struct{} // cap = perEnvMax; try-receive to enter, send to leave
-}
-
-// New builds a Limiter. name is used only for logging/metrics identification.
+// New builds a Limiter. name identifies the limiter in logs and metrics.
 func New(name string, p Params) *Limiter {
 	l := &Limiter{name: name}
 	if p.MaxConcurrent <= 0 {
@@ -72,9 +60,6 @@ func New(name string, p Params) *Limiter {
 	}
 	l.maxQueued = int64(p.MaxQueued)
 	l.shutdown = make(chan struct{})
-	if p.PerEnvMax > 0 {
-		l.perEnvMax = p.PerEnvMax
-	}
 	return l
 }
 
@@ -84,84 +69,51 @@ func (l *Limiter) Name() string { return l.name }
 // Enabled reports whether the limiter is enforcing a limit.
 func (l *Limiter) Enabled() bool { return l != nil && l.enabled }
 
-// Acquire attempts to admit one unit of work for the given environment key.
-// On success it returns a release func (call exactly once) and ok=true. If the
-// per-env gate or the global backlog is full, or ctx is cancelled, or the
-// limiter is shut down, it returns a no-op release and ok=false. A disabled or
-// nil limiter always admits immediately.
-func (l *Limiter) Acquire(ctx context.Context, envKey string) (release func(), ok bool) {
+// Acquire attempts to admit one unit of work. On success it returns a release function,
+// which the caller must call exactly once, and ok is true. It returns a no-op release and
+// ok=false if the queue is full, ctx is cancelled, or the limiter is shut down. A disabled
+// or nil limiter always admits immediately.
+func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 	if !l.Enabled() {
 		return func() {}, true
 	}
 
-	// Per-environment gate. It never blocks; it rejects when the environment is over its share.
-	var releaseEnv func()
-	if l.perEnvMax > 0 {
-		g := l.gateFor(envKey)
-		select {
-		case g.slots <- struct{}{}:
-			releaseEnv = func() { <-g.slots }
-		default:
-			l.rejected.Add(1)
-			return func() {}, false
-		}
-	}
-
-	reject := func() (func(), bool) {
-		if releaseEnv != nil {
-			releaseEnv()
-		}
-		l.rejected.Add(1)
-		return func() {}, false
-	}
-
-	// Fast path: a token is immediately available.
+	// Take a free slot if one is available.
 	select {
 	case <-l.tokens:
-		return l.admit(releaseEnv), true
+		return l.admit(), true
 	default:
 	}
 
-	// No token free: enter the bounded FIFO backlog, or reject.
+	// No free slot. Join the bounded queue, or reject if it is full.
 	if atomic.AddInt64(&l.waiting, 1) > l.maxQueued {
 		atomic.AddInt64(&l.waiting, -1)
-		return reject()
+		l.rejected.Add(1)
+		return func() {}, false
 	}
 	defer atomic.AddInt64(&l.waiting, -1)
 
 	select {
 	case <-l.tokens:
-		return l.admit(releaseEnv), true
+		return l.admit(), true
 	case <-ctx.Done():
-		return reject()
+		l.rejected.Add(1)
+		return func() {}, false
 	case <-l.shutdown:
-		return reject()
+		l.rejected.Add(1)
+		return func() {}, false
 	}
 }
 
-func (l *Limiter) admit(releaseEnv func()) func() {
+func (l *Limiter) admit() func() {
 	l.admitted.Add(1)
 	var once sync.Once
 	return func() {
-		once.Do(func() {
-			l.tokens <- struct{}{}
-			if releaseEnv != nil {
-				releaseEnv()
-			}
-		})
+		once.Do(func() { l.tokens <- struct{}{} })
 	}
 }
 
-func (l *Limiter) gateFor(envKey string) *envGate {
-	if g, ok := l.perEnv.Load(envKey); ok {
-		return g.(*envGate)
-	}
-	g := &envGate{slots: make(chan struct{}, l.perEnvMax)}
-	actual, _ := l.perEnv.LoadOrStore(envKey, g)
-	return actual.(*envGate)
-}
-
-// Close unblocks all waiters (they receive ok=false). Idempotent.
+// Close unblocks all waiters, which then receive ok=false. It may be called more than once.
 func (l *Limiter) Close() {
 	if !l.Enabled() {
 		return

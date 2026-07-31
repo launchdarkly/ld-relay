@@ -13,7 +13,7 @@ func TestDisabledLimiterAlwaysAdmits(t *testing.T) {
 		t.Fatal("expected disabled")
 	}
 	for i := 0; i < 100; i++ {
-		release, ok := l.Acquire(context.Background(), "env")
+		release, ok := l.Acquire(context.Background())
 		if !ok {
 			t.Fatal("disabled limiter must always admit")
 		}
@@ -23,7 +23,7 @@ func TestDisabledLimiterAlwaysAdmits(t *testing.T) {
 
 func TestNilLimiterAdmits(t *testing.T) {
 	var l *Limiter
-	release, ok := l.Acquire(context.Background(), "env")
+	release, ok := l.Acquire(context.Background())
 	if !ok {
 		t.Fatal("nil limiter must admit")
 	}
@@ -32,9 +32,9 @@ func TestNilLimiterAdmits(t *testing.T) {
 
 func TestRejectWhenNoBacklog(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 2, MaxQueued: 0})
-	r1, ok1 := l.Acquire(context.Background(), "e")
-	r2, ok2 := l.Acquire(context.Background(), "e")
-	_, ok3 := l.Acquire(context.Background(), "e")
+	r1, ok1 := l.Acquire(context.Background())
+	r2, ok2 := l.Acquire(context.Background())
+	_, ok3 := l.Acquire(context.Background())
 	if !ok1 || !ok2 {
 		t.Fatal("first two should be admitted")
 	}
@@ -50,13 +50,13 @@ func TestRejectWhenNoBacklog(t *testing.T) {
 
 func TestQueueThenAdmitOnRelease(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
-	r1, ok1 := l.Acquire(context.Background(), "e")
+	r1, ok1 := l.Acquire(context.Background())
 	if !ok1 {
 		t.Fatal("first should be admitted")
 	}
 	admitted := make(chan struct{})
 	go func() {
-		r2, ok2 := l.Acquire(context.Background(), "e") // must queue, then admit when r1 releases
+		r2, ok2 := l.Acquire(context.Background()) // must queue, then admit when r1 releases
 		if ok2 {
 			close(admitted)
 			r2()
@@ -79,36 +79,23 @@ func TestQueueThenAdmitOnRelease(t *testing.T) {
 
 func TestBacklogFullRejects(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
-	r1, _ := l.Acquire(context.Background(), "e") // holds the only token
+	r1, _ := l.Acquire(context.Background()) // holds the only token
 	defer r1()
-	go l.Acquire(context.Background(), "e") // fills the single backlog slot
+	go l.Acquire(context.Background()) // fills the single backlog slot
 	time.Sleep(50 * time.Millisecond)
-	if _, ok := l.Acquire(context.Background(), "e"); ok {
+	if _, ok := l.Acquire(context.Background()); ok {
 		t.Fatal("expected rejection when backlog is full")
 	}
 }
 
-func TestPerEnvGateIsolatesEnvironments(t *testing.T) {
-	// Global room for 10, but each env may hold at most 1 (participant cap).
-	l := New("t", Params{MaxConcurrent: 10, MaxQueued: 10, PerEnvMax: 1})
-	rA, okA := l.Acquire(context.Background(), "A")
-	_, okA2 := l.Acquire(context.Background(), "A") // second A rejected by per-env gate
-	rB, okB := l.Acquire(context.Background(), "B") // different env still admitted
-	if !okA || okA2 || !okB {
-		t.Fatalf("per-env gate failed: okA=%v okA2=%v okB=%v", okA, okA2, okB)
-	}
-	rA()
-	rB()
-}
-
 func TestContextCancelUnblocksWaiter(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 5})
-	r1, _ := l.Acquire(context.Background(), "e")
+	r1, _ := l.Acquire(context.Background())
 	defer r1()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan bool)
 	go func() {
-		_, ok := l.Acquire(ctx, "e")
+		_, ok := l.Acquire(ctx)
 		done <- ok
 	}()
 	time.Sleep(50 * time.Millisecond)
@@ -125,15 +112,15 @@ func TestContextCancelUnblocksWaiter(t *testing.T) {
 
 func TestReleaseIsIdempotent(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 0})
-	r, _ := l.Acquire(context.Background(), "e")
+	r, _ := l.Acquire(context.Background())
 	r()
 	r() // must not release a second token
 	// Two acquires should now succeed sequentially, proving only one token exists.
-	r1, ok1 := l.Acquire(context.Background(), "e")
+	r1, ok1 := l.Acquire(context.Background())
 	if !ok1 {
 		t.Fatal("expected admit after release")
 	}
-	if _, ok2 := l.Acquire(context.Background(), "e"); ok2 {
+	if _, ok2 := l.Acquire(context.Background()); ok2 {
 		t.Fatal("double release leaked a token")
 	}
 	r1()
@@ -149,7 +136,7 @@ func TestConcurrentAcquireBoundsHeld(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			release, ok := l.Acquire(context.Background(), "e")
+			release, ok := l.Acquire(context.Background())
 			if !ok {
 				return
 			}
