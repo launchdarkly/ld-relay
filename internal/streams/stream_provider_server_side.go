@@ -263,10 +263,11 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		default:
 		}
 
-		// Read the current data set once for this set of concurrent replays. peek holds
-		// references to the stored data rather than a serialized copy, so it is cheap; the
-		// expensive serialization happens later, under the budget.
-		snapshot, selector, err := r.peek()
+		// Read the current data set once for this set of concurrent replays at the same basis.
+		// peek holds references to the stored data rather than a serialized copy, so it is
+		// cheap; the expensive serialization happens later, under the budget. Keying the read
+		// by basis keeps the up-to-date check below correct (see peek).
+		snapshot, selector, err := r.peek(id)
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
 			return
@@ -338,15 +339,21 @@ type peekResult struct {
 }
 
 // peek reads the current data set and selector, deduplicating concurrent reads with a
-// single flight. It uses a fixed key (not the basis) because the store state is the same
-// for every caller, so a herd of reconnects at any basis shares one read. The result
-// holds references to the stored data rather than a serialized copy, so it is cheap.
-func (r *serverSideEnvStreamRepository) peek() (
+// single flight keyed by the caller's basis. Keying by basis (rather than a fixed key) is
+// required for correctness: callers that share a read also share the up-to-date decision
+// made from its selector, and only callers with the same basis reach the same decision. A
+// fixed key would let a client reconnecting at the current basis join an older in-flight
+// read taken before its basis existed, fail the up-to-date check against that stale
+// selector, and be sent a full basis at the old state -- losing any delta published between
+// that read and its own subscription. A herd of reconnects at the same basis (the common
+// case after a restart) still shares one read. The result holds references to the stored
+// data rather than a serialized copy, so it is cheap.
+func (r *serverSideEnvStreamRepository) peek(id string) (
 	map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 	subsystems.Selector,
 	error,
 ) {
-	data, err, _ := r.flightGroup.Do("snapshot", func() (interface{}, error) {
+	data, err, _ := r.flightGroup.Do("snapshot:"+id, func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			return nil, err

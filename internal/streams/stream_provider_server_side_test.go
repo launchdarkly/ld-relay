@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -470,4 +471,69 @@ func TestStreamReplayShedClosesConnectionWhenBudgetFull(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "replay channel was not closed after shed")
 	}
+}
+
+// TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead is a regression test for
+// the fixed-key peek bug: a client reconnecting at the CURRENT basis must get an up-to-date
+// reply even while another client's older-basis store read is in flight. When the read was
+// deduplicated on a fixed key, this client joined the older read, failed the up-to-date
+// check against its stale selector, and was wrongly sent a full basis at the old state.
+func TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead(t *testing.T) {
+	const flagKey = "flagkey"
+	firstReadStarted := make(chan struct{}, 1)
+	releaseFirstRead := make(chan struct{})
+	var mu sync.Mutex
+	state := 0
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		mu.Lock()
+		state++
+		s := state
+		mu.Unlock()
+		// Hold only the first read (client A, no basis) in flight so client B subscribes while
+		// it is still running. A plain counter is used rather than sync.Once so B's concurrent
+		// read is not serialized behind A's. Each caller reads the store as it is when its own
+		// read runs, so A sees "s1" and B's separate read sees "s2" -- modeling the store
+		// advancing between the two subscriptions.
+		if s == 1 {
+			firstReadStarted <- struct{}{}
+			<-releaseFirstRead
+		}
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(s).Build()
+		sel := "s" + strconv.Itoa(s)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, s), nil
+	})
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true}
+
+	// Client A reconnects with no basis; its read (state s1) blocks in flight.
+	chA := repo.ReplayWithContext(context.Background(), "", "")
+	<-firstReadStarted
+
+	// Client B reconnects at basis "s2" -- the state its own fresh read will observe.
+	chB := repo.ReplayWithContext(context.Background(), "", "s2")
+
+	// B must not have to wait on A's read; it should read fresh and answer up-to-date.
+	drain := func(ch <-chan eventsource.Event) []eventsource.Event {
+		var out []eventsource.Event
+		for {
+			e, ok, closed := helpers.TryReceive(ch, 2*time.Second)
+			if closed {
+				return out
+			}
+			require.True(t, ok, "timed out waiting for replayed event")
+			out = append(out, e)
+		}
+	}
+	eventsB := drain(chB)
+	require.Len(t, eventsB, 1, "expected a single up-to-date event, got a full basis (stale-read regression)")
+	assert.Equal(t, string(subsystems.EventServerIntent), eventsB[0].Event())
+	assert.Contains(t, eventsB[0].Data(), `"intentCode":"none"`)
+
+	// Let A finish so its goroutine is not leaked.
+	close(releaseFirstRead)
+	drain(chA)
 }
