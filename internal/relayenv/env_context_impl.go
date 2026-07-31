@@ -724,6 +724,15 @@ func (c *envContextImpl) reanchor(change *credential.AnchorChange) bool {
 // half-built client and logged a structured error. initErr is deliberately left untouched on failure:
 // it feeds the request middleware, and setting it to the new anchor's ErrInitializationFailed would 401
 // an env that is serving fine on the previous anchor.
+//
+// Factory contract (see sdks.ClientFactoryFunc): a factory whose construction builds the environment's
+// data store must return a non-nil client even on init failure, so that the client.Close() below releases
+// the store reference the build acquired (the store wrapper is refcounted — see streamUpdatesStoreWrapper).
+// When client == nil there is no handle to release, and this method cannot safely release one itself: it
+// has no signal for whether the store was built, so releasing unconditionally could double-release the
+// still-serving previous anchor's store on an early factory error. The real SDK honors the contract (a
+// failed init returns a non-nil client; an error before the store is built releases nothing); test
+// factories must uphold it too.
 func (c *envContextImpl) buildNewAnchorClient(newAnchor, previousAnchor config.SDKKey) sdks.LDClientContext {
 	client, err := c.sdkClientFactory(newAnchor, c.sdkConfig, c.sdkInitTimeout)
 	if err != nil || client == nil || !client.Initialized() {
@@ -961,8 +970,8 @@ func (c *envContextImpl) GetFilter() config.FilterKey {
 }
 
 func (c *envContextImpl) GetInitError() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	return c.initErr
 }
