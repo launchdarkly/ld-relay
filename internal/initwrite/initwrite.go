@@ -7,21 +7,23 @@
 // Two shapes are supported:
 //
 //   - Poll (Wrap): a request/response delivery. The deadline is armed on every write for the
-//     lifetime of the wrapper. The caller (the poll middleware) clears the connection's write
-//     deadline when the handler returns, so it cannot linger on a kept-alive connection and
-//     fire during a later request.
-//   - Stream (WrapGated): a persistent SSE connection, where net/http does NOT clear the
-//     deadline between the initial delivery and later delta/heartbeat traffic. The deadline is
-//     armed only between Begin and the end-of-delivery flush, and is cleared there, so live
-//     traffic and idle periods carry no deadline (important on HTTP/2, where a lingering
-//     deadline is a self-firing timer that would reset an idle stream).
+//     lifetime of the wrapper. net/http resets the connection's write deadline when the handler
+//     returns, so it does not linger onto a later request on a kept-alive connection.
+//   - Stream (WrapGated): a persistent SSE connection, where the connection's write deadline is
+//     not reset between the initial delivery and later delta or heartbeat traffic. The deadline
+//     is armed only between Begin and the end-of-delivery flush, and is cleared there, so live
+//     traffic and idle periods carry no deadline. This matters on HTTP/2, where a lingering
+//     deadline is a self-firing timer that would reset an otherwise idle stream. A producer that
+//     ends a delivery on an error or cancellation path -- without a final flush -- must call
+//     Finish so the deadline never outlives the delivery.
 //
 // A client sustaining at least the throughput floor per write keeps re-arming and is not cut
-// for being slow; one that stalls or drops below the floor on a write has its write fail,
-// which the HTTP server turns into a closed connection. The absolute cap (maxHold) backstops
-// a client that stays at the floor on a very large payload: because the cap governs once a
-// delivery would exceed maxHold at the floor (~7.5 MiB at the 64 KiB/s floor and the 2m
-// default), such a client is cut at maxHold. See docs/configuration.md.
+// for being slow; one that stalls or drops below the floor on a write has its write fail, which
+// the HTTP server turns into a closed connection. The absolute cap (maxHold, supplied by the
+// caller) backstops a client that stays right at the floor on a very large payload: once a
+// delivery would exceed maxHold at the floor, the cap governs and the client is cut. A maxHold
+// of zero or less disables the cap, leaving only the per-write floor; callers that want the
+// backstop must pass a positive value.
 package initwrite
 
 import (
@@ -36,7 +38,7 @@ const (
 	minBytesPerSec = 64 * 1024
 	// chunkSize bounds how much is written under a single deadline. Large writes are sliced
 	// only to re-arm the deadline mid-write; the string path copies at most one chunk at a
-	// time rather than the whole payload.
+	// time rather than the whole payload at once.
 	chunkSize = 1 << 20 // 1 MiB
 	// slack is added to each per-write deadline to tolerate a brief stall.
 	slack = 5 * time.Second
@@ -50,44 +52,70 @@ type Writer struct {
 	http.ResponseWriter
 	rc      *http.ResponseController
 	maxHold time.Duration
+	now     func() time.Time // time source; overridable in tests
 
 	mu           sync.Mutex
 	active       bool
 	ending       bool
 	msgStart     time.Time
 	lastDeadline time.Time
-	done         chan struct{} // closed at the end-of-delivery flush; nil outside a gated delivery
+	// done is closed once the current gated delivery's last byte has been flushed. It is never
+	// nil: outside a delivery it is a closed channel, so a producer waiting on it releases its
+	// slot immediately rather than blocking forever. doneClosed guards against a double close.
+	done       chan struct{}
+	doneClosed bool
 }
 
 // Wrap returns a Writer for a poll (request/response) delivery: the deadline is armed on every
-// write. net/http clears the connection deadline when the handler returns.
+// write. net/http resets the connection deadline when the handler returns.
 func Wrap(w http.ResponseWriter, maxHold time.Duration) *Writer {
-	return &Writer{ResponseWriter: w, rc: http.NewResponseController(w), maxHold: maxHold, active: true}
+	return newWriter(w, maxHold, true)
 }
 
 // WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and clears
-// the deadline at the end-of-delivery flush after End.
+// the deadline at the end-of-delivery flush after End (or when Finish is called).
 func WrapGated(w http.ResponseWriter, maxHold time.Duration) *Writer {
-	return &Writer{ResponseWriter: w, rc: http.NewResponseController(w), maxHold: maxHold}
+	return newWriter(w, maxHold, false)
+}
+
+func newWriter(w http.ResponseWriter, maxHold time.Duration, active bool) *Writer {
+	// done starts closed so that, with no delivery in progress, a producer that waits on Done
+	// is released at once instead of pinning its slot.
+	d := make(chan struct{})
+	close(d)
+	return &Writer{
+		ResponseWriter: w,
+		rc:             http.NewResponseController(w),
+		maxHold:        maxHold,
+		now:            time.Now,
+		active:         active,
+		done:           d,
+		doneClosed:     true,
+	}
 }
 
 // Begin marks the start of a gated delivery; writes from here on arm the deadline. It is
-// called from the producer before it starts producing events.
+// called from the producer before it starts producing events. If a previous delivery never
+// completed, its Done channel is closed here so any waiter is released rather than orphaned.
 func (w *Writer) Begin() {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.active = true
 	w.ending = false
 	w.msgStart = time.Time{}
 	w.lastDeadline = time.Time{}
+	if !w.doneClosed {
+		close(w.done)
+	}
 	w.done = make(chan struct{})
-	w.mu.Unlock()
+	w.doneClosed = false
 }
 
 // Done returns a channel closed once the gated delivery's last byte has been flushed to the
 // client. The producer waits on it (or on the request context) before releasing the budget
 // slot, so the slot is held for the actual send rather than only until the channel handoff.
-// It returns a nil channel if no delivery is in progress (a nil channel never fires, so a
-// caller that also selects on ctx.Done is unaffected).
+// The channel is never nil: with no delivery in progress it is already closed, so a producer
+// that waits on it is not left blocked.
 func (w *Writer) Done() <-chan struct{} {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -101,6 +129,27 @@ func (w *Writer) End() {
 	w.mu.Lock()
 	w.ending = true
 	w.mu.Unlock()
+}
+
+// Finish ends the current gated delivery unconditionally: it clears any armed write deadline
+// and closes the Done channel. It is idempotent and safe to call on any producer exit path,
+// and is the backstop for a delivery that ends without a final flush (an error or a cancelled
+// context). On the normal path the end-of-delivery flush has already done this, so Finish is a
+// no-op. Because it clears the deadline, a producer must call it only once the delivery is
+// truly over, not mid-send.
+func (w *Writer) Finish() {
+	w.mu.Lock()
+	wasActive := w.active
+	w.active = false
+	w.ending = false
+	if !w.doneClosed {
+		close(w.done)
+		w.doneClosed = true
+	}
+	w.mu.Unlock()
+	if wasActive {
+		_ = w.rc.SetWriteDeadline(time.Time{})
+	}
 }
 
 // Unwrap exposes the wrapped ResponseWriter so http.NewResponseController and other wrappers
@@ -125,9 +174,9 @@ func (w *Writer) Write(p []byte) (int, error) {
 	return total, nil
 }
 
-// WriteString satisfies io.StringWriter so eventsource's io.WriteString does not allocate a
-// []byte copy of the entire payload per connection. It slices the string and copies at most
-// one chunk at a time.
+// WriteString satisfies io.StringWriter so that when the wrapped writer also implements it,
+// eventsource's io.WriteString does not allocate a []byte copy of the whole payload; it slices
+// the string and, at worst, copies at most one chunk at a time.
 func (w *Writer) WriteString(s string) (int, error) {
 	if !w.isActive() || len(s) == 0 {
 		return io.WriteString(w.ResponseWriter, s)
@@ -162,13 +211,12 @@ func (w *Writer) Flush() {
 	if active && ending {
 		w.mu.Lock()
 		w.active = false
-		done := w.done
-		w.done = nil
+		if !w.doneClosed {
+			close(w.done) // the basis is fully written; let the producer release the slot
+			w.doneClosed = true
+		}
 		w.mu.Unlock()
 		_ = w.rc.SetWriteDeadline(time.Time{})
-		if done != nil {
-			close(done) // the basis is fully written; let the producer release the slot
-		}
 	}
 }
 
@@ -180,14 +228,16 @@ func (w *Writer) isActive() bool {
 
 // arm sets the write deadline for the next chunk to now + (time to send n bytes at the
 // throughput floor) + slack, capped by the delivery's absolute deadline (msgStart + maxHold).
-// It never shortens an existing deadline within a delivery and skips trivial changes.
+// It never shortens an existing deadline within a delivery and skips trivial changes. The
+// deadline is recorded as current only when the underlying SetWriteDeadline succeeds, so a
+// transient failure does not leave the writer thinking it has armed a deadline it has not.
 func (w *Writer) arm(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.active {
 		return
 	}
-	now := time.Now()
+	now := w.now()
 	if w.msgStart.IsZero() {
 		w.msgStart = now
 	}
@@ -199,8 +249,9 @@ func (w *Writer) arm(n int) {
 		}
 	}
 	if dl.After(w.lastDeadline) && dl.Sub(w.lastDeadline) >= minExtension {
-		_ = w.rc.SetWriteDeadline(dl)
-		w.lastDeadline = dl
+		if err := w.rc.SetWriteDeadline(dl); err == nil {
+			w.lastDeadline = dl
+		}
 	}
 }
 
