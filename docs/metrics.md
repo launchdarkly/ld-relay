@@ -19,7 +19,7 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 
 ## Attributes
 
-All metrics include the following attributes:
+All metrics include the following attributes. When OpenTelemetry tracing is enabled, `environment.name` and `environment.id` are also set on the request span of every authenticated request, using these same keys, so traces and metrics can be correlated by environment.
 
 | Attribute | Description |
 |-----------|-------------|

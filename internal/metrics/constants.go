@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
+
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
@@ -26,13 +28,18 @@ const (
 	ServerPlatformCategory  = "server"
 )
 
+// The environment attribute keys are shared with the tracing package, which sets the same two
+// attributes on the request span.
+const (
+	envNameAttrKey = tracing.EnvNameKey
+	envIDAttrKey   = tracing.EnvIDKey
+)
+
 var (
 	relayIDAttrKey            = attribute.Key("relay.id")            //nolint:gochecknoglobals
 	platformCategoryAttrKey   = attribute.Key("platform.category")   //nolint:gochecknoglobals
 	userAgentAttrKey          = attribute.Key("user_agent")          //nolint:gochecknoglobals
 	sdkWrapperAttrKey         = attribute.Key("sdk.wrapper")         //nolint:gochecknoglobals
-	envNameAttrKey            = attribute.Key("environment.name")    //nolint:gochecknoglobals
-	envIDAttrKey              = attribute.Key("environment.id")      //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instance.id")         //nolint:gochecknoglobals

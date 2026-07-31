@@ -31,14 +31,19 @@ const (
 const (
 	SDKKindKey       = attribute.Key("relay.sdk_kind")
 	AuthResultKey    = attribute.Key("relay.auth.result")
-	AuthEnvNameKey   = attribute.Key("relay.auth.environment.name")
-	AuthEnvIDKey     = attribute.Key("relay.auth.environment.id")
 	FlagCountKey     = attribute.Key("relay.flags.count")
 	EventsKindKey    = attribute.Key("relay.events.kind")
 	StoreKeyKey      = attribute.Key("relay.store.key")
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
 	ResponseBytesKey = attribute.Key("relay.response.bytes")
+)
+
+// Attribute keys identifying a LaunchDarkly environment. Spans and metrics use the same keys so
+// that a trace and a metric series for one environment can be joined on either of them.
+const (
+	EnvNameKey = attribute.Key("environment.name")
+	EnvIDKey   = attribute.Key("environment.id")
 )
 
 // SanitizeAttributeValue ensures telemetry attribute values are valid. Blank values are replaced

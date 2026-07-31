@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ import (
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -99,22 +101,26 @@ func parseApplicationTags(req *http.Request) (applicationID, applicationVersion 
 	return
 }
 
-// authEnvSpanAttributes returns the relay.auth span attributes identifying the authenticated
-// environment: the human-readable environment name, plus the environment ID when an
-// EnvironmentID credential is configured (it may be absent for SDK-key-only environments in a
-// manual configuration).
+// setEnvSpanAttributes records the authenticated environment on the span in ctx. Callers pass the
+// request context rather than the auth-scoped one, so the attributes land on the request span --
+// the parent of both the auth span and every handler span below it -- making a whole trace
+// filterable by environment.
 //
-// The display name is sanitized the same way the environment.name metric attribute is, so both
-// signals report the name in the same form. A rename keeps them in step: this reads the identifiers
-// per request, and SetIdentifiers rebuilds the metric attributes to match.
-func authEnvSpanAttributes(clientCtx relayenv.EnvContext) []attribute.KeyValue {
+// The keys are the same ones the metrics use, and the display name is sanitized the same way, so a
+// trace and a metric series for one environment can be joined on either attribute. A rename keeps
+// them in step: this reads the identifiers per request, and SetIdentifiers rebuilds the metric
+// attributes to match.
+//
+// The environment ID is only set when an EnvironmentID credential is configured; it is absent for
+// SDK-key-only environments in a manual configuration.
+func setEnvSpanAttributes(ctx context.Context, clientCtx relayenv.EnvContext) {
 	attrs := []attribute.KeyValue{
-		tracing.AuthEnvNameKey.String(tracing.SanitizeAttributeValue(clientCtx.GetIdentifiers().GetDisplayName())),
+		tracing.EnvNameKey.String(tracing.SanitizeAttributeValue(clientCtx.GetIdentifiers().GetDisplayName())),
 	}
 	if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
-		attrs = append(attrs, tracing.AuthEnvIDKey.String(string(envID)))
+		attrs = append(attrs, tracing.EnvIDKey.String(string(envID)))
 	}
-	return attrs
+	trace.SpanFromContext(ctx).SetAttributes(attrs...)
 }
 
 // Chain combines a series of middleware functions that will be applied in the same order.
@@ -204,7 +210,9 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 				}
 
 				span.SetAttributes(tracing.AuthResultKey.String("success"))
-				span.SetAttributes(authEnvSpanAttributes(clientCtx)...)
+
+				// req still carries the pre-auth context here, so this targets the request span.
+				setEnvSpanAttributes(req.Context(), clientCtx)
 
 				contextInfo := EnvContextInfo{
 					Env:        clientCtx,
@@ -313,7 +321,9 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 				}
 
 				span.SetAttributes(tracing.AuthResultKey.String("success"))
-				span.SetAttributes(authEnvSpanAttributes(clientCtx)...)
+
+				// req still carries the pre-auth context here, so this targets the request span.
+				setEnvSpanAttributes(req.Context(), clientCtx)
 
 				contextInfo := EnvContextInfo{
 					Env:        clientCtx,
