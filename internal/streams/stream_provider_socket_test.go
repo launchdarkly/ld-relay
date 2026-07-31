@@ -279,6 +279,13 @@ func readHeaders(t *testing.T, br *bufio.Reader) {
 // stall test cannot catch this because there ctx/the deadline fires anyway. The release path
 // races the end-of-basis flush, so this loops to make an intermittent regression fail reliably.
 func TestSocketSlotReleasedAfterHealthyBasis(t *testing.T) {
+	// Force the end-of-basis flush to win the race with the release select. A stale done-channel
+	// capture (reading iw.Done() after closeOut instead of before) then observes a nil channel
+	// and leaks the slot; capturing before closeOut survives this. Without the seam the producer
+	// almost always wins the race, so the leak would not reproduce in CI (round-6 T1).
+	testHookSlowBasisClose.Store(true)
+	defer testHookSlowBasisClose.Store(false)
+
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 10})
 	// maxHold long, so a leaked slot is not masked by the write deadline reclaiming it (the
 	// delivery completes, so no deadline fires anyway); release must come from Done.

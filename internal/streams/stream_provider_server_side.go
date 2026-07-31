@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
@@ -129,6 +130,13 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 // writer wrapping the connection, so the replay producer (a different goroutine) can scope
 // the write deadline to the gated basis via Begin/End.
 type initWriterKey struct{}
+
+// testHookSlowBasisClose, when set by a test, inserts a small delay between closing the batch
+// channel and reading the writer's done signal, forcing the end-of-basis flush to win that
+// race -- the interleaving under which reading a stale done channel (rather than the one
+// captured before the close) would leak the budget slot. Always false in production; an
+// atomic so a test can toggle it while producer goroutines read it.
+var testHookSlowBasisClose atomic.Bool
 
 func (s *serverSideStreamProvider) RegisterV1(
 	credential sdkauth.ScopedCredential,
@@ -329,6 +337,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				defer func() {
 					iw.End()
 					closeOut()
+					if testHookSlowBasisClose.Load() {
+						time.Sleep(5 * time.Millisecond)
+					}
 					select {
 					case <-doneCh:
 					case <-ctx.Done():
