@@ -105,9 +105,8 @@ func parseApplicationTags(req *http.Request) (applicationID, applicationVersion 
 // manual configuration).
 //
 // The display name is sanitized the same way the environment.name metric attribute is, so both
-// signals report the name in the same form. Note that the metric attribute is captured when the
-// environment is created while this is read per request, so the two can still differ after an
-// environment is renamed in auto-configuration or offline mode.
+// signals report the name in the same form. A rename keeps them in step: this reads the identifiers
+// per request, and SetIdentifiers rebuilds the metric attributes to match.
 func authEnvSpanAttributes(clientCtx relayenv.EnvContext) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		tracing.AuthEnvNameKey.String(tracing.SanitizeAttributeValue(clientCtx.GetIdentifiers().GetDisplayName())),

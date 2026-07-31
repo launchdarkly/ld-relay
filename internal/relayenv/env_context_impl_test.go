@@ -37,6 +37,8 @@ import (
 	helpers "github.com/launchdarkly/go-test-helpers/v3"
 	"github.com/launchdarkly/go-test-helpers/v3/httphelpers"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -753,4 +755,39 @@ func ensureSynchronizerState(t *testing.T, synchronizer *mockBigSegmentSynchroni
 	require.Eventually(t, func() bool {
 		return synchronizer.isStarted() == expectedState
 	}, time.Second, 10*time.Millisecond, "timed out waiting for big segments synchronizer to start")
+}
+
+func TestSetIdentifiersUpdatesTheMetricsEnvironmentName(t *testing.T) {
+	metricsManager, err := metrics.NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
+	require.NoError(t, err)
+	defer metricsManager.Close()
+
+	env, err := NewEnvContext(EnvContextImplParams{
+		Identifiers:    EnvIdentifiers{ProjName: "My Proj", EnvName: "Production"},
+		EnvConfig:      st.EnvClientSide.Config,
+		ClientFactory:  testclient.FakeLDClientFactory(true),
+		MetricsManager: metricsManager,
+		Logger:         slog.Default(),
+	}, nil)
+	require.NoError(t, err)
+	defer env.Close()
+
+	nameAttr := func() string {
+		attrs := env.GetMetricsEnv().GetAttributes()
+		value, ok := attrs.Value(attribute.Key("environment.name"))
+		require.True(t, ok)
+		return value.AsString()
+	}
+	require.Equal(t, "My Proj Production", nameAttr())
+
+	// An upstream rename arrives, the way auto-configuration and offline mode deliver one.
+	env.SetIdentifiers(EnvIdentifiers{ProjName: "My Proj", EnvName: "Prod"})
+
+	assert.Equal(t, "My Proj Prod", env.GetIdentifiers().GetDisplayName())
+	assert.Equal(t, "My Proj Prod", nameAttr(), "the metric attribute follows the rename")
+
+	attrs := env.GetMetricsEnv().GetAttributes()
+	envIDAttr, ok := attrs.Value(attribute.Key("environment.id"))
+	require.True(t, ok)
+	assert.Equal(t, string(st.EnvClientSide.Config.EnvID), envIDAttr.AsString(), "the environment ID is preserved")
 }

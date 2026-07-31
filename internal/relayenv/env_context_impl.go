@@ -577,6 +577,12 @@ func (c *envContextImpl) SetIdentifiers(ei EnvIdentifiers) {
 	defer c.mu.Unlock()
 
 	c.identifiers = ei
+
+	// Keep the metric attributes in step with the display name the spans report. This starts a new
+	// metric time series under the new name; the old one stops receiving data points.
+	if c.metricsEnv != nil {
+		c.metricsEnv.SetEnvironmentName(ei.GetDisplayName())
+	}
 }
 
 func (c *envContextImpl) UpdateCredential(update *CredentialUpdate) {

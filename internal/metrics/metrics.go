@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
@@ -51,11 +52,39 @@ type shutdown struct {
 	closed chan struct{}
 }
 
+// envAttributes is an immutable snapshot of an environment's metric attributes. Renaming an
+// environment replaces the whole snapshot rather than mutating it, so readers need no
+// synchronization beyond the atomic load that hands them one.
+type envAttributes struct {
+	kvs []attribute.KeyValue
+	set attribute.Set
+}
+
+func newEnvAttributes(relayID, envName, envID string) *envAttributes {
+	kvs := []attribute.KeyValue{
+		relayIDAttrKey.String(relayID),
+		envNameAttrKey.String(tracing.SanitizeAttributeValue(envName)),
+	}
+	if envID != "" {
+		kvs = append(kvs, envIDAttrKey.String(envID))
+	}
+	// NewSet sorts kvs in place; doing it here, before the snapshot is published, means every
+	// later reader gets an already-sorted slice it only ever copies from.
+	return &envAttributes{kvs: kvs, set: attribute.NewSet(kvs...)}
+}
+
 // EnvironmentManager controls the metrics exporter activity for a specific LD environment.
 type EnvironmentManager struct {
-	envKVs    []attribute.KeyValue
+	relayID   string
+	envID     string
+	attrs     atomic.Pointer[envAttributes]
 	collector *RelayMetricsCollector
 	closeOnce sync.Once
+}
+
+// attributes returns the current attribute snapshot for this environment.
+func (em *EnvironmentManager) attributes() *envAttributes {
+	return em.attrs.Load()
 }
 
 // NewManager creates a Manager instance.
@@ -236,23 +265,17 @@ func (m *Manager) AddEnvironment(envName, envID string, publisher events.EventPu
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	envKVs := []attribute.KeyValue{
-		relayIDAttrKey.String(m.metricsRelayID),
-		envNameAttrKey.String(tracing.SanitizeAttributeValue(envName)),
-	}
-	if envID != "" {
-		envKVs = append(envKVs, envIDAttrKey.String(envID))
-	}
-
 	var collector *RelayMetricsCollector
 	if publisher != nil {
 		collector = newRelayMetricsCollector(m.metricsRelayID, envName, publisher, m.flushInterval, m.logger)
 	}
 
 	em := &EnvironmentManager{
-		envKVs:    envKVs,
+		relayID:   m.metricsRelayID,
+		envID:     envID,
 		collector: collector,
 	}
+	em.attrs.Store(newEnvAttributes(m.metricsRelayID, envName, envID))
 	m.environments = append(m.environments, em)
 	return em, nil
 }
@@ -285,27 +308,31 @@ func (m *Manager) RemoveEnvironmentForUsage(envName string) {
 	m.usageChan <- removeEnvironment{envName: envName}
 }
 
-// GetAttributes returns the attribute set for this EnvironmentManager. It copies the environment
-// attributes first, because attribute.NewSet sorts the slice it is given in place.
+// SetEnvironmentName rebuilds this environment's metric attributes around a new environment name.
+// Relay calls this when an environment is renamed upstream, in automatic configuration or offline
+// mode, so that metrics track the rename the same way spans do. Data points recorded afterwards
+// carry the new name, which means the backend sees a new time series and the old one goes stale.
+//
+// The environment ID cannot change for a live environment, so it is carried over.
+func (em *EnvironmentManager) SetEnvironmentName(envName string) {
+	em.attrs.Store(newEnvAttributes(em.relayID, envName, em.envID))
+}
+
+// GetAttributes returns the attribute set for this EnvironmentManager.
 func (em *EnvironmentManager) GetAttributes() attribute.Set {
-	envKVsCopy := make([]attribute.KeyValue, len(em.envKVs))
-	copy(envKVsCopy, em.envKVs)
-	return attribute.NewSet(envKVsCopy...)
+	return em.attributes().set
 }
 
 // NewEventMetricsRecorder creates an EventMetricsRecorder that records event processing metrics
 // with this environment's attributes. The returned recorder satisfies the EventMetrics interfaces
 // defined in both the events package and go-sdk-events.
 //
-// The recorder makes a private copy of the environment attributes to avoid data races with
-// attribute.NewSet's in-place sort.
+// The recorder reads the environment's attributes when it records rather than capturing them here,
+// so event metrics follow a rename like every other metric does.
 func (em *EnvironmentManager) NewEventMetricsRecorder(instruments *Instruments) *EventMetricsRecorder {
-	envKVsCopy := make([]attribute.KeyValue, len(em.envKVs))
-	copy(envKVsCopy, em.envKVs)
 	return &EventMetricsRecorder{
 		instruments: instruments,
-		envKVs:      envKVsCopy,
-		envAttrs:    attribute.NewSet(envKVsCopy...),
+		env:         em,
 	}
 }
 
