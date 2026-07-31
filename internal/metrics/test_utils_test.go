@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,30 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 		instruments: instruments,
 		reader:      reader,
 	})
+}
+
+// fakeClock is a controllable time source for tests that measure durations.
+// Advancing it is the test's replacement for sleeping real time, which is
+// unreliable under CI scheduling jitter.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{t: time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)}
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
 }
 
 type testEventsPublisher struct {

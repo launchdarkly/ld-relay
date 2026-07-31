@@ -122,15 +122,24 @@ func TestRelayMetricsCollector(t *testing.T) {
 
 	t.Run("the event start time still shifts when events are not sent", func(t *testing.T) {
 		publisher := newTestEventsPublisher()
-		withCollector(publisher, func(c *RelayMetricsCollector, relayID string) {
-			time.Sleep(time.Millisecond * 10)
-			startTime := ldtime.UnixMillisNow()
-			time.Sleep(time.Millisecond * 1)
-			c.RecordConnectionChange(platformValue, userAgentValue, "", 1)
+		clk := newFakeClock()
+		c := newRelayMetricsCollectorWithTimeSource(uuid.New(), "envName", publisher, time.Hour, slog.Default(), clk.now)
+		defer c.close()
 
-			c.flush()
-			metricsEvent := publisher.expectMetricsEvent(t, time.Second)
-			assert.True(t, metricsEvent.StartDate >= startTime)
-		})
+		// A flush with no data publishes nothing, but should still move the
+		// interval start forward.
+		clk.advance(time.Millisecond * 10)
+		c.flush()
+		publisher.expectNoMetricsEvent(t, time.Millisecond*50)
+		shiftedStart := clk.now()
+
+		clk.advance(time.Millisecond)
+		c.RecordConnectionChange(platformValue, userAgentValue, "", 1)
+		clk.advance(time.Millisecond)
+		c.flush()
+
+		metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+		assert.Equal(t, ldtime.UnixMillisFromTime(shiftedStart), metricsEvent.StartDate)
+		assert.Equal(t, ldtime.UnixMillisFromTime(clk.now()), metricsEvent.EndDate)
 	})
 }

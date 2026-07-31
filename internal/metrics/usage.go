@@ -48,11 +48,17 @@ type usageActivityMessage struct {
 	platformCategory string
 	instanceID       string
 	tagsHeader       string
+
+	// The time at which the activity was recorded. Stamped when the message is
+	// handed to an environmentMetricUsage, before it crosses into the
+	// processing goroutine, so that tests can substitute a controllable clock
+	// and observe deterministic durations.
+	timestamp time.Time
 }
 
 type (
-	usageActivityFlush    struct{}
-	usageActivityShutdown struct{}
+	usageActivityFlush    struct{ timestamp time.Time }
+	usageActivityShutdown struct{ timestamp time.Time }
 )
 
 // metricUsage is used to track usage information for a single
@@ -137,6 +143,7 @@ type environmentMetricUsage struct {
 	publisher     events.EventPublisher
 	flushInterval time.Duration
 	usageCh       chan interface{}
+	now           func() time.Time
 
 	// All of this data is expected to only be accessed from within a single go
 	// routine
@@ -144,11 +151,16 @@ type environmentMetricUsage struct {
 }
 
 func NewEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, flushInterval time.Duration) *environmentMetricUsage {
+	return newEnvironmentMetricUsage(relayID, publisher, flushInterval, time.Now)
+}
+
+func newEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, flushInterval time.Duration, now func() time.Time) *environmentMetricUsage {
 	e := &environmentMetricUsage{
 		relayID:       relayID,
 		publisher:     publisher,
 		flushInterval: flushInterval,
 		usageCh:       make(chan interface{}),
+		now:           now,
 
 		usages: make(map[usageKeyType]*metricUsage),
 	}
@@ -159,6 +171,7 @@ func NewEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, 
 }
 
 func (e *environmentMetricUsage) usageActivityMessage(usage *usageActivityMessage) {
+	usage.timestamp = e.now()
 	e.usageCh <- usage
 }
 
@@ -169,20 +182,20 @@ func (e *environmentMetricUsage) run() {
 	for {
 		select {
 		case <-ticker.C:
-			e.flushInternal()
+			e.flushInternal(e.now())
 		case usage, ok := <-e.usageCh:
 			if !ok {
 				return
 			}
-			now := time.Now()
 
 			switch u := usage.(type) {
 			case *usageActivityShutdown:
-				e.flushInternal()
+				e.flushInternal(u.timestamp)
 				return
 			case *usageActivityFlush:
-				e.flushInternal()
+				e.flushInternal(u.timestamp)
 			case *usageActivityMessage:
+				now := u.timestamp
 				key := usageKeyType{userAgent: u.userAgent, platformCategory: u.platformCategory, instanceID: u.instanceID, tagsHeader: u.tagsHeader}
 				if e.publisher == nil {
 					continue
@@ -238,15 +251,15 @@ func (e *environmentMetricUsage) run() {
 }
 
 func (e *environmentMetricUsage) flush() { //nolint:unused // used only in tests
-	e.usageCh <- &usageActivityFlush{}
+	e.usageCh <- &usageActivityFlush{timestamp: e.now()}
 }
 
 func (e *environmentMetricUsage) close() {
-	e.usageCh <- &usageActivityShutdown{}
+	e.usageCh <- &usageActivityShutdown{timestamp: e.now()}
 	close(e.usageCh)
 }
 
-func (e *environmentMetricUsage) flushInternal() {
+func (e *environmentMetricUsage) flushInternal(now time.Time) {
 	if e.publisher == nil {
 		return
 	}
@@ -254,8 +267,6 @@ func (e *environmentMetricUsage) flushInternal() {
 	if len(e.usages) == 0 {
 		return
 	}
-
-	now := time.Now()
 
 	for key, usage := range e.usages {
 		// Refer back to the metricUsage comment for an explanation on this
