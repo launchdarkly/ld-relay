@@ -119,26 +119,24 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 			// hand off to the next handler. Otherwise the deferred span.End()
 			// would fire only after the whole chain returns, and the auth span
 			// would incorrectly encompass all downstream handling time.
-			req, ok := func() (*http.Request, bool) {
-				// The request handed to the next handler must carry parentCtx, not the
-				// auth span's context: the auth span is ended when this scope exits, and
-				// a downstream handler that finds an ended span in its context cannot
-				// attach child spans or span events to the request's trace.
-				parentCtx := req.Context()
-				ctx, span := tracing.Tracer().Start(parentCtx, tracing.SpanAuth)
+			//
+			// If authentication succeeds, the incoming request context is modified
+			// to include environment information.
+			ok := func() bool {
+				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
 				defer span.End()
 				span.SetAttributes(tracing.SDKKindKey.String(string(sdkKind)))
-				req = req.WithContext(ctx)
+				authScopedReq := req.WithContext(ctx)
 
-				credential, err := sdks.GetCredential(sdkKind, req)
+				credential, err := sdks.GetCredential(sdkKind, authScopedReq)
 				if err != nil {
 					span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
 					span.SetStatus(codes.Error, "invalid credential")
 					w.WriteHeader(http.StatusUnauthorized)
-					return nil, false
+					return false
 				}
 
-				queryValues := req.URL.Query()
+				queryValues := authScopedReq.URL.Query()
 				filterKey := config.FilterKey(queryValues.Get("filter"))
 
 				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, credential))
@@ -148,7 +146,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					span.SetStatus(codes.Error, "not ready")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-					return nil, false
+					return false
 				}
 
 				if envs.IsPayloadFilterNotFound(err) {
@@ -156,7 +154,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					span.SetStatus(codes.Error, "filter not found")
 					w.WriteHeader(http.StatusNotFound)
 					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
-					return nil, false
+					return false
 				}
 
 				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
@@ -171,7 +169,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 						w.WriteHeader(http.StatusUnauthorized)
 						_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
 					}
-					return nil, false
+					return false
 				}
 
 				if clientCtx.GetClient() == nil {
@@ -179,7 +177,7 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					span.SetStatus(codes.Error, "client not initialized")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
-					return nil, false
+					return false
 				}
 
 				if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
@@ -192,15 +190,18 @@ func SelectEnvironmentByAuthorizationKey(sdkKind basictypes.SDKKind, envs RelayE
 					Env:        clientCtx,
 					Credential: credential,
 				}
-				downstreamCtx := WithEnvContextInfo(parentCtx, contextInfo)
+				downstreamCtx := WithEnvContextInfo(req.Context(), contextInfo)
 				if sdkKind == basictypes.JSClientSDK {
 					downstreamCtx = browser.WithCORSContext(downstreamCtx, clientCtx.GetJSClientContext())
 				}
-				return req.WithContext(downstreamCtx), true
+
+				req = req.WithContext(downstreamCtx)
+				return true
 			}()
 			if !ok {
 				return
 			}
+
 			next.ServeHTTP(w, req)
 		})
 	}
@@ -224,21 +225,21 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 			// hand off to the next handler. Otherwise the deferred span.End()
 			// would fire only after the whole chain returns, and the auth span
 			// would incorrectly encompass all downstream handling time.
-			req, ok := func() (*http.Request, bool) {
-				// As above: hand parentCtx to the next handler, not the ended auth
-				// span's context.
-				parentCtx := req.Context()
-				ctx, span := tracing.Tracer().Start(parentCtx, tracing.SpanAuth)
+			//
+			// If authentication succeeds, the incoming request context is modified
+			// to include environment information.
+			ok := func() bool {
+				ctx, span := tracing.Tracer().Start(req.Context(), tracing.SpanAuth)
 				defer span.End()
-				req = req.WithContext(ctx)
+				authScopedReq := req.WithContext(ctx)
 
-				token, err := sdks.FetchClientSideAuthToken(req)
+				token, err := sdks.FetchClientSideAuthToken(authScopedReq)
 				if err != nil {
 					span.SetAttributes(tracing.AuthResultKey.String("invalid_credential"))
 					span.SetStatus(codes.Error, "invalid credential")
 					w.WriteHeader(http.StatusUnauthorized)
 					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
-					return nil, false
+					return false
 				}
 
 				var cred credential.SDKCredential
@@ -250,7 +251,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetAttributes(tracing.SDKKindKey.String(string(basictypes.JSClientSDK)))
 				}
 
-				queryValues := req.URL.Query()
+				queryValues := authScopedReq.URL.Query()
 				filterKey := config.FilterKey(queryValues.Get("filter"))
 
 				clientCtx, err := envs.GetEnvironment(sdkauth.NewScoped(filterKey, cred))
@@ -260,7 +261,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetStatus(codes.Error, "not ready")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageNotFullyConfigured))
-					return nil, false
+					return false
 				}
 
 				if envs.IsPayloadFilterNotFound(err) {
@@ -268,7 +269,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetStatus(codes.Error, "filter not found")
 					w.WriteHeader(http.StatusNotFound)
 					_, _ = w.Write([]byte(httpStatusMessagePayloadFilterNotFound))
-					return nil, false
+					return false
 				}
 
 				if err != nil || clientCtx.GetInitError() == ld.ErrInitializationFailed {
@@ -276,7 +277,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetStatus(codes.Error, "environment not found")
 					w.WriteHeader(http.StatusUnauthorized)
 					_, _ = w.Write([]byte(httpStatusMessageInvalidEnvCredential))
-					return nil, false
+					return false
 				}
 
 				if clientCtx.GetClient() == nil {
@@ -284,7 +285,7 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					span.SetStatus(codes.Error, "client not initialized")
 					w.WriteHeader(http.StatusServiceUnavailable)
 					_, _ = w.Write([]byte(httpStatusMessageSDKClientNotInited))
-					return nil, false
+					return false
 				}
 
 				if envID := relayenv.GetEnvironmentID(clientCtx); envID != "" {
@@ -297,12 +298,16 @@ func SelectEnvironmentByClientSideAuth(envs RelayEnvironments) mux.MiddlewareFun
 					Env:        clientCtx,
 					Credential: cred,
 				}
-				downstreamCtx := browser.WithCORSContext(WithEnvContextInfo(parentCtx, contextInfo), clientCtx.GetJSClientContext())
-				return req.WithContext(downstreamCtx), true
+				downstreamCtx := WithEnvContextInfo(req.Context(), contextInfo)
+				downstreamCtx = browser.WithCORSContext(downstreamCtx, clientCtx.GetJSClientContext())
+
+				req = req.WithContext(downstreamCtx)
+				return true
 			}()
 			if !ok {
 				return
 			}
+
 			next.ServeHTTP(w, req)
 		})
 	}
