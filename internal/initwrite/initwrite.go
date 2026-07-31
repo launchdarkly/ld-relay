@@ -1,8 +1,8 @@
 // Package initwrite provides a progress-aware write deadline for initialization-delivery
 // responses -- SSE stream replays and poll responses. It bounds how long a slow or stalled
-// client can hold a budget slot without false-killing a slow-but-steady client, mirroring
-// the streamer service: a minimum-throughput floor drives a per-write deadline, and an
-// absolute cap bounds a single delivery.
+// client can hold a budget slot without false-killing a slow-but-steady client: a
+// minimum-throughput floor drives a per-write deadline, and an absolute cap bounds a single
+// delivery.
 //
 // Two shapes are supported:
 //

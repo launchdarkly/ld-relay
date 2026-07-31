@@ -11,7 +11,7 @@ import (
 // defaultInitSendTimeout is the absolute cap on how long a single gated delivery may hold a
 // slot. It is generous because the throughput floor (see internal/initwrite) does the
 // fast-stall detection; this only backstops a client that stays right at the floor on a very
-// large payload. It matches the streamer service's message cap.
+// large payload.
 const defaultInitSendTimeout = 2 * time.Minute
 
 // initConcurrency holds Relay's shared initialization-delivery budget. Every poll and
