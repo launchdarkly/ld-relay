@@ -320,11 +320,17 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			// and resident payloads, including the single-event FDv1 /all put.
 			if iw, ok := ctx.Value(initWriterKey{}).(*initwrite.Writer); ok {
 				iw.Begin()
+				// Capture the Done channel now, while it is live. The end-of-basis Flush both
+				// closes it and nils the writer's reference; closeOut() below triggers that
+				// Flush, so reading iw.Done() after closeOut() could race and observe nil (a
+				// receive on nil never fires, which would pin the slot until the client
+				// disconnects). Capturing here is always the channel Flush will close.
+				doneCh := iw.Done()
 				defer func() {
 					iw.End()
 					closeOut()
 					select {
-					case <-iw.Done():
+					case <-doneCh:
 					case <-ctx.Done():
 					}
 					release()

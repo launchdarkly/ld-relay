@@ -272,3 +272,62 @@ func readHeaders(t *testing.T, br *bufio.Reader) {
 		}
 	}
 }
+
+// TestSocketSlotReleasedAfterHealthyBasis is the round-5 regression guard for the slot-leak
+// race: a healthy client that completes its (small) basis and stays connected must have its
+// slot released promptly via the writer's Done signal -- not pinned until it disconnects. The
+// stall test cannot catch this because there ctx/the deadline fires anyway. The release path
+// races the end-of-basis flush, so this loops to make an intermittent regression fail reliably.
+func TestSocketSlotReleasedAfterHealthyBasis(t *testing.T) {
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 10})
+	// maxHold long, so a leaked slot is not masked by the write deadline reclaiming it (the
+	// delivery completes, so no deadline fires anyway); release must come from Done.
+	srv, _ := serveStream(t, limiter, 30*time.Second, []ldmodel.FeatureFlag{ldbuilders.NewFlagBuilder("f").Version(1).Build()}, true, nil)
+	addr := strings.TrimPrefix(srv.URL, "http://")
+
+	leakedAt := -1
+	for i := 0; i < 40 && leakedAt < 0; i++ {
+		conn, err := net.Dial("tcp", addr)
+		require.NoError(t, err)
+		fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: x\r\nAuthorization: %s\r\nAccept: text/event-stream\r\n\r\n", testSDKKey)
+		br := bufio.NewReader(conn)
+		readHeaders(t, br)
+		readPutEvent(t, br) // consume the whole basis, so the producer has acquired and delivered
+
+		// The client stays connected. The slot must now return to 0, released via the writer's
+		// Done. If the release raced and read a nil Done channel it would fall through to ctx
+		// (this still-open connection) and Held would stay pinned at 1 -- a leaked slot. Because
+		// we have read the full basis, the producer has definitely acquired, so an early Held==0
+		// cannot mask the leak.
+		released := false
+		for j := 0; j < 200; j++ {
+			if limiter.Stats().Held == 0 {
+				released = true
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !released {
+			leakedAt = i
+		}
+		conn.Close() // always close, even on leak, so the server's Close() at cleanup doesn't block
+	}
+	require.Less(t, leakedAt, 0, "slot not released after a healthy basis (leaked at iteration %d); the release raced the end-of-basis flush", leakedAt)
+}
+
+// readPutEvent consumes SSE lines through the end of the next "put" event (the blank line that
+// terminates it), so the caller knows the full basis has been delivered.
+func readPutEvent(t *testing.T, br *bufio.Reader) {
+	t.Helper()
+	sawPut := false
+	for {
+		line, err := br.ReadString('\n')
+		require.NoError(t, err)
+		if strings.Contains(line, "put") {
+			sawPut = true
+		}
+		if sawPut && (line == "\n" || line == "\r\n") {
+			return
+		}
+	}
+}
