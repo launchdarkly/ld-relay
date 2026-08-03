@@ -201,50 +201,38 @@ func (e *environmentMetricUsage) run() {
 					continue
 				}
 
+				usage, exists := e.usages[key]
+				if !exists {
+					usage = &metricUsage{
+						firstActive: now,
+					}
+				} else if now.Before(usage.firstActive) {
+					// The message was stamped before a flush reset the interval
+					// boundary; attribute the activity to the start of the current
+					// interval so that durations cannot go negative.
+					now = usage.firstActive
+				}
+				usage.lastActive = now
+
 				switch u.kind {
 				case UsageActivityKindCount:
-					usage, exists := e.usages[key]
-					if !exists {
-						usage = &metricUsage{
-							firstActive: now,
-						}
-					}
-					usage.lastActive = now
-					e.usages[key] = usage
 				case UsageActivityKindStreamConnected:
-					usage, exists := e.usages[key]
-					if !exists {
-						usage = &metricUsage{
-							firstActive: now,
-						}
-					}
-					usage.lastActive = now
 					usage.streamingCount += 1
 					// Record how far into the metric interval we are so we can
 					// calculate the total stream time later. See #1 in the
 					// metricUsage comment above.
 					usage.streamingDurationAdjustment -= now.Sub(usage.firstActive)
-
-					e.usages[key] = usage
 				case UsageActivityKindStreamDisconnected:
-					usage, exists := e.usages[key]
-					if !exists {
-						usage = &metricUsage{
-							firstActive: now,
-						}
-					} else {
+					if exists {
 						usage.streamingCount -= 1
 					}
-
-					usage.lastActive = now
 					// When we disconnect, we add up the running time from the
 					// earliest bit of activity. Because we already stored an
 					// offset above, this should deal with any partial starts.
 					// See #2 in the metricUsage comment above.
 					usage.streamingDurationAdjustment += now.Sub(usage.firstActive)
-
-					e.usages[key] = usage
 				}
+				e.usages[key] = usage
 			}
 		}
 	}
@@ -269,15 +257,22 @@ func (e *environmentMetricUsage) flushInternal(now time.Time) {
 	}
 
 	for key, usage := range e.usages {
+		// A flush message can be stamped before a ticker flush resets the interval
+		// boundary; clamp so that the elapsed time cannot go negative.
+		flushTime := now
+		if flushTime.Before(usage.firstActive) {
+			flushTime = usage.firstActive
+		}
+
 		// Refer back to the metricUsage comment for an explanation on this
 		// calculation.
-		elapsedStreaming := now.Sub(usage.firstActive) * time.Duration(usage.streamingCount)
+		elapsedStreaming := flushTime.Sub(usage.firstActive) * time.Duration(usage.streamingCount)
 		lastActive := usage.lastActive
 
 		// If we still have connected streaming clients, we need to make sure
 		// the last active is up to the current point in time.
-		if usage.streamingCount > 0 && lastActive.Before(now) {
-			lastActive = now
+		if usage.streamingCount > 0 && lastActive.Before(flushTime) {
+			lastActive = flushTime
 		}
 
 		relayUsageEvent := &relayUsageEvent{
@@ -304,8 +299,8 @@ func (e *environmentMetricUsage) flushInternal(now time.Time) {
 			// However, no running totals or offsets should be calculated at
 			// this point since all connections have been around since the new
 			// event started.
-			usage.firstActive = now
-			usage.lastActive = now
+			usage.firstActive = flushTime
+			usage.lastActive = flushTime
 			usage.streamingDurationAdjustment = 0
 		}
 	}

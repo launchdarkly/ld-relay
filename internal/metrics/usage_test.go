@@ -204,6 +204,73 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 	assert.Equal(t, int64(30), event.TotalStreamMs)
 }
 
+func TestActivityStampedBeforeIntervalResetDoesNotProduceNegativeDuration(t *testing.T) {
+	publisher := newTestEventsPublisher()
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
+
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindStreamConnected,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+	})
+
+	clk.advance(10 * time.Millisecond)
+	env.flush()
+	event := publisher.expectUsageEvent(t, time.Second)
+	assert.Equal(t, int64(10), event.TotalStreamMs)
+
+	// Activity messages are stamped on the sending goroutine, while ticker flushes
+	// read the clock on the processing goroutine, so a message can carry a timestamp
+	// from just before a flush that was processed ahead of it. Simulate that ordering:
+	// this disconnect is stamped slightly before the flush above reset the interval
+	// boundary. It should be attributed to the boundary, not produce a negative
+	// duration.
+	clk.advance(-1 * time.Millisecond)
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindStreamDisconnected,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+	})
+
+	clk.advance(6 * time.Millisecond)
+	env.flush()
+
+	event = publisher.expectUsageEvent(t, time.Second)
+	assert.GreaterOrEqual(t, event.LastActive, event.FirstActive)
+	assert.Equal(t, int64(0), event.TotalStreamMs)
+}
+
+func TestFlushStampedBeforeIntervalResetDoesNotProduceNegativeDuration(t *testing.T) {
+	publisher := newTestEventsPublisher()
+	clk := newFakeClock()
+	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
+
+	env.usageActivityMessage(&usageActivityMessage{
+		kind:             UsageActivityKindStreamConnected,
+		userAgent:        "userAgent",
+		platformCategory: "platform",
+		instanceID:       "instanceID",
+	})
+
+	clk.advance(10 * time.Millisecond)
+	env.flush()
+	event := publisher.expectUsageEvent(t, time.Second)
+	assert.Equal(t, int64(10), event.TotalStreamMs)
+
+	// Like the activity-message case above, the shutdown flush is stamped on the
+	// sending goroutine and can carry a timestamp from just before a ticker flush
+	// that was processed ahead of it.
+	clk.advance(-1 * time.Millisecond)
+	env.close()
+
+	event = publisher.expectUsageEvent(t, time.Second)
+	assert.GreaterOrEqual(t, event.LastActive, event.FirstActive)
+	assert.Equal(t, int64(0), event.TotalStreamMs)
+}
+
 func TestStreamDisconnectWithoutConnect(t *testing.T) {
 	publisher := newTestEventsPublisher()
 	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
