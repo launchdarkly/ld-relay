@@ -37,6 +37,7 @@ import (
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func getClientSideContextProperties(
@@ -189,8 +190,9 @@ type payloadEvent struct {
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	tr := tracing.Tracer()
 
-	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
+	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -209,7 +211,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	}
 
 	payloadJSON, ok := func() ([]byte, bool) {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
 		numItems := 2
@@ -322,7 +324,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	traceWriteResponse(req, func() (int, error) {
+	traceWriteResponse(tr, req, func() (int, error) {
 		return writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
 	})
 }
@@ -336,6 +338,7 @@ func pollEvalHandlerV2(maxBodySize ct.OptBase2Bytes) func(w http.ResponseWriter,
 
 func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySize ct.OptBase2Bytes) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	tr := tracing.Tracer()
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	logger := clientCtx.Env.GetLogger()
@@ -366,7 +369,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		return
 	}
 
-	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreSnapshot)
+	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreSnapshot)
 	collection, selector, err := store.Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -424,14 +427,14 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 			}
 		}
 
-		_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
+		_, evalSpan := tr.Start(req.Context(), tracing.SpanEvaluateFlags)
 		evalResults = evaluateFlags(evaluator, allItems, sdkKind, ldContext)
 		evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 		evalSpan.End()
 	}
 
 	jsonData, ok := func() ([]byte, bool) {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
 		if !upToDate {
@@ -489,7 +492,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		return
 	}
 
-	traceWriteResponse(req, func() (int, error) {
+	traceWriteResponse(tr, req, func() (int, error) {
 		return writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
 	})
 }
@@ -497,8 +500,9 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
 func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	tr := tracing.Tracer()
 
-	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
+	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreGetAll)
 	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -512,7 +516,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	respData, etag := func() ([]byte, string) {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
 		respData := serializeFlagsAsMap(data)
@@ -530,7 +534,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		return respData, etag
 	}()
 
-	traceWriteResponse(req, func() (int, error) {
+	traceWriteResponse(tr, req, func() (int, error) {
 		return writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
 	})
 }
@@ -664,6 +668,7 @@ func writePrerequisites(obj *jwriter.ObjectState, prerequisites []string) {
 
 func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basictypes.SDKKind, maxBodySize ct.OptBase2Bytes) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
+	tr := tracing.Tracer()
 	client := clientCtx.Env.GetClient()
 	store := clientCtx.Env.GetStore()
 	logger := clientCtx.Env.GetLogger()
@@ -696,7 +701,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	logger.Debug("application requested client-side flags", "sdkKind", sdkKind, "contextKey", ldContext.Key())
 
-	_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGetAll)
+	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreGetAll)
 	items, err := store.GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
@@ -713,13 +718,13 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 
 	evaluator := clientCtx.Env.GetEvaluator()
 
-	_, evalSpan := tracing.Tracer().Start(req.Context(), tracing.SpanEvaluateFlags)
+	_, evalSpan := tr.Start(req.Context(), tracing.SpanEvaluateFlags)
 	evalResults := evaluateFlags(evaluator, items, sdkKind, ldContext)
 	evalSpan.SetAttributes(tracing.FlagCountKey.Int(len(evalResults)))
 	evalSpan.End()
 
 	result := func() []byte {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
 		responseWriter := jwriter.NewWriter()
@@ -748,7 +753,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 		return data
 	}()
 
-	traceWriteResponse(req, func() (int, error) {
+	traceWriteResponse(tr, req, func() (int, error) {
 		w.WriteHeader(http.StatusOK)
 		_, err := w.Write(result)
 		return http.StatusOK, err
@@ -758,8 +763,9 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		key := mux.Vars(req)["key"]
+		tr := tracing.Tracer()
 
-		_, storeSpan := tracing.Tracer().Start(req.Context(), tracing.SpanStoreGet)
+		_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreGet)
 		storeSpan.SetAttributes(tracing.StoreKeyKey.String(key))
 		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {
@@ -779,7 +785,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		}
 
 		bytes, ok := func() ([]byte, bool) {
-			_, span := tracing.Tracer().Start(req.Context(), tracing.SpanSerializePayload)
+			_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 			defer span.End()
 			data, err := json.Marshal(item.Item)
 			if err != nil {
@@ -796,7 +802,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 			return
 		}
 
-		traceWriteResponse(req, func() (int, error) {
+		traceWriteResponse(tr, req, func() (int, error) {
 			return writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
 		})
 	}
@@ -818,8 +824,8 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 // Note also that the span measures the time to hand the payload to the ResponseWriter, not
 // time on the socket: a response small enough to fit net/http's output buffer is flushed after
 // the handler returns.
-func traceWriteResponse(req *http.Request, write func() (int, error)) {
-	_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+func traceWriteResponse(tr trace.Tracer, req *http.Request, write func() (int, error)) {
+	_, span := tr.Start(req.Context(), tracing.SpanWriteResponse)
 	defer span.End()
 
 	status, err := write()
