@@ -443,20 +443,25 @@ func TestWaitAndFinishNeverSetsDeadline(t *testing.T) {
 
 func TestWaitAndFinishAfterHandlerReturnDoesNotCrashHTTP2(t *testing.T) {
 	// Reproduce the producer-outlives-handler pattern on a real HTTP/2 connection: a goroutine
-	// holds the Writer and calls WaitAndFinish after the handler has returned and its context is
-	// cancelled. Touching the connection here nil-panics inside net/http and crashes the process;
-	// WaitAndFinish must not. (A panic in that goroutine would take the whole test binary down.)
+	// holds the Writer and calls WaitAndFinish only after the handler has returned and net/http
+	// has torn its responseWriter down. Touching the connection there nil-panics inside net/http
+	// and crashes the process; WaitAndFinish must not. The handlerReturned signal plus a short
+	// settle makes the ordering deterministic, so a reintroduced connection touch crashes reliably
+	// (a panic in that goroutine takes the whole test binary down) rather than flaking green.
 	finished := make(chan struct{})
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		handlerReturned := make(chan struct{})
 		w := WrapGated(rw, 2*time.Minute)
 		w.Begin()
 		_, _ = w.Write([]byte("data: hi\n\n"))
 		w.Flush()
 		go func() {
 			defer close(finished)
-			w.WaitAndFinish(r.Context()) // fires on ctx.Done after the handler returns
+			<-handlerReturned
+			time.Sleep(2 * time.Millisecond) // let net/http reclaim the responseWriter
+			w.WaitAndFinish(r.Context())
 		}()
-		// handler returns here, completing the stream and cancelling r.Context()
+		defer close(handlerReturned) // fires as the handler returns
 	}))
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
@@ -472,6 +477,103 @@ func TestWaitAndFinishAfterHandlerReturnDoesNotCrashHTTP2(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("producer goroutine did not return")
 	}
+}
+
+func TestFlushWithoutEndDoesNotTeardown(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize)) // arms one deadline
+	require.NoError(t, err)
+	require.Len(t, base.armed(), 1)
+
+	// A flush without End -- a mid-delivery/jitter flush, or a producer that errored and skipped
+	// End -- must not tear down: the deadline stays armed and the waiter stays parked. (This is
+	// the mechanism by which skipping End on an error path would eventually kill a healthy stream.)
+	w.Flush()
+	assert.Len(t, base.armed(), 1, "flush without End must not clear the deadline")
+	assertOpen(t, w.Done(), "done must stay open without End")
+}
+
+func TestEndThenFlushTearsDownAnyPartialDelivery(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write([]byte("event: put\n\n")) // only a partial "basis" before abandoning
+	require.NoError(t, err)
+
+	// End on the abandon path lets the flush clear the deadline regardless of how much was written.
+	w.End()
+	w.Flush()
+	armed := base.armed()
+	require.NotEmpty(t, armed)
+	assert.True(t, armed[len(armed)-1].IsZero(), "End+flush clears the deadline even for a partial delivery")
+	assertClosed(t, w.Done(), "End+flush releases the waiter")
+}
+
+func TestWaitAndFinishCancelAfterDeliveredDoesNotDoubleClose(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	w.End()
+	w.Flush() // clean teardown already closed done
+
+	// The client leaving after a clean delivery must not double-close done (the ctx branch's
+	// doneClosed guard).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.NotPanics(t, func() { w.WaitAndFinish(ctx) })
+}
+
+// zeroWriteConn is a contract-violating writer that always reports (0, nil); the chunk loop must
+// not spin on it.
+type zeroWriteConn struct{ *httptest.ResponseRecorder }
+
+func (zeroWriteConn) Write([]byte) (int, error)        { return 0, nil }
+func (zeroWriteConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestWriteZeroNilWriterReturnsShortWrite(t *testing.T) {
+	w := Wrap(zeroWriteConn{httptest.NewRecorder()}, 2*time.Minute)
+	n, err := w.Write(make([]byte, chunkSize))
+	assert.ErrorIs(t, err, io.ErrShortWrite)
+	assert.Zero(t, n)
+}
+
+// noFlushConn is a minimal ResponseWriter that records deadlines but cannot flush.
+type noFlushConn struct {
+	hdr       http.Header
+	deadlines []time.Time
+}
+
+func (c *noFlushConn) Header() http.Header {
+	if c.hdr == nil {
+		c.hdr = http.Header{}
+	}
+	return c.hdr
+}
+func (c *noFlushConn) Write(p []byte) (int, error) { return len(p), nil }
+func (c *noFlushConn) WriteHeader(int)             {}
+func (c *noFlushConn) SetWriteDeadline(t time.Time) error {
+	c.deadlines = append(c.deadlines, t)
+	return nil
+}
+
+func TestFlushTearsDownOnNonFlusherChain(t *testing.T) {
+	base := &noFlushConn{}
+	w := WrapGated(base, 2*time.Minute)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize)) // arms
+	require.NoError(t, err)
+	w.End()
+
+	// Even though the underlying writer cannot flush, the end-of-delivery teardown must still
+	// clear the deadline and release the waiter, so a non-flushing chain cannot strand either.
+	w.Flush()
+	require.NotEmpty(t, base.deadlines)
+	assert.True(t, base.deadlines[len(base.deadlines)-1].IsZero(), "teardown must clear the deadline without a Flusher")
+	assertClosed(t, w.Done(), "teardown must release the waiter without a Flusher")
 }
 
 func TestReBeginReleasesPriorWaiter(t *testing.T) {

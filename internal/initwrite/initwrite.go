@@ -27,11 +27,24 @@
 //     deadline is a self-firing timer that would reset an otherwise idle stream. Begin, End,
 //     Done and WaitAndFinish apply only to this shape.
 //
-// A gated delivery ends in one of two ways. On a clean finish the producer calls End and the
-// handler's end-of-delivery flush clears the deadline, leaving the now-idle stream alone. If the
-// client goes away first, WaitAndFinish returns on context cancellation without touching the
-// connection: the per-write deadline already armed bounds anything still in flight, and the
-// connection teardown clears it.
+// Ending a gated delivery. The producer must call End on EVERY exit after Begin -- whether it
+// wrote the whole basis, or is abandoning the delivery after an error -- and before it closes
+// the batch channel. End marks the delivery finished; the handler's end-of-delivery flush then
+// clears the deadline and releases the waiter. There are three ways a delivery ends, and End is
+// what makes the first two safe:
+//
+//   - Clean finish: the producer wrote everything, calls End, and the flush clears the deadline,
+//     leaving the now-idle stream alone.
+//   - Producer error with the client still healthy: the producer calls End on the error path too,
+//     so the same flush clears the deadline. Skipping End here is a bug -- the armed deadline is
+//     never cleared and the handler eventually cuts even this healthy stream at maxHold (on
+//     HTTP/2, an idle-stream timer fires with no write needed).
+//   - Client goes away first: WaitAndFinish returns on context cancellation without touching the
+//     connection; the per-write deadline already armed bounds anything still in flight, and the
+//     connection teardown clears it.
+//
+// The producer waits via WaitAndFinish, which frees the budget slot once the delivery has been
+// flushed or the client has gone.
 //
 // A client sustaining at least the throughput floor per write keeps re-arming and is not cut
 // for being slow; one that stalls or drops below the floor on a write has its write fail, which
@@ -143,9 +156,12 @@ func (w *Writer) Done() <-chan struct{} {
 	return w.done
 }
 
-// End signals that the producer has handed off the whole delivery. The deadline is cleared at
-// the next flush -- the eventsource server flushes exactly once at end-of-batch -- so it is
-// called before the producer closes the batch channel, guaranteeing that flush observes it.
+// End marks the delivery finished so the next flush tears it down. Call it exactly once on every
+// exit after Begin -- a completed delivery AND an abandoned one (a serialization or store error) --
+// and before closing the batch channel, so the handler's single end-of-batch flush observes it and
+// clears the deadline. Omitting it on an error path leaves the armed deadline in place, which
+// eventually cuts even a healthy client at maxHold; releasing the slot without it is not enough,
+// because only the handler goroutine can clear the connection's deadline.
 func (w *Writer) End() {
 	w.mu.Lock()
 	w.ending = true
@@ -157,9 +173,11 @@ func (w *Writer) End() {
 // away). The caller releases its budget slot once this returns. It never touches the connection
 // -- on cancellation the already-armed per-write deadline bounds anything still in flight and the
 // connection teardown clears it -- so it is safe on the producer goroutine even after the handler
-// has returned. Call it after Begin. It must be given the request's context (or another that is
-// cancelled when the client disconnects); a never-cancelled context would block the producer,
-// and its slot, until the delivery flushes.
+// has returned. Call it after Begin. It must be given the request's context, or another that is
+// cancelled when the client disconnects: a never-cancelled context would block the producer, and
+// its slot, until the delivery flushes, and a context cancelled while the handler is still live
+// (a shutdown or producer-error signal, say) would return early without ending the delivery --
+// use End for that.
 func (w *Writer) WaitAndFinish(ctx context.Context) {
 	w.mu.Lock()
 	done := w.done
@@ -232,17 +250,14 @@ func (w *Writer) WriteString(s string) (int, error) {
 // deadline so later traffic on a persistent stream is not governed by it. The clear runs under
 // the lock and only for the delivery that was active when Flush was entered, so it cannot wipe
 // the deadline of a newer delivery that began in the meantime. Flush runs on the handler
-// goroutine, within the connection's lifetime.
+// goroutine, within the connection's lifetime. The teardown happens even if the underlying
+// writer cannot flush, so a non-flushing chain cannot strand the deadline or pin the slot.
 func (w *Writer) Flush() {
-	f, ok := w.ResponseWriter.(http.Flusher)
-	if !ok {
-		return
-	}
 	w.mu.Lock()
 	active, ending, gen := w.active, w.ending, w.gen
 	w.mu.Unlock()
 
-	f.Flush()
+	_ = w.rc.Flush() // best-effort; reaches the underlying Flusher through the Unwrap chain
 
 	if !(active && ending) {
 		return
@@ -255,7 +270,9 @@ func (w *Writer) Flush() {
 	w.active = false
 	_ = w.rc.SetWriteDeadline(time.Time{})
 	if !w.doneClosed {
-		close(w.done) // release the producer only after the deadline is cleared
+		// WaitAndFinish's ctx branch may have closed done first (the client left as the delivery
+		// completed); the guard keeps this from double-closing.
+		close(w.done)
 		w.doneClosed = true
 	}
 }
