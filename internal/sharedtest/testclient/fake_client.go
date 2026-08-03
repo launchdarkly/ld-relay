@@ -107,6 +107,19 @@ func FakeLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- *
 	}
 }
 
+// FakeLDClientFactoryWithStore is FakeLDClientFactory with a store of the caller's choosing
+// instead of one preloaded with the standard test data. FakeStore serves whatever collections it
+// is given, so this is how a test reaches behavior the standard fixtures cannot express: a
+// deletion placeholder, an item of the wrong type, or a data kind Relay does not recognize.
+func FakeLDClientFactoryWithStore(shouldBeInitialized bool, store *FakeStore) sdks.ClientFactoryFunc {
+	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		if config.LDRelayDataDestination != nil {
+			config.LDRelayDataDestination(store, nil)
+		}
+		return &FakeLDClient{Key: sdkKey, CloseCh: make(chan struct{}), initialized: shouldBeInitialized}, nil
+	}
+}
+
 func RealLDClientFactoryWithChannel(shouldBeInitialized bool, createdCh chan<- CapturedLDClient) sdks.ClientFactoryFunc {
 	return func(sdkKey config.SDKKey, config ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
 		c, err := sdks.DefaultClientFactory()(sdkKey, config, timeout)

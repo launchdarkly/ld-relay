@@ -231,11 +231,9 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 // dangling. pollFlagOrSegment's not-found path additionally shows that a store span created
 // before the early return is properly ended.
 //
-// Note: the serialize span's own error branches (a json.Marshal failure or a store type-cast
-// failure) operate on data the store has already validated and cannot be provoked through the
-// test harness, which always serves a fixed in-memory dataset. Those branches are guarded
-// structurally by the IIFE's `defer span.End()`, so the span cannot leak regardless of which
-// return fires.
+// The serialize span's own error branches -- a json.Marshal failure, a store type-cast failure,
+// an unrecognized data kind -- are covered separately in relay_endpoints_serialize_errors_test.go,
+// which serves them from a store built for the purpose.
 func TestPollingEndpointSpansDoNotLeakOnEarlyReturn(t *testing.T) {
 	recorder := installSpanRecorder(t)
 
