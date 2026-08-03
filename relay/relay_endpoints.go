@@ -267,8 +267,10 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 								},
 							})
 						} else {
-							clientCtx.Env.GetLogger().Error("error casting keyed item to feature flag")
-							span.SetStatus(codes.Error, "error casting keyed item to feature flag")
+							err := errors.New("error casting keyed item to feature flag")
+							clientCtx.Env.GetLogger().Error(err.Error())
+							span.RecordError(err)
+							span.SetStatus(codes.Error, err.Error())
 							w.WriteHeader(http.StatusInternalServerError)
 							return nil, false
 						}
@@ -287,14 +289,18 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 								},
 							})
 						} else {
-							clientCtx.Env.GetLogger().Error("error casting keyed item to feature segment")
-							span.SetStatus(codes.Error, "error casting keyed item to feature segment")
+							err := errors.New("error casting keyed item to feature segment")
+							clientCtx.Env.GetLogger().Error(err.Error())
+							span.RecordError(err)
+							span.SetStatus(codes.Error, err.Error())
 							w.WriteHeader(http.StatusInternalServerError)
 							return nil, false
 						}
 					default:
-						clientCtx.Env.GetLogger().Error("unexpected data kind in store snapshot", "kind", kind)
-						span.SetStatus(codes.Error, "unexpected data kind in store snapshot")
+						err := errors.New("unexpected data kind in store snapshot")
+						clientCtx.Env.GetLogger().Error(err.Error(), "kind", kind)
+						span.RecordError(err)
+						span.SetStatus(codes.Error, err.Error())
 						w.WriteHeader(http.StatusInternalServerError)
 						return nil, false
 					}
@@ -519,7 +525,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
-		respData := serializeFlagsAsMap(data)
+		respData, flagCount := serializeFlagsAsMap(data)
 		// Compute an overall Etag for the data set by hashing flag keys and versions
 		hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
 		sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
@@ -528,7 +534,7 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		}
 		etag := hex.EncodeToString(hash.Sum(nil))[:15]
 		span.SetAttributes(
-			tracing.FlagCountKey.Int(len(data)),
+			tracing.FlagCountKey.Int(flagCount),
 			tracing.PayloadBytesKey.Int(len(respData)),
 		)
 		return respData, etag
@@ -866,14 +872,19 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	return http.StatusOK, err
 }
 
-func serializeFlagsAsMap(coll []ldstoretypes.KeyedItemDescriptor) []byte {
+// serializeFlagsAsMap writes the flags in coll as a JSON object keyed by flag key, and reports
+// how many it wrote. GetAll is contractually required to include placeholders for deleted items,
+// which have no flag to serialize, so the count is not len(coll).
+func serializeFlagsAsMap(coll []ldstoretypes.KeyedItemDescriptor) ([]byte, int) {
 	w := jwriter.NewWriter()
 	obj := w.Object()
+	count := 0
 	for _, item := range coll {
 		if item.Item.Item != nil {
 			ldmodel.MarshalFeatureFlagToJSONWriter(*item.Item.Item.(*ldmodel.FeatureFlag), obj.Name(item.Key))
+			count++
 		}
 	}
 	obj.End()
-	return w.Bytes()
+	return w.Bytes(), count
 }
