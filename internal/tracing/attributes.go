@@ -34,5 +34,4 @@ const (
 	StoreKeyKey      = attribute.Key("relay.store.key")
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
-	ResponseBytesKey = attribute.Key("relay.response.bytes")
 )
