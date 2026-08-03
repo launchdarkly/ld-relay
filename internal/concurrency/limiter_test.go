@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
-// waitForWaiting polls until the limiter reports the given queue depth, so tests can
-// establish "a caller is parked" without a fixed sleep.
+// waitForWaiting polls until Stats reports n waiting callers. The count is a reservation
+// made on entering the queued path, so this establishes that the callers have committed to
+// waiting (they reach the select moments later); it is not a strict parked-at-the-select
+// barrier.
 func waitForWaiting(t *testing.T, l *Limiter, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -116,33 +118,75 @@ func TestBacklogFullRejects(t *testing.T) {
 	r1()
 }
 
-func TestWaitingCountsOnlyParkedCallers(t *testing.T) {
+func TestSlotTurnoverDoesNotShedExactFitLoad(t *testing.T) {
+	// The budget is MaxConcurrent+MaxQueued = 2 and there are never more than two live
+	// callers, so every rejection is spurious by construction. Each iteration hands the
+	// held slot to a parked waiter and immediately re-acquires: the vacated queue capacity
+	// must be available even while the woken waiter is still being scheduled. (A separate
+	// queued-callers counter fails here on most iterations, because the woken waiter keeps
+	// counting against the queue until it runs.)
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	r, ok := l.Acquire(context.Background())
+	if !ok {
+		t.Fatal("initial acquire")
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 400; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if r2, ok := l.Acquire(context.Background()); ok {
+				r2()
+			}
+		}()
+		waitForWaiting(t, l, 1)
+		r() // hand the slot to the waiter
+		var reacquired bool
+		r, reacquired = l.Acquire(context.Background())
+		if !reacquired {
+			t.Fatalf("iteration %d: caller shed while the budget had room", i)
+		}
+	}
+	r()
+	wg.Wait()
+}
+
+func TestCancelledWaitersFreeTheirQueueCapacity(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
 	r1, _ := l.Acquire(context.Background())
-	admitted := make(chan func())
-	go func() {
-		if r, ok := l.Acquire(context.Background()); ok {
-			admitted <- r
+	// Repeatedly park a waiter and cancel it: each cancellation must return its budget
+	// reservation, or the queue capacity erodes until admissible callers are shed.
+	for i := 0; i < 5; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan bool)
+		go func() {
+			_, ok := l.Acquire(ctx)
+			done <- ok
+		}()
+		waitForWaiting(t, l, 1)
+		cancel()
+		if ok := <-done; ok {
+			t.Fatal("cancelled waiter should have been rejected")
 		}
-	}()
-	waitForWaiting(t, l, 1)
-	r1() // hand the slot to the waiter
-	r2 := <-admitted
-	// An admitted caller must no longer count against the queue bound: with the single
-	// backlog slot logically empty, a new caller must be able to queue rather than be shed.
-	waitForWaiting(t, l, 0)
-	queued := make(chan bool)
+	}
+	// Every cancellation must have returned its reservation while the slot is still held:
+	// leaked occupancy shows up directly as phantom waiters.
+	if s := l.Stats(); s.Waiting != 0 {
+		t.Fatalf("cancelled waiters leaked queue occupancy: %+v", s)
+	}
+	// And the queue must still have its full capacity: a fresh waiter can park.
+	admitted := make(chan bool)
 	go func() {
 		r, ok := l.Acquire(context.Background())
 		if ok {
 			r()
 		}
-		queued <- ok
+		admitted <- ok
 	}()
 	waitForWaiting(t, l, 1)
-	r2()
-	if ok := <-queued; !ok {
-		t.Fatal("caller was shed while the queue was logically empty")
+	r1()
+	if ok := <-admitted; !ok {
+		t.Fatal("queue capacity eroded by cancelled waiters")
 	}
 }
 
@@ -199,7 +243,49 @@ func TestCloseIsAnAdmissionBarrier(t *testing.T) {
 	}
 }
 
+func TestCloseBeatsARacingRelease(t *testing.T) {
+	// A slot released after Close must not be handed to a parked waiter: even when the
+	// waiter's slot arm wins the select, it re-checks shutdown, returns the slot, and is
+	// rejected. Loop because which select arm wins is random; every iteration must reject.
+	for i := 0; i < 100; i++ {
+		l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+		r, _ := l.Acquire(context.Background())
+		got := make(chan bool)
+		go func() {
+			_, ok := l.Acquire(context.Background())
+			got <- ok
+		}()
+		waitForWaiting(t, l, 1)
+		l.Close()
+		r() // released after Close: the waiter must not be admitted
+		if ok := <-got; ok {
+			t.Fatalf("iteration %d: waiter admitted with a slot released after Close", i)
+		}
+	}
+}
+
+func TestSlotWonConcurrentlyWithCloseIsReturned(t *testing.T) {
+	// White-box: a waiter that has reserved occupancy and won a slot in the same instant
+	// Close lands must, on its re-check, return the slot and be rejected -- this is the
+	// specific arm TestCloseBeatsARacingRelease can only reach when scheduling cooperates.
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	l.inFlight.Add(1) // the waiter's entry reservation
+	<-l.tokens        // the waiter's select wins the slot...
+	l.Close()         // ...as shutdown lands
+	if _, ok := l.admit(); ok {
+		t.Fatal("a slot won concurrently with Close must not be admitted")
+	}
+	if free := len(l.tokens); free != 1 {
+		t.Fatalf("the slot was not returned: %d free", free)
+	}
+	if s := l.Stats(); s.Held != 0 || s.Waiting != 0 || s.Rejected != 1 {
+		t.Fatalf("occupancy not released or rejection not counted: %+v", s)
+	}
+}
+
 func TestCloseUnblocksWaiters(t *testing.T) {
+	// The quiescent case: no slot is released while Close runs (the racing case is
+	// TestCloseBeatsARacingRelease).
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 4})
 	r1, _ := l.Acquire(context.Background())
 	results := make(chan bool, 3)
@@ -220,6 +306,10 @@ func TestCloseUnblocksWaiters(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("waiter not unblocked by Close")
 		}
+	}
+	// The unblocked waiters must have returned their occupancy reservations.
+	if s := l.Stats(); s.Waiting != 0 {
+		t.Fatalf("waiters unblocked by Close leaked queue occupancy: %+v", s)
 	}
 	r1()      // releasing a held slot after Close must not panic or block
 	l.Close() // idempotent

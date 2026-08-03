@@ -15,13 +15,16 @@ import (
 type Params struct {
 	// MaxConcurrent is the number of slots that may be held at once.
 	MaxConcurrent int
-	// MaxQueued is the number of callers that may wait for a slot once all slots are
-	// held. Waiters are served in approximate arrival order. A value of 0 rejects
-	// callers immediately instead of waiting.
+	// MaxQueued is how many callers may wait for a slot once every slot is held, served
+	// in approximate arrival order. A value of 0 or less adds no waiting capacity: when
+	// every slot is held a caller is rejected immediately, though a caller arriving just
+	// as a slot is being released may briefly wait to take it.
 	MaxQueued int
 }
 
 // Stats is a point-in-time snapshot of a Limiter's counters for logging and metrics.
+// Held is exact; Waiting is derived from the occupancy counter and may transiently count
+// a caller whose slot handoff is in progress.
 type Stats struct {
 	Enabled       bool
 	MaxConcurrent int
@@ -40,10 +43,18 @@ type Limiter struct {
 	enabled bool
 
 	tokens    chan struct{} // holds the free slots; receive to acquire one, send to release one
-	maxQueued int64
-	waiting   atomic.Int64
-	shutdown  chan struct{}
-	closeOnce sync.Once
+	maxQueued int
+	// inFlight counts the callers occupying the budget: slot holders plus queued waiters,
+	// bounded by MaxConcurrent+MaxQueued. A caller reserves its unit once on entry and
+	// keeps it from queue to held to released, so handing a released slot to a parked
+	// waiter never leaves a moment where the waiter still counts against the queue while
+	// the slot is already spoken for. A separate queue counter has exactly that moment (it
+	// lasts until the woken goroutine is scheduled) and sheds an admissible caller on
+	// every slot turnover under burst load.
+	inFlight     atomic.Int64
+	maxOccupancy int64
+	shutdown     chan struct{}
+	closeOnce    sync.Once
 
 	admitted atomic.Int64
 	rejected atomic.Int64
@@ -60,7 +71,8 @@ func New(name string, p Params) *Limiter {
 	for i := 0; i < p.MaxConcurrent; i++ {
 		l.tokens <- struct{}{}
 	}
-	l.maxQueued = int64(p.MaxQueued)
+	l.maxQueued = max(p.MaxQueued, 0)
+	l.maxOccupancy = int64(p.MaxConcurrent) + int64(l.maxQueued)
 	l.shutdown = make(chan struct{})
 	return l
 }
@@ -97,40 +109,55 @@ func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 		return l.reject()
 	}
 
+	// Reserve one unit of the budget's total capacity (slots plus queue). Rejecting on
+	// overflow here is what bounds the queue.
+	if l.inFlight.Add(1) > l.maxOccupancy {
+		l.inFlight.Add(-1)
+		return l.reject()
+	}
+
 	// Take a free slot if one is available.
 	select {
 	case <-l.tokens:
-		return l.admit(), true
+		return l.admit()
 	default:
 	}
 
-	// No free slot. Join the bounded queue, or reject if it is full.
-	if l.waiting.Add(1) > l.maxQueued {
-		l.waiting.Add(-1)
-		return l.reject()
-	}
-
-	// The waiting count is decremented inside each arm, before returning, so a caller
-	// that has already been handed a slot is not still counted against the queue bound.
+	// Every slot is held. Wait for one; the occupancy reservation above bounds how many
+	// callers may wait here.
 	select {
 	case <-l.tokens:
-		l.waiting.Add(-1)
-		return l.admit(), true
+		return l.admit()
 	case <-ctx.Done():
-		l.waiting.Add(-1)
+		l.inFlight.Add(-1)
 		return l.reject()
 	case <-l.shutdown:
-		l.waiting.Add(-1)
+		l.inFlight.Add(-1)
 		return l.reject()
 	}
 }
 
-func (l *Limiter) admit() func() {
+// admit completes an admission after a slot has been received -- unless shutdown has
+// landed in the meantime, in which case the slot is returned and the caller is rejected,
+// so a slot released concurrently with Close cannot smuggle a waiter past it.
+func (l *Limiter) admit() (func(), bool) {
+	select {
+	case <-l.shutdown:
+		l.tokens <- struct{}{} // never blocks: this slot's buffer capacity is unoccupied
+		l.inFlight.Add(-1)
+		return l.reject()
+	default:
+	}
 	l.admitted.Add(1)
 	var once sync.Once
 	return func() {
-		once.Do(func() { l.tokens <- struct{}{} })
-	}
+		once.Do(func() {
+			// Free the occupancy before returning the slot, so the queue capacity this
+			// release re-opens is visible to arrivals no later than the slot itself.
+			l.inFlight.Add(-1)
+			l.tokens <- struct{}{}
+		})
+	}, true
 }
 
 func (l *Limiter) reject() (func(), bool) {
@@ -138,9 +165,11 @@ func (l *Limiter) reject() (func(), bool) {
 	return func() {}, false
 }
 
-// Close stops admissions: callers that arrive afterwards are rejected, and all waiters
-// are unblocked with ok=false. Releases of already-held slots remain safe. It may be
-// called more than once.
+// Close stops admissions: once it returns, callers entering Acquire are rejected, and
+// parked waiters are unblocked and rejected. A waiter handed a slot concurrently with
+// Close re-checks shutdown and returns the slot instead of keeping it; only an admission
+// that fully completed before shutdown landed keeps its slot. Releases of held slots
+// remain safe afterwards. It may be called more than once.
 func (l *Limiter) Close() {
 	if !l.Enabled() {
 		return
@@ -153,12 +182,14 @@ func (l *Limiter) Stats() Stats {
 	if !l.Enabled() {
 		return Stats{Enabled: false}
 	}
+	held := cap(l.tokens) - len(l.tokens)
+	waiting := max(int(l.inFlight.Load())-held, 0)
 	return Stats{
 		Enabled:       true,
 		MaxConcurrent: cap(l.tokens),
-		MaxQueued:     int(l.maxQueued),
-		Held:          cap(l.tokens) - len(l.tokens),
-		Waiting:       int(l.waiting.Load()),
+		MaxQueued:     l.maxQueued,
+		Held:          held,
+		Waiting:       waiting,
 		Admitted:      l.admitted.Load(),
 		Rejected:      l.rejected.Load(),
 	}
