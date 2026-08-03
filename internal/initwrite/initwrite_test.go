@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -623,6 +624,48 @@ func TestFlushAfterCompletionDoesNotPanic(t *testing.T) {
 	// A second flush of an already-completed delivery (the doneClosed guard) must not double-close.
 	assert.NotPanics(t, func() { w.Flush() })
 	assertClosed(t, w.Done(), "Done stays closed after a redundant flush")
+}
+
+func TestPollWrapDeadlineDoesNotLingerOntoNextKeepAliveRequest(t *testing.T) {
+	// A poll (Wrap) delivery arms a per-write deadline and relies on net/http to reset the
+	// connection's write deadline when the handler returns -- this server sets no WriteTimeout.
+	// Pin that reliance: net/http clears it unconditionally, so an armed deadline from one request
+	// cannot linger onto the next request on a reused HTTP/1.1 keep-alive connection. (If a future
+	// Go release changed this, Wrap would need to clear the deadline itself.)
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		i := n.Add(1)
+		if i == 1 {
+			// A tiny maxHold makes the armed deadline expire well before request 2's write, so a
+			// failure to clear would surface as a failed second request rather than passing by luck.
+			pw := Wrap(w, 50*time.Millisecond)
+			_, _ = pw.Write([]byte("resp-1"))
+			return
+		}
+		_, _ = io.WriteString(w, "resp-2")
+	}))
+	defer srv.Close()
+	require.Zero(t, srv.Config.WriteTimeout, "test assumes no server WriteTimeout, matching relay")
+
+	client := srv.Client() // keep-alive transport, reuses the connection
+	get := func() (string, error) {
+		resp, err := client.Get(srv.URL)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		return string(b), err
+	}
+
+	b, err := get()
+	require.NoError(t, err)
+	require.Equal(t, "resp-1", b)
+
+	time.Sleep(150 * time.Millisecond) // past the 50ms deadline armed in request 1
+	b, err = get()
+	require.NoError(t, err, "armed deadline lingered onto the reused connection")
+	assert.Equal(t, "resp-2", b)
 }
 
 func TestUnwrapReachesBase(t *testing.T) {
