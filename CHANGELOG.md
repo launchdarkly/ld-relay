@@ -2,6 +2,21 @@
 
 All notable changes to the LaunchDarkly Relay will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [8.20.0](https://github.com/launchdarkly/ld-relay/compare/v8.19.6...v8.20.0) (2026-08-03)
+
+
+### Features
+
+* Make usage metrics event publisher capacity configurable ([#750](https://github.com/launchdarkly/ld-relay/issues/750)) ([71d475a](https://github.com/launchdarkly/ld-relay/commit/71d475ae93aae3c94650a911b150bc0e64a3806a))
+* Support limiting REPORT eval request body size ([7589634](https://github.com/launchdarkly/ld-relay/commit/75896347c19c94e7d84ffe523d61eb18d5eca14b))
+
+
+### Bug Fixes
+
+* **deps:** bump eventsource to v1.11.1 ([#769](https://github.com/launchdarkly/ld-relay/issues/769)) ([03b6f6e](https://github.com/launchdarkly/ld-relay/commit/03b6f6ea8a1d789d736b6b83477c42b00f98b9d0))
+* **deps:** bump grpc, x/net, x/text to patch disclosed CVEs ([#771](https://github.com/launchdarkly/ld-relay/issues/771)) ([13ba468](https://github.com/launchdarkly/ld-relay/commit/13ba468e158583cc4db9f2154c5ea99a8f57cc06))
+* **deps:** bump otel and klauspost/compress to patch disclosed CVEs ([#789](https://github.com/launchdarkly/ld-relay/issues/789)) ([fed52c1](https://github.com/launchdarkly/ld-relay/commit/fed52c1ff60f13de77a3a66262949d72689a7696))
+
 ## [8.19.6](https://github.com/launchdarkly/ld-relay/compare/v8.19.5...v8.19.6) (2026-07-08)
 
 
