@@ -4,7 +4,8 @@
 // minimum-throughput floor drives a per-write deadline, and an absolute cap bounds a single
 // delivery.
 //
-// Two shapes are supported:
+// A Writer must be constructed with Wrap or WrapGated; the zero value is not usable. Two shapes
+// are supported:
 //
 //   - Poll (Wrap): a request/response delivery. The deadline is armed on every write for the
 //     lifetime of the wrapper. net/http resets the connection's write deadline when the handler
@@ -13,9 +14,13 @@
 //     not reset between the initial delivery and later delta or heartbeat traffic. The deadline
 //     is armed only between Begin and the end-of-delivery flush, and is cleared there, so live
 //     traffic and idle periods carry no deadline. This matters on HTTP/2, where a lingering
-//     deadline is a self-firing timer that would reset an otherwise idle stream. A producer that
-//     ends a delivery on an error or cancellation path -- without a final flush -- must call
-//     Finish so the deadline never outlives the delivery.
+//     deadline is a self-firing timer that would reset an otherwise idle stream.
+//
+// A gated delivery ends in one of two ways. On a clean finish the producer calls End and the
+// end-of-delivery flush clears the deadline, leaving the now-idle stream alone. On an abnormal
+// end -- the client goes away, or the producer errors -- the producer calls Abort (directly, or
+// via WaitAndFinish on context cancellation), which forces any in-flight write to fail rather
+// than clearing the deadline and letting a stalled send run unbounded.
 //
 // A client sustaining at least the throughput floor per write keeps re-arming and is not cut
 // for being slow; one that stalls or drops below the floor on a write has its write fail, which
@@ -27,6 +32,7 @@
 package initwrite
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"sync"
@@ -47,7 +53,7 @@ const (
 )
 
 // Writer wraps an http.ResponseWriter and arms a progress-aware write deadline on the
-// underlying connection while a delivery is active.
+// underlying connection while a delivery is active. Construct it with Wrap or WrapGated.
 type Writer struct {
 	http.ResponseWriter
 	rc      *http.ResponseController
@@ -59,9 +65,12 @@ type Writer struct {
 	ending       bool
 	msgStart     time.Time
 	lastDeadline time.Time
-	// done is closed once the current gated delivery's last byte has been flushed. It is never
-	// nil: outside a delivery it is a closed channel, so a producer waiting on it releases its
-	// slot immediately rather than blocking forever. doneClosed guards against a double close.
+	// gen identifies the current gated delivery. Begin bumps it so a teardown (a flush or Abort)
+	// that observed an earlier delivery cannot clear the deadline of a newer one.
+	gen uint64
+	// done is closed once the current gated delivery ends. It is never nil: outside a delivery
+	// it is a closed channel, so a producer waiting on it releases its slot immediately rather
+	// than blocking forever. doneClosed guards against a double close.
 	done       chan struct{}
 	doneClosed bool
 }
@@ -72,8 +81,8 @@ func Wrap(w http.ResponseWriter, maxHold time.Duration) *Writer {
 	return newWriter(w, maxHold, true)
 }
 
-// WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and clears
-// the deadline at the end-of-delivery flush after End (or when Finish is called).
+// WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and ends a
+// delivery either at the End-triggered flush (clearing the deadline) or via Abort.
 func WrapGated(w http.ResponseWriter, maxHold time.Duration) *Writer {
 	return newWriter(w, maxHold, false)
 }
@@ -104,6 +113,7 @@ func (w *Writer) Begin() {
 	w.ending = false
 	w.msgStart = time.Time{}
 	w.lastDeadline = time.Time{}
+	w.gen++
 	if !w.doneClosed {
 		close(w.done)
 	}
@@ -111,11 +121,11 @@ func (w *Writer) Begin() {
 	w.doneClosed = false
 }
 
-// Done returns a channel closed once the gated delivery's last byte has been flushed to the
-// client. The producer waits on it (or on the request context) before releasing the budget
-// slot, so the slot is held for the actual send rather than only until the channel handoff.
-// The channel is never nil: with no delivery in progress it is already closed, so a producer
-// that waits on it is not left blocked.
+// Done returns a channel closed once the current gated delivery has ended. The channel is never
+// nil: with no delivery in progress it is already closed, so a producer that waits on it is not
+// left blocked. Call it only after Begin -- capturing it earlier returns the closed idle channel
+// and would release the slot while the delivery is still in flight. Prefer WaitAndFinish, which
+// reads it at the right time.
 func (w *Writer) Done() <-chan struct{} {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -131,24 +141,37 @@ func (w *Writer) End() {
 	w.mu.Unlock()
 }
 
-// Finish ends the current gated delivery unconditionally: it clears any armed write deadline
-// and closes the Done channel. It is idempotent and safe to call on any producer exit path,
-// and is the backstop for a delivery that ends without a final flush (an error or a cancelled
-// context). On the normal path the end-of-delivery flush has already done this, so Finish is a
-// no-op. Because it clears the deadline, a producer must call it only once the delivery is
-// truly over, not mid-send.
-func (w *Writer) Finish() {
+// Abort ends the current gated delivery abnormally. Unlike a clean finish -- where the
+// end-of-delivery flush clears the deadline so the now-idle stream is left alone -- Abort moves
+// the deadline to now, forcing any in-flight or subsequent write to fail at once. It is the
+// right call when a delivery is given up on (the client went away, or the producer errored): a
+// stalled send is torn down immediately rather than left running unbounded, and the Done waiter
+// is released so the budget slot frees. It is safe to call on any exit path, including while a
+// write is in flight, and more than once; it has no effect if no delivery is active.
+func (w *Writer) Abort() {
 	w.mu.Lock()
-	wasActive := w.active
-	w.active = false
-	w.ending = false
+	defer w.mu.Unlock()
+	if w.active {
+		w.active = false
+		w.ending = false
+		_ = w.rc.SetWriteDeadline(w.now()) // force any pending write to fail now
+	}
 	if !w.doneClosed {
-		close(w.done)
+		close(w.done) // release the waiter only after the deadline is set
 		w.doneClosed = true
 	}
-	w.mu.Unlock()
-	if wasActive {
-		_ = w.rc.SetWriteDeadline(time.Time{})
+}
+
+// WaitAndFinish holds until the current gated delivery's last byte has been flushed to the
+// client (Done closes, with the deadline already cleared by that flush) or ctx is done (the
+// client went away). On cancellation it aborts, so a stalled send cannot hold the slot or the
+// connection past the client's departure. The caller releases its budget slot once this
+// returns. Call it after Begin.
+func (w *Writer) WaitAndFinish(ctx context.Context) {
+	select {
+	case <-w.Done():
+	case <-ctx.Done():
+		w.Abort()
 	}
 }
 
@@ -170,6 +193,9 @@ func (w *Writer) Write(p []byte) (int, error) {
 		if err != nil {
 			return total, err
 		}
+		if n == 0 {
+			return total, io.ErrShortWrite // a (0, nil) writer would otherwise spin forever
+		}
 	}
 	return total, nil
 }
@@ -190,34 +216,42 @@ func (w *Writer) WriteString(s string) (int, error) {
 		if err != nil {
 			return total, err
 		}
+		if n == 0 {
+			return total, io.ErrShortWrite
+		}
 	}
 	return total, nil
 }
 
-// Flush bounds the flush under the deadline and, at the end-of-delivery flush, clears the
-// deadline so later traffic on a persistent stream is not governed by it.
+// Flush flushes buffered bytes and, at the end-of-delivery flush (after End), clears the
+// deadline so later traffic on a persistent stream is not governed by it. The clear runs under
+// the lock and only for the delivery that was active when Flush was entered, so it cannot wipe
+// the deadline of a newer delivery that began in the meantime.
 func (w *Writer) Flush() {
 	f, ok := w.ResponseWriter.(http.Flusher)
 	if !ok {
 		return
 	}
 	w.mu.Lock()
-	active, ending := w.active, w.ending
+	active, ending, gen := w.active, w.ending, w.gen
 	w.mu.Unlock()
-	if active {
-		w.arm(0)
-	}
+
 	f.Flush()
-	if active && ending {
-		w.mu.Lock()
-		w.active = false
-		if !w.doneClosed {
-			close(w.done) // the basis is fully written; let the producer release the slot
-			w.doneClosed = true
-		}
-		w.mu.Unlock()
-		_ = w.rc.SetWriteDeadline(time.Time{})
+
+	if !(active && ending) {
+		return
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.gen != gen || !w.active {
+		return // a newer delivery began, or this one was already ended
+	}
+	w.active = false
+	if !w.doneClosed {
+		close(w.done) // the basis is fully written; let the producer release the slot
+		w.doneClosed = true
+	}
+	_ = w.rc.SetWriteDeadline(time.Time{})
 }
 
 func (w *Writer) isActive() bool {
@@ -230,7 +264,7 @@ func (w *Writer) isActive() bool {
 // throughput floor) + slack, capped by the delivery's absolute deadline (msgStart + maxHold).
 // It never shortens an existing deadline within a delivery and skips trivial changes. The
 // deadline is recorded as current only when the underlying SetWriteDeadline succeeds, so a
-// transient failure does not leave the writer thinking it has armed a deadline it has not.
+// transient failure does not leave the writer believing it has armed a deadline it has not.
 func (w *Writer) arm(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
