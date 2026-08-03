@@ -35,10 +35,13 @@
 //
 //   - Clean finish: the producer wrote everything, calls End, and the flush clears the deadline,
 //     leaving the now-idle stream alone.
-//   - Producer error with the client still healthy: the producer calls End on the error path too,
-//     so the same flush clears the deadline. Skipping End here is a bug -- the armed deadline is
-//     never cleared and the handler eventually cuts even this healthy stream at maxHold (on
-//     HTTP/2, an idle-stream timer fires with no write needed).
+//   - Producer error with the client still healthy: the producer calls End on the error path too
+//     -- even an exit that wrote nothing, since the delivery stays active and a later heartbeat
+//     write would arm a deadline that then fires with nothing left to finish it. Skipping End is
+//     a bug: the deadline is never cleared, and the healthy stream is killed anyway -- on
+//     HTTP/1.1 when the absolute cap expires, and on HTTP/2 within a few seconds (the write
+//     slack) of the last write, because a deadline there is a self-firing timer. Disabling the
+//     cap does not avoid this; it only removes the later of the two bounds.
 //   - Client goes away first: WaitAndFinish returns on context cancellation without touching the
 //     connection; the per-write deadline already armed bounds anything still in flight, and the
 //     connection teardown clears it.
@@ -156,12 +159,14 @@ func (w *Writer) Done() <-chan struct{} {
 	return w.done
 }
 
-// End marks the delivery finished so the next flush tears it down. Call it exactly once on every
-// exit after Begin -- a completed delivery AND an abandoned one (a serialization or store error) --
-// and before closing the batch channel, so the handler's single end-of-batch flush observes it and
-// clears the deadline. Omitting it on an error path leaves the armed deadline in place, which
-// eventually cuts even a healthy client at maxHold; releasing the slot without it is not enough,
-// because only the handler goroutine can clear the connection's deadline.
+// End marks the delivery finished so the next flush tears it down. Call it on every exit after
+// Begin -- a completed delivery AND an abandoned one (a serialization or store error), even one
+// that wrote nothing -- and before closing the batch channel, so the handler's single end-of-batch
+// flush observes it and clears the deadline. It is idempotent. When using defers, register the
+// batch-channel close before this one (defer close(out), then defer w.End()), so End runs first.
+// Omitting it on an error path leaves the armed deadline in place, which eventually cuts even a
+// healthy client; releasing the slot without it is not enough, because only the handler goroutine
+// can clear the connection's deadline.
 func (w *Writer) End() {
 	w.mu.Lock()
 	w.ending = true
@@ -176,8 +181,8 @@ func (w *Writer) End() {
 // has returned. Call it after Begin. It must be given the request's context, or another that is
 // cancelled when the client disconnects: a never-cancelled context would block the producer, and
 // its slot, until the delivery flushes, and a context cancelled while the handler is still live
-// (a shutdown or producer-error signal, say) would return early without ending the delivery --
-// use End for that.
+// (a shutdown or producer-error signal, say) would return early without ending the delivery,
+// leaving the missed-End failure described in the package comment -- use End for that.
 func (w *Writer) WaitAndFinish(ctx context.Context) {
 	w.mu.Lock()
 	done := w.done
@@ -248,20 +253,24 @@ func (w *Writer) WriteString(s string) (int, error) {
 
 // Flush flushes buffered bytes and, at the end-of-delivery flush (after End), clears the
 // deadline so later traffic on a persistent stream is not governed by it. The clear runs under
-// the lock and only for the delivery that was active when Flush was entered, so it cannot wipe
-// the deadline of a newer delivery that began in the meantime. Flush runs on the handler
-// goroutine, within the connection's lifetime. The teardown happens even if the underlying
-// writer cannot flush, so a non-flushing chain cannot strand the deadline or pin the slot.
+// the lock and only for the delivery that was active when Flush was entered -- the state is
+// sampled BEFORE flushing, so a delivery that begins during the flush is untouched, and a stale
+// flush cannot wipe a newer delivery's deadline. Flush runs on the handler goroutine, within
+// the connection's lifetime. The teardown is deferred, so it frees the slot and clears the
+// deadline even if the flush itself is unsupported, fails, or panics.
 func (w *Writer) Flush() {
 	w.mu.Lock()
 	active, ending, gen := w.active, w.ending, w.gen
 	w.mu.Unlock()
 
-	_ = w.rc.Flush() // best-effort; reaches the underlying Flusher through the Unwrap chain
-
-	if !(active && ending) {
-		return
+	if active && ending {
+		defer w.teardown(gen)
 	}
+	_ = w.rc.Flush() // best-effort; dispatches to the first Flusher in the Unwrap chain
+}
+
+// teardown ends the delivery identified by gen: it clears the deadline and releases the waiter.
+func (w *Writer) teardown(gen uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.gen != gen || !w.active {

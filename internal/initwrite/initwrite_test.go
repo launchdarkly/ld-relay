@@ -513,31 +513,158 @@ func TestEndThenFlushTearsDownAnyPartialDelivery(t *testing.T) {
 }
 
 func TestWaitAndFinishCancelAfterDeliveredDoesNotDoubleClose(t *testing.T) {
+	// After a clean delivery both select arms are ready, so which branch runs is a coin flip;
+	// loop so the ctx branch -- the only one that can double-close -- is certainly exercised.
+	for range 200 {
+		base := newDeadlineConn()
+		w, _ := wrapClocked(base, 2*time.Minute, true)
+		w.Begin()
+		_, err := w.Write(make([]byte, chunkSize))
+		require.NoError(t, err)
+		w.End()
+		w.Flush() // clean teardown already closed done
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		assert.NotPanics(t, func() { w.WaitAndFinish(ctx) })
+	}
+}
+
+func TestConcurrentAbandonedWaitersDoNotDoubleClose(t *testing.T) {
+	// Two waiters parked on the same open done, both released by cancellation: the ctx branch is
+	// the only ready arm for both, so both reach the close deterministically and the doneClosed
+	// guard is what stops the second from panicking.
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.WaitAndFinish(ctx)
+		}()
+	}
+	time.Sleep(20 * time.Millisecond) // let both park on the open done
+	cancel()
+
+	finished := make(chan struct{})
+	go func() { wg.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiters did not return")
+	}
+}
+
+func TestEndOfBatchFlushAfterClientGoneDoesNotDoubleClose(t *testing.T) {
 	base := newDeadlineConn()
 	w, _ := wrapClocked(base, 2*time.Minute, true)
 	w.Begin()
 	_, err := w.Write(make([]byte, chunkSize))
 	require.NoError(t, err)
 	w.End()
-	w.Flush() // clean teardown already closed done
 
-	// The client leaving after a clean delivery must not double-close done (the ctx branch's
-	// doneClosed guard).
+	// The client leaves after End but before the end-of-batch flush: WaitAndFinish's ctx branch
+	// closes done first, then the pending flush reaches the teardown on an already-closed
+	// channel. The teardown's own guard must keep that from double-closing (a panic here would
+	// land on the handler goroutine), and it must still clear the deadline.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	assert.NotPanics(t, func() { w.WaitAndFinish(ctx) })
+	w.WaitAndFinish(ctx)
+
+	assert.NotPanics(t, func() { w.Flush() })
+	armed := base.armed()
+	require.NotEmpty(t, armed)
+	assert.True(t, armed[len(armed)-1].IsZero(), "the flush teardown must still clear the deadline")
 }
 
-// zeroWriteConn is a contract-violating writer that always reports (0, nil); the chunk loop must
-// not spin on it.
+func TestFlushSamplesStateBeforeFlushing(t *testing.T) {
+	// The (active, ending) sample must be taken BEFORE the flush: a delivery that begins (and
+	// ends) while the flush is in progress -- the subscribe-time flush racing the producer --
+	// belongs to the NEXT flush. A sample taken afterwards would tear it down before its basis
+	// is written, freeing the slot and leaving the whole send deadline-less.
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	base.onFlush = func() {
+		base.onFlush = nil // once
+		w.Begin()
+		w.End()
+	}
+	w.Flush() // entered with no delivery active
+
+	assertOpen(t, w.Done(), "a delivery begun during the flush must not be torn down by it")
+	// The delivery is finished by the next flush, as usual.
+	w.Flush()
+	assertClosed(t, w.Done(), "the next flush finishes the delivery")
+}
+
+func TestConcurrentLifecycleIsRaceFree(t *testing.T) {
+	// Drives Begin/End/Flush/Done/WaitAndFinish/Write concurrently so the race detector pins the
+	// lock discipline (an unlocked read of done or the state fields fails under -race).
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			w.Begin()
+			_, _ = w.Write([]byte("data: x\n\n"))
+			w.End()
+			w.Flush()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			select {
+			case <-w.Done():
+			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		for range 200 {
+			w.WaitAndFinish(ctx)
+		}
+	}()
+	wg.Wait()
+}
+
+// zeroWriteConn is a contract-violating writer that always reports (0, nil) from both write
+// paths; the chunk loops must not spin on it.
 type zeroWriteConn struct{ *httptest.ResponseRecorder }
 
 func (zeroWriteConn) Write([]byte) (int, error)        { return 0, nil }
+func (zeroWriteConn) WriteString(string) (int, error)  { return 0, nil }
 func (zeroWriteConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestWriteZeroNilWriterReturnsShortWrite(t *testing.T) {
 	w := Wrap(zeroWriteConn{httptest.NewRecorder()}, 2*time.Minute)
-	n, err := w.Write(make([]byte, chunkSize))
+	var n int
+	var err error
+	// The timeout makes a removed guard fail the test rather than hang the binary.
+	runWithTimeout(t, "Write on a (0, nil) writer must return", func() {
+		n, err = w.Write(make([]byte, chunkSize))
+	})
+	assert.ErrorIs(t, err, io.ErrShortWrite)
+	assert.Zero(t, n)
+}
+
+func TestWriteStringZeroNilWriterReturnsShortWrite(t *testing.T) {
+	w := Wrap(zeroWriteConn{httptest.NewRecorder()}, 2*time.Minute)
+	var n int
+	var err error
+	runWithTimeout(t, "WriteString on a (0, nil) writer must return", func() {
+		n, err = w.WriteString(string(make([]byte, chunkSize)))
+	})
 	assert.ErrorIs(t, err, io.ErrShortWrite)
 	assert.Zero(t, n)
 }
@@ -587,6 +714,113 @@ func TestReBeginReleasesPriorWaiter(t *testing.T) {
 	w.Begin()
 	assertClosed(t, first, "prior Done after re-Begin")
 	assertOpen(t, w.Done(), "new delivery's Done")
+}
+
+func TestReBeginResetsEnding(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	w.End() // delivery 1 abandoned after End
+
+	// Delivery 2 must not inherit delivery 1's ending flag: the first flush after re-Begin would
+	// otherwise tear delivery 2 down before its basis is written.
+	w.Begin()
+	w.Flush()
+	assertOpen(t, w.Done(), "a flush right after re-Begin must not tear down the new delivery")
+}
+
+func TestReBeginResetsCapAnchor(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 30*time.Second, true)
+
+	w.Begin()
+	start1 := c.now()
+	_, err := w.Write(make([]byte, chunkSize)) // anchors delivery 1's cap at start1
+	require.NoError(t, err)
+	require.Equal(t, 21*time.Second, base.armed()[0].Sub(start1))
+	w.End()
+	w.Flush()
+
+	// Delivery 2 starts 25s later; its cap must be anchored to its own start, not delivery 1's
+	// (which would clamp it to start1+30s = 5s from now).
+	c.advance(25 * time.Second)
+	w.Begin()
+	start2 := c.now()
+	_, err = w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	armed := base.armed()
+	assert.Equal(t, 21*time.Second, armed[len(armed)-1].Sub(start2), "delivery 2's budget must use its own cap anchor")
+}
+
+func TestReBeginResetsDeadlineRatchet(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 2*time.Minute, true)
+
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize)) // arms start+21s
+	require.NoError(t, err)
+	w.End()
+	w.Flush()
+	armedBefore := len(base.armed()) // includes the clearing zero
+
+	// Delivery 2's small write computes a deadline (~slack) well below delivery 1's high-water
+	// mark; a ratchet that survived re-Begin would suppress it, leaving the write deadline-less.
+	w.Begin()
+	start2 := c.now()
+	_, err = w.Write(make([]byte, 4096))
+	require.NoError(t, err)
+	armed := base.armed()
+	require.Len(t, armed, armedBefore+1, "delivery 2's first write must arm despite delivery 1's higher deadline")
+	assert.Equal(t, slack+time.Duration(4096)*time.Second/time.Duration(minBytesPerSec), armed[len(armed)-1].Sub(start2))
+}
+
+func TestMaxHoldAnchoredToDeliveryStartNotPerWrite(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 30*time.Second, false)
+
+	start := c.now()
+	_, err := w.Write(make([]byte, chunkSize)) // arms start+21s
+	require.NoError(t, err)
+
+	// 25s into the delivery, another chunk's floor budget (now+21s = start+46s) exceeds the cap.
+	// The cap must clamp to the DELIVERY's start (start+30s); a per-write anchor (now+30s) would
+	// mean no absolute backstop at all.
+	c.advance(25 * time.Second)
+	_, err = w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	armed := base.armed()
+	require.Len(t, armed, 2)
+	assert.Equal(t, 30*time.Second, armed[1].Sub(start), "the cap must be anchored to the delivery start")
+}
+
+func TestMinExtensionSkipsTrivialReArms(t *testing.T) {
+	base := newDeadlineConn()
+	base.advancePerWrite = 50 * time.Millisecond // half of minExtension per chunk
+	w, c := wrapClocked(base, 5*time.Minute, false)
+
+	// Chunk 1 arms start+21s. Chunk 2's deadline is only 50ms later -- below minExtension, so it
+	// is skipped. Chunk 3's is 100ms later than the armed one -- at the threshold, so it arms.
+	start := c.now()
+	_, err := w.Write(make([]byte, 3*chunkSize))
+	require.NoError(t, err)
+	armed := base.armed()
+	require.Len(t, armed, 2, "sub-minExtension re-arms must be skipped")
+	assert.Equal(t, 21*time.Second, armed[0].Sub(start))
+	assert.Equal(t, 21*time.Second+100*time.Millisecond, armed[1].Sub(start))
+}
+
+func TestArmIsNoOpAfterDeliveryEnds(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	w.End()
+	w.Flush()
+	calls := base.calls()
+
+	// arm's own active check covers the window between a Write's activity check and the arm; an
+	// arm that slips through after teardown would put a stray deadline on a delivered stream.
+	w.arm(4096)
+	assert.Equal(t, calls, base.calls(), "arm after the delivery ended must not set a deadline")
 }
 
 func TestFlushDoesNotClearNewerDeliveryDeadline(t *testing.T) {
