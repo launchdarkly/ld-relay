@@ -4,8 +4,18 @@
 // minimum-throughput floor drives a per-write deadline, and an absolute cap bounds a single
 // delivery.
 //
-// A Writer must be constructed with Wrap or WrapGated; the zero value is not usable. Two shapes
-// are supported:
+// A Writer must be constructed with Wrap or WrapGated; the zero value is not usable.
+//
+// Connection ownership. Only the goroutine running the HTTP handler may set or clear the write
+// deadline, and it does so through this Writer: arming it before each write and clearing it at
+// the end-of-delivery flush. A write deadline is a capability scoped to the handler's lifetime
+// -- after the handler returns, the underlying connection may be recycled or, on HTTP/2, gone
+// entirely, so touching it then is unsafe. For a gated stream the producer goroutine that feeds
+// events can outlive the handler (the SSE server drains it once the client leaves), so it must
+// never touch the connection; it coordinates only through Begin/End/Done/WaitAndFinish. That
+// keeps every deadline call within the handler's lifetime.
+//
+// Two shapes are supported:
 //
 //   - Poll (Wrap): a request/response delivery. The deadline is armed on every write for the
 //     lifetime of the wrapper. net/http resets the connection's write deadline when the handler
@@ -14,13 +24,14 @@
 //     not reset between the initial delivery and later delta or heartbeat traffic. The deadline
 //     is armed only between Begin and the end-of-delivery flush, and is cleared there, so live
 //     traffic and idle periods carry no deadline. This matters on HTTP/2, where a lingering
-//     deadline is a self-firing timer that would reset an otherwise idle stream.
+//     deadline is a self-firing timer that would reset an otherwise idle stream. Begin, End,
+//     Done and WaitAndFinish apply only to this shape.
 //
 // A gated delivery ends in one of two ways. On a clean finish the producer calls End and the
-// end-of-delivery flush clears the deadline, leaving the now-idle stream alone. On an abnormal
-// end -- the client goes away, or the producer errors -- the producer calls Abort (directly, or
-// via WaitAndFinish on context cancellation), which forces any in-flight write to fail rather
-// than clearing the deadline and letting a stalled send run unbounded.
+// handler's end-of-delivery flush clears the deadline, leaving the now-idle stream alone. If the
+// client goes away first, WaitAndFinish returns on context cancellation without touching the
+// connection: the per-write deadline already armed bounds anything still in flight, and the
+// connection teardown clears it.
 //
 // A client sustaining at least the throughput floor per write keeps re-arming and is not cut
 // for being slow; one that stalls or drops below the floor on a write has its write fail, which
@@ -65,8 +76,8 @@ type Writer struct {
 	ending       bool
 	msgStart     time.Time
 	lastDeadline time.Time
-	// gen identifies the current gated delivery. Begin bumps it so a teardown (a flush or Abort)
-	// that observed an earlier delivery cannot clear the deadline of a newer one.
+	// gen identifies the current gated delivery. Begin bumps it so a teardown (the end-of-batch
+	// flush) that observed an earlier delivery cannot clear the deadline of a newer one.
 	gen uint64
 	// done is closed once the current gated delivery ends. It is never nil: outside a delivery
 	// it is a closed channel, so a producer waiting on it releases its slot immediately rather
@@ -81,8 +92,8 @@ func Wrap(w http.ResponseWriter, maxHold time.Duration) *Writer {
 	return newWriter(w, maxHold, true)
 }
 
-// WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and ends a
-// delivery either at the End-triggered flush (clearing the deadline) or via Abort.
+// WrapGated returns a Writer for a persistent stream: it arms nothing until Begin, and clears
+// the deadline at the End-triggered end-of-delivery flush.
 func WrapGated(w http.ResponseWriter, maxHold time.Duration) *Writer {
 	return newWriter(w, maxHold, false)
 }
@@ -141,37 +152,31 @@ func (w *Writer) End() {
 	w.mu.Unlock()
 }
 
-// Abort ends the current gated delivery abnormally. Unlike a clean finish -- where the
-// end-of-delivery flush clears the deadline so the now-idle stream is left alone -- Abort moves
-// the deadline to now, forcing any in-flight or subsequent write to fail at once. It is the
-// right call when a delivery is given up on (the client went away, or the producer errored): a
-// stalled send is torn down immediately rather than left running unbounded, and the Done waiter
-// is released so the budget slot frees. It is safe to call on any exit path, including while a
-// write is in flight, and more than once; it has no effect if no delivery is active.
-func (w *Writer) Abort() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.active {
-		w.active = false
-		w.ending = false
-		_ = w.rc.SetWriteDeadline(w.now()) // force any pending write to fail now
-	}
-	if !w.doneClosed {
-		close(w.done) // release the waiter only after the deadline is set
-		w.doneClosed = true
-	}
-}
-
 // WaitAndFinish holds until the current gated delivery's last byte has been flushed to the
-// client (Done closes, with the deadline already cleared by that flush) or ctx is done (the
-// client went away). On cancellation it aborts, so a stalled send cannot hold the slot or the
-// connection past the client's departure. The caller releases its budget slot once this
-// returns. Call it after Begin.
+// client (Done closes, the handler having cleared the deadline) or ctx is done (the client went
+// away). The caller releases its budget slot once this returns. It never touches the connection
+// -- on cancellation the already-armed per-write deadline bounds anything still in flight and the
+// connection teardown clears it -- so it is safe on the producer goroutine even after the handler
+// has returned. Call it after Begin. It must be given the request's context (or another that is
+// cancelled when the client disconnects); a never-cancelled context would block the producer,
+// and its slot, until the delivery flushes.
 func (w *Writer) WaitAndFinish(ctx context.Context) {
+	w.mu.Lock()
+	done := w.done
+	w.mu.Unlock()
+
 	select {
-	case <-w.Done():
+	case <-done:
+		// Delivered: the handler's end-of-delivery flush closed done and cleared the deadline.
 	case <-ctx.Done():
-		w.Abort()
+		// The client went away before the delivery finished. Release the waiter, but do not
+		// touch the connection: it belongs to the handler, which may already have returned.
+		w.mu.Lock()
+		if w.done == done && !w.doneClosed { // still this delivery, and not already closed
+			close(w.done)
+			w.doneClosed = true
+		}
+		w.mu.Unlock()
 	}
 }
 
@@ -226,7 +231,8 @@ func (w *Writer) WriteString(s string) (int, error) {
 // Flush flushes buffered bytes and, at the end-of-delivery flush (after End), clears the
 // deadline so later traffic on a persistent stream is not governed by it. The clear runs under
 // the lock and only for the delivery that was active when Flush was entered, so it cannot wipe
-// the deadline of a newer delivery that began in the meantime.
+// the deadline of a newer delivery that began in the meantime. Flush runs on the handler
+// goroutine, within the connection's lifetime.
 func (w *Writer) Flush() {
 	f, ok := w.ResponseWriter.(http.Flusher)
 	if !ok {
@@ -247,11 +253,11 @@ func (w *Writer) Flush() {
 		return // a newer delivery began, or this one was already ended
 	}
 	w.active = false
+	_ = w.rc.SetWriteDeadline(time.Time{})
 	if !w.doneClosed {
-		close(w.done) // the basis is fully written; let the producer release the slot
+		close(w.done) // release the producer only after the deadline is cleared
 		w.doneClosed = true
 	}
-	_ = w.rc.SetWriteDeadline(time.Time{})
 }
 
 func (w *Writer) isActive() bool {

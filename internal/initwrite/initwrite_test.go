@@ -50,7 +50,7 @@ type deadlineConn struct {
 	setCalls        int
 	flushes         int
 	written         int
-	failAfter       int // if >0, Write fails once this many bytes have been written
+	failAfter       int // if >0, a write fails once this many bytes have been written
 	clock           *fakeClock
 	advancePerWrite time.Duration
 	onFlush         func() // invoked inside Flush, to interleave a concurrent state change
@@ -70,29 +70,31 @@ func (d *deadlineConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (d *deadlineConn) Write(p []byte) (int, error) {
+func (d *deadlineConn) recordWrite(n int) (bool, int) {
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.events = append(d.events, "write")
 	if d.clock != nil && d.advancePerWrite > 0 {
 		d.clock.advance(d.advancePerWrite)
 	}
 	if d.failAfter > 0 && d.written >= d.failAfter {
-		d.mu.Unlock()
+		return true, 0
+	}
+	d.written += n
+	return false, n
+}
+
+func (d *deadlineConn) Write(p []byte) (int, error) {
+	if fail, _ := d.recordWrite(len(p)); fail {
 		return 0, io.ErrClosedPipe
 	}
-	d.written += len(p)
-	d.mu.Unlock()
 	return d.ResponseRecorder.Write(p)
 }
 
 func (d *deadlineConn) WriteString(s string) (int, error) {
-	d.mu.Lock()
-	d.events = append(d.events, "write")
-	if d.clock != nil && d.advancePerWrite > 0 {
-		d.clock.advance(d.advancePerWrite)
+	if fail, _ := d.recordWrite(len(s)); fail {
+		return 0, io.ErrClosedPipe
 	}
-	d.written += len(s)
-	d.mu.Unlock()
 	return d.ResponseRecorder.WriteString(s)
 }
 
@@ -179,6 +181,18 @@ func TestWriteArmsBeforeEachWrite(t *testing.T) {
 	assert.Equal(t, []string{"arm", "write", "arm", "write"}, base.eventLog())
 }
 
+func TestWriteStringArmsBeforeEachWrite(t *testing.T) {
+	// eventsource writes event data with io.WriteString, so the string path is the production
+	// path and must arm before each write just like the byte path.
+	base := newDeadlineConn()
+	base.advancePerWrite = minExtension
+	w, _ := wrapClocked(base, 5*time.Minute, false)
+
+	_, err := w.WriteString(string(make([]byte, 2*chunkSize)))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"arm", "write", "arm", "write"}, base.eventLog())
+}
+
 func TestWriteReArmsEachChunk(t *testing.T) {
 	base := newDeadlineConn()
 	base.advancePerWrite = minExtension
@@ -187,6 +201,17 @@ func TestWriteReArmsEachChunk(t *testing.T) {
 	_, err := w.Write(make([]byte, 3*chunkSize))
 	require.NoError(t, err)
 	assert.Len(t, base.armed(), 3, "expected one arm per 1 MiB chunk")
+}
+
+func TestWriteRatchetSuppressesSameValueReArm(t *testing.T) {
+	base := newDeadlineConn()
+	// No clock advance: every chunk computes the same deadline, so the ratchet should arm once
+	// and suppress the rest. (A removed ratchet would arm on every chunk.)
+	w, _ := wrapClocked(base, 5*time.Minute, false)
+
+	_, err := w.Write(make([]byte, 3*chunkSize))
+	require.NoError(t, err)
+	assert.Len(t, base.armed(), 1, "identical deadlines must not be re-armed")
 }
 
 func TestWriteCapsDeadlineAtMaxHold(t *testing.T) {
@@ -233,6 +258,36 @@ func TestWriteErrorPropagatesAndStops(t *testing.T) {
 	n, err := w.Write(make([]byte, 3*chunkSize))
 	assert.ErrorIs(t, err, io.ErrClosedPipe, "a failed write must propagate")
 	assert.Equal(t, chunkSize, n, "the count reflects only the bytes written before the failure")
+}
+
+func TestWriteStringErrorPropagatesAndStops(t *testing.T) {
+	base := newDeadlineConn()
+	base.failAfter = chunkSize
+	w := Wrap(base, 2*time.Minute)
+
+	n, err := w.WriteString(string(make([]byte, 3*chunkSize)))
+	assert.ErrorIs(t, err, io.ErrClosedPipe)
+	assert.Equal(t, chunkSize, n)
+}
+
+func TestWriteStringMatchesWrite(t *testing.T) {
+	payload := make([]byte, 3*chunkSize+777)
+
+	byteConn := newDeadlineConn()
+	byteConn.advancePerWrite = minExtension
+	bw, _ := wrapClocked(byteConn, 2*time.Minute, false)
+	nBytes, err := bw.Write(payload)
+	require.NoError(t, err)
+
+	strConn := newDeadlineConn()
+	strConn.advancePerWrite = minExtension
+	sw, _ := wrapClocked(strConn, 2*time.Minute, false)
+	nStr, err := sw.WriteString(string(payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, nBytes, nStr, "byte and string paths should write the same count")
+	assert.Len(t, strConn.armed(), len(byteConn.armed()), "both paths should arm the same number of deadlines")
+	assert.Equal(t, byteConn.Body.Bytes(), strConn.Body.Bytes(), "both paths should emit identical bytes")
 }
 
 func TestGatedArmsOnlyBetweenBeginAndEndFlush(t *testing.T) {
@@ -329,30 +384,6 @@ func TestDoneIsFailSafeClosedOutsideDelivery(t *testing.T) {
 	assertClosed(t, w.Done(), "Done after end-of-delivery flush")
 }
 
-func TestAbortForceFiresDeadlineNotClears(t *testing.T) {
-	base := newDeadlineConn()
-	w, c := wrapClocked(base, 2*time.Minute, true)
-	w.Begin()
-	_, err := w.Write(make([]byte, chunkSize))
-	require.NoError(t, err)
-	done := w.Done()
-
-	// Abort must move the deadline to now (forcing a stalled in-flight write to fail), NOT clear
-	// it -- clearing would leave the remaining send unbounded.
-	w.Abort()
-	armed := base.armed()
-	require.NotEmpty(t, armed)
-	last := armed[len(armed)-1]
-	assert.False(t, last.IsZero(), "Abort must not clear the deadline")
-	assert.Equal(t, c.now(), last, "Abort should force the deadline to now")
-	assertClosed(t, done, "Done after Abort")
-
-	// Inert afterwards.
-	_, err = w.Write(make([]byte, chunkSize))
-	require.NoError(t, err)
-	assert.Len(t, base.armed(), len(armed), "no arming after Abort")
-}
-
 func TestWaitAndFinishReturnsWhenDelivered(t *testing.T) {
 	base := newDeadlineConn()
 	w, _ := wrapClocked(base, 2*time.Minute, true)
@@ -363,26 +394,84 @@ func TestWaitAndFinishReturnsWhenDelivered(t *testing.T) {
 
 	go w.Flush() // the handler goroutine's end-of-batch flush closes Done
 
-	w.WaitAndFinish(context.Background())
+	runWithTimeout(t, "WaitAndFinish should return once delivered", func() {
+		w.WaitAndFinish(context.Background())
+	})
 	armed := base.armed()
 	require.NotEmpty(t, armed)
-	assert.True(t, armed[len(armed)-1].IsZero(), "a delivered stream should have its deadline cleared, not force-fired")
+	assert.True(t, armed[len(armed)-1].IsZero(), "a delivered stream should have its deadline cleared")
 }
 
-func TestWaitAndFinishAbortsOnCancel(t *testing.T) {
+func TestWaitAndFinishOnCancelReleasesWithoutTouchingConnection(t *testing.T) {
 	base := newDeadlineConn()
-	w, c := wrapClocked(base, 2*time.Minute, true)
+	w, _ := wrapClocked(base, 2*time.Minute, true)
 	w.Begin()
-	_, err := w.Write(make([]byte, chunkSize))
+	_, err := w.Write(make([]byte, chunkSize)) // arms once (setCalls == 1)
 	require.NoError(t, err)
+	require.Equal(t, 1, base.calls())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	w.WaitAndFinish(ctx) // client gone: must abort (force-fire), not hang
+	runWithTimeout(t, "WaitAndFinish should return on cancel", func() {
+		w.WaitAndFinish(ctx)
+	})
 
-	armed := base.armed()
-	require.NotEmpty(t, armed)
-	assert.Equal(t, c.now(), armed[len(armed)-1], "cancellation should force-fire the deadline")
+	// The cancel path must not touch the connection: no additional SetWriteDeadline, and the
+	// waiter is released so the slot frees.
+	assert.Equal(t, 1, base.calls(), "cancellation must not set the write deadline")
+	assertClosed(t, w.Done(), "Done after cancel")
+}
+
+// panicDeadlineConn panics if the write deadline is set, to prove the producer-side path never
+// touches the connection (which, after the handler returns, would crash inside net/http).
+type panicDeadlineConn struct{ *httptest.ResponseRecorder }
+
+func (panicDeadlineConn) SetWriteDeadline(time.Time) error {
+	panic("SetWriteDeadline must not be called from the producer path")
+}
+
+func TestWaitAndFinishNeverSetsDeadline(t *testing.T) {
+	base := panicDeadlineConn{httptest.NewRecorder()}
+	w := WrapGated(base, 2*time.Minute)
+	w.Begin() // no writes, so no legitimate handler-side arm
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.NotPanics(t, func() { w.WaitAndFinish(ctx) },
+		"WaitAndFinish must never set the connection deadline")
+}
+
+func TestWaitAndFinishAfterHandlerReturnDoesNotCrashHTTP2(t *testing.T) {
+	// Reproduce the producer-outlives-handler pattern on a real HTTP/2 connection: a goroutine
+	// holds the Writer and calls WaitAndFinish after the handler has returned and its context is
+	// cancelled. Touching the connection here nil-panics inside net/http and crashes the process;
+	// WaitAndFinish must not. (A panic in that goroutine would take the whole test binary down.)
+	finished := make(chan struct{})
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		w := WrapGated(rw, 2*time.Minute)
+		w.Begin()
+		_, _ = w.Write([]byte("data: hi\n\n"))
+		w.Flush()
+		go func() {
+			defer close(finished)
+			w.WaitAndFinish(r.Context()) // fires on ctx.Done after the handler returns
+		}()
+		// handler returns here, completing the stream and cancelling r.Context()
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL)
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("producer goroutine did not return")
+	}
 }
 
 func TestReBeginReleasesPriorWaiter(t *testing.T) {
@@ -420,6 +509,20 @@ func TestFlushDoesNotClearNewerDeliveryDeadline(t *testing.T) {
 	assert.False(t, last.IsZero(), "a stale flush must not clear the newer delivery's deadline")
 }
 
+func TestFlushAfterCompletionDoesNotPanic(t *testing.T) {
+	base := newDeadlineConn()
+	w := WrapGated(base, 2*time.Minute)
+	w.Begin()
+	_, err := w.Write([]byte("event: put\n\n"))
+	require.NoError(t, err)
+	w.End()
+	w.Flush() // clears and closes done
+
+	// A second flush of an already-completed delivery (the doneClosed guard) must not double-close.
+	assert.NotPanics(t, func() { w.Flush() })
+	assertClosed(t, w.Done(), "Done stays closed after a redundant flush")
+}
+
 func TestUnwrapReachesBase(t *testing.T) {
 	base := newDeadlineConn()
 	w := Wrap(base, time.Minute)
@@ -434,6 +537,20 @@ func TestEmptyWriteNoDeadline(t *testing.T) {
 	_, err := w.Write(nil)
 	require.NoError(t, err)
 	assert.Empty(t, base.armed(), "an empty write should not arm a deadline")
+}
+
+func runWithTimeout(t *testing.T, what string, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("%s: did not return within the timeout", what)
+	}
 }
 
 func assertClosed(t *testing.T, ch <-chan struct{}, what string) {
