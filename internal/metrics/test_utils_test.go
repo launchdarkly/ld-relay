@@ -24,7 +24,7 @@ import (
 const (
 	testMetricsRelayID = "test-metrics-relay-id"
 	userAgentValue     = "my-agent"
-	testEnvID          = "507f1f77bcf86cd79943902a"
+	testEnvID          = "test-env-id"
 )
 
 type testWithOTelParams struct {
