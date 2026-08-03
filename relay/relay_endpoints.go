@@ -36,6 +36,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 func getClientSideContextProperties(
@@ -321,12 +322,9 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	func() {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(payloadJSON)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
-	}()
+	traceWriteResponse(req, func() (int, error) {
+		return writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
+	})
 }
 
 // FDv2 client-side polling endpoint that evaluates flags against a context.
@@ -491,12 +489,9 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		return
 	}
 
-	func() {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(jsonData)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
-	}()
+	traceWriteResponse(req, func() (int, error) {
+		return writeCacheableJSONResponse(w, req, clientCtx.Env, jsonData, selector.State())
+	})
 }
 
 // PHP SDK polling endpoint for all flags: app.ld.com/sdk/flags
@@ -535,12 +530,9 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 		return respData, etag
 	}()
 
-	func() {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(respData)))
-		writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
-	}()
+	traceWriteResponse(req, func() (int, error) {
+		return writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
+	})
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
@@ -756,13 +748,11 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 		return data
 	}()
 
-	func() {
-		_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-		defer span.End()
-		span.SetAttributes(tracing.ResponseBytesKey.Int(len(result)))
+	traceWriteResponse(req, func() (int, error) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(result)
-	}()
+		_, err := w.Write(result)
+		return http.StatusOK, err
+	})
 }
 
 func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.DataKind) func(http.ResponseWriter, *http.Request) {
@@ -806,18 +796,46 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 			return
 		}
 
-		func() {
-			_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
-			defer span.End()
-			span.SetAttributes(tracing.ResponseBytesKey.Int(len(bytes)))
-			writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
-		}()
+		traceWriteResponse(req, func() (int, error) {
+			return writeCacheableJSONResponse(w, req, clientContext, bytes, strconv.Itoa(item.Version))
+		})
 	}
 }
 
+// traceWriteResponse runs a response write inside a relay.response.write span, recording the
+// status code that was sent and whatever the write itself reported.
+//
+// Recording the error matters: a write that fails once the header is out -- a client that
+// disconnected, a body that was truncated -- cannot change the status code the request span
+// reports, so this span is the only place such a failure surfaces.
+//
+// The span deliberately carries no byte count. relay.payload.bytes on the serialize span
+// reports what was built, and http.response.body.size on the request span reports what
+// actually went out; the latter is counted outside the compression middleware, which is the
+// only place the wire size is observable. A count taken here could only ever repeat the
+// payload size.
+//
+// Note also that the span measures the time to hand the payload to the ResponseWriter, not
+// time on the socket: a response small enough to fit net/http's output buffer is flushed after
+// the handler returns.
+func traceWriteResponse(req *http.Request, write func() (int, error)) {
+	_, span := tracing.Tracer().Start(req.Context(), tracing.SpanWriteResponse)
+	defer span.End()
+
+	status, err := write()
+	span.SetAttributes(semconv.HTTPResponseStatusCode(status))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+}
+
+// writeCacheableJSONResponse sends bytes as a JSON response with this environment's cache
+// headers, or an empty 304 when the caller's If-None-Match matches the current Etag. It
+// returns the status code that was sent and the error from writing the body, if any.
 func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, clientContext relayenv.EnvContext,
 	bytes []byte, etagValue string,
-) {
+) (int, error) {
 	ttl := clientContext.GetTTL()
 	if ttl > 0 {
 		w.Header().Set("Vary", "Authorization")
@@ -831,14 +849,15 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	etag := fmt.Sprintf("W/\"%s\"", etagValue)
 	if cachedEtag := req.Header.Get("If-None-Match"); cachedEtag == etag {
 		w.WriteHeader(http.StatusNotModified)
-		return
+		return http.StatusNotModified, nil
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
 
-	_, _ = w.Write(bytes)
+	_, err := w.Write(bytes)
+	return http.StatusOK, err
 }
 
 func serializeFlagsAsMap(coll []ldstoretypes.KeyedItemDescriptor) []byte {

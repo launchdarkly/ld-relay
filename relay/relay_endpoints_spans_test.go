@@ -17,6 +17,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -193,10 +194,16 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				require.True(t, ok, "serialize span is missing the payload bytes attribute")
 				assert.Positive(t, payloadBytes.AsInt64())
 
-				responseBytes, ok := writeAttrs[tracing.ResponseBytesKey]
-				require.True(t, ok, "write span is missing the response bytes attribute")
-				assert.Equal(t, payloadBytes.AsInt64(), responseBytes.AsInt64(),
-					"response bytes should equal the serialized payload size")
+				status, ok := writeAttrs[httpStatusCodeKey]
+				require.True(t, ok, "write span is missing the response status code attribute")
+				assert.Equal(t, int64(http.StatusOK), status.AsInt64())
+				assert.Equal(t, codes.Unset, write.Status().Code,
+					"a successful write should leave the span status unset")
+
+				// The write span carries no byte count of its own: what was built is on the
+				// serialize span, and what went out is on the request span.
+				_, hasResponseBytes := writeAttrs[attribute.Key("relay.response.bytes")]
+				assert.False(t, hasResponseBytes, "the write span should record no byte count")
 
 				if tc.countKey != "" {
 					count, ok := serializeAttrs[tc.countKey]
