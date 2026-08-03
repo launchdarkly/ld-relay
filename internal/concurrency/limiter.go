@@ -23,8 +23,9 @@ type Params struct {
 }
 
 // Stats is a point-in-time snapshot of a Limiter's counters for logging and metrics.
-// Held is exact; Waiting is derived from the occupancy counter and may transiently count
-// a caller whose slot handoff is in progress.
+// Held is exact. Waiting counts callers parked waiting for a slot; a caller being handed
+// a slot, or one whose cancellation has not yet been scheduled, may be counted for the
+// instant it takes its goroutine to run.
 type Stats struct {
 	Enabled       bool
 	MaxConcurrent int
@@ -46,15 +47,22 @@ type Limiter struct {
 	maxQueued int
 	// inFlight counts the callers occupying the budget: slot holders plus queued waiters,
 	// bounded by MaxConcurrent+MaxQueued. A caller reserves its unit once on entry and
-	// keeps it from queue to held to released, so handing a released slot to a parked
-	// waiter never leaves a moment where the waiter still counts against the queue while
-	// the slot is already spoken for. A separate queue counter has exactly that moment (it
-	// lasts until the woken goroutine is scheduled) and sheds an admissible caller on
-	// every slot turnover under burst load.
+	// keeps it from queue to held to released, so the queue-to-held HANDOFF never has a
+	// moment where the waiter still counts against the queue while the slot is already
+	// spoken for. (A separate queue counter has exactly that moment -- it lasts until the
+	// woken goroutine is scheduled -- and sheds an admissible caller on every slot
+	// turnover under burst load.) The cancellation path keeps a narrower version of the
+	// window: a cancelled waiter's reservation is returned when its goroutine next runs,
+	// so a doomed waiter can briefly occupy budget after its cancellation commits.
 	inFlight     atomic.Int64
 	maxOccupancy int64
-	shutdown     chan struct{}
-	closeOnce    sync.Once
+	// parked counts callers blocked waiting for a slot. It feeds Stats.Waiting only and
+	// plays no part in admission, so it cannot reintroduce turnover shedding; unlike a
+	// value derived from inFlight, it is bounded by the callers actually waiting rather
+	// than inflated by entrants mid-rejection.
+	parked    atomic.Int64
+	shutdown  chan struct{}
+	closeOnce sync.Once
 
 	admitted atomic.Int64
 	rejected atomic.Int64
@@ -125,13 +133,17 @@ func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 
 	// Every slot is held. Wait for one; the occupancy reservation above bounds how many
 	// callers may wait here.
+	l.parked.Add(1)
 	select {
 	case <-l.tokens:
+		l.parked.Add(-1)
 		return l.admit()
 	case <-ctx.Done():
+		l.parked.Add(-1)
 		l.inFlight.Add(-1)
 		return l.reject()
 	case <-l.shutdown:
+		l.parked.Add(-1)
 		l.inFlight.Add(-1)
 		return l.reject()
 	}
@@ -152,8 +164,8 @@ func (l *Limiter) admit() (func(), bool) {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			// Free the occupancy before returning the slot, so the queue capacity this
-			// release re-opens is visible to arrivals no later than the slot itself.
+			// Precautionary ordering: free the occupancy before returning the slot. The
+			// gap is a couple of instructions either way; no test can observe it.
 			l.inFlight.Add(-1)
 			l.tokens <- struct{}{}
 		})
@@ -167,9 +179,11 @@ func (l *Limiter) reject() (func(), bool) {
 
 // Close stops admissions: once it returns, callers entering Acquire are rejected, and
 // parked waiters are unblocked and rejected. A waiter handed a slot concurrently with
-// Close re-checks shutdown and returns the slot instead of keeping it; only an admission
-// that fully completed before shutdown landed keeps its slot. Releases of held slots
-// remain safe afterwards. It may be called more than once.
+// Close re-checks shutdown and returns the slot instead of keeping it; an admission
+// whose re-check ran before shutdown landed keeps its slot, so Held can still grow for
+// an instant after Close returns -- shutdown code must track its outstanding work rather
+// than treat Close as a drain barrier. Releases of held slots remain safe afterwards. It
+// may be called more than once.
 func (l *Limiter) Close() {
 	if !l.Enabled() {
 		return
@@ -182,14 +196,12 @@ func (l *Limiter) Stats() Stats {
 	if !l.Enabled() {
 		return Stats{Enabled: false}
 	}
-	held := cap(l.tokens) - len(l.tokens)
-	waiting := max(int(l.inFlight.Load())-held, 0)
 	return Stats{
 		Enabled:       true,
 		MaxConcurrent: cap(l.tokens),
 		MaxQueued:     l.maxQueued,
-		Held:          held,
-		Waiting:       waiting,
+		Held:          cap(l.tokens) - len(l.tokens),
+		Waiting:       int(l.parked.Load()),
 		Admitted:      l.admitted.Load(),
 		Rejected:      l.rejected.Load(),
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -119,36 +120,58 @@ func TestBacklogFullRejects(t *testing.T) {
 }
 
 func TestSlotTurnoverDoesNotShedExactFitLoad(t *testing.T) {
-	// The budget is MaxConcurrent+MaxQueued = 2 and there are never more than two live
-	// callers, so every rejection is spurious by construction. Each iteration hands the
-	// held slot to a parked waiter and immediately re-acquires: the vacated queue capacity
-	// must be available even while the woken waiter is still being scheduled. (A separate
-	// queued-callers counter fails here on most iterations, because the woken waiter keeps
-	// counting against the queue until it runs.)
+	// Each iteration hands the held slot to a parked waiter and immediately re-acquires:
+	// the vacated queue capacity must be available even while the woken waiter is still
+	// being scheduled. (A separate queued-callers counter fails here on most iterations,
+	// because the woken waiter keeps counting against the queue until it runs.)
+	//
+	// The oracle must account for stragglers: a spawned waiter from an earlier iteration
+	// can still be live (its slot stolen by main's fast path), legitimately filling the
+	// budget. A rejection is judged spurious only when the live spawned callers sampled
+	// before the acquire provably left room; otherwise main retries.
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
-	r, ok := l.Acquire(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	t.Cleanup(wg.Wait) // cleanups run LIFO: cancel first, then wait
+	t.Cleanup(cancel)
+
+	r, ok := l.Acquire(ctx)
 	if !ok {
 		t.Fatal("initial acquire")
 	}
-	var wg sync.WaitGroup
+	var live atomic.Int64 // spawned callers between entry and their release completing
 	for i := 0; i < 400; i++ {
 		wg.Add(1)
+		live.Add(1)
 		go func() {
 			defer wg.Done()
-			if r2, ok := l.Acquire(context.Background()); ok {
-				r2()
+			defer live.Add(-1)
+			for ctx.Err() == nil {
+				if r2, ok := l.Acquire(ctx); ok {
+					r2()
+					return
+				}
+				runtime.Gosched()
 			}
 		}()
 		waitForWaiting(t, l, 1)
 		r() // hand the slot to the waiter
+		liveBefore := live.Load()
 		var reacquired bool
-		r, reacquired = l.Acquire(context.Background())
+		r, reacquired = l.Acquire(ctx)
 		if !reacquired {
-			t.Fatalf("iteration %d: caller shed while the budget had room", i)
+			// Budget is 2 and this caller needs 1: with at most 1 live spawned caller,
+			// the budget provably had room, so the shed is spurious.
+			if liveBefore <= 1 {
+				t.Fatalf("iteration %d: caller shed while the budget had room (live=%d)", i, liveBefore)
+			}
+			for !reacquired { // stragglers filled the budget; retry once they drain
+				runtime.Gosched()
+				r, reacquired = l.Acquire(ctx)
+			}
 		}
 	}
 	r()
-	wg.Wait()
 }
 
 func TestCancelledWaitersFreeTheirQueueCapacity(t *testing.T) {
@@ -170,9 +193,9 @@ func TestCancelledWaitersFreeTheirQueueCapacity(t *testing.T) {
 		}
 	}
 	// Every cancellation must have returned its reservation while the slot is still held:
-	// leaked occupancy shows up directly as phantom waiters.
-	if s := l.Stats(); s.Waiting != 0 {
-		t.Fatalf("cancelled waiters leaked queue occupancy: %+v", s)
+	// only r1's occupancy unit may remain.
+	if got := l.inFlight.Load(); got != 1 {
+		t.Fatalf("cancelled waiters leaked occupancy: inFlight=%d, want 1", got)
 	}
 	// And the queue must still have its full capacity: a fresh waiter can park.
 	admitted := make(chan bool)
@@ -243,10 +266,77 @@ func TestCloseIsAnAdmissionBarrier(t *testing.T) {
 	}
 }
 
+func TestOverflowRejectionReturnsItsReservation(t *testing.T) {
+	// A caller rejected for overflow must back its reservation out. Without the back-out,
+	// every overflow rejection permanently erodes the budget by one unit until the limiter
+	// rejects everything forever -- the worst accounting failure the design can have.
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	r1, _ := l.Acquire(context.Background())
+	admitted := make(chan bool)
+	go func() {
+		r, ok := l.Acquire(context.Background())
+		if ok {
+			r()
+		}
+		admitted <- ok
+	}()
+	waitForWaiting(t, l, 1) // the queue is now full
+	if _, ok := l.Acquire(context.Background()); ok {
+		t.Fatal("expected an overflow rejection")
+	}
+	r1() // drain: the parked waiter is admitted and releases
+	if ok := <-admitted; !ok {
+		t.Fatal("parked waiter should have been admitted")
+	}
+	if got := l.inFlight.Load(); got != 0 {
+		t.Fatalf("overflow rejection leaked occupancy: inFlight=%d, want 0", got)
+	}
+	// Full capacity is intact: a holder plus a parked waiter fit again.
+	r2, ok := l.Acquire(context.Background())
+	if !ok {
+		t.Fatal("slot capacity eroded")
+	}
+	done := make(chan bool)
+	go func() {
+		r, ok := l.Acquire(context.Background())
+		if ok {
+			r()
+		}
+		done <- ok
+	}()
+	waitForWaiting(t, l, 1)
+	r2()
+	if ok := <-done; !ok {
+		t.Fatal("queue capacity eroded")
+	}
+}
+
+func TestNegativeMaxQueuedBehavesAsZero(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 2, MaxQueued: -5})
+	// Unclamped, a negative queue bound would poison the occupancy limit and reject
+	// callers while slots sit free.
+	r1, ok1 := l.Acquire(context.Background())
+	r2, ok2 := l.Acquire(context.Background())
+	if !ok1 || !ok2 {
+		t.Fatal("callers within MaxConcurrent must be admitted")
+	}
+	if _, ok := l.Acquire(context.Background()); ok {
+		t.Fatal("expected rejection with no queue capacity")
+	}
+	if s := l.Stats(); s.MaxQueued != 0 {
+		t.Fatalf("negative MaxQueued should normalize to 0: %+v", s)
+	}
+	r1()
+	r2()
+}
+
 func TestCloseBeatsARacingRelease(t *testing.T) {
 	// A slot released after Close must not be handed to a parked waiter: even when the
 	// waiter's slot arm wins the select, it re-checks shutdown, returns the slot, and is
-	// rejected. Loop because which select arm wins is random; every iteration must reject.
+	// rejected. Loop because which select arm wins is random; in most iterations the
+	// waiter commits to the shutdown arm before the release lands, so the re-check itself
+	// is only reliably exercised by TestSlotWonConcurrentlyWithCloseIsReturned -- that
+	// white-box test is the deterministic regression guard for it.
 	for i := 0; i < 100; i++ {
 		l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
 		r, _ := l.Acquire(context.Background())
@@ -307,9 +397,10 @@ func TestCloseUnblocksWaiters(t *testing.T) {
 			t.Fatal("waiter not unblocked by Close")
 		}
 	}
-	// The unblocked waiters must have returned their occupancy reservations.
-	if s := l.Stats(); s.Waiting != 0 {
-		t.Fatalf("waiters unblocked by Close leaked queue occupancy: %+v", s)
+	// The unblocked waiters must have returned their occupancy reservations; only r1's
+	// unit may remain.
+	if got := l.inFlight.Load(); got != 1 {
+		t.Fatalf("waiters unblocked by Close leaked occupancy: inFlight=%d, want 1", got)
 	}
 	r1()      // releasing a held slot after Close must not panic or block
 	l.Close() // idempotent

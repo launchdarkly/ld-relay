@@ -148,17 +148,20 @@ type Config struct {
 
 // ConcurrencyConfig corresponds to the [Concurrency] section in the configuration file.
 //
-// It limits how many SDK initialization deliveries the Relay Proxy performs at the same
-// time, covering both polling and streaming. This caps the memory and egress that a burst
-// of connecting SDKs can consume. The limit is disabled unless MaxConcurrent is set.
+// It configures a limit on how many SDK initialization deliveries the Relay Proxy may
+// perform at the same time, covering both polling and streaming, to cap the memory and
+// egress that a burst of connecting SDKs can consume. The limit is disabled unless
+// MaxConcurrent is set. The code that wires the limiter into the endpoints consumes this
+// section; until that lands, setting it changes nothing.
 type ConcurrencyConfig struct {
 	// MaxConcurrent is the maximum number of initialization deliveries allowed in flight
 	// at once. A value of 0 or less disables the limit.
 	MaxConcurrent ct.OptInt `conf:"INIT_MAX_CONCURRENT"`
 
 	// MaxQueued is the maximum number of clients that may wait for a slot once
-	// MaxConcurrent is reached. A value of 0 rejects excess clients immediately instead
-	// of queueing them.
+	// MaxConcurrent is reached. A value of 0 adds no waiting capacity: an excess client
+	// is rejected rather than queued, though one arriving just as a slot is released may
+	// briefly wait to take it.
 	MaxQueued ct.OptInt `conf:"INIT_MAX_QUEUED"`
 
 	// SendTimeout is the longest a single initialization delivery may hold a concurrency
