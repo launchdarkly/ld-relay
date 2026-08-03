@@ -39,9 +39,12 @@
 //     -- even an exit that wrote nothing, since the delivery stays active and a later heartbeat
 //     write would arm a deadline that then fires with nothing left to finish it. Skipping End is
 //     a bug: the deadline is never cleared, and the healthy stream is killed anyway -- on
-//     HTTP/1.1 when the absolute cap expires, and on HTTP/2 within a few seconds (the write
-//     slack) of the last write, because a deadline there is a self-firing timer. Disabling the
-//     cap does not avoid this; it only removes the later of the two bounds.
+//     HTTP/1.1 at the first write after the absolute cap expires, and on HTTP/2 within a few
+//     seconds (the write slack) of the last write, because a deadline there is a self-firing
+//     timer. (A heartbeat interval shorter than the slack keeps postponing the HTTP/2 fire, so
+//     the bug can be invisible under fast test heartbeats yet fatal at a production interval.)
+//     Disabling the cap does not make the omission safe: HTTP/2 still dies on the slack timer,
+//     while on HTTP/1.1 nothing fires at all and the budget slot is pinned permanently instead.
 //   - Client goes away first: WaitAndFinish returns on context cancellation without touching the
 //     connection; the per-write deadline already armed bounds anything still in flight, and the
 //     connection teardown clears it.
@@ -187,7 +190,12 @@ func (w *Writer) WaitAndFinish(ctx context.Context) {
 	w.mu.Lock()
 	done := w.done
 	w.mu.Unlock()
+	w.waitAndFinish(ctx, done)
+}
 
+// waitAndFinish is WaitAndFinish after the channel capture, split out so a test can drive the
+// cancellation branch with a stale captured channel.
+func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) {
 	select {
 	case <-done:
 		// Delivered: the handler's end-of-delivery flush closed done and cleared the deadline.
@@ -277,13 +285,16 @@ func (w *Writer) teardown(gen uint64) {
 		return // a newer delivery began, or this one was already ended
 	}
 	w.active = false
+	// The close is deferred so the waiter is released even if the deadline clear panics. The
+	// doneClosed guard keeps this from double-closing when WaitAndFinish's ctx branch closed
+	// done first (the client left as the delivery completed).
+	defer func() {
+		if !w.doneClosed {
+			close(w.done)
+			w.doneClosed = true
+		}
+	}()
 	_ = w.rc.SetWriteDeadline(time.Time{})
-	if !w.doneClosed {
-		// WaitAndFinish's ctx branch may have closed done first (the client left as the delivery
-		// completed); the guard keeps this from double-closing.
-		close(w.done)
-		w.doneClosed = true
-	}
 }
 
 func (w *Writer) isActive() bool {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -101,6 +102,7 @@ func (d *deadlineConn) WriteString(s string) (int, error) {
 
 func (d *deadlineConn) Flush() {
 	d.mu.Lock()
+	d.events = append(d.events, "flush")
 	d.flushes++
 	hook := d.onFlush
 	d.mu.Unlock()
@@ -601,9 +603,90 @@ func TestFlushSamplesStateBeforeFlushing(t *testing.T) {
 	assertClosed(t, w.Done(), "the next flush finishes the delivery")
 }
 
+func TestFlushPanicStillTearsDown(t *testing.T) {
+	base := &noFlushConn{}
+	w := WrapGated(panicFlushConn{base}, 2*time.Minute)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize)) // arms
+	require.NoError(t, err)
+	w.End()
+
+	// The teardown is deferred precisely so a panicking flush cannot strand the delivery: the
+	// deadline must be cleared and the waiter released during unwinding, and the panic must
+	// still propagate (net/http's per-connection recovery handles it in production).
+	assert.Panics(t, func() { w.Flush() }, "the flush panic must propagate")
+	require.NotEmpty(t, base.deadlines)
+	assert.True(t, base.deadlines[len(base.deadlines)-1].IsZero(), "teardown must clear the deadline during unwinding")
+	assertClosed(t, w.Done(), "teardown must release the waiter during unwinding")
+}
+
+func TestEndOfDeliveryClearRunsAfterFinalFlush(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	w.End()
+	w.Flush()
+
+	// The final flush is the syscall pushing the delivery's last bytes; it must still run under
+	// the armed deadline, with the clear strictly after it. Clearing first would let a stalled
+	// client block the handler in that flush with no bound.
+	assert.Equal(t, []string{"arm", "write", "flush", "arm"}, base.eventLog(),
+		"the clearing SetWriteDeadline must come after the final flush")
+	armed := base.armed()
+	assert.True(t, armed[len(armed)-1].IsZero())
+}
+
+func TestStaleWaitDoesNotReleaseNewerDelivery(t *testing.T) {
+	base := newDeadlineConn()
+	w := WrapGated(base, time.Minute)
+	w.Begin()
+	stale := w.Done() // delivery 1's channel
+	w.Begin()         // delivery 2 begins; delivery 1's channel is closed here
+
+	// Drive the cancellation branch with the stale capture repeatedly (which select arm runs is
+	// random, since both are ready): the identity guard must keep a stale waiter from closing
+	// delivery 2's done and releasing its slot early.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 200 {
+		w.waitAndFinish(ctx, stale)
+	}
+	assertOpen(t, w.Done(), "a stale waiter must not release the newer delivery")
+}
+
+func TestProducerHandlerSplitIsRaceFree(t *testing.T) {
+	// The real shape: the producer goroutine drives Begin/End/WaitAndFinish while the handler
+	// goroutine drives Write/Flush. Under -race this pins the lock discipline on the state
+	// fields that Flush samples and Begin/End mutate (a single-goroutine lifecycle test cannot).
+	w := WrapGated(&syncConn{}, 2*time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { // producer
+		defer wg.Done()
+		for range 300 {
+			w.Begin()
+			w.End()
+			w.WaitAndFinish(ctx)
+		}
+	}()
+	go func() { // handler
+		defer wg.Done()
+		for range 300 {
+			_, _ = w.Write([]byte("data: x\n\n"))
+			w.Flush()
+		}
+	}()
+	wg.Wait()
+}
+
 func TestConcurrentLifecycleIsRaceFree(t *testing.T) {
-	// Drives Begin/End/Flush/Done/WaitAndFinish/Write concurrently so the race detector pins the
-	// lock discipline (an unlocked read of done or the state fields fails under -race).
+	// Drives Done/WaitAndFinish concurrently against a Begin/End/Flush loop so the race detector
+	// pins the lock discipline on the done channel. (The write-path split lives in
+	// TestProducerHandlerSplitIsRaceFree, which runs Flush and Begin/End on different goroutines.)
 	base := newDeadlineConn()
 	w, _ := wrapClocked(base, 2*time.Minute, true)
 
@@ -670,6 +753,32 @@ func TestWriteStringZeroNilWriterReturnsShortWrite(t *testing.T) {
 }
 
 // noFlushConn is a minimal ResponseWriter that records deadlines but cannot flush.
+// panicFlushConn is a noFlushConn whose Flush panics, to prove the teardown still runs during
+// unwinding.
+type panicFlushConn struct{ *noFlushConn }
+
+func (panicFlushConn) Flush() { panic("flush exploded") }
+
+// syncConn is a minimal ResponseWriter whose every method is safe for concurrent use, so
+// producer/handler-split race tests exercise the Writer's own locking rather than the fake's.
+type syncConn struct {
+	mu  sync.Mutex
+	hdr http.Header
+}
+
+func (c *syncConn) Header() http.Header {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hdr == nil {
+		c.hdr = http.Header{}
+	}
+	return c.hdr
+}
+func (c *syncConn) Write(p []byte) (int, error)      { return len(p), nil }
+func (c *syncConn) WriteHeader(int)                  {}
+func (c *syncConn) SetWriteDeadline(time.Time) error { return nil }
+func (c *syncConn) Flush()                           {}
+
 type noFlushConn struct {
 	hdr       http.Header
 	deadlines []time.Time
@@ -882,8 +991,14 @@ func TestPollWrapDeadlineDoesNotLingerOntoNextKeepAliveRequest(t *testing.T) {
 	require.Zero(t, srv.Config.WriteTimeout, "test assumes no server WriteTimeout, matching relay")
 
 	client := srv.Client() // keep-alive transport, reuses the connection
+	var reused atomic.Bool
 	get := func() (string, error) {
-		resp, err := client.Get(srv.URL)
+		req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+		if err != nil {
+			return "", err
+		}
+		trace := &httptrace.ClientTrace{GotConn: func(ci httptrace.GotConnInfo) { reused.Store(ci.Reused) }}
+		resp, err := client.Do(req.WithContext(httptrace.WithClientTrace(req.Context(), trace)))
 		if err != nil {
 			return "", err
 		}
@@ -900,6 +1015,10 @@ func TestPollWrapDeadlineDoesNotLingerOntoNextKeepAliveRequest(t *testing.T) {
 	b, err = get()
 	require.NoError(t, err, "armed deadline lingered onto the reused connection")
 	assert.Equal(t, "resp-2", b)
+	// The reuse assertion is what gives this test teeth: if the deadline lingered and killed
+	// the pooled connection, the transport would silently retry the idempotent GET on a fresh
+	// connection and the body assertions above would still pass.
+	assert.True(t, reused.Load(), "request 2 must run on the SAME keep-alive connection")
 }
 
 func TestUnwrapReachesBase(t *testing.T) {
