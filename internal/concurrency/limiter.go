@@ -23,9 +23,13 @@ type Params struct {
 }
 
 // Stats is a point-in-time snapshot of a Limiter's counters for logging and metrics.
-// Held is exact. Waiting counts callers parked waiting for a slot; a caller being handed
-// a slot, or one whose cancellation has not yet been scheduled, may be counted for the
-// instant it takes its goroutine to run.
+// Waiting counts callers parked waiting for a slot. It is bounded by
+// MaxConcurrent+MaxQueued rather than MaxQueued alone, because a caller arriving as a
+// slot is released may briefly park without using queue capacity; a caller being handed
+// a slot, or one whose cancellation or shutdown wake-up has not yet been scheduled, may
+// be counted for the instant it takes its goroutine to run. Held and Waiting are sampled
+// independently, so their sum can transiently exceed the budget; neither is a basis for
+// exact accounting.
 type Stats struct {
 	Enabled       bool
 	MaxConcurrent int
@@ -51,9 +55,10 @@ type Limiter struct {
 	// moment where the waiter still counts against the queue while the slot is already
 	// spoken for. (A separate queue counter has exactly that moment -- it lasts until the
 	// woken goroutine is scheduled -- and sheds an admissible caller on every slot
-	// turnover under burst load.) The cancellation path keeps a narrower version of the
-	// window: a cancelled waiter's reservation is returned when its goroutine next runs,
-	// so a doomed waiter can briefly occupy budget after its cancellation commits.
+	// turnover under burst load.) The cancellation path keeps a rarer -- though not
+	// shorter -- version of the window: a cancelled waiter's reservation is returned when
+	// its goroutine next runs, so a doomed waiter can occupy budget for a scheduling
+	// delay after its cancellation commits.
 	inFlight     atomic.Int64
 	maxOccupancy int64
 	// parked counts callers blocked waiting for a slot. It feeds Stats.Waiting only and

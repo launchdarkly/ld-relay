@@ -9,10 +9,9 @@ import (
 	"time"
 )
 
-// waitForWaiting polls until Stats reports n waiting callers. The count is a reservation
-// made on entering the queued path, so this establishes that the callers have committed to
-// waiting (they reach the select moments later); it is not a strict parked-at-the-select
-// barrier.
+// waitForWaiting polls until Stats reports n waiting callers. The count is incremented one
+// statement before the caller parks at its select, so this establishes the callers are at
+// (or an instant from) the select; it is not a strict parked-at-the-select barrier.
 func waitForWaiting(t *testing.T, l *Limiter, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -165,7 +164,14 @@ func TestSlotTurnoverDoesNotShedExactFitLoad(t *testing.T) {
 			if liveBefore <= 1 {
 				t.Fatalf("iteration %d: caller shed while the budget had room (live=%d)", i, liveBefore)
 			}
-			for !reacquired { // stragglers filled the budget; retry once they drain
+			// Stragglers filled the budget; retry once they drain. Healthy code needs at
+			// most a handful of rounds, so a bounded deadline turns an accounting
+			// regression into a fast failure rather than a package-timeout hang.
+			deadline := time.Now().Add(5 * time.Second)
+			for !reacquired {
+				if time.Now().After(deadline) {
+					t.Fatalf("iteration %d: could not re-acquire within 5s; budget eroded?", i)
+				}
 				runtime.Gosched()
 				r, reacquired = l.Acquire(ctx)
 			}
@@ -192,10 +198,14 @@ func TestCancelledWaitersFreeTheirQueueCapacity(t *testing.T) {
 			t.Fatal("cancelled waiter should have been rejected")
 		}
 	}
-	// Every cancellation must have returned its reservation while the slot is still held:
-	// only r1's occupancy unit may remain.
+	// Every cancellation must have returned its reservation while the slot is still held
+	// (only r1's occupancy unit may remain) AND its parked count -- a leaked parked count
+	// inflates Stats.Waiting forever, one per disconnected queued client.
 	if got := l.inFlight.Load(); got != 1 {
 		t.Fatalf("cancelled waiters leaked occupancy: inFlight=%d, want 1", got)
+	}
+	if s := l.Stats(); s.Waiting != 0 {
+		t.Fatalf("cancelled waiters leaked the parked count: %+v", s)
 	}
 	// And the queue must still have its full capacity: a fresh waiter can park.
 	admitted := make(chan bool)
@@ -368,9 +378,24 @@ func TestSlotWonConcurrentlyWithCloseIsReturned(t *testing.T) {
 	if free := len(l.tokens); free != 1 {
 		t.Fatalf("the slot was not returned: %d free", free)
 	}
+	if got := l.inFlight.Load(); got != 0 {
+		t.Fatalf("the rejected admission leaked occupancy: inFlight=%d, want 0", got)
+	}
 	if s := l.Stats(); s.Held != 0 || s.Waiting != 0 || s.Rejected != 1 {
 		t.Fatalf("occupancy not released or rejection not counted: %+v", s)
 	}
+}
+
+func TestWaitingReportsParkedCallersNotOccupancy(t *testing.T) {
+	// Waiting must come from the parked counter, not be derived from occupancy: a
+	// reservation mid-admission or mid-rejection is not a waiting caller, and deriving
+	// from occupancy is what let Waiting read far beyond the queue bound.
+	l := New("t", Params{MaxConcurrent: 2, MaxQueued: 2})
+	l.inFlight.Add(1) // occupancy without a parked caller
+	if s := l.Stats(); s.Waiting != 0 {
+		t.Fatalf("occupancy alone must not report as Waiting: %+v", s)
+	}
+	l.inFlight.Add(-1)
 }
 
 func TestCloseUnblocksWaiters(t *testing.T) {
@@ -397,10 +422,13 @@ func TestCloseUnblocksWaiters(t *testing.T) {
 			t.Fatal("waiter not unblocked by Close")
 		}
 	}
-	// The unblocked waiters must have returned their occupancy reservations; only r1's
-	// unit may remain.
+	// The unblocked waiters must have returned their occupancy reservations (only r1's
+	// unit may remain) and their parked counts.
 	if got := l.inFlight.Load(); got != 1 {
 		t.Fatalf("waiters unblocked by Close leaked occupancy: inFlight=%d, want 1", got)
+	}
+	if s := l.Stats(); s.Waiting != 0 {
+		t.Fatalf("waiters unblocked by Close leaked the parked count: %+v", s)
 	}
 	r1()      // releasing a held slot after Close must not panic or block
 	l.Close() // idempotent
