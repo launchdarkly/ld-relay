@@ -2,10 +2,24 @@ package concurrency
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 )
+
+// waitForWaiting polls until the limiter reports the given queue depth, so tests can
+// establish "a caller is parked" without a fixed sleep.
+func waitForWaiting(t *testing.T, l *Limiter, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for l.Stats().Waiting != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for Waiting==%d (stats: %+v)", n, l.Stats())
+		}
+		runtime.Gosched()
+	}
+}
 
 func TestDisabledLimiterAlwaysAdmits(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 0})
@@ -28,6 +42,10 @@ func TestNilLimiterAdmits(t *testing.T) {
 		t.Fatal("nil limiter must admit")
 	}
 	release()
+	if l.Name() != "" {
+		t.Fatal("nil limiter Name should be empty")
+	}
+	l.Close() // must not panic
 }
 
 func TestRejectWhenNoBacklog(t *testing.T) {
@@ -62,8 +80,7 @@ func TestQueueThenAdmitOnRelease(t *testing.T) {
 			r2()
 		}
 	}()
-	// Give the goroutine time to enter the backlog.
-	time.Sleep(50 * time.Millisecond)
+	waitForWaiting(t, l, 1)
 	select {
 	case <-admitted:
 		t.Fatal("queued caller admitted before release")
@@ -80,11 +97,52 @@ func TestQueueThenAdmitOnRelease(t *testing.T) {
 func TestBacklogFullRejects(t *testing.T) {
 	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
 	r1, _ := l.Acquire(context.Background()) // holds the only token
-	defer r1()
-	go l.Acquire(context.Background()) // fills the single backlog slot
-	time.Sleep(50 * time.Millisecond)
+	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if r, ok := l.Acquire(waiterCtx); ok { // fills the single backlog slot
+			r()
+		}
+	}()
+	waitForWaiting(t, l, 1)
 	if _, ok := l.Acquire(context.Background()); ok {
 		t.Fatal("expected rejection when backlog is full")
+	}
+	// Unwind without leaking the waiter or its token.
+	cancelWaiter()
+	wg.Wait()
+	r1()
+}
+
+func TestWaitingCountsOnlyParkedCallers(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	r1, _ := l.Acquire(context.Background())
+	admitted := make(chan func())
+	go func() {
+		if r, ok := l.Acquire(context.Background()); ok {
+			admitted <- r
+		}
+	}()
+	waitForWaiting(t, l, 1)
+	r1() // hand the slot to the waiter
+	r2 := <-admitted
+	// An admitted caller must no longer count against the queue bound: with the single
+	// backlog slot logically empty, a new caller must be able to queue rather than be shed.
+	waitForWaiting(t, l, 0)
+	queued := make(chan bool)
+	go func() {
+		r, ok := l.Acquire(context.Background())
+		if ok {
+			r()
+		}
+		queued <- ok
+	}()
+	waitForWaiting(t, l, 1)
+	r2()
+	if ok := <-queued; !ok {
+		t.Fatal("caller was shed while the queue was logically empty")
 	}
 }
 
@@ -98,7 +156,8 @@ func TestContextCancelUnblocksWaiter(t *testing.T) {
 		_, ok := l.Acquire(ctx)
 		done <- ok
 	}()
-	time.Sleep(50 * time.Millisecond)
+	waitForWaiting(t, l, 1)
+	before := l.Stats().Rejected
 	cancel()
 	select {
 	case ok := <-done:
@@ -108,6 +167,62 @@ func TestContextCancelUnblocksWaiter(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("waiter not unblocked by context cancel")
 	}
+	if got := l.Stats().Rejected; got != before+1 {
+		t.Fatalf("cancelled waiter must count as rejected: before=%d after=%d", before, got)
+	}
+}
+
+func TestAlreadyCancelledContextIsRejected(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// Even with a slot free, an abandoned request must not consume it.
+	if _, ok := l.Acquire(ctx); ok {
+		t.Fatal("an already-cancelled request must be rejected")
+	}
+	if s := l.Stats(); s.Held != 0 || s.Rejected != 1 {
+		t.Fatalf("unexpected stats: %+v", s)
+	}
+}
+
+func TestCloseIsAnAdmissionBarrier(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 2, MaxQueued: 2})
+	l.Close()
+	// All slots are free, but a closed limiter must not admit new work.
+	for i := 0; i < 4; i++ {
+		if _, ok := l.Acquire(context.Background()); ok {
+			t.Fatal("Acquire after Close must be rejected")
+		}
+	}
+	if s := l.Stats(); s.Rejected != 4 || s.Admitted != 0 {
+		t.Fatalf("unexpected stats: %+v", s)
+	}
+}
+
+func TestCloseUnblocksWaiters(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 4})
+	r1, _ := l.Acquire(context.Background())
+	results := make(chan bool, 3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			_, ok := l.Acquire(context.Background())
+			results <- ok
+		}()
+	}
+	waitForWaiting(t, l, 3)
+	l.Close()
+	for i := 0; i < 3; i++ {
+		select {
+		case ok := <-results:
+			if ok {
+				t.Fatal("waiter admitted by Close")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("waiter not unblocked by Close")
+		}
+	}
+	r1()      // releasing a held slot after Close must not panic or block
+	l.Close() // idempotent
 }
 
 func TestReleaseIsIdempotent(t *testing.T) {
@@ -124,6 +239,39 @@ func TestReleaseIsIdempotent(t *testing.T) {
 		t.Fatal("double release leaked a token")
 	}
 	r1()
+}
+
+func TestStatsSnapshot(t *testing.T) {
+	l := New("gate", Params{MaxConcurrent: 2, MaxQueued: 3})
+	if l.Name() != "gate" {
+		t.Fatalf("unexpected name %q", l.Name())
+	}
+	r1, _ := l.Acquire(context.Background())
+	r2, _ := l.Acquire(context.Background())
+	unblocked := make(chan struct{})
+	go func() {
+		defer close(unblocked)
+		if r, ok := l.Acquire(context.Background()); ok {
+			r()
+		}
+	}()
+	waitForWaiting(t, l, 1)
+
+	s := l.Stats()
+	if !s.Enabled || s.MaxConcurrent != 2 || s.MaxQueued != 3 || s.Held != 2 || s.Waiting != 1 || s.Admitted != 2 {
+		t.Fatalf("unexpected stats: %+v", s)
+	}
+	l.Close() // unblock the waiter
+	<-unblocked
+	r1()
+	r2()
+	if s := l.Stats(); s.Held != 0 {
+		t.Fatalf("expected all slots free after release: %+v", s)
+	}
+
+	if ds := (&Limiter{}).Stats(); ds.Enabled {
+		t.Fatal("disabled limiter must report Enabled=false")
+	}
 }
 
 func TestConcurrentAcquireBoundsHeld(t *testing.T) {

@@ -1,7 +1,7 @@
 // Package concurrency provides an admission limiter that bounds how much concurrent
 // work a burst of requests or connections can impose on Relay. It uses two limits: a
-// maximum number of slots held at once, and a bounded FIFO queue of callers waiting for
-// a slot.
+// maximum number of slots held at once, and a bounded queue of callers waiting for a
+// slot in approximate arrival order.
 package concurrency
 
 import (
@@ -15,8 +15,9 @@ import (
 type Params struct {
 	// MaxConcurrent is the number of slots that may be held at once.
 	MaxConcurrent int
-	// MaxQueued is the number of callers that may wait in FIFO order for a slot once all
-	// slots are held. A value of 0 rejects callers immediately instead of waiting.
+	// MaxQueued is the number of callers that may wait for a slot once all slots are
+	// held. Waiters are served in approximate arrival order. A value of 0 rejects
+	// callers immediately instead of waiting.
 	MaxQueued int
 }
 
@@ -32,14 +33,15 @@ type Stats struct {
 }
 
 // Limiter bounds concurrency with two limits: a maximum number of slots held at once and
-// a bounded FIFO queue of waiters. The zero value is not usable; construct one with New.
+// a bounded queue of waiters served in approximate arrival order. The zero value is not
+// usable; construct one with New.
 type Limiter struct {
 	name    string
 	enabled bool
 
 	tokens    chan struct{} // holds the free slots; receive to acquire one, send to release one
 	maxQueued int64
-	waiting   int64
+	waiting   atomic.Int64
 	shutdown  chan struct{}
 	closeOnce sync.Once
 
@@ -63,19 +65,36 @@ func New(name string, p Params) *Limiter {
 	return l
 }
 
-// Name returns the limiter's identifier.
-func (l *Limiter) Name() string { return l.name }
+// Name returns the limiter's identifier, or an empty string for a nil limiter.
+func (l *Limiter) Name() string {
+	if l == nil {
+		return ""
+	}
+	return l.name
+}
 
 // Enabled reports whether the limiter is enforcing a limit.
 func (l *Limiter) Enabled() bool { return l != nil && l.enabled }
 
 // Acquire attempts to admit one unit of work. On success it returns a release function,
 // which the caller must call exactly once, and ok is true. It returns a no-op release and
-// ok=false if the queue is full, ctx is cancelled, or the limiter is shut down. A disabled
-// or nil limiter always admits immediately.
+// ok=false if the queue is full, ctx is already cancelled or becomes cancelled while
+// waiting, or the limiter is shut down. A disabled or nil limiter always admits
+// immediately.
 func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 	if !l.Enabled() {
 		return func() {}, true
+	}
+
+	// Refuse work that arrives after shutdown or is already abandoned, even when a slot
+	// is free: Close is an admission barrier, and a dead request would only waste the slot.
+	select {
+	case <-l.shutdown:
+		return l.reject()
+	default:
+	}
+	if ctx.Err() != nil {
+		return l.reject()
 	}
 
 	// Take a free slot if one is available.
@@ -86,22 +105,23 @@ func (l *Limiter) Acquire(ctx context.Context) (release func(), ok bool) {
 	}
 
 	// No free slot. Join the bounded queue, or reject if it is full.
-	if atomic.AddInt64(&l.waiting, 1) > l.maxQueued {
-		atomic.AddInt64(&l.waiting, -1)
-		l.rejected.Add(1)
-		return func() {}, false
+	if l.waiting.Add(1) > l.maxQueued {
+		l.waiting.Add(-1)
+		return l.reject()
 	}
-	defer atomic.AddInt64(&l.waiting, -1)
 
+	// The waiting count is decremented inside each arm, before returning, so a caller
+	// that has already been handed a slot is not still counted against the queue bound.
 	select {
 	case <-l.tokens:
+		l.waiting.Add(-1)
 		return l.admit(), true
 	case <-ctx.Done():
-		l.rejected.Add(1)
-		return func() {}, false
+		l.waiting.Add(-1)
+		return l.reject()
 	case <-l.shutdown:
-		l.rejected.Add(1)
-		return func() {}, false
+		l.waiting.Add(-1)
+		return l.reject()
 	}
 }
 
@@ -113,7 +133,14 @@ func (l *Limiter) admit() func() {
 	}
 }
 
-// Close unblocks all waiters, which then receive ok=false. It may be called more than once.
+func (l *Limiter) reject() (func(), bool) {
+	l.rejected.Add(1)
+	return func() {}, false
+}
+
+// Close stops admissions: callers that arrive afterwards are rejected, and all waiters
+// are unblocked with ok=false. Releases of already-held slots remain safe. It may be
+// called more than once.
 func (l *Limiter) Close() {
 	if !l.Enabled() {
 		return
@@ -131,7 +158,7 @@ func (l *Limiter) Stats() Stats {
 		MaxConcurrent: cap(l.tokens),
 		MaxQueued:     int(l.maxQueued),
 		Held:          cap(l.tokens) - len(l.tokens),
-		Waiting:       int(atomic.LoadInt64(&l.waiting)),
+		Waiting:       int(l.waiting.Load()),
 		Admitted:      l.admitted.Load(),
 		Rejected:      l.rejected.Load(),
 	}
