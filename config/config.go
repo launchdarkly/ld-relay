@@ -164,10 +164,10 @@ type ConcurrencyConfig struct {
 	// SendTimeout is the longest a single initialization delivery may hold a concurrency
 	// slot before its connection is closed to reclaim the slot (the SDK then reconnects).
 	//
-	// TODO(wiring): enforcement is not in this package. The delivery path that consumes
-	// this option -- applying its default and a per-write throughput floor that cuts a
-	// stalled client well before this cap -- lands with the code that wires the limiter
-	// into the endpoints.
+	// Enforcement is not in this package: the delivery path that consumes this option --
+	// applying its default and a per-write throughput floor that cuts a stalled client
+	// well before this cap -- lands with the code that wires the limiter into the
+	// endpoints. Until then the option is read by nothing.
 	SendTimeout ct.OptDuration `conf:"INIT_SEND_TIMEOUT"`
 }
 
