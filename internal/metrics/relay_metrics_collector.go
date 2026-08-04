@@ -71,7 +71,8 @@ func newRelayMetricsCollector(relayID, envName string, publisher events.EventPub
 }
 
 // newRelayMetricsCollectorWithTimeSource allows tests to control the timestamps
-// used for interval boundaries.
+// used for interval boundaries. The now function must never return a value earlier
+// than one it previously returned.
 func newRelayMetricsCollectorWithTimeSource(relayID, envName string, publisher events.EventPublisher, flushInterval time.Duration, logger *slog.Logger, now func() time.Time) *RelayMetricsCollector {
 	c := &RelayMetricsCollector{
 		relayID:            relayID,

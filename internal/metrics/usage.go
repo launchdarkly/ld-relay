@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldtime"
@@ -145,8 +144,6 @@ type environmentMetricUsage struct {
 	flushInterval time.Duration
 	usageCh       chan interface{}
 	now           func() time.Time
-	stampLock     sync.Mutex
-	lastStamp     time.Time
 
 	// All of this data is expected to only be accessed from within a single go
 	// routine
@@ -157,6 +154,8 @@ func NewEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, 
 	return newEnvironmentMetricUsage(relayID, publisher, flushInterval, time.Now)
 }
 
+// newEnvironmentMetricUsage allows tests to control the time source. The now
+// function must never return a value earlier than one it previously returned.
 func newEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, flushInterval time.Duration, now func() time.Time) *environmentMetricUsage {
 	e := &environmentMetricUsage{
 		relayID:       relayID,
@@ -173,21 +172,8 @@ func newEnvironmentMetricUsage(relayID string, publisher events.EventPublisher, 
 	return e
 }
 
-// stamp returns the current time for use in usage tracking. Successive calls never
-// go backward, even if the configured time source does.
-func (e *environmentMetricUsage) stamp() time.Time {
-	e.stampLock.Lock()
-	defer e.stampLock.Unlock()
-	now := e.now()
-	if now.Before(e.lastStamp) {
-		now = e.lastStamp
-	}
-	e.lastStamp = now
-	return now
-}
-
 func (e *environmentMetricUsage) usageActivityMessage(usage *usageActivityMessage) {
-	usage.timestamp = e.stamp()
+	usage.timestamp = e.now()
 	e.usageCh <- usage
 }
 
@@ -198,7 +184,7 @@ func (e *environmentMetricUsage) run() {
 	for {
 		select {
 		case <-ticker.C:
-			e.flushInternal(e.stamp())
+			e.flushInternal(e.now())
 		case usage, ok := <-e.usageCh:
 			if !ok {
 				return
@@ -267,11 +253,11 @@ func (e *environmentMetricUsage) run() {
 }
 
 func (e *environmentMetricUsage) flush() { //nolint:unused // used only in tests
-	e.usageCh <- &usageActivityFlush{timestamp: e.stamp()}
+	e.usageCh <- &usageActivityFlush{timestamp: e.now()}
 }
 
 func (e *environmentMetricUsage) close() {
-	e.usageCh <- &usageActivityShutdown{timestamp: e.stamp()}
+	e.usageCh <- &usageActivityShutdown{timestamp: e.now()}
 	close(e.usageCh)
 }
 

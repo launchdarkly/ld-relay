@@ -204,20 +204,6 @@ func TestStreamWithoutDisconnect(t *testing.T) {
 	assert.Equal(t, int64(30), event.TotalStreamMs)
 }
 
-func TestStampNeverGoesBackward(t *testing.T) {
-	publisher := newTestEventsPublisher()
-	clk := newFakeClock()
-	env := newEnvironmentMetricUsage("relayID", publisher, 1*time.Hour, clk.now)
-
-	first := env.stamp()
-
-	clk.advance(-10 * time.Millisecond)
-	assert.Equal(t, first, env.stamp())
-
-	clk.advance(20 * time.Millisecond)
-	assert.True(t, env.stamp().After(first))
-}
-
 func TestStreamDisconnectWithoutConnect(t *testing.T) {
 	publisher := newTestEventsPublisher()
 	env := NewEnvironmentMetricUsage("relayID", publisher, 1*time.Hour)
