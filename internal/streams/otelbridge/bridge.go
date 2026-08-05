@@ -56,6 +56,7 @@ var (
 	endReasonAttrKey      = attribute.Key("end.reason")             //nolint:gochecknoglobals
 	eventTypeAttrKey      = attribute.Key("event.type")             //nolint:gochecknoglobals
 	discardReasonAttrKey  = attribute.Key("reason")                 //nolint:gochecknoglobals
+	replayAbortedAttrKey  = attribute.Key("replay.aborted")         //nolint:gochecknoglobals
 	writeTypeAttrKey      = attribute.Key("write.type")             //nolint:gochecknoglobals
 	payloadSizeAttrKey    = attribute.Key("payload.size")           //nolint:gochecknoglobals
 	eventCountAttrKey     = attribute.Key("event.count")            //nolint:gochecknoglobals
@@ -185,14 +186,17 @@ func (t *streamTrace) writeSpan(ctx context.Context, channel, writeType string, 
 
 // replaySpan emits a short eventsource.replay span nested under the request span, back-dated by the
 // drain duration the handler observed. Same recording gate as writeSpan.
-func (t *streamTrace) replaySpan(ctx context.Context, channel string, count int, duration time.Duration) {
+func (t *streamTrace) replaySpan(ctx context.Context, info eventsource.ReplayFinishedInfo) {
 	if !trace.SpanFromContext(ctx).IsRecording() {
 		return
 	}
 	end := time.Now()
-	attrs := t.channelAttrs(channel, eventCountAttrKey.Int(count))
+	attrs := t.channelAttrs(info.Channel,
+		eventCountAttrKey.Int(info.EventCount),
+		payloadSizeAttrKey.Int64(info.TotalDataSize),
+		replayAbortedAttrKey.Bool(info.Aborted))
 	_, span := t.bridge.tracer.Start(ctx, spanReplay,
-		trace.WithTimestamp(end.Add(-duration)),
+		trace.WithTimestamp(end.Add(-info.DrainDuration)),
 		trace.WithAttributes(attrs...))
 	span.End(trace.WithTimestamp(end))
 }
@@ -257,9 +261,15 @@ func (t *streamTrace) writeError(ctx context.Context, info eventsource.WriteErro
 }
 
 func (t *streamTrace) replayFinished(ctx context.Context, info eventsource.ReplayFinishedInfo) {
-	t.bridge.instruments.ReplayEvents.Record(context.Background(), int64(info.EventCount), t.attrs(info.Channel))
-	t.bridge.instruments.ReplayDrainDuration.Record(context.Background(), info.DrainDuration.Seconds(), t.attrs(info.Channel))
-	t.replaySpan(ctx, info.Channel, info.EventCount, info.DrainDuration)
+	// Replayed events do not fire EventSent, so this callback is the only place replay volume is
+	// recorded; TotalDataSize carries the payload bytes that events.sent.size no longer sees. The
+	// aborted attribute separates partially-drained batches (the client went away mid-replay) so
+	// their smaller counts and durations do not skew the completed-drain distributions.
+	attrs := t.attrs(info.Channel, replayAbortedAttrKey.Bool(info.Aborted))
+	t.bridge.instruments.ReplayEvents.Record(context.Background(), int64(info.EventCount), attrs)
+	t.bridge.instruments.ReplayDataSize.Record(context.Background(), info.TotalDataSize, attrs)
+	t.bridge.instruments.ReplayDrainDuration.Record(context.Background(), info.DrainDuration.Seconds(), attrs)
+	t.replaySpan(ctx, info)
 }
 
 // eventTypeValue maps an event type to itself if it is on the relay allowlist, otherwise to the

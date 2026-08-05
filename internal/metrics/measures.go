@@ -36,6 +36,7 @@ type StreamInstruments struct {
 	EventsDiscarded     metric.Int64Counter       // events discarded before delivery (jitter coalescing)
 	WriteErrors         metric.Int64Counter       // encode/write failures to a subscriber
 	ReplayEvents        metric.Int64Histogram     // events drained per replay
+	ReplayDataSize      metric.Int64Histogram     // summed payload bytes drained per replay batch
 	ReplayDrainDuration metric.Float64Histogram   // time to drain a replay batch, in seconds
 }
 
@@ -104,6 +105,13 @@ func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
 	if err != nil {
 		return StreamInstruments{}, err
 	}
+	replayDataSize, err := meter.Int64Histogram(streamReplayDataSizeMeasureName,
+		metric.WithDescription("Summed size of replayed event payloads written to a subscriber per batch; "+
+			"replayed events are not counted in events.sent.size"),
+		metric.WithUnit("By"))
+	if err != nil {
+		return StreamInstruments{}, err
+	}
 	replayDrainDuration, err := meter.Float64Histogram(streamReplayDrainDurationMeasureName,
 		metric.WithDescription("Time to drain a replay batch to a subscriber"),
 		metric.WithUnit("s"))
@@ -120,6 +128,7 @@ func newStreamInstruments(meter metric.Meter) (StreamInstruments, error) {
 		EventsDiscarded:     eventsDiscarded,
 		WriteErrors:         writeErrors,
 		ReplayEvents:        replayEvents,
+		ReplayDataSize:      replayDataSize,
 		ReplayDrainDuration: replayDrainDuration,
 	}, nil
 }

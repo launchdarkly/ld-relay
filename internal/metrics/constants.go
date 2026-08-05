@@ -30,6 +30,7 @@ const (
 	streamEventsDiscardedMeasureName     = "launchdarkly.relay.stream.events.discarded"
 	streamWriteErrorsMeasureName         = "launchdarkly.relay.stream.write.errors"
 	streamReplayEventsMeasureName        = "launchdarkly.relay.stream.replay.events"
+	streamReplayDataSizeMeasureName      = "launchdarkly.relay.stream.replay.data.size"
 	streamReplayDrainDurationMeasureName = "launchdarkly.relay.stream.replay.drain.duration"
 
 	defaultFlushInterval = time.Minute

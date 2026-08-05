@@ -116,6 +116,13 @@ func attrValue(t *testing.T, set attribute.Set, key attribute.Key) string {
 	return v.AsString()
 }
 
+func boolAttrValue(t *testing.T, set attribute.Set, key attribute.Key) bool {
+	t.Helper()
+	v, ok := set.Value(key)
+	require.Truef(t, ok, "attribute %q not present", key)
+	return v.AsBool()
+}
+
 // assertStreamKindAndProtocol checks that every metric carries the baked-in stream identity.
 func assertStreamKindAndProtocol(t *testing.T, set attribute.Set) {
 	t.Helper()
@@ -270,13 +277,14 @@ func TestWriteError(t *testing.T) {
 	assertStreamKindAndProtocol(t, dp.Attributes)
 }
 
-func TestReplayFinishedRecordsEventsAndDuration(t *testing.T) {
+func TestReplayFinishedRecordsEventsSizeAndDuration(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
 	h.trace().ReplayFinished(context.Background(), eventsource.ReplayFinishedInfo{
 		Channel:       testChannel,
 		EventCount:    5,
+		TotalDataSize: 2048,
 		DrainDuration: 250 * time.Millisecond,
 	})
 
@@ -286,10 +294,42 @@ func TestReplayFinishedRecordsEventsAndDuration(t *testing.T) {
 	assert.Equal(t, uint64(1), events.Count)
 	assert.Equal(t, int64(5), events.Sum)
 	assertEnvAttrs(t, events.Attributes)
+	assert.Equal(t, false, boolAttrValue(t, events.Attributes, replayAbortedAttrKey))
+
+	// Replayed events do not fire EventSent, so replay.data.size is the only
+	// byte-volume record for the batch.
+	size := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.data.size"))
+	assert.Equal(t, uint64(1), size.Count)
+	assert.Equal(t, int64(2048), size.Sum)
+	assertEnvAttrs(t, size.Attributes)
 
 	drain := histFloatPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.drain.duration"))
 	assert.Equal(t, uint64(1), drain.Count)
 	assert.InDelta(t, 0.25, drain.Sum, 0.001)
+}
+
+func TestReplayFinishedAbortedIsAttributed(t *testing.T) {
+	h := newBridgeHarness(t)
+	h.bridge.RegisterChannel(testChannel, envAttrs())
+
+	h.trace().ReplayFinished(context.Background(), eventsource.ReplayFinishedInfo{
+		Channel:       testChannel,
+		EventCount:    3,
+		TotalDataSize: 300,
+		DrainDuration: 50 * time.Millisecond,
+		Aborted:       true,
+	})
+
+	rm := h.collect(t)
+
+	events := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.events"))
+	assert.Equal(t, int64(3), events.Sum)
+	assert.Equal(t, true, boolAttrValue(t, events.Attributes, replayAbortedAttrKey),
+		"a partially-drained batch must be distinguishable from a completed one")
+
+	size := histIntPoint(t, metricByName(t, rm, "launchdarkly.relay.stream.replay.data.size"))
+	assert.Equal(t, int64(300), size.Sum)
+	assert.Equal(t, true, boolAttrValue(t, size.Attributes, replayAbortedAttrKey))
 }
 
 func TestUnknownChannelUsesFallbackAttributes(t *testing.T) {
