@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"crypto/sha1" //nolint:gosec // we're not using SHA1 for encryption, just for generating an insecure hash
 	"encoding/hex"
 	"encoding/json"
@@ -187,13 +188,70 @@ type payloadEvent struct {
 	EventData any    `json:"data"`
 }
 
+// pollResult is what one execution of a polling flight-group closure produces: the exact response
+// body and the value the Etag header is derived from. Concurrent requests that share a flight all
+// receive the same pollResult; nothing in it is specific to any one request.
+type pollResult struct {
+	data []byte
+	etag string
+}
+
+// Flight-group keys for the polling endpoints. The flight group is scoped to one environment, so
+// these only need to distinguish the endpoints from each other, plus any request parameter that
+// changes the payload (which the handlers append).
+const (
+	serverSidePollFlightKey     = "sdk-poll"
+	serverSideAllFlagsFlightKey = "sdk-flags"
+)
+
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	tr := tracing.Tracer()
 
-	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreSnapshot)
-	collection, selector, err := clientCtx.Env.GetStore().Snapshot()
+	basis := req.URL.Query().Get("basis")
+
+	// Concurrent requests would each take a store snapshot and serialize an identical payload;
+	// the flight group runs that work once and hands every waiting request the same result.
+	// The payload depends on the caller's basis -- a basis matching the current selector state
+	// gets an "up-to-date" response, anything else gets a full transfer -- so only requests
+	// with the same basis may share a result, and the basis is part of the key.
+	//
+	// The snapshot and serialize spans belong to the one request that executes the closure;
+	// every request records on its own request span whether the payload build was shared.
+	data, err, shared := clientCtx.Env.GetPollingFlightGroup().Do(serverSidePollFlightKey+":"+basis, func() (any, error) {
+		result, err := buildServerSidePollPayload(req.Context(), tr, clientCtx.Env, basis)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+	trace.SpanFromContext(req.Context()).SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// panic if it's not a pollResult - as this should be impossible
+	result := data.(pollResult)
+
+	traceWriteResponse(tr, req, func() (int, error) {
+		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
+	})
+}
+
+// buildServerSidePollPayload takes the store snapshot and serializes the FDv2 polling payload for
+// pollHandlerV2. It runs inside the environment's polling flight group, so it must not touch any
+// one request's ResponseWriter; failures are logged and traced here (once per flight, not once
+// per waiting request) and returned as a plain error that every sharing request maps to a 500.
+func buildServerSidePollPayload(
+	ctx context.Context,
+	tr trace.Tracer,
+	env relayenv.EnvContext,
+	basis string,
+) (pollResult, error) {
+	_, storeSpan := tr.Start(ctx, tracing.SpanStoreSnapshot)
+	collection, selector, err := env.GetStore().Snapshot()
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
@@ -201,138 +259,123 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	storeSpan.End()
 
 	if err != nil {
-		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		env.GetLogger().Error("error reading feature store", "error", err)
+		return pollResult{}, err
 	} else if collection == nil || !selector.IsDefined() {
-		clientCtx.Env.GetLogger().Error("snapshot selector is not defined; no data to return")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		err := errors.New("snapshot selector is not defined; no data to return")
+		env.GetLogger().Error(err.Error())
+		return pollResult{}, err
 	}
 
-	payloadJSON, ok := func() ([]byte, bool) {
-		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
-		defer span.End()
+	_, span := tr.Start(ctx, tracing.SpanSerializePayload)
+	defer span.End()
 
-		numItems := 2
-		if len(collection) > 0 {
-			for _, keyedItems := range collection {
-				numItems += len(keyedItems)
-			}
+	numItems := 2
+	if len(collection) > 0 {
+		for _, keyedItems := range collection {
+			numItems += len(keyedItems)
 		}
+	}
 
-		pollingPayload := pollingPayload{
-			Events: make([]payloadEvent, 0, numItems),
-		}
+	pollingPayload := pollingPayload{
+		Events: make([]payloadEvent, 0, numItems),
+	}
 
-		basis := req.URL.Query().Get("basis")
-		if selector.IsDefined() && basis != "" && selector.State() == basis {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentNone,
-					Reason: "up-to-date",
-				}},
-			})
-		} else {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentTransferFull,
-					Reason: "cant-catchup",
-				}},
-			})
-			for kind, keyedItems := range collection {
-				for _, keyedItem := range keyedItems {
-					if keyedItem.Item.Item == nil {
-						continue // this should not happen, but just in case
-					}
-					switch kind {
-					case ldstoreimpl.Features():
-						if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
+	if selector.IsDefined() && basis != "" && selector.State() == basis {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentNone,
+				Reason: "up-to-date",
+			}},
+		})
+	} else {
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event: "server-intent",
+			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
+			}},
+		})
+		for kind, keyedItems := range collection {
+			for _, keyedItem := range keyedItems {
+				if keyedItem.Item.Item == nil {
+					continue // this should not happen, but just in case
+				}
+				switch kind {
+				case ldstoreimpl.Features():
+					if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
+						writer := jwriter.NewWriter()
+						ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
 
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.FlagKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
-						} else {
-							err := errors.New("error casting keyed item to feature flag")
-							clientCtx.Env.GetLogger().Error(err.Error())
-							span.RecordError(err)
-							span.SetStatus(codes.Error, err.Error())
-							w.WriteHeader(http.StatusInternalServerError)
-							return nil, false
-						}
-					case ldstoreimpl.Segments():
-						if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
-
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.SegmentKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
-						} else {
-							err := errors.New("error casting keyed item to feature segment")
-							clientCtx.Env.GetLogger().Error(err.Error())
-							span.RecordError(err)
-							span.SetStatus(codes.Error, err.Error())
-							w.WriteHeader(http.StatusInternalServerError)
-							return nil, false
-						}
-					default:
-						err := errors.New("unexpected data kind in store snapshot")
-						clientCtx.Env.GetLogger().Error(err.Error(), "kind", kind)
+						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+							Event: "put-object",
+							EventData: subsystems.PutObject{
+								Version: keyedItem.Item.Version,
+								Kind:    subsystems.FlagKind,
+								Key:     keyedItem.Key,
+								Object:  writer.Bytes(),
+							},
+						})
+					} else {
+						err := errors.New("error casting keyed item to feature flag")
+						env.GetLogger().Error(err.Error())
 						span.RecordError(err)
 						span.SetStatus(codes.Error, err.Error())
-						w.WriteHeader(http.StatusInternalServerError)
-						return nil, false
+						return pollResult{}, err
 					}
+				case ldstoreimpl.Segments():
+					if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
+						writer := jwriter.NewWriter()
+						ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
+
+						pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+							Event: "put-object",
+							EventData: subsystems.PutObject{
+								Version: keyedItem.Item.Version,
+								Kind:    subsystems.SegmentKind,
+								Key:     keyedItem.Key,
+								Object:  writer.Bytes(),
+							},
+						})
+					} else {
+						err := errors.New("error casting keyed item to feature segment")
+						env.GetLogger().Error(err.Error())
+						span.RecordError(err)
+						span.SetStatus(codes.Error, err.Error())
+						return pollResult{}, err
+					}
+				default:
+					err := errors.New("unexpected data kind in store snapshot")
+					env.GetLogger().Error(err.Error(), "kind", kind)
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
+					return pollResult{}, err
 				}
 			}
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event:     "payload-transferred",
-				EventData: selector,
-			})
 		}
-
-		data, err := json.Marshal(pollingPayload)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			clientCtx.Env.GetLogger().Error("error marshaling polling response", "error", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return nil, false
-		}
-		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
-			tracing.PayloadBytesKey.Int(len(data)),
-		)
-		return data, true
-	}()
-	if !ok {
-		return
+		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
+			Event:     "payload-transferred",
+			EventData: selector,
+		})
 	}
 
-	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, clientCtx.Env, payloadJSON, selector.State())
-	})
+	data, err := json.Marshal(pollingPayload)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		env.GetLogger().Error("error marshaling polling response", "error", err)
+		return pollResult{}, err
+	}
+	span.SetAttributes(
+		tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
+		tracing.PayloadBytesKey.Int(len(data)),
+	)
+	return pollResult{data: data, etag: selector.State()}, nil
 }
 
 // FDv2 client-side polling endpoint that evaluates flags against a context.
@@ -508,8 +551,39 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
 	tr := tracing.Tracer()
 
-	_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreGetAll)
-	data, err := clientCtx.Env.GetStore().GetAll(ldstoreimpl.Features())
+	// Concurrent requests would each read every flag and serialize an identical map; the
+	// flight group runs that work once and hands every waiting request the same result. The
+	// payload and Etag depend only on the store contents, so a single key covers all callers.
+	// Span placement follows pollHandlerV2: the store and serialize spans belong to the one
+	// request that executes the closure.
+	data, err, shared := clientCtx.Env.GetPollingFlightGroup().Do(serverSideAllFlagsFlightKey, func() (any, error) {
+		result, err := buildAllFlagsPayload(req.Context(), tr, clientCtx.Env)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+	trace.SpanFromContext(req.Context()).SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// panic if it's not a pollResult - as this should be impossible
+	result := data.(pollResult)
+
+	traceWriteResponse(tr, req, func() (int, error) {
+		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
+	})
+}
+
+// buildAllFlagsPayload reads every flag and serializes the all-flags map for pollAllFlagsHandler.
+// It runs inside the environment's polling flight group, so it must not touch any one request's
+// ResponseWriter; failures are logged and traced here (once per flight, not once per waiting
+// request) and returned as a plain error that every sharing request maps to a 500.
+func buildAllFlagsPayload(ctx context.Context, tr trace.Tracer, env relayenv.EnvContext) (pollResult, error) {
+	_, storeSpan := tr.Start(ctx, tracing.SpanStoreGetAll)
+	data, err := env.GetStore().GetAll(ldstoreimpl.Features())
 	if err != nil {
 		storeSpan.RecordError(err)
 		storeSpan.SetStatus(codes.Error, err.Error())
@@ -517,32 +591,26 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	storeSpan.End()
 
 	if err != nil {
-		clientCtx.Env.GetLogger().Error("error reading feature store", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		env.GetLogger().Error("error reading feature store", "error", err)
+		return pollResult{}, err
 	}
-	respData, etag := func() ([]byte, string) {
-		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
-		defer span.End()
 
-		respData, flagCount := serializeFlagsAsMap(data)
-		// Compute an overall Etag for the data set by hashing flag keys and versions
-		hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
-		sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
-		for _, item := range data {
-			_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
-		}
-		etag := hex.EncodeToString(hash.Sum(nil))[:15]
-		span.SetAttributes(
-			tracing.FlagCountKey.Int(flagCount),
-			tracing.PayloadBytesKey.Int(len(respData)),
-		)
-		return respData, etag
-	}()
+	_, span := tr.Start(ctx, tracing.SpanSerializePayload)
+	defer span.End()
 
-	traceWriteResponse(tr, req, func() (int, error) {
-		return writeCacheableJSONResponse(w, req, clientCtx.Env, respData, etag)
-	})
+	respData, flagCount := serializeFlagsAsMap(data)
+	// Compute an overall Etag for the data set by hashing flag keys and versions
+	hash := sha1.New()                                                         //nolint:gosec // just used for insecure hashing
+	sort.Slice(data, func(i, j int) bool { return data[i].Key < data[j].Key }) // makes the hash deterministic
+	for _, item := range data {
+		_, _ = io.WriteString(hash, fmt.Sprintf("%s:%d", item.Key, item.Item.Version))
+	}
+	etag := hex.EncodeToString(hash.Sum(nil))[:15]
+	span.SetAttributes(
+		tracing.FlagCountKey.Int(flagCount),
+		tracing.PayloadBytesKey.Int(len(respData)),
+	)
+	return pollResult{data: respData, etag: etag}, nil
 }
 
 // PHP SDK polling endpoint for a flag: app.ld.com/sdk/flags/{key}
@@ -868,7 +936,10 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
 
-	_, err := w.Write(bytes)
+	// Not XSS: every caller passes the output of a JSON encoder, and the response is served as
+	// application/json. The taint analysis only sees that a request parameter (the polling basis)
+	// influenced which payload was built.
+	_, err := w.Write(bytes) //nolint:gosec
 	return http.StatusOK, err
 }
 

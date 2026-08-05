@@ -34,4 +34,10 @@ const (
 	StoreKeyKey      = attribute.Key("relay.store.key")
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
+
+	// SingleflightSharedKey reports, on a polling endpoint's request span, whether the
+	// response payload build was shared with concurrent requests through the environment's
+	// polling flight group. When it is true and the request's trace has no store or serialize
+	// child spans, another request's trace carries them.
+	SingleflightSharedKey = attribute.Key("relay.singleflight.shared")
 )
