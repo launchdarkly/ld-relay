@@ -225,3 +225,31 @@ func TestStatusRecorderUnwrapExposesConnectionDeadline(t *testing.T) {
 	assert.NoError(t, err, "controller could not set a deadline through statusRecorder")
 	assert.True(t, base.gotWriteDeadline, "SetWriteDeadline did not reach the base writer through statusRecorder")
 }
+
+// stringWriterProbe records whether a write reached it through the io.StringWriter fast
+// path rather than being copied to a []byte for Write.
+type stringWriterProbe struct {
+	*httptest.ResponseRecorder
+	gotWriteString bool
+}
+
+func (p *stringWriterProbe) WriteString(s string) (int, error) {
+	p.gotWriteString = true
+	return p.ResponseRecorder.WriteString(s)
+}
+
+// TestStatusRecorderPreservesStringWriterFastPath guards the WriteString forwarding that
+// keeps a large string payload (an initialization delivery) from being copied into a
+// fresh []byte at this hop, while keeping the same implicit-200 bookkeeping as Write.
+func TestStatusRecorderPreservesStringWriterFastPath(t *testing.T) {
+	probe := &stringWriterProbe{ResponseRecorder: httptest.NewRecorder()}
+	sr := &statusRecorder{ResponseWriter: probe}
+
+	n, err := io.WriteString(sr, "payload")
+	require.NoError(t, err)
+	assert.Equal(t, len("payload"), n)
+	assert.True(t, probe.gotWriteString, "WriteString did not reach the underlying writer; the payload was copied at this hop")
+	assert.Equal(t, "payload", probe.Body.String())
+	assert.Equal(t, 200, sr.statusCode)
+	assert.True(t, sr.written)
+}

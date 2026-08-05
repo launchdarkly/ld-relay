@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,6 +37,16 @@ func (w *loggingHTTPResponseWriter) Write(data []byte) (int, error) {
 	}
 	w.bytesWritten += uint64(len(data))
 	return w.writer.Write(data)
+}
+
+// WriteString preserves the underlying writer's io.StringWriter fast path: without it,
+// io.WriteString would copy a string payload into a fresh []byte at this hop.
+func (w *loggingHTTPResponseWriter) WriteString(s string) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(200)
+	}
+	w.bytesWritten += uint64(len(s))
+	return io.WriteString(w.writer, s)
 }
 
 func (w *loggingHTTPResponseWriter) WriteHeader(statusCode int) {
