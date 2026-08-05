@@ -39,10 +39,27 @@ func (sr *statusRecorder) Write(b []byte) (int, error) {
 	return sr.ResponseWriter.Write(b)
 }
 
+// WriteString preserves the underlying writer's io.StringWriter fast path: without it,
+// io.WriteString would copy a string payload into a fresh []byte at this hop.
+func (sr *statusRecorder) WriteString(s string) (int, error) {
+	if !sr.written {
+		sr.statusCode = 200
+		sr.written = true
+	}
+	return io.WriteString(sr.ResponseWriter, s)
+}
+
 func (sr *statusRecorder) Flush() {
 	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Unwrap exposes the wrapped ResponseWriter so that http.NewResponseController can reach
+// the underlying connection (e.g. to set read/write deadlines). Without this, a controller
+// built on top of this recorder silently loses those capabilities.
+func (sr *statusRecorder) Unwrap() http.ResponseWriter {
+	return sr.ResponseWriter
 }
 
 // countingReader wraps an io.ReadCloser and counts the bytes read.

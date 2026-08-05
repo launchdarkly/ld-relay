@@ -1,10 +1,12 @@
 package logging
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,4 +115,58 @@ func TestRequestLoggerMiddlewareAuth(t *testing.T) {
 	}
 	assert.True(t, foundRedacted, "expected to find log entry with redacted auth '*fghij'")
 	assert.True(t, foundShort, "expected to find log entry with short auth 'abcd'")
+}
+
+// deadlineProbeWriter records whether SetWriteDeadline reached it through a wrapper chain.
+type deadlineProbeWriter struct {
+	http.ResponseWriter
+	gotWriteDeadline bool
+}
+
+func (d *deadlineProbeWriter) SetWriteDeadline(time.Time) error {
+	d.gotWriteDeadline = true
+	return nil
+}
+
+// TestLoggingResponseWriterUnwrapExposesConnectionDeadline guards that the request-logging
+// wrapper implements Unwrap, so http.NewResponseController can reach the underlying
+// connection through it. Without this, deadlines set downstream (e.g. by the init-delivery
+// limiter) would silently become no-ops for every request while request logging is enabled.
+func TestLoggingResponseWriterUnwrapExposesConnectionDeadline(t *testing.T) {
+	base := &deadlineProbeWriter{ResponseWriter: httptest.NewRecorder()}
+	lw := &loggingHTTPResponseWriter{logger: slog.Default(), writer: base}
+	err := http.NewResponseController(lw).SetWriteDeadline(time.Now().Add(time.Second))
+	assert.NoError(t, err, "controller could not set a deadline through loggingHTTPResponseWriter")
+	assert.True(t, base.gotWriteDeadline, "SetWriteDeadline did not reach the base writer through loggingHTTPResponseWriter")
+}
+
+// stringWriterProbe records whether a write reached it through the io.StringWriter fast
+// path rather than being copied to a []byte for Write.
+type stringWriterProbe struct {
+	*httptest.ResponseRecorder
+	gotWriteString bool
+}
+
+func (p *stringWriterProbe) WriteString(s string) (int, error) {
+	p.gotWriteString = true
+	return p.ResponseRecorder.WriteString(s)
+}
+
+// TestLoggingWriterPreservesStringWriterFastPath guards the WriteString forwarding that
+// keeps a large string payload (an initialization delivery) from being copied into a
+// fresh []byte at this hop, while keeping the same status and byte-count bookkeeping as
+// the Write path.
+func TestLoggingWriterPreservesStringWriterFastPath(t *testing.T) {
+	logger, _ := logtest.NewMockLogger()
+	probe := &stringWriterProbe{ResponseRecorder: httptest.NewRecorder()}
+	req, _ := http.NewRequest("GET", "/url", nil)
+	w := &loggingHTTPResponseWriter{logger: logger, writer: probe, request: req}
+
+	n, err := io.WriteString(w, "payload")
+	require.NoError(t, err)
+	assert.Equal(t, len("payload"), n)
+	assert.True(t, probe.gotWriteString, "WriteString did not reach the underlying writer; the payload was copied at this hop")
+	assert.Equal(t, "payload", probe.Body.String())
+	assert.Equal(t, 200, w.statusCode)
+	assert.Equal(t, uint64(len("payload")), w.bytesWritten)
 }
