@@ -49,6 +49,14 @@ func mustOptIntGreaterThanZero(n int) ct.OptIntGreaterThanZero {
 	return o
 }
 
+func mustOptBase2Bytes(s string) ct.OptBase2Bytes {
+	o, err := ct.NewOptBase2BytesFromString(s)
+	if err != nil {
+		panic(err)
+	}
+	return o
+}
+
 func newOptURLAbsoluteMustBeValid(urlString string) ct.OptURLAbsolute {
 	o, err := ct.NewOptURLAbsoluteFromString(urlString)
 	if err != nil {
@@ -110,6 +118,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			IgnoreConnectionErrors:           true,
 			HeartbeatInterval:                ct.NewOptDuration(90 * time.Second),
 			MaxClientConnectionTime:          ct.NewOptDuration(30 * time.Minute),
+			MaxClientRequestBodySize:         mustOptBase2Bytes("5MiB"),
 			DisconnectedStatusTime:           ct.NewOptDuration(3 * time.Minute),
 			TLSEnabled:                       true,
 			TLSCert:                          "cert",
@@ -126,6 +135,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 			EventsURI:             newOptURLAbsoluteMustBeValid("http://events"),
 			FlushInterval:         ct.NewOptDuration(120 * time.Second),
 			Capacity:              mustOptIntGreaterThanZero(500),
+			MetricsCapacity:       mustOptIntGreaterThanZero(50000),
 			InlineUsers:           true,
 			MaxInboundPayloadSize: ct.OptBase2Bytes{},
 		}
@@ -161,6 +171,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"IGNORE_CONNECTION_ERRORS":            "1",
 		"HEARTBEAT_INTERVAL":                  "90s",
 		"MAX_CLIENT_CONNECTION_TIME":          "30m",
+		"MAX_CLIENT_REQUEST_BODY_SIZE":        "5MiB",
 		"DISCONNECTED_STATUS_TIME":            "3m",
 		"TLS_ENABLED":                         "1",
 		"TLS_CERT":                            "cert",
@@ -173,6 +184,7 @@ func makeValidConfigAllBaseProperties() testDataValidConfig {
 		"EVENTS_HOST":                         "http://events",
 		"EVENTS_FLUSH_INTERVAL":               "120s",
 		"EVENTS_CAPACITY":                     "500",
+		"EVENTS_METRICS_CAPACITY":             "50000",
 		"EVENTS_INLINE_USERS":                 "1",
 		"LD_ENV_earth":                        "earth-sdk",
 		"LD_MOBILE_KEY_earth":                 "earth-mob",
@@ -203,6 +215,7 @@ ExitAlways = 1
 IgnoreConnectionErrors = 1
 HeartbeatInterval = 90s
 MaxClientConnectionTime = 30m
+MaxClientRequestBodySize = "5MiB"
 PingStreamJitterTime = 5m
 DisconnectedStatusTime = 3m
 TLSEnabled = 1
@@ -219,6 +232,7 @@ SendEvents = 1
 EventsUri = "http://events"
 FlushInterval = 120s
 Capacity = 500
+MetricsCapacity = 50000
 InlineUsers = 1
 
 [Environment "earth"]

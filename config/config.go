@@ -38,6 +38,17 @@ const (
 	// DefaultEventCapacity is the default value for EventsConfig.Capacity if not specified.
 	DefaultEventCapacity = 1000
 
+	// DefaultMetricsCapacity is the default value for EventsConfig.MetricsCapacity if not specified.
+	// This is the maximum queue capacity for the usage-metrics event publisher, which emits one event
+	// per concurrent unique connection on each flush. It is set well above DefaultEventCapacity because
+	// high-concurrency nodes routinely exceed 1000 unique connections.
+	DefaultMetricsCapacity = 10000
+
+	// DefaultMetricsInitialCapacity is the number of events the usage-metrics publisher queue
+	// preallocates space for. The queue grows on demand from this size up to MetricsCapacity, so that
+	// the higher maximum does not reserve all of its memory up front on nodes that never reach it.
+	DefaultMetricsInitialCapacity = 1000
+
 	// DefaultHeartbeatInterval is the default value for MainConfig.HeartBeatInterval if not specified.
 	DefaultHeartbeatInterval = time.Minute * 3
 
@@ -95,6 +106,11 @@ const (
 	// credentials to be revoked nearly instantaneously. It is not necessarily a recommendation.
 	// It likely doesn't make sense to use an interval this frequent in production use-cases.
 	minimumCredentialCleanupInterval = 100 * time.Millisecond
+	// minimumMetricsCapacity is the smallest value accepted for EventsConfig.MetricsCapacity. Usage
+	// metrics are how LaunchDarkly reports on account usage, so we do not allow the maximum queue
+	// capacity to be shrunk below the historical default of 1000; smaller configured values are
+	// clamped up to this floor.
+	minimumMetricsCapacity = 1000
 )
 
 // DefaultLoggers is the default logging configuration used by Relay.
@@ -153,6 +169,7 @@ type MainConfig struct {
 	GracefulShutdownTimeout          ct.OptDuration           `conf:"GRACEFUL_SHUTDOWN_TIMEOUT"`
 	HeartbeatInterval                ct.OptDuration           `conf:"HEARTBEAT_INTERVAL"`
 	MaxClientConnectionTime          ct.OptDuration           `conf:"MAX_CLIENT_CONNECTION_TIME"`
+	MaxClientRequestBodySize         ct.OptBase2Bytes         `conf:"MAX_CLIENT_REQUEST_BODY_SIZE"`
 	PingStreamJitterTime             ct.OptDuration           `conf:"PING_STREAM_JITTER_TIME"`
 	DisconnectedStatusTime           ct.OptDuration           `conf:"DISCONNECTED_STATUS_TIME"`
 	TLSEnabled                       bool                     `conf:"TLS_ENABLED"`
@@ -196,6 +213,7 @@ type EventsConfig struct {
 	SendEvents            bool                     `conf:"USE_EVENTS"`
 	FlushInterval         ct.OptDuration           `conf:"EVENTS_FLUSH_INTERVAL"`
 	Capacity              ct.OptIntGreaterThanZero `conf:"EVENTS_CAPACITY"`
+	MetricsCapacity       ct.OptIntGreaterThanZero `conf:"EVENTS_METRICS_CAPACITY"`
 	InlineUsers           bool                     `conf:"EVENTS_INLINE_USERS"`
 	MaxInboundPayloadSize ct.OptBase2Bytes         `conf:"EVENTS_MAX_INBOUND_PAYLOAD_SIZE"`
 }
