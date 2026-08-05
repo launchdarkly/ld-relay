@@ -332,6 +332,28 @@ func TestReplayFinishedAbortedIsAttributed(t *testing.T) {
 	assert.Equal(t, true, boolAttrValue(t, size.Attributes, replayAbortedAttrKey))
 }
 
+func TestReplayFinishedOnCanceledRequestIsAborted(t *testing.T) {
+	h := newBridgeHarness(t)
+	h.bridge.RegisterChannel(testChannel, envAttrs())
+
+	// Relay's repositories end their batch early when the request context is
+	// canceled, so eventsource reports Aborted=false for the truncated drain;
+	// the canceled context is the signal that the client was gone.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.trace().ReplayFinished(ctx, eventsource.ReplayFinishedInfo{
+		Channel:       testChannel,
+		EventCount:    170,
+		TotalDataSize: 1700,
+		DrainDuration: 10 * time.Millisecond,
+		Aborted:       false,
+	})
+
+	events := histIntPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.replay.events"))
+	assert.Equal(t, true, boolAttrValue(t, events.Attributes, replayAbortedAttrKey),
+		"a drain that finished on a dead request must not land in the completed distributions")
+}
+
 func TestUnknownChannelUsesFallbackAttributes(t *testing.T) {
 	h := newBridgeHarness(t)
 	// No RegisterChannel: the channel is unknown.

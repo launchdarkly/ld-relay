@@ -265,6 +265,15 @@ func (t *streamTrace) replayFinished(ctx context.Context, info eventsource.Repla
 	// recorded; TotalDataSize carries the payload bytes that events.sent.size no longer sees. The
 	// aborted attribute separates partially-drained batches (the client went away mid-replay) so
 	// their smaller counts and durations do not skew the completed-drain distributions.
+	//
+	// info.Aborted only covers what eventsource observed. Relay's own repositories end their
+	// batches early when the request context is canceled, which eventsource necessarily reports
+	// as a normal completion of whatever was produced -- so a canceled request context at drain
+	// end is treated as aborted here too, keeping those truncated drains out of the completed
+	// distributions.
+	if ctx.Err() != nil {
+		info.Aborted = true
+	}
 	attrs := t.attrs(info.Channel, replayAbortedAttrKey.Bool(info.Aborted))
 	t.bridge.instruments.ReplayEvents.Record(context.Background(), int64(info.EventCount), attrs)
 	t.bridge.instruments.ReplayDataSize.Record(context.Background(), info.TotalDataSize, attrs)
