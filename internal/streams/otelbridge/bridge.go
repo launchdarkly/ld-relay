@@ -51,17 +51,18 @@ const (
 )
 
 var (
-	streamKindAttrKey     = attribute.Key("stream.kind")            //nolint:gochecknoglobals
-	streamProtocolAttrKey = attribute.Key("stream.protocol")        //nolint:gochecknoglobals
-	endReasonAttrKey      = attribute.Key("end.reason")             //nolint:gochecknoglobals
-	eventTypeAttrKey      = attribute.Key("event.type")             //nolint:gochecknoglobals
-	discardReasonAttrKey  = attribute.Key("reason")                 //nolint:gochecknoglobals
-	replayAbortedAttrKey  = attribute.Key("replay.aborted")         //nolint:gochecknoglobals
-	writeTypeAttrKey      = attribute.Key("write.type")             //nolint:gochecknoglobals
-	payloadSizeAttrKey    = attribute.Key("payload.size")           //nolint:gochecknoglobals
-	eventCountAttrKey     = attribute.Key("event.count")            //nolint:gochecknoglobals
-	connDurationAttrKey   = attribute.Key("connection.duration_ms") //nolint:gochecknoglobals
-	errorMessageAttrKey   = attribute.Key("error.message")          //nolint:gochecknoglobals
+	streamKindAttrKey       = attribute.Key("stream.kind")            //nolint:gochecknoglobals
+	streamProtocolAttrKey   = attribute.Key("stream.protocol")        //nolint:gochecknoglobals
+	endReasonAttrKey        = attribute.Key("end.reason")             //nolint:gochecknoglobals
+	eventTypeAttrKey        = attribute.Key("event.type")             //nolint:gochecknoglobals
+	discardReasonAttrKey    = attribute.Key("reason")                 //nolint:gochecknoglobals
+	replayAbortedAttrKey    = attribute.Key("replay.aborted")         //nolint:gochecknoglobals
+	replayClientGoneAttrKey = attribute.Key("replay.client_gone")     //nolint:gochecknoglobals
+	writeTypeAttrKey        = attribute.Key("write.type")             //nolint:gochecknoglobals
+	payloadSizeAttrKey      = attribute.Key("payload.size")           //nolint:gochecknoglobals
+	eventCountAttrKey       = attribute.Key("event.count")            //nolint:gochecknoglobals
+	connDurationAttrKey     = attribute.Key("connection.duration_ms") //nolint:gochecknoglobals
+	errorMessageAttrKey     = attribute.Key("error.message")          //nolint:gochecknoglobals
 )
 
 // knownEventTypes is the set of SSE event types that relay publishes. Anything else is bucketed as
@@ -186,7 +187,7 @@ func (t *streamTrace) writeSpan(ctx context.Context, channel, writeType string, 
 
 // replaySpan emits a short eventsource.replay span nested under the request span, back-dated by the
 // drain duration the handler observed. Same recording gate as writeSpan.
-func (t *streamTrace) replaySpan(ctx context.Context, info eventsource.ReplayFinishedInfo) {
+func (t *streamTrace) replaySpan(ctx context.Context, info eventsource.ReplayFinishedInfo, clientGone bool) {
 	if !trace.SpanFromContext(ctx).IsRecording() {
 		return
 	}
@@ -194,7 +195,8 @@ func (t *streamTrace) replaySpan(ctx context.Context, info eventsource.ReplayFin
 	attrs := t.channelAttrs(info.Channel,
 		eventCountAttrKey.Int(info.EventCount),
 		payloadSizeAttrKey.Int64(info.TotalDataSize),
-		replayAbortedAttrKey.Bool(info.Aborted))
+		replayAbortedAttrKey.Bool(info.Aborted),
+		replayClientGoneAttrKey.Bool(clientGone))
 	_, span := t.bridge.tracer.Start(ctx, spanReplay,
 		trace.WithTimestamp(end.Add(-info.DrainDuration)),
 		trace.WithAttributes(attrs...))
@@ -266,19 +268,22 @@ func (t *streamTrace) replayFinished(ctx context.Context, info eventsource.Repla
 	// aborted attribute separates partially-drained batches (the client went away mid-replay) so
 	// their smaller counts and durations do not skew the completed-drain distributions.
 	//
-	// info.Aborted only covers what eventsource observed. Relay's own repositories end their
-	// batches early when the request context is canceled, which eventsource necessarily reports
-	// as a normal completion of whatever was produced -- so a canceled request context at drain
-	// end is treated as aborted here too, keeping those truncated drains out of the completed
-	// distributions.
-	if ctx.Err() != nil {
-		info.Aborted = true
-	}
-	attrs := t.attrs(info.Channel, replayAbortedAttrKey.Bool(info.Aborted))
+	// info.Aborted only covers what eventsource observed: relay's own repositories end their
+	// batches early when the request context is canceled, and eventsource necessarily reports
+	// that as a normal completion of whatever was produced. Overriding Aborted with the context
+	// state is no better -- a fully delivered batch whose client departs immediately afterwards
+	// would then land full-size samples in the aborted distributions -- so the two facts stay
+	// separate: replay.aborted is eventsource's truncation verdict, and replay.client_gone
+	// reports whether the request context was already canceled when the drain ended. A drain
+	// truncated by cancellation shows up as aborted=false, client_gone=true.
+	clientGone := ctx.Err() != nil
+	attrs := t.attrs(info.Channel,
+		replayAbortedAttrKey.Bool(info.Aborted),
+		replayClientGoneAttrKey.Bool(clientGone))
 	t.bridge.instruments.ReplayEvents.Record(context.Background(), int64(info.EventCount), attrs)
 	t.bridge.instruments.ReplayDataSize.Record(context.Background(), info.TotalDataSize, attrs)
 	t.bridge.instruments.ReplayDrainDuration.Record(context.Background(), info.DrainDuration.Seconds(), attrs)
-	t.replaySpan(ctx, info)
+	t.replaySpan(ctx, info, clientGone)
 }
 
 // eventTypeValue maps an event type to itself if it is on the relay allowlist, otherwise to the

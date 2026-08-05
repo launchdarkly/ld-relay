@@ -295,6 +295,7 @@ func TestReplayFinishedRecordsEventsSizeAndDuration(t *testing.T) {
 	assert.Equal(t, int64(5), events.Sum)
 	assertEnvAttrs(t, events.Attributes)
 	assert.Equal(t, false, boolAttrValue(t, events.Attributes, replayAbortedAttrKey))
+	assert.Equal(t, false, boolAttrValue(t, events.Attributes, replayClientGoneAttrKey))
 
 	// Replayed events do not fire EventSent, so replay.data.size is the only
 	// byte-volume record for the batch.
@@ -332,13 +333,15 @@ func TestReplayFinishedAbortedIsAttributed(t *testing.T) {
 	assert.Equal(t, true, boolAttrValue(t, size.Attributes, replayAbortedAttrKey))
 }
 
-func TestReplayFinishedOnCanceledRequestIsAborted(t *testing.T) {
+func TestReplayFinishedOnCanceledRequestIsMarkedClientGone(t *testing.T) {
 	h := newBridgeHarness(t)
 	h.bridge.RegisterChannel(testChannel, envAttrs())
 
 	// Relay's repositories end their batch early when the request context is
-	// canceled, so eventsource reports Aborted=false for the truncated drain;
-	// the canceled context is the signal that the client was gone.
+	// canceled, which eventsource reports as a normal completion of whatever
+	// was produced. The canceled context is recorded as its own attribute --
+	// NOT folded into aborted, which would also sweep fully delivered batches
+	// whose client departed right afterwards into the aborted distributions.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	h.trace().ReplayFinished(ctx, eventsource.ReplayFinishedInfo{
@@ -350,8 +353,10 @@ func TestReplayFinishedOnCanceledRequestIsAborted(t *testing.T) {
 	})
 
 	events := histIntPoint(t, metricByName(t, h.collect(t), "launchdarkly.relay.stream.replay.events"))
-	assert.Equal(t, true, boolAttrValue(t, events.Attributes, replayAbortedAttrKey),
-		"a drain that finished on a dead request must not land in the completed distributions")
+	assert.Equal(t, false, boolAttrValue(t, events.Attributes, replayAbortedAttrKey),
+		"eventsource's truncation verdict must pass through unmodified")
+	assert.Equal(t, true, boolAttrValue(t, events.Attributes, replayClientGoneAttrKey),
+		"the canceled request context is reported as its own dimension")
 }
 
 func TestUnknownChannelUsesFallbackAttributes(t *testing.T) {
