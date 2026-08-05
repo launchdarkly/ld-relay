@@ -39,6 +39,16 @@ func (sr *statusRecorder) Write(b []byte) (int, error) {
 	return sr.ResponseWriter.Write(b)
 }
 
+// WriteString preserves the underlying writer's io.StringWriter fast path: without it,
+// io.WriteString would copy a string payload into a fresh []byte at this hop.
+func (sr *statusRecorder) WriteString(s string) (int, error) {
+	if !sr.written {
+		sr.statusCode = 200
+		sr.written = true
+	}
+	return io.WriteString(sr.ResponseWriter, s)
+}
+
 func (sr *statusRecorder) Flush() {
 	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
