@@ -58,7 +58,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		return
 	}
 
-	set, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
@@ -69,6 +69,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 		// No reconnect for offline mode: preserve previous state (env was just created with
 		// the singular sdkKey from envConfig) and wait for the next archive reload.
 	} else {
+		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
 		env.ReconcileCredentials(set)
 	}
 
@@ -101,7 +102,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 	env.SetTTL(ae.Params.TTL)
 	env.SetSecureMode(ae.Params.SecureMode)
 
-	set, buildErr := envfactory.BuildAcceptedSet(ae.Params)
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
 		var malformed *credential.MalformedCredentialSetError
 		if errors.As(buildErr, &malformed) {
@@ -112,6 +113,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 		}
 		// Preserve previous credentials; no reconnect (offline path has no live stream).
 	} else {
+		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)
 		env.ReconcileCredentials(set)
 	}
 

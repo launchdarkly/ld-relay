@@ -50,7 +50,7 @@ func TestBuildAcceptedSet_HappyPath(t *testing.T) {
 		[]AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
 		"mob-primary",
 	)
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -72,7 +72,7 @@ func TestBuildAcceptedSet_MultipleKeys(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -99,8 +99,8 @@ func TestBuildAcceptedSet_Rename(t *testing.T) {
 		"mob-primary",
 	)
 
-	setOld, errOld := BuildAcceptedSet(paramsOldName)
-	setNew, errNew := BuildAcceptedSet(paramsNewName)
+	setOld, _, errOld := BuildAcceptedSet(paramsOldName)
+	setNew, _, errNew := BuildAcceptedSet(paramsNewName)
 
 	require.NoError(t, errOld)
 	require.NoError(t, errNew)
@@ -143,8 +143,8 @@ func TestBuildAcceptedSet_Deexpiry(t *testing.T) {
 		"mob-primary",
 	)
 
-	setWithExpiry, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
-	setNoExpiry, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
+	setWithExpiry, _, errWithExpiry := BuildAcceptedSet(paramsWithExpiry)
+	setNoExpiry, _, errNoExpiry := BuildAcceptedSet(paramsNoExpiry)
 
 	require.NoError(t, errWithExpiry)
 	require.NoError(t, errNoExpiry)
@@ -173,7 +173,7 @@ func TestBuildAcceptedSet_AnchorNotInArray(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	_, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -194,7 +194,7 @@ func TestBuildAcceptedSet_PrimaryMobileNotInArray(t *testing.T) {
 			{Key: "other", Value: "mob-other"}, // ...but NOT in the array
 		},
 	}
-	_, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -211,7 +211,7 @@ func TestBuildAcceptedSet_NoMobileKey(t *testing.T) {
 		SDKKey: SDKKeyRep{Value: config.SDKKey("sdk-anchor")},
 		// no MobKey, no MobileKeys
 	}
-	set, err := BuildAcceptedSet(rep.ToParams())
+	set, _, err := BuildAcceptedSet(rep.ToParams())
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -235,7 +235,7 @@ func TestBuildAcceptedSet_MobileKeysWithoutPrimary(t *testing.T) {
 			{Key: "mob-1", Value: "mob-primary"}, // ...but the array is non-empty
 		},
 	}
-	_, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -254,7 +254,7 @@ func TestBuildAcceptedSet_EmptyMobileArrayValid(t *testing.T) {
 		AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "default", Value: "sdk-anchor"}},
 		AcceptedMobileKeys: []AcceptedMobileKey{}, // empty
 	}
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -273,7 +273,7 @@ func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	_, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 
 	require.Error(t, err)
 	var malformed *credential.MalformedCredentialSetError
@@ -289,7 +289,7 @@ func TestBuildAcceptedSet_NoSDKKeys(t *testing.T) {
 		AcceptedSDKKeys:    []AcceptedSDKKey{},
 		AcceptedMobileKeys: []AcceptedMobileKey{},
 	}
-	_, err := BuildAcceptedSet(params)
+	_, _, err := BuildAcceptedSet(params)
 	require.Error(t, err, "a set with no SDK key at all must be rejected")
 }
 
@@ -312,7 +312,7 @@ func TestBuildAcceptedSet_MixedUpdate(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -336,7 +336,7 @@ func TestBuildAcceptedSet_AnchorNeverExpiring(t *testing.T) {
 		},
 		"mob-primary",
 	)
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	// Anchor is permanent (WithAnchor), not expiring — identical to a payload with no anchor expiry.
@@ -362,7 +362,7 @@ func TestBuildAcceptedSet_MultipleMobileKeys(t *testing.T) {
 			{Key: "mob-2", Value: "mob-secondary"},
 		},
 	}
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -388,7 +388,7 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 			{Key: "mob-old", Value: "mob-old", Expiry: expiry1}, // expiring
 		},
 	}
-	set, err := BuildAcceptedSet(params)
+	set, _, err := BuildAcceptedSet(params)
 
 	require.NoError(t, err)
 	expected := mustBuild(t, credential.NewAcceptedSetBuilder().
@@ -397,4 +397,161 @@ func TestBuildAcceptedSet_ExpiringMobileKey(t *testing.T) {
 		WithMobileKey(credential.MobileKeyParams{Value: "mob-old", Key: util.PtrOrNil("mob-old"), Expiry: util.PtrOrNil(expiry1)}).
 		WithPrimaryMobileKey(credential.MobileKeyParams{Value: "mob-primary", Key: util.PtrOrNil("mob-1")}))
 	assert.Equal(t, expected, set, "expiring mobile key must land as an expiring key in the set")
+}
+
+// TestBuildAcceptedSet_ViewScopedKeys covers the ingestion filter across both arrays. A key scoped to a
+// view may only see a subset of the environment's flags; relay serves the whole environment payload, so
+// admitting one would silently over-deliver. Such a key is therefore never added to the set, and an SDK
+// presenting it is rejected because the credential is simply absent from the lookup map. The dropped
+// keys are returned to the caller so it can WARN.
+func TestBuildAcceptedSet_ViewScopedKeys(t *testing.T) {
+	const (
+		anchor  = config.SDKKey("sdk-anchor")
+		primary = config.MobileKey("mob-primary")
+	)
+
+	// The four entries every case starts from; individual cases add view-scoped entries alongside them.
+	anchorEntry := AcceptedSDKKey{Key: "default-sdk", Value: anchor}
+	extraSDK := AcceptedSDKKey{Key: "service-a", Value: "sdk-service-a"}
+	primaryEntry := AcceptedMobileKey{Key: "default-mob", Value: primary}
+	extraMob := AcceptedMobileKey{Key: "mob-extra", Value: "mob-extra"}
+
+	// base is the set with only the two designated keys; cases add whatever survived the filter.
+	base := func() *credential.AcceptedSetBuilder {
+		return credential.NewAcceptedSetBuilder().
+			WithEnvironmentID("env-abc").
+			WithAnchor(credential.SDKKeyParams{Value: anchor, Key: util.PtrOrNil("default-sdk")}).
+			WithPrimaryMobileKey(credential.MobileKeyParams{Value: primary, Key: util.PtrOrNil("default-mob")})
+	}
+	acceptedExtraSDK := credential.SDKKeyParams{Value: extraSDK.Value, Key: util.PtrOrNil(extraSDK.Key)}
+	acceptedExtraMob := credential.MobileKeyParams{Value: extraMob.Value, Key: util.PtrOrNil(extraMob.Key)}
+
+	// baseWithExtras is base plus both non-designated keys — the expectation for every case where the
+	// filter drops nothing that was going to be accepted anyway.
+	baseWithExtras := func() *credential.AcceptedSetBuilder {
+		return base().WithSDKKey(acceptedExtraSDK).WithMobileKey(acceptedExtraMob)
+	}
+
+	tests := []struct {
+		name         string
+		sdkKeys      []AcceptedSDKKey
+		mobileKeys   []AcceptedMobileKey
+		wantSet      func() *credential.AcceptedSetBuilder
+		wantRejected []string
+	}{
+		{
+			// Baseline: nothing view-scoped behaves exactly as it did before the field existed.
+			name:       "no view-scoped keys",
+			sdkKeys:    []AcceptedSDKKey{anchorEntry, extraSDK},
+			mobileKeys: []AcceptedMobileKey{primaryEntry, extraMob},
+			wantSet:    baseWithExtras,
+		},
+		{
+			name:         "view-scoped non-anchor SDK key is excluded",
+			sdkKeys:      []AcceptedSDKKey{anchorEntry, extraSDK, {Key: "view-sdk", Value: "sdk-viewy", HasViews: true}},
+			mobileKeys:   []AcceptedMobileKey{primaryEntry, extraMob},
+			wantSet:      baseWithExtras,
+			wantRejected: []string{"view-sdk"},
+		},
+		{
+			name:         "view-scoped non-primary mobile key is excluded",
+			sdkKeys:      []AcceptedSDKKey{anchorEntry, extraSDK},
+			mobileKeys:   []AcceptedMobileKey{primaryEntry, extraMob, {Key: "view-mob", Value: "mob-viewy", HasViews: true}},
+			wantSet:      baseWithExtras,
+			wantRejected: []string{"view-mob"},
+		},
+		{
+			// Both arrays filter in one pass; SDK keys are walked first, hence the order.
+			name:       "view-scoped keys in both arrays are excluded",
+			sdkKeys:    []AcceptedSDKKey{anchorEntry, {Key: "view-sdk", Value: "sdk-viewy", HasViews: true}},
+			mobileKeys: []AcceptedMobileKey{primaryEntry, {Key: "view-mob", Value: "mob-viewy", HasViews: true}},
+			wantSet:    base,
+			// Every non-designated key is view-scoped, so only the anchor and primary survive.
+			wantRejected: []string{"view-sdk", "view-mob"},
+		},
+		{
+			// A view-scoped key is dropped outright rather than being admitted as an expiring key —
+			// the marker takes precedence over expiry handling.
+			name:         "view-scoped key carrying an expiry is still excluded",
+			sdkKeys:      []AcceptedSDKKey{anchorEntry, {Key: "view-sdk", Value: "sdk-viewy", Expiry: expiry1, HasViews: true}},
+			mobileKeys:   []AcceptedMobileKey{primaryEntry},
+			wantSet:      base,
+			wantRejected: []string{"view-sdk"},
+		},
+		{
+			// Two entries, one value, only the later one marked. The accepted-set builder is
+			// first-wins, so filtering per-entry would admit the credential via the unmarked entry
+			// while still reporting it rejected. One marked entry must reject the value outright.
+			name: "value marked by any duplicate entry is excluded",
+			sdkKeys: []AcceptedSDKKey{
+				anchorEntry,
+				{Key: "clean-alias", Value: "sdk-dup"},
+				{Key: "view-alias", Value: "sdk-dup", HasViews: true},
+			},
+			mobileKeys:   []AcceptedMobileKey{primaryEntry},
+			wantSet:      base,
+			wantRejected: []string{"clean-alias", "view-alias"},
+		},
+		{
+			// The same, with the marked entry first — the outcome must not depend on array order.
+			name: "value marked by any duplicate entry is excluded regardless of order",
+			sdkKeys: []AcceptedSDKKey{
+				anchorEntry,
+				{Key: "view-alias", Value: "sdk-dup", HasViews: true},
+				{Key: "clean-alias", Value: "sdk-dup"},
+			},
+			mobileKeys:   []AcceptedMobileKey{primaryEntry},
+			wantSet:      base,
+			wantRejected: []string{"view-alias", "clean-alias"},
+		},
+		{
+			// The mobile analogue, so both loops are pinned against per-entry filtering.
+			name:    "mobile value marked by any duplicate entry is excluded",
+			sdkKeys: []AcceptedSDKKey{anchorEntry},
+			mobileKeys: []AcceptedMobileKey{
+				primaryEntry,
+				{Key: "clean-mob-alias", Value: "mob-dup"},
+				{Key: "view-mob-alias", Value: "mob-dup", HasViews: true},
+			},
+			wantSet:      base,
+			wantRejected: []string{"clean-mob-alias", "view-mob-alias"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := EnvironmentParams{
+				EnvID:              "env-abc",
+				SDKKey:             anchor,
+				MobileKey:          primary,
+				AcceptedSDKKeys:    tt.sdkKeys,
+				AcceptedMobileKeys: tt.mobileKeys,
+			}
+
+			set, rejected, err := BuildAcceptedSet(params)
+
+			// A view-scoped key is filtered, never fatal — the environment always keeps operating.
+			require.NoError(t, err)
+			assert.Equal(t, mustBuild(t, tt.wantSet()), set)
+			assert.Equal(t, tt.wantRejected, rejected)
+		})
+	}
+}
+
+// TestBuildAcceptedSet_ViewScopedKeysEmptyOnError verifies that the rejected list is empty whenever an
+// error is returned. The caller discards the whole payload and preserves its previous credentials in
+// that case, so reporting keys it did not act on would produce a misleading WARN.
+func TestBuildAcceptedSet_ViewScopedKeysEmptyOnError(t *testing.T) {
+	// The anchor is absent from sdkKeys[] — malformed — and a view-scoped entry is present alongside.
+	params := EnvironmentParams{
+		EnvID:              "env-abc",
+		SDKKey:             "sdk-anchor",
+		AcceptedSDKKeys:    []AcceptedSDKKey{{Key: "view-sdk", Value: "sdk-viewy", HasViews: true}},
+		AcceptedMobileKeys: []AcceptedMobileKey{},
+	}
+
+	_, rejected, err := BuildAcceptedSet(params)
+
+	require.Error(t, err)
+	assert.Empty(t, rejected)
 }

@@ -1,9 +1,30 @@
 package envfactory
 
 import (
+	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 )
+
+// collectViewScopedValues returns the set of credential values that any entry marks as view-scoped,
+// excluding the designated key (the anchor, or the primary mobile key) which is never filtered.
+//
+// Two entries can carry the same value with only one of them marked. Keying on the value means one
+// marked entry rejects it, whichever position it holds.
+func collectViewScopedValues[E any, V comparable](entries []E, designated V, get func(E) (V, bool)) map[V]bool {
+	var viewScoped map[V]bool
+	for _, e := range entries {
+		value, hasViews := get(e)
+		if !hasViews || value == designated {
+			continue
+		}
+		if viewScoped == nil {
+			viewScoped = make(map[V]bool)
+		}
+		viewScoped[value] = true
+	}
+	return viewScoped // nil is a valid empty set to read from
+}
 
 // BuildAcceptedSet converts an EnvironmentParams into the AcceptedSet needed by
 // EnvContext.ReconcileCredentials.
@@ -27,9 +48,15 @@ import (
 // primary (params.MobileKey undefined), or an array entry with an empty value. The caller must
 // preserve the previous accepted state and, for RAC handlers, reconnect the stream with jitter to
 // force a fresh put. This is the single home for the anchor invariant.
-func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) {
+//
+// Keys scoped to a view are filtered out here rather than at authentication time, making this the
+// single funnel for both RAC and the offline archive. The second return value names the keys that were
+// dropped, so callers can log what they lost. An SDK presenting one of them gets a 401: the key is
+// simply absent from the lookup map.
+func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []string, error) {
 	anchor := params.SDKKey
 	b := credential.NewAcceptedSetBuilder().WithEnvironmentID(params.EnvID)
+	var rejected []string
 
 	// Add every accepted SDK key, designating the anchor as we encounter it. WithAnchor both adds and
 	// designates, and forces the anchor permanent — so a payload that (wrongly) carries an expiry on
@@ -38,15 +65,23 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) 
 	//
 	// Entries with an empty value are structurally malformed: relay would silently accept them but
 	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.
+	viewScopedSDKValues := collectViewScopedValues(params.AcceptedSDKKeys, anchor,
+		func(k AcceptedSDKKey) (config.SDKKey, bool) { return k.Value, k.HasViews })
+
 	anchorInArray := false
 	for _, k := range params.AcceptedSDKKeys {
 		if !k.Value.Defined() {
-			return credential.AcceptedSet{}, credential.NewEmptyCredentialError("sdkKeys", k.Key)
+			return credential.AcceptedSet{}, nil, credential.NewEmptyCredentialError("sdkKeys", k.Key)
 		}
-		if k.Value == anchor {
+		switch {
+		// A marker on the anchor's own entry is disregarded: dropping the designated key would take the
+		// whole environment down, and the backend forbids views on a default key in the first place.
+		case k.Value == anchor:
 			anchorInArray = true
 			b.WithAnchor(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
-		} else {
+		case viewScopedSDKValues[k.Value]:
+			rejected = append(rejected, k.Key)
+		default:
 			b.WithSDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}
 	}
@@ -55,21 +90,28 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) 
 	// synthesizes it into the array for old-format payloads). A defined anchor absent from the array is
 	// a structurally malformed payload — reject it.
 	if anchor.Defined() && !anchorInArray {
-		return credential.AcceptedSet{}, credential.NewAnchorNotInSetError()
+		return credential.AcceptedSet{}, nil, credential.NewAnchorNotInSetError()
 	}
 
 	// Add every accepted mobile key, designating the primary as we encounter it. Like the anchor,
 	// WithPrimaryMobileKey forces the primary permanent, so an expiry the payload may carry on the
 	// primary's own entry cannot demote it.
+	viewScopedMobileValues := collectViewScopedValues(params.AcceptedMobileKeys, params.MobileKey,
+		func(k AcceptedMobileKey) (config.MobileKey, bool) { return k.Value, k.HasViews })
+
 	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
-			return credential.AcceptedSet{}, credential.NewEmptyCredentialError("mobileKeys", k.Key)
+			return credential.AcceptedSet{}, nil, credential.NewEmptyCredentialError("mobileKeys", k.Key)
 		}
-		if k.Value == params.MobileKey {
+		switch {
+		// Like the anchor, a marker on the primary's own entry is disregarded rather than honored.
+		case k.Value == params.MobileKey:
 			primaryMobileInArray = true
 			b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
-		} else {
+		case viewScopedMobileValues[k.Value]:
+			rejected = append(rejected, k.Key)
+		default:
 			b.WithMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
 		}
 	}
@@ -79,7 +121,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) 
 	// without this guard the primary would be silently left undesignated, clearing it on reconcile and
 	// breaking event forwarding. (An undefined mobKey is valid — a server-side-only environment.)
 	if params.MobileKey.Defined() && !primaryMobileInArray {
-		return credential.AcceptedSet{}, credential.NewPrimaryMobileKeyNotInSetError()
+		return credential.AcceptedSet{}, nil, credential.NewPrimaryMobileKeyNotInSetError()
 	}
 
 	// A non-empty mobileKeys[] with no designated primary (undefined mobKey) is malformed: the reconcile
@@ -89,12 +131,12 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, error) 
 	// server-side-only environment. Old-format payloads synthesize the array from mobKey only, so an
 	// undefined mobKey yields an empty array and is unaffected.)
 	if len(params.AcceptedMobileKeys) > 0 && !params.MobileKey.Defined() {
-		return credential.AcceptedSet{}, credential.NewPrimaryMobileKeyMissingError()
+		return credential.AcceptedSet{}, nil, credential.NewPrimaryMobileKeyMissingError()
 	}
 
 	set, err := b.Build()
 	if err != nil {
-		return credential.AcceptedSet{}, err
+		return credential.AcceptedSet{}, nil, err
 	}
-	return set, nil
+	return set, rejected, nil
 }
