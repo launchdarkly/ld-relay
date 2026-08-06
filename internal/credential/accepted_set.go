@@ -1,7 +1,6 @@
 package credential
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/launchdarkly/ld-relay/v8/config"
@@ -48,11 +47,6 @@ func (s AcceptedSet) hasMobileKey(key config.MobileKey) bool {
 	return ok
 }
 
-// errAcceptedSetMissingSDKKey is returned by AcceptedSetBuilder.Build when no SDK key was added. An
-// environment must always have at least one SDK key (its anchor), so an empty set indicates a caller
-// mistake rather than a benign edge case — surfacing it avoids a silent misconfiguration.
-var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must contain at least one SDK key")
-
 // MalformedCredentialSetError is returned when a credential payload cannot produce a valid
 // AcceptedSet. This covers:
 //
@@ -65,6 +59,9 @@ var errAcceptedSetMissingSDKKey = errors.New("accepted credential set must conta
 //     would keep using the previous (possibly revoked) primary. (No mobile keys at all is valid.)
 //  4. An entry in sdkKeys[] or mobileKeys[] has an empty value — a credential that would be
 //     accepted by relay but can never authenticate any SDK.
+//  5. No SDK key survived at all, so the environment would have nothing to authenticate with. A
+//     payload reaches this by combining an undefined anchor with an sdkKeys[] array that is either
+//     empty or entirely made up of keys relay excludes, such as keys scoped to a view.
 //
 // Validation happens before Reconcile is called; Rotator.Reconcile trusts the set it is handed.
 // Because the error is raised before any state mutation, the environment's previous accepted set is
@@ -84,6 +81,13 @@ func (e *MalformedCredentialSetError) Error() string {
 // newMissingAnchorError returns a MalformedCredentialSetError for an absent anchor.
 func newMissingAnchorError() *MalformedCredentialSetError {
 	return &MalformedCredentialSetError{msg: "malformed credential set: anchor SDK key is missing"}
+}
+
+// newNoSDKKeysError returns a MalformedCredentialSetError for a set that ended up with no SDK key at
+// all. The message describes the payload rather than the builder, because that is what an operator
+// reading the log can act on.
+func newNoSDKKeysError() *MalformedCredentialSetError {
+	return &MalformedCredentialSetError{msg: "malformed credential set: no usable SDK key in sdkKeys[]"}
 }
 
 // NewAnchorNotInSetError returns a MalformedCredentialSetError for a payload whose designated anchor

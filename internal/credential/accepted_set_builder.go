@@ -89,13 +89,13 @@ func (b *AcceptedSetBuilder) WithEnvironmentID(id config.EnvironmentID) *Accepte
 	return b
 }
 
-// Build validates and returns the accumulated AcceptedSet. It returns errAcceptedSetMissingSDKKey if
-// no SDK key was added, or a *MalformedCredentialSetError if no anchor was designated (via
+// Build validates and returns the accumulated AcceptedSet. It returns a
+// *MalformedCredentialSetError if no SDK key was added, or if no anchor was designated (via
 // WithAnchor). Because WithAnchor also adds the key, a designated anchor is always among the
 // accepted SDK keys.
 func (b *AcceptedSetBuilder) Build() (AcceptedSet, error) {
 	if len(b.set.sdkKeys) == 0 {
-		return AcceptedSet{}, errAcceptedSetMissingSDKKey
+		return AcceptedSet{}, newNoSDKKeysError()
 	}
 	if !b.set.anchor.Defined() {
 		return AcceptedSet{}, newMissingAnchorError()

@@ -1,10 +1,7 @@
 package relay
 
 import (
-	"errors"
 	"time"
-
-	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
 
@@ -23,6 +20,8 @@ const (
 	logMsgOfflineEnvTimeoutError          = "Unable to initialize offline environment %q: timed out waiting for client creation"
 	logMsgInternalErrorUpdatedEnvNotFound = "Unexpected error in file data processing: environment ID %s not found when updating"
 	logMsgInternalErrorNoUpdatesForEnv    = "Unexpected error in file data processing: environment ID %s not found in envUpdates"
+
+	logMsgOfflineMalformedPayload = "Malformed credential payload for offline environment %q — preserving previous credentials: %s"
 )
 
 // relayFileDataActions is an implementation of the filedata.UpdateHandler interface. The low-level
@@ -60,12 +59,7 @@ func (a *relayFileDataActions) AddEnvironment(ae filedata.ArchiveEnvironment) {
 
 	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
-		var malformed *credential.MalformedCredentialSetError
-		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf("Malformed credential payload for offline environment %q — preserving previous credentials: %s", ae.Params.Identifiers.GetDisplayName(), buildErr)
-		} else {
-			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
-		}
+		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		// No reconnect for offline mode: preserve previous state (env was just created with
 		// the singular sdkKey from envConfig) and wait for the next archive reload.
 	} else {
@@ -104,13 +98,7 @@ func (a *relayFileDataActions) UpdateEnvironment(ae filedata.ArchiveEnvironment)
 
 	set, rejected, buildErr := envfactory.BuildAcceptedSet(ae.Params)
 	if buildErr != nil {
-		var malformed *credential.MalformedCredentialSetError
-		if errors.As(buildErr, &malformed) {
-			a.r.loggers.Errorf("Malformed credential payload for offline environment %q — preserving previous credentials: %s", ae.Params.Identifiers.GetDisplayName(), buildErr)
-		} else {
-			// The environment was found above; this is a credential-build failure, not a missing env.
-			a.r.loggers.Errorf(logMsgAutoConfEnvInitError, ae.Params.Identifiers.GetDisplayName(), buildErr)
-		}
+		a.r.loggers.Errorf(logMsgOfflineMalformedPayload, ae.Params.Identifiers.GetDisplayName(), buildErr)
 		// Preserve previous credentials; no reconnect (offline path has no live stream).
 	} else {
 		logViewScopedKeys(a.r.loggers, ae.Params.Identifiers.GetDisplayName(), rejected)

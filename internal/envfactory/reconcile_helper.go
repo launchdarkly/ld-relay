@@ -20,13 +20,13 @@ import (
 // The builder de-duplicates by value, so an anchor or primary mobile key that also appears in its
 // array is added only once.
 //
-// A *credential.MalformedCredentialSetError is returned (with an empty AcceptedSet) for a
-// structurally malformed payload: an undefined anchor (params.SDKKey not set), a defined anchor that
-// is absent from params.AcceptedSDKKeys, a defined primary mobile key (params.MobileKey) that is
-// absent from params.AcceptedMobileKeys, a non-empty params.AcceptedMobileKeys with no designated
-// primary (params.MobileKey undefined), or an array entry with an empty value. The caller must
-// preserve the previous accepted state and, for RAC handlers, reconnect the stream with jitter to
-// force a fresh put. This is the single home for the anchor invariant.
+// An error is returned (with an empty AcceptedSet) for a structurally malformed payload: an undefined
+// anchor (params.SDKKey not set), a defined anchor that is absent from params.AcceptedSDKKeys, a
+// defined primary mobile key (params.MobileKey) that is absent from params.AcceptedMobileKeys, a
+// non-empty params.AcceptedMobileKeys with no designated primary (params.MobileKey undefined), an
+// array entry with an empty value, or no usable SDK key at all. The caller must preserve the previous
+// accepted state and, for RAC handlers, reconnect the stream with jitter to force a fresh put. This is
+// the single home for the anchor invariant.
 //
 // Keys scoped to a view are filtered out here rather than at authentication time, making this the
 // single funnel for both RAC and the offline archive. The second return value names the keys that were
@@ -40,7 +40,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 	// Add every accepted SDK key, designating the anchor as we encounter it. WithAnchor both adds and
 	// designates, and forces the anchor permanent — so a payload that (wrongly) carries an expiry on
 	// the anchor's own entry cannot demote it. An undefined anchor never matches a (defined) array
-	// value, so it is never designated and Build returns a *MalformedCredentialSetError.
+	// value, so it is never designated and Build rejects the payload.
 	//
 	// Entries with an empty value are structurally malformed: relay would silently accept them but
 	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.

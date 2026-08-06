@@ -10,15 +10,15 @@ import (
 )
 
 func TestAcceptedSetBuilderValidation(t *testing.T) {
-	// No SDK key at all is a caller error.
+	// No SDK key at all is malformed: the environment would have nothing to authenticate with.
+	var malformed *MalformedCredentialSetError
 	_, err := NewAcceptedSetBuilder().
 		WithMobileKey(MobileKeyParams{Value: "mob"}).
 		WithEnvironmentID(config.EnvironmentID("env")).
 		Build()
-	require.ErrorIs(t, err, errAcceptedSetMissingSDKKey)
+	require.ErrorAs(t, err, &malformed)
 
 	// An SDK key with no designated anchor is malformed.
-	var malformed *MalformedCredentialSetError
 	_, err = NewAcceptedSetBuilder().WithSDKKey(SDKKeyParams{Value: "sdk"}).Build()
 	require.ErrorAs(t, err, &malformed)
 

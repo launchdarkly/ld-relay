@@ -501,8 +501,6 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 // set. It runs at the stream parse boundary, before the rep's version is recorded via Upsert: a
 // malformed payload must not advance the version, or the backend's fresh put — which carries the same
 // version — would be deduplicated away by the MessageReceiver.
-//
-// Not every error is a *MalformedCredentialSetError, so callers treat them all alike.
 func (s *StreamManager) validateCredentialPayload(rep envfactory.EnvironmentRep) error {
 	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
 	return err

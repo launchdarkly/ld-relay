@@ -281,16 +281,32 @@ func TestBuildAcceptedSet_AnchorUndefined(t *testing.T) {
 	assert.Contains(t, malformed.Error(), "anchor SDK key is missing")
 }
 
-// TestBuildAcceptedSet_NoSDKKeys verifies that when neither an anchor nor any array SDK keys are
-// present, Build returns an error (the set has no SDK key at all).
+// TestBuildAcceptedSet_NoSDKKeys verifies that when no SDK key survives, the payload is rejected as
+// malformed. Two shapes reach this, both requiring an undefined anchor: an empty array, and an array
+// whose every entry is filtered out for being scoped to a view. The second is why the case is worth
+// pinning by error type — a filtered-to-empty array is a payload problem, not a caller mistake.
 func TestBuildAcceptedSet_NoSDKKeys(t *testing.T) {
-	params := EnvironmentParams{
-		SDKKey:             "", // undefined anchor
-		AcceptedSDKKeys:    []AcceptedSDKKey{},
-		AcceptedMobileKeys: []AcceptedMobileKey{},
+	tests := []struct {
+		name    string
+		sdkKeys []AcceptedSDKKey
+	}{
+		{"empty array", []AcceptedSDKKey{}},
+		{"every entry view-scoped", []AcceptedSDKKey{{Key: "view-sdk", Value: "sdk-viewy", HasViews: true}}},
 	}
-	_, _, err := BuildAcceptedSet(params)
-	require.Error(t, err, "a set with no SDK key at all must be rejected")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := EnvironmentParams{
+				SDKKey:             "", // undefined anchor
+				AcceptedSDKKeys:    tt.sdkKeys,
+				AcceptedMobileKeys: []AcceptedMobileKey{},
+			}
+			_, _, err := BuildAcceptedSet(params)
+
+			require.Error(t, err, "a set with no SDK key at all must be rejected")
+			var malformed *credential.MalformedCredentialSetError
+			require.ErrorAs(t, err, &malformed, "every rejection from BuildAcceptedSet is a malformed-payload error")
+		})
+	}
 }
 
 // TestBuildAcceptedSet_MixedUpdate verifies add + re-anchor + remove in a single params update
