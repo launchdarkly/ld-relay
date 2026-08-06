@@ -204,6 +204,44 @@ const (
 	serverSideAllFlagsFlightKey = "sdk-flags"
 )
 
+// runPollingFlight resolves one polling request through the environment's flight group and
+// annotates the request's span with how that went: relay.singleflight.shared reports whether the
+// result was handed to multiple requests, and relay.singleflight.wait_ms reports, only on a
+// request that waited for a flight another request was already executing, how long it waited.
+// The executing request carries no wait attribute; it did not wait, and its time is visible as
+// the child spans that build starts on its context.
+func runPollingFlight(
+	req *http.Request,
+	env relayenv.EnvContext,
+	key string,
+	build func() (pollResult, error),
+) (pollResult, error) {
+	executed := false
+	start := time.Now()
+	data, err, shared := env.GetPollingFlightGroup().Do(key, func() (any, error) {
+		executed = true
+		result, err := build()
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+
+	span := trace.SpanFromContext(req.Context())
+	span.SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
+	if !executed {
+		span.SetAttributes(tracing.SingleflightWaitMSKey.Float64(
+			float64(time.Since(start)) / float64(time.Millisecond)))
+	}
+
+	if err != nil {
+		return pollResult{}, err
+	}
+
+	// panic if it's not a pollResult - as this should be impossible
+	return data.(pollResult), nil
+}
+
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
@@ -218,22 +256,15 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	// with the same basis may share a result, and the basis is part of the key.
 	//
 	// The snapshot and serialize spans belong to the one request that executes the closure;
-	// every request records on its own request span whether the payload build was shared.
-	data, err, shared := clientCtx.Env.GetPollingFlightGroup().Do(serverSidePollFlightKey+":"+basis, func() (any, error) {
-		result, err := buildServerSidePollPayload(req.Context(), tr, clientCtx.Env, basis)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
+	// every request records on its own request span whether the payload build was shared, and
+	// how long it waited if another request built it.
+	result, err := runPollingFlight(req, clientCtx.Env, serverSidePollFlightKey+":"+basis, func() (pollResult, error) {
+		return buildServerSidePollPayload(req.Context(), tr, clientCtx.Env, basis)
 	})
-	trace.SpanFromContext(req.Context()).SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
-	// panic if it's not a pollResult - as this should be impossible
-	result := data.(pollResult)
 
 	traceWriteResponse(tr, req, func() (int, error) {
 		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
@@ -556,21 +587,13 @@ func pollAllFlagsHandler(w http.ResponseWriter, req *http.Request) {
 	// payload and Etag depend only on the store contents, so a single key covers all callers.
 	// Span placement follows pollHandlerV2: the store and serialize spans belong to the one
 	// request that executes the closure.
-	data, err, shared := clientCtx.Env.GetPollingFlightGroup().Do(serverSideAllFlagsFlightKey, func() (any, error) {
-		result, err := buildAllFlagsPayload(req.Context(), tr, clientCtx.Env)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
+	result, err := runPollingFlight(req, clientCtx.Env, serverSideAllFlagsFlightKey, func() (pollResult, error) {
+		return buildAllFlagsPayload(req.Context(), tr, clientCtx.Env)
 	})
-	trace.SpanFromContext(req.Context()).SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
-	// panic if it's not a pollResult - as this should be impossible
-	result := data.(pollResult)
 
 	traceWriteResponse(tr, req, func() (int, error) {
 		return writeCacheableJSONResponse(w, req, clientCtx.Env, result.data, result.etag)
@@ -936,10 +959,7 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
 
-	// Not XSS: every caller passes the output of a JSON encoder, and the response is served as
-	// application/json. The taint analysis only sees that a request parameter (the polling basis)
-	// influenced which payload was built.
-	_, err := w.Write(bytes) //nolint:gosec
+	_, err := w.Write(bytes)
 	return http.StatusOK, err
 }
 

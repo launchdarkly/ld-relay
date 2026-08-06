@@ -123,19 +123,35 @@ func TestPollingHandlersShareOnePayloadBuildAcrossConcurrentRequests(t *testing.
 
 			spans := recorder.Ended()
 			assert.Len(t, spansNamed(spans, tc.storeSpanName), 1)
-			assert.Len(t, spansNamed(spans, tracing.SpanSerializePayload), 1,
-				"one flight builds one payload, so there should be exactly one serialize span")
+			serialize := requireSpan(t, spans, tracing.SpanSerializePayload)
 			assert.Len(t, spansNamed(spans, tracing.SpanWriteResponse), followers+1,
 				"every request should still write its own response")
 
-			// Every request's own span reports that the payload build was shared.
+			// Every request's own span reports that the payload build was shared. The one
+			// request that executed the build -- the one whose trace carries the serialize
+			// span -- did not wait and must record no wait time; every follower must record
+			// how long it waited.
 			roots := spansNamed(spans, "test.request")
 			require.Len(t, roots, followers+1)
+			executedRoots, waitedRoots := 0, 0
 			for _, root := range roots {
-				shared, ok := spanAttrs(root)[tracing.SingleflightSharedKey]
+				attrs := spanAttrs(root)
+				shared, ok := attrs[tracing.SingleflightSharedKey]
 				require.True(t, ok, "the request span should report whether the payload build was shared")
 				assert.True(t, shared.AsBool())
+
+				wait, waited := attrs[tracing.SingleflightWaitMSKey]
+				if root.SpanContext().TraceID() == serialize.SpanContext().TraceID() {
+					executedRoots++
+					assert.False(t, waited, "the request that built the payload did not wait")
+				} else {
+					waitedRoots++
+					require.True(t, waited, "a request that shared another's payload build should record its wait")
+					assert.Positive(t, wait.AsFloat64())
+				}
 			}
+			assert.Equal(t, 1, executedRoots)
+			assert.Equal(t, followers, waitedRoots)
 		})
 	}
 }
@@ -170,9 +186,10 @@ func TestPollHandlerV2DoesNotShareAcrossDifferentBasisValues(t *testing.T) {
 	assert.Contains(t, leader.Body.String(), "put-object")
 }
 
-// TestPollingSingleflightAttributeIsFalseForALoneRequest checks the other side of the shared
-// attribute: a request that shares its flight with nobody reports shared=false.
-func TestPollingSingleflightAttributeIsFalseForALoneRequest(t *testing.T) {
+// TestPollingSingleflightAttributesForALoneRequest checks the other side of the flight-group
+// annotations: a request that shares its flight with nobody reports shared=false, and records no
+// wait time because it executed the build itself.
+func TestPollingSingleflightAttributesForALoneRequest(t *testing.T) {
 	recorder := installSpanRecorder(t)
 	env := testenv.MakeTestContextWithData()
 
@@ -190,9 +207,13 @@ func TestPollingSingleflightAttributeIsFalseForALoneRequest(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Code)
 
 			root := requireSpan(t, recorder.Ended(), "test.request")
-			shared, ok := spanAttrs(root)[tracing.SingleflightSharedKey]
+			attrs := spanAttrs(root)
+			shared, ok := attrs[tracing.SingleflightSharedKey]
 			require.True(t, ok, "the request span should always report whether the payload build was shared")
 			assert.False(t, shared.AsBool())
+
+			_, waited := attrs[tracing.SingleflightWaitMSKey]
+			assert.False(t, waited, "a request that built its own payload should record no wait time")
 		})
 	}
 }
