@@ -105,9 +105,10 @@ type ExpiringKeyRep struct {
 // Key is the human-readable identifier (non-secret, e.g. "default-sdk"); Value is
 // the credential secret (e.g. "sdk-xxxx-..."). See the EnvironmentRep TERMINOLOGY comment.
 type ConcurrentKeyRep struct {
-	Key    string `json:"key"`
-	Value  string `json:"value"`
-	Expiry *int64 `json:"expiry,omitempty"` // Unix-ms; nil = permanent
+	Key      string `json:"key"`
+	Value    string `json:"value"`
+	Expiry   *int64 `json:"expiry,omitempty"` // Unix-ms; nil = permanent
+	HasViews bool   `json:"hasViews"`
 }
 
 func ToTime(millisecondTime ldtime.UnixMillisecondTime) time.Time {
@@ -135,8 +136,9 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		params.AcceptedSDKKeys = make([]AcceptedSDKKey, 0, len(r.SDKKeys))
 		for _, k := range r.SDKKeys {
 			entry := AcceptedSDKKey{
-				Key:   k.Key,
-				Value: config.SDKKey(k.Value),
+				Key:      k.Key,
+				Value:    config.SDKKey(k.Value),
+				HasViews: k.HasViews,
 			}
 			if k.Expiry != nil {
 				entry.Expiry = time.UnixMilli(*k.Expiry)
@@ -162,8 +164,9 @@ func (r EnvironmentRep) ToParams() EnvironmentParams {
 		params.AcceptedMobileKeys = make([]AcceptedMobileKey, 0, len(r.MobileKeys))
 		for _, k := range r.MobileKeys {
 			entry := AcceptedMobileKey{
-				Key:   k.Key,
-				Value: config.MobileKey(k.Value),
+				Key:      k.Key,
+				Value:    config.MobileKey(k.Value),
+				HasViews: k.HasViews,
 			}
 			if k.Expiry != nil {
 				entry.Expiry = time.UnixMilli(*k.Expiry)

@@ -46,18 +46,22 @@ type EnvironmentParams struct {
 
 // AcceptedSDKKey is one entry in the accepted SDK key set for an environment.
 // Expiry is zero if the key is permanent.
+// HasViews is true if the SDK key is associated with a view.
 type AcceptedSDKKey struct {
-	Key    string
-	Value  config.SDKKey
-	Expiry time.Time
+	Key      string
+	Value    config.SDKKey
+	Expiry   time.Time
+	HasViews bool
 }
 
 // AcceptedMobileKey is one entry in the accepted mobile key set for an environment.
 // Expiry is zero if the key is permanent.
+// HasViews is true if the mobile key is associated with a view.
 type AcceptedMobileKey struct {
-	Key    string
-	Value  config.MobileKey
-	Expiry time.Time
+	Key      string
+	Value    config.MobileKey
+	Expiry   time.Time
+	HasViews bool
 }
 
 func (e EnvironmentParams) WithFilter(key config.FilterKey) EnvironmentParams {

@@ -159,6 +159,67 @@ func TestEnvironmentRepNewFormatWithArrays(t *testing.T) {
 	assert.Equal(t, AcceptedMobileKey{Key: "mob-key-1", Value: config.MobileKey("mob-f41c")}, params.AcceptedMobileKeys[0])
 }
 
+// TestEnvironmentRepViewScopedKeys pins the hasViews wire contract on both arrays: it decodes onto
+// ConcurrentKeyRep and is carried through ToParams onto the accepted entries, where BuildAcceptedSet
+// consumes it.
+//
+// The absent-field case is the important one. hasViews is a plain bool, so an entry that omits it —
+// every entry a backend that predates the field emits — decodes to false and is treated as not
+// view-scoped. An explicit false is indistinguishable from absent, which is the intent: there is no
+// third state.
+func TestEnvironmentRepViewScopedKeys(t *testing.T) {
+	jsonStr := `{
+		"envID": "68e5179e8307e4099c277e2a",
+		"envKey": "production",
+		"envName": "Production",
+		"mobKey": "mob-primary",
+		"projKey": "my-project",
+		"projName": "My Project",
+		"sdkKey": { "value": "sdk-anchor" },
+		"sdkKeys": [
+			{ "key": "default-sdk", "value": "sdk-anchor" },
+			{ "key": "service-a",   "value": "sdk-service-a", "hasViews": false },
+			{ "key": "view-scoped", "value": "sdk-viewy",     "hasViews": true }
+		],
+		"mobileKeys": [
+			{ "key": "default-mob",     "value": "mob-primary" },
+			{ "key": "view-scoped-mob", "value": "mob-viewy", "hasViews": true }
+		],
+		"version": 26
+	}`
+
+	var rep EnvironmentRep
+	require.NoError(t, json.Unmarshal([]byte(jsonStr), &rep))
+
+	require.Len(t, rep.SDKKeys, 3)
+	assert.False(t, rep.SDKKeys[0].HasViews, "an absent hasViews must decode to false")
+	assert.False(t, rep.SDKKeys[1].HasViews)
+	assert.True(t, rep.SDKKeys[2].HasViews)
+
+	require.Len(t, rep.MobileKeys, 2)
+	assert.False(t, rep.MobileKeys[0].HasViews)
+	assert.True(t, rep.MobileKeys[1].HasViews)
+
+	params := rep.ToParams()
+
+	require.Len(t, params.AcceptedSDKKeys, 3)
+	assert.Equal(t, AcceptedSDKKey{Key: "default-sdk", Value: config.SDKKey("sdk-anchor")}, params.AcceptedSDKKeys[0])
+	assert.Equal(t, AcceptedSDKKey{Key: "service-a", Value: config.SDKKey("sdk-service-a")}, params.AcceptedSDKKeys[1])
+	assert.Equal(t, AcceptedSDKKey{
+		Key:      "view-scoped",
+		Value:    config.SDKKey("sdk-viewy"),
+		HasViews: true,
+	}, params.AcceptedSDKKeys[2])
+
+	require.Len(t, params.AcceptedMobileKeys, 2)
+	assert.Equal(t, AcceptedMobileKey{Key: "default-mob", Value: config.MobileKey("mob-primary")}, params.AcceptedMobileKeys[0])
+	assert.Equal(t, AcceptedMobileKey{
+		Key:      "view-scoped-mob",
+		Value:    config.MobileKey("mob-viewy"),
+		HasViews: true,
+	}, params.AcceptedMobileKeys[1])
+}
+
 // TestEnvironmentRepOldFormatNoArrays verifies that an old-format payload (singular sdkKey/mobKey
 // only, no sdkKeys/mobileKeys arrays) is normalized by ToParams() into a consistent accepted set.
 // The wire rep's SDKKeys/MobileKeys remain nil, but params.AcceptedSDKKeys/AcceptedMobileKeys are
