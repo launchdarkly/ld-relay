@@ -36,6 +36,7 @@ type FakeLDClient struct {
 	dataSourceStatus *interfaces.DataSourceStatus
 	initialized      bool
 	lock             sync.Mutex
+	closeOnce        sync.Once
 }
 
 type CapturedLDClient struct {
@@ -70,7 +71,9 @@ func (c *FakeLDClient) GetDataStoreStatus() sdks.DataStoreStatusInfo {
 
 func (c *FakeLDClient) Close() error {
 	if c.CloseCh != nil {
-		close(c.CloseCh)
+		c.closeOnce.Do(func() {
+			close(c.CloseCh)
+		})
 	}
 	return nil
 }
