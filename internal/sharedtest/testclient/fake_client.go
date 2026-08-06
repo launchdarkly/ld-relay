@@ -69,6 +69,8 @@ func (c *FakeLDClient) GetDataStoreStatus() sdks.DataStoreStatusInfo {
 	return sdks.DataStoreStatusInfo{Available: true}
 }
 
+// Close is idempotent, matching the real SDK client: Relay may tear a client down from more than
+// one code path, and the second call must not panic.
 func (c *FakeLDClient) Close() error {
 	if c.CloseCh != nil {
 		c.closeOnce.Do(func() {
