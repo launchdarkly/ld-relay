@@ -34,6 +34,7 @@ import (
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v3/ldbuilders"
+	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems"
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoreimpl"
@@ -132,6 +133,49 @@ func TestConstructorWithOnlySDKKey(t *testing.T) {
 	assert.Equal(t, env, requireEnvReady(t, readyCh))
 	assert.Equal(t, env.GetClient(), requireClientReady(t, clientCh))
 	assert.Nil(t, env.GetInitError())
+}
+
+func TestSDKClientBuildIsDiscardedIfEnvClosedFirst(t *testing.T) {
+	// startSDKClient calls the SDK client factory without holding c.mu, since the build can take a while.
+	// If Close() runs to completion while a build is still in flight, the late-finishing build must not
+	// install its client into c.clients - Close() has already closed and cleared that map and will never
+	// look at it again (a later Close() call short-circuits on c.closed), so a client installed after the
+	// fact would never be closed, leaking its streaming connection and goroutines.
+	envConfig := st.EnvMain.Config
+
+	mockLog := ldlogtest.NewMockLog()
+	defer mockLog.DumpIfTestFailed(t)
+
+	buildStarted := make(chan struct{})
+	proceedWithBuild := make(chan struct{})
+	clientCh := make(chan *testclient.FakeLDClient, 1)
+	realFactory := testclient.FakeLDClientFactoryWithChannel(true, clientCh)
+
+	blockingFactory := func(sdkKey config.SDKKey, sdkConfig ld.Config, timeout time.Duration) (sdks.LDClientContext, error) {
+		close(buildStarted)
+		<-proceedWithBuild
+		return realFactory(sdkKey, sdkConfig, timeout)
+	}
+
+	env := makeBasicEnv(t, envConfig, blockingFactory, mockLog.Loggers, nil)
+
+	if !helpers.AssertChannelClosed(t, buildStarted, time.Second, "timed out waiting for SDK client build to start") {
+		t.FailNow()
+	}
+
+	require.NoError(t, env.Close())
+
+	// Let the build finish only after Close() has already run to completion.
+	close(proceedWithBuild)
+
+	client := requireClientReady(t, clientCh)
+	client.AwaitClose(t, time.Second) // must be closed rather than leaked
+
+	envImpl := env.(*envContextImpl)
+	envImpl.mu.RLock()
+	_, present := envImpl.clients[envConfig.SDKKey]
+	envImpl.mu.RUnlock()
+	assert.False(t, present, "client built after Close() must not be installed into c.clients")
 }
 
 func TestConstructorWithJSClientContext(t *testing.T) {

@@ -492,7 +492,16 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 	client, err := c.sdkClientFactory(sdkKey, c.sdkConfig, c.sdkInitTimeout)
 	c.mu.Lock()
 	name := c.identifiers.GetDisplayName()
-	if client != nil {
+	// The build above happens without c.mu held, and can take up to c.sdkInitTimeout. If Close() runs to
+	// completion while it's in flight, Close() has already closed and cleared c.clients and will never
+	// revisit it (a later Close() call short-circuits on c.closed). Installing this client now would leak
+	// its streaming connection and goroutines forever, so close it instead of installing it.
+	discarded := c.closed
+	if discarded {
+		if client != nil {
+			_ = client.Close()
+		}
+	} else if client != nil {
 		c.clients[sdkKey] = client
 
 		// The data store instance is created by the SDK when it creates the client. Now that
@@ -511,10 +520,16 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 		}
 		c.evaluator = ldeval.NewEvaluatorWithOptions(dataProvider, evalOptions...)
 	}
-	c.initErr = err
+	if !discarded {
+		c.initErr = err
+	}
 	c.mu.Unlock()
 
-	if err != nil {
+	switch {
+	case discarded:
+		c.globalLoggers.Infof("SDK key %s finished initializing after the environment %q was already closed; discarding it",
+			sdkKey.Masked(), name)
+	case err != nil:
 		if suppressErrors {
 			c.globalLoggers.Warnf("Ignoring error initializing LaunchDarkly client for %q: %+v",
 				name, err)
@@ -526,7 +541,7 @@ func (c *envContextImpl) startSDKClient(sdkKey config.SDKKey, readyCh chan<- Env
 			}
 			return
 		}
-	} else {
+	default:
 		c.globalLoggers.Infof("Initialized LaunchDarkly client for %q (SDK key %s)", name, sdkKey.Masked())
 	}
 	if readyCh != nil {
