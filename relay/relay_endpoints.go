@@ -204,36 +204,21 @@ const (
 	serverSideAllFlagsFlightKey = "sdk-flags"
 )
 
-// runPollingFlight resolves one polling request through the environment's flight group and
-// annotates the request's span with how that went: relay.singleflight.shared reports whether the
-// result was handed to multiple requests, and relay.singleflight.wait_ms reports, only on a
-// request that waited for a flight another request was already executing, how long it waited.
-// The executing request carries no wait attribute; it did not wait, and its time is visible as
-// the child spans that build starts on its context.
+// runPollingFlight resolves one polling request through the environment's flight group,
+// annotating the request's span with how the flight resolved (refer to tracing.SingleflightDo).
 func runPollingFlight(
 	req *http.Request,
 	env relayenv.EnvContext,
 	key string,
 	build func() (pollResult, error),
 ) (pollResult, error) {
-	executed := false
-	start := time.Now()
-	data, err, shared := env.GetPollingFlightGroup().Do(key, func() (any, error) {
-		executed = true
+	data, err := tracing.SingleflightDo(req.Context(), env.GetPollingFlightGroup(), key, func() (any, error) {
 		result, err := build()
 		if err != nil {
 			return nil, err
 		}
 		return result, nil
 	})
-
-	span := trace.SpanFromContext(req.Context())
-	span.SetAttributes(tracing.SingleflightSharedKey.Bool(shared))
-	if !executed {
-		span.SetAttributes(tracing.SingleflightWaitMSKey.Float64(
-			float64(time.Since(start)) / float64(time.Millisecond)))
-	}
-
 	if err != nil {
 		return pollResult{}, err
 	}
@@ -959,7 +944,10 @@ func writeCacheableJSONResponse(w http.ResponseWriter, req *http.Request, client
 	w.Header().Set("Etag", etag)
 	w.WriteHeader(http.StatusOK)
 
-	_, err := w.Write(bytes)
+	// Not XSS: every caller passes the output of a JSON encoder, and the response is served as
+	// application/json. The taint analysis only sees that a request parameter (the polling basis)
+	// influenced which payload was built.
+	_, err := w.Write(bytes) //nolint:gosec
 	return http.StatusOK, err
 }
 

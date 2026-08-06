@@ -8,6 +8,7 @@ import (
 
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
+	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"golang.org/x/sync/singleflight"
@@ -208,9 +209,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		if r.isV2 {
 			// See the note in HandlerV2 about how we use the Last-Event-ID header to
 			// pass the basis.
-			events, err = r.getReplayEventsV2(id)
+			events, err = r.getReplayEventsV2(ctx, id)
 		} else {
-			events, err = r.getReplayEventsV1()
+			events, err = r.getReplayEventsV1(ctx)
 		}
 
 		if err != nil {
@@ -231,8 +232,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 }
 
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
-func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event, error) {
-	data, err, _ := r.flightGroup.Do("getReplayEventV1", func() (interface{}, error) {
+// The context is only used for telemetry: the subscribing request's span is annotated with how
+// the flight resolved (refer to tracing.SingleflightDo).
+func (r *serverSideEnvStreamRepository) getReplayEventsV1(ctx context.Context) ([]eventsource.Event, error) {
+	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV1", func() (interface{}, error) {
 		snapshot, _, err := r.store.Snapshot()
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
@@ -260,12 +263,14 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1() ([]eventsource.Event
 	return []eventsource.Event{event}, nil
 }
 
-func (r *serverSideEnvStreamRepository) getReplayEventsV2(basis string) ([]eventsource.Event, error) {
+// getReplayEventsV2 is getReplayEventsV1 for the FDv2 protocol; the context serves the same
+// telemetry-only purpose.
+func (r *serverSideEnvStreamRepository) getReplayEventsV2(ctx context.Context, basis string) ([]eventsource.Event, error) {
 	// The result depends on the caller's basis: a client whose basis matches the current
 	// selector state gets an "up-to-date" event, while any other client gets a full data
 	// transfer. Only requests with the same basis may share a result, so the basis must be
 	// part of the key.
-	data, err, _ := r.flightGroup.Do("getReplayEventV2:"+basis, func() (interface{}, error) {
+	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV2:"+basis, func() (interface{}, error) {
 		snapshot, selector, err := r.store.Snapshot()
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)

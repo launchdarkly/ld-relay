@@ -35,16 +35,15 @@ const (
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
 
-	// SingleflightSharedKey reports, on a polling endpoint's request span, whether the
-	// response payload build was shared with concurrent requests through the environment's
-	// polling flight group. When it is true and the request's trace has no store or serialize
-	// child spans, another request's trace carries them.
+	// SingleflightSharedKey reports, on the request span of a polling request or an SSE
+	// replay, whether the payload build was shared with concurrent requests through a flight
+	// group. When it is true and the request's trace shows no sign of the build itself,
+	// another request's trace carries it.
 	SingleflightSharedKey = attribute.Key("relay.singleflight.shared")
 
-	// SingleflightWaitMSKey reports, on the request span of a polling request that received
-	// its payload from a flight another request was already executing, how many milliseconds
-	// it spent waiting for that flight. It is absent from the request that executed the build:
-	// that request did not wait, and its time is carried by the store and serialize child
-	// spans.
+	// SingleflightWaitMSKey reports, on the request span of a request that received its
+	// payload from a flight another request was already executing, how many milliseconds it
+	// spent waiting for that flight. It is absent from the request that executed the build:
+	// that request did not wait.
 	SingleflightWaitMSKey = attribute.Key("relay.singleflight.wait_ms")
 )
