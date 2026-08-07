@@ -139,13 +139,29 @@ _(9)_ The `maxClientRequestBodySize` setting limits how much of a `REPORT` evalu
 
 ### File section: `[Concurrency]`
 
-This section bounds how many SDK *initialization deliveries* — the full data-set payload the Relay Proxy serializes and sends when an SDK first connects — it will perform at once. It covers the FDv2 poll endpoints, the FDv1 PHP all-flags poll, and the server-side streaming endpoints (`/all` and `/sdk/stream`); the `evalx` evaluation endpoints and the legacy FDv1 flags-only stream are not gated. It protects the Relay Proxy from the memory and egress spikes a large burst of connecting or reconnecting SDKs can cause. It is disabled by default, so behavior is unchanged unless you set `maxConcurrent`.
+This section bounds how many SDK *initialization deliveries* — the full data-set payload the Relay Proxy serializes and sends when an SDK first connects — it will perform at once. It protects the Relay Proxy from the memory and egress spikes a large burst of connecting or reconnecting SDKs can cause. It is disabled by default, so behavior is unchanged unless you set `maxConcurrent`.
+
+The budget covers the endpoints that send a full data set:
+
+- The server-side streaming endpoints (`/all` and `/sdk/stream`). An FDv2 stream reconnect whose data is already current gets a small up-to-date reply, which is not counted.
+- The FDv2 polling endpoints (`/sdk/poll` and `/sdk/poll/eval`), on the same condition.
+- The FDv1 PHP all-flags poll (`/sdk/flags`).
+
+These endpoints stay outside the budget, because they do not send a full data set, or because a limit on them would shed routine per-evaluation traffic:
+
+- The single-item PHP lookups (`/sdk/flags/{key}` and `/sdk/segments/{key}`).
+- The `evalx` endpoints, which return evaluated results for one context.
+- The client-side ping streams, which carry no payload.
+- The legacy FDv1 flags-only stream.
+- Deltas and heartbeats on streams that are already initialized.
 
 | Property in file | Environment var       |   Type   | Default | Description                                                                                                                                                                                                       |
 |------------------|-----------------------|:--------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `maxConcurrent`  | `INIT_MAX_CONCURRENT` |  Number  | none    | Maximum number of initialization deliveries in flight at once. `0` or unset disables the limit. Cheap operations (an up-to-date reply, deltas, heartbeats, and single-item lookups) are never counted.            |
 | `maxQueued`      | `INIT_MAX_QUEUED`     |  Number  | `0`     | Maximum number of requests that may wait for a slot once `maxConcurrent` is reached. `0` sheds excess requests immediately rather than queueing them. Only meaningful when `maxConcurrent` is set.                 |
 | `sendTimeout`    | `INIT_SEND_TIMEOUT`   | Duration | `2m`    | Absolute cap on how long a single gated delivery may hold a slot. A ~64 KB/s throughput floor closes a client that stalls or reads slower than the floor well before this. The cap governs for a delivery large enough that even a floor-rate client would exceed it (roughly above `sendTimeout × 64 KB/s`, i.e. ~7.5 MiB at the default), so a client on a very large data set may be cut and reconnect. On expiry the connection is closed so the slot is reclaimed and the SDK reconnects. Only meaningful when `maxConcurrent` is set. |
+
+The throughput floor and the cap measure the bytes that the Relay Proxy writes, before any compression. A compressed connection puts fewer bytes on the wire for the same written bytes, so compression gives a slow reader more effective headroom against the floor.
 
 When the budget is full, a polling request is shed with an HTTP `503` and a `Retry-After` header; a streaming request, whose response has already started, has its connection closed so the SDK reconnects with backoff.
 
