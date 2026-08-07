@@ -232,8 +232,11 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 }
 
 // getReplayEvent will return a ServerSidePutEvent with all the data needed for a Replay.
-// The context is only used for telemetry: the subscribing request's span is annotated with how
-// the flight resolved (refer to tracing.SingleflightDo).
+// Within this function the context is used only for telemetry -- the subscribing request's span
+// is annotated with how the flight resolved (refer to tracing.SingleflightDo). A flight in
+// progress is deliberately never abandoned on cancellation: its result may be shared with other
+// subscribers still waiting on it. Disconnect handling belongs to the caller, in replay's send
+// loop.
 func (r *serverSideEnvStreamRepository) getReplayEventsV1(ctx context.Context) ([]eventsource.Event, error) {
 	data, err := tracing.SingleflightDo(ctx, &r.flightGroup, "getReplayEventV1", func() (interface{}, error) {
 		snapshot, _, err := r.store.Snapshot()
@@ -264,7 +267,7 @@ func (r *serverSideEnvStreamRepository) getReplayEventsV1(ctx context.Context) (
 }
 
 // getReplayEventsV2 is getReplayEventsV1 for the FDv2 protocol; the context serves the same
-// telemetry-only purpose.
+// telemetry-only purpose there, with cancellation likewise left to the caller.
 func (r *serverSideEnvStreamRepository) getReplayEventsV2(ctx context.Context, basis string) ([]eventsource.Event, error) {
 	// The result depends on the caller's basis: a client whose basis matches the current
 	// selector state gets an "up-to-date" event, while any other client gets a full data

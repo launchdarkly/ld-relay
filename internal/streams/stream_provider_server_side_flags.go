@@ -135,7 +135,7 @@ func (e *serverSideFlagsOnlyEnvStreamProvider) Close() {
 }
 
 // Ensure the repository advertises context support so the eventsource server calls
-// ReplayWithContext (and thus hands over the subscribing request's context) rather than Replay.
+// ReplayWithContext (and thus propagates the connection's lifetime) rather than Replay.
 var _ eventsource.RepositoryWithContext = (*serverSideFlagsOnlyEnvStreamRepository)(nil)
 
 // Replay satisfies the eventsource.Repository interface. It delegates to replay with a background
@@ -145,9 +145,11 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) Replay(channel, id string) chan
 	return r.replay(context.Background())
 }
 
-// ReplayWithContext satisfies the eventsource.RepositoryWithContext interface. The context is
-// only used for telemetry: the subscribing request's span is annotated with how the replay's
-// flight resolved (refer to tracing.SingleflightDo).
+// ReplayWithContext satisfies the eventsource.RepositoryWithContext interface. The eventsource
+// server passes the subscribing request's context, which is cancelled when the SDK client
+// disconnects. This lets the producer goroutine below stop immediately on disconnect instead of
+// blocking on a send whose reader has gone away; the same context also carries the request span
+// that the replay's flight-group telemetry is recorded on (refer to tracing.SingleflightDo).
 func (r *serverSideFlagsOnlyEnvStreamRepository) ReplayWithContext(ctx context.Context, channel, id string) <-chan eventsource.Event {
 	return r.replay(ctx)
 }
@@ -160,9 +162,23 @@ func (r *serverSideFlagsOnlyEnvStreamRepository) replay(ctx context.Context) cha
 	}
 	go func() {
 		defer close(out)
+		select {
+		case <-ctx.Done():
+			// The subscriber already disconnected; don't bother building a payload nobody will read.
+			r.logger.Info("subscriber disconnected before replay started; skipping replay")
+			return
+		default:
+		}
 		event, err := r.getReplayEvent(ctx)
-		if err == nil && event != nil {
-			out <- event
+		if err != nil || event == nil {
+			return
+		}
+		select {
+		case out <- event:
+		case <-ctx.Done():
+			// The subscriber disconnected before consuming the replay; stop producing so this
+			// goroutine and its payload are released promptly instead of leaking.
+			r.logger.Info("subscriber disconnected mid-replay; stopping replay")
 		}
 	}()
 	return out
