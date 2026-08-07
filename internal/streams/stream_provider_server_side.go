@@ -119,6 +119,7 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 		}
 		iw := initwrite.WrapGated(w, timeout)
 		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
 		ctx = context.WithValue(ctx, initWriterKey{}, iw)
 
