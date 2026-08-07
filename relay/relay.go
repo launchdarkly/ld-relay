@@ -149,7 +149,7 @@ func newRelayInternal(c config.Config, options relayInternalOptions) (*Relay, er
 	// The shared initialization-delivery budget bounds concurrent full-dataset writes
 	// (polls + full-basis stream replays) so a reconnect herd can't pin unbounded memory
 	// or egress. Disabled by default.
-	initConc := newInitConcurrency(c.Concurrency)
+	initConc := newInitConcurrency(c.Concurrency, logger)
 	initConc.logEnabled(logger)
 
 	r := &Relay{
