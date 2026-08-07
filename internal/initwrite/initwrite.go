@@ -98,6 +98,10 @@ type Writer struct {
 	// gen identifies the current gated delivery. Begin bumps it so a teardown (the end-of-batch
 	// flush) that observed an earlier delivery cannot clear the deadline of a newer one.
 	gen uint64
+	// cut records that the current delivery was cut: its deadline was moved to now so a
+	// write blocked on a departed client fails at once. arm must not extend a cut deadline,
+	// or a later chunk of the same delivery would resurrect the drain.
+	cut bool
 	// done is closed once the current gated delivery ends. It is never nil: outside a delivery
 	// it is a closed channel, so a producer waiting on it releases its slot immediately rather
 	// than blocking forever. doneClosed guards against a double close.
@@ -141,6 +145,7 @@ func (w *Writer) Begin() {
 	defer w.mu.Unlock()
 	w.active = true
 	w.ending = false
+	w.cut = false
 	w.msgStart = time.Time{}
 	w.lastDeadline = time.Time{}
 	w.gen++
@@ -209,6 +214,24 @@ func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) {
 		}
 		w.mu.Unlock()
 	}
+}
+
+// Cut moves the write deadline to now for the delivery in progress, so a write blocked on a
+// client that has gone away fails at once instead of draining until its per-chunk deadline.
+// Later writes of the same delivery stay cut. It has no effect outside a delivery, so a cut
+// that races a clean finish cannot disturb the idle stream that follows.
+//
+// A write deadline is a capability scoped to the handler's lifetime (see the package
+// comment), so Cut must be called only from the handler goroutine, or from a goroutine that
+// provably cannot outlive the handler. The producer goroutine must never call it.
+func (w *Writer) Cut() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.active || w.cut {
+		return
+	}
+	w.cut = true
+	_ = w.rc.SetWriteDeadline(w.now())
 }
 
 // Unwrap exposes the wrapped ResponseWriter so http.NewResponseController and other wrappers
@@ -311,7 +334,7 @@ func (w *Writer) isActive() bool {
 func (w *Writer) arm(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.active {
+	if !w.active || w.cut {
 		return
 	}
 	now := w.now()

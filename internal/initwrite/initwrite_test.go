@@ -813,6 +813,91 @@ func TestFlushTearsDownOnNonFlusherChain(t *testing.T) {
 	assertClosed(t, w.Done(), "teardown must release the waiter without a Flusher")
 }
 
+func TestCutMovesDeadlineToNowAndStaysCut(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize)) // arms start+21s
+	require.NoError(t, err)
+
+	w.Cut()
+	armed := base.armed()
+	require.Len(t, armed, 2)
+	assert.Equal(t, c.now(), armed[1], "Cut must move the deadline to now")
+
+	// A later chunk of the same delivery must not extend the cut deadline and resurrect the
+	// drain; the write itself passes through (the transport fails it in production).
+	c.advance(time.Second)
+	_, err = w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	assert.Len(t, base.armed(), 2, "arm must not extend a cut deadline")
+
+	// Idempotent.
+	w.Cut()
+	assert.Len(t, base.armed(), 2)
+}
+
+func TestCutOutsideADeliveryIsANoOp(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+
+	// Before any delivery: nothing to cut.
+	w.Cut()
+	assert.Empty(t, base.armed())
+
+	// After a clean finish: the idle stream that follows must not be disturbed, so a cut
+	// that races a clean finish does nothing.
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	w.End()
+	w.Flush()
+	before := len(base.armed())
+	w.Cut()
+	assert.Len(t, base.armed(), before, "Cut after a clean finish must not touch the deadline")
+}
+
+func TestBeginAfterCutArmsAgain(t *testing.T) {
+	base := newDeadlineConn()
+	w, c := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	w.Cut()
+
+	// A new delivery is a fresh start: it arms normally.
+	w.Begin()
+	start := c.now()
+	_, err = w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	armed := base.armed()
+	assert.Equal(t, 21*time.Second, armed[len(armed)-1].Sub(start))
+}
+
+func TestCutRacesWritesSafely(t *testing.T) {
+	// The watcher calls Cut from its own goroutine while the handler is writing; the race
+	// detector pins the lock discipline between them.
+	w := WrapGated(&syncConn{}, 2*time.Minute)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			w.Begin()
+			_, _ = w.Write([]byte("data: x\n\n"))
+			w.End()
+			w.Flush()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			w.Cut()
+		}
+	}()
+	wg.Wait()
+}
+
 func TestReBeginReleasesPriorWaiter(t *testing.T) {
 	base := newDeadlineConn()
 	w := WrapGated(base, time.Minute)

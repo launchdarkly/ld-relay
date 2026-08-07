@@ -86,6 +86,80 @@ func serveStream(t *testing.T, limiter *concurrency.Limiter, maxHold time.Durati
 	return srv, esp
 }
 
+// TestSocketHalfClosedClientDrainEndsWithTheSlot models the hostile shape: a client takes a
+// slot, half-closes (FIN), and never reads. The producer releases the slot fast in any case;
+// the question is the handler goroutine, which is blocked writing the payload to the dead
+// socket. Without the disconnect watcher it drains until the per-chunk write deadline
+// (seconds); the watcher must cut it as soon as the request context ends, so the payload's
+// memory and egress end with the slot. The observable is the handler's return: the test never
+// reads after the half-close, because reading would unblock the write it is measuring.
+func TestSocketHalfClosedClientDrainEndsWithTheSlot(t *testing.T) {
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 10})
+	sp := NewStreamProvider(basictypes.ServerSideStream, 0, 0,
+		// A generous cap: within this test's window, only the watcher's cut (not the
+		// per-chunk deadline, ~5s minimum) can end the drain quickly.
+		WithInitLimiter(limiter, 30*time.Second)).(*serverSideStreamProvider)
+	cred := sdkauth.New(testSDKKey)
+	store := makeMockStore(manyFlags(400), nil)
+	esp := sp.RegisterV2(cred, store, slog.Default())
+	require.NotNil(t, esp)
+
+	handlerReturned := make(chan struct{})
+	inner := sp.HandlerV2(cred)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerReturned)
+		inner(w, r)
+	}))
+	srv.Listener = smallSndbufListener{srv.Listener}
+	srv.Start()
+	t.Cleanup(func() { srv.Close(); esp.Close(); sp.Close() })
+
+	dialer := &net.Dialer{Control: func(_, _ string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 2048)
+		})
+	}}
+	conn, err := dialer.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: x\r\nAuthorization: %s\r\nAccept: text/event-stream\r\n\r\n", testSDKKey)
+	require.NoError(t, err)
+
+	// Read the headers only, so the server's basis write blocks on our tiny receive buffer.
+	br := bufio.NewReader(conn)
+	for {
+		line, err := br.ReadString('\n')
+		require.NoError(t, err)
+		if line == "\r\n" {
+			break
+		}
+	}
+	// Let the delivery get into its blocked write before the half-close.
+	time.Sleep(200 * time.Millisecond)
+
+	// Half-close: FIN the write side and never read another byte.
+	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+	closedAt := time.Now()
+
+	// The slot comes back quickly regardless of the drain.
+	for limiter.Stats().Held != 0 {
+		if time.Since(closedAt) > 2*time.Second {
+			require.Fail(t, "slot was not released after the half-close")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The drain must end with the slot: the cut fails the blocked write, so the handler
+	// returns promptly instead of draining to the per-chunk deadline.
+	select {
+	case <-handlerReturned:
+		assert.Less(t, time.Since(closedAt), 2500*time.Millisecond,
+			"the handler outlived the slot by too long; the disconnect cut did not fire")
+	case <-time.After(4 * time.Second):
+		require.Fail(t, "the handler kept draining to the dead client after the slot was released")
+	}
+}
+
 // TestSocketStalledClientIsCutAtDeadline confirms the write deadline still fires: a client
 // that stops reading has its connection torn down around maxHold rather than parking a slot.
 func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {

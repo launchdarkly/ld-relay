@@ -119,9 +119,25 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 		}
 		iw := initwrite.WrapGated(w, timeout)
 		ctx, cancel := context.WithCancel(r.Context())
-		defer cancel()
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
 		ctx = context.WithValue(ctx, initWriterKey{}, iw)
+
+		// When the client goes away mid-delivery, the producer releases its budget slot at
+		// once, but a write blocked on the dead socket would otherwise drain until its
+		// per-chunk deadline (tens of seconds). This watcher cuts that write the moment the
+		// context ends, so the payload's memory and egress end with the slot. It is scoped
+		// strictly inside this handler: the deferred close below stops it before ServeHTTP
+		// returns to net/http, which is what makes its deadline call safe. A cut at normal
+		// handler return is harmless: the connection is ending, and Cut does nothing unless
+		// a delivery is in flight.
+		watcherDone := make(chan struct{})
+		defer func() { cancel(); <-watcherDone }()
+		go func() {
+			defer close(watcherDone)
+			<-ctx.Done()
+			iw.Cut()
+		}()
+
 		h.ServeHTTP(iw, r.WithContext(ctx))
 	}
 }
