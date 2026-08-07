@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -471,6 +472,76 @@ func TestStreamReplayShedClosesConnectionWhenBudgetFull(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "replay channel was not closed after shed")
 	}
+}
+
+// TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot pins the queue's designed exit:
+// a client that disconnects while it waits for a slot gives up its place immediately (the SDK
+// then retries on its own backoff schedule). Its wait must not be shed with a warning, and its
+// occupancy must be returned so a later client can use the queue.
+func TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	waitForWaiting := func(n int, l *concurrency.Limiter) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for l.Stats().Waiting != n {
+			if time.Now().After(deadline) {
+				require.Failf(t, "timeout", "limiter never reported Waiting==%d (stats: %+v)", n, l.Stats())
+			}
+			runtime.Gosched()
+		}
+	}
+
+	// The only slot is held, so the replay must queue.
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	release, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	var recs []slog.Record
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: slog.New(capturingHandler{&recs}), initLimiter: limiter,
+	}
+
+	cctx, cancel := context.WithCancel(context.Background())
+	eventCh := repo.ReplayWithContext(cctx, "", "")
+	waitForWaiting(1, limiter)
+
+	cancel() // the client disconnects while queued
+
+	// The replay ends with nothing sent.
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a disconnected queued replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after the disconnect")
+	}
+	waitForWaiting(0, limiter)
+
+	// The designed exit is quiet: no warning for a client that chose to leave.
+	for _, rec := range recs {
+		assert.NotEqual(t, slog.LevelWarn, rec.Level, "disconnect from the queue must not log a warning: %s", rec.Message)
+	}
+
+	// The occupancy came back with the queue spot: a holder plus a queued waiter fit again.
+	admitted := make(chan bool)
+	go func() {
+		r2, ok2 := limiter.Acquire(context.Background())
+		if ok2 {
+			r2()
+		}
+		admitted <- ok2
+	}()
+	waitForWaiting(1, limiter)
+	release()
+	assert.True(t, <-admitted, "queue capacity was not relinquished by the disconnected client")
 }
 
 // TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead is a regression test for

@@ -307,10 +307,17 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		if r.initLimiter.Enabled() {
 			release, ok := r.initLimiter.Acquire(ctx)
 			if !ok {
-				// The budget is full, so shed this replay. The SSE response has already
-				// started, so we cannot answer with a 503; instead close the connection so
-				// the SDK reconnects with backoff rather than sitting connected but
-				// uninitialized.
+				if ctx.Err() != nil {
+					// The client chose to disconnect while it waited for a slot. This is the
+					// designed exit from the queue: the limiter has already relinquished its
+					// spot, and the SDK retries on its own backoff schedule.
+					r.logger.Debug("client disconnected while waiting for an initialization slot")
+					return
+				}
+				// The budget and queue are full, so shed this replay. The SSE response has
+				// already started, so we cannot answer with a 503; instead close the
+				// connection so the SDK reconnects with backoff rather than sitting
+				// connected but uninitialized.
 				r.logger.Warn("initialization concurrency limit reached; closing stream so the SDK reconnects")
 				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
 					closeConn()
