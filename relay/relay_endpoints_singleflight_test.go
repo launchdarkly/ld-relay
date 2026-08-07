@@ -127,6 +127,15 @@ func TestPollingHandlersShareOnePayloadBuildAcrossConcurrentRequests(t *testing.
 			assert.Len(t, spansNamed(spans, tracing.SpanWriteResponse), followers+1,
 				"every request should still write its own response")
 
+			// Each follower's wait shows up as a span in its own trace -- never in the
+			// winner's, whose time is the store and serialize spans instead.
+			waitSpans := spansNamed(spans, tracing.SpanSingleflightWait)
+			assert.Len(t, waitSpans, followers, "every waiting request should show its wait as a span")
+			for _, w := range waitSpans {
+				assert.NotEqual(t, serialize.SpanContext().TraceID(), w.SpanContext().TraceID(),
+					"the request that built the payload must not also show a wait span")
+			}
+
 			// Every request's own span reports that the payload build was shared. The one
 			// request that executed the build -- the one whose trace carries the serialize
 			// span -- did not wait and must record no wait time; every follower must record

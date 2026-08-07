@@ -23,6 +23,7 @@ const (
 	SpanEventsDispatch   = "relay.events.dispatch"
 	SpanSerializePayload = "relay.payload.serialize"
 	SpanWriteResponse    = "relay.response.write"
+	SpanSingleflightWait = "relay.singleflight.wait"
 )
 
 // Relay-specific span attribute keys.
@@ -44,6 +45,7 @@ const (
 	// SingleflightWaitMSKey reports, on the request span of a request that received its
 	// payload from a flight another request was already executing, how many milliseconds it
 	// spent waiting for that flight. It is absent from the request that executed the build:
-	// that request did not wait.
+	// that request did not wait. The same window is also visible in the trace timeline as a
+	// SpanSingleflightWait child span.
 	SingleflightWaitMSKey = attribute.Key("relay.singleflight.wait_ms")
 )
