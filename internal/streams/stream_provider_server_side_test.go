@@ -3,11 +3,13 @@ package streams
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -698,6 +700,121 @@ func TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission(t *testing.T) {
 		}
 		runtime.Gosched()
 	}
+}
+
+// TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead pins the other half of
+// the post-admission refresh: a client that still needs a full basis after its queue wait
+// must be served the store as it is at admission, not the state the world was in when it
+// first asked. Serializing the pre-queue snapshot is the exact regression the refresh exists
+// to prevent.
+func TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead(t *testing.T) {
+	const flagKey = "flagkey"
+	var stateNow atomic.Int64
+	stateNow.Store(1)
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		st := int(stateNow.Load())
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(st).Build()
+		sel := "s" + strconv.Itoa(st)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, st), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+
+	// The client's basis "s9" never becomes current, so it needs a full basis both before and
+	// after the wait.
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+
+	// The store advances while the client waits; then the slot frees.
+	stateNow.Store(3)
+	hold()
+
+	var payload strings.Builder
+	for {
+		e, ok, closed := helpers.TryReceive(eventCh, 2*time.Second)
+		if closed {
+			break
+		}
+		require.True(t, ok, "timed out waiting for replayed event")
+		payload.WriteString(e.Event())
+		payload.WriteString(e.Data())
+	}
+	// The flag data is what ages: the selector travels separately, so a regression that
+	// serializes the stale snapshot while rechecking the fresh selector still reports "s3".
+	// Only the flag version proves which snapshot fed the serialization.
+	assert.Contains(t, payload.String(), `"version":3`, "the basis must be serialized from the post-admission read")
+	assert.NotContains(t, payload.String(), `"version":1`, "the basis was serialized from the pre-queue read: the queue wait aged the payload")
+	assert.Contains(t, payload.String(), `"state":"s3"`, "the payload must carry the post-admission selector")
+}
+
+// TestStreamReplayPostAdmissionReadErrorReleasesSlot pins the error path of the refresh: a
+// store read that fails after the budget admitted the replay must return the slot. A leak
+// here would shrink the budget by one for every store error under saturation -- exactly when
+// a store outage is most likely -- until nothing could initialize at all.
+func TestStreamReplayPostAdmissionReadErrorReleasesSlot(t *testing.T) {
+	const flagKey = "flagkey"
+	var reads atomic.Int64
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		if reads.Add(1) > 1 {
+			return nil, subsystems.NoSelector(), errors.New("store went away")
+		}
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector("s1", 1), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background())
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s9")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+	hold() // admit the client; its refreshed read fails
+
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a failed replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed after the read error")
+	}
+
+	// The slot must come back despite the error.
+	deadline = time.Now().Add(2 * time.Second)
+	for limiter.Stats().Held != 0 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "the slot leaked on the post-admission read error (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+	// And the budget still has its full capacity.
+	r2, ok2 := limiter.Acquire(context.Background())
+	require.True(t, ok2, "budget capacity eroded by the read error")
+	r2()
 }
 
 func TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead(t *testing.T) {

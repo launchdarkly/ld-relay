@@ -362,7 +362,7 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 			// next full-basis transfer, not on the live stream.)
 			snapshot, selector, err = r.peek(id)
 			if err != nil {
-				r.logger.Error("error getting all flags", "error", err)
+				r.logger.Error("error getting all flags after admission", "error", err)
 				release()
 				return
 			}
