@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/launchdarkly/ld-relay/v9/internal/sdkauth"
@@ -149,12 +150,21 @@ type sseLogger struct{ log *slog.Logger }
 
 func (l sseLogger) Println(v ...interface{}) {
 	for _, a := range v {
-		if err, ok := a.(error); ok && errors.Is(err, os.ErrDeadlineExceeded) {
+		if err, ok := a.(error); ok && isDeadlineExceeded(err) {
 			l.log.Warn("stream write deadline exceeded; connection closed to reclaim the initialization-delivery slot", "error", err)
 			return
 		}
 	}
 	l.log.Debug("stream connection write ended", "detail", fmt.Sprint(v...))
+}
+
+// isDeadlineExceeded recognizes a write-deadline expiry. The eventsource encoder wraps the
+// write error with a plain verb rather than %w, which severs the errors.Is chain, so the
+// error's text is checked as well; os.ErrDeadlineExceeded's text ("i/o timeout") is what a
+// net.Conn deadline expiry carries on every platform.
+func isDeadlineExceeded(err error) bool {
+	return errors.Is(err, os.ErrDeadlineExceeded) ||
+		strings.Contains(err.Error(), os.ErrDeadlineExceeded.Error())
 }
 
 func (l sseLogger) Printf(format string, v ...interface{}) {

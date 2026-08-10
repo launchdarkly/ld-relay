@@ -398,6 +398,24 @@ func TestWaitingReportsParkedCallersNotOccupancy(t *testing.T) {
 	l.inFlight.Add(-1)
 }
 
+func TestClosedReportsShutdown(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 1})
+	if l.Closed() {
+		t.Fatal("open limiter must not report closed")
+	}
+	l.Close()
+	if !l.Closed() {
+		t.Fatal("closed limiter must report closed")
+	}
+	var nilL *Limiter
+	if nilL.Closed() {
+		t.Fatal("nil limiter must not report closed")
+	}
+	if New("d", Params{}).Closed() {
+		t.Fatal("disabled limiter must not report closed")
+	}
+}
+
 func TestCloseUnblocksWaiters(t *testing.T) {
 	// The quiescent case: no slot is released while Close runs (the racing case is
 	// TestCloseBeatsARacingRelease).

@@ -3,7 +3,9 @@ package streams
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"testing"
 
@@ -27,15 +29,19 @@ func TestSSELoggerDistinguishesCutFromDisconnect(t *testing.T) {
 	var recs []slog.Record
 	l := sseLogger{log: slog.New(capturingHandler{&recs})}
 
-	// A write-deadline cut (the limiter reclaiming a slot) surfaces as a deadline error and is
-	// logged at warn; an ordinary client disconnect is logged at debug.
+	// A write-deadline cut (the limiter reclaiming a slot) must be logged at warn even in the
+	// shape production delivers it: the eventsource encoder wraps the net.Conn deadline error
+	// with a plain verb, which severs errors.Is, so the text is what identifies it. The bare
+	// sentinel must also match, and an ordinary client disconnect stays at debug.
+	l.Println(fmt.Errorf("eventsource encode: %v", &net.OpError{Op: "write", Net: "tcp", Err: os.ErrDeadlineExceeded}))
 	l.Println(os.ErrDeadlineExceeded)
 	l.Println(errors.New("write: broken pipe"))
 
-	require.Len(t, recs, 2)
-	assert.Equal(t, slog.LevelWarn, recs[0].Level)
+	require.Len(t, recs, 3)
+	assert.Equal(t, slog.LevelWarn, recs[0].Level, "the production wrapped shape must log at warn")
 	assert.Contains(t, recs[0].Message, "write deadline exceeded")
-	assert.Equal(t, slog.LevelDebug, recs[1].Level)
+	assert.Equal(t, slog.LevelWarn, recs[1].Level, "the bare sentinel must log at warn")
+	assert.Equal(t, slog.LevelDebug, recs[2].Level, "a client disconnect stays at debug")
 }
 
 func TestWithLoggerSetsServerSideSSELogger(t *testing.T) {

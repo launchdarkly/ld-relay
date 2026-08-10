@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strconv"
 	"sync"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/internal/basictypes"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 	"github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
 	"github.com/launchdarkly/eventsource"
@@ -542,6 +545,88 @@ func TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot(t *testing.T) {
 	waitForWaiting(1, limiter)
 	release()
 	assert.True(t, <-admitted, "queue capacity was not relinquished by the disconnected client")
+}
+
+// TestStreamReplayShutdownEndsQuietly pins the shutdown path: a replay rejected because the
+// limiter is closing must not log the budget-saturation warning -- one line per parked waiter
+// would flood the log during an ordinary shutdown and read as an outage.
+func TestStreamReplayShutdownEndsQuietly(t *testing.T) {
+	const flagKey = "flagkey"
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(1).Build()
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NoSelector(), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	limiter.Close()
+
+	var recs []slog.Record
+	repo := &serverSideEnvStreamRepository{
+		store: store, logger: slog.New(capturingHandler{&recs}), initLimiter: limiter,
+	}
+	eventCh := repo.ReplayWithContext(context.Background(), "", "")
+	select {
+	case e, open := <-eventCh:
+		assert.False(t, open, "a shutdown replay must deliver no events (got %v)", e)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "replay channel was not closed at shutdown")
+	}
+	for _, rec := range recs {
+		assert.NotEqual(t, slog.LevelWarn, rec.Level,
+			"shutdown must not log the budget-saturation warning: %s", rec.Message)
+	}
+}
+
+// deadlineRecorder is a ResponseWriter whose recorded deadlines are safe to read after the
+// handler returns, for asserting the watcher completed its cut before the wrapper exited.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	mu        sync.Mutex
+	deadlines []time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.deadlines = append(d.deadlines, t)
+	return nil
+}
+
+func (d *deadlineRecorder) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.deadlines)
+}
+
+// TestWatcherCutCompletesBeforeHandlerReturns pins the watcher join: by the time the wrapped
+// handler returns to net/http, the watcher must have finished its cut. Without the join, the
+// cut could land on a connection net/http has already recycled -- the cross-request hazard
+// the writer's contract forbids. The mid-delivery return makes the cut a real deadline call.
+func TestWatcherCutCompletesBeforeHandlerReturns(t *testing.T) {
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 4})
+	sp := &serverSideStreamProvider{initLimiter: limiter, sendTimeout: 30 * time.Second}
+
+	for i := 0; i < 100; i++ {
+		rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		wrapped := sp.withInitDeadline(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			iw, ok := r.Context().Value(initWriterKey{}).(*initwrite.Writer)
+			require.True(t, ok)
+			iw.Begin()
+			_, _ = w.Write([]byte("data: x\n\n"))
+			// Return mid-delivery: the wrapper's deferred cancel fires the watcher's cut.
+		}))
+		wrapped.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+
+		// One arm from the write, one deadline-to-now from the watcher's cut: both must have
+		// happened strictly before ServeHTTP returned.
+		if rec.count() != 2 {
+			t.Fatalf("iteration %d: watcher had not completed its cut when the handler returned (%d deadline calls)", i, rec.count())
+		}
+	}
 }
 
 // TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead is a regression test for

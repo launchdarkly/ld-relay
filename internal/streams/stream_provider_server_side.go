@@ -303,7 +303,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// Read the current data set once for this set of concurrent replays at the same basis.
 		// peek holds references to the stored data rather than a serialized copy, so it is
 		// cheap; the expensive serialization happens later, under the budget. Keying the read
-		// by basis keeps the up-to-date check below correct (see peek).
+		// by basis keeps the up-to-date check below correct (see peek). It covers only this
+		// read: the serialize flights below are keyed separately, so a caller can still join
+		// an in-flight serialization begun from an older read and receive that older payload
+		// (unchanged from the base behavior; the FDv2 client reconciles via its selector).
 		snapshot, selector, err := r.peek(id)
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
@@ -329,6 +332,13 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 					// designed exit from the queue: the limiter has already relinquished its
 					// spot, and the SDK retries on its own backoff schedule.
 					r.logger.Debug("client disconnected while waiting for an initialization slot")
+					return
+				}
+				if r.initLimiter.Closed() {
+					// The relay is shutting down; every connection is about to close. This
+					// must not read as budget saturation, and one line per parked waiter
+					// would flood the log at the worst moment.
+					r.logger.Debug("relay is shutting down; ending the stream replay")
 					return
 				}
 				// The budget and queue are full, so shed this replay. The SSE response has

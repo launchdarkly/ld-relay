@@ -825,53 +825,38 @@ func TestCutMovesDeadlineToNowAndStaysCut(t *testing.T) {
 	require.Len(t, armed, 2)
 	assert.Equal(t, c.now(), armed[1], "Cut must move the deadline to now")
 
-	// A later chunk of the same delivery must not extend the cut deadline and resurrect the
-	// drain; the write itself passes through (the transport fails it in production).
+	// A later chunk of the same delivery must never get a fresh budget: every deadline after
+	// the cut is "now", not a future instant. (The write itself passes through; the transport
+	// fails it in production.)
 	c.advance(time.Second)
 	_, err = w.Write(make([]byte, chunkSize))
 	require.NoError(t, err)
-	assert.Len(t, base.armed(), 2, "arm must not extend a cut deadline")
+	armed = base.armed()
+	assert.Equal(t, c.now(), armed[len(armed)-1], "a write after the cut must re-assert now, never a future budget")
 
-	// Idempotent.
-	w.Cut()
-	assert.Len(t, base.armed(), 2)
-}
-
-func TestCutOutsideADeliveryIsANoOp(t *testing.T) {
-	base := newDeadlineConn()
-	w, _ := wrapClocked(base, 2*time.Minute, true)
-
-	// Before any delivery: nothing to cut.
-	w.Cut()
-	assert.Empty(t, base.armed())
-
-	// After a clean finish: the idle stream that follows must not be disturbed, so a cut
-	// that races a clean finish does nothing.
-	w.Begin()
-	_, err := w.Write(make([]byte, chunkSize))
-	require.NoError(t, err)
-	w.End()
-	w.Flush()
+	// Idempotent: a second Cut adds nothing.
 	before := len(base.armed())
 	w.Cut()
-	assert.Len(t, base.armed(), before, "Cut after a clean finish must not touch the deadline")
+	assert.Len(t, base.armed(), before)
 }
 
-func TestBeginAfterCutArmsAgain(t *testing.T) {
+func TestCutIsTerminalForTheConnection(t *testing.T) {
 	base := newDeadlineConn()
 	w, c := wrapClocked(base, 2*time.Minute, true)
+
+	// A cut that lands before Begin -- the watcher firing in the window between a slot
+	// acquisition and the delivery's start -- must not be lost, but it must also not touch
+	// the deadline yet: a connection with no gated delivery still closes gracefully.
+	w.Cut()
+	require.Empty(t, base.armed(), "a cut with no delivery in progress must leave the deadline alone")
+
+	// The delivery that then begins fails on its first write instead of getting a budget.
 	w.Begin()
 	_, err := w.Write(make([]byte, chunkSize))
 	require.NoError(t, err)
-	w.Cut()
-
-	// A new delivery is a fresh start: it arms normally.
-	w.Begin()
-	start := c.now()
-	_, err = w.Write(make([]byte, chunkSize))
-	require.NoError(t, err)
 	armed := base.armed()
-	assert.Equal(t, 21*time.Second, armed[len(armed)-1].Sub(start))
+	require.Len(t, armed, 1)
+	assert.Equal(t, c.now(), armed[0], "a delivery begun after the cut must arm now, not a fresh budget")
 }
 
 func TestCutRacesWritesSafely(t *testing.T) {

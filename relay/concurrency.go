@@ -6,6 +6,7 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/concurrency"
+	"github.com/launchdarkly/ld-relay/v9/internal/initwrite"
 )
 
 // defaultInitSendTimeout is the absolute cap on how long a single gated delivery may hold a
@@ -24,10 +25,10 @@ const (
 	// its goroutines while it waits, so a bound far beyond any real client population only
 	// hides a misconfiguration.
 	maxInitMaxQueued = 1_000_000
-	// minInitSendTimeout is the smallest usable delivery cap. The write deadline adds a
-	// five-second slack per write; a cap below that expires before even a small first write,
-	// which would cut every delivery.
-	minInitSendTimeout = 5 * time.Second
+	// minInitSendTimeout is the smallest usable delivery cap. The write deadline adds
+	// initwrite.WriteSlack per write; a cap below that expires before even a small first
+	// write, which would cut every delivery.
+	minInitSendTimeout = initwrite.WriteSlack
 )
 
 // initConcurrency holds Relay's shared initialization-delivery budget. Every poll and

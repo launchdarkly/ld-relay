@@ -14,6 +14,7 @@ import (
 //   - Printf path: format is "LEVEL: " + format, so the rendered prefix has a space.
 //   - Println path: baseLogger.Println(prefix, value) -> fmt.Sprint inserts no
 //     separator between two string operands, so the rendered prefix has no space.
+//
 // The parser must accept both. https://github.com/launchdarkly/ld-relay/issues/670
 // shipped because the parser only matched the with-space shape.
 func TestParseLDLogPrefix(t *testing.T) {

@@ -35,17 +35,14 @@ func warnCount(recs []slog.Record) int {
 
 func optInt(v int) ct.OptInt { return ct.NewOptInt(v) }
 
-func optDuration(t *testing.T, v time.Duration) ct.OptDuration {
-	t.Helper()
-	return ct.NewOptDuration(v)
-}
+func optDuration(v time.Duration) ct.OptDuration { return ct.NewOptDuration(v) }
 
 func TestInitConcurrencyInRangeValuesPassThrough(t *testing.T) {
 	var recs []slog.Record
 	ic := newInitConcurrency(config.ConcurrencyConfig{
 		MaxConcurrent: optInt(16),
 		MaxQueued:     optInt(100),
-		SendTimeout:   optDuration(t, 45*time.Second),
+		SendTimeout:   optDuration(45 * time.Second),
 	}, slog.New(recordingHandler{&recs}))
 	defer ic.close()
 
@@ -119,7 +116,7 @@ func TestInitConcurrencyClampsTinySendTimeout(t *testing.T) {
 	var recs []slog.Record
 	ic := newInitConcurrency(config.ConcurrencyConfig{
 		MaxConcurrent: optInt(4),
-		SendTimeout:   optDuration(t, time.Millisecond),
+		SendTimeout:   optDuration(time.Millisecond),
 	}, slog.New(recordingHandler{&recs}))
 	defer ic.close()
 
