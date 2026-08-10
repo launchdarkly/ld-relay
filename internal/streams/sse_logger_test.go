@@ -39,7 +39,7 @@ func TestSSELoggerDistinguishesCutFromDisconnect(t *testing.T) {
 
 	require.Len(t, recs, 3)
 	assert.Equal(t, slog.LevelWarn, recs[0].Level, "the production wrapped shape must log at warn")
-	assert.Contains(t, recs[0].Message, "write deadline exceeded")
+	assert.Contains(t, recs[0].Message, "cut by its deadline")
 	assert.Equal(t, slog.LevelWarn, recs[1].Level, "the bare sentinel must log at warn")
 	assert.Equal(t, slog.LevelDebug, recs[2].Level, "a client disconnect stays at debug")
 }

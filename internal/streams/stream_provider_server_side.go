@@ -303,10 +303,10 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		// Read the current data set once for this set of concurrent replays at the same basis.
 		// peek holds references to the stored data rather than a serialized copy, so it is
 		// cheap; the expensive serialization happens later, under the budget. Keying the read
-		// by basis keeps the up-to-date check below correct (see peek). It covers only this
-		// read: the serialize flights below are keyed separately, so a caller can still join
-		// an in-flight serialization begun from an older read and receive that older payload
-		// (unchanged from the base behavior; the FDv2 client reconciles via its selector).
+		// by basis keeps the up-to-date check below correct (see peek). This first read only
+		// decides whether the client needs a full basis at all; the read that feeds the
+		// serialization happens after the budget admits us, so time spent waiting in the
+		// queue cannot age the payload.
 		snapshot, selector, err := r.peek(id)
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
@@ -349,6 +349,26 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
 					closeConn()
 				}
+				return
+			}
+
+			// The wait for a slot may have been long. Refresh the read so the payload is
+			// serialized from the store as it is NOW, and re-check up-to-date: a client whose
+			// basis caught up while it waited gets the small reply, and the slot goes back
+			// immediately. Without this, a same-basis client joining this replay's serialize
+			// flight could receive a payload aged by this replay's entire queue wait; the
+			// remaining stale-join window is the serialization itself, as it was before the
+			// limiter existed. (A joiner that misses a delta in that window converges on its
+			// next full-basis transfer, not on the live stream.)
+			snapshot, selector, err = r.peek(id)
+			if err != nil {
+				r.logger.Error("error getting all flags", "error", err)
+				release()
+				return
+			}
+			if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
+				release()
+				r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
 				return
 			}
 

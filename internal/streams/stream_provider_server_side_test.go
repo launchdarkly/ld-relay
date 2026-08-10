@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -634,6 +635,71 @@ func TestWatcherCutCompletesBeforeHandlerReturns(t *testing.T) {
 // reply even while another client's older-basis store read is in flight. When the read was
 // deduplicated on a fixed key, this client joined the older read, failed the up-to-date
 // check against its stale selector, and was wrongly sent a full basis at the old state.
+// TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission pins the post-admission
+// refresh: a client that queued while its basis was ahead of the store, and whose basis the
+// store caught up to during the wait, must get the small up-to-date reply -- not a full basis
+// serialized from the state the world was in when it first asked. The refresh also returns
+// the slot immediately on the up-to-date path.
+func TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission(t *testing.T) {
+	const flagKey = "flagkey"
+	var stateNow atomic.Int64
+	stateNow.Store(1)
+
+	store := newMockStoreQueries()
+	store.setupSnapshotFn(func() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+		st := int(stateNow.Load())
+		flag := ldbuilders.NewFlagBuilder(flagKey).Version(st).Build()
+		sel := "s" + strconv.Itoa(st)
+		return map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor{
+			ldstoreimpl.Features(): {ldstoretypes.KeyedItemDescriptor{Key: flagKey, Item: sharedtest.FlagDesc(flag)}},
+			ldstoreimpl.Segments(): {},
+		}, subsystems.NewSelector(sel, st), nil
+	})
+
+	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 1})
+	hold, ok := limiter.Acquire(context.Background()) // the only slot is held, so the client queues
+	require.True(t, ok)
+
+	repo := &serverSideEnvStreamRepository{store: store, logger: slog.Default(), isV2: true, initLimiter: limiter}
+
+	// The client asks at basis "s2" while the store is at s1: not up-to-date, so it needs a
+	// full basis and parks in the queue.
+	eventCh := repo.ReplayWithContext(context.Background(), "", "s2")
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Stats().Waiting != 1 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "client never queued (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+
+	// While it waits, the store catches up to the client's basis; then the slot frees.
+	stateNow.Store(2)
+	hold()
+
+	var events []eventsource.Event
+	for {
+		e, ok, closed := helpers.TryReceive(eventCh, 2*time.Second)
+		if closed {
+			break
+		}
+		require.True(t, ok, "timed out waiting for replayed event")
+		events = append(events, e)
+	}
+	require.Len(t, events, 1, "expected a single up-to-date event, got a full basis (the read was not refreshed after the queue wait)")
+	assert.Equal(t, string(subsystems.EventServerIntent), events[0].Event())
+	assert.Contains(t, events[0].Data(), `"intentCode":"none"`)
+
+	// The up-to-date path returns the slot at once.
+	deadline = time.Now().Add(2 * time.Second)
+	for limiter.Stats().Held != 0 {
+		if time.Now().After(deadline) {
+			require.Failf(t, "timeout", "slot not released after the up-to-date reply (stats: %+v)", limiter.Stats())
+		}
+		runtime.Gosched()
+	}
+}
+
 func TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead(t *testing.T) {
 	const flagKey = "flagkey"
 	firstReadStarted := make(chan struct{}, 1)

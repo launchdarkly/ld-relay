@@ -151,7 +151,7 @@ type sseLogger struct{ log *slog.Logger }
 func (l sseLogger) Println(v ...interface{}) {
 	for _, a := range v {
 		if err, ok := a.(error); ok && isDeadlineExceeded(err) {
-			l.log.Warn("stream write deadline exceeded; connection closed to reclaim the initialization-delivery slot", "error", err)
+			l.log.Warn("stream write cut by its deadline (stalled reader, or client gone mid-delivery); connection closed to reclaim the initialization-delivery slot", "error", err)
 			return
 		}
 	}
