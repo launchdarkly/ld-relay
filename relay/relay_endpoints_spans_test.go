@@ -283,3 +283,53 @@ func TestPollingEndpointSpansDoNotLeakOnEarlyReturn(t *testing.T) {
 		assert.Zero(t, countStarted(started, tracing.SpanWriteResponse))
 	})
 }
+
+// TestRequestSpanCarriesEnvironmentAttributes drives requests through the full relay so the real
+// otelmux request span is the root, and asserts the auth middlewares put the authenticated
+// environment on that span -- where it covers every handler span in the trace -- using the same
+// attribute keys the metrics use.
+func TestRequestSpanCarriesEnvironmentAttributes(t *testing.T) {
+	recorder := installSpanRecorder(t)
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain, st.EnvClientSide)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		t.Run("server-side SDK key", func(t *testing.T) {
+			recorder.Reset()
+
+			result, _ := st.DoRequest(st.BuildRequestWithAuth("GET", "/sdk/flags", st.EnvMain.Config.SDKKey, nil), p.relay)
+			require.Equal(t, http.StatusOK, result.StatusCode)
+
+			attrs := spanAttrs(rootSpan(t, recorder.Ended()))
+			name, ok := attrs[tracing.EnvNameKey]
+			require.True(t, ok, "request span is missing environment.name")
+			assert.Equal(t, string(st.EnvMain.Name), name.AsString())
+
+			// EnvMain is configured with an SDK key only, so there is no environment ID to report.
+			_, ok = attrs[tracing.EnvIDKey]
+			assert.False(t, ok, "environment.id should be absent for an SDK-key-only environment")
+		})
+
+		t.Run("client-side environment ID", func(t *testing.T) {
+			recorder.Reset()
+
+			// The client-side auth middleware takes the environment ID in the Authorization
+			// header, and serves the unified mobile/JS client polling endpoint.
+			headers := make(http.Header)
+			headers.Set("Authorization", string(st.EnvClientSide.Config.EnvID))
+			contextParam := base64.StdEncoding.EncodeToString([]byte(`{"kind":"user","key":"me"}`))
+			result, _ := st.DoRequest(st.BuildRequest("GET", "/sdk/poll/eval/"+contextParam, nil, headers), p.relay)
+			require.Equal(t, http.StatusOK, result.StatusCode)
+
+			attrs := spanAttrs(rootSpan(t, recorder.Ended()))
+			name, ok := attrs[tracing.EnvNameKey]
+			require.True(t, ok, "request span is missing environment.name")
+			assert.Equal(t, string(st.EnvClientSide.Name), name.AsString())
+
+			envID, ok := attrs[tracing.EnvIDKey]
+			require.True(t, ok, "request span is missing environment.id")
+			assert.Equal(t, string(st.EnvClientSide.Config.EnvID), envID.AsString())
+		})
+	})
+}

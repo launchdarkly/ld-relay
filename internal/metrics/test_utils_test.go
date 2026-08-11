@@ -25,12 +25,14 @@ import (
 const (
 	testMetricsRelayID = "test-metrics-relay-id"
 	userAgentValue     = "my-agent"
+	testEnvID          = "test-env-id"
 )
 
 type testWithOTelParams struct {
 	manager     *Manager
 	relayID     string
 	envName     string
+	envID       string
 	env         *EnvironmentManager
 	instruments *Instruments
 	reader      sdkmetric.Reader
@@ -63,13 +65,14 @@ func testWithOTel(t *testing.T, action func(testWithOTelParams)) {
 	// environment name for test isolation.
 	envName := "env-" + uuid.New()
 
-	env, err := manager.AddEnvironment(envName, nil)
+	env, err := manager.AddEnvironment(envName, testEnvID, nil)
 	require.NoError(t, err)
 
 	action(testWithOTelParams{
 		manager:     manager,
 		relayID:     manager.metricsRelayID,
 		envName:     envName,
+		envID:       testEnvID,
 		env:         env,
 		instruments: instruments,
 		reader:      reader,

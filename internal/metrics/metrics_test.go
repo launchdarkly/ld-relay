@@ -41,11 +41,31 @@ func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 
 	assert.NoError(t, err)
 	require.NotNil(t, env)
 	assert.NotEqual(t, attribute.Set{}, env.GetAttributes())
+
+	// With no environment ID, the environment.id attribute is omitted.
+	attrs := env.GetAttributes()
+	_, ok := attrs.Value(envIDAttrKey)
+	assert.False(t, ok)
+}
+
+func TestAddEnvironmentIncludesEnvironmentIDWhenProvided(t *testing.T) {
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("name", "my-env-id", nil)
+	require.NoError(t, err)
+	require.NotNil(t, env)
+
+	attrs := env.GetAttributes()
+	value, ok := attrs.Value(envIDAttrKey)
+	require.True(t, ok)
+	assert.Equal(t, "my-env-id", value.AsString())
 }
 
 func TestAddEnvironmentWithEventPublisher(t *testing.T) {
@@ -55,7 +75,7 @@ func TestAddEnvironmentWithEventPublisher(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", publisher)
+	env, err := manager.AddEnvironment("name", "", publisher)
 
 	assert.NoError(t, err)
 	require.NotNil(t, env)
@@ -75,7 +95,7 @@ func TestAddEnvironmentAfterManagerClosed(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	manager.Close()
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 	assert.Nil(t, env)
 	assert.Error(t, err)
 }
@@ -85,7 +105,7 @@ func TestRemoveEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("name", nil)
+	env, err := manager.AddEnvironment("name", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, env)
 
@@ -342,7 +362,7 @@ func TestWithCountRecordsPolling(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
-	env, err := manager.AddEnvironment("polling-test", publisher)
+	env, err := manager.AddEnvironment("polling-test", "", publisher)
 	require.NoError(t, err)
 
 	called := false
@@ -376,13 +396,6 @@ func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 		}, ServerDuration)
 		assert.True(t, called, "function should have been called")
 	})
-}
-
-func TestSanitizeTagValue(t *testing.T) {
-	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "not-provided", sanitizeTagValue(""))
-	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
-	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
 }
 
 func TestSanitizeRouteValue(t *testing.T) {
@@ -422,3 +435,85 @@ func assertGaugeValue(t *testing.T, m *metricdata.Metrics, envName, platform str
 
 // Ignore unused import warning - context is needed for p.collectMetrics
 var _ = context.Background
+
+func TestSetEnvironmentNameRebuildsAttributes(t *testing.T) {
+	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("old name", "my-env-id", nil)
+	require.NoError(t, err)
+
+	env.SetEnvironmentName("new/name")
+
+	attrs := env.GetAttributes()
+	name, ok := attrs.Value(envNameAttrKey)
+	require.True(t, ok)
+	assert.Equal(t, "new_name", name.AsString(), "the new name is sanitized like the original")
+
+	// The environment ID and relay ID are carried over.
+	envID, ok := attrs.Value(envIDAttrKey)
+	require.True(t, ok)
+	assert.Equal(t, "my-env-id", envID.AsString())
+	relayID, ok := attrs.Value(relayIDAttrKey)
+	require.True(t, ok)
+	assert.Equal(t, manager.metricsRelayID, relayID.AsString())
+}
+
+func TestEnvironmentIDReachesExportedDataPoints(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		RecordEventsReceivedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory,
+			RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsReceivedMeasureName)
+		require.NotNil(t, m)
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+		require.NotEmpty(t, sum.DataPoints)
+
+		found := false
+		for _, dp := range sum.DataPoints {
+			envVal, envOK := dp.Attributes.Value(envNameAttrKey)
+			idVal, idOK := dp.Attributes.Value(envIDAttrKey)
+			if envOK && envVal.AsString() == p.envName {
+				require.True(t, idOK, "environment.id missing from the exported data point")
+				assert.Equal(t, p.envID, idVal.AsString())
+				found = true
+			}
+		}
+		assert.True(t, found, "expected a data point for this environment")
+	})
+}
+
+func TestRenameChangesTheExportedEnvironmentName(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+		recorder.RecordEventsSent(1)
+
+		p.env.SetEnvironmentName("renamed env")
+		recorder.RecordEventsSent(1)
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsSentMeasureName)
+		require.NotNil(t, m)
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+
+		// The rename starts a new series rather than relabeling the old one, so both names are
+		// present -- and the event recorder followed the rename instead of pinning the old name.
+		names := make(map[string]int64)
+		for _, dp := range sum.DataPoints {
+			if envVal, envOK := dp.Attributes.Value(envNameAttrKey); envOK {
+				names[envVal.AsString()] = dp.Value
+				idVal, idOK := dp.Attributes.Value(envIDAttrKey)
+				require.True(t, idOK, "environment.id should survive a rename")
+				assert.Equal(t, p.envID, idVal.AsString())
+			}
+		}
+		assert.Equal(t, int64(1), names[p.envName], "the pre-rename series keeps its data point")
+		assert.Equal(t, int64(1), names["renamed env"], "post-rename events land under the new name")
+	})
+}

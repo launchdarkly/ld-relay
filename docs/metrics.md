@@ -19,12 +19,13 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 
 ## Attributes
 
-All metrics include the following attributes:
+All metrics include the following attributes. When OpenTelemetry tracing is enabled, `environment.name` and `environment.id` are also set on the request span of every authenticated request, using these same keys, so traces and metrics can be correlated by environment.
 
 | Attribute | Description |
 |-----------|-------------|
 | `relay.id` | A unique identifier for this Relay Proxy instance, generated at startup. |
-| `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
+| `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. If the environment is renamed there, subsequent metrics are reported under the new name, which starts a new series. Example: `MyApplication Staging` |
+| `environment.id` | The LaunchDarkly environment ID, when the environment is configured with a client-side environment ID. It is omitted for environments configured with only an SDK key or mobile key. Environments that differ only by payload filter share one environment ID, so group by `environment.name` to tell filtered variants apart. Example: `507f1f77bcf86cd79943902a` |
 | `platform.category` | The kind of SDK that generated the metric: `server`, `mobile`, or `browser`. |
 | `user_agent` | The user agent of the SDK making the request. Example: `Node/3.4.0` |
 | `sdk.wrapper` | The SDK wrapper identifier, if provided. Example: `flutter-client/2.0.0` |
