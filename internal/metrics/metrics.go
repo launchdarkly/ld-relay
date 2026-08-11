@@ -14,8 +14,6 @@ import (
 	"github.com/pborman/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -69,8 +67,12 @@ func NewManager(
 
 	res := tracing.NewResource(logger)
 
+	// instruments is deliberately left nil when OpenTelemetry is disabled. Every recording path
+	// no-ops on nil instruments, and checking that first is what lets them skip building attribute
+	// sets: with a noop meter the attributes were still assembled per request, at roughly 2 us and
+	// 3.5 KB each, only to be handed to an instrument that discards them.
 	var meterProvider *sdkmetric.MeterProvider
-	var meter otelmetric.Meter
+	var instruments *Instruments
 	if otlpConfig.Enabled {
 		opts, err := newOTLPExporters(otlpConfig, logger)
 		if err != nil {
@@ -82,49 +84,13 @@ func NewManager(
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}},
 		)))
 		meterProvider = sdkmetric.NewMeterProvider(opts...)
-		meter = meterProvider.Meter("ld-relay")
 		if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
 			logger.Warn("failed to start Go runtime metrics", "error", err)
 		}
-	} else {
-		meter = noop.Meter{}
-	}
-
-	connections, _ := meter.Int64UpDownCounter(connMeasureName,
-		otelmetric.WithDescription("Number of active HTTP server requests"),
-		otelmetric.WithUnit("{request}"))
-	requestDuration, _ := meter.Float64Histogram(requestDurationMeasureName,
-		otelmetric.WithDescription("Duration of HTTP server requests"),
-		otelmetric.WithUnit("s"))
-	eventsReceivedBytes, _ := meter.Int64Counter(eventsReceivedMeasureName,
-		otelmetric.WithDescription("Bytes of event data received"),
-		otelmetric.WithUnit("By"))
-
-	eventsDropped, _ := meter.Int64Counter(eventsDroppedMeasureName,
-		otelmetric.WithDescription("Events dropped due to capacity overflow"),
-		otelmetric.WithUnit("{event}"))
-	eventsSent, _ := meter.Int64Counter(eventsSentMeasureName,
-		otelmetric.WithDescription("Events successfully sent"),
-		otelmetric.WithUnit("{event}"))
-	eventsFailedSend, _ := meter.Int64Counter(eventsSendErrorsMeasureName,
-		otelmetric.WithDescription("Events that failed to send after all retries"),
-		otelmetric.WithUnit("{event}"))
-	eventsBytesSent, _ := meter.Int64Counter(eventsSentSizeMeasureName,
-		otelmetric.WithDescription("Bytes of event payloads successfully sent"),
-		otelmetric.WithUnit("By"))
-	pendingEvents, _ := meter.Int64Gauge(eventsPendingMeasureName,
-		otelmetric.WithDescription("Events buffered in the queue"),
-		otelmetric.WithUnit("{event}"))
-
-	instruments := &Instruments{
-		connections:         connections,
-		requestDuration:     requestDuration,
-		eventsReceivedBytes: eventsReceivedBytes,
-		eventsDropped:       eventsDropped,
-		eventsSent:          eventsSent,
-		eventsFailedSend:    eventsFailedSend,
-		eventsBytesSent:     eventsBytesSent,
-		pendingEvents:       pendingEvents,
+		instruments, err = newInstruments(meterProvider.Meter("ld-relay"))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	usageChan := make(chan any, 256)

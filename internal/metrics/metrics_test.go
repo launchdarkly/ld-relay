@@ -13,27 +13,62 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-func TestNewManagerWithNoExporters(t *testing.T) {
+// With OpenTelemetry disabled there are no instruments at all, rather than instruments backed by a
+// noop meter. That is what allows the recording paths to skip building attribute sets for
+// measurements that would be discarded, so it is worth asserting directly.
+func TestNewManagerWithoutOpenTelemetryHasNoInstruments(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
-	assert.NotNil(t, manager.instruments)
+	assert.Nil(t, manager.instruments)
+	assert.Nil(t, manager.GetInstruments())
 }
 
-func TestNewManagerReturnsInstruments(t *testing.T) {
+// Every recording path has to tolerate nil instruments, since that is the normal state when
+// OpenTelemetry is disabled.
+func TestRecordingIsSafeWithoutInstruments(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
-	instruments := manager.GetInstruments()
-	assert.NotNil(t, instruments)
+	em, err := manager.AddEnvironment("testenv", nil)
+	require.NoError(t, err)
+
+	ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: EndpointTypePoll}
+
+	assert.NotPanics(t, func() {
+		StartActiveRequest(manager.GetInstruments(), em, ServerPlatformCategory, ri)()
+		StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)()
+		RecordRequestDuration(context.Background(), manager.GetInstruments(), em, ri, time.Millisecond, ServerDuration)
+		RecordEventsReceivedBytes(context.Background(), manager.GetInstruments(), em, ServerPlatformCategory, ri, 100)
+
+		recorder := em.NewEventMetricsRecorder(manager.GetInstruments())
+		recorder.RecordDroppedEvents(1)
+		recorder.RecordEventsSent(1)
+		recorder.RecordPendingEvents(1)
+		recorder.RecordEventsBytesSent(1)
+		recorder.RecordEventsFailedSend(1, ldevents.EventSendFailureMetadata{StatusCode: 500})
+	})
+}
+
+func TestNewInstrumentsCreatesEveryInstrument(t *testing.T) {
+	instruments, err := newInstruments(noop.Meter{})
+	require.NoError(t, err)
+	require.NotNil(t, instruments)
+
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requestDuration)
 	assert.NotNil(t, instruments.eventsReceivedBytes)
+	assert.NotNil(t, instruments.eventsDropped)
+	assert.NotNil(t, instruments.eventsSent)
+	assert.NotNil(t, instruments.eventsFailedSend)
+	assert.NotNil(t, instruments.eventsBytesSent)
+	assert.NotNil(t, instruments.pendingEvents)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {

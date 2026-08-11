@@ -69,35 +69,56 @@ var (
 // NewInstrumentsForTest creates Instruments backed by the given OTel meter.
 // This is intended for use by tests outside the metrics package.
 func NewInstrumentsForTest(meter metric.Meter) (*Instruments, error) {
-	connections, err := meter.Int64UpDownCounter(connMeasureName)
+	return newInstruments(meter)
+}
+
+// newInstruments creates every instrument Relay records against, from the given meter.
+func newInstruments(meter metric.Meter) (*Instruments, error) {
+	connections, err := meter.Int64UpDownCounter(connMeasureName,
+		metric.WithDescription("Number of active HTTP server requests"),
+		metric.WithUnit("{request}"))
 	if err != nil {
 		return nil, err
 	}
-	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName)
+	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName,
+		metric.WithDescription("Duration of HTTP server requests"),
+		metric.WithUnit("s"))
 	if err != nil {
 		return nil, err
 	}
-	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedMeasureName)
+	eventsReceivedBytes, err := meter.Int64Counter(eventsReceivedMeasureName,
+		metric.WithDescription("Bytes of event data received"),
+		metric.WithUnit("By"))
 	if err != nil {
 		return nil, err
 	}
-	eventsDropped, err := meter.Int64Counter(eventsDroppedMeasureName)
+	eventsDropped, err := meter.Int64Counter(eventsDroppedMeasureName,
+		metric.WithDescription("Events dropped due to capacity overflow"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsSent, err := meter.Int64Counter(eventsSentMeasureName)
+	eventsSent, err := meter.Int64Counter(eventsSentMeasureName,
+		metric.WithDescription("Events successfully sent"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsFailedSend, err := meter.Int64Counter(eventsSendErrorsMeasureName)
+	eventsFailedSend, err := meter.Int64Counter(eventsSendErrorsMeasureName,
+		metric.WithDescription("Events that failed to send after all retries"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
-	eventsBytesSent, err := meter.Int64Counter(eventsSentSizeMeasureName)
+	eventsBytesSent, err := meter.Int64Counter(eventsSentSizeMeasureName,
+		metric.WithDescription("Bytes of event payloads successfully sent"),
+		metric.WithUnit("By"))
 	if err != nil {
 		return nil, err
 	}
-	pendingEvents, err := meter.Int64Gauge(eventsPendingMeasureName)
+	pendingEvents, err := meter.Int64Gauge(eventsPendingMeasureName,
+		metric.WithDescription("Events buffered in the queue"),
+		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err
 	}
