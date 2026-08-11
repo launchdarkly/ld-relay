@@ -3,7 +3,8 @@ package metrics
 import (
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -124,18 +125,12 @@ func requestKVs(platform string, ri RequestInfo) []attribute.KeyValue {
 // Empty values are replaced with descriptive defaults, and slashes are replaced with underscores.
 // This is appropriate for user agent strings and SDK wrapper names, but not for routes.
 //
-// Invalid UTF-8 is stripped, which matters more than it looks. Attribute values end up in OTLP
-// protobuf string fields, and proto3 requires those to be valid UTF-8: a single bad byte fails the
-// marshal for the entire export batch, not just the offending data point. Because these series are
-// cumulative, the poisoned series is re-collected every interval, so exports keep failing until the
-// process restarts. Header values are not restricted to ASCII -- RFC 7230 permits obs-text, and Go's
-// HTTP parser passes those bytes through unchanged -- so any caller can supply one, including an
-// unauthenticated caller via the status and not-found handlers.
+// Invalid UTF-8 is stripped via util.SanitizeUTF8, which matters more than it looks: a single bad byte
+// fails the OTLP marshal for the entire export batch, and these series are cumulative, so exports keep
+// failing until the process restarts. Header values are not restricted to ASCII, so an unauthenticated
+// caller can supply one via the status and not-found handlers.
 func sanitizeTagValue(v string) string {
-	v = strings.ReplaceAll(v, "/", "_")
-	if !utf8.ValidString(v) {
-		v = strings.ToValidUTF8(v, "")
-	}
+	v = util.SanitizeUTF8(strings.ReplaceAll(v, "/", "_"))
 	if strings.TrimSpace(v) == "" {
 		return notProvidedValue
 	}

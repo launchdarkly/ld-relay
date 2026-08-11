@@ -772,7 +772,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 		tr := tracing.Tracer()
 
 		_, storeSpan := tr.Start(req.Context(), tracing.SpanStoreGet)
-		storeSpan.SetAttributes(tracing.StoreKeyKey.String(key))
+		storeSpan.SetAttributes(tracing.StoreKeyKey.String(util.SanitizeUTF8(key)))
 		item, err := clientContext.GetStore().Get(kind, key)
 		if err != nil {
 			storeSpan.RecordError(err)

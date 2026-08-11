@@ -35,7 +35,7 @@ const (
 // in metrics data under the "route" tag if Relay is configured to export metrics. Therefore, we should use
 // variable names like {envId} consistently and make sure they correspond to how the routes are shown in
 // docs/endpoints.md. The {context} variable name is also load-bearing for tracing: it is how
-// middleware.RedactContextFromSpanPath recognizes a route that carries end-user data in the path.
+// middleware.SanitizeRequestSpan recognizes a route that carries end-user data in the path.
 func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
 	router.Use(logging.ContextLoggerMiddleware(r.logger))
@@ -44,7 +44,7 @@ func (r *Relay) makeRouter() *mux.Router {
 	}
 	router.Use(otelmux.Middleware(tracing.TracerName))
 	// Must come after the tracing middleware, which records the raw request path on the span it starts.
-	router.Use(middleware.RedactContextFromSpanPath)
+	router.Use(middleware.SanitizeRequestSpan)
 	if r.config.HTTP.EnableCompression {
 		router.Use(func(next http.Handler) http.Handler {
 			return h.GzipHandler(next)

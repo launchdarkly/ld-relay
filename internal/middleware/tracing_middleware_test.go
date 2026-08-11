@@ -49,7 +49,7 @@ func tracedRouter(t *testing.T, templates ...string) (*mux.Router, *tracetest.Sp
 
 	router := mux.NewRouter()
 	router.Use(otelmux.Middleware("test", otelmux.WithTracerProvider(provider)))
-	router.Use(RedactContextFromSpanPath)
+	router.Use(SanitizeRequestSpan)
 	for _, template := range templates {
 		router.HandleFunc(template, func(http.ResponseWriter, *http.Request) {}).Methods("GET")
 	}
@@ -115,7 +115,7 @@ func TestRedactionSurvivesNestedSubrouters(t *testing.T) {
 
 	router := mux.NewRouter()
 	router.Use(otelmux.Middleware("test", otelmux.WithTracerProvider(provider)))
-	router.Use(RedactContextFromSpanPath)
+	router.Use(SanitizeRequestSpan)
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	pollRouter := sdkRouter.PathPrefix("/poll/eval").Subrouter()
 	pollRouter.HandleFunc("/{context}", func(http.ResponseWriter, *http.Request) {}).Methods("GET")
@@ -130,7 +130,7 @@ func TestRedactionSurvivesNestedSubrouters(t *testing.T) {
 func TestRedactionWithoutARecordingSpan(t *testing.T) {
 	handled := false
 	router := mux.NewRouter()
-	router.Use(RedactContextFromSpanPath)
+	router.Use(SanitizeRequestSpan)
 	router.HandleFunc("/meval/{context}", func(http.ResponseWriter, *http.Request) { handled = true }).Methods("GET")
 
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/meval/"+contextBase64, nil))

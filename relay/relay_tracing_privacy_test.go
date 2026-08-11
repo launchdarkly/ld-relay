@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"unicode/utf8"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +19,7 @@ import (
 // TestEndUserContextIsNotExportedInSpans drives the polling routes that take an evaluation
 // context in the path through a real relay, and asserts that no span produced while handling
 // the request carries the context anywhere in its attributes. The HTTP tracing middleware
-// records the raw request path, so without middleware.RedactContextFromSpanPath the base64
+// records the raw request path, so without middleware.SanitizeRequestSpan the base64
 // context - keys, names, emails, custom attributes - is exported to the tracing backend.
 //
 // The streaming eval routes carry a context in the path too; they are covered by the
@@ -100,5 +103,59 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 				assert.NotContains(t, root.Name(), contextBase64)
 			})
 		}
+	})
+}
+
+// TestSpanAttributesAreValidUTF8 drives hostile request data through the relay and asserts that no span
+// field carries invalid UTF-8. OTLP cannot serialize such a span: the marshal fails and the whole export
+// batch is dropped, so one bad request costs every span batched alongside it.
+//
+// This deliberately checks *every* string attribute rather than the three the tracing instrumentation
+// is known to derive from request data (user_agent.original, client.address, url.path). If it starts
+// recording another one, this fails and points at what SanitizeRequestSpan has to cover.
+func TestSpanAttributesAreValidUTF8(t *testing.T) {
+	const invalid = "\xff\xfe"
+
+	recorder := installSpanRecorder(t)
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		poison := func(req *http.Request) *http.Request {
+			req.Header.Set("User-Agent", "agent-"+invalid)
+			req.Header.Set("X-Forwarded-For", "1.2.3.4"+invalid+", 5.6.7.8")
+			return req
+		}
+
+		requests := []*http.Request{
+			// Unauthenticated, and the path variable decodes to invalid bytes.
+			poison(st.BuildRequest("GET", "/status/%ff%fe", nil, nil)),
+			poison(st.BuildRequest("GET", "/status", nil, nil)),
+			// Authenticated: exercises relay.store.key, which comes from a decoded path variable.
+			poison(st.BuildRequestWithAuth("GET", "/sdk/flags/%ff%fe", st.EnvMain.Config.SDKKey, nil)),
+			poison(st.BuildRequestWithAuth("GET", "/sdk/poll", st.EnvMain.Config.SDKKey, nil)),
+		}
+		for _, req := range requests {
+			st.DoRequest(req, p.relay)
+		}
+
+		spans := recorder.Ended()
+		require.NotEmpty(t, spans, "no spans were recorded")
+
+		checked := 0
+		for _, s := range spans {
+			assert.True(t, utf8.ValidString(s.Name()), "span name is not valid UTF-8: %q", s.Name())
+			for _, kv := range s.Attributes() {
+				if kv.Value.Type() != attribute.STRING {
+					continue
+				}
+				checked++
+				assert.True(t, utf8.ValidString(kv.Value.AsString()),
+					"span %q attribute %s is not valid UTF-8: %q -- this fails the whole OTLP export batch",
+					s.Name(), kv.Key, kv.Value.AsString())
+			}
+		}
+		assert.Positive(t, checked, "no string attributes were examined")
 	})
 }
