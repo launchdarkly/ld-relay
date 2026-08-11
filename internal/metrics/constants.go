@@ -21,9 +21,38 @@ const (
 
 	defaultFlushInterval = time.Minute
 
+	// notProvidedValue is the sentinel reported for an attribute whose value is absent.
+	notProvidedValue = "not-provided"
+
 	BrowserPlatformCategory = "browser"
 	MobilePlatformCategory  = "mobile"
 	ServerPlatformCategory  = "server"
+)
+
+// EndpointType identifies the kind of Relay endpoint that served a request. It is reported on
+// request-scoped metrics as the relay.endpoint.type attribute, so that a metric covering all
+// requests can still be broken down by the delivery mode the request belongs to.
+type EndpointType string
+
+const (
+	// EndpointTypeStream is an SSE endpoint that holds the connection open.
+	EndpointTypeStream EndpointType = "stream"
+
+	// EndpointTypePoll is a request/response flag delivery endpoint.
+	EndpointTypePoll EndpointType = "poll"
+
+	// EndpointTypeEvents is an analytics or diagnostic event ingestion endpoint.
+	EndpointTypeEvents EndpointType = "events"
+
+	// EndpointTypeStatus is a Relay status endpoint. These are not associated with an SDK or an
+	// LD environment.
+	EndpointTypeStatus EndpointType = "status"
+
+	// EndpointTypeGoals is the experimentation goals endpoint used by the JS SDK.
+	EndpointTypeGoals EndpointType = "goals"
+
+	// EndpointTypeNotProvided is used for requests that did not match any route Relay serves.
+	EndpointTypeNotProvided EndpointType = notProvidedValue
 )
 
 var (
@@ -35,6 +64,7 @@ var (
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	instanceIDAttrKey         = attribute.Key("instance.id")         //nolint:gochecknoglobals
+	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type") //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	httpRouteAttrKey           = semconv.HTTPRouteKey              //nolint:gochecknoglobals
@@ -47,50 +77,46 @@ var (
 )
 
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
-// where applicable. All string values should be pre-sanitized via sanitizeTagValue before calling this function.
-func buildRequestAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapper, route, method, urlScheme, applicationID, applicationVersion, instanceID string) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+9)
+// where applicable. Values from the RequestInfo are sanitized here, so callers pass it through as-is.
+func buildRequestAttributes(baseKVs []attribute.KeyValue, platform string, ri RequestInfo) attribute.Set {
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+10)
 	copy(attrs, baseKVs)
-	attrs = append(attrs,
-		platformCategoryAttrKey.String(platform),
-		userAgentAttrKey.String(userAgent),
-		sdkWrapperAttrKey.String(sdkWrapper),
-		httpRouteAttrKey.String(route),
-		httpRequestMethodAttrKey.String(method),
-		urlSchemeAttrKey.String(urlScheme),
-		applicationIDAttrKey.String(applicationID),
-		applicationVersionAttrKey.String(applicationVersion),
-		instanceIDAttrKey.String(instanceID),
-	)
+	attrs = append(attrs, requestKVs(platform, ri)...)
 	return attribute.NewSet(attrs...)
 }
 
 // buildDurationAttributes creates an OTel attribute set for the http.server.request.duration histogram,
 // including all semconv required/conditionally-required attributes.
-func buildDurationAttributes(baseKVs []attribute.KeyValue, platform, userAgent, sdkWrapper, route, method, applicationID, applicationVersion, instanceID, urlScheme, protocolVersion, errorType string, statusCode int) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+14)
+func buildDurationAttributes(baseKVs []attribute.KeyValue, platform string, ri RequestInfo) attribute.Set {
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+13)
 	copy(attrs, baseKVs)
-	attrs = append(attrs,
-		platformCategoryAttrKey.String(platform),
-		userAgentAttrKey.String(userAgent),
-		sdkWrapperAttrKey.String(sdkWrapper),
-		httpRouteAttrKey.String(route),
-		httpRequestMethodAttrKey.String(method),
-		urlSchemeAttrKey.String(urlScheme),
-		applicationIDAttrKey.String(applicationID),
-		applicationVersionAttrKey.String(applicationVersion),
-		instanceIDAttrKey.String(instanceID),
-	)
-	if protocolVersion != "" {
-		attrs = append(attrs, networkProtoVersionAttrKey.String(protocolVersion))
+	attrs = append(attrs, requestKVs(platform, ri)...)
+	if ri.ProtocolVersion != "" {
+		attrs = append(attrs, networkProtoVersionAttrKey.String(ri.ProtocolVersion))
 	}
-	if statusCode > 0 {
-		attrs = append(attrs, httpResponseStatusAttrKey.Int(statusCode))
+	if ri.StatusCode > 0 {
+		attrs = append(attrs, httpResponseStatusAttrKey.Int(ri.StatusCode))
 	}
-	if errorType != "" {
-		attrs = append(attrs, errorTypeAttrKey.String(errorType))
+	if ri.ErrorType != "" {
+		attrs = append(attrs, errorTypeAttrKey.String(ri.ErrorType))
 	}
 	return attribute.NewSet(attrs...)
+}
+
+// requestKVs returns the attributes that every request-scoped metric carries.
+func requestKVs(platform string, ri RequestInfo) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		platformCategoryAttrKey.String(sanitizeTagValue(platform)),
+		userAgentAttrKey.String(sanitizeTagValue(ri.UserAgent)),
+		sdkWrapperAttrKey.String(sanitizeTagValue(ri.SDKWrapper)),
+		httpRouteAttrKey.String(sanitizeRouteValue(ri.Route)),
+		httpRequestMethodAttrKey.String(sanitizeTagValue(ri.Method)),
+		urlSchemeAttrKey.String(ri.URLScheme),
+		applicationIDAttrKey.String(sanitizeTagValue(ri.ApplicationID)),
+		applicationVersionAttrKey.String(sanitizeTagValue(ri.ApplicationVersion)),
+		instanceIDAttrKey.String(sanitizeTagValue(ri.InstanceID)),
+		endpointTypeAttrKey.String(sanitizeTagValue(string(ri.EndpointType))),
+	}
 }
 
 // sanitizeTagValue ensures attribute values are valid.
@@ -98,7 +124,7 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, platform, userAgent, 
 // This is appropriate for user agent strings and SDK wrapper names, but not for routes.
 func sanitizeTagValue(v string) string {
 	if strings.TrimSpace(v) == "" {
-		return "not-provided"
+		return notProvidedValue
 	}
 	return strings.ReplaceAll(v, "/", "_")
 }
@@ -108,7 +134,7 @@ func sanitizeTagValue(v string) string {
 // slashes are preserved since they are meaningful in route paths.
 func sanitizeRouteValue(v string) string {
 	if strings.TrimSpace(v) == "" {
-		return "not-provided"
+		return notProvidedValue
 	}
 	return v
 }

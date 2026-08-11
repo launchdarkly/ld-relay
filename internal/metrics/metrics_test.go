@@ -96,36 +96,75 @@ func TestRemoveEnvironment(t *testing.T) {
 	assert.Len(t, manager.environments, 0)
 }
 
-func TestConnectionMetrics(t *testing.T) {
+func TestActiveRequestMetrics(t *testing.T) {
 	specs := []struct {
-		platform string
-		measure  Measure
+		platform     string
+		endpointType EndpointType
 	}{
-		{platform: BrowserPlatformCategory, measure: BrowserConns},
-		{platform: MobilePlatformCategory, measure: MobileConns},
-		{platform: ServerPlatformCategory, measure: ServerConns},
+		{platform: BrowserPlatformCategory, endpointType: EndpointTypeStream},
+		{platform: MobilePlatformCategory, endpointType: EndpointTypePoll},
+		{platform: ServerPlatformCategory, endpointType: EndpointTypeEvents},
 	}
 
 	for _, tt := range specs {
 		t.Run(tt.platform, func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				WithGauge(p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET"}, func() {
-					// While the gauge is active, check that the connection count is 1
-					rm, err := p.collectMetrics()
-					require.NoError(t, err)
-					m := findMetric(rm, connMeasureName)
-					require.NotNil(t, m, "connections metric not found")
-					assertGaugeValue(t, m, p.envName, tt.platform, 1)
-				}, tt.measure)
+				ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: tt.endpointType}
+				requestFinished := StartActiveRequest(p.instruments, p.env, tt.platform, ri)
 
-				// After the gauge function returns, check that the connection count is 0
+				// While the request is in flight, the count should be 1
 				rm, err := p.collectMetrics()
 				require.NoError(t, err)
 				m := findMetric(rm, connMeasureName)
-				require.NotNil(t, m, "connections metric not found")
+				require.NotNil(t, m, "active requests metric not found")
+				assertGaugeValue(t, m, p.envName, tt.platform, 1)
+				assertHasAttribute(t, m, endpointTypeAttrKey, string(tt.endpointType))
+
+				requestFinished()
+
+				// Once the request finishes, it should return to 0 rather than leaving a stray series
+				rm, err = p.collectMetrics()
+				require.NoError(t, err)
+				m = findMetric(rm, connMeasureName)
+				require.NotNil(t, m, "active requests metric not found")
 				assertGaugeValue(t, m, p.envName, tt.platform, 0)
+				assert.Len(t, m.Data.(metricdata.Sum[int64]).DataPoints, 1,
+					"increment and decrement should share one attribute set")
 			})
 		})
+	}
+}
+
+// The status endpoints and unmatched requests have no environment, so they report the not-provided
+// sentinel for both environment.name and platform.category.
+func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
+		require.NoError(t, err)
+		defer manager.Close()
+		manager.SetInstrumentsForTest(p.instruments)
+
+		ri := RequestInfo{Route: "/status", Method: "GET", EndpointType: EndpointTypeStatus}
+		requestFinished := StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)
+		defer requestFinished()
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, connMeasureName)
+		require.NotNil(t, m, "active requests metric not found")
+		assertGaugeValue(t, m, notProvidedValue, notProvidedValue, 1)
+		assertHasAttribute(t, m, endpointTypeAttrKey, string(EndpointTypeStatus))
+	})
+}
+
+func assertHasAttribute(t *testing.T, m *metricdata.Metrics, key attribute.Key, expected string) {
+	t.Helper()
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+	for _, dp := range sum.DataPoints {
+		val, found := dp.Attributes.Value(key)
+		require.True(t, found, "%s attribute not present on %s", key, m.Name)
+		assert.Equal(t, expected, val.AsString())
 	}
 }
 

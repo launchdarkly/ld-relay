@@ -33,6 +33,7 @@ type Manager struct {
 	closed         bool
 	lock           sync.Mutex
 	environments   []*EnvironmentManager
+	unscopedEnv    *EnvironmentManager
 
 	usageChan            chan any
 	environmentsForUsage map[string]*environmentMetricUsage
@@ -135,6 +136,12 @@ func NewManager(
 		logger:               logger,
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
+		unscopedEnv: &EnvironmentManager{
+			envKVs: []attribute.KeyValue{
+				relayIDAttrKey.String(metricsRelayID),
+				envNameAttrKey.String(sanitizeTagValue("")),
+			},
+		},
 	}
 	if m.flushInterval <= 0 {
 		m.flushInterval = defaultFlushInterval
@@ -148,6 +155,14 @@ func NewManager(
 // GetInstruments returns the OTel instruments for recording metrics.
 func (m *Manager) GetInstruments() *Instruments {
 	return m.instruments
+}
+
+// GetUnscopedEnvironment returns an EnvironmentManager for recording metrics on requests that are not
+// associated with any LD environment, such as the status endpoints and requests that matched no route.
+// Its environment.name attribute is the not-provided sentinel, and it has no collector, since there is
+// no environment to report usage data for.
+func (m *Manager) GetUnscopedEnvironment() *EnvironmentManager {
+	return m.unscopedEnv
 }
 
 // SetInstrumentsForTest replaces the instruments on this Manager. Intended for testing only.

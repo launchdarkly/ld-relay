@@ -30,6 +30,11 @@ type Measure struct {
 	platformCategory  string
 }
 
+// PlatformCategory returns the SDK platform category that this Measure reports under.
+func (m Measure) PlatformCategory() string {
+	return m.platformCategory
+}
+
 // To avoid having to put nolint:gochecknoglobals on everything here, that linter is excluded
 // specifically for this file in .golangci-lint.yml.
 var (
@@ -117,6 +122,7 @@ type RequestInfo struct {
 	ApplicationID      string
 	ApplicationVersion string
 	InstanceID         string
+	EndpointType       EndpointType
 	// Semconv fields populated after handler execution
 	StatusCode      int
 	URLScheme       string
@@ -124,36 +130,40 @@ type RequestInfo struct {
 	ErrorType       string
 }
 
-func (ri RequestInfo) sanitized() (ua, wrapper, route, method, appID, appVersion, instanceID string) {
-	return sanitizeTagValue(ri.UserAgent),
-		sanitizeTagValue(ri.SDKWrapper),
-		sanitizeRouteValue(ri.Route),
-		sanitizeTagValue(ri.Method),
-		sanitizeTagValue(ri.ApplicationID),
-		sanitizeTagValue(ri.ApplicationVersion),
-		sanitizeTagValue(ri.InstanceID)
+// StartActiveRequest increments http.server.active_requests and returns a function that decrements it
+// again. The returned function must be called exactly once, when the request is finished.
+//
+// The attribute set is computed once, up front, and reused for the decrement. Anything only known after
+// the handler runs (status code, error type) therefore cannot be reported on this metric: a mismatched
+// attribute set between the increment and the decrement would leak a permanently non-zero series.
+func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo) func() {
+	if instruments == nil || em == nil {
+		return func() {}
+	}
+
+	// Built once and shared by both calls, so that the two can't drift apart.
+	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, platformCategory, ri))
+	instruments.connections.Add(context.Background(), 1, attrs)
+	return func() {
+		instruments.connections.Add(context.Background(), -1, attrs)
+	}
 }
 
-// WithGauge increments the specified metric before running the function and then decrements it (for use with
-// the active connection metrics).
-func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo, f func(), measure Measure) {
-	if em == nil || !measure.recordConnections {
+// WithStreamConnection runs a function while counting it as an active stream connection in the data
+// that Relay reports back to LaunchDarkly.
+//
+// This is deliberately limited to streaming endpoints, unlike the http.server.active_requests
+// instrument, which covers every request Relay serves. LaunchDarkly's notion of a "connection" is a
+// held-open stream, so counting polls or event posts here would misreport usage.
+func WithStreamConnection(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
+	if em == nil || !measure.recordConnections || em.collector == nil {
 		f()
 		return
 	}
 
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
-
-	if instruments != nil {
-		instruments.connections.Add(context.Background(), 1, metric.WithAttributeSet(attrs))
-		defer instruments.connections.Add(context.Background(), -1, metric.WithAttributeSet(attrs))
-	}
-
-	if em.collector != nil {
-		em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
-		defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
-	}
+	ua, wrapper := sanitizeTagValue(ri.UserAgent), sanitizeTagValue(ri.SDKWrapper)
+	em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
+	defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
 
 	f()
 }
@@ -161,8 +171,7 @@ func WithGauge(em *EnvironmentManager, instruments *Instruments, ri RequestInfo,
 // WithCount runs a function and records polling metrics if applicable.
 func WithCount(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
 	if em != nil && measure.recordPolling && em.collector != nil {
-		ua, wrapper, _, _, _, _, _ := ri.sanitized()
-		em.collector.RecordPollingRequest(measure.platformCategory, ua, wrapper)
+		em.collector.RecordPollingRequest(measure.platformCategory, sanitizeTagValue(ri.UserAgent), sanitizeTagValue(ri.SDKWrapper))
 	}
 
 	f()
@@ -173,8 +182,7 @@ func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, ua, wrapper, route, method, ri.URLScheme, appID, appVersion, instanceID)
+	attrs := buildRequestAttributes(em.envKVs, platformCategory, ri)
 	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
@@ -184,8 +192,7 @@ func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *En
 	if em == nil || instruments == nil || !measure.recordDuration {
 		return
 	}
-	ua, wrapper, route, method, appID, appVersion, instanceID := ri.sanitized()
-	attrs := buildDurationAttributes(em.envKVs, measure.platformCategory, ua, wrapper, route, method, appID, appVersion, instanceID, ri.URLScheme, ri.ProtocolVersion, ri.ErrorType, ri.StatusCode)
+	attrs := buildDurationAttributes(em.envKVs, measure.platformCategory, ri)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 
