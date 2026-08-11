@@ -16,6 +16,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 	"github.com/launchdarkly/ld-relay/v9/internal/sdks"
 	"github.com/launchdarkly/ld-relay/v9/internal/streams"
+	"golang.org/x/sync/singleflight"
 
 	ldeval "github.com/launchdarkly/go-server-sdk-evaluation/v3"
 )
@@ -117,6 +118,12 @@ type EnvContext interface {
 	//
 	// This supports the modern V2 delivery protocol.
 	GetStreamHandlerV2(streams.StreamProvider, credential.SDKCredential) http.Handler
+
+	// GetPollingFlightGroup returns the singleflight group that the polling endpoints use to
+	// deduplicate concurrent requests whose response payloads would be identical. The group is
+	// scoped to this environment, so callers only need to key on the endpoint and any request
+	// parameters that change the payload.
+	GetPollingFlightGroup() *singleflight.Group
 
 	// GetEventDispatcher returns the object that proxies events for this environment.
 	GetEventDispatcher() *events.EventDispatcher

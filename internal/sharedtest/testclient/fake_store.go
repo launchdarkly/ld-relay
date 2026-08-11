@@ -13,6 +13,14 @@ type FakeStore struct {
 	collections []ldstoretypes.Collection
 	selector    subsystems.Selector
 	mu          sync.Mutex
+
+	// SnapshotHook, if non-nil, is called at the start of every Snapshot call, before the
+	// store's lock is taken. Tests set it (before sharing the store across goroutines) to
+	// observe or block concurrent snapshot reads.
+	SnapshotHook func()
+
+	// GetAllHook is SnapshotHook for GetAll calls.
+	GetAllHook func()
 }
 
 func NewFakeStore(collections []ldstoretypes.Collection) *FakeStore {
@@ -152,6 +160,9 @@ func (s *FakeStore) Get(kind ldstoretypes.DataKind, key string) (ldstoretypes.It
 }
 
 func (s *FakeStore) GetAll(kind ldstoretypes.DataKind) ([]ldstoretypes.KeyedItemDescriptor, error) {
+	if s.GetAllHook != nil {
+		s.GetAllHook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := []ldstoretypes.KeyedItemDescriptor{}
@@ -170,6 +181,9 @@ func (s *FakeStore) IsInitialized() bool {
 }
 
 func (s *FakeStore) Snapshot() (map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor, subsystems.Selector, error) {
+	if s.SnapshotHook != nil {
+		s.SnapshotHook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := make(map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor)
