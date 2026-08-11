@@ -178,15 +178,6 @@ func streamHandlerV2(streamProvider streams.StreamProvider, logMessage string) h
 	})
 }
 
-type pollingPayload struct {
-	Events []payloadEvent `json:"events"`
-}
-
-type payloadEvent struct {
-	Event     string `json:"event"`
-	EventData any    `json:"data"`
-}
-
 // Server-side SDK polling endpoint: app.ld.com/sdk/poll/
 func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 	clientCtx := middleware.GetEnvContextInfo(req.Context())
@@ -214,37 +205,22 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
-		numItems := 2
-		if len(collection) > 0 {
-			for _, keyedItems := range collection {
-				numItems += len(keyedItems)
-			}
-		}
-
-		pollingPayload := pollingPayload{
-			Events: make([]payloadEvent, 0, numItems),
-		}
+		payloadWriter := newFDv2PayloadWriter()
 
 		basis := req.URL.Query().Get("basis")
 		if selector.IsDefined() && basis != "" && selector.State() == basis {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentNone,
-					Reason: "up-to-date",
-				}},
+			payloadWriter.writeServerIntent(subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentNone,
+				Reason: "up-to-date",
 			})
 		} else {
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event: "server-intent",
-				EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-					ID:     selector.State(),
-					Target: selector.Version(),
-					Code:   subsystems.IntentTransferFull,
-					Reason: "cant-catchup",
-				}},
+			payloadWriter.writeServerIntent(subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
 			})
 			for kind, keyedItems := range collection {
 				for _, keyedItem := range keyedItems {
@@ -254,18 +230,9 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 					switch kind {
 					case ldstoreimpl.Features():
 						if flag, ok := keyedItem.Item.Item.(*ldmodel.FeatureFlag); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalFeatureFlagToJSONWriter(*flag, &writer)
-
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.FlagKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
+							objectWriter := payloadWriter.beginPutObject(keyedItem.Item.Version, subsystems.FlagKind, keyedItem.Key)
+							ldmodel.MarshalFeatureFlagToJSONWriter(*flag, objectWriter)
+							payloadWriter.endPutObject()
 						} else {
 							err := errors.New("error casting keyed item to feature flag")
 							clientCtx.Env.GetLogger().Error(err.Error())
@@ -276,18 +243,9 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 						}
 					case ldstoreimpl.Segments():
 						if segment, ok := keyedItem.Item.Item.(*ldmodel.Segment); ok {
-							writer := jwriter.NewWriter()
-							ldmodel.MarshalSegmentToJSONWriter(*segment, &writer)
-
-							pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-								Event: "put-object",
-								EventData: subsystems.PutObject{
-									Version: keyedItem.Item.Version,
-									Kind:    subsystems.SegmentKind,
-									Key:     keyedItem.Key,
-									Object:  writer.Bytes(),
-								},
-							})
+							objectWriter := payloadWriter.beginPutObject(keyedItem.Item.Version, subsystems.SegmentKind, keyedItem.Key)
+							ldmodel.MarshalSegmentToJSONWriter(*segment, objectWriter)
+							payloadWriter.endPutObject()
 						} else {
 							err := errors.New("error casting keyed item to feature segment")
 							clientCtx.Env.GetLogger().Error(err.Error())
@@ -306,13 +264,10 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 					}
 				}
 			}
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event:     "payload-transferred",
-				EventData: selector,
-			})
+			payloadWriter.writePayloadTransferred(selector)
 		}
 
-		data, err := json.Marshal(pollingPayload)
+		data, eventCount, err := payloadWriter.finish()
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -321,7 +276,7 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 			return nil, false
 		}
 		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
+			tracing.PayloadEventsKey.Int(eventCount),
 			tracing.PayloadBytesKey.Int(len(data)),
 		)
 		return data, true
@@ -393,36 +348,13 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		return
 	}
 
-	pollingPayload := pollingPayload{
-		Events: make([]payloadEvent, 0),
-	}
 	flagEvalKind := subsystems.ObjectKind("flag-eval")
 
 	basis := req.URL.Query().Get("basis")
 	upToDate := selector.IsDefined() && basis != "" && selector.State() == basis
 
 	var evalResults []flagEvalResult
-	if upToDate {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentNone,
-				Reason: "up-to-date",
-			}},
-		})
-	} else {
-		pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-			Event: "server-intent",
-			EventData: subsystems.ServerIntent{Payload: subsystems.Payload{
-				ID:     selector.State(),
-				Target: selector.Version(),
-				Code:   subsystems.IntentTransferFull,
-				Reason: "cant-catchup",
-			}},
-		})
-
+	if !upToDate {
 		evaluator := clientCtx.Env.GetEvaluator()
 
 		var allItems []ldstoretypes.KeyedItemDescriptor
@@ -443,10 +375,25 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 		_, span := tr.Start(req.Context(), tracing.SpanSerializePayload)
 		defer span.End()
 
-		if !upToDate {
+		payloadWriter := newFDv2PayloadWriter()
+
+		if upToDate {
+			payloadWriter.writeServerIntent(subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentNone,
+				Reason: "up-to-date",
+			})
+		} else {
+			payloadWriter.writeServerIntent(subsystems.Payload{
+				ID:     selector.State(),
+				Target: selector.Version(),
+				Code:   subsystems.IntentTransferFull,
+				Reason: "cant-catchup",
+			})
+
 			for _, er := range evalResults {
-				evalWriter := jwriter.NewWriter()
-				evalObj := evalWriter.Object()
+				evalObj := payloadWriter.beginPutObject(er.Flag.Version, flagEvalKind, er.Flag.Key).Object()
 				er.Detail.Value.WriteToJSONWriter(evalObj.Name("value"))
 				er.Detail.VariationIndex.WriteToJSONWriter(evalObj.Name("variation"))
 				evalObj.Name("flagVersion").Int(er.Flag.Version)
@@ -462,25 +409,13 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 					evalObj.Name("samplingRatio").Int(er.Flag.SamplingRatio.IntValue())
 				}
 				evalObj.End()
-
-				pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-					Event: "put-object",
-					EventData: subsystems.PutObject{
-						Version: er.Flag.Version,
-						Kind:    flagEvalKind,
-						Key:     er.Flag.Key,
-						Object:  evalWriter.Bytes(),
-					},
-				})
+				payloadWriter.endPutObject()
 			}
 
-			pollingPayload.Events = append(pollingPayload.Events, payloadEvent{
-				Event:     "payload-transferred",
-				EventData: selector,
-			})
+			payloadWriter.writePayloadTransferred(selector)
 		}
 
-		data, err := json.Marshal(pollingPayload)
+		data, eventCount, err := payloadWriter.finish()
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -489,7 +424,7 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 			return nil, false
 		}
 		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(len(pollingPayload.Events)),
+			tracing.PayloadEventsKey.Int(eventCount),
 			tracing.PayloadBytesKey.Int(len(data)),
 		)
 		return data, true
