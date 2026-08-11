@@ -17,28 +17,51 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 | `launchdarkly.relay.events.dropped` | Counter | `{event}` | The cumulative number of events dropped due to capacity overflow. |
 | `launchdarkly.relay.events.pending` | Gauge | `{event}` | The current number of events buffered in the queue. |
 
-## Attributes
+## Resource attributes
 
-All metrics include the following attributes:
+These describe the Relay Proxy process itself and are attached to every metric and span, rather than
+being repeated on each measurement:
 
 | Attribute | Description |
 |-----------|-------------|
-| `relay.id` | A unique identifier for this Relay Proxy instance, generated at startup. |
+| `service.name` | `ld-relay`, unless overridden with `OTEL_SERVICE_NAME`. |
+| `relay.id` | A unique identifier for this Relay Proxy process, generated at startup. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
+| `service.instance.id` | The same value as `relay.id`, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. This is the standard attribute for identifying a process instance, and Prometheus exposes it as the `instance` label. |
+
+Note that resource attributes are **not** copied onto every series. Prometheus reports them through
+`target_info`, so a query that needs `relay.id` has to join against it -- or use the `instance` label,
+which carries the same value.
+
+## Request attributes
+
+The request metrics -- `http.server.active_requests`, `http.server.request.duration`, and
+`launchdarkly.relay.events.received.size` -- include the following:
+
+| Attribute | Description |
+|-----------|-------------|
 | `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
-| `platform.category` | The kind of SDK that generated the metric: `server`, `mobile`, or `browser`. |
-| `user_agent` | The user agent of the SDK making the request. Example: `Node/3.4.0` |
-| `sdk.wrapper` | The SDK wrapper identifier, if provided. Example: `flutter-client/2.0.0` |
+| `user_agent` | The user agent of the SDK making the request, with slashes replaced by underscores. Example: `Node_3.4.0` |
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `http.request.method` | The HTTP method. Example: `GET` |
 | `url.scheme` | The URL scheme. Example: `https` |
 | `application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
 | `application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
-| `instance.id` | The SDK instance identifier from the `X-LaunchDarkly-Instance-Id` header. |
 | `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not-provided`. |
+
+`http.server.request.duration` additionally carries `http.response.status_code`,
+`network.protocol.version`, and -- for a 5xx response -- `error.type`.
+
+The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.send.errors`,
+`.dropped`, `.pending`) are recorded outside any request, so they carry only `environment.name`.
+`.send.errors` also carries `status_code`.
 
 Attribute values that are absent are reported as `not-provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
-they report `not-provided` for `environment.name`, `platform.category`, and the other SDK attributes.
+they report `not-provided` for `environment.name` and the other SDK attributes.
+
+`platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
+in particular is per SDK *instance*, which made these metrics grow a series per client process. All
+three are still included in the usage data the Relay Proxy sends to LaunchDarkly.
 
 ## Backend-specific notes
 

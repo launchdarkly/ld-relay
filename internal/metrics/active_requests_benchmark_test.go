@@ -18,7 +18,6 @@ func benchRequestInfo() RequestInfo {
 		Method:             "GET",
 		ApplicationID:      "my-app",
 		ApplicationVersion: "1.2.3",
-		InstanceID:         "instance-abc",
 		EndpointType:       EndpointTypePoll,
 		URLScheme:          "https",
 		ProtocolVersion:    "1.1",
@@ -29,7 +28,6 @@ func benchEnvironmentManager(b *testing.B) *EnvironmentManager {
 	b.Helper()
 	return &EnvironmentManager{
 		envKVs: []attribute.KeyValue{
-			relayIDAttrKey.String("bench-relay-id"),
 			envNameAttrKey.String("bench-env"),
 		},
 	}
@@ -56,7 +54,7 @@ func BenchmarkStartActiveRequest(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			StartActiveRequest(instruments, em, ServerPlatformCategory, ri)()
+			StartActiveRequest(instruments, em, ri)()
 		}
 	})
 
@@ -68,19 +66,20 @@ func BenchmarkStartActiveRequest(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			StartActiveRequest(instruments, em, ServerPlatformCategory, ri)()
+			StartActiveRequest(instruments, em, ri)()
 		}
 	})
 }
 
-// BenchmarkBuildRequestAttributes isolates the attribute set construction -- the allocation and sort
-// of ~12 attributes that dominates the cost above.
+// BenchmarkBuildRequestAttributes isolates the attribute set construction, which dominates the cost
+// above. At eight attributes this stays inside attribute.NewSet's fixed-size fast path (ten or fewer);
+// it was twelve before platform.category, sdk.wrapper, instance.id and relay.id came off.
 func BenchmarkBuildRequestAttributes(b *testing.B) {
 	ri := benchRequestInfo()
 	em := benchEnvironmentManager(b)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = buildRequestAttributes(em.envKVs, ServerPlatformCategory, ri)
+		_ = buildRequestAttributes(em.envKVs, ri)
 	}
 }

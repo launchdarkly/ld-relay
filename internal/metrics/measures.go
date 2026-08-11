@@ -21,18 +21,12 @@ type Instruments struct {
 	pendingEvents       metric.Int64Gauge         // current number of events pending delivery
 }
 
-// Measure identifies what to record. Each pre-defined Measure var specifies which
-// instruments should be incremented and what platform category to use.
+// Measure identifies what to record in the usage data Relay reports to LaunchDarkly. The platform
+// category lives on here rather than on the OTEL metrics, which no longer carry it.
 type Measure struct {
 	recordConnections bool
-	recordDuration    bool
 	recordPolling     bool
 	platformCategory  string
-}
-
-// PlatformCategory returns the SDK platform category that this Measure reports under.
-func (m Measure) PlatformCategory() string {
-	return m.platformCategory
 }
 
 // To avoid having to put nolint:gochecknoglobals on everything here, that linter is excluded
@@ -46,15 +40,6 @@ var (
 
 	// ServerConns is a Measure representing the current number of active stream connections from server-side SDKs.
 	ServerConns = Measure{recordConnections: true, platformCategory: ServerPlatformCategory}
-
-	// BrowserDuration is a Measure for recording request duration from browsers.
-	BrowserDuration = Measure{recordDuration: true, platformCategory: BrowserPlatformCategory}
-
-	// MobileDuration is a Measure for recording request duration from mobile SDKs.
-	MobileDuration = Measure{recordDuration: true, platformCategory: MobilePlatformCategory}
-
-	// ServerDuration is a Measure for recording request duration from server-side SDKs.
-	ServerDuration = Measure{recordDuration: true, platformCategory: ServerPlatformCategory}
 
 	// ServerPollingRequests is a Measure representing the total number of polling style requests received from server-side SDKs.
 	ServerPollingRequests = Measure{recordPolling: true, platformCategory: ServerPlatformCategory}
@@ -142,7 +127,6 @@ type RequestInfo struct {
 	Method             string
 	ApplicationID      string
 	ApplicationVersion string
-	InstanceID         string
 	EndpointType       EndpointType
 	// Semconv fields populated after handler execution
 	StatusCode      int
@@ -157,13 +141,13 @@ type RequestInfo struct {
 // The attribute set is computed once, up front, and reused for the decrement. Anything only known after
 // the handler runs (status code, error type) therefore cannot be reported on this metric: a mismatched
 // attribute set between the increment and the decrement would leak a permanently non-zero series.
-func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo) func() {
+func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, ri RequestInfo) func() {
 	if instruments == nil || em == nil {
 		return func() {}
 	}
 
 	// Built once and shared by both calls, so that the two can't drift apart.
-	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, platformCategory, ri))
+	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, ri))
 	instruments.connections.Add(context.Background(), 1, attrs)
 	return func() {
 		instruments.connections.Add(context.Background(), -1, attrs)
@@ -199,21 +183,21 @@ func WithCount(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure
 }
 
 // RecordEventsReceivedBytes records the number of event bytes received.
-func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, platformCategory string, ri RequestInfo, bytes int64) {
+func RecordEventsReceivedBytes(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, bytes int64) {
 	if em == nil || instruments == nil || bytes <= 0 {
 		return
 	}
-	attrs := buildRequestAttributes(em.envKVs, platformCategory, ri)
+	attrs := buildRequestAttributes(em.envKVs, ri)
 	instruments.eventsReceivedBytes.Add(ctx, bytes, metric.WithAttributeSet(attrs))
 }
 
 // RecordRequestDuration records a request duration measurement with the given attributes.
 // Duration is recorded in seconds per OTEL HTTP semantic conventions.
-func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration, measure Measure) {
-	if em == nil || instruments == nil || !measure.recordDuration {
+func RecordRequestDuration(ctx context.Context, instruments *Instruments, em *EnvironmentManager, ri RequestInfo, duration time.Duration) {
+	if em == nil || instruments == nil {
 		return
 	}
-	attrs := buildDurationAttributes(em.envKVs, measure.platformCategory, ri)
+	attrs := buildDurationAttributes(em.envKVs, ri)
 	instruments.requestDuration.Record(ctx, duration.Seconds(), metric.WithAttributeSet(attrs))
 }
 

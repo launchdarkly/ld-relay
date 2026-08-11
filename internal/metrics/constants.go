@@ -57,15 +57,18 @@ const (
 	EndpointTypeNotProvided EndpointType = notProvidedValue
 )
 
+// Attributes deliberately absent from these sets:
+//
+//   - relay.id is a resource attribute (see tracing.NewResource): it never varies within a process.
+//   - instance.id, platform.category and sdk.wrapper were dropped. instance.id is per SDK instance, so
+//     it made every request metric effectively per-client-process; the other two are largely implied by
+//     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
+//     a separate sink with its own cardinality budget.
 var (
-	relayIDAttrKey            = attribute.Key("relay.id")            //nolint:gochecknoglobals
-	platformCategoryAttrKey   = attribute.Key("platform.category")   //nolint:gochecknoglobals
 	userAgentAttrKey          = attribute.Key("user_agent")          //nolint:gochecknoglobals
-	sdkWrapperAttrKey         = attribute.Key("sdk.wrapper")         //nolint:gochecknoglobals
 	envNameAttrKey            = attribute.Key("environment.name")    //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
-	instanceIDAttrKey         = attribute.Key("instance.id")         //nolint:gochecknoglobals
 	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type") //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
@@ -80,19 +83,19 @@ var (
 
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
 // where applicable. Values from the RequestInfo are sanitized here, so callers pass it through as-is.
-func buildRequestAttributes(baseKVs []attribute.KeyValue, platform string, ri RequestInfo) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+10)
+func buildRequestAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attribute.Set {
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+7)
 	copy(attrs, baseKVs)
-	attrs = append(attrs, requestKVs(platform, ri)...)
+	attrs = append(attrs, requestKVs(ri)...)
 	return attribute.NewSet(attrs...)
 }
 
 // buildDurationAttributes creates an OTel attribute set for the http.server.request.duration histogram,
 // including all semconv required/conditionally-required attributes.
-func buildDurationAttributes(baseKVs []attribute.KeyValue, platform string, ri RequestInfo) attribute.Set {
-	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+13)
+func buildDurationAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attribute.Set {
+	attrs := make([]attribute.KeyValue, len(baseKVs), len(baseKVs)+10)
 	copy(attrs, baseKVs)
-	attrs = append(attrs, requestKVs(platform, ri)...)
+	attrs = append(attrs, requestKVs(ri)...)
 	if ri.ProtocolVersion != "" {
 		attrs = append(attrs, networkProtoVersionAttrKey.String(ri.ProtocolVersion))
 	}
@@ -105,18 +108,17 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, platform string, ri R
 	return attribute.NewSet(attrs...)
 }
 
-// requestKVs returns the attributes that every request-scoped metric carries.
-func requestKVs(platform string, ri RequestInfo) []attribute.KeyValue {
+// requestKVs returns the attributes that every request-scoped metric carries. Keeping this at seven,
+// plus environment.name from the environment, holds the common case within attribute.NewSet's
+// fixed-size fast path, which only covers sets of ten or fewer.
+func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		platformCategoryAttrKey.String(sanitizeTagValue(platform)),
 		userAgentAttrKey.String(sanitizeTagValue(ri.UserAgent)),
-		sdkWrapperAttrKey.String(sanitizeTagValue(ri.SDKWrapper)),
 		httpRouteAttrKey.String(sanitizeRouteValue(ri.Route)),
 		httpRequestMethodAttrKey.String(sanitizeTagValue(ri.Method)),
 		urlSchemeAttrKey.String(ri.URLScheme),
 		applicationIDAttrKey.String(sanitizeTagValue(ri.ApplicationID)),
 		applicationVersionAttrKey.String(sanitizeTagValue(ri.ApplicationVersion)),
-		instanceIDAttrKey.String(sanitizeTagValue(ri.InstanceID)),
 		endpointTypeAttrKey.String(sanitizeTagValue(string(ri.EndpointType))),
 	}
 }

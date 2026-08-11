@@ -113,29 +113,25 @@ func TestCountConnectionsDoesNotRecordActiveRequests(t *testing.T) {
 // Active requests must be tracked for every kind of endpoint, not just streams, per the OTEL semantic
 // convention for http.server.active_requests.
 func TestActiveRequests(t *testing.T) {
-	specs := []struct {
-		endpointType metrics.EndpointType
-		measure      metrics.Measure
-		platform     string
-	}{
-		{endpointType: metrics.EndpointTypeStream, measure: metrics.ServerDuration, platform: "server"},
-		{endpointType: metrics.EndpointTypePoll, measure: metrics.ServerDuration, platform: "server"},
-		{endpointType: metrics.EndpointTypeEvents, measure: metrics.MobileDuration, platform: "mobile"},
-		{endpointType: metrics.EndpointTypeGoals, measure: metrics.BrowserDuration, platform: "browser"},
+	endpointTypes := []metrics.EndpointType{
+		metrics.EndpointTypeStream,
+		metrics.EndpointTypePoll,
+		metrics.EndpointTypeEvents,
+		metrics.EndpointTypeGoals,
 	}
 
-	for _, tt := range specs {
-		t.Run(string(tt.endpointType), func(t *testing.T) {
+	for _, endpointType := range endpointTypes {
+		t.Run(string(endpointType), func(t *testing.T) {
 			metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
 				router := mux.NewRouter()
-				router.Use(RequestMetrics(tt.measure, tt.endpointType))
+				router.Use(RequestMetrics(endpointType))
 				router.Handle("/test-route", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					// While inside the handler, the request should be counted as active
 					rm := p.collectMetrics(t)
 					m := st.FindMetricByName(rm, "http.server.active_requests")
 					require.NotNil(t, m, "active requests metric not found")
-					assertMetricHasValue(t, m, p.envName, tt.platform, 1)
-					assertMetricHasAttribute(t, m, "relay.endpoint.type", string(tt.endpointType))
+					assertMetricHasValue(t, m, p.envName, 1)
+					assertMetricHasAttribute(t, m, "relay.endpoint.type", string(endpointType))
 				})).Methods("GET")
 
 				req, _ := http.NewRequest("GET", "/test-route", nil)
@@ -147,7 +143,7 @@ func TestActiveRequests(t *testing.T) {
 				rm := p.collectMetrics(t)
 				m := st.FindMetricByName(rm, "http.server.active_requests")
 				require.NotNil(t, m, "active requests metric not found")
-				assertMetricHasValue(t, m, p.envName, tt.platform, 0)
+				assertMetricHasValue(t, m, p.envName, 0)
 				sum, ok := m.Data.(metricdata.Sum[int64])
 				require.True(t, ok)
 				assert.Len(t, sum.DataPoints, 1, "increment and decrement should share one attribute set")
@@ -161,7 +157,7 @@ func TestActiveRequests(t *testing.T) {
 func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
 		router := mux.NewRouter()
-		router.Use(RequestMetrics(metrics.ServerDuration, metrics.EndpointTypeStream))
+		router.Use(RequestMetrics(metrics.EndpointTypeStream))
 		router.Handle("/stream", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
@@ -169,7 +165,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 			rm := p.collectMetrics(t)
 			m := st.FindMetricByName(rm, "http.server.active_requests")
 			require.NotNil(t, m, "active requests metric not found")
-			assertMetricHasValue(t, m, p.envName, "server", 1)
+			assertMetricHasValue(t, m, p.envName, 1)
 		})).Methods("GET")
 
 		req, _ := http.NewRequest("GET", "/stream", nil)
@@ -180,7 +176,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 		rm := p.collectMetrics(t)
 		m := st.FindMetricByName(rm, "http.server.active_requests")
 		require.NotNil(t, m)
-		assertMetricHasValue(t, m, p.envName, "server", 0)
+		assertMetricHasValue(t, m, p.envName, 0)
 
 		assert.Nil(t, st.FindMetricByName(rm, "http.server.request.duration"),
 			"duration must not be recorded for a streaming response")
@@ -188,7 +184,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 }
 
 // Requests with no environment -- the status endpoints and anything that matched no route -- still get
-// counted, reporting the not-provided sentinel for environment.name and platform.category.
+// counted, reporting the not-provided sentinel for environment.name.
 func TestUnscopedActiveRequests(t *testing.T) {
 	specs := []struct {
 		name         string
@@ -206,7 +202,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 						rm := p.collectMetrics(t)
 						m := st.FindMetricByName(rm, "http.server.active_requests")
 						require.NotNil(t, m, "active requests metric not found")
-						assertMetricHasValue(t, m, "not-provided", "not-provided", 1)
+						assertMetricHasValue(t, m, "not-provided", 1)
 						assertMetricHasAttribute(t, m, "relay.endpoint.type", string(tt.endpointType))
 					}))
 
@@ -217,7 +213,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 				rm := p.collectMetrics(t)
 				m := st.FindMetricByName(rm, "http.server.active_requests")
 				require.NotNil(t, m)
-				assertMetricHasValue(t, m, "not-provided", "not-provided", 0)
+				assertMetricHasValue(t, m, "not-provided", 0)
 			})
 		})
 	}
@@ -225,7 +221,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 
 func TestRequestDuration(t *testing.T) {
 	router := mux.NewRouter()
-	router.Use(RequestMetrics(metrics.ServerDuration, metrics.EndpointTypePoll))
+	router.Use(RequestMetrics(metrics.EndpointTypePoll))
 	router.Handle("/test-route", nullHandler()).Methods("GET")
 
 	metricsMiddlewareTest(t, func(p metricsMiddlewareTestParams) {
@@ -246,7 +242,7 @@ func TestRequestDuration(t *testing.T) {
 
 func TestEventBytesMetrics(t *testing.T) {
 	router := mux.NewRouter()
-	router.Use(EventBytesMetrics(metrics.ServerPlatformCategory))
+	router.Use(EventBytesMetrics())
 	router.Handle("/events", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// Consume the body so counting reader sees the bytes
 		_, _ = io.ReadAll(req.Body)
@@ -263,7 +259,7 @@ func TestEventBytesMetrics(t *testing.T) {
 		rm := p.collectMetrics(t)
 		bytesMetric := st.FindMetricByName(rm, "launchdarkly.relay.events.received.size")
 		require.NotNil(t, bytesMetric, "events received bytes metric not found")
-		assertMetricHasValue(t, bytesMetric, p.envName, "server", 35)
+		assertMetricHasValue(t, bytesMetric, p.envName, 35)
 	})
 }
 
@@ -295,20 +291,19 @@ func TestParseApplicationTags(t *testing.T) {
 }
 
 // assertMetricHasValue checks that a metric has the expected value for the given environment and platform.
-func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
+func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName string, expected int64) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
 	found := false
 	for _, dp := range sum.DataPoints {
-		platVal, platOK := dp.Attributes.Value(attribute.Key("platform.category"))
 		envVal, envOK := dp.Attributes.Value(attribute.Key("environment.name"))
-		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
-			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
+		if envOK && envVal.AsString() == envName {
+			assert.Equal(t, expected, dp.Value, "unexpected value for %s (env=%s)", m.Name, envName)
 			found = true
 		}
 	}
-	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
+	assert.True(t, found, "no data point found for %s with env=%s", m.Name, envName)
 }
 
 // assertMetricHasAttribute checks that every data point of a metric carries the expected attribute value.

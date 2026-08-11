@@ -43,10 +43,10 @@ func TestRecordingIsSafeWithoutInstruments(t *testing.T) {
 	ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: EndpointTypePoll}
 
 	assert.NotPanics(t, func() {
-		StartActiveRequest(manager.GetInstruments(), em, ServerPlatformCategory, ri)()
-		StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)()
-		RecordRequestDuration(context.Background(), manager.GetInstruments(), em, ri, time.Millisecond, ServerDuration)
-		RecordEventsReceivedBytes(context.Background(), manager.GetInstruments(), em, ServerPlatformCategory, ri, 100)
+		StartActiveRequest(manager.GetInstruments(), em, ri)()
+		StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), ri)()
+		RecordRequestDuration(context.Background(), manager.GetInstruments(), em, ri, time.Millisecond)
+		RecordEventsReceivedBytes(context.Background(), manager.GetInstruments(), em, ri, 100)
 
 		recorder := em.NewEventMetricsRecorder(manager.GetInstruments())
 		recorder.RecordDroppedEvents(1)
@@ -133,28 +133,19 @@ func TestRemoveEnvironment(t *testing.T) {
 }
 
 func TestActiveRequestMetrics(t *testing.T) {
-	specs := []struct {
-		platform     string
-		endpointType EndpointType
-	}{
-		{platform: BrowserPlatformCategory, endpointType: EndpointTypeStream},
-		{platform: MobilePlatformCategory, endpointType: EndpointTypePoll},
-		{platform: ServerPlatformCategory, endpointType: EndpointTypeEvents},
-	}
-
-	for _, tt := range specs {
-		t.Run(tt.platform, func(t *testing.T) {
+	for _, endpointType := range []EndpointType{EndpointTypeStream, EndpointTypePoll, EndpointTypeEvents} {
+		t.Run(string(endpointType), func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: tt.endpointType}
-				requestFinished := StartActiveRequest(p.instruments, p.env, tt.platform, ri)
+				ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: endpointType}
+				requestFinished := StartActiveRequest(p.instruments, p.env, ri)
 
 				// While the request is in flight, the count should be 1
 				rm, err := p.collectMetrics()
 				require.NoError(t, err)
 				m := findMetric(rm, connMeasureName)
 				require.NotNil(t, m, "active requests metric not found")
-				assertGaugeValue(t, m, p.envName, tt.platform, 1)
-				assertHasAttribute(t, m, endpointTypeAttrKey, string(tt.endpointType))
+				assertGaugeValue(t, m, p.envName, 1)
+				assertHasAttribute(t, m, endpointTypeAttrKey, string(endpointType))
 
 				requestFinished()
 
@@ -163,7 +154,7 @@ func TestActiveRequestMetrics(t *testing.T) {
 				require.NoError(t, err)
 				m = findMetric(rm, connMeasureName)
 				require.NotNil(t, m, "active requests metric not found")
-				assertGaugeValue(t, m, p.envName, tt.platform, 0)
+				assertGaugeValue(t, m, p.envName, 0)
 				assert.Len(t, m.Data.(metricdata.Sum[int64]).DataPoints, 1,
 					"increment and decrement should share one attribute set")
 			})
@@ -172,7 +163,7 @@ func TestActiveRequestMetrics(t *testing.T) {
 }
 
 // The status endpoints and unmatched requests have no environment, so they report the not-provided
-// sentinel for both environment.name and platform.category.
+// sentinel for environment.name.
 func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
 		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
@@ -181,14 +172,14 @@ func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 		manager.SetInstrumentsForTest(p.instruments)
 
 		ri := RequestInfo{Route: "/status", Method: "GET", EndpointType: EndpointTypeStatus}
-		requestFinished := StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)
+		requestFinished := StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), ri)
 		defer requestFinished()
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
 		m := findMetric(rm, connMeasureName)
 		require.NotNil(t, m, "active requests metric not found")
-		assertGaugeValue(t, m, notProvidedValue, notProvidedValue, 1)
+		assertGaugeValue(t, m, notProvidedValue, 1)
 		assertHasAttribute(t, m, endpointTypeAttrKey, string(EndpointTypeStatus))
 	})
 }
@@ -206,7 +197,7 @@ func assertHasAttribute(t *testing.T, m *metricdata.Metrics, key attribute.Key, 
 
 func TestRecordRequestDuration(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond, ServerDuration)
+		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "someRoute", Method: "GET"}, 50*time.Millisecond)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -231,7 +222,7 @@ func TestRecordRequestDuration(t *testing.T) {
 
 func TestRecordEventsReceivedBytes(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
-		RecordEventsReceivedBytes(context.Background(), p.instruments, p.env, ServerPlatformCategory, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
+		RecordEventsReceivedBytes(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue, Route: "/bulk", Method: "POST"}, 1024)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -242,9 +233,8 @@ func TestRecordEventsReceivedBytes(t *testing.T) {
 		require.NotEmpty(t, sum.DataPoints)
 		found := false
 		for _, dp := range sum.DataPoints {
-			platVal, platOK := dp.Attributes.Value(platformCategoryAttrKey)
 			envVal, envOK := dp.Attributes.Value(envNameAttrKey)
-			if platOK && envOK && platVal.AsString() == ServerPlatformCategory && envVal.AsString() == p.envName {
+			if envOK && envVal.AsString() == p.envName {
 				assert.Equal(t, int64(1024), dp.Value)
 				found = true
 			}
@@ -290,7 +280,7 @@ func TestRecordRequestDurationWithAllAttributes(t *testing.T) {
 			StatusCode:      200,
 			ErrorType:       "",
 		}
-		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 100*time.Millisecond, ServerDuration)
+		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 100*time.Millisecond)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -327,7 +317,7 @@ func TestRecordRequestDurationWithErrorType(t *testing.T) {
 			StatusCode: 500,
 			ErrorType:  "500",
 		}
-		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 50*time.Millisecond, ServerDuration)
+		RecordRequestDuration(context.Background(), p.instruments, p.env, ri, 50*time.Millisecond)
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
@@ -345,23 +335,6 @@ func TestRecordRequestDurationWithErrorType(t *testing.T) {
 		statusVal, ok := dp.Attributes.Value(httpResponseStatusAttrKey)
 		assert.True(t, ok, "http.response.status_code attribute missing")
 		assert.Equal(t, int64(500), statusVal.AsInt64())
-	})
-}
-
-func TestRecordRequestDurationSkipsWhenMeasureDoesNotRecordDuration(t *testing.T) {
-	testWithOTel(t, func(p testWithOTelParams) {
-		// ServerConns has recordDuration: false
-		RecordRequestDuration(context.Background(), p.instruments, p.env, RequestInfo{UserAgent: userAgentValue}, 50*time.Millisecond, ServerConns)
-
-		rm, err := p.collectMetrics()
-		require.NoError(t, err)
-		dm := findMetric(rm, requestDurationMeasureName)
-		if dm != nil {
-			hist, ok := dm.Data.(metricdata.Histogram[float64])
-			if ok {
-				assert.Empty(t, hist.DataPoints, "expected no duration data points for non-duration measure")
-			}
-		}
 	})
 }
 
@@ -445,10 +418,10 @@ func TestWithCountCallsFunctionWhenEnvNil(t *testing.T) {
 func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
 		called := false
-		// ServerDuration has recordPolling: false, so no polling metric should be recorded
+		// ServerConns has recordPolling: false, so no polling metric should be recorded
 		WithCount(p.env, RequestInfo{UserAgent: userAgentValue}, func() {
 			called = true
-		}, ServerDuration)
+		}, ServerConns)
 		assert.True(t, called, "function should have been called")
 	})
 }
@@ -506,20 +479,19 @@ func findMetric(rm *metricdata.ResourceMetrics, name string) *metricdata.Metrics
 	return nil
 }
 
-func assertGaugeValue(t *testing.T, m *metricdata.Metrics, envName, platform string, expected int64) {
+func assertGaugeValue(t *testing.T, m *metricdata.Metrics, envName string, expected int64) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
 	found := false
 	for _, dp := range sum.DataPoints {
-		platVal, platOK := dp.Attributes.Value(platformCategoryAttrKey)
 		envVal, envOK := dp.Attributes.Value(envNameAttrKey)
-		if platOK && envOK && platVal.AsString() == platform && envVal.AsString() == envName {
-			assert.Equal(t, expected, dp.Value, "unexpected value for %s (platform=%s, env=%s)", m.Name, platform, envName)
+		if envOK && envVal.AsString() == envName {
+			assert.Equal(t, expected, dp.Value, "unexpected value for %s (env=%s)", m.Name, envName)
 			found = true
 		}
 	}
-	assert.True(t, found, "no data point found for %s with platform=%s, env=%s", m.Name, platform, envName)
+	assert.True(t, found, "no data point found for %s with env=%s", m.Name, envName)
 }
 
 // Ignore unused import warning - context is needed for p.collectMetrics

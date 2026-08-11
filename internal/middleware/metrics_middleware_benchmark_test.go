@@ -21,7 +21,7 @@ import (
 // duration histogram, with no active-request tracking. It exists solely so the benchmark below can
 // price the active-request half against a like-for-like baseline in a single tree, without checking
 // out the parent commit.
-func durationOnlyMetrics(measure metrics.Measure, endpointType metrics.EndpointType) mux.MiddlewareFunc {
+func durationOnlyMetrics(endpointType metrics.EndpointType) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			env := GetEnvContextInfo(req.Context()).Env
@@ -35,7 +35,7 @@ func durationOnlyMetrics(measure metrics.Measure, endpointType metrics.EndpointT
 				if recorder.statusCode >= 500 {
 					ri.ErrorType = fmt.Sprintf("%d", recorder.statusCode)
 				}
-				metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start), measure)
+				metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start))
 			}
 		})
 	}
@@ -97,8 +97,8 @@ func BenchmarkRequestMetricsMiddleware(b *testing.B) {
 		name       string
 		middleware mux.MiddlewareFunc
 	}{
-		{name: "active+duration", middleware: RequestMetrics(metrics.ServerDuration, metrics.EndpointTypePoll)},
-		{name: "duration-only (pre-change)", middleware: durationOnlyMetrics(metrics.ServerDuration, metrics.EndpointTypePoll)},
+		{name: "active+duration", middleware: RequestMetrics(metrics.EndpointTypePoll)},
+		{name: "duration-only (pre-change)", middleware: durationOnlyMetrics(metrics.EndpointTypePoll)},
 	}
 
 	for _, meterCase := range []struct {
