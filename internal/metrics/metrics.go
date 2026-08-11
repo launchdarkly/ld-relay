@@ -11,7 +11,6 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/events"
 	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 
-	"github.com/pborman/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -63,7 +62,9 @@ func NewManager(
 	flushInterval time.Duration,
 	logger *slog.Logger,
 ) (*Manager, error) {
-	metricsRelayID := uuid.New()
+	// The relay ID is a resource attribute now, generated once per process by the tracing package so
+	// that metrics, traces and the usage data sent to LaunchDarkly all report the same identity.
+	metricsRelayID := tracing.RelayID()
 
 	res := tracing.NewResource(logger)
 
@@ -103,10 +104,7 @@ func NewManager(
 		usageChan:            usageChan,
 		environmentsForUsage: make(map[string]*environmentMetricUsage),
 		unscopedEnv: &EnvironmentManager{
-			envKVs: []attribute.KeyValue{
-				relayIDAttrKey.String(metricsRelayID),
-				envNameAttrKey.String(sanitizeTagValue("")),
-			},
+			envKVs: []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(""))},
 		},
 	}
 	if m.flushInterval <= 0 {
@@ -217,10 +215,7 @@ func (m *Manager) AddEnvironment(envName string, publisher events.EventPublisher
 		return nil, errAddEnvironmentAfterClosed
 	}
 
-	envKVs := []attribute.KeyValue{
-		relayIDAttrKey.String(m.metricsRelayID),
-		envNameAttrKey.String(sanitizeTagValue(envName)),
-	}
+	envKVs := []attribute.KeyValue{envNameAttrKey.String(sanitizeTagValue(envName))}
 
 	var collector *RelayMetricsCollector
 	if publisher != nil {

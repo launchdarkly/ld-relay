@@ -106,7 +106,6 @@ func requestInfoFromHTTP(req *http.Request) metrics.RequestInfo {
 		Method:             req.Method,
 		ApplicationID:      appID,
 		ApplicationVersion: appVersion,
-		InstanceID:         getInstanceID(req),
 		URLScheme:          urlScheme,
 		ProtocolVersion:    protocolVersion,
 	}
@@ -183,30 +182,16 @@ func CountClientConns(handler http.Handler) http.Handler {
 	})
 }
 
-// DynamicRequestMetrics is a middleware function for FDv2 client-side endpoints that dynamically
-// determines the metric platform based on the credential type.
-func DynamicRequestMetrics(endpointType metrics.EndpointType) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			cred := GetEnvContextInfo(req.Context()).Credential
-			var measure metrics.Measure
-			if _, ok := cred.(config.MobileKey); ok {
-				measure = metrics.MobileDuration
-			} else {
-				measure = metrics.BrowserDuration
-			}
-			RequestMetrics(measure, endpointType)(next).ServeHTTP(w, req)
-		})
-	}
-}
-
 // RequestMetrics is a middleware function that tracks a request in http.server.active_requests for as
 // long as it is in flight, and records its duration once it completes.
 //
 // Active requests cover every request this middleware sees, streaming included, per the OTEL semantic
 // convention for the instrument. Duration is still skipped for streaming responses, whose lifetime is
 // unbounded.
-func RequestMetrics(measure metrics.Measure, endpointType metrics.EndpointType) mux.MiddlewareFunc {
+//
+// There is no platform-dependent variant of this: since these metrics dropped platform.category, the
+// SDK platform no longer changes what gets recorded.
+func RequestMetrics(endpointType metrics.EndpointType) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			env := GetEnvContextInfo(req.Context()).Env
@@ -215,7 +200,7 @@ func RequestMetrics(measure metrics.Measure, endpointType metrics.EndpointType) 
 			ri := requestInfoFromHTTP(req)
 			ri.EndpointType = endpointType
 
-			requestFinished := metrics.StartActiveRequest(instruments, metricsEnv, measure.PlatformCategory(), ri)
+			requestFinished := metrics.StartActiveRequest(instruments, metricsEnv, ri)
 			defer requestFinished()
 
 			recorder := &statusRecorder{ResponseWriter: w, statusCode: 200}
@@ -227,7 +212,7 @@ func RequestMetrics(measure metrics.Measure, endpointType metrics.EndpointType) 
 				if recorder.statusCode >= 500 {
 					ri.ErrorType = fmt.Sprintf("%d", recorder.statusCode)
 				}
-				metrics.RecordRequestDuration(req.Context(), instruments, metricsEnv, ri, time.Since(start), measure)
+				metrics.RecordRequestDuration(req.Context(), instruments, metricsEnv, ri, time.Since(start))
 			}
 		})
 	}
@@ -245,7 +230,7 @@ func UnscopedActiveRequests(manager *metrics.Manager, endpointType metrics.Endpo
 			ri := requestInfoFromHTTP(req)
 			ri.EndpointType = endpointType
 
-			requestFinished := metrics.StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)
+			requestFinished := metrics.StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), ri)
 			defer requestFinished()
 
 			next.ServeHTTP(w, req)
@@ -255,7 +240,7 @@ func UnscopedActiveRequests(manager *metrics.Manager, endpointType metrics.Endpo
 
 // EventBytesMetrics is a middleware function that records the number of event bytes received.
 // This should be applied after GzipMiddleware so that it measures decompressed bytes.
-func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
+func EventBytesMetrics() mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.Body == nil || req.Body == http.NoBody {
@@ -268,7 +253,7 @@ func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
 			env := GetEnvContextInfo(req.Context()).Env
 			ri := requestInfoFromHTTP(req)
 			ri.EndpointType = metrics.EndpointTypeEvents
-			metrics.RecordEventsReceivedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, ri, cr.bytesRead.Load())
+			metrics.RecordEventsReceivedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, cr.bytesRead.Load())
 		})
 	}
 }
