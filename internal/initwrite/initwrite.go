@@ -69,6 +69,11 @@ import (
 	"time"
 )
 
+// WriteSlack is the fixed allowance added to each per-write deadline. It is exported so a
+// caller that configures an absolute delivery cap can keep that cap at or above it; a cap
+// below the slack would expire before even a small first write.
+const WriteSlack = 5 * time.Second
+
 const (
 	// minBytesPerSec is the throughput floor a full-size chunk must sustain.
 	minBytesPerSec = 64 * 1024
@@ -77,7 +82,7 @@ const (
 	// time rather than the whole payload at once.
 	chunkSize = 1 << 20 // 1 MiB
 	// slack is added to each per-write deadline to tolerate a brief stall.
-	slack = 5 * time.Second
+	slack = WriteSlack
 	// minExtension avoids a SetWriteDeadline syscall for a trivially small change.
 	minExtension = 100 * time.Millisecond
 )
@@ -98,6 +103,11 @@ type Writer struct {
 	// gen identifies the current gated delivery. Begin bumps it so a teardown (the end-of-batch
 	// flush) that observed an earlier delivery cannot clear the deadline of a newer one.
 	gen uint64
+	// cut records that the connection was cut because its client is gone. The flag is
+	// terminal -- Begin does not clear it -- so a cut that lands between a slot acquisition
+	// and Begin is not lost: the delivery that then begins fails on its first write instead
+	// of draining. arm must never grant a cut delivery a fresh budget.
+	cut bool
 	// done is closed once the current gated delivery ends. It is never nil: outside a delivery
 	// it is a closed channel, so a producer waiting on it releases its slot immediately rather
 	// than blocking forever. doneClosed guards against a double close.
@@ -211,6 +221,28 @@ func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) {
 	}
 }
 
+// Cut marks the connection as cut: the delivery in progress -- or the next one to begin --
+// has its writes fail at once instead of draining until a per-chunk deadline, because the
+// client is gone. The mark is terminal; there is no way back. With a delivery in progress
+// the write deadline moves to now immediately; otherwise the deadline is left alone (so a
+// connection that never carried a gated delivery still closes gracefully) and the first
+// write of a later delivery applies it instead.
+//
+// A write deadline is a capability scoped to the handler's lifetime (see the package
+// comment), so Cut must be called only from the handler goroutine, or from a goroutine that
+// provably cannot outlive the handler. The producer goroutine must never call it.
+func (w *Writer) Cut() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cut {
+		return
+	}
+	w.cut = true
+	if w.active {
+		_ = w.rc.SetWriteDeadline(w.now())
+	}
+}
+
 // Unwrap exposes the wrapped ResponseWriter so http.NewResponseController and other wrappers
 // can reach the underlying connection through this one.
 func (w *Writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -312,6 +344,12 @@ func (w *Writer) arm(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.active {
+		return
+	}
+	if w.cut {
+		// The connection is cut: this delivery must fail now, not get a fresh budget. This
+		// runs on the handler goroutine, so it may touch the deadline.
+		_ = w.rc.SetWriteDeadline(w.now())
 		return
 	}
 	now := w.now()
