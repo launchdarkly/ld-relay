@@ -8,7 +8,7 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
-| `http.server.active_requests` | UpDownCounter | `{request}` | The number of currently active stream connections from SDKs to the Relay Proxy. |
+| `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
 | `http.server.request.duration` | Histogram | `s` | The duration of requests to the Relay Proxy's service endpoints, in seconds. |
 | `launchdarkly.relay.events.received.size` | Counter | `By` | The cumulative number of event bytes received by the Relay Proxy (measured after decompression). |
 | `launchdarkly.relay.events.sent` | Counter | `{event}` | The cumulative number of events successfully sent to LaunchDarkly. |
@@ -34,6 +34,11 @@ All metrics include the following attributes:
 | `application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
 | `application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
 | `instance.id` | The SDK instance identifier from the `X-LaunchDarkly-Instance-Id` header. |
+| `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not-provided`. |
+
+Attribute values that are absent are reported as `not-provided` rather than being omitted. The status
+endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
+they report `not-provided` for `environment.name`, `platform.category`, and the other SDK attributes.
 
 ## Backend-specific notes
 

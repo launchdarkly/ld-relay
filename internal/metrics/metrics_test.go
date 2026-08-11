@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
@@ -13,27 +14,62 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-func TestNewManagerWithNoExporters(t *testing.T) {
+// With OpenTelemetry disabled there are no instruments at all, rather than instruments backed by a
+// noop meter. That is what allows the recording paths to skip building attribute sets for
+// measurements that would be discarded, so it is worth asserting directly.
+func TestNewManagerWithoutOpenTelemetryHasNoInstruments(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
-	assert.NotNil(t, manager.instruments)
+	assert.Nil(t, manager.instruments)
+	assert.Nil(t, manager.GetInstruments())
 }
 
-func TestNewManagerReturnsInstruments(t *testing.T) {
+// Every recording path has to tolerate nil instruments, since that is the normal state when
+// OpenTelemetry is disabled.
+func TestRecordingIsSafeWithoutInstruments(t *testing.T) {
 	manager, err := NewManager(config.OpenTelemetryConfig{}, 0, slog.Default())
 	require.NoError(t, err)
 	defer manager.Close()
 
-	instruments := manager.GetInstruments()
-	assert.NotNil(t, instruments)
+	em, err := manager.AddEnvironment("testenv", nil)
+	require.NoError(t, err)
+
+	ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: EndpointTypePoll}
+
+	assert.NotPanics(t, func() {
+		StartActiveRequest(manager.GetInstruments(), em, ServerPlatformCategory, ri)()
+		StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)()
+		RecordRequestDuration(context.Background(), manager.GetInstruments(), em, ri, time.Millisecond, ServerDuration)
+		RecordEventsReceivedBytes(context.Background(), manager.GetInstruments(), em, ServerPlatformCategory, ri, 100)
+
+		recorder := em.NewEventMetricsRecorder(manager.GetInstruments())
+		recorder.RecordDroppedEvents(1)
+		recorder.RecordEventsSent(1)
+		recorder.RecordPendingEvents(1)
+		recorder.RecordEventsBytesSent(1)
+		recorder.RecordEventsFailedSend(1, ldevents.EventSendFailureMetadata{StatusCode: 500})
+	})
+}
+
+func TestNewInstrumentsCreatesEveryInstrument(t *testing.T) {
+	instruments, err := newInstruments(noop.Meter{})
+	require.NoError(t, err)
+	require.NotNil(t, instruments)
+
 	assert.NotNil(t, instruments.connections)
 	assert.NotNil(t, instruments.requestDuration)
 	assert.NotNil(t, instruments.eventsReceivedBytes)
+	assert.NotNil(t, instruments.eventsDropped)
+	assert.NotNil(t, instruments.eventsSent)
+	assert.NotNil(t, instruments.eventsFailedSend)
+	assert.NotNil(t, instruments.eventsBytesSent)
+	assert.NotNil(t, instruments.pendingEvents)
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {
@@ -96,36 +132,75 @@ func TestRemoveEnvironment(t *testing.T) {
 	assert.Len(t, manager.environments, 0)
 }
 
-func TestConnectionMetrics(t *testing.T) {
+func TestActiveRequestMetrics(t *testing.T) {
 	specs := []struct {
-		platform string
-		measure  Measure
+		platform     string
+		endpointType EndpointType
 	}{
-		{platform: BrowserPlatformCategory, measure: BrowserConns},
-		{platform: MobilePlatformCategory, measure: MobileConns},
-		{platform: ServerPlatformCategory, measure: ServerConns},
+		{platform: BrowserPlatformCategory, endpointType: EndpointTypeStream},
+		{platform: MobilePlatformCategory, endpointType: EndpointTypePoll},
+		{platform: ServerPlatformCategory, endpointType: EndpointTypeEvents},
 	}
 
 	for _, tt := range specs {
 		t.Run(tt.platform, func(t *testing.T) {
 			testWithOTel(t, func(p testWithOTelParams) {
-				WithGauge(p.env, p.instruments, RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET"}, func() {
-					// While the gauge is active, check that the connection count is 1
-					rm, err := p.collectMetrics()
-					require.NoError(t, err)
-					m := findMetric(rm, connMeasureName)
-					require.NotNil(t, m, "connections metric not found")
-					assertGaugeValue(t, m, p.envName, tt.platform, 1)
-				}, tt.measure)
+				ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: tt.endpointType}
+				requestFinished := StartActiveRequest(p.instruments, p.env, tt.platform, ri)
 
-				// After the gauge function returns, check that the connection count is 0
+				// While the request is in flight, the count should be 1
 				rm, err := p.collectMetrics()
 				require.NoError(t, err)
 				m := findMetric(rm, connMeasureName)
-				require.NotNil(t, m, "connections metric not found")
+				require.NotNil(t, m, "active requests metric not found")
+				assertGaugeValue(t, m, p.envName, tt.platform, 1)
+				assertHasAttribute(t, m, endpointTypeAttrKey, string(tt.endpointType))
+
+				requestFinished()
+
+				// Once the request finishes, it should return to 0 rather than leaving a stray series
+				rm, err = p.collectMetrics()
+				require.NoError(t, err)
+				m = findMetric(rm, connMeasureName)
+				require.NotNil(t, m, "active requests metric not found")
 				assertGaugeValue(t, m, p.envName, tt.platform, 0)
+				assert.Len(t, m.Data.(metricdata.Sum[int64]).DataPoints, 1,
+					"increment and decrement should share one attribute set")
 			})
 		})
+	}
+}
+
+// The status endpoints and unmatched requests have no environment, so they report the not-provided
+// sentinel for both environment.name and platform.category.
+func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
+		require.NoError(t, err)
+		defer manager.Close()
+		manager.SetInstrumentsForTest(p.instruments)
+
+		ri := RequestInfo{Route: "/status", Method: "GET", EndpointType: EndpointTypeStatus}
+		requestFinished := StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)
+		defer requestFinished()
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, connMeasureName)
+		require.NotNil(t, m, "active requests metric not found")
+		assertGaugeValue(t, m, notProvidedValue, notProvidedValue, 1)
+		assertHasAttribute(t, m, endpointTypeAttrKey, string(EndpointTypeStatus))
+	})
+}
+
+func assertHasAttribute(t *testing.T, m *metricdata.Metrics, key attribute.Key, expected string) {
+	t.Helper()
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+	for _, dp := range sum.DataPoints {
+		val, found := dp.Attributes.Value(key)
+		require.True(t, found, "%s attribute not present on %s", key, m.Name)
+		assert.Equal(t, expected, val.AsString())
 	}
 }
 
@@ -383,6 +458,33 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
 	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+// Attribute values are serialized into OTLP protobuf string fields, which proto3 requires to be valid
+// UTF-8. One bad byte fails the marshal for the whole export batch, and the poisoned series is
+// cumulative, so exports keep failing until restart. Header values are not restricted to ASCII, so this
+// has to be handled here rather than assumed away.
+func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
+	specs := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "invalid bytes in the middle", input: "bad-\xff\xfe-agent", want: "bad--agent"},
+		{name: "leading invalid byte", input: "\xffGoClient", want: "GoClient"},
+		{name: "entirely invalid collapses to sentinel", input: "\xff\xfe", want: notProvidedValue},
+		{name: "invalid plus a slash", input: "Node\xff/3.4.0", want: "Node_3.4.0"},
+		{name: "valid multi-byte UTF-8 is preserved", input: "Ruby-\u00e9", want: "Ruby-\u00e9"},
+		{name: "valid ASCII is untouched", input: "GoClient", want: "GoClient"},
+	}
+
+	for _, tt := range specs {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeTagValue(tt.input)
+			assert.Equal(t, tt.want, got)
+			assert.True(t, utf8.ValidString(got), "sanitized value must be valid UTF-8, got %q", got)
+		})
+	}
 }
 
 func TestSanitizeRouteValue(t *testing.T) {

@@ -122,11 +122,11 @@ func withCount(handler http.Handler, measure metrics.Measure) http.Handler {
 	})
 }
 
-func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
+func withStreamConnection(handler http.Handler, measure metrics.Measure) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		env := GetEnvContextInfo(req.Context()).Env
 		ri := requestInfoFromHTTP(req)
-		metrics.WithGauge(env.GetMetricsEnv(), getInstruments(env), ri, func() {
+		metrics.WithStreamConnection(env.GetMetricsEnv(), ri, func() {
 			handler.ServeHTTP(w, req)
 		}, measure)
 	})
@@ -135,19 +135,19 @@ func withGauge(handler http.Handler, measure metrics.Measure) http.Handler {
 // CountMobileConns is a middleware function that increments the number of active mobile connections
 // until the handler ends.
 func CountMobileConns(handler http.Handler) http.Handler {
-	return withGauge(handler, metrics.MobileConns)
+	return withStreamConnection(handler, metrics.MobileConns)
 }
 
 // CountBrowserConns is a middleware function that increments the number of active browser connections
 // until the handler ends.
 func CountBrowserConns(handler http.Handler) http.Handler {
-	return withGauge(handler, metrics.BrowserConns)
+	return withStreamConnection(handler, metrics.BrowserConns)
 }
 
 // CountServerConns is a middleware function that increments the number of active server-side connections
 // until the handler ends.
 func CountServerConns(handler http.Handler) http.Handler {
-	return withGauge(handler, metrics.ServerConns)
+	return withStreamConnection(handler, metrics.ServerConns)
 }
 
 // ServerPollingRequestCount is a middleware function that increments the total number of server-side polling requests.
@@ -183,9 +183,9 @@ func CountClientConns(handler http.Handler) http.Handler {
 	})
 }
 
-// DynamicDurationMetrics is a middleware function for FDv2 client-side endpoints that dynamically
-// determines the duration metric platform based on the credential type.
-func DynamicDurationMetrics() mux.MiddlewareFunc {
+// DynamicRequestMetrics is a middleware function for FDv2 client-side endpoints that dynamically
+// determines the metric platform based on the credential type.
+func DynamicRequestMetrics(endpointType metrics.EndpointType) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			cred := GetEnvContextInfo(req.Context()).Credential
@@ -195,17 +195,29 @@ func DynamicDurationMetrics() mux.MiddlewareFunc {
 			} else {
 				measure = metrics.BrowserDuration
 			}
-			DurationMetrics(measure)(next).ServeHTTP(w, req)
+			RequestMetrics(measure, endpointType)(next).ServeHTTP(w, req)
 		})
 	}
 }
 
-// DurationMetrics is a middleware function that records the request duration for the specified metric.
-func DurationMetrics(measure metrics.Measure) mux.MiddlewareFunc {
+// RequestMetrics is a middleware function that tracks a request in http.server.active_requests for as
+// long as it is in flight, and records its duration once it completes.
+//
+// Active requests cover every request this middleware sees, streaming included, per the OTEL semantic
+// convention for the instrument. Duration is still skipped for streaming responses, whose lifetime is
+// unbounded.
+func RequestMetrics(measure metrics.Measure, endpointType metrics.EndpointType) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			env := GetEnvContextInfo(req.Context()).Env
+			instruments := getInstruments(env)
+			metricsEnv := env.GetMetricsEnv()
 			ri := requestInfoFromHTTP(req)
+			ri.EndpointType = endpointType
+
+			requestFinished := metrics.StartActiveRequest(instruments, metricsEnv, measure.PlatformCategory(), ri)
+			defer requestFinished()
+
 			recorder := &statusRecorder{ResponseWriter: w, statusCode: 200}
 			start := time.Now()
 			next.ServeHTTP(recorder, req)
@@ -215,8 +227,28 @@ func DurationMetrics(measure metrics.Measure) mux.MiddlewareFunc {
 				if recorder.statusCode >= 500 {
 					ri.ErrorType = fmt.Sprintf("%d", recorder.statusCode)
 				}
-				metrics.RecordRequestDuration(req.Context(), getInstruments(env), env.GetMetricsEnv(), ri, time.Since(start), measure)
+				metrics.RecordRequestDuration(req.Context(), instruments, metricsEnv, ri, time.Since(start), measure)
 			}
+		})
+	}
+}
+
+// UnscopedActiveRequests tracks a request in http.server.active_requests without an LD environment, for
+// endpoints that have no environment to attribute the request to. Its environment.name and
+// platform.category attributes are the not-provided sentinel.
+//
+// This is applied directly to a handler rather than registered with Router.Use for requests that matched
+// no route: gorilla/mux skips router middleware entirely when a request fails to match.
+func UnscopedActiveRequests(manager *metrics.Manager, endpointType metrics.EndpointType) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ri := requestInfoFromHTTP(req)
+			ri.EndpointType = endpointType
+
+			requestFinished := metrics.StartActiveRequest(manager.GetInstruments(), manager.GetUnscopedEnvironment(), "", ri)
+			defer requestFinished()
+
+			next.ServeHTTP(w, req)
 		})
 	}
 }
@@ -235,6 +267,7 @@ func EventBytesMetrics(platformCategory string) mux.MiddlewareFunc {
 			next.ServeHTTP(w, req)
 			env := GetEnvContextInfo(req.Context()).Env
 			ri := requestInfoFromHTTP(req)
+			ri.EndpointType = metrics.EndpointTypeEvents
 			metrics.RecordEventsReceivedBytes(req.Context(), getInstruments(env), env.GetMetricsEnv(), platformCategory, ri, cr.bytesRead.Load())
 		})
 	}

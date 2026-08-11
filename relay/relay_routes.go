@@ -35,7 +35,7 @@ const (
 // in metrics data under the "route" tag if Relay is configured to export metrics. Therefore, we should use
 // variable names like {envId} consistently and make sure they correspond to how the routes are shown in
 // docs/endpoints.md. The {context} variable name is also load-bearing for tracing: it is how
-// middleware.RedactContextFromSpanPath recognizes a route that carries end-user data in the path.
+// middleware.SanitizeRequestSpan recognizes a route that carries end-user data in the path.
 func (r *Relay) makeRouter() *mux.Router {
 	router := mux.NewRouter()
 	router.Use(logging.ContextLoggerMiddleware(r.logger))
@@ -44,19 +44,27 @@ func (r *Relay) makeRouter() *mux.Router {
 	}
 	router.Use(otelmux.Middleware(tracing.TracerName))
 	// Must come after the tracing middleware, which records the raw request path on the span it starts.
-	router.Use(middleware.RedactContextFromSpanPath)
+	router.Use(middleware.SanitizeRequestSpan)
 	if r.config.HTTP.EnableCompression {
 		router.Use(func(next http.Handler) http.Handler {
 			return h.GzipHandler(next)
 		})
 	}
-	router.Handle("/status", statusHandler(r)).Methods("GET")
+	// Status endpoints are not scoped to a single environment, so they are tracked in
+	// http.server.active_requests without environment or platform attributes.
+	statusMetrics := middleware.UnscopedActiveRequests(r.metricsManager, metrics.EndpointTypeStatus)
+	router.Handle("/status", statusMetrics(statusHandler(r))).Methods("GET")
 	// Register more specific routes first (with /filters/ literal)
-	router.Handle("/status/{identifier}/filters/{filterKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
-	router.Handle("/status/{projKey}/{envKey}/filters/{filterKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
+	router.Handle("/status/{identifier}/filters/{filterKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
+	router.Handle("/status/{projKey}/{envKey}/filters/{filterKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
 	// Then register the general routes
-	router.Handle("/status/{projKey}/{envKey}", singleEnvironmentStatusHandler(r)).Methods("GET")
-	router.Handle("/status/{identifier}", singleEnvironmentStatusHandler(r)).Methods("GET")
+	router.Handle("/status/{projKey}/{envKey}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
+	router.Handle("/status/{identifier}", statusMetrics(singleEnvironmentStatusHandler(r))).Methods("GET")
+
+	// gorilla/mux does not run router middleware for a request that matched no route, so the counting
+	// for unmatched requests has to live inside the not-found handler itself.
+	router.NotFoundHandler = middleware.UnscopedActiveRequests(r.metricsManager, metrics.EndpointTypeNotProvided)(
+		http.NotFoundHandler())
 
 	environmentGetters := relayEnvironmentGetters{r}
 	sdkKeySelector := middleware.SelectEnvironmentByAuthorizationKey(basictypes.ServerSDK, environmentGetters)
@@ -70,32 +78,36 @@ func (r *Relay) makeRouter() *mux.Router {
 	)
 
 	// Client-side evaluation (for JS, not mobile)
-	jsClientSideMiddlewareStack := func(subrouter *mux.Router) mux.MiddlewareFunc {
+	// The endpointType parameter is what a request served by this stack reports as its
+	// relay.endpoint.type; the stack itself is shared across several kinds of endpoint.
+	jsClientSideMiddlewareStack := func(subrouter *mux.Router, endpointType metrics.EndpointType) mux.MiddlewareFunc {
 		return middleware.Chain(
 			mux.CORSMethodMiddleware(subrouter),
 			jsClientSelector, // selects an environment based on the client-side ID in the URL
 			middleware.CORS,  // must apply this after jsClientSelector because the CORS headers can be environment-specific
 			middleware.TrackUsageActivity(metrics.BrowserPlatformCategory),
-			middleware.DurationMetrics(metrics.BrowserDuration),
+			middleware.RequestMetrics(metrics.BrowserDuration, endpointType),
 		)
 	}
 
 	goalsRouter := router.PathPrefix("/sdk/goals").Subrouter()
-	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter))
+	goalsRouter.Use(jsClientSideMiddlewareStack(goalsRouter, metrics.EndpointTypeGoals))
 	goalsRouter.HandleFunc("/{envId}", getGoals).Methods("GET", "OPTIONS")
 
 	clientSideSdkEvalXRouter := router.PathPrefix("/sdk/evalx/{envId}/").Subrouter()
-	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter))
+	clientSideSdkEvalXRouter.Use(jsClientSideMiddlewareStack(clientSideSdkEvalXRouter, metrics.EndpointTypePoll))
 	clientSideSdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/context", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("REPORT", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/users/{context}", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("GET", "OPTIONS")
 	clientSideSdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.JSClientSDK, maxClientRequestBodySize)).Methods("REPORT", "OPTIONS")
 
-	serverSideMiddlewareStack := middleware.Chain(
-		sdkKeySelector,
-		middleware.TrackUsageActivity(metrics.ServerPlatformCategory),
-		middleware.DurationMetrics(metrics.ServerDuration),
-	)
+	serverSideMiddlewareStack := func(endpointType metrics.EndpointType) mux.MiddlewareFunc {
+		return middleware.Chain(
+			sdkKeySelector,
+			middleware.TrackUsageActivity(metrics.ServerPlatformCategory),
+			middleware.RequestMetrics(metrics.ServerDuration, endpointType),
+		)
+	}
 
 	sdkRouter := router.PathPrefix("/sdk/").Subrouter()
 	// (?)TODO: there is a bug in gorilla mux (see see https://github.com/gorilla/mux/pull/378) that means the middleware below
@@ -103,10 +115,10 @@ func (r *Relay) makeRouter() *mux.Router {
 	// sdkRouter.Use(sdkRouterMiddleware)
 
 	// FDv2 server-side endpoints
-	sdkRouter.Handle("/stream", serverSideMiddlewareStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	sdkRouter.Handle("/stream", serverSideMiddlewareStack(metrics.EndpointTypeStream)(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV2(r.serverSideStreamProvider, serverSideStreamLogMessage),
 	))))).Methods("GET")
-	sdkRouter.Handle("/poll", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
+	sdkRouter.Handle("/poll", serverSideMiddlewareStack(metrics.EndpointTypePoll)(middleware.ServerPollingRequestCount(http.HandlerFunc(pollHandlerV2)))).Methods("GET")
 
 	// FDv2 client-side endpoints (unified mobile + JS client)
 	clientSideFDv2EnvAuth := middleware.SelectEnvironmentByClientSideAuth(environmentGetters)
@@ -117,7 +129,7 @@ func (r *Relay) makeRouter() *mux.Router {
 		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
-		middleware.DynamicDurationMetrics(),
+		middleware.DynamicRequestMetrics(metrics.EndpointTypeStream),
 	)
 	clientSideFDv2StreamRouter.Use(clientSideFDv2StreamMiddleware, middleware.Streaming)
 	clientSideFDv2PingHandler := pingStreamHandlerWithContextV2(r.mobileStreamProvider, r.jsClientStreamProvider, maxClientRequestBodySize)
@@ -130,33 +142,37 @@ func (r *Relay) makeRouter() *mux.Router {
 		clientSideFDv2EnvAuth,
 		middleware.CORS,
 		middleware.DynamicTrackUsageActivity(),
-		middleware.DynamicDurationMetrics(),
+		middleware.DynamicRequestMetrics(metrics.EndpointTypePoll),
 	)
 	clientSideFDv2PollRouter.Use(clientSideFDv2PollMiddleware)
 	clientSideFDv2PollRouter.Handle("/{context}", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("GET", "OPTIONS")
 	clientSideFDv2PollRouter.Handle("", middleware.DynamicPollingRequestCount(http.HandlerFunc(pollEvalHandlerV2(maxClientRequestBodySize)))).Methods("POST", "OPTIONS")
 
+	serverSidePollStack := serverSideMiddlewareStack(metrics.EndpointTypePoll)
+
 	serverSideEvalXRouter := sdkRouter.PathPrefix("/evalx/").Subrouter()
-	serverSideEvalXRouter.Handle("/contexts/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/context", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/contexts/{context}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/context", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 	// /users and /user are obsolete names for /contexts and /context, still used by some supported SDKs; the handler is
 	// the same, because in both cases LD accepts any valid user *or* context JSON.
-	serverSideEvalXRouter.Handle("/users/{context}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
-	serverSideEvalXRouter.Handle("/user", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
+	serverSideEvalXRouter.Handle("/users/{context}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("GET")
+	serverSideEvalXRouter.Handle("/user", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(evaluateAllFeatureFlags(basictypes.ServerSDK, maxClientRequestBodySize))))).Methods("REPORT")
 
 	// PHP SDK endpoints
-	sdkRouter.Handle("/flags", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
-	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
-	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler)))).Methods("GET")
+	sdkRouter.Handle("/flags/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
+	sdkRouter.Handle("/segments/{key}", serverSidePollStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
 	// Mobile evaluation
-	mobileMiddlewareStack := middleware.Chain(
-		mobileKeySelector,
-		middleware.TrackUsageActivity(metrics.MobilePlatformCategory),
-		middleware.DurationMetrics(metrics.MobileDuration))
+	mobileMiddlewareStack := func(endpointType metrics.EndpointType) mux.MiddlewareFunc {
+		return middleware.Chain(
+			mobileKeySelector,
+			middleware.TrackUsageActivity(metrics.MobilePlatformCategory),
+			middleware.RequestMetrics(metrics.MobileDuration, endpointType))
+	}
 
 	msdkRouter := router.PathPrefix("/msdk/").Subrouter()
-	msdkRouter.Use(mobileMiddlewareStack)
+	msdkRouter.Use(mobileMiddlewareStack(metrics.EndpointTypePoll))
 
 	msdkEvalXRouter := msdkRouter.PathPrefix("/evalx/").Subrouter()
 	msdkEvalXRouter.HandleFunc("/contexts/{context}", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("GET")
@@ -167,60 +183,63 @@ func (r *Relay) makeRouter() *mux.Router {
 	msdkEvalXRouter.HandleFunc("/user", evaluateAllFeatureFlags(basictypes.MobileSDK, maxClientRequestBodySize)).Methods("REPORT")
 
 	mobileStreamRouter := router.PathPrefix("/meval").Subrouter()
-	mobileStreamRouter.Use(mobileMiddlewareStack, middleware.Streaming)
+	mobileStreamRouter.Use(mobileMiddlewareStack(metrics.EndpointTypeStream), middleware.Streaming)
 	mobilePingWithUser := pingStreamHandlerWithContextV1(basictypes.MobileSDK, maxClientRequestBodySize, r.mobileStreamProvider)
 	mobileStreamRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("REPORT")
 	mobileStreamRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(mobilePingWithUser))).Methods("GET")
 
-	router.Handle("/mping", mobileMiddlewareStack(
+	router.Handle("/mping", mobileMiddlewareStack(metrics.EndpointTypeStream)(
 		middleware.UsageActivityStreamMonitoring(metrics.MobilePlatformCategory, middleware.CountMobileConns(middleware.Streaming(pingStreamHandlerV1(r.mobileStreamProvider)))))).Methods("GET")
 
 	jsPing := pingStreamHandlerV1(r.jsClientStreamProvider)
 	jsPingWithUser := pingStreamHandlerWithContextV1(basictypes.JSClientSDK, maxClientRequestBodySize, r.jsClientStreamProvider)
 
 	clientSidePingRouter := router.PathPrefix("/ping/{envId}").Subrouter()
-	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter), middleware.Streaming)
+	clientSidePingRouter.Use(jsClientSideMiddlewareStack(clientSidePingRouter, metrics.EndpointTypeStream), middleware.Streaming)
 	clientSidePingRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPing))).Methods("GET", "OPTIONS")
 
 	clientSideStreamEvalRouter := router.PathPrefix("/eval/{envId}").Subrouter()
-	clientSideStreamEvalRouter.Use(jsClientSideMiddlewareStack(clientSideStreamEvalRouter), middleware.Streaming)
+	clientSideStreamEvalRouter.Use(jsClientSideMiddlewareStack(clientSideStreamEvalRouter, metrics.EndpointTypeStream), middleware.Streaming)
 	// For now we implement eval as simply ping
 	clientSideStreamEvalRouter.Handle("/{context}", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPingWithUser))).Methods("GET", "OPTIONS")
 	clientSideStreamEvalRouter.Handle("", middleware.UsageActivityStreamMonitoring(metrics.BrowserPlatformCategory, middleware.CountBrowserConns(jsPingWithUser))).Methods("REPORT", "OPTIONS")
 
 	mobileEventsRouter := router.PathPrefix("/mobile").Subrouter()
-	mobileEventsRouter.Use(mobileMiddlewareStack, middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.MobilePlatformCategory))
+	mobileEventsRouter.Use(mobileMiddlewareStack(metrics.EndpointTypeEvents), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.MobilePlatformCategory))
 	mobileEventsRouter.Handle("/events/bulk", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("/events", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("", bulkEventHandler(basictypes.MobileSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	mobileEventsRouter.Handle("/events/diagnostic", bulkEventHandler(basictypes.MobileSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
 	clientSideBulkEventsRouter := router.PathPrefix("/events/bulk/{envId}").Subrouter()
-	clientSideBulkEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
+	clientSideBulkEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter, metrics.EndpointTypeEvents), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
 	clientSideBulkEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideDiagnosticEventsRouter := router.PathPrefix("/events/diagnostic/{envId}").Subrouter()
-	clientSideDiagnosticEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
+	clientSideDiagnosticEventsRouter.Use(jsClientSideMiddlewareStack(clientSideBulkEventsRouter, metrics.EndpointTypeEvents), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.BrowserPlatformCategory))
 	clientSideDiagnosticEventsRouter.Handle("", bulkEventHandler(basictypes.JSClientSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST", "OPTIONS")
 
 	clientSideImageEventsRouter := router.PathPrefix("/a/{envId}.gif").Subrouter()
-	clientSideImageEventsRouter.Use(jsClientSideMiddlewareStack(clientSideImageEventsRouter))
+	clientSideImageEventsRouter.Use(jsClientSideMiddlewareStack(clientSideImageEventsRouter, metrics.EndpointTypeEvents))
 	clientSideImageEventsRouter.HandleFunc("", getEventsImage).Methods("GET", "OPTIONS")
 
 	serverSideRouter := router.PathPrefix("").Subrouter()
-	serverSideRouter.Use(serverSideMiddlewareStack)
 
+	// This subrouter carries both event ingestion and streaming endpoints, which report different
+	// endpoint types, so the middleware stack is applied per endpoint group instead of to the whole
+	// subrouter.
 	serverSideBulkEventsRouter := serverSideRouter.NewRoute().Subrouter()
-	serverSideBulkEventsRouter.Use(middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.ServerPlatformCategory))
+	serverSideBulkEventsRouter.Use(serverSideMiddlewareStack(metrics.EndpointTypeEvents), middleware.GzipMiddleware(r.config.Events.MaxInboundPayloadSize), middleware.EventBytesMetrics(metrics.ServerPlatformCategory))
 	serverSideBulkEventsRouter.Handle("/bulk", bulkEventHandler(basictypes.ServerSDK, ldevents.AnalyticsEventDataKind, offlineMode)).Methods("POST")
 	serverSideBulkEventsRouter.Handle("/diagnostic", bulkEventHandler(basictypes.ServerSDK, ldevents.DiagnosticEventDataKind, offlineMode)).Methods("POST")
 
-	serverSideRouter.Handle("/all", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	serverSideStreamStack := serverSideMiddlewareStack(metrics.EndpointTypeStream)
+	serverSideRouter.Handle("/all", serverSideStreamStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV1(r.serverSideStreamProvider, serverSideStreamLogMessage),
-	)))).Methods("GET")
-	serverSideRouter.Handle("/flags", middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
+	))))).Methods("GET")
+	serverSideRouter.Handle("/flags", serverSideStreamStack(middleware.UsageActivityStreamMonitoring(metrics.ServerPlatformCategory, middleware.CountServerConns(middleware.Streaming(
 		streamHandlerV1(r.serverSideFlagsStreamProvider, serverSideFlagsOnlyStreamLogMessage),
-	)))).Methods("GET")
+	))))).Methods("GET")
 
 	return router
 }
