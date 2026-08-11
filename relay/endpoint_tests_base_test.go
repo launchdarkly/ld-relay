@@ -13,6 +13,18 @@ import (
 	m "github.com/launchdarkly/go-test-helpers/v3/matchers"
 )
 
+// pollingPayload and payloadEvent describe the FDv2 polling response document. Tests
+// unmarshal responses through them; the handlers themselves encode the document with
+// fdv2PayloadWriter, which is guaranteed to produce the JSON this structure marshals to.
+type pollingPayload struct {
+	Events []payloadEvent `json:"events"`
+}
+
+type payloadEvent struct {
+	Event     string `json:"event"`
+	EventData any    `json:"data"`
+}
+
 // Test parameters for an endpoint that we want to test. The "data" parameter is used as the request body if
 // the method is GET, and can also be included in base64 in the URL by putting "$DATA" in the URL path. Also,
 // if the credential is an environment ID, it is substituted for "$ENV" in the URL path.
