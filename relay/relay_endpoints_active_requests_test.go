@@ -137,6 +137,18 @@ func TestActiveRequestsCoverAllEndpointTypes(t *testing.T) {
 			},
 			endpointType: metrics.EndpointTypeNotProvided,
 		},
+		{
+			// A path that matches a route but with the wrong method. Relay never answers 405, so this
+			// does not depend on Router.MethodNotAllowedHandler: the catch-all serverSideRouter
+			// (PathPrefix "") matches the path, which clears the pending ErrMethodMismatch
+			// (gorilla/mux route.go:69-79), and the request ends up on the not-found handler. So it is
+			// counted, and MethodNotAllowedHandler stays nil rather than changing the response code.
+			name: "wrong method on a real route",
+			buildReq: func() *http.Request {
+				return st.BuildRequest("POST", "/status", nil, nil)
+			},
+			endpointType: metrics.EndpointTypeNotProvided,
+		},
 	}
 
 	for _, tc := range cases {
@@ -178,5 +190,49 @@ func TestActiveRequestsCountLiveStream(t *testing.T) {
 		dp := requireSingleActiveRequestPoint(t, reader)
 		requireEndpointType(t, dp, metrics.EndpointTypeStream)
 		assert.Zero(t, dp.Value, "a closed stream should no longer be counted as active")
+	})
+}
+
+// TestWrongMethodIsNotFoundAndIsCounted pins down why Router.MethodNotAllowedHandler does not need the
+// same treatment as Router.NotFoundHandler. gorilla/mux does assign MethodNotAllowedHandler without
+// building the middleware chain, but that branch is unreachable in this router: the catch-all
+// serverSideRouter (PathPrefix "") matches every path, and a matcher that succeeds clears a pending
+// ErrMethodMismatch, so Match finishes with ErrNotFound instead. Relay therefore never answers 405,
+// and a wrong-method request is counted under not-provided.
+//
+// If a future change removes the catch-all subrouter, this test fails with a 405, which is the signal
+// to wrap MethodNotAllowedHandler as well.
+func TestWrongMethodIsNotFoundAndIsCounted(t *testing.T) {
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		reader := installActiveRequestReader(t, p.relay)
+
+		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+			result, _ := st.DoRequest(st.BuildRequest(method, "/status", nil, nil), p.relay)
+			assert.Equal(t, http.StatusNotFound, result.StatusCode,
+				"%s /status should be 404, not 405 -- see the comment on this test", method)
+		}
+
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(context.Background(), &rm))
+		m := st.FindMetricByName(&rm, activeRequestsMetricName)
+		require.NotNil(t, m, "wrong-method requests were not counted at all")
+
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+		methods := map[string]bool{}
+		for _, dp := range sum.DataPoints {
+			endpointType, ok := dp.Attributes.Value("relay.endpoint.type")
+			require.True(t, ok)
+			assert.Equal(t, string(metrics.EndpointTypeNotProvided), endpointType.AsString())
+			if method, ok := dp.Attributes.Value("http.request.method"); ok {
+				methods[method.AsString()] = true
+			}
+		}
+		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+			assert.True(t, methods[method], "%s was not recorded in active requests", method)
+		}
 	})
 }
