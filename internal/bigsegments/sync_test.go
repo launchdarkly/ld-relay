@@ -422,7 +422,8 @@ func TestSyncReconcilesWhenStreamIsQuiet(t *testing.T) {
 	// - The stream stays connected but delivers no events, even though another revision
 	//   (patch2) has been published upstream; this simulates a stream event that was
 	//   missed and will never be redelivered.
-	// - The periodic reconciliation poll picks up patch2, without a stream reconnection.
+	// - The one-time reconciliation poll after stream establishment picks up patch2,
+	//   without a stream reconnection - and no further polling happens after it.
 	mockLogger, mockLog := logtest.NewMockLogger()
 
 	patch1 := newPatchBuilder("segment.g1", "1", "").addIncludes("included1").build()
@@ -484,6 +485,15 @@ func TestSyncReconcilesWhenStreamIsQuiet(t *testing.T) {
 
 			pollReq5 := helpers.RequireValue(t, requestsCh, time.Second)
 			assertPollRequest(t, pollReq5, patch2.Version)
+
+			// Reconciliation happens only once per connection: no further poll requests
+			// even after several more reconcile intervals have elapsed
+			if !helpers.AssertNoMoreValues(t, requestsCh, time.Millisecond*500) {
+				t.FailNow()
+			}
+
+			// The synchronized-on timestamp is still refreshed periodically
+			helpers.RequireValue(t, storeMock.syncTimeCh, time.Second)
 
 			// The stream connection should still be in use - reconciliation is not a reconnect
 			if !helpers.AssertNoMoreValues(t, streamRequestsCh, time.Millisecond*50) {

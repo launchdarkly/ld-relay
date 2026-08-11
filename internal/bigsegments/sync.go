@@ -382,6 +382,7 @@ func (s *defaultBigSegmentSynchronizer) connectStream() (*es.Stream, error) {
 }
 
 func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
+	reconciled := false
 	for {
 		timer := time.NewTimer(s.reconcileInterval)
 		select {
@@ -406,14 +407,18 @@ func (s *defaultBigSegmentSynchronizer) consumeStream(stream *es.Stream) error {
 				return err
 			}
 		case <-timer.C:
-			// The stream has been quiet for a while. Updates normally arrive as stream
-			// events, but an event can be missed - for example, if it was published
-			// while the upstream subscription was still being established - and a missed
-			// event is never redelivered on the stream. Reconciling against the polling
-			// endpoint (which is cheap when there are no changes, since the request
-			// carries our cursor) bounds how long such a missed update can remain
-			// unapplied.
-			if err := s.reconcile(); err != nil {
+			if !reconciled {
+				// An update published shortly after the stream request may never be
+				// delivered as a stream event if the upstream subscription was not yet
+				// fully effective, and the poll made when the stream was established
+				// cannot cover updates published after it completed. Reconcile against
+				// the polling endpoint once per connection to pick up anything from
+				// that window; from then on the stream is trusted.
+				reconciled = true
+				if err := s.reconcile(); err != nil {
+					return err
+				}
+			} else if err := s.setSynced(); err != nil {
 				return err
 			}
 		case <-s.closeChan:

@@ -112,7 +112,7 @@ func verifyEvaluationWithBigSegment(
 	// the user segment state caching inside the SDK makes it hard to say how soon we'll
 	// see the effect of an update. 60s also covers the case where a segment update was
 	// not delivered on the big segments stream and is only picked up by the synchronizer's
-	// periodic (30s) reconciliation poll.
+	// follow-up reconciliation poll, which happens 30s after the stream is established.
 	success := assert.Eventually(t, func() bool {
 		ok := true
 		for i, env := range environments {
