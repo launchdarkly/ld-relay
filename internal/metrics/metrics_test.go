@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
@@ -457,6 +458,33 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "not-provided", sanitizeTagValue(""))
 	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+// Attribute values are serialized into OTLP protobuf string fields, which proto3 requires to be valid
+// UTF-8. One bad byte fails the marshal for the whole export batch, and the poisoned series is
+// cumulative, so exports keep failing until restart. Header values are not restricted to ASCII, so this
+// has to be handled here rather than assumed away.
+func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
+	specs := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "invalid bytes in the middle", input: "bad-\xff\xfe-agent", want: "bad--agent"},
+		{name: "leading invalid byte", input: "\xffGoClient", want: "GoClient"},
+		{name: "entirely invalid collapses to sentinel", input: "\xff\xfe", want: notProvidedValue},
+		{name: "invalid plus a slash", input: "Node\xff/3.4.0", want: "Node_3.4.0"},
+		{name: "valid multi-byte UTF-8 is preserved", input: "Ruby-\u00e9", want: "Ruby-\u00e9"},
+		{name: "valid ASCII is untouched", input: "GoClient", want: "GoClient"},
+	}
+
+	for _, tt := range specs {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeTagValue(tt.input)
+			assert.Equal(t, tt.want, got)
+			assert.True(t, utf8.ValidString(got), "sanitized value must be valid UTF-8, got %q", got)
+		})
+	}
 }
 
 func TestSanitizeRouteValue(t *testing.T) {

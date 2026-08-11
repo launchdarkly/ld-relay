@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"testing"
+	"unicode/utf8"
 
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	"github.com/launchdarkly/ld-relay/v9/internal/metrics"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/launchdarkly/eventsource"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -234,5 +236,64 @@ func TestWrongMethodIsNotFoundAndIsCounted(t *testing.T) {
 		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
 			assert.True(t, methods[method], "%s was not recorded in active requests", method)
 		}
+	})
+}
+
+// TestRecordedAttributesAreValidUTF8 covers the whole chain from a hostile header to the recorded
+// attribute set. Attribute values are serialized into OTLP protobuf string fields, which proto3
+// requires to be valid UTF-8; one bad byte fails the marshal for the entire export batch, and because
+// these series are cumulative the failure repeats every interval until the process restarts.
+//
+// Header values are not restricted to ASCII -- RFC 7230 permits obs-text and Go's HTTP parser passes
+// those bytes through unchanged -- and the status and not-found handlers record metrics without
+// requiring credentials, so an unauthenticated caller can reach this.
+func TestRecordedAttributesAreValidUTF8(t *testing.T) {
+	const invalid = "\xff\xfe"
+
+	var config c.Config
+	config.Environment = st.MakeEnvConfigs(st.EnvMain)
+
+	withStartedRelay(t, config, func(p relayTestParams) {
+		reader := installActiveRequestReader(t, p.relay)
+
+		poison := func(req *http.Request) *http.Request {
+			req.Header.Set("User-Agent", "agent-"+invalid)
+			req.Header.Set("X-LaunchDarkly-Wrapper", "wrapper-"+invalid)
+			req.Header.Set("X-LaunchDarkly-Instance-Id", "instance-"+invalid)
+			req.Header.Set("X-LaunchDarkly-Tags",
+				"application-id/app-"+invalid+" application-version/ver-"+invalid)
+			return req
+		}
+
+		// Unauthenticated first: these paths need no credentials at all.
+		st.DoRequest(poison(st.BuildRequest("GET", "/no/such/route", nil, nil)), p.relay)
+		st.DoRequest(poison(st.BuildRequest("GET", "/status", nil, nil)), p.relay)
+		// Then an authenticated request, which carries the full attribute set.
+		st.DoRequest(poison(st.BuildRequestWithAuth("GET", "/sdk/poll", st.EnvMain.Config.SDKKey, nil)), p.relay)
+
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(context.Background(), &rm))
+
+		checked := 0
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				if !ok {
+					continue
+				}
+				for _, dp := range sum.DataPoints {
+					for _, kv := range dp.Attributes.ToSlice() {
+						if kv.Value.Type() != attribute.STRING {
+							continue
+						}
+						checked++
+						assert.True(t, utf8.ValidString(kv.Value.AsString()),
+							"%s attribute %s is not valid UTF-8: %q -- this fails the whole OTLP export batch",
+							m.Name, kv.Key, kv.Value.AsString())
+					}
+				}
+			}
+		}
+		assert.Positive(t, checked, "no string attributes were examined")
 	})
 }
