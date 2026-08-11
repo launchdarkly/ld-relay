@@ -196,6 +196,20 @@ func (l *Limiter) Close() {
 	l.closeOnce.Do(func() { close(l.shutdown) })
 }
 
+// Closed reports whether Close has stopped admissions. Callers use it to tell a shutdown
+// rejection apart from a full budget, so shutdown does not read as saturation.
+func (l *Limiter) Closed() bool {
+	if !l.Enabled() {
+		return false
+	}
+	select {
+	case <-l.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Stats snapshots the limiter's counters.
 func (l *Limiter) Stats() Stats {
 	if !l.Enabled() {
