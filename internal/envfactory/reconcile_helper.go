@@ -1,30 +1,9 @@
 package envfactory
 
 import (
-	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/credential"
 	"github.com/launchdarkly/ld-relay/v8/internal/util"
 )
-
-// collectViewScopedValues returns the set of credential values that any entry marks as view-scoped,
-// excluding the designated key (the anchor, or the primary mobile key) which is never filtered.
-//
-// Two entries can carry the same value with only one of them marked. Keying on the value means one
-// marked entry rejects it, whichever position it holds.
-func collectViewScopedValues[E any, V comparable](entries []E, designated V, get func(E) (V, bool)) map[V]bool {
-	var viewScoped map[V]bool
-	for _, e := range entries {
-		value, hasViews := get(e)
-		if !hasViews || value == designated {
-			continue
-		}
-		if viewScoped == nil {
-			viewScoped = make(map[V]bool)
-		}
-		viewScoped[value] = true
-	}
-	return viewScoped // nil is a valid empty set to read from
-}
 
 // BuildAcceptedSet converts an EnvironmentParams into the AcceptedSet needed by
 // EnvContext.ReconcileCredentials.
@@ -65,9 +44,6 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 	//
 	// Entries with an empty value are structurally malformed: relay would silently accept them but
 	// they can never authenticate any SDK. Reject loudly rather than produce a credential-short env.
-	viewScopedSDKValues := collectViewScopedValues(params.AcceptedSDKKeys, anchor,
-		func(k AcceptedSDKKey) (config.SDKKey, bool) { return k.Value, k.HasViews })
-
 	anchorInArray := false
 	for _, k := range params.AcceptedSDKKeys {
 		if !k.Value.Defined() {
@@ -79,7 +55,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 		case k.Value == anchor:
 			anchorInArray = true
 			b.WithAnchor(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
-		case viewScopedSDKValues[k.Value]:
+		case k.HasViews:
 			rejected = append(rejected, k.Key)
 		default:
 			b.WithSDKKey(credential.SDKKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})
@@ -96,9 +72,6 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 	// Add every accepted mobile key, designating the primary as we encounter it. Like the anchor,
 	// WithPrimaryMobileKey forces the primary permanent, so an expiry the payload may carry on the
 	// primary's own entry cannot demote it.
-	viewScopedMobileValues := collectViewScopedValues(params.AcceptedMobileKeys, params.MobileKey,
-		func(k AcceptedMobileKey) (config.MobileKey, bool) { return k.Value, k.HasViews })
-
 	primaryMobileInArray := false
 	for _, k := range params.AcceptedMobileKeys {
 		if !k.Value.Defined() {
@@ -109,7 +82,7 @@ func BuildAcceptedSet(params EnvironmentParams) (credential.AcceptedSet, []strin
 		case k.Value == params.MobileKey:
 			primaryMobileInArray = true
 			b.WithPrimaryMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key)})
-		case viewScopedMobileValues[k.Value]:
+		case k.HasViews:
 			rejected = append(rejected, k.Key)
 		default:
 			b.WithMobileKey(credential.MobileKeyParams{Value: k.Value, Key: util.PtrOrNil(k.Key), Expiry: util.PtrOrNil(k.Expiry)})

@@ -25,22 +25,8 @@ const (
 // payload. This logs once per payload that actually reaches a handler.
 func logViewScopedKeys(loggers ldlog.Loggers, envName string, rejected []string) {
 	if len(rejected) > 0 {
-		loggers.Warnf(logMsgViewScopedKeysRejected, envName, joinKeyIdentifiers(rejected))
+		loggers.Warnf(logMsgViewScopedKeysRejected, envName, strings.Join(rejected, ", "))
 	}
-}
-
-// joinKeyIdentifiers renders wire key identifiers for a log message. The backend requires a non-empty
-// identifier on every array entry, but the offline archive is an operator-supplied file, so substitute
-// a placeholder rather than emitting a message that names nothing.
-func joinKeyIdentifiers(identifiers []string) string {
-	named := make([]string, 0, len(identifiers))
-	for _, id := range identifiers {
-		if id == "" {
-			id = "<unnamed>"
-		}
-		named = append(named, id)
-	}
-	return strings.Join(named, ", ")
 }
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level

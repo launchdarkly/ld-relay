@@ -478,44 +478,6 @@ func TestBuildAcceptedSet_ViewScopedKeys(t *testing.T) {
 			wantSet:      base,
 			wantRejected: []string{"view-sdk"},
 		},
-		{
-			// Two entries, one value, only the later one marked. The accepted-set builder is
-			// first-wins, so filtering per-entry would admit the credential via the unmarked entry
-			// while still reporting it rejected. One marked entry must reject the value outright.
-			name: "value marked by any duplicate entry is excluded",
-			sdkKeys: []AcceptedSDKKey{
-				anchorEntry,
-				{Key: "clean-alias", Value: "sdk-dup"},
-				{Key: "view-alias", Value: "sdk-dup", HasViews: true},
-			},
-			mobileKeys:   []AcceptedMobileKey{primaryEntry},
-			wantSet:      base,
-			wantRejected: []string{"clean-alias", "view-alias"},
-		},
-		{
-			// The same, with the marked entry first — the outcome must not depend on array order.
-			name: "value marked by any duplicate entry is excluded regardless of order",
-			sdkKeys: []AcceptedSDKKey{
-				anchorEntry,
-				{Key: "view-alias", Value: "sdk-dup", HasViews: true},
-				{Key: "clean-alias", Value: "sdk-dup"},
-			},
-			mobileKeys:   []AcceptedMobileKey{primaryEntry},
-			wantSet:      base,
-			wantRejected: []string{"view-alias", "clean-alias"},
-		},
-		{
-			// The mobile analogue, so both loops are pinned against per-entry filtering.
-			name:    "mobile value marked by any duplicate entry is excluded",
-			sdkKeys: []AcceptedSDKKey{anchorEntry},
-			mobileKeys: []AcceptedMobileKey{
-				primaryEntry,
-				{Key: "clean-mob-alias", Value: "mob-dup"},
-				{Key: "view-mob-alias", Value: "mob-dup", HasViews: true},
-			},
-			wantSet:      base,
-			wantRejected: []string{"clean-mob-alias", "view-mob-alias"},
-		},
 	}
 
 	for _, tt := range tests {
