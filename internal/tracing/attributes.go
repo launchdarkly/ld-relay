@@ -19,7 +19,7 @@ const (
 	SpanStoreSnapshot    = "relay.store.snapshot"
 	SpanStoreGetAll      = "relay.store.get_all"
 	SpanStoreGet         = "relay.store.get"
-	SpanEvaluateFlags    = "relay.evaluate_flags"
+	SpanEvaluateFlags    = "relay.flags.evaluate"
 	SpanEventsDispatch   = "relay.events.dispatch"
 	SpanSerializePayload = "relay.payload.serialize"
 	SpanWriteResponse    = "relay.response.write"

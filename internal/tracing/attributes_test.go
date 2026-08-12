@@ -40,7 +40,7 @@ func TestSpanNames(t *testing.T) {
 	assert.Equal(t, "relay.store.snapshot", SpanStoreSnapshot)
 	assert.Equal(t, "relay.store.get_all", SpanStoreGetAll)
 	assert.Equal(t, "relay.store.get", SpanStoreGet)
-	assert.Equal(t, "relay.evaluate_flags", SpanEvaluateFlags)
+	assert.Equal(t, "relay.flags.evaluate", SpanEvaluateFlags)
 	assert.Equal(t, "relay.events.dispatch", SpanEventsDispatch)
 	assert.Equal(t, "relay.payload.serialize", SpanSerializePayload)
 	assert.Equal(t, "relay.response.write", SpanWriteResponse)
