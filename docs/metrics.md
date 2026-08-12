@@ -47,7 +47,7 @@ being repeated on each measurement:
 
 | Attribute | Description |
 |-----------|-------------|
-| `service.name` | `ld-relay`, unless overridden with `OTEL_SERVICE_NAME`. |
+| `service.name` | `ld-relay`, unless overridden with `OTEL_SERVICE_NAME` or with `service.name` in `OTEL_RESOURCE_ATTRIBUTES`. `OTEL_SERVICE_NAME` wins between the two. |
 | `service.instance.id` | A unique identifier for this Relay Proxy process, generated at startup, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. Prometheus exposes it as the `instance` label. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
 
 Note that resource attributes are **not** copied onto every series. Prometheus reports them through

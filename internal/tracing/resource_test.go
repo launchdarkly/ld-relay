@@ -46,15 +46,47 @@ func TestResourceKeepsAnOperatorSuppliedServiceInstanceID(t *testing.T) {
 	assert.NotEqual(t, RelayID(), instanceID.AsString())
 }
 
-// OTEL_SERVICE_NAME wins over the built-in default.
+// An attribute whose key merely contains "service.instance.id" is a different attribute, so the
+// generated process identity must still be reported. Relay would otherwise report no process
+// identity at all.
+func TestResourceStillReportsAnIdentityAlongsideSimilarlyNamedAttributes(t *testing.T) {
+	for _, attrs := range []string{
+		"service.instance.id.source=kubernetes",
+		"custom.service.instance.id=pod-7",
+		"deployment.note=set service.instance.id here",
+	} {
+		t.Run(attrs, func(t *testing.T) {
+			t.Setenv("OTEL_SERVICE_NAME", "")
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", attrs)
+
+			res := NewResource(slog.Default())
+			require.NotNil(t, res)
+
+			instanceID, ok := res.Set().Value(attribute.Key("service.instance.id"))
+			require.True(t, ok, "service.instance.id not present on the resource")
+			assert.Equal(t, RelayID(), instanceID.AsString())
+		})
+	}
+}
+
+// Either environment variable can carry the service name, and OTEL_SERVICE_NAME wins between them.
+// Both win over the built-in default.
 func TestResourceUsesTheConfiguredServiceName(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "my-relay")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	for _, params := range []struct{ name, serviceName, attrs, want string }{
+		{"from OTEL_SERVICE_NAME", "my-relay", "", "my-relay"},
+		{"from OTEL_RESOURCE_ATTRIBUTES", "", "service.name=my-relay", "my-relay"},
+		{"OTEL_SERVICE_NAME wins", "from-env", "service.name=from-attrs", "from-env"},
+	} {
+		t.Run(params.name, func(t *testing.T) {
+			t.Setenv("OTEL_SERVICE_NAME", params.serviceName)
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", params.attrs)
 
-	res := NewResource(slog.Default())
-	require.NotNil(t, res)
+			res := NewResource(slog.Default())
+			require.NotNil(t, res)
 
-	serviceName, ok := res.Set().Value(attribute.Key("service.name"))
-	require.True(t, ok, "service.name not present on the resource")
-	assert.Equal(t, "my-relay", serviceName.AsString())
+			serviceName, ok := res.Set().Value(attribute.Key("service.name"))
+			require.True(t, ok, "service.name not present on the resource")
+			assert.Equal(t, params.want, serviceName.AsString())
+		})
+	}
 }

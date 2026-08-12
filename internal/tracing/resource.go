@@ -3,8 +3,6 @@ package tracing
 import (
 	"context"
 	"log/slog"
-	"os"
-	"strings"
 	"sync"
 
 	"github.com/pborman/uuid"
@@ -22,10 +20,10 @@ func RelayID() string {
 	return relayID()
 }
 
-// NewResource builds an OTel resource from standard environment variables
-// (OTEL_RESOURCE_ATTRIBUTES, OTEL_SERVICE_NAME). If OTEL_SERVICE_NAME is
-// unset, it defaults to "ld-relay". If resource creation fails or returns
-// nil, it falls back to resource.Default() and logs a warning.
+// NewResource builds an OTel resource from Relay's own defaults and the standard environment
+// variables (OTEL_RESOURCE_ATTRIBUTES, OTEL_SERVICE_NAME). Anything the operator sets there wins over
+// the defaults. If resource creation fails or returns nil, it falls back to resource.Default() and
+// logs a warning.
 //
 // The process identity is reported as service.instance.id alone. Relay used to publish the same value
 // again under a private relay.id key; that carried no information service.instance.id did not already
@@ -35,13 +33,16 @@ func RelayID() string {
 // through target_info, so a query that needs the process identity joins against it, or uses the
 // "instance" label.
 func NewResource(logger *slog.Logger) *resource.Resource {
-	opts := []resource.Option{resource.WithFromEnv()}
-	if os.Getenv("OTEL_SERVICE_NAME") == "" {
-		opts = append(opts, resource.WithAttributes(semconv.ServiceName("ld-relay")))
-	}
-	// Only supply service.instance.id when the operator has not configured one themselves.
-	if !strings.Contains(os.Getenv("OTEL_RESOURCE_ATTRIBUTES"), string(semconv.ServiceInstanceIDKey)) {
-		opts = append(opts, resource.WithAttributes(semconv.ServiceInstanceID(RelayID())))
+	// resource.New merges its detectors in the order they are given, and a later value replaces an
+	// earlier one. Relay's defaults therefore go first and the environment detector goes last, which
+	// is what lets an operator override either default. Reading the variables here instead would mean
+	// reimplementing the parsing the detector already does.
+	opts := []resource.Option{
+		resource.WithAttributes(
+			semconv.ServiceName("ld-relay"),
+			semconv.ServiceInstanceID(RelayID()),
+		),
+		resource.WithFromEnv(),
 	}
 
 	res, err := resource.New(context.Background(), opts...)
