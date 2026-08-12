@@ -66,6 +66,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -103,6 +104,12 @@ type Writer struct {
 	// gen identifies the current gated delivery. Begin bumps it so a teardown (the end-of-batch
 	// flush) that observed an earlier delivery cannot clear the deadline of a newer one.
 	gen uint64
+	// capEngaged records that the absolute cap clamped a deadline for the current delivery:
+	// the delivery is large enough that the cap, not the floor, decides when it is cut.
+	capEngaged bool
+	// deadlineSetErrors counts the SetWriteDeadline calls that failed. When it grows, the
+	// deadline protection is not in force on this connection.
+	deadlineSetErrors atomic.Int64
 	// cut records that the connection was cut because its client is gone. The flag is
 	// terminal -- Begin does not clear it -- so a cut that lands between a slot acquisition
 	// and Begin is not lost: the delivery that then begins fails on its first write instead
@@ -151,6 +158,7 @@ func (w *Writer) Begin() {
 	defer w.mu.Unlock()
 	w.active = true
 	w.ending = false
+	w.capEngaged = false
 	w.msgStart = time.Time{}
 	w.lastDeadline = time.Time{}
 	w.gen++
@@ -196,19 +204,24 @@ func (w *Writer) End() {
 // its slot, until the delivery flushes, and a context cancelled while the handler is still live
 // (a shutdown or producer-error signal, say) would return early without ending the delivery,
 // leaving the missed-End failure described in the package comment -- use End for that.
-func (w *Writer) WaitAndFinish(ctx context.Context) {
+//
+// The return value reports the outcome: true when the delivery's last byte was flushed to
+// the client, false when the connection ended first. A false return does not say why the
+// connection ended -- a client disconnect and a relay deadline cut look the same here.
+func (w *Writer) WaitAndFinish(ctx context.Context) bool {
 	w.mu.Lock()
 	done := w.done
 	w.mu.Unlock()
-	w.waitAndFinish(ctx, done)
+	return w.waitAndFinish(ctx, done)
 }
 
 // waitAndFinish is WaitAndFinish after the channel capture, split out so a test can drive the
 // cancellation branch with a stale captured channel.
-func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) {
+func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) bool {
 	select {
 	case <-done:
 		// Delivered: the handler's end-of-delivery flush closed done and cleared the deadline.
+		return true
 	case <-ctx.Done():
 		// The client went away before the delivery finished. Release the waiter, but do not
 		// touch the connection: it belongs to the handler, which may already have returned.
@@ -218,6 +231,7 @@ func (w *Writer) waitAndFinish(ctx context.Context, done <-chan struct{}) {
 			w.doneClosed = true
 		}
 		w.mu.Unlock()
+		return false
 	}
 }
 
@@ -241,6 +255,21 @@ func (w *Writer) Cut() {
 	if w.active {
 		_ = w.rc.SetWriteDeadline(w.now())
 	}
+}
+
+// CapEngaged reports whether the absolute cap clamped a deadline for the current delivery.
+// When it is true, the delivery is large enough that the cap, not the throughput floor,
+// decides when a slow client is cut.
+func (w *Writer) CapEngaged() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.capEngaged
+}
+
+// DeadlineSetErrors returns how many SetWriteDeadline calls have failed on this connection.
+// A value above zero means the deadline protection is not in force.
+func (w *Writer) DeadlineSetErrors() int64 {
+	return w.deadlineSetErrors.Load()
 }
 
 // Unwrap exposes the wrapped ResponseWriter so http.NewResponseController and other wrappers
@@ -361,11 +390,14 @@ func (w *Writer) arm(n int) {
 	if w.maxHold > 0 {
 		if capDL := w.msgStart.Add(w.maxHold); dl.After(capDL) {
 			dl = capDL
+			w.capEngaged = true
 		}
 	}
 	if dl.After(w.lastDeadline) && dl.Sub(w.lastDeadline) >= minExtension {
 		if err := w.rc.SetWriteDeadline(dl); err == nil {
 			w.lastDeadline = dl
+		} else {
+			w.deadlineSetErrors.Add(1)
 		}
 	}
 }

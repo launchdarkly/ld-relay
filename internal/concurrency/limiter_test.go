@@ -533,3 +533,33 @@ func TestConcurrentAcquireBoundsHeld(t *testing.T) {
 		t.Fatalf("held %d exceeded MaxConcurrent %d", maxObserved, maxC)
 	}
 }
+
+func TestRejectionCausesAreSplit(t *testing.T) {
+	l := New("t", Params{MaxConcurrent: 1, MaxQueued: 0})
+	r1, _ := l.Acquire(context.Background())
+
+	// A full budget.
+	if _, ok := l.Acquire(context.Background()); ok {
+		t.Fatal("expected a full-budget rejection")
+	}
+	// A client that is already gone.
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, ok := l.Acquire(gone); ok {
+		t.Fatal("expected a client-gone rejection")
+	}
+	r1()
+	// A shutdown.
+	l.Close()
+	if _, ok := l.Acquire(context.Background()); ok {
+		t.Fatal("expected a shutdown rejection")
+	}
+
+	s := l.Stats()
+	if s.RejectedFull != 1 || s.RejectedClientGone != 1 || s.RejectedShutdown != 1 {
+		t.Fatalf("causes not split correctly: %+v", s)
+	}
+	if s.Rejected != s.RejectedFull+s.RejectedClientGone+s.RejectedShutdown {
+		t.Fatalf("cause sum does not equal the total: %+v", s)
+	}
+}

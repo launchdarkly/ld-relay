@@ -1138,3 +1138,45 @@ func assertOpen(t *testing.T, ch <-chan struct{}, what string) {
 	case <-time.After(20 * time.Millisecond):
 	}
 }
+
+func TestWaitAndFinishReportsTheOutcome(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 2*time.Minute, true)
+	w.Begin()
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	w.End()
+	go w.Flush()
+	assert.True(t, w.WaitAndFinish(context.Background()), "a flushed delivery must report true")
+
+	w2, _ := wrapClocked(newDeadlineConn(), 2*time.Minute, true)
+	w2.Begin()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.False(t, w2.WaitAndFinish(gone), "an ended connection must report false")
+}
+
+func TestCapEngagedReportsTheClamp(t *testing.T) {
+	base := newDeadlineConn()
+	w, _ := wrapClocked(base, 500*time.Millisecond, true) // cap below one chunk's budget
+	w.Begin()
+	assert.False(t, w.CapEngaged())
+	_, err := w.Write(make([]byte, chunkSize))
+	require.NoError(t, err)
+	assert.True(t, w.CapEngaged(), "the clamped deadline must set the flag")
+
+	// A new delivery starts clean.
+	w.End()
+	w.Flush()
+	w.Begin()
+	assert.False(t, w.CapEngaged(), "Begin must clear the flag")
+}
+
+func TestDeadlineSetErrorsAreCounted(t *testing.T) {
+	base := newDeadlineConn()
+	base.setErr = errors.New("deadline not supported")
+	w, _ := wrapClocked(base, 2*time.Minute, false)
+	_, err := w.Write(make([]byte, 3*chunkSize))
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), w.DeadlineSetErrors(), "each failed SetWriteDeadline must count")
+}
