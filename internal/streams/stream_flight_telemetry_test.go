@@ -21,8 +21,9 @@ import (
 )
 
 // TestReplayAnnotatesSubscriberSpanWithFlightTelemetry checks that every repository whose replay
-// goes through a flight group reports the flight-group telemetry (relay.singleflight.shared, and
-// relay.singleflight.wait_ms when a replay waits on another's) on the subscribing request's span,
+// goes through a flight group reports the flight-group telemetry
+// (launchdarkly.relay.singleflight.shared, and the wait duration when a replay waits on another's)
+// on the subscribing request's span,
 // matching what the polling endpoints record. The shared/waiting semantics themselves are covered
 // by the tracing package's SingleflightDo tests; these subtests prove each replay call site hands
 // the subscriber's context through.
@@ -66,7 +67,7 @@ func TestReplayAnnotatesSubscriberSpanWithFlightTelemetry(t *testing.T) {
 			require.True(t, ok, "the subscriber's span should report whether the replay build was shared")
 			assert.False(t, shared.AsBool(), "a lone replay shares with nobody")
 
-			_, waited := attrs[tracing.SingleflightWaitMSKey]
+			_, waited := attrs[tracing.SingleflightWaitDurationKey]
 			assert.False(t, waited, "a lone replay builds its own payload, so it should record no wait")
 		})
 	}

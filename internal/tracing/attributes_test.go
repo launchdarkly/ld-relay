@@ -16,15 +16,15 @@ import (
 // work are launchdarkly.relay.<thing>, counts end in .count and byte sizes end in .size.
 func TestSpanAttributeKeyNames(t *testing.T) {
 	expected := map[attribute.Key]string{
-		SDKKindKey:            "launchdarkly.sdk.kind",
-		AuthResultKey:         "launchdarkly.relay.auth.result",
-		EventsKindKey:         "launchdarkly.relay.events.kind",
-		StoreKeyKey:           "launchdarkly.relay.store.key",
-		FlagCountKey:          "launchdarkly.relay.flag.count",
-		PayloadEventCountKey:  "launchdarkly.relay.payload.event.count",
-		PayloadSizeKey:        "launchdarkly.relay.payload.size",
-		SingleflightSharedKey: "launchdarkly.relay.singleflight.shared",
-		SingleflightWaitMSKey: "relay.singleflight.wait_ms",
+		SDKKindKey:                  "launchdarkly.sdk.kind",
+		AuthResultKey:               "launchdarkly.relay.auth.result",
+		EventsKindKey:               "launchdarkly.relay.events.kind",
+		StoreKeyKey:                 "launchdarkly.relay.store.key",
+		FlagCountKey:                "launchdarkly.relay.flag.count",
+		PayloadEventCountKey:        "launchdarkly.relay.payload.event.count",
+		PayloadSizeKey:              "launchdarkly.relay.payload.size",
+		SingleflightSharedKey:       "launchdarkly.relay.singleflight.shared",
+		SingleflightWaitDurationKey: "launchdarkly.relay.singleflight.wait.duration",
 	}
 
 	for key, want := range expected {
