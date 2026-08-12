@@ -139,7 +139,7 @@ _(9)_ The `maxClientRequestBodySize` setting limits how much of a `REPORT` evalu
 
 ### File section: `[Concurrency]`
 
-This section bounds how many SDK *initialization deliveries* — the full data-set payload the Relay Proxy serializes and sends when an SDK first connects — it will perform at once. It protects the Relay Proxy from the memory and egress spikes a large burst of connecting or reconnecting SDKs can cause. It is disabled by default, so behavior is unchanged unless you set `maxConcurrent`.
+This section limits how many SDK *initialization deliveries* the Relay Proxy performs at the same time. An initialization delivery is the full data-set payload that the Relay Proxy serializes and sends when an SDK first connects. The limit protects the Relay Proxy from the memory and egress peaks that a large burst of new or reconnecting SDKs can cause. The limit is disabled by default: the behavior does not change unless you set `maxConcurrent`.
 
 The budget covers the endpoints that send a full data set:
 
@@ -147,7 +147,7 @@ The budget covers the endpoints that send a full data set:
 - The FDv2 polling endpoints (`/sdk/poll` and `/sdk/poll/eval`), on the same condition.
 - The FDv1 PHP all-flags poll (`/sdk/flags`).
 
-These endpoints stay outside the budget, because they do not send a full data set, or because a limit on them would shed routine per-evaluation traffic:
+These endpoints stay outside the budget. They do not send a full data set, or a limit on them would shed usual per-evaluation traffic:
 
 - The single-item PHP lookups (`/sdk/flags/{key}` and `/sdk/segments/{key}`).
 - The `evalx` endpoints, which return evaluated results for one context.
@@ -155,19 +155,19 @@ These endpoints stay outside the budget, because they do not send a full data se
 - The legacy FDv1 flags-only stream.
 - Deltas and heartbeats on streams that are already initialized.
 
-Two properties of this scope are deliberate and worth knowing when you size the budget: the `evalx` endpoints are the initialization path for client-side and mobile SDKs, so that path is not protected by this budget; and the budget is one pool shared by all environments and both protocol generations, reachable by any credential a gated endpoint accepts, including public client-side IDs. Until that isolation lands, a holder of a public client-side ID can occupy the budget and so delay initialization for every environment, including server-side SDKs; size `maxConcurrent` and `maxQueued` with that in mind. Isolation between principals is planned as a follow-up.
+Know two intentional properties of this scope when you set the budget size. First, the `evalx` endpoints are the initialization path for the client-side and mobile SDKs, so this budget does not protect that path. Second, the budget is one pool that all environments and both protocol generations share, and each credential that a gated endpoint accepts can reach it, including the public client-side IDs. Until isolation is available, a holder of a public client-side ID can occupy the budget, and initialization for every environment can then be delayed, including for the server-side SDKs. Set `maxConcurrent` and `maxQueued` with that in mind. Isolation between principals is a planned follow-up.
 
 | Property in file | Environment var       |   Type   | Default | Description                                                                                                                                                                                                       |
 |------------------|-----------------------|:--------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `maxConcurrent`  | `INIT_MAX_CONCURRENT` |  Number  | none    | Maximum number of initialization deliveries in flight at once. `0` or unset disables the limit. Cheap operations (an up-to-date reply, deltas, heartbeats, and single-item lookups) are never counted.            |
-| `maxQueued`      | `INIT_MAX_QUEUED`     |  Number  | `0`     | Maximum number of requests that may wait for a slot once `maxConcurrent` is reached. `0` sheds excess requests immediately rather than queueing them. A queued request waits as long as its client is willing to; a client that disconnects gives up its place immediately, and the SDK retries on its own backoff schedule. Only meaningful when `maxConcurrent` is set.                 |
-| `sendTimeout`    | `INIT_SEND_TIMEOUT`   | Duration | `2m`    | Absolute cap on how long a single gated delivery may hold a slot. A ~64 KB/s throughput floor closes a client that stalls or reads slower than the floor well before this. The cap governs for a delivery large enough that even a floor-rate client would exceed it (roughly above `sendTimeout × 64 KB/s`, i.e. ~7.5 MiB at the default), so a client on a very large data set may be cut and reconnect. On expiry the connection is closed so the slot is reclaimed and the SDK reconnects. Only meaningful when `maxConcurrent` is set. |
+| `maxConcurrent`  | `INIT_MAX_CONCURRENT` |  Number  | none    | The maximum number of initialization deliveries that may be in progress at the same time. A value of `0`, or no value, disables the limit. The cheap operations — an up-to-date reply, deltas, heartbeats, and single-item lookups — are never counted.            |
+| `maxQueued`      | `INIT_MAX_QUEUED`     |  Number  | `0`     | The maximum number of requests that may wait for a slot when `maxConcurrent` is reached. With a value of `0`, the Relay Proxy sheds an excess request immediately and does not queue it. A queued request waits as long as its client permits; a client that disconnects releases its place immediately, and the SDK tries again on its own backoff schedule. The value has an effect only when `maxConcurrent` is set.                 |
+| `sendTimeout`    | `INIT_SEND_TIMEOUT`   | Duration | `2m`    | The longest time one gated delivery may hold a slot. A throughput floor of approximately 64 KB/s closes a client that stalls or reads more slowly than the floor, long before this cap. The cap applies to a delivery so large that a floor-rate client would need more time than the cap permits (approximately `sendTimeout × 64 KB/s`, which is ~7.5 MiB at the default value), so a client on a very large data set can be cut, and it then reconnects. When the cap expires, the Relay Proxy closes the connection, gets the slot back, and the SDK reconnects. The value has an effect only when `maxConcurrent` is set. |
 
-Values outside the supported ranges are clamped at startup, with a warning in the log: `maxConcurrent` to at most 65536, `maxQueued` to at most 1000000, and a `sendTimeout` that is set but smaller than 5 seconds to 5 seconds.
+At startup, the Relay Proxy clamps a value outside the supported range and writes a warning in the log: it clamps `maxConcurrent` to at most 65536, `maxQueued` to at most 1000000, and a `sendTimeout` that is set but smaller than 5 seconds to 5 seconds.
 
-The throughput floor and the cap measure the bytes that the Relay Proxy writes, before any compression. A compressed connection puts fewer bytes on the wire for the same written bytes, so compression gives a slow reader more effective headroom against the floor.
+The throughput floor and the cap measure the bytes that the Relay Proxy writes, before compression. A compressed connection puts fewer bytes on the wire for the same written bytes, so compression gives a slow reader more applicable margin against the floor.
 
-When the budget is full, a polling request is shed with an HTTP `503` and a `Retry-After` header; a streaming request, whose response has already started, has its connection closed so the SDK reconnects with backoff.
+When the budget is full, the Relay Proxy sheds a polling request with an HTTP `503` response and a `Retry-After` header. For a streaming request, the response has already started, so the Relay Proxy closes the connection instead, and the SDK reconnects with backoff.
 
 
 ### File section: `[Environment "NAME"]`

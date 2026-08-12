@@ -230,10 +230,10 @@ func pollHandlerV2(w http.ResponseWriter, req *http.Request) {
 			}},
 		})
 	} else {
-		// This is a full-basis delivery, whose serialization is the memory-heavy work the
-		// budget bounds. Draw a slot before building it (the cheap up-to-date branch above
-		// is never charged). The slot is held until the handler returns, covering the marshal
-		// and the response write.
+		// This is a full-basis delivery. Its serialization is the memory-heavy work the
+		// budget limits. Take a slot before the build; the cheap up-to-date branch above
+		// never uses one. The handler keeps the slot until it returns, which covers the
+		// marshal and the response write.
 		release, ok := middleware.AcquireInitSlotFromContext(w, req)
 		if !ok {
 			return
@@ -389,10 +389,10 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 			}},
 		})
 	} else {
-		// This is a full-basis delivery, whose evaluation and serialization are the
-		// memory-heavy work the budget bounds. Draw a slot before building it (the cheap
-		// up-to-date branch above is never charged). The slot is held until the handler
-		// returns, covering the marshal and the response write.
+		// This is a full-basis delivery. Its evaluation and serialization are the
+		// memory-heavy work the budget limits. Take a slot before the build; the cheap
+		// up-to-date branch above never uses one. The handler keeps the slot until it
+		// returns, which covers the marshal and the response write.
 		release, ok := middleware.AcquireInitSlotFromContext(w, req)
 		if !ok {
 			return

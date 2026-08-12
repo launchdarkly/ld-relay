@@ -29,10 +29,11 @@ func TestSSELoggerDistinguishesCutFromDisconnect(t *testing.T) {
 	var recs []slog.Record
 	l := sseLogger{log: slog.New(capturingHandler{&recs})}
 
-	// A write-deadline cut (the limiter reclaiming a slot) must be logged at warn even in the
-	// shape production delivers it: the eventsource encoder wraps the net.Conn deadline error
-	// with a plain verb, which severs errors.Is, so the text is what identifies it. The bare
-	// sentinel must also match, and an ordinary client disconnect stays at debug.
+	// A write-deadline cut, which is the limiter taking a slot back, must go to the warn
+	// level also in the shape that production delivers: the eventsource encoder wraps the
+	// net.Conn deadline error with a plain verb, which breaks errors.Is, so the text is what
+	// identifies the error. The bare sentinel must also match, and an ordinary client
+	// disconnect stays at the debug level.
 	l.Println(fmt.Errorf("eventsource encode: %v", &net.OpError{Op: "write", Net: "tcp", Err: os.ErrDeadlineExceeded}))
 	l.Println(os.ErrDeadlineExceeded)
 	l.Println(errors.New("write: broken pipe"))

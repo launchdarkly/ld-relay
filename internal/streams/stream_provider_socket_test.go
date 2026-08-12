@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These are real-socket assembled tests: they drive the actual HandlerV2 -> withInitDeadline
-// -> eventsource -> initwrite chain over a TCP connection, so SetWriteDeadline reaches a real
-// net.Conn. httptest.ResponseRecorder cannot exercise the deadline at all.
+// These tests use real sockets. They drive the actual chain, HandlerV2 -> withInitDeadline
+// -> eventsource -> initwrite, over a TCP connection, so SetWriteDeadline reaches a real
+// net.Conn. An httptest.ResponseRecorder cannot examine the deadline at all.
 
 // smallSndbufListener sets a tiny SO_SNDBUF on each accepted connection so a write to a
 // non-reading client blocks after only a few KB, making the write deadline observable without
@@ -160,8 +160,9 @@ func TestSocketHalfClosedClientDrainEndsWithTheSlot(t *testing.T) {
 	}
 }
 
-// TestSocketStalledClientIsCutAtDeadline confirms the write deadline still fires: a client
-// that stops reading has its connection torn down around maxHold rather than parking a slot.
+// TestSocketStalledClientIsCutAtDeadline makes sure the write deadline fires: the relay
+// closes the connection of a client that stops reading at approximately maxHold, and the
+// client cannot keep a slot.
 func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {
 	const maxHold = 800 * time.Millisecond
 	srv, _ := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, manyFlags(400), false, func(l net.Listener) net.Listener {
@@ -213,10 +214,11 @@ func TestSocketStalledClientIsCutAtDeadline(t *testing.T) {
 	assert.True(t, closed, "stalled client was not cut by the write deadline (connection still open)")
 }
 
-// TestSocketBusyStreamSurvivesPastMaxHold is the C2 regression guard: once the gated basis is
-// delivered, the write deadline must be cleared, so a healthy stream that keeps receiving
-// deltas past maxHold is NOT cut. If the deadline were scoped to the whole connection (the
-// regression), delta writes after maxHold would fail and the client would stop receiving.
+// TestSocketBusyStreamSurvivesPastMaxHold guards the deadline scope: when the gated basis
+// is delivered, the write deadline must be cleared, so the relay does NOT cut a healthy
+// stream that continues to receive deltas after maxHold. If the deadline applied to the
+// whole connection, the delta writes after maxHold would fail, and the client would stop
+// receiving.
 func TestSocketBusyStreamSurvivesPastMaxHold(t *testing.T) {
 	const maxHold = 700 * time.Millisecond
 	srv, esp := serveStream(t, concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 10}), maxHold, []ldmodel.FeatureFlag{ldbuilders.NewFlagBuilder("f").Version(1).Build()}, false, nil)
@@ -290,11 +292,11 @@ func mustFlagJSON(version int) []byte {
 	return []byte(fmt.Sprintf(`{"key":"f","version":%d,"on":false,"variations":[false,true],"offVariation":0,"fallthrough":{"variation":0},"salt":"s"}`, version))
 }
 
-// TestSocketSlotHeldAcrossSend verifies the round-4 fix (M1): the budget slot is held for the
-// actual send, not just until the channel handoff. With MaxConcurrent=1 and no queue, a client
-// that stalls mid-basis holds the only slot, so a second full-basis client is shed (its
-// connection is closed with no basis). Before the fix, the first client's slot was released at
-// the handoff, so the second client would have been admitted.
+// TestSocketSlotHeldAcrossSend makes sure the budget slot stays held for the full send, not
+// only until the channel handoff. With MaxConcurrent=1 and no queue, a client that stalls in
+// the middle of its basis holds the only slot, so the relay sheds a second full-basis client:
+// it closes that connection with no basis sent. If the slot were released at the handoff, the
+// second client would be admitted, and the slot would limit nothing.
 func TestSocketSlotHeldAcrossSend(t *testing.T) {
 	const maxHold = 10 * time.Second // long, so A's deadline does not release the slot before B connects
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 1, MaxQueued: 0})
@@ -347,16 +349,17 @@ func readHeaders(t *testing.T, br *bufio.Reader) {
 	}
 }
 
-// TestSocketSlotReleasedAfterHealthyBasis is the round-5 regression guard for the slot-leak
-// race: a healthy client that completes its (small) basis and stays connected must have its
-// slot released promptly via the writer's Done signal -- not pinned until it disconnects. The
-// stall test cannot catch this because there ctx/the deadline fires anyway. The release path
-// races the end-of-basis flush, so this loops to make an intermittent regression fail reliably.
+// TestSocketSlotReleasedAfterHealthyBasis guards against a slot-leak race: when a healthy
+// client completes its small basis and stays connected, the writer's Done signal must
+// release the slot quickly, and the slot must not stay held until the client disconnects.
+// The stall test cannot find this fault, because there the context or the deadline fires in
+// each case. The release path races the end-of-basis flush, so this test runs in a loop to
+// make an intermittent fault fail reliably.
 func TestSocketSlotReleasedAfterHealthyBasis(t *testing.T) {
-	// Force the end-of-basis flush to win the race with the release select. A stale done-channel
-	// capture (reading iw.Done() after closeOut instead of before) then observes a nil channel
-	// and leaks the slot; capturing before closeOut survives this. Without the seam the producer
-	// almost always wins the race, so the leak would not reproduce in CI (round-6 T1).
+	// Make the end-of-basis flush win the race with the release select. An old done-channel
+	// capture -- a read of iw.Done() after closeOut instead of before -- then sees a nil
+	// channel and leaks the slot; a capture before closeOut is safe. Without the seam, the
+	// producer almost always wins the race, and the leak would not occur in CI.
 	testHookSlowBasisClose.Store(true)
 	defer testHookSlowBasisClose.Store(false)
 

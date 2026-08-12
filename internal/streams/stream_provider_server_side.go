@@ -22,9 +22,9 @@ import (
 	"github.com/launchdarkly/go-server-sdk/v7/subsystems/ldstoretypes"
 )
 
-// defaultStreamSendTimeout is the absolute per-delivery cap used when the provider was built
-// without an explicit timeout. The throughput floor (see internal/initwrite) does the
-// fast-stall detection; this only backstops a client stuck at the floor on a large payload.
+// defaultStreamSendTimeout is the per-delivery cap that applies when the provider has no
+// configured timeout. The throughput floor (see internal/initwrite) finds a stalled client
+// quickly. This cap stops only a client that stays at the floor on a large payload.
 const defaultStreamSendTimeout = 2 * time.Minute
 
 // This is the standard implementation of the /sdk/stream (fdv2) & /all (fdv1)
@@ -33,10 +33,10 @@ type serverSideStreamProvider struct {
 	fdv1Server *eventsource.Server
 	fdv2Server *eventsource.Server
 
-	// initLimiter is the shared initialization-delivery budget (nil or disabled means no
-	// limit); it is threaded to each per-environment repository at Register time.
-	// sendTimeout bounds how long a single write to a stalled client may block before the
-	// connection is closed to reclaim its budget slot (see withInitDeadline).
+	// initLimiter is the shared initialization-delivery budget. A limiter that is nil or
+	// disabled applies no limit. Register gives it to each per-environment repository.
+	// sendTimeout limits how long one write to a stalled client may block before the relay
+	// closes the connection to get the budget slot back (see withInitDeadline).
 	initLimiter *concurrency.Limiter
 	sendTimeout time.Duration
 
@@ -54,10 +54,10 @@ type serverSideEnvStreamRepository struct {
 	logger *slog.Logger
 	isV2   bool
 
-	// initLimiter is the shared initialization-delivery budget; a replay draws from it
-	// only when it must send a full basis (FDv1 always; FDv2 when the client's basis is
-	// stale or absent), never for a cheap up-to-date reply. It may be nil or disabled,
-	// meaning no limit.
+	// initLimiter is the shared initialization-delivery budget. A replay draws from it only
+	// when it must send a full basis: always for FDv1, and for FDv2 when the basis of the
+	// client is old or absent. A cheap up-to-date reply never draws from it. A limiter that
+	// is nil or disabled applies no limit.
 	initLimiter *concurrency.Limiter
 
 	flightGroup singleflight.Group
@@ -94,19 +94,19 @@ func (s *serverSideStreamProvider) HandlerV2(credential sdkauth.ScopedCredential
 	}))
 }
 
-// closeConnectionKey is the context key under which withInitDeadline stashes a function
-// that closes the current SSE connection. A shed replay reads it to make the SDK reconnect
-// instead of sitting connected but uninitialized.
+// closeConnectionKey is the context key under which withInitDeadline stores a function
+// that closes the current SSE connection. A shed replay uses it to make the SDK reconnect,
+// so the SDK does not stay connected without data.
 type closeConnectionKey struct{}
 
-// withInitDeadline wraps an SSE handler so a client that holds a budget slot cannot park it
-// indefinitely. When the init limiter is enabled it (1) wraps the response in a
-// progress-aware write deadline (see initwrite): a client sustaining at least the throughput
-// floor keeps its connection, while one that stalls or drops below the floor has its write
-// fail and its connection closed, freeing the slot and prompting a clean reconnect; and (2)
-// makes the request context cancelable and exposes a close function so a shed replay can
-// close the connection. When the limiter is disabled this is a pass-through, preserving base
-// behavior.
+// withInitDeadline wraps an SSE handler. It makes sure a client that holds a budget slot
+// cannot keep it without limit. When the init limiter is enabled, the wrapper does two
+// things. First, it wraps the response in a progress-aware write deadline (see initwrite):
+// a client that reads at the throughput floor or faster keeps its connection, and a client
+// that stalls or reads too slowly has its write fail and its connection closed, which frees
+// the slot and causes a clean reconnect. Second, it makes the request context cancelable
+// and supplies a close function, so a shed replay can close the connection. When the
+// limiter is disabled, the wrapper does nothing, and the base behavior applies.
 func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.initLimiter.Enabled() {
@@ -123,14 +123,14 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 		ctx = context.WithValue(ctx, closeConnectionKey{}, func() { cancel() })
 		ctx = context.WithValue(ctx, initWriterKey{}, iw)
 
-		// When the client goes away mid-delivery, the producer releases its budget slot at
-		// once, but a write blocked on the dead socket would otherwise drain until its
-		// per-chunk deadline (tens of seconds). This watcher cuts that write the moment the
-		// context ends, so the payload's memory and egress end with the slot. It is scoped
-		// strictly inside this handler: the deferred close below stops it before ServeHTTP
-		// returns to net/http, which is what makes its deadline call safe. A cut at normal
-		// handler return is harmless: the connection is ending, and Cut does nothing unless
-		// a delivery is in flight.
+		// When the client goes away in the middle of a delivery, the producer releases its
+		// budget slot at once. But a write blocked on the dead socket would continue until
+		// its per-chunk deadline, which can be tens of seconds. This watcher cuts that write
+		// when the context ends, so the memory and the egress of the payload end together
+		// with the slot. The watcher lives strictly inside this handler: the deferred close
+		// below stops it before ServeHTTP returns to net/http, and that is what makes its
+		// deadline call safe. A cut at a normal handler return causes no harm: the
+		// connection is ending, and Cut does nothing unless a delivery is in progress.
 		watcherDone := make(chan struct{})
 		defer func() { cancel(); <-watcherDone }()
 		go func() {
@@ -143,16 +143,16 @@ func (s *serverSideStreamProvider) withInitDeadline(h http.Handler) http.Handler
 	}
 }
 
-// initWriterKey is the context key under which withInitDeadline stashes the progress-aware
-// writer wrapping the connection, so the replay producer (a different goroutine) can scope
-// the write deadline to the gated basis via Begin/End.
+// initWriterKey is the context key under which withInitDeadline stores the progress-aware
+// writer that wraps the connection. The replay producer, a different goroutine, uses it to
+// attach the write deadline to the gated basis through Begin and End.
 type initWriterKey struct{}
 
-// testHookSlowBasisClose, when set by a test, inserts a small delay between closing the batch
-// channel and reading the writer's done signal, forcing the end-of-basis flush to win that
-// race -- the interleaving under which reading a stale done channel (rather than the one
-// captured before the close) would leak the budget slot. Always false in production; an
-// atomic so a test can toggle it while producer goroutines read it.
+// testHookSlowBasisClose, when a test sets it, adds a small delay between the close of the
+// batch channel and the read of the writer's done signal. The delay makes the end-of-basis
+// flush win that race. That is the order in which a read of an old done channel, instead of
+// the one captured before the close, would leak the budget slot. The value is always false
+// in production. It is an atomic, so a test can set it while producer goroutines read it.
 var testHookSlowBasisClose atomic.Bool //nolint:gochecknoglobals // test-only seam; production reads observe the zero value (false)
 
 func (s *serverSideStreamProvider) RegisterV1(
@@ -285,9 +285,9 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		close(out)
 		return out
 	}
-	// close the batch channel exactly once: normally at the end of the producer goroutine, but
-	// the full-basis path closes it explicitly (before waiting for the send to finish) so the
-	// eventsource handler performs its end-of-batch flush.
+	// Close the batch channel exactly one time. Usually this occurs at the end of the
+	// producer goroutine, but the full-basis path closes it directly, before it waits for
+	// the send to finish, so the eventsource handler performs its end-of-batch flush.
 	var closeOnce sync.Once
 	closeOut := func() { closeOnce.Do(func() { close(out) }) }
 	go func() {
@@ -300,51 +300,51 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 		default:
 		}
 
-		// Read the current data set once for this set of concurrent replays at the same basis.
-		// peek holds references to the stored data rather than a serialized copy, so it is
-		// cheap; the expensive serialization happens later, under the budget. Keying the read
-		// by basis keeps the up-to-date check below correct (see peek). This first read only
-		// decides whether the client needs a full basis at all; the read that feeds the
-		// serialization happens after the budget admits us, so time spent waiting in the
-		// queue cannot age the payload.
+		// Read the current data set one time for this set of concurrent replays at the same
+		// basis. peek holds references to the stored data, not a serialized copy, so it is
+		// cheap; the costly serialization occurs later, under the budget. The basis key
+		// keeps the up-to-date check below correct (see peek). This first read only decides
+		// whether the client needs a full basis at all. The read that supplies the
+		// serialization occurs after the budget admits us, so time spent in the queue
+		// cannot make the payload old.
 		snapshot, selector, err := r.peek(id)
 		if err != nil {
 			r.logger.Error("error getting all flags", "error", err)
 			return
 		}
 
-		// An FDv2 client whose basis already matches the store gets a small up-to-date
-		// reply. It builds no payload, so it does not draw from the budget. The basis is
-		// carried as the Last-Event-ID; see the note in HandlerV2.
+		// An FDv2 client whose basis already agrees with the store gets a small up-to-date
+		// reply. That reply builds no payload, so it does not draw from the budget. The
+		// basis travels as the Last-Event-ID; see the note in HandlerV2.
 		if r.isV2 && id != "" && selector.IsDefined() && selector.State() == id {
 			r.sendEvents(ctx, out, MakeEventsForUpToDate(selector))
 			return
 		}
 
-		// This is a full-basis delivery. Draw from the shared budget before serializing, so the
-		// budget bounds how many full bases are built and sent at once, and lets same-basis
-		// reconnects share one serialization.
+		// This is a full-basis delivery. Draw from the shared budget before the
+		// serialization, so the budget limits how many full bases the relay builds and sends
+		// at the same time, and reconnects at the same basis can share one serialization.
 		if r.initLimiter.Enabled() {
 			release, ok := r.initLimiter.Acquire(ctx)
 			if !ok {
 				if ctx.Err() != nil {
-					// The client chose to disconnect while it waited for a slot. This is the
-					// designed exit from the queue: the limiter has already relinquished its
-					// spot, and the SDK retries on its own backoff schedule.
+					// The client disconnected while it waited for a slot. This is the
+					// intended exit from the queue: the limiter has already released its
+					// place, and the SDK tries again on its own backoff schedule.
 					r.logger.Debug("client disconnected while waiting for an initialization slot")
 					return
 				}
 				if r.initLimiter.Closed() {
-					// The relay is shutting down; every connection is about to close. This
-					// must not read as budget saturation, and one line per parked waiter
-					// would flood the log at the worst moment.
+					// The relay is stopping, and every connection is about to close. The
+					// log must not show this as a full budget, and one line for each
+					// parked waiter would flood the log at the worst moment.
 					r.logger.Debug("relay is shutting down; ending the stream replay")
 					return
 				}
-				// The budget and queue are full, so shed this replay. The SSE response has
-				// already started, so we cannot answer with a 503; instead close the
-				// connection so the SDK reconnects with backoff rather than sitting
-				// connected but uninitialized.
+				// The budget and the queue are full, so shed this replay. The SSE response
+				// has already started, so a 503 reply is not possible. Close the connection
+				// instead, so the SDK reconnects with backoff and does not stay connected
+				// without data.
 				r.logger.Warn("initialization concurrency limit reached; closing stream so the SDK reconnects")
 				if closeConn, ok := ctx.Value(closeConnectionKey{}).(func()); ok {
 					closeConn()
@@ -352,14 +352,15 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				return
 			}
 
-			// The wait for a slot may have been long. Refresh the read so the payload is
-			// serialized from the store as it is NOW, and re-check up-to-date: a client whose
-			// basis caught up while it waited gets the small reply, and the slot goes back
-			// immediately. Without this, a same-basis client joining this replay's serialize
-			// flight could receive a payload aged by this replay's entire queue wait; the
-			// remaining stale-join window is the serialization itself, as it was before the
-			// limiter existed. (A joiner that misses a delta in that window converges on its
-			// next full-basis transfer, not on the live stream.)
+			// The wait for a slot can be long. Read the store again, so the payload is
+			// serialized from the store as it is now, and do the up-to-date check again: a
+			// client whose basis became current during the wait gets the small reply, and
+			// the slot goes back immediately. Without this second read, a same-basis client
+			// that joins the serialize flight of this replay could receive a payload as old
+			// as the full queue wait of this replay. The stale-join window that remains is
+			// the serialization itself, the same as before the limiter existed. (A client
+			// that misses a delta in that window becomes correct on its next full-basis
+			// transfer, not on the live stream.)
 			snapshot, selector, err = r.peek(id)
 			if err != nil {
 				r.logger.Error("error getting all flags after admission", "error", err)
@@ -372,34 +373,35 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 				return
 			}
 
-			// Hold the slot for the actual send, not just until the channel handoff. The
-			// eventsource handler writes the events on another goroutine; Begin scopes the write
-			// deadline to this basis, and the handler's end-of-batch flush clears it and signals
-			// completion. The deferred closure runs on EVERY exit after Begin -- a completed
-			// delivery and an abandoned one alike: End marks the delivery finished (the flush
-			// must observe it, or the armed deadline would outlive the delivery and later cut a
-			// healthy stream), closeOut triggers that flush, and WaitAndFinish holds the slot
-			// until the basis is flushed or the connection ends (a disconnect, or a send the
-			// write deadline cut). This makes MaxConcurrent bound concurrent sends and resident
-			// payloads, including the single-event FDv1 /all put. ctx here is the request's
-			// context (withInitDeadline derives it), which WaitAndFinish requires.
+			// Keep the slot for the full send, not only until the channel handoff. The
+			// eventsource handler writes the events on another goroutine. Begin attaches the
+			// write deadline to this basis, and the end-of-batch flush of the handler clears
+			// the deadline and signals completion. The deferred closure runs on EVERY exit
+			// after Begin, for a completed delivery and for an abandoned one. End marks the
+			// delivery as finished; the flush must see that mark, or the deadline would stay
+			// after the delivery and later cut a healthy stream. closeOut causes that flush.
+			// WaitAndFinish keeps the slot until the basis is flushed or the connection ends
+			// -- a disconnect, or a send that the write deadline cut. As a result,
+			// MaxConcurrent limits the concurrent sends and the resident payloads, and this
+			// includes the single-event FDv1 /all put. Here ctx is the request context,
+			// which withInitDeadline derives and WaitAndFinish requires.
 			if iw, ok := ctx.Value(initWriterKey{}).(*initwrite.Writer); ok {
 				iw.Begin()
 				defer func() {
 					iw.End()
 					closeOut()
 					if testHookSlowBasisClose.Load() {
-						// Force the end-of-basis flush to complete before the wait begins, the
-						// ordering under which a regression to eager completion-signal capture
-						// would leak the slot.
+						// Make the end-of-basis flush complete before the wait starts. That is
+						// the order in which an early capture of the completion signal, if a
+						// regression brought it back, would leak the slot.
 						time.Sleep(5 * time.Millisecond)
 					}
 					iw.WaitAndFinish(ctx)
 					release()
 				}()
 			} else {
-				// No progress-aware writer on this path (e.g. the context-less Replay fallback);
-				// release when the producer returns.
+				// This path has no progress-aware writer (for example, the Replay path that
+				// has no context). Release the slot when the producer returns.
 				defer release()
 			}
 		}
@@ -415,42 +417,45 @@ func (r *serverSideEnvStreamRepository) replay(ctx context.Context, id string) c
 	return out
 }
 
-// sendEvents streams the events to the connection's handler while the held slot, if any,
-// is still charged. A client disconnect (ctx) stops it and frees the slot. There is
-// deliberately no idle timeout here: abandoning a partly-sent basis while the connection
-// stays open would let a later delta complete it into a corrupt data set. A client that
-// stalls without disconnecting is bounded instead by the connection's write deadline (see
-// withInitDeadline), which closes the connection so the SDK reconnects cleanly.
+// sendEvents streams the events to the handler of the connection while the held slot, if
+// there is one, stays charged. A client disconnect (through ctx) stops it and frees the
+// slot. This function has no idle timeout, and that is intentional: if the producer stopped
+// a partly-sent basis while the connection stays open, a later delta could complete the
+// basis into a corrupt data set. The write deadline of the connection limits a client that
+// stalls without a disconnect (see withInitDeadline): the deadline closes the connection,
+// and the SDK reconnects cleanly.
 func (r *serverSideEnvStreamRepository) sendEvents(ctx context.Context, out chan<- eventsource.Event, events []eventsource.Event) {
 	for _, event := range events {
 		select {
 		case out <- event:
 		case <-ctx.Done():
-			// The subscriber disconnected before consuming the whole replay; stop producing so
-			// this goroutine, its payload, and any held slot are released promptly.
+			// The subscriber disconnected before it consumed the whole replay. Stop the
+			// producer, so this goroutine, its payload, and each held slot are released
+			// quickly.
 			r.logger.Info("subscriber disconnected mid-replay; stopping replay")
 			return
 		}
 	}
 }
 
-// peekResult is the single-flight-shared result of reading the store: the data set and
-// its selector.
+// peekResult is the store-read result that a single flight shares: the data set and its
+// selector.
 type peekResult struct {
 	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor
 	selector subsystems.Selector
 }
 
-// peek reads the current data set and selector, deduplicating concurrent reads with a
-// single flight keyed by the caller's basis. Keying by basis (rather than a fixed key) is
-// required for correctness: callers that share a read also share the up-to-date decision
-// made from its selector, and only callers with the same basis reach the same decision. A
-// fixed key would let a client reconnecting at the current basis join an older in-flight
-// read taken before its basis existed, fail the up-to-date check against that stale
-// selector, and be sent a full basis at the old state -- losing any delta published between
-// that read and its own subscription. A herd of reconnects at the same basis (the common
-// case after a restart) still shares one read. The result holds references to the stored
-// data rather than a serialized copy, so it is cheap.
+// peek reads the current data set and selector. It removes duplicate concurrent reads with
+// a single flight, and the key of that flight is the basis of the caller. The basis key,
+// not a fixed key, is necessary for correctness: callers that share a read also share the
+// up-to-date decision made from its selector, and only callers with the same basis come to
+// the same decision. With a fixed key, a client that reconnects at the current basis could
+// join an older read that started before its basis existed. That client would fail the
+// up-to-date check against the old selector, and would receive a full basis at the old
+// state -- and lose each delta published between that read and its own subscription. A herd
+// of reconnects at the same basis, the usual condition after a restart, continues to share
+// one read. The result holds references to the stored data, not a serialized copy, so it
+// is cheap.
 func (r *serverSideEnvStreamRepository) peek(id string) (
 	map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 	subsystems.Selector,
@@ -470,9 +475,9 @@ func (r *serverSideEnvStreamRepository) peek(id string) (
 	return res.snapshot, res.selector, nil
 }
 
-// serializePutV1 builds the FDv1 "put" event containing the entire data set from an
-// already-read snapshot. It is single-flight-deduplicated so concurrent reconnects share
-// one serialization.
+// serializePutV1 builds the FDv1 "put" event, which contains the full data set, from a
+// snapshot that was read before. A single flight removes duplicate work, so concurrent
+// reconnects share one serialization.
 func (r *serverSideEnvStreamRepository) serializePutV1(
 	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,
 ) []eventsource.Event {
@@ -482,10 +487,10 @@ func (r *serverSideEnvStreamRepository) serializePutV1(
 			{Kind: ldstoreimpl.Segments(), Items: removeDeleted(snapshot[ldstoreimpl.Segments()])},
 		}
 		event := MakeServerSidePutEvent(allData)
-		// The put event serializes its payload lazily. Force that here, inside the single
-		// flight and while the budget slot is held, so the payload's memory is accounted
-		// under the slot and shared by everyone in this flight rather than re-serialized
-		// per connection after the slot is released.
+		// The put event serializes its payload only when something reads it. Cause that
+		// serialization here, inside the single flight and while the budget slot is held.
+		// Then the slot accounts for the memory of the payload, and everyone in this flight
+		// shares it; no connection serializes it again after the slot is released.
 		_ = event.Data()
 		return event, nil
 	})
@@ -493,9 +498,9 @@ func (r *serverSideEnvStreamRepository) serializePutV1(
 	return []eventsource.Event{data.(eventsource.Event)}
 }
 
-// serializeBasisV2 builds the FDv2 basis events from an already-read snapshot. It is
-// single-flight-deduplicated by basis, so concurrent reconnects at the same basis share
-// one serialization.
+// serializeBasisV2 builds the FDv2 basis events from a snapshot that was read before. A
+// single flight with a basis key removes duplicate work, so concurrent reconnects at the
+// same basis share one serialization.
 func (r *serverSideEnvStreamRepository) serializeBasisV2(
 	basis string,
 	snapshot map[ldstoretypes.DataKind][]ldstoretypes.KeyedItemDescriptor,

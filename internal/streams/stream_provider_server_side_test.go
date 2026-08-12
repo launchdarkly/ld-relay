@@ -480,10 +480,10 @@ func TestStreamReplayShedClosesConnectionWhenBudgetFull(t *testing.T) {
 	}
 }
 
-// TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot pins the queue's designed exit:
-// a client that disconnects while it waits for a slot gives up its place immediately (the SDK
-// then retries on its own backoff schedule). Its wait must not be shed with a warning, and its
-// occupancy must be returned so a later client can use the queue.
+// TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot pins the intended exit from
+// the queue: a client that disconnects while it waits for a slot releases its place
+// immediately, and the SDK then tries again on its own backoff schedule. The exit must not
+// write a warning, and the occupancy must come back, so a later client can use the queue.
 func TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot(t *testing.T) {
 	const flagKey = "flagkey"
 	store := newMockStoreQueries()
@@ -550,9 +550,9 @@ func TestStreamReplayQueuedClientDisconnectRelinquishesQueueSpot(t *testing.T) {
 	assert.True(t, <-admitted, "queue capacity was not relinquished by the disconnected client")
 }
 
-// TestStreamReplayShutdownEndsQuietly pins the shutdown path: a replay rejected because the
-// limiter is closing must not log the budget-saturation warning -- one line per parked waiter
-// would flood the log during an ordinary shutdown and read as an outage.
+// TestStreamReplayShutdownEndsQuietly pins the shutdown path: a replay that the limiter
+// rejects because it is closing must not write the budget-saturation warning. One line for
+// each parked waiter would flood the log during a normal shutdown and look like an outage.
 func TestStreamReplayShutdownEndsQuietly(t *testing.T) {
 	const flagKey = "flagkey"
 	store := newMockStoreQueries()
@@ -585,7 +585,8 @@ func TestStreamReplayShutdownEndsQuietly(t *testing.T) {
 }
 
 // deadlineRecorder is a ResponseWriter whose recorded deadlines are safe to read after the
-// handler returns, for asserting the watcher completed its cut before the wrapper exited.
+// handler returns. Tests use it to make sure the watcher completed its cut before the
+// wrapper returned.
 type deadlineRecorder struct {
 	*httptest.ResponseRecorder
 	mu        sync.Mutex
@@ -605,10 +606,11 @@ func (d *deadlineRecorder) count() int {
 	return len(d.deadlines)
 }
 
-// TestWatcherCutCompletesBeforeHandlerReturns pins the watcher join: by the time the wrapped
-// handler returns to net/http, the watcher must have finished its cut. Without the join, the
-// cut could land on a connection net/http has already recycled -- the cross-request hazard
-// the writer's contract forbids. The mid-delivery return makes the cut a real deadline call.
+// TestWatcherCutCompletesBeforeHandlerReturns pins the watcher join: before the wrapped
+// handler returns to net/http, the watcher must complete its cut. Without the join, the cut
+// could touch a connection that net/http already gave to another request, which the writer
+// contract forbids. The handler returns in the middle of a delivery, so the cut makes a
+// real deadline call.
 func TestWatcherCutCompletesBeforeHandlerReturns(t *testing.T) {
 	limiter := concurrency.New("t", concurrency.Params{MaxConcurrent: 4, MaxQueued: 4})
 	sp := &serverSideStreamProvider{initLimiter: limiter, sendTimeout: 30 * time.Second}
@@ -632,16 +634,16 @@ func TestWatcherCutCompletesBeforeHandlerReturns(t *testing.T) {
 	}
 }
 
-// TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead is a regression test for
-// the fixed-key peek bug: a client reconnecting at the CURRENT basis must get an up-to-date
-// reply even while another client's older-basis store read is in flight. When the read was
-// deduplicated on a fixed key, this client joined the older read, failed the up-to-date
-// check against its stale selector, and was wrongly sent a full basis at the old state.
-// TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission pins the post-admission
-// refresh: a client that queued while its basis was ahead of the store, and whose basis the
-// store caught up to during the wait, must get the small up-to-date reply -- not a full basis
-// serialized from the state the world was in when it first asked. The refresh also returns
-// the slot immediately on the up-to-date path.
+// TestStreamReplayCurrentBasisIsUpToDateDespiteConcurrentStaleRead guards the peek key: a
+// client that reconnects at the CURRENT basis must get an up-to-date reply, also while the
+// older-basis store read of another client is in progress. With one fixed key for all
+// reads, this client joined the older read, failed the up-to-date check against the old
+// selector, and incorrectly received a full basis at the old state.
+// TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission pins the post-admission read:
+// a client queued while its basis was ahead of the store, and the store became equal to
+// that basis during the wait. The client must get the small up-to-date reply, not a full
+// basis serialized from the state that applied when it first asked. On the up-to-date path,
+// the second read also returns the slot immediately.
 func TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission(t *testing.T) {
 	const flagKey = "flagkey"
 	var stateNow atomic.Int64
@@ -703,10 +705,10 @@ func TestStreamReplayQueuedClientRefreshesItsReadAfterAdmission(t *testing.T) {
 }
 
 // TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead pins the other half of
-// the post-admission refresh: a client that still needs a full basis after its queue wait
-// must be served the store as it is at admission, not the state the world was in when it
-// first asked. Serializing the pre-queue snapshot is the exact regression the refresh exists
-// to prevent.
+// the post-admission read: a client that continues to need a full basis after its queue
+// wait must receive the store as it is at admission, not the state that applied when it
+// first asked. A serialization from the pre-queue snapshot is the exact fault the second
+// read exists to prevent.
 func TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead(t *testing.T) {
 	const flagKey = "flagkey"
 	var stateNow atomic.Int64
@@ -762,10 +764,10 @@ func TestStreamReplayQueuedFullBasisIsSerializedFromPostAdmissionRead(t *testing
 	assert.Contains(t, payload.String(), `"state":"s3"`, "the payload must carry the post-admission selector")
 }
 
-// TestStreamReplayPostAdmissionReadErrorReleasesSlot pins the error path of the refresh: a
-// store read that fails after the budget admitted the replay must return the slot. A leak
-// here would shrink the budget by one for every store error under saturation -- exactly when
-// a store outage is most likely -- until nothing could initialize at all.
+// TestStreamReplayPostAdmissionReadErrorReleasesSlot pins the error path of the second
+// read: a store read that fails after the budget admits the replay must return the slot. A
+// leak here would decrease the budget by one for each store error under saturation, exactly
+// when a store failure is most probable, until nothing could initialize at all.
 func TestStreamReplayPostAdmissionReadErrorReleasesSlot(t *testing.T) {
 	const flagKey = "flagkey"
 	var reads atomic.Int64

@@ -77,22 +77,22 @@ type providerOptions struct {
 	logger      *slog.Logger
 }
 
-// WithLogger routes the underlying SSE server's connection-write errors to a logger, so that
-// a connection the init limiter cut (its write deadline exceeded) is visible rather than
-// silently dropped. Only the server-side stream provider uses it. Without it, those errors go
-// nowhere.
+// WithLogger sends the connection-write errors of the SSE server to a logger. This makes a
+// connection that the init limiter cut (its write deadline expired) visible instead of
+// silently lost. Only the server-side stream provider uses the logger. Without it, those
+// errors go nowhere.
 func WithLogger(logger *slog.Logger) Option {
 	return func(o *providerOptions) {
 		o.logger = logger
 	}
 }
 
-// WithInitLimiter bounds how many stream replays may send a FULL basis at once, drawing
-// from the shared initialization-delivery budget (the same limiter polls use). Replays
-// that are already up-to-date, and deltas, do not draw from it. Only the server-side
-// stream provider honors this; it is a no-op for the other stream kinds. A nil or
-// disabled limiter imposes no limit. sendTimeout frees a slot if an initialization
-// payload makes no progress reaching a (stalled) client within it.
+// WithInitLimiter limits how many stream replays may send a FULL basis at the same time.
+// The replays draw from the shared initialization-delivery budget, the same limiter the
+// polls use. A replay that is already up-to-date, and the deltas, do not draw from it. Only
+// the server-side stream provider obeys this option; the other stream kinds ignore it. A
+// limiter that is nil or disabled applies no limit. sendTimeout frees a slot when an
+// initialization payload makes no progress toward a stalled client in that time.
 func WithInitLimiter(limiter *concurrency.Limiter, sendTimeout time.Duration) Option {
 	return func(o *providerOptions) {
 		o.initLimiter = limiter
@@ -101,8 +101,8 @@ func WithInitLimiter(limiter *concurrency.Limiter, sendTimeout time.Duration) Op
 }
 
 // NewStreamProvider creates a StreamProvider implementation for the specified kind of stream endpoint.
-// opts customize the provider (e.g. WithInitLimiter for the server-side stream); they are ignored by
-// the stream kinds that do not deliver a full basis.
+// opts adjust the provider, for example WithInitLimiter for the server-side stream. The
+// stream kinds that do not deliver a full basis ignore them.
 func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitterTime time.Duration, opts ...Option) StreamProvider {
 	var o providerOptions
 	for _, opt := range opts {
@@ -142,10 +142,11 @@ func NewStreamProvider(kind basictypes.StreamKind, maxConnTime, pingStreamJitter
 	}
 }
 
-// sseLogger adapts a slog.Logger to the eventsource.Logger interface. The eventsource server
-// uses it only to report a connection-write failure. A write the init limiter's deadline cut
-// surfaces as a deadline-exceeded error and is logged at warn (a relay-initiated close, worth
-// seeing); an ordinary client disconnect is logged at debug so it does not spam the logs.
+// sseLogger adapts a slog.Logger to the eventsource.Logger interface. The eventsource
+// server uses it only to report a connection-write failure. A write that the deadline cut
+// shows a deadline-exceeded error, and the logger writes it at the warn level, because the
+// relay closed that connection itself and an operator must see it. An ordinary client
+// disconnect goes to the debug level, so it does not flood the logs.
 type sseLogger struct{ log *slog.Logger }
 
 func (l sseLogger) Println(v ...interface{}) {
@@ -158,10 +159,10 @@ func (l sseLogger) Println(v ...interface{}) {
 	l.log.Debug("stream connection write ended", "detail", fmt.Sprint(v...))
 }
 
-// isDeadlineExceeded recognizes a write-deadline expiry. The eventsource encoder wraps the
-// write error with a plain verb rather than %w, which severs the errors.Is chain, so the
-// error's text is checked as well; os.ErrDeadlineExceeded's text ("i/o timeout") is what a
-// net.Conn deadline expiry carries on every platform.
+// isDeadlineExceeded identifies a write-deadline expiry. The eventsource encoder wraps the
+// write error with a plain verb, not with %w, and that breaks the errors.Is chain. For that
+// reason this function also examines the error text. The text of os.ErrDeadlineExceeded is
+// "i/o timeout", and a net.Conn deadline expiry carries that text on every platform.
 func isDeadlineExceeded(err error) bool {
 	return errors.Is(err, os.ErrDeadlineExceeded) ||
 		strings.Contains(err.Error(), os.ErrDeadlineExceeded.Error())

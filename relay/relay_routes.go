@@ -94,14 +94,15 @@ func (r *Relay) makeRouter() *mux.Router {
 		middleware.DurationMetrics(metrics.ServerDuration),
 	)
 
-	// The FDv1 all-flags poll response is always a full-dataset write, the same resource a
-	// full-basis stream replay consumes, so pollLimit charges every such request against the
-	// shared initialization-delivery budget on entry, shedding with 503 when saturated and
-	// bounding how long a held slot can be parked by a slow client.
+	// The FDv1 all-flags poll response is always a full-data-set write, the same resource
+	// that a full-basis stream replay uses. Thus pollLimit charges each such request against
+	// the shared initialization-delivery budget when the request enters. It sheds with a 503
+	// when the budget is full, and it limits how long a slow client can keep a held slot.
 	//
-	// The FDv2 poll endpoints instead have provideInitLimiter make the budget available to
-	// the handler, which acquires only on its full-basis branch; a cheap up-to-date reply is
-	// never charged. Both are disabled by default (pass-through).
+	// For the FDv2 poll endpoints, provideInitLimiter makes the budget available to the
+	// handler instead. The handler takes a slot only on its full-basis branch, and a cheap
+	// up-to-date reply never uses one. Both wrappers are disabled by default and then do
+	// nothing.
 	pollLimit := middleware.LimitConcurrency(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
 	provideInitLimiter := middleware.ProvideInitLimiter(r.initConcurrency.limiter, r.initConcurrency.sendTimeout)
 
@@ -154,8 +155,8 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	// PHP SDK endpoints
 	sdkRouter.Handle("/flags", serverSideMiddlewareStack(pollLimit(middleware.ServerPollingRequestCount(http.HandlerFunc(pollAllFlagsHandler))))).Methods("GET")
-	// The single-flag and single-segment endpoints return one item and are requested per
-	// evaluation by the PHP SDK, so they are not initialization deliveries and are left ungated.
+	// The single-flag and single-segment endpoints return one item, and the PHP SDK requests
+	// them for each evaluation. They are not initialization deliveries, so they have no gate.
 	sdkRouter.Handle("/flags/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollFlagHandler)))).Methods("GET")
 	sdkRouter.Handle("/segments/{key}", serverSideMiddlewareStack(middleware.ServerPollingRequestCount(http.HandlerFunc(pollSegmentHandler)))).Methods("GET")
 
