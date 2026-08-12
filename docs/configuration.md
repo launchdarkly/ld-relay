@@ -137,6 +137,39 @@ _(9)_ The `metricsCapacity` setting controls the queue for usage metrics events,
 _(9)_ The `maxClientRequestBodySize` setting limits how much of a `REPORT` evaluation request body the Relay Proxy will read into memory before decoding the context, protecting the process from memory exhaustion caused by oversized request bodies. It applies to the `evalx` context/user endpoints for client-side, mobile, and server-side SDKs. The default value is `5MiB`. Requests whose body exceeds the limit receive an HTTP `413 Request Entity Too Large` response. Setting a non-positive value (such as `0B`) is rejected at startup; to raise or lower the limit, specify a positive value using the same units as `maxInboundPayloadSize` (for example, `10MiB`).
 
 
+### File section: `[Concurrency]`
+
+This section limits how many SDK *initialization deliveries* the Relay Proxy performs at the same time. An initialization delivery is the full data-set payload that the Relay Proxy serializes and sends when an SDK first connects. The limit protects the Relay Proxy from the memory and egress peaks that a large burst of new or reconnecting SDKs can cause. The limit is disabled by default: the behavior does not change unless you set `maxConcurrent`.
+
+The budget covers the endpoints that send a full data set:
+
+- The server-side streaming endpoints (`/all` and `/sdk/stream`). An FDv2 stream reconnect whose data is already current gets a small up-to-date reply, which is not counted.
+- The FDv2 polling endpoints (`/sdk/poll` and `/sdk/poll/eval`), on the same condition.
+- The FDv1 PHP all-flags poll (`/sdk/flags`).
+
+These endpoints stay outside the budget. They do not send a full data set, or a limit on them would shed usual per-evaluation traffic:
+
+- The single-item PHP lookups (`/sdk/flags/{key}` and `/sdk/segments/{key}`).
+- The `evalx` endpoints, which return evaluated results for one context.
+- The client-side ping streams, which carry no payload.
+- The legacy FDv1 flags-only stream.
+- Deltas and heartbeats on streams that are already initialized.
+
+Know two intentional properties of this scope when you set the budget size. First, the `evalx` endpoints are the initialization path for the client-side and mobile SDKs, so this budget does not protect that path. Second, the budget is one pool that all environments and both protocol generations share, and each credential that a gated endpoint accepts can reach it, including the public client-side IDs. Until isolation is available, a holder of a public client-side ID can occupy the budget, and initialization for every environment can then be delayed, including for the server-side SDKs. Set `maxConcurrent` and `maxQueued` with that in mind. Isolation between principals is a planned follow-up.
+
+| Property in file | Environment var       |   Type   | Default | Description                                                                                                                                                                                                       |
+|------------------|-----------------------|:--------:|:--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `maxConcurrent`  | `INIT_MAX_CONCURRENT` |  Number  | none    | The maximum number of initialization deliveries that may be in progress at the same time. A value of `0`, or no value, disables the limit. The cheap operations — an up-to-date reply, deltas, heartbeats, and single-item lookups — are never counted.            |
+| `maxQueued`      | `INIT_MAX_QUEUED`     |  Number  | `0`     | The maximum number of requests that may wait for a slot when `maxConcurrent` is reached. With a value of `0`, the Relay Proxy sheds an excess request immediately and does not queue it. A queued request waits as long as its client permits; a client that disconnects releases its place immediately, and the SDK tries again on its own backoff schedule. The value has an effect only when `maxConcurrent` is set.                 |
+| `sendTimeout`    | `INIT_SEND_TIMEOUT`   | Duration | `2m`    | The longest time one gated delivery may hold a slot. A throughput floor of approximately 64 KB/s closes a client that stalls or reads more slowly than the floor, long before this cap. The cap applies to a delivery so large that a floor-rate client would need more time than the cap permits (approximately `sendTimeout × 64 KB/s`, which is ~7.5 MiB at the default value), so a client on a very large data set can be cut, and it then reconnects. When the cap expires, the Relay Proxy closes the connection, gets the slot back, and the SDK reconnects. The value has an effect only when `maxConcurrent` is set. |
+
+At startup, the Relay Proxy clamps a value outside the supported range and writes a warning in the log: it clamps `maxConcurrent` to at most 65536, `maxQueued` to at most 1000000, and a `sendTimeout` that is set but smaller than 5 seconds to 5 seconds.
+
+The throughput floor and the cap measure the bytes that the Relay Proxy writes, before compression. A compressed connection puts fewer bytes on the wire for the same written bytes, so compression gives a slow reader more applicable margin against the floor.
+
+When the budget is full, the Relay Proxy sheds a polling request with an HTTP `503` response and a `Retry-After` header. For a streaming request, the response has already started, so the Relay Proxy closes the connection instead, and the SDK reconnects with backoff.
+
+
 ### File section: `[Environment "NAME"]`
 
 The Relay Proxy allows you to proxy any number of LaunchDarkly environments; there must be at least one. In a configuration file, each of these is a separate section in the format `[Environment "MyEnvName"]`, where `MyEnvName` is a unique identifier for the environment (this does not have to match the environment name on your LaunchDarkly dashboard, but it is recommended to). If you are using environment variables, you will add the `MyEnvName` identifier to the variable name prefix for each property. See examples below.
