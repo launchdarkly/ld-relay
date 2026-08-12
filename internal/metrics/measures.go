@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
@@ -244,14 +245,26 @@ func (r *EventMetricsRecorder) RecordEventsBytesSent(bytes int) {
 }
 
 // RecordEventsFailedSend records the number of events that could not be delivered after all retries.
-// The status code from the metadata is included as an attribute on the metric.
+//
+// Every measurement on this instrument is a failure, so it always carries error.type. When the events
+// service answered, that is the status code as a string, alongside http.response.status_code. A failure
+// that happened before any response -- a network error, a timeout -- reports the unclassified sentinel
+// and no status code, because there was none: the metadata reports 0 in that case, and publishing 0 as
+// a status code would invent a response that never arrived.
 func (r *EventMetricsRecorder) RecordEventsFailedSend(count int, metadata ldevents.EventSendFailureMetadata) {
 	if r.instruments == nil || count <= 0 {
 		return
 	}
-	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+1)
+	kvs := make([]attribute.KeyValue, len(r.envKVs), len(r.envKVs)+2)
 	copy(kvs, r.envKVs)
-	kvs = append(kvs, statusCodeAttrKey.Int(metadata.StatusCode))
+	if metadata.StatusCode > 0 {
+		kvs = append(kvs,
+			httpResponseStatusAttrKey.Int(metadata.StatusCode),
+			errorTypeAttrKey.String(strconv.Itoa(metadata.StatusCode)),
+		)
+	} else {
+		kvs = append(kvs, errorTypeAttrKey.String(errorTypeOther))
+	}
 	attrs := attribute.NewSet(kvs...)
 	r.instruments.eventsFailedSend.Add(context.Background(), int64(count), metric.WithAttributeSet(attrs))
 }

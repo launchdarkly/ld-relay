@@ -78,8 +78,11 @@ var (
 	urlSchemeAttrKey           = semconv.URLSchemeKey              //nolint:gochecknoglobals
 	networkProtoVersionAttrKey = semconv.NetworkProtocolVersionKey //nolint:gochecknoglobals
 	errorTypeAttrKey           = semconv.ErrorTypeKey              //nolint:gochecknoglobals
-	statusCodeAttrKey          = attribute.Key("status_code")      //nolint:gochecknoglobals
 )
+
+// errorTypeOther is the semantic-convention value for an error that the instrumentation cannot
+// classify further.
+const errorTypeOther = "_OTHER"
 
 // buildRequestAttributes creates an OTel attribute set for request metrics using semconv attribute names
 // where applicable. Values from the RequestInfo are sanitized here, so callers pass it through as-is.

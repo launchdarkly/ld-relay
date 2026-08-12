@@ -53,7 +53,11 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 
 The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.send.errors`,
 `.dropped`, `.pending`) are recorded outside any request, so they carry only `environment.name`.
-`.send.errors` also carries `status_code`.
+
+Every measurement on `.send.errors` is a failure, so it always carries `error.type`. When the events
+service returned a response, `error.type` is that status code as a string and
+`http.response.status_code` carries it as a number. When the send failed before any response arrived
+-- a network error or a timeout -- `error.type` is `_OTHER` and no status code is reported.
 
 Attribute values that are absent are reported as `not-provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so

@@ -424,10 +424,46 @@ func TestRecordEventsFailedSend(t *testing.T) {
 		dp := sum.DataPoints[0]
 		assert.Equal(t, int64(3), dp.Value)
 
-		// Verify the status_code attribute is an int, not a string
-		statusVal, ok := dp.Attributes.Value(statusCodeAttrKey)
-		assert.True(t, ok, "status_code attribute missing")
+		// Verify the status code attribute is an int, not a string
+		statusVal, ok := dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.True(t, ok, "http.response.status_code attribute missing")
 		assert.Equal(t, int64(429), statusVal.AsInt64())
+
+		// Every measurement on this instrument is a failure, so error.type is always present. With a
+		// response, semconv reports the status code as its value.
+		errorVal, ok := dp.Attributes.Value(errorTypeAttrKey)
+		assert.True(t, ok, "error.type attribute missing")
+		assert.Equal(t, "429", errorVal.AsString())
+	})
+}
+
+// A send that failed before any response reports 0 in the metadata. Publishing that as a status code
+// would invent a response that never arrived, so the status code is omitted and the failure is reported
+// through the unclassified error.type value instead.
+func TestRecordEventsFailedSendWithNoResponse(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordEventsFailedSend(2, ldevents.EventSendFailureMetadata{StatusCode: 0})
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsSendErrorsMeasureName)
+		require.NotNil(t, m, "events send errors metric not found")
+
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data")
+		require.NotEmpty(t, sum.DataPoints)
+
+		dp := sum.DataPoints[0]
+		assert.Equal(t, int64(2), dp.Value)
+
+		_, ok = dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.False(t, ok, "no response was received, so no status code should be reported")
+
+		errorVal, ok := dp.Attributes.Value(errorTypeAttrKey)
+		require.True(t, ok, "error.type attribute missing")
+		assert.Equal(t, "_OTHER", errorVal.AsString())
 	})
 }
 
