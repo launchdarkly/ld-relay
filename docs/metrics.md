@@ -40,7 +40,7 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 | Attribute | Description |
 |-----------|-------------|
 | `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
-| `user_agent` | The user agent of the SDK making the request, with slashes replaced by underscores. Example: `Node_3.4.0` |
+| `user_agent.original` | The `User-Agent` header sent by the SDK making the request, as received. Example: `Node/3.4.0` |
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `http.request.method` | The HTTP method. Example: `GET` |
 | `url.scheme` | The URL scheme. Example: `https` |

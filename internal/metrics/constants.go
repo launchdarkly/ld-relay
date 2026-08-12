@@ -65,13 +65,13 @@ const (
 //     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
 //     a separate sink with its own cardinality budget.
 var (
-	userAgentAttrKey          = attribute.Key("user_agent")          //nolint:gochecknoglobals
 	envNameAttrKey            = attribute.Key("environment.name")    //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
 	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type") //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
+	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals
 	httpRouteAttrKey           = semconv.HTTPRouteKey              //nolint:gochecknoglobals
 	httpRequestMethodAttrKey   = semconv.HTTPRequestMethodKey      //nolint:gochecknoglobals
 	httpResponseStatusAttrKey  = semconv.HTTPResponseStatusCodeKey //nolint:gochecknoglobals
@@ -113,7 +113,7 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attri
 // fixed-size fast path, which only covers sets of ten or fewer.
 func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		userAgentAttrKey.String(sanitizeTagValue(ri.UserAgent)),
+		userAgentAttrKey.String(sanitizeVerbatimValue(ri.UserAgent)),
 		httpRouteAttrKey.String(sanitizeRouteValue(ri.Route)),
 		httpRequestMethodAttrKey.String(sanitizeTagValue(ri.Method)),
 		urlSchemeAttrKey.String(ri.URLScheme),
@@ -125,7 +125,8 @@ func requestKVs(ri RequestInfo) []attribute.KeyValue {
 
 // sanitizeTagValue ensures attribute values are valid.
 // Empty values are replaced with descriptive defaults, and slashes are replaced with underscores.
-// This is appropriate for user agent strings and SDK wrapper names, but not for routes.
+// This is appropriate for SDK wrapper names in the usage data Relay reports to LaunchDarkly, but not
+// for routes, and not for values that a semantic convention defines as verbatim.
 //
 // Invalid UTF-8 is stripped via util.SanitizeUTF8, which matters more than it looks: a single bad byte
 // fails the OTLP marshal for the entire export batch, and these series are cumulative, so exports keep
@@ -133,6 +134,19 @@ func requestKVs(ri RequestInfo) []attribute.KeyValue {
 // caller can supply one via the status and not-found handlers.
 func sanitizeTagValue(v string) string {
 	v = util.SanitizeUTF8(strings.ReplaceAll(v, "/", "_"))
+	if strings.TrimSpace(v) == "" {
+		return notProvidedValue
+	}
+	return v
+}
+
+// sanitizeVerbatimValue keeps a value as the client sent it, stripping only invalid UTF-8. Use it for
+// attributes whose semantic convention defines them as the original value, such as
+// user_agent.original: replacing the slashes in "Node/3.4.0" would make the metric attribute disagree
+// with the identical attribute the tracing instrumentation records on the request span, so the two
+// could no longer be joined.
+func sanitizeVerbatimValue(v string) string {
+	v = util.SanitizeUTF8(v)
 	if strings.TrimSpace(v) == "" {
 		return notProvidedValue
 	}

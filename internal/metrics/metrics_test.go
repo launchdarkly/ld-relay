@@ -501,6 +501,28 @@ func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
 }
 
+func TestSanitizeVerbatimValue(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeVerbatimValue("abc"))
+	assert.Equal(t, "not-provided", sanitizeVerbatimValue(""))
+	assert.Equal(t, "not-provided", sanitizeVerbatimValue("   "))
+	assert.Equal(t, "react/2.0.0", sanitizeVerbatimValue("react/2.0.0"))
+	assert.Equal(t, "Node/3.4.0", sanitizeVerbatimValue("Node\xff/3.4.0"))
+}
+
+// The user agent is reported under the semantic-convention key, with the value the client sent. The
+// tracing instrumentation records the same attribute on the request span from the same header, so a
+// mangled value here would stop metrics and traces being joined on it.
+func TestUserAgentUsesSemconvKeyAndVerbatimValue(t *testing.T) {
+	attrs := buildRequestAttributes(nil, RequestInfo{UserAgent: "Node/3.4.0"})
+
+	value, ok := attrs.Value(attribute.Key("user_agent.original"))
+	require.True(t, ok, "user_agent.original attribute not present")
+	assert.Equal(t, "Node/3.4.0", value.AsString())
+
+	_, ok = attrs.Value(attribute.Key("user_agent"))
+	assert.False(t, ok, "the bare user_agent key shadows the semconv user_agent namespace")
+}
+
 // Attribute values are serialized into OTLP protobuf string fields, which proto3 requires to be valid
 // UTF-8. One bad byte fails the marshal for the whole export batch, and the poisoned series is
 // cumulative, so exports keep failing until restart. Header values are not restricted to ASCII, so this
