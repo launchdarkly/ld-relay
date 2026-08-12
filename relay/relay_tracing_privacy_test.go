@@ -71,6 +71,13 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 				route: "/msdk/evalx/users/{context}",
 				req:   st.BuildRequestWithAuth("GET", "/msdk/evalx/users/"+contextBase64, mobileKey, nil),
 			},
+			{
+				// A context in a REPORT body has nothing to redact in the path, but no span may
+				// carry the body either.
+				route: "/sdk/evalx/context",
+				req: st.BuildRequest("REPORT", "/sdk/evalx/context", []byte(contextJSON),
+					http.Header{"Authorization": []string{string(sdkKey)}, "Content-Type": []string{"application/json"}}),
+			},
 		}
 
 		for _, params := range cases {
