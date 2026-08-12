@@ -4,8 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"unicode/utf8"
+
+	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/pborman/uuid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
@@ -46,9 +50,43 @@ func NewResource(logger *slog.Logger) *resource.Resource {
 	}
 
 	res, err := resource.New(context.Background(), opts...)
-	if err != nil || res == nil {
-		logger.Warn("failed to create OTel resource, falling back to default", "error", err)
+	if err != nil {
+		// resource.New reports a partial-resource error but still returns everything it merged, so
+		// the resource is usable. One malformed OTEL_RESOURCE_ATTRIBUTES entry -- an entry with no
+		// "=", which a stray comma also produces -- is enough to reach this. Keeping the resource
+		// preserves Relay's defaults and every attribute that did parse. resource.Default() would
+		// drop both service.name and service.instance.id, leaving the process with no identity for
+		// target_info to join against.
+		logger.Warn("some OTel resource attributes were not applied", "error", err)
+	}
+	if res == nil {
+		logger.Warn("failed to create OTel resource, falling back to default")
 		res = resource.Default()
 	}
-	return res
+	return sanitizeResource(res)
+}
+
+// sanitizeResource replaces invalid UTF-8 in resource attribute values.
+//
+// OTEL_RESOURCE_ATTRIBUTES values are percent-decoded, so an operator can put a byte outside UTF-8
+// into one without meaning to. OTLP cannot serialize it. The resource travels with every batch of
+// spans, metrics and logs, so a single bad value stops all telemetry export for the life of the
+// process, rather than costing one batch the way a bad span attribute does.
+func sanitizeResource(res *resource.Resource) *resource.Resource {
+	var repaired []attribute.KeyValue
+	for _, kv := range res.Attributes() {
+		if kv.Value.Type() == attribute.STRING && !utf8.ValidString(kv.Value.AsString()) {
+			repaired = append(repaired, kv.Key.String(util.SanitizeUTF8(kv.Value.AsString())))
+		}
+	}
+	if len(repaired) == 0 {
+		return res
+	}
+	// A later value replaces an earlier one, so merging the repairs over the original resource
+	// overwrites just the offending attributes.
+	merged, err := resource.Merge(res, resource.NewWithAttributes(res.SchemaURL(), repaired...))
+	if err != nil {
+		return res
+	}
+	return merged
 }
