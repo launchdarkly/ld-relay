@@ -13,6 +13,7 @@ import (
 // Instruments holds the OTel metric instruments used for recording metrics.
 type Instruments struct {
 	connections         metric.Int64UpDownCounter // active connections (+1/-1)
+	requests            metric.Int64Counter       // cumulative count of requests received
 	requestDuration     metric.Float64Histogram   // request duration in seconds
 	eventsReceivedBytes metric.Int64Counter       // cumulative bytes of event data received
 	eventsDropped       metric.Int64Counter       // cumulative count of events dropped due to capacity overflow
@@ -66,6 +67,12 @@ func newInstruments(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
+	requests, err := meter.Int64Counter(requestsMeasureName,
+		metric.WithDescription("Requests received, counted when the request starts"),
+		metric.WithUnit("{request}"))
+	if err != nil {
+		return nil, err
+	}
 	requestDuration, err := meter.Float64Histogram(requestDurationMeasureName,
 		metric.WithDescription("Duration of HTTP server requests"),
 		metric.WithUnit("s"))
@@ -110,6 +117,7 @@ func newInstruments(meter metric.Meter) (*Instruments, error) {
 	}
 	return &Instruments{
 		connections:         connections,
+		requests:            requests,
 		requestDuration:     requestDuration,
 		eventsReceivedBytes: eventsReceivedBytes,
 		eventsDropped:       eventsDropped,
@@ -136,19 +144,28 @@ type RequestInfo struct {
 	ErrorType       string
 }
 
-// StartActiveRequest increments http.server.active_requests and returns a function that decrements it
-// again. The returned function must be called exactly once, when the request is finished.
+// StartActiveRequest records the start of a request: it adds one to launchdarkly.relay.requests,
+// increments http.server.active_requests, and returns a function that decrements the latter again. The
+// returned function must be called exactly once, when the request is finished.
 //
-// The attribute set is computed once, up front, and reused for the decrement. Anything only known after
-// the handler runs (status code, error type) therefore cannot be reported on this metric: a mismatched
-// attribute set between the increment and the decrement would leak a permanently non-zero series.
+// launchdarkly.relay.requests is counted here, at the start of the request, rather than at the end.
+// Streaming requests hold the connection open for an unbounded time, so counting them on completion
+// would report a connection minutes or hours after it was made, and never report one that is still
+// open. Counting at the start is also what makes the metric a cumulative count of stream connections
+// established, once narrowed to the stream endpoint type.
+//
+// The attribute set is computed once, up front, and shared by all three calls. Anything only known
+// after the handler runs (status code, error type) therefore cannot be reported on these metrics: a
+// mismatched attribute set between the increment and the decrement would leak a permanently non-zero
+// active_requests series. http.server.request.duration carries those attributes instead.
 func StartActiveRequest(instruments *Instruments, em *EnvironmentManager, ri RequestInfo) func() {
 	if instruments == nil || em == nil {
 		return func() {}
 	}
 
-	// Built once and shared by both calls, so that the two can't drift apart.
+	// Built once and shared by every call, so that they can't drift apart.
 	attrs := metric.WithAttributeSet(buildRequestAttributes(em.envKVs, ri))
+	instruments.requests.Add(context.Background(), 1, attrs)
 	instruments.connections.Add(context.Background(), 1, attrs)
 	return func() {
 		instruments.connections.Add(context.Background(), -1, attrs)

@@ -66,6 +66,7 @@ func TestNewInstrumentsCreatesEveryInstrument(t *testing.T) {
 	require.NotNil(t, instruments)
 
 	assert.NotNil(t, instruments.connections)
+	assert.NotNil(t, instruments.requests)
 	assert.NotNil(t, instruments.requestDuration)
 	assert.NotNil(t, instruments.eventsReceivedBytes)
 	assert.NotNil(t, instruments.eventsDropped)
@@ -212,7 +213,13 @@ func TestActiveRequestMetrics(t *testing.T) {
 				require.NoError(t, err)
 				m := findMetric(rm, connMeasureName)
 				require.NotNil(t, m, "active requests metric not found")
-				assertGaugeValue(t, m, p.envName, 1)
+				assertSumValue(t, m, p.envName, 1)
+				assertHasAttribute(t, m, endpointTypeAttrKey, string(endpointType))
+
+				// The cumulative counter is recorded at the same moment, off the same attribute set.
+				m = findMetric(rm, requestsMeasureName)
+				require.NotNil(t, m, "requests metric not found")
+				assertSumValue(t, m, p.envName, 1)
 				assertHasAttribute(t, m, endpointTypeAttrKey, string(endpointType))
 
 				requestFinished()
@@ -222,9 +229,14 @@ func TestActiveRequestMetrics(t *testing.T) {
 				require.NoError(t, err)
 				m = findMetric(rm, connMeasureName)
 				require.NotNil(t, m, "active requests metric not found")
-				assertGaugeValue(t, m, p.envName, 0)
+				assertSumValue(t, m, p.envName, 0)
 				assert.Len(t, m.Data.(metricdata.Sum[int64]).DataPoints, 1,
 					"increment and decrement should share one attribute set")
+
+				// The cumulative counter must not follow it back down.
+				m = findMetric(rm, requestsMeasureName)
+				require.NotNil(t, m, "requests metric not found")
+				assertSumValue(t, m, p.envName, 1)
 			})
 		})
 	}
@@ -247,8 +259,45 @@ func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		m := findMetric(rm, connMeasureName)
 		require.NotNil(t, m, "active requests metric not found")
-		assertGaugeValue(t, m, notProvidedValue, 1)
+		assertSumValue(t, m, notProvidedValue, 1)
 		assertHasAttribute(t, m, endpointTypeAttrKey, string(EndpointTypeStatus))
+
+		m = findMetric(rm, requestsMeasureName)
+		require.NotNil(t, m, "requests metric not found")
+		assertSumValue(t, m, notProvidedValue, 1)
+		assertHasAttribute(t, m, endpointTypeAttrKey, string(EndpointTypeStatus))
+	})
+}
+
+// launchdarkly.relay.requests replaces the newconnections metric that Relay exported before v9.
+// Narrowing it to the stream endpoint type gives what that metric reported: the cumulative number of
+// stream connections established. So it has to keep climbing as requests finish, which is what
+// separates it from http.server.active_requests, and it has to be monotonic, so that backends treat
+// it as a counter rather than a gauge.
+func TestRequestCounterAccumulatesAcrossRequests(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		ri := RequestInfo{UserAgent: userAgentValue, Route: "/test", Method: "GET", EndpointType: EndpointTypeStream}
+
+		for range 3 {
+			StartActiveRequest(p.instruments, p.env, ri)()
+		}
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+
+		m := findMetric(rm, requestsMeasureName)
+		require.NotNil(t, m, "requests metric not found")
+		assertSumValue(t, m, p.envName, 3)
+
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
+		assert.True(t, sum.IsMonotonic, "%s must be monotonic to be reported as a counter", m.Name)
+
+		// Over the same period the active-request gauge is back to zero, so the two instruments
+		// answer different questions from one recording site.
+		m = findMetric(rm, connMeasureName)
+		require.NotNil(t, m, "active requests metric not found")
+		assertSumValue(t, m, p.envName, 0)
 	})
 }
 
@@ -689,7 +738,9 @@ func findMetric(rm *metricdata.ResourceMetrics, name string) *metricdata.Metrics
 	return nil
 }
 
-func assertGaugeValue(t *testing.T, m *metricdata.Metrics, envName string, expected int64) {
+// assertSumValue covers both instruments that report a Sum[int64]: the active-request UpDownCounter
+// and the cumulative request Counter.
+func assertSumValue(t *testing.T, m *metricdata.Metrics, envName string, expected int64) {
 	t.Helper()
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)

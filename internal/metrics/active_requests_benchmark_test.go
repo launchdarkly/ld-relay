@@ -33,9 +33,15 @@ func benchEnvironmentManager(b *testing.B) *EnvironmentManager {
 	}
 }
 
-// BenchmarkStartActiveRequest measures the work this change adds to every non-streaming request:
-// one attribute set built and one increment/decrement pair on the UpDownCounter. Duration recording
-// already built a comparable set before this change, so this is the marginal cost, not the total.
+// BenchmarkStartActiveRequest measures the per-request cost of the recording site: one attribute set
+// built, one increment/decrement pair on the active-request UpDownCounter, and one increment on the
+// cumulative request Counter. Duration recording already built a comparable set, so this is the
+// marginal cost of these two instruments, not the total cost of instrumenting a request.
+//
+// The three measurements share one attribute set, so the counter costs an instrument Add rather than
+// another set construction, which is what dominates here. Measured at roughly 80 ns/op against a real
+// meter, plus one 16-byte allocation for the extra call's variadic option slice. That allocation is
+// paid whether or not OpenTelemetry is enabled; the time is not, because a noop Add does no work.
 //
 // The noop case matters as much as the real one: an operator with OpenTelemetry disabled still pays
 // for the attribute set, because the instruments are noop but the attributes are built before the
