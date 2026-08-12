@@ -43,7 +43,7 @@ func TestSingleflightDoAnnotatesALoneCaller(t *testing.T) {
 	require.True(t, ok, "the span should always report whether the flight was shared")
 	assert.False(t, shared.AsBool())
 
-	_, waited := attrs[SingleflightWaitMSKey]
+	_, waited := attrs[SingleflightWaitDurationKey]
 	assert.False(t, waited, "the caller executed the function itself, so it should record no wait")
 }
 
@@ -95,7 +95,7 @@ func TestSingleflightDoAnnotatesSharedCallers(t *testing.T) {
 	ended := recorder.Ended()
 	require.Len(t, ended, 3, "expected the leader span, the follower span, and the follower's wait span")
 
-	var followerWaitMS float64
+	var followerWaitSeconds float64
 	var waitSpan, followerSpan sdktrace.ReadOnlySpan
 	for _, s := range ended {
 		attrs := attrsOf(s)
@@ -108,15 +108,15 @@ func TestSingleflightDoAnnotatesSharedCallers(t *testing.T) {
 		require.True(t, ok, "the span should always report whether the flight was shared")
 		assert.True(t, shared.AsBool())
 
-		wait, waited := attrs[SingleflightWaitMSKey]
+		wait, waited := attrs[SingleflightWaitDurationKey]
 		switch s.Name() {
 		case "leader":
 			assert.False(t, waited, "the leader executed the function, so it should record no wait")
 		case "follower":
 			followerSpan = s
 			require.True(t, waited, "the follower waited on the leader's flight, so it should record its wait")
-			followerWaitMS = wait.AsFloat64()
-			assert.Positive(t, followerWaitMS)
+			followerWaitSeconds = wait.AsFloat64()
+			assert.Positive(t, followerWaitSeconds)
 		}
 	}
 
@@ -128,9 +128,9 @@ func TestSingleflightDoAnnotatesSharedCallers(t *testing.T) {
 		"the wait span should live in the follower's trace")
 	assert.Equal(t, followerSpan.SpanContext().SpanID(), waitSpan.Parent().SpanID(),
 		"the wait span should be a child of the follower's span")
-	spanMS := float64(waitSpan.EndTime().Sub(waitSpan.StartTime())) / float64(time.Millisecond)
-	assert.InDelta(t, followerWaitMS, spanMS, 0.001,
-		"the wait span should cover the same window the wait_ms attribute reports")
+	spanSeconds := waitSpan.EndTime().Sub(waitSpan.StartTime()).Seconds()
+	assert.InDelta(t, followerWaitSeconds, spanSeconds, 0.000001,
+		"the wait span should cover the same window the wait duration attribute reports")
 }
 
 func TestSingleflightDoToleratesASpanlessContext(t *testing.T) {

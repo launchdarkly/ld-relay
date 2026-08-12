@@ -230,8 +230,8 @@ func TestActiveRequestMetrics(t *testing.T) {
 	}
 }
 
-// The status endpoints and unmatched requests have no environment, so they report the not-provided
-// sentinel for environment.name.
+// The status endpoints and unmatched requests have no environment, so they report the not_provided
+// sentinel for launchdarkly.environment.name.
 func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
 		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
@@ -414,7 +414,7 @@ func TestRecordEventsFailedSend(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsSendErrorsMeasureName)
+		m := findMetric(rm, eventsFailedMeasureName)
 		require.NotNil(t, m, "events send errors metric not found")
 
 		sum, ok := m.Data.(metricdata.Sum[int64])
@@ -424,10 +424,46 @@ func TestRecordEventsFailedSend(t *testing.T) {
 		dp := sum.DataPoints[0]
 		assert.Equal(t, int64(3), dp.Value)
 
-		// Verify the status_code attribute is an int, not a string
-		statusVal, ok := dp.Attributes.Value(statusCodeAttrKey)
-		assert.True(t, ok, "status_code attribute missing")
+		// Verify the status code attribute is an int, not a string
+		statusVal, ok := dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.True(t, ok, "http.response.status_code attribute missing")
 		assert.Equal(t, int64(429), statusVal.AsInt64())
+
+		// Every measurement on this instrument is a failure, so error.type is always present. With a
+		// response, semconv reports the status code as its value.
+		errorVal, ok := dp.Attributes.Value(errorTypeAttrKey)
+		assert.True(t, ok, "error.type attribute missing")
+		assert.Equal(t, "429", errorVal.AsString())
+	})
+}
+
+// A send that failed before any response reports 0 in the metadata. Publishing that as a status code
+// would invent a response that never arrived, so the status code is omitted and the failure is reported
+// through the unclassified error.type value instead.
+func TestRecordEventsFailedSendWithNoResponse(t *testing.T) {
+	testWithOTel(t, func(p testWithOTelParams) {
+		recorder := p.env.NewEventMetricsRecorder(p.instruments)
+
+		recorder.RecordEventsFailedSend(2, ldevents.EventSendFailureMetadata{StatusCode: 0})
+
+		rm, err := p.collectMetrics()
+		require.NoError(t, err)
+		m := findMetric(rm, eventsFailedMeasureName)
+		require.NotNil(t, m, "events send errors metric not found")
+
+		sum, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "expected Sum[int64] data")
+		require.NotEmpty(t, sum.DataPoints)
+
+		dp := sum.DataPoints[0]
+		assert.Equal(t, int64(2), dp.Value)
+
+		_, ok = dp.Attributes.Value(httpResponseStatusAttrKey)
+		assert.False(t, ok, "no response was received, so no status code should be reported")
+
+		errorVal, ok := dp.Attributes.Value(errorTypeAttrKey)
+		require.True(t, ok, "error.type attribute missing")
+		assert.Equal(t, "_OTHER", errorVal.AsString())
 	})
 }
 
@@ -439,7 +475,7 @@ func TestRecordEventsFailedSendSkipsZeroCount(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsSendErrorsMeasureName)
+		m := findMetric(rm, eventsFailedMeasureName)
 		if m != nil {
 			sum, ok := m.Data.(metricdata.Sum[int64])
 			if ok {
@@ -496,9 +532,115 @@ func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 
 func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "not-provided", sanitizeTagValue(""))
-	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
+	assert.Equal(t, "not_provided", sanitizeTagValue(""))
+	assert.Equal(t, "not_provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+// The usage payload Relay reports to LaunchDarkly is a separate sink with its own consumer, so its
+// absent-value sentinel does not follow the OTel attribute one.
+func TestSanitizeUsageTagValue(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeUsageTagValue("abc"))
+	assert.Equal(t, "not-provided", sanitizeUsageTagValue(""))
+	assert.Equal(t, "not-provided", sanitizeUsageTagValue("   "))
+	assert.Equal(t, "react_2.0.0", sanitizeUsageTagValue("react/2.0.0"))
+}
+
+// End to end for the same boundary: a request with no user agent or wrapper must still put the usage
+// payload's own sentinel on the wire, whatever the OTel attributes report.
+func TestUsageEventsKeepTheirOwnAbsentValueSentinel(t *testing.T) {
+	publisher := newTestEventsPublisher()
+
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("sentinel-test", publisher)
+	require.NoError(t, err)
+
+	WithCount(env, RequestInfo{}, func() {}, ServerPollingRequests)
+
+	env.FlushEventsExporter()
+	metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+	require.Len(t, metricsEvent.PollingCounts, 1)
+	assert.Equal(t, "not-provided", metricsEvent.PollingCounts[0].UserAgent)
+	assert.Equal(t, "not-provided", metricsEvent.PollingCounts[0].SDKWrapper)
+}
+
+func TestSanitizeVerbatimValue(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeVerbatimValue("abc"))
+	assert.Equal(t, "not_provided", sanitizeVerbatimValue(""))
+	assert.Equal(t, "not_provided", sanitizeVerbatimValue("   "))
+	assert.Equal(t, "react/2.0.0", sanitizeVerbatimValue("react/2.0.0"))
+	assert.Equal(t, "Node/3.4.0", sanitizeVerbatimValue("Node\xff/3.4.0"))
+}
+
+// The attribute keys on the request metrics are a public contract: operators write dashboards and
+// alerts against them. Pinning the exact set means a rename cannot happen as a side effect of
+// something else.
+func TestRequestMetricAttributeKeys(t *testing.T) {
+	envKVs := []attribute.KeyValue{envNameAttrKey.String("testenv")}
+	ri := RequestInfo{
+		UserAgent:          userAgentValue,
+		Route:              "/sdk/poll",
+		Method:             "GET",
+		URLScheme:          "https",
+		ApplicationID:      "my-app",
+		ApplicationVersion: "1.0.0",
+		EndpointType:       EndpointTypePoll,
+	}
+
+	assert.ElementsMatch(t, []string{
+		"launchdarkly.environment.name",
+		"user_agent.original",
+		"http.route",
+		"http.request.method",
+		"url.scheme",
+		"launchdarkly.application.id",
+		"launchdarkly.application.version",
+		"launchdarkly.relay.endpoint.type",
+	}, attributeKeys(buildRequestAttributes(envKVs, ri)))
+
+	// The duration histogram adds the semconv attributes that are only known once the handler has run.
+	ri.ProtocolVersion = "1.1"
+	ri.StatusCode = 500
+	ri.ErrorType = "500"
+
+	assert.ElementsMatch(t, []string{
+		"launchdarkly.environment.name",
+		"user_agent.original",
+		"http.route",
+		"http.request.method",
+		"url.scheme",
+		"launchdarkly.application.id",
+		"launchdarkly.application.version",
+		"launchdarkly.relay.endpoint.type",
+		"network.protocol.version",
+		"http.response.status_code",
+		"error.type",
+	}, attributeKeys(buildDurationAttributes(envKVs, ri)))
+}
+
+func attributeKeys(set attribute.Set) []string {
+	keys := make([]string, 0, set.Len())
+	for _, kv := range set.ToSlice() {
+		keys = append(keys, string(kv.Key))
+	}
+	return keys
+}
+
+// The user agent is reported under the semantic-convention key, with the value the client sent. The
+// tracing instrumentation records the same attribute on the request span from the same header, so a
+// mangled value here would stop metrics and traces being joined on it.
+func TestUserAgentUsesSemconvKeyAndVerbatimValue(t *testing.T) {
+	attrs := buildRequestAttributes(nil, RequestInfo{UserAgent: "Node/3.4.0"})
+
+	value, ok := attrs.Value(attribute.Key("user_agent.original"))
+	require.True(t, ok, "user_agent.original attribute not present")
+	assert.Equal(t, "Node/3.4.0", value.AsString())
+
+	_, ok = attrs.Value(attribute.Key("user_agent"))
+	assert.False(t, ok, "the bare user_agent key shadows the semconv user_agent namespace")
 }
 
 // Attribute values are serialized into OTLP protobuf string fields, which proto3 requires to be valid
@@ -530,8 +672,8 @@ func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
 
 func TestSanitizeRouteValue(t *testing.T) {
 	assert.Equal(t, "/sdk/evalx/contexts/{context}", sanitizeRouteValue("/sdk/evalx/contexts/{context}"))
-	assert.Equal(t, "not-provided", sanitizeRouteValue(""))
-	assert.Equal(t, "not-provided", sanitizeRouteValue("   "))
+	assert.Equal(t, "not_provided", sanitizeRouteValue(""))
+	assert.Equal(t, "not_provided", sanitizeRouteValue("   "))
 }
 
 // Helper functions for asserting OTel metric data

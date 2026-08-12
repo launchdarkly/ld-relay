@@ -69,18 +69,69 @@ func requireURLPath(t *testing.T, recorder *tracetest.SpanRecorder) string {
 	return ""
 }
 
+// Only the context segment is replaced. Everything else in the path, including the environment
+// identifier, is not sensitive and stays, so url.path still says which endpoint and which environment
+// served the request rather than collapsing to a copy of http.route.
 func TestContextIsRedactedFromSpanPath(t *testing.T) {
 	for _, template := range contextRouteTemplates {
 		t.Run(template, func(t *testing.T) {
 			router, recorder := tracedRouter(t, template)
-			// Substituting the context variable last leaves any other variable in place, so
-			// the request path differs from the template only by the redacted value.
 			path := strings.Replace(template, "{envId}", "507f1f77bcf86cd799439011", 1)
 			path = strings.Replace(path, "{context}", contextBase64, 1)
 
 			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
 
-			assert.Equal(t, template, requireURLPath(t, recorder))
+			want := strings.Replace(template, "{envId}", "507f1f77bcf86cd799439011", 1)
+			want = strings.Replace(want, "{context}", "REDACTED", 1)
+			recorded := requireURLPath(t, recorder)
+			assert.Equal(t, want, recorded)
+			assert.NotContains(t, recorded, contextBase64, "the context must never reach the span")
+		})
+	}
+}
+
+// A context value that does not line up with a whole path segment cannot be redacted segment-wise. The
+// fallback reports the route template, so end-user data still never reaches the span.
+func TestRedactContextSegmentFallsBackToTheTemplate(t *testing.T) {
+	const template = "/sdk/evalx/{envId}/contexts/{context}"
+
+	specs := []struct {
+		name         string
+		path         string
+		contextValue string
+		want         string
+	}{
+		{
+			name:         "context is a whole segment",
+			path:         "/sdk/evalx/env-1/contexts/" + contextBase64,
+			contextValue: contextBase64,
+			want:         "/sdk/evalx/env-1/contexts/REDACTED",
+		},
+		{
+			name:         "context spans segments",
+			path:         "/sdk/evalx/env-1/contexts/one/two",
+			contextValue: "one/two",
+			want:         template,
+		},
+		{
+			name:         "context value not present in the path",
+			path:         "/sdk/evalx/env-1/contexts/something-else",
+			contextValue: contextBase64,
+			want:         template,
+		},
+		{
+			name:         "a value repeated in another segment is redacted too",
+			path:         "/sdk/evalx/" + contextBase64 + "/contexts/" + contextBase64,
+			contextValue: contextBase64,
+			want:         "/sdk/evalx/REDACTED/contexts/REDACTED",
+		},
+	}
+
+	for _, tt := range specs {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactContextSegment(tt.path, tt.contextValue, template)
+			assert.Equal(t, tt.want, got)
+			assert.NotContains(t, got, tt.contextValue, "the context must never survive redaction")
 		})
 	}
 }
@@ -122,7 +173,7 @@ func TestRedactionSurvivesNestedSubrouters(t *testing.T) {
 
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/sdk/poll/eval/"+contextBase64, nil))
 
-	assert.Equal(t, "/sdk/poll/eval/{context}", requireURLPath(t, recorder))
+	assert.Equal(t, "/sdk/poll/eval/REDACTED", requireURLPath(t, recorder))
 }
 
 // TestRedactionWithoutARecordingSpan covers a relay with tracing disabled, where the request

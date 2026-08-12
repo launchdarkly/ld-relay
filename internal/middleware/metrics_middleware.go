@@ -219,8 +219,8 @@ func RequestMetrics(endpointType metrics.EndpointType) mux.MiddlewareFunc {
 }
 
 // UnscopedActiveRequests tracks a request in http.server.active_requests without an LD environment, for
-// endpoints that have no environment to attribute the request to. Its environment.name and
-// platform.category attributes are the not-provided sentinel.
+// endpoints that have no environment to attribute the request to. Its
+// launchdarkly.environment.name attribute is the not_provided sentinel.
 //
 // This is applied directly to a handler rather than registered with Router.Use for requests that matched
 // no route: gorilla/mux skips router middleware entirely when a request fails to match.

@@ -73,7 +73,7 @@ func TestWriteSpanReportsNotModified(t *testing.T) {
 		// The payload was built even though it was not sent, and the serialize span still
 		// reports its size. The request span reports no body size at all, since nothing was
 		// written.
-		assert.Positive(t, spanAttrs(serialize)[tracing.PayloadBytesKey].AsInt64())
+		assert.Positive(t, spanAttrs(serialize)[tracing.PayloadSizeKey].AsInt64())
 		_, hasBodySize := spanAttrs(rootSpan(t, spans))[httpBodySizeKey]
 		assert.False(t, hasBodySize, "a 304 writes no body, so no body size should be recorded")
 	})
@@ -101,7 +101,7 @@ func TestWriteSpanUnderCompression(t *testing.T) {
 		require.Equal(t, "gzip", w.Header().Get("Content-Encoding"))
 
 		spans := recorder.Ended()
-		payloadBytes := spanAttrs(requireSpan(t, spans, tracing.SpanSerializePayload))[tracing.PayloadBytesKey].AsInt64()
+		payloadBytes := spanAttrs(requireSpan(t, spans, tracing.SpanSerializePayload))[tracing.PayloadSizeKey].AsInt64()
 		bodySize := spanAttrs(rootSpan(t, spans))[httpBodySizeKey].AsInt64()
 
 		assert.Equal(t, int64(w.Body.Len()), bodySize,

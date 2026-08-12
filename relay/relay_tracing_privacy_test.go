@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -70,6 +71,13 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 				route: "/msdk/evalx/users/{context}",
 				req:   st.BuildRequestWithAuth("GET", "/msdk/evalx/users/"+contextBase64, mobileKey, nil),
 			},
+			{
+				// A context in a REPORT body has nothing to redact in the path, but no span may
+				// carry the body either.
+				route: "/sdk/evalx/context",
+				req: st.BuildRequest("REPORT", "/sdk/evalx/context", []byte(contextJSON),
+					http.Header{"Authorization": []string{string(sdkKey)}, "Content-Type": []string{"application/json"}}),
+			},
 		}
 
 		for _, params := range cases {
@@ -94,11 +102,13 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 					}
 				}
 
-				// The path is reported as the route template, which is also what http.route
-				// holds, so nothing is lost by redacting it.
+				// Only the context segment is replaced: the rest of the path is not sensitive and
+				// still says which endpoint and environment served the request. http.route
+				// continues to carry the template.
 				root := rootSpan(t, spans)
 				attrs := spanAttrs(root)
-				assert.Equal(t, params.route, attrs["url.path"].AsString())
+				wantPath := strings.Replace(params.req.URL.Path, contextBase64, "REDACTED", 1)
+				assert.Equal(t, wantPath, attrs["url.path"].AsString())
 				assert.Equal(t, params.route, attrs["http.route"].AsString())
 				assert.NotContains(t, root.Name(), contextBase64)
 			})

@@ -149,7 +149,7 @@ func TestPollingHandlersShareOnePayloadBuildAcrossConcurrentRequests(t *testing.
 				require.True(t, ok, "the request span should report whether the payload build was shared")
 				assert.True(t, shared.AsBool())
 
-				wait, waited := attrs[tracing.SingleflightWaitMSKey]
+				wait, waited := attrs[tracing.SingleflightWaitDurationKey]
 				if root.SpanContext().TraceID() == serialize.SpanContext().TraceID() {
 					executedRoots++
 					assert.False(t, waited, "the request that built the payload did not wait")
@@ -221,7 +221,7 @@ func TestPollingSingleflightAttributesForALoneRequest(t *testing.T) {
 			require.True(t, ok, "the request span should always report whether the payload build was shared")
 			assert.False(t, shared.AsBool())
 
-			_, waited := attrs[tracing.SingleflightWaitMSKey]
+			_, waited := attrs[tracing.SingleflightWaitDurationKey]
 			assert.False(t, waited, "a request that built its own payload should record no wait time")
 		})
 	}

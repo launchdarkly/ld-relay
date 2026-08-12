@@ -142,7 +142,7 @@ func (m *Manager) GetInstruments() *Instruments {
 
 // GetUnscopedEnvironment returns an EnvironmentManager for recording metrics on requests that are not
 // associated with any LD environment, such as the status endpoints and requests that matched no route.
-// Its environment.name attribute is the not-provided sentinel, and it has no collector, since there is
+// Its launchdarkly.environment.name attribute is the not_provided sentinel, and it has no collector, since there is
 // no environment to report usage data for.
 func (m *Manager) GetUnscopedEnvironment() *EnvironmentManager {
 	return m.unscopedEnv

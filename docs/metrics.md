@@ -2,18 +2,18 @@
 
 [(Back to README)](../README.md)
 
-The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) to any compatible backend, such as Prometheus, Datadog, Grafana, or an OpenTelemetry Collector. To learn about configuration, read [Configuration](./configuration.md).
+The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) to any compatible backend, such as Prometheus, Datadog, Grafana, or an OpenTelemetry Collector. To learn about configuration, read [Configuration](./configuration.md). The same setting also exports traces; to learn about those, read [Tracing](./tracing.md).
 
 ## Available metrics
 
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
-| `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
+| `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `launchdarkly.relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
 | `http.server.request.duration` | Histogram | `s` | The duration of requests to the Relay Proxy's service endpoints, in seconds. |
 | `launchdarkly.relay.events.received.size` | Counter | `By` | The cumulative number of event bytes received by the Relay Proxy (measured after decompression). |
 | `launchdarkly.relay.events.sent` | Counter | `{event}` | The cumulative number of events successfully sent to LaunchDarkly. |
 | `launchdarkly.relay.events.sent.size` | Counter | `By` | The cumulative bytes of event payloads successfully sent to LaunchDarkly. |
-| `launchdarkly.relay.events.send.errors` | Counter | `{event}` | The cumulative number of events that failed to send after all retries. |
+| `launchdarkly.relay.events.failed` | Counter | `{event}` | The cumulative number of events that could not be delivered after all retries. |
 | `launchdarkly.relay.events.dropped` | Counter | `{event}` | The cumulative number of events dropped due to capacity overflow. |
 | `launchdarkly.relay.events.pending` | Gauge | `{event}` | The current number of events buffered in the queue. |
 
@@ -25,12 +25,11 @@ being repeated on each measurement:
 | Attribute | Description |
 |-----------|-------------|
 | `service.name` | `ld-relay`, unless overridden with `OTEL_SERVICE_NAME`. |
-| `relay.id` | A unique identifier for this Relay Proxy process, generated at startup. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
-| `service.instance.id` | The same value as `relay.id`, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. This is the standard attribute for identifying a process instance, and Prometheus exposes it as the `instance` label. |
+| `service.instance.id` | A unique identifier for this Relay Proxy process, generated at startup, unless you supply your own via `OTEL_RESOURCE_ATTRIBUTES`. Prometheus exposes it as the `instance` label. Example: `5f313039-df4e-45f5-ad9e-4afd840cb210` |
 
 Note that resource attributes are **not** copied onto every series. Prometheus reports them through
-`target_info`, so a query that needs `relay.id` has to join against it -- or use the `instance` label,
-which carries the same value.
+`target_info`, so a query that needs the process identity has to join against it -- or use the
+`instance` label, which carries the same value.
 
 ## Request attributes
 
@@ -39,25 +38,34 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 
 | Attribute | Description |
 |-----------|-------------|
-| `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
-| `user_agent` | The user agent of the SDK making the request, with slashes replaced by underscores. Example: `Node_3.4.0` |
+| `launchdarkly.environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
+| `user_agent.original` | The `User-Agent` header sent by the SDK making the request, as received. Example: `Node/3.4.0` |
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `http.request.method` | The HTTP method. Example: `GET` |
 | `url.scheme` | The URL scheme. Example: `https` |
-| `application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
-| `application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
-| `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not-provided`. |
+| `launchdarkly.application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
+| `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
+| `launchdarkly.relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
 `http.server.request.duration` additionally carries `http.response.status_code`,
 `network.protocol.version`, and -- for a 5xx response -- `error.type`.
 
-The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.send.errors`,
-`.dropped`, `.pending`) are recorded outside any request, so they carry only `environment.name`.
-`.send.errors` also carries `status_code`.
+Note that `launchdarkly.environment.name` is a *LaunchDarkly* environment, which has nothing to do
+with the OpenTelemetry `deployment.environment.name` attribute described under
+[Datadog](#datadog) below. The two are unrelated, and both can be set at once.
 
-Attribute values that are absent are reported as `not-provided` rather than being omitted. The status
+The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.failed`,
+`.dropped`, `.pending`) are recorded outside any request, so they carry only
+`launchdarkly.environment.name`.
+
+Every measurement on `.failed` is a failure, so it always carries `error.type`. When the events
+service returned a response, `error.type` is that status code as a string and
+`http.response.status_code` carries it as a number. When the send failed before any response arrived
+-- a network error or a timeout -- `error.type` is `_OTHER` and no status code is reported.
+
+Attribute values that are absent are reported as `not_provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
-they report `not-provided` for `environment.name` and the other SDK attributes.
+they report `not_provided` for `launchdarkly.environment.name` and the other SDK attributes.
 
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All

@@ -137,14 +137,14 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				buildReq: func() *http.Request {
 					return st.BuildRequestWithAuth("GET", "/sdk/poll", serverSDKKey, nil)
 				},
-				countKey: tracing.PayloadEventsKey,
+				countKey: tracing.PayloadEventCountKey,
 			},
 			{
 				name: "pollEvalHandlerV2Shared GET /sdk/poll/eval",
 				buildReq: func() *http.Request {
 					return st.BuildRequestWithAuth("GET", "/sdk/poll/eval/"+contextBase64, mobileKey, nil)
 				},
-				countKey: tracing.PayloadEventsKey,
+				countKey: tracing.PayloadEventCountKey,
 			},
 			{
 				name: "evaluateAllShared REPORT /sdk/evalx/context",
@@ -190,7 +190,7 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 				serializeAttrs := spanAttrs(serialize)
 				writeAttrs := spanAttrs(write)
 
-				payloadBytes, ok := serializeAttrs[tracing.PayloadBytesKey]
+				payloadBytes, ok := serializeAttrs[tracing.PayloadSizeKey]
 				require.True(t, ok, "serialize span is missing the payload bytes attribute")
 				assert.Positive(t, payloadBytes.AsInt64())
 
@@ -210,7 +210,7 @@ func TestPollingEndpointSpansAreRecorded(t *testing.T) {
 					require.Truef(t, ok, "serialize span is missing the %q attribute", tc.countKey)
 					assert.GreaterOrEqual(t, count.AsInt64(), int64(1))
 				} else {
-					_, hasEvents := serializeAttrs[tracing.PayloadEventsKey]
+					_, hasEvents := serializeAttrs[tracing.PayloadEventCountKey]
 					_, hasFlags := serializeAttrs[tracing.FlagCountKey]
 					assert.False(t, hasEvents, "single-item serialize span should record no event count")
 					assert.False(t, hasFlags, "single-item serialize span should record no flag count")

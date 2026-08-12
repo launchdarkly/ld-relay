@@ -54,14 +54,14 @@ func requireSingleActiveRequestPoint(t *testing.T, reader sdkmetric.Reader) metr
 
 func requireEndpointType(t *testing.T, dp metricdata.DataPoint[int64], expected metrics.EndpointType) {
 	t.Helper()
-	val, ok := dp.Attributes.Value("relay.endpoint.type")
-	require.True(t, ok, "relay.endpoint.type attribute not present")
+	val, ok := dp.Attributes.Value("launchdarkly.relay.endpoint.type")
+	require.True(t, ok, "launchdarkly.relay.endpoint.type attribute not present")
 	assert.Equal(t, string(expected), val.AsString())
 }
 
 // TestActiveRequestsCoverAllEndpointTypes drives a representative route for each endpoint type through
 // the full relay and asserts that http.server.active_requests recorded it under the expected
-// relay.endpoint.type. Polling, event ingestion, goals and status are all included: per the OTEL
+// launchdarkly.relay.endpoint.type. Polling, event ingestion, goals and status are all included: per the OTEL
 // semantic convention this instrument counts every in-flight HTTP request, not just streams.
 func TestActiveRequestsCoverAllEndpointTypes(t *testing.T) {
 	contextJSON := []byte(`{"kind":"user","key":"me"}`)
@@ -200,7 +200,7 @@ func TestActiveRequestsCountLiveStream(t *testing.T) {
 // building the middleware chain, but that branch is unreachable in this router: the catch-all
 // serverSideRouter (PathPrefix "") matches every path, and a matcher that succeeds clears a pending
 // ErrMethodMismatch, so Match finishes with ErrNotFound instead. Relay therefore never answers 405,
-// and a wrong-method request is counted under not-provided.
+// and a wrong-method request is counted under not_provided.
 //
 // If a future change removes the catch-all subrouter, this test fails with a 405, which is the signal
 // to wrap MethodNotAllowedHandler as well.
@@ -226,7 +226,7 @@ func TestWrongMethodIsNotFoundAndIsCounted(t *testing.T) {
 		require.True(t, ok)
 		methods := map[string]bool{}
 		for _, dp := range sum.DataPoints {
-			endpointType, ok := dp.Attributes.Value("relay.endpoint.type")
+			endpointType, ok := dp.Attributes.Value("launchdarkly.relay.endpoint.type")
 			require.True(t, ok)
 			assert.Equal(t, string(metrics.EndpointTypeNotProvided), endpointType.AsString())
 			if method, ok := dp.Attributes.Value("http.request.method"); ok {

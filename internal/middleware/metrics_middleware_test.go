@@ -131,7 +131,7 @@ func TestActiveRequests(t *testing.T) {
 					m := st.FindMetricByName(rm, "http.server.active_requests")
 					require.NotNil(t, m, "active requests metric not found")
 					assertMetricHasValue(t, m, p.envName, 1)
-					assertMetricHasAttribute(t, m, "relay.endpoint.type", string(endpointType))
+					assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(endpointType))
 				})).Methods("GET")
 
 				req, _ := http.NewRequest("GET", "/test-route", nil)
@@ -184,7 +184,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 }
 
 // Requests with no environment -- the status endpoints and anything that matched no route -- still get
-// counted, reporting the not-provided sentinel for environment.name.
+// counted, reporting the not_provided sentinel for launchdarkly.environment.name.
 func TestUnscopedActiveRequests(t *testing.T) {
 	specs := []struct {
 		name         string
@@ -202,8 +202,8 @@ func TestUnscopedActiveRequests(t *testing.T) {
 						rm := p.collectMetrics(t)
 						m := st.FindMetricByName(rm, "http.server.active_requests")
 						require.NotNil(t, m, "active requests metric not found")
-						assertMetricHasValue(t, m, "not-provided", 1)
-						assertMetricHasAttribute(t, m, "relay.endpoint.type", string(tt.endpointType))
+						assertMetricHasValue(t, m, "not_provided", 1)
+						assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(tt.endpointType))
 					}))
 
 				// No environment context is attached, exactly as for a real status or unmatched request
@@ -213,7 +213,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 				rm := p.collectMetrics(t)
 				m := st.FindMetricByName(rm, "http.server.active_requests")
 				require.NotNil(t, m)
-				assertMetricHasValue(t, m, "not-provided", 0)
+				assertMetricHasValue(t, m, "not_provided", 0)
 			})
 		})
 	}
@@ -297,7 +297,7 @@ func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName string, e
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
 	found := false
 	for _, dp := range sum.DataPoints {
-		envVal, envOK := dp.Attributes.Value(attribute.Key("environment.name"))
+		envVal, envOK := dp.Attributes.Value(attribute.Key("launchdarkly.environment.name"))
 		if envOK && envVal.AsString() == envName {
 			assert.Equal(t, expected, dp.Value, "unexpected value for %s (env=%s)", m.Name, envName)
 			found = true

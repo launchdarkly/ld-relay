@@ -20,7 +20,6 @@ import (
 
 	"github.com/gorilla/mux"
 	h "github.com/klauspost/compress/gzhttp"
-	"github.com/launchdarkly/ld-relay/v9/internal/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
@@ -42,7 +41,11 @@ func (r *Relay) makeRouter() *mux.Router {
 	if r.logger.Enabled(context.Background(), slog.LevelDebug) {
 		router.Use(logging.RequestLoggerMiddleware(r.logger))
 	}
-	router.Use(otelmux.Middleware(tracing.TracerName))
+	// The empty string tells otelmux to derive server.address and server.port from each request's
+	// Host header. Its parameter is the "primary server name", not an instrumentation name: a
+	// non-empty value overrides the real host on every span, so passing a service name here would
+	// report that name as the address the client connected to.
+	router.Use(otelmux.Middleware(""))
 	// Must come after the tracing middleware, which records the raw request path on the span it starts.
 	router.Use(middleware.SanitizeRequestSpan)
 	if r.config.HTTP.EnableCompression {
@@ -79,7 +82,7 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	// Client-side evaluation (for JS, not mobile)
 	// The endpointType parameter is what a request served by this stack reports as its
-	// relay.endpoint.type; the stack itself is shared across several kinds of endpoint.
+	// launchdarkly.relay.endpoint.type; the stack itself is shared across several kinds of endpoint.
 	jsClientSideMiddlewareStack := func(subrouter *mux.Router, endpointType metrics.EndpointType) mux.MiddlewareFunc {
 		return middleware.Chain(
 			mux.CORSMethodMiddleware(subrouter),
