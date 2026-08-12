@@ -44,7 +44,7 @@ const (
 )
 
 // EndpointType identifies the kind of Relay endpoint that served a request. It is reported on
-// request-scoped metrics as the relay.endpoint.type attribute, so that a metric covering all
+// request-scoped metrics as the launchdarkly.relay.endpoint.type attribute, so that a metric covering all
 // requests can still be broken down by the delivery mode the request belongs to.
 type EndpointType string
 
@@ -81,7 +81,7 @@ var (
 	envNameAttrKey            = attribute.Key("launchdarkly.environment.name")    //nolint:gochecknoglobals
 	applicationIDAttrKey      = attribute.Key("launchdarkly.application.id")      //nolint:gochecknoglobals
 	applicationVersionAttrKey = attribute.Key("launchdarkly.application.version") //nolint:gochecknoglobals
-	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type")              //nolint:gochecknoglobals
+	endpointTypeAttrKey       = attribute.Key("launchdarkly.relay.endpoint.type") //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals

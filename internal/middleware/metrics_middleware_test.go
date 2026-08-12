@@ -131,7 +131,7 @@ func TestActiveRequests(t *testing.T) {
 					m := st.FindMetricByName(rm, "http.server.active_requests")
 					require.NotNil(t, m, "active requests metric not found")
 					assertMetricHasValue(t, m, p.envName, 1)
-					assertMetricHasAttribute(t, m, "relay.endpoint.type", string(endpointType))
+					assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(endpointType))
 				})).Methods("GET")
 
 				req, _ := http.NewRequest("GET", "/test-route", nil)
@@ -203,7 +203,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 						m := st.FindMetricByName(rm, "http.server.active_requests")
 						require.NotNil(t, m, "active requests metric not found")
 						assertMetricHasValue(t, m, "not_provided", 1)
-						assertMetricHasAttribute(t, m, "relay.endpoint.type", string(tt.endpointType))
+						assertMetricHasAttribute(t, m, "launchdarkly.relay.endpoint.type", string(tt.endpointType))
 					}))
 
 				// No environment context is attached, exactly as for a real status or unmatched request

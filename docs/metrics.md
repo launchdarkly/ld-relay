@@ -8,7 +8,7 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
-| `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
+| `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `launchdarkly.relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
 | `http.server.request.duration` | Histogram | `s` | The duration of requests to the Relay Proxy's service endpoints, in seconds. |
 | `launchdarkly.relay.events.received.size` | Counter | `By` | The cumulative number of event bytes received by the Relay Proxy (measured after decompression). |
 | `launchdarkly.relay.events.sent` | Counter | `{event}` | The cumulative number of events successfully sent to LaunchDarkly. |
@@ -45,7 +45,7 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 | `url.scheme` | The URL scheme. Example: `https` |
 | `launchdarkly.application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
 | `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
-| `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
+| `launchdarkly.relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
 `http.server.request.duration` additionally carries `http.response.status_code`,
 `network.protocol.version`, and -- for a 5xx response -- `error.type`.

@@ -598,7 +598,7 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"url.scheme",
 		"launchdarkly.application.id",
 		"launchdarkly.application.version",
-		"relay.endpoint.type",
+		"launchdarkly.relay.endpoint.type",
 	}, attributeKeys(buildRequestAttributes(envKVs, ri)))
 
 	// The duration histogram adds the semconv attributes that are only known once the handler has run.
@@ -614,7 +614,7 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"url.scheme",
 		"launchdarkly.application.id",
 		"launchdarkly.application.version",
-		"relay.endpoint.type",
+		"launchdarkly.relay.endpoint.type",
 		"network.protocol.version",
 		"http.response.status_code",
 		"error.type",

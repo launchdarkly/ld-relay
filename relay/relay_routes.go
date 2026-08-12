@@ -82,7 +82,7 @@ func (r *Relay) makeRouter() *mux.Router {
 
 	// Client-side evaluation (for JS, not mobile)
 	// The endpointType parameter is what a request served by this stack reports as its
-	// relay.endpoint.type; the stack itself is shared across several kinds of endpoint.
+	// launchdarkly.relay.endpoint.type; the stack itself is shared across several kinds of endpoint.
 	jsClientSideMiddlewareStack := func(subrouter *mux.Router, endpointType metrics.EndpointType) mux.MiddlewareFunc {
 		return middleware.Chain(
 			mux.CORSMethodMiddleware(subrouter),

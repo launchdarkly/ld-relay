@@ -54,14 +54,14 @@ func requireSingleActiveRequestPoint(t *testing.T, reader sdkmetric.Reader) metr
 
 func requireEndpointType(t *testing.T, dp metricdata.DataPoint[int64], expected metrics.EndpointType) {
 	t.Helper()
-	val, ok := dp.Attributes.Value("relay.endpoint.type")
-	require.True(t, ok, "relay.endpoint.type attribute not present")
+	val, ok := dp.Attributes.Value("launchdarkly.relay.endpoint.type")
+	require.True(t, ok, "launchdarkly.relay.endpoint.type attribute not present")
 	assert.Equal(t, string(expected), val.AsString())
 }
 
 // TestActiveRequestsCoverAllEndpointTypes drives a representative route for each endpoint type through
 // the full relay and asserts that http.server.active_requests recorded it under the expected
-// relay.endpoint.type. Polling, event ingestion, goals and status are all included: per the OTEL
+// launchdarkly.relay.endpoint.type. Polling, event ingestion, goals and status are all included: per the OTEL
 // semantic convention this instrument counts every in-flight HTTP request, not just streams.
 func TestActiveRequestsCoverAllEndpointTypes(t *testing.T) {
 	contextJSON := []byte(`{"kind":"user","key":"me"}`)
@@ -226,7 +226,7 @@ func TestWrongMethodIsNotFoundAndIsCounted(t *testing.T) {
 		require.True(t, ok)
 		methods := map[string]bool{}
 		for _, dp := range sum.DataPoints {
-			endpointType, ok := dp.Attributes.Value("relay.endpoint.type")
+			endpointType, ok := dp.Attributes.Value("launchdarkly.relay.endpoint.type")
 			require.True(t, ok)
 			assert.Equal(t, string(metrics.EndpointTypeNotProvided), endpointType.AsString())
 			if method, ok := dp.Attributes.Value("http.request.method"); ok {

@@ -29,10 +29,10 @@ const (
 // Relay-specific span attribute keys.
 const (
 	SDKKindKey       = attribute.Key("relay.sdk_kind")
-	AuthResultKey    = attribute.Key("relay.auth.result")
+	AuthResultKey    = attribute.Key("launchdarkly.relay.auth.result")
 	FlagCountKey     = attribute.Key("relay.flags.count")
-	EventsKindKey    = attribute.Key("relay.events.kind")
-	StoreKeyKey      = attribute.Key("relay.store.key")
+	EventsKindKey    = attribute.Key("launchdarkly.relay.events.kind")
+	StoreKeyKey      = attribute.Key("launchdarkly.relay.store.key")
 	PayloadEventsKey = attribute.Key("relay.payload.events")
 	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
 
@@ -40,7 +40,7 @@ const (
 	// replay, whether the payload build was shared with concurrent requests through a flight
 	// group. When it is true and the request's trace shows no sign of the build itself,
 	// another request's trace carries it.
-	SingleflightSharedKey = attribute.Key("relay.singleflight.shared")
+	SingleflightSharedKey = attribute.Key("launchdarkly.relay.singleflight.shared")
 
 	// SingleflightWaitMSKey reports, on the request span of a request that received its
 	// payload from a flight another request was already executing, how many milliseconds it
