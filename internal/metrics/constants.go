@@ -78,10 +78,10 @@ const (
 //     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
 //     a separate sink with its own cardinality budget.
 var (
-	envNameAttrKey            = attribute.Key("launchdarkly.environment.name") //nolint:gochecknoglobals
-	applicationIDAttrKey      = attribute.Key("application.id")                //nolint:gochecknoglobals
-	applicationVersionAttrKey = attribute.Key("application.version")           //nolint:gochecknoglobals
-	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type")           //nolint:gochecknoglobals
+	envNameAttrKey            = attribute.Key("launchdarkly.environment.name")    //nolint:gochecknoglobals
+	applicationIDAttrKey      = attribute.Key("launchdarkly.application.id")      //nolint:gochecknoglobals
+	applicationVersionAttrKey = attribute.Key("launchdarkly.application.version") //nolint:gochecknoglobals
+	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type")              //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals

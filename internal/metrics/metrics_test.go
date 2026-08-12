@@ -596,8 +596,8 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"http.route",
 		"http.request.method",
 		"url.scheme",
-		"application.id",
-		"application.version",
+		"launchdarkly.application.id",
+		"launchdarkly.application.version",
 		"relay.endpoint.type",
 	}, attributeKeys(buildRequestAttributes(envKVs, ri)))
 
@@ -612,8 +612,8 @@ func TestRequestMetricAttributeKeys(t *testing.T) {
 		"http.route",
 		"http.request.method",
 		"url.scheme",
-		"application.id",
-		"application.version",
+		"launchdarkly.application.id",
+		"launchdarkly.application.version",
 		"relay.endpoint.type",
 		"network.protocol.version",
 		"http.response.status_code",

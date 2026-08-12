@@ -43,8 +43,8 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `http.request.method` | The HTTP method. Example: `GET` |
 | `url.scheme` | The URL scheme. Example: `https` |
-| `application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
-| `application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
+| `launchdarkly.application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
+| `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
 | `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
 `http.server.request.duration` additionally carries `http.response.status_code`,
