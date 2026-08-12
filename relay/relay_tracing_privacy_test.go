@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -94,11 +95,13 @@ func TestEndUserContextIsNotExportedInSpans(t *testing.T) {
 					}
 				}
 
-				// The path is reported as the route template, which is also what http.route
-				// holds, so nothing is lost by redacting it.
+				// Only the context segment is replaced: the rest of the path is not sensitive and
+				// still says which endpoint and environment served the request. http.route
+				// continues to carry the template.
 				root := rootSpan(t, spans)
 				attrs := spanAttrs(root)
-				assert.Equal(t, params.route, attrs["url.path"].AsString())
+				wantPath := strings.Replace(params.req.URL.Path, contextBase64, "REDACTED", 1)
+				assert.Equal(t, wantPath, attrs["url.path"].AsString())
 				assert.Equal(t, params.route, attrs["http.route"].AsString())
 				assert.NotContains(t, root.Name(), contextBase64)
 			})
