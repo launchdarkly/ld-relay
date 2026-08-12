@@ -78,10 +78,10 @@ const (
 //     http.route. All three are still reported in the usage data Relay sends to LaunchDarkly, which is
 //     a separate sink with its own cardinality budget.
 var (
-	envNameAttrKey            = attribute.Key("environment.name")    //nolint:gochecknoglobals
-	applicationIDAttrKey      = attribute.Key("application.id")      //nolint:gochecknoglobals
-	applicationVersionAttrKey = attribute.Key("application.version") //nolint:gochecknoglobals
-	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type") //nolint:gochecknoglobals
+	envNameAttrKey            = attribute.Key("launchdarkly.environment.name") //nolint:gochecknoglobals
+	applicationIDAttrKey      = attribute.Key("application.id")                //nolint:gochecknoglobals
+	applicationVersionAttrKey = attribute.Key("application.version")           //nolint:gochecknoglobals
+	endpointTypeAttrKey       = attribute.Key("relay.endpoint.type")           //nolint:gochecknoglobals
 
 	// OTEL HTTP semantic convention attribute keys (from semconv package)
 	userAgentAttrKey           = semconv.UserAgentOriginalKey      //nolint:gochecknoglobals
@@ -125,7 +125,7 @@ func buildDurationAttributes(baseKVs []attribute.KeyValue, ri RequestInfo) attri
 }
 
 // requestKVs returns the attributes that every request-scoped metric carries. Keeping this at seven,
-// plus environment.name from the environment, holds the common case within attribute.NewSet's
+// plus launchdarkly.environment.name from the environment, holds the common case within attribute.NewSet's
 // fixed-size fast path, which only covers sets of ten or fewer.
 func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	return []attribute.KeyValue{

@@ -231,7 +231,7 @@ func TestActiveRequestMetrics(t *testing.T) {
 }
 
 // The status endpoints and unmatched requests have no environment, so they report the not_provided
-// sentinel for environment.name.
+// sentinel for launchdarkly.environment.name.
 func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
 		manager, err := NewManager(config.OpenTelemetryConfig{}, time.Minute, slog.Default())
@@ -573,6 +573,60 @@ func TestSanitizeVerbatimValue(t *testing.T) {
 	assert.Equal(t, "not_provided", sanitizeVerbatimValue("   "))
 	assert.Equal(t, "react/2.0.0", sanitizeVerbatimValue("react/2.0.0"))
 	assert.Equal(t, "Node/3.4.0", sanitizeVerbatimValue("Node\xff/3.4.0"))
+}
+
+// The attribute keys on the request metrics are a public contract: operators write dashboards and
+// alerts against them. Pinning the exact set means a rename cannot happen as a side effect of
+// something else.
+func TestRequestMetricAttributeKeys(t *testing.T) {
+	envKVs := []attribute.KeyValue{envNameAttrKey.String("testenv")}
+	ri := RequestInfo{
+		UserAgent:          userAgentValue,
+		Route:              "/sdk/poll",
+		Method:             "GET",
+		URLScheme:          "https",
+		ApplicationID:      "my-app",
+		ApplicationVersion: "1.0.0",
+		EndpointType:       EndpointTypePoll,
+	}
+
+	assert.ElementsMatch(t, []string{
+		"launchdarkly.environment.name",
+		"user_agent.original",
+		"http.route",
+		"http.request.method",
+		"url.scheme",
+		"application.id",
+		"application.version",
+		"relay.endpoint.type",
+	}, attributeKeys(buildRequestAttributes(envKVs, ri)))
+
+	// The duration histogram adds the semconv attributes that are only known once the handler has run.
+	ri.ProtocolVersion = "1.1"
+	ri.StatusCode = 500
+	ri.ErrorType = "500"
+
+	assert.ElementsMatch(t, []string{
+		"launchdarkly.environment.name",
+		"user_agent.original",
+		"http.route",
+		"http.request.method",
+		"url.scheme",
+		"application.id",
+		"application.version",
+		"relay.endpoint.type",
+		"network.protocol.version",
+		"http.response.status_code",
+		"error.type",
+	}, attributeKeys(buildDurationAttributes(envKVs, ri)))
+}
+
+func attributeKeys(set attribute.Set) []string {
+	keys := make([]string, 0, set.Len())
+	for _, kv := range set.ToSlice() {
+		keys = append(keys, string(kv.Key))
+	}
+	return keys
 }
 
 // The user agent is reported under the semantic-convention key, with the value the client sent. The

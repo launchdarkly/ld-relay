@@ -184,7 +184,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 }
 
 // Requests with no environment -- the status endpoints and anything that matched no route -- still get
-// counted, reporting the not_provided sentinel for environment.name.
+// counted, reporting the not_provided sentinel for launchdarkly.environment.name.
 func TestUnscopedActiveRequests(t *testing.T) {
 	specs := []struct {
 		name         string
@@ -297,7 +297,7 @@ func assertMetricHasValue(t *testing.T, m *metricdata.Metrics, envName string, e
 	require.True(t, ok, "expected Sum[int64] data for %s", m.Name)
 	found := false
 	for _, dp := range sum.DataPoints {
-		envVal, envOK := dp.Attributes.Value(attribute.Key("environment.name"))
+		envVal, envOK := dp.Attributes.Value(attribute.Key("launchdarkly.environment.name"))
 		if envOK && envVal.AsString() == envName {
 			assert.Equal(t, expected, dp.Value, "unexpected value for %s (env=%s)", m.Name, envName)
 			found = true

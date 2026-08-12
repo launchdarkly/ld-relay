@@ -38,7 +38,7 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 
 | Attribute | Description |
 |-----------|-------------|
-| `environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
+| `launchdarkly.environment.name` | The name of the LaunchDarkly environment as configured in the Relay Proxy. In automatic configuration or offline mode, this is the actual project and environment name from LaunchDarkly. Example: `MyApplication Staging` |
 | `user_agent.original` | The `User-Agent` header sent by the SDK making the request, as received. Example: `Node/3.4.0` |
 | `http.route` | The request URL path template. Variables appear as placeholders rather than actual values. Example: `/sdk/evalx/{envId}/contexts/{context}` |
 | `http.request.method` | The HTTP method. Example: `GET` |
@@ -50,8 +50,13 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 `http.server.request.duration` additionally carries `http.response.status_code`,
 `network.protocol.version`, and -- for a 5xx response -- `error.type`.
 
+Note that `launchdarkly.environment.name` is a *LaunchDarkly* environment, which has nothing to do
+with the OpenTelemetry `deployment.environment.name` attribute described under
+[Datadog](#datadog) below. The two are unrelated, and both can be set at once.
+
 The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.send.errors`,
-`.dropped`, `.pending`) are recorded outside any request, so they carry only `environment.name`.
+`.dropped`, `.pending`) are recorded outside any request, so they carry only
+`launchdarkly.environment.name`.
 
 Every measurement on `.send.errors` is a failure, so it always carries `error.type`. When the events
 service returned a response, `error.type` is that status code as a string and
@@ -60,7 +65,7 @@ service returned a response, `error.type` is that status code as a string and
 
 Attribute values that are absent are reported as `not_provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
-they report `not_provided` for `environment.name` and the other SDK attributes.
+they report `not_provided` for `launchdarkly.environment.name` and the other SDK attributes.
 
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All
