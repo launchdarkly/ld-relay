@@ -23,8 +23,20 @@ const (
 
 	defaultFlushInterval = time.Minute
 
-	// notProvidedValue is the sentinel reported for an attribute whose value is absent.
-	notProvidedValue = "not-provided"
+	// notProvidedValue is the sentinel reported for an OTel attribute whose value is absent. It is
+	// snake_case to match the other attribute values Relay reports, such as the auth results on
+	// spans.
+	//
+	// OTel's own convention is to omit an absent attribute rather than fill one in. Relay fills one
+	// in deliberately: the increment and decrement of http.server.active_requests must carry
+	// identical attribute sets or the series never returns to zero, and Prometheus handles a label
+	// that is present on only some series of a metric poorly.
+	notProvidedValue = "not_provided"
+
+	// usageNotProvidedValue is the sentinel for an absent value in the usage data Relay reports to
+	// LaunchDarkly. That payload is a wire contract with a different consumer, so it keeps its own
+	// spelling rather than following the OTel attribute value above.
+	usageNotProvidedValue = "not-provided"
 
 	BrowserPlatformCategory = "browser"
 	MobilePlatformCategory  = "mobile"
@@ -126,19 +138,33 @@ func requestKVs(ri RequestInfo) []attribute.KeyValue {
 	}
 }
 
-// sanitizeTagValue ensures attribute values are valid.
-// Empty values are replaced with descriptive defaults, and slashes are replaced with underscores.
-// This is appropriate for SDK wrapper names in the usage data Relay reports to LaunchDarkly, but not
-// for routes, and not for values that a semantic convention defines as verbatim.
+// sanitizeTagValue ensures OTel attribute values are valid.
+// Empty values are replaced with the absent-value sentinel, and slashes are replaced with underscores.
+// This is not appropriate for routes, where slashes are meaningful, nor for values that a semantic
+// convention defines as verbatim.
+func sanitizeTagValue(v string) string {
+	return sanitizeReplacingSlashes(v, notProvidedValue)
+}
+
+// sanitizeUsageTagValue is sanitizeTagValue for the usage data Relay reports to LaunchDarkly. It
+// exists only to keep that payload's absent-value sentinel independent of the OTel one: the two
+// sinks have different consumers, so renaming an attribute value must not change what the usage
+// events carry.
+func sanitizeUsageTagValue(v string) string {
+	return sanitizeReplacingSlashes(v, usageNotProvidedValue)
+}
+
+// sanitizeReplacingSlashes replaces slashes with underscores and substitutes absent for a value that
+// is empty once sanitized.
 //
 // Invalid UTF-8 is stripped via util.SanitizeUTF8, which matters more than it looks: a single bad byte
 // fails the OTLP marshal for the entire export batch, and these series are cumulative, so exports keep
 // failing until the process restarts. Header values are not restricted to ASCII, so an unauthenticated
 // caller can supply one via the status and not-found handlers.
-func sanitizeTagValue(v string) string {
+func sanitizeReplacingSlashes(v, absent string) string {
 	v = util.SanitizeUTF8(strings.ReplaceAll(v, "/", "_"))
 	if strings.TrimSpace(v) == "" {
-		return notProvidedValue
+		return absent
 	}
 	return v
 }

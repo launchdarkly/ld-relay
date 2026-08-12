@@ -200,7 +200,7 @@ func TestActiveRequestsCountLiveStream(t *testing.T) {
 // building the middleware chain, but that branch is unreachable in this router: the catch-all
 // serverSideRouter (PathPrefix "") matches every path, and a matcher that succeeds clears a pending
 // ErrMethodMismatch, so Match finishes with ErrNotFound instead. Relay therefore never answers 405,
-// and a wrong-method request is counted under not-provided.
+// and a wrong-method request is counted under not_provided.
 //
 // If a future change removes the catch-all subrouter, this test fails with a 405, which is the signal
 // to wrap MethodNotAllowedHandler as well.

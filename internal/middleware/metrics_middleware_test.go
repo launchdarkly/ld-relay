@@ -184,7 +184,7 @@ func TestActiveRequestsIncludesStreamingResponses(t *testing.T) {
 }
 
 // Requests with no environment -- the status endpoints and anything that matched no route -- still get
-// counted, reporting the not-provided sentinel for environment.name.
+// counted, reporting the not_provided sentinel for environment.name.
 func TestUnscopedActiveRequests(t *testing.T) {
 	specs := []struct {
 		name         string
@@ -202,7 +202,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 						rm := p.collectMetrics(t)
 						m := st.FindMetricByName(rm, "http.server.active_requests")
 						require.NotNil(t, m, "active requests metric not found")
-						assertMetricHasValue(t, m, "not-provided", 1)
+						assertMetricHasValue(t, m, "not_provided", 1)
 						assertMetricHasAttribute(t, m, "relay.endpoint.type", string(tt.endpointType))
 					}))
 
@@ -213,7 +213,7 @@ func TestUnscopedActiveRequests(t *testing.T) {
 				rm := p.collectMetrics(t)
 				m := st.FindMetricByName(rm, "http.server.active_requests")
 				require.NotNil(t, m)
-				assertMetricHasValue(t, m, "not-provided", 0)
+				assertMetricHasValue(t, m, "not_provided", 0)
 			})
 		})
 	}

@@ -230,7 +230,7 @@ func TestActiveRequestMetrics(t *testing.T) {
 	}
 }
 
-// The status endpoints and unmatched requests have no environment, so they report the not-provided
+// The status endpoints and unmatched requests have no environment, so they report the not_provided
 // sentinel for environment.name.
 func TestActiveRequestMetricsWithoutEnvironment(t *testing.T) {
 	testWithOTel(t, func(p testWithOTelParams) {
@@ -532,15 +532,45 @@ func TestWithCountCallsFunctionForNonPollingMeasure(t *testing.T) {
 
 func TestSanitizeTagValue(t *testing.T) {
 	assert.Equal(t, "abc", sanitizeTagValue("abc"))
-	assert.Equal(t, "not-provided", sanitizeTagValue(""))
-	assert.Equal(t, "not-provided", sanitizeTagValue("   "))
+	assert.Equal(t, "not_provided", sanitizeTagValue(""))
+	assert.Equal(t, "not_provided", sanitizeTagValue("   "))
 	assert.Equal(t, "react_2.0.0", sanitizeTagValue("react/2.0.0"))
+}
+
+// The usage payload Relay reports to LaunchDarkly is a separate sink with its own consumer, so its
+// absent-value sentinel does not follow the OTel attribute one.
+func TestSanitizeUsageTagValue(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeUsageTagValue("abc"))
+	assert.Equal(t, "not-provided", sanitizeUsageTagValue(""))
+	assert.Equal(t, "not-provided", sanitizeUsageTagValue("   "))
+	assert.Equal(t, "react_2.0.0", sanitizeUsageTagValue("react/2.0.0"))
+}
+
+// End to end for the same boundary: a request with no user agent or wrapper must still put the usage
+// payload's own sentinel on the wire, whatever the OTel attributes report.
+func TestUsageEventsKeepTheirOwnAbsentValueSentinel(t *testing.T) {
+	publisher := newTestEventsPublisher()
+
+	manager, err := NewManager(config.OpenTelemetryConfig{}, time.Millisecond*10, slog.Default())
+	require.NoError(t, err)
+	defer manager.Close()
+
+	env, err := manager.AddEnvironment("sentinel-test", publisher)
+	require.NoError(t, err)
+
+	WithCount(env, RequestInfo{}, func() {}, ServerPollingRequests)
+
+	env.FlushEventsExporter()
+	metricsEvent := publisher.expectMetricsEvent(t, time.Second)
+	require.Len(t, metricsEvent.PollingCounts, 1)
+	assert.Equal(t, "not-provided", metricsEvent.PollingCounts[0].UserAgent)
+	assert.Equal(t, "not-provided", metricsEvent.PollingCounts[0].SDKWrapper)
 }
 
 func TestSanitizeVerbatimValue(t *testing.T) {
 	assert.Equal(t, "abc", sanitizeVerbatimValue("abc"))
-	assert.Equal(t, "not-provided", sanitizeVerbatimValue(""))
-	assert.Equal(t, "not-provided", sanitizeVerbatimValue("   "))
+	assert.Equal(t, "not_provided", sanitizeVerbatimValue(""))
+	assert.Equal(t, "not_provided", sanitizeVerbatimValue("   "))
 	assert.Equal(t, "react/2.0.0", sanitizeVerbatimValue("react/2.0.0"))
 	assert.Equal(t, "Node/3.4.0", sanitizeVerbatimValue("Node\xff/3.4.0"))
 }
@@ -588,8 +618,8 @@ func TestSanitizeTagValueStripsInvalidUTF8(t *testing.T) {
 
 func TestSanitizeRouteValue(t *testing.T) {
 	assert.Equal(t, "/sdk/evalx/contexts/{context}", sanitizeRouteValue("/sdk/evalx/contexts/{context}"))
-	assert.Equal(t, "not-provided", sanitizeRouteValue(""))
-	assert.Equal(t, "not-provided", sanitizeRouteValue("   "))
+	assert.Equal(t, "not_provided", sanitizeRouteValue(""))
+	assert.Equal(t, "not_provided", sanitizeRouteValue("   "))
 }
 
 // Helper functions for asserting OTel metric data

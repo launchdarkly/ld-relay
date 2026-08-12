@@ -167,7 +167,7 @@ func WithStreamConnection(em *EnvironmentManager, ri RequestInfo, f func(), meas
 		return
 	}
 
-	ua, wrapper := sanitizeTagValue(ri.UserAgent), sanitizeTagValue(ri.SDKWrapper)
+	ua, wrapper := sanitizeUsageTagValue(ri.UserAgent), sanitizeUsageTagValue(ri.SDKWrapper)
 	em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, 1)
 	defer em.collector.RecordConnectionChange(measure.platformCategory, ua, wrapper, -1)
 
@@ -177,7 +177,8 @@ func WithStreamConnection(em *EnvironmentManager, ri RequestInfo, f func(), meas
 // WithCount runs a function and records polling metrics if applicable.
 func WithCount(em *EnvironmentManager, ri RequestInfo, f func(), measure Measure) {
 	if em != nil && measure.recordPolling && em.collector != nil {
-		em.collector.RecordPollingRequest(measure.platformCategory, sanitizeTagValue(ri.UserAgent), sanitizeTagValue(ri.SDKWrapper))
+		em.collector.RecordPollingRequest(measure.platformCategory,
+			sanitizeUsageTagValue(ri.UserAgent), sanitizeUsageTagValue(ri.SDKWrapper))
 	}
 
 	f()

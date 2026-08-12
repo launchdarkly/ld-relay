@@ -46,7 +46,7 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 | `url.scheme` | The URL scheme. Example: `https` |
 | `application.id` | The application identifier, extracted from the `application-id` field of the `X-LaunchDarkly-Tags` header. |
 | `application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
-| `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not-provided`. |
+| `relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
 `http.server.request.duration` additionally carries `http.response.status_code`,
 `network.protocol.version`, and -- for a 5xx response -- `error.type`.
@@ -59,9 +59,9 @@ service returned a response, `error.type` is that status code as a string and
 `http.response.status_code` carries it as a number. When the send failed before any response arrived
 -- a network error or a timeout -- `error.type` is `_OTHER` and no status code is reported.
 
-Attribute values that are absent are reported as `not-provided` rather than being omitted. The status
+Attribute values that are absent are reported as `not_provided` rather than being omitted. The status
 endpoints and requests that matched no route are not associated with an SDK or an LD environment, so
-they report `not-provided` for `environment.name` and the other SDK attributes.
+they report `not_provided` for `environment.name` and the other SDK attributes.
 
 `platform.category`, `sdk.wrapper`, and `instance.id` are no longer reported on metrics. `instance.id`
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All
