@@ -28,7 +28,10 @@ const (
 
 // Relay-specific span attribute keys.
 const (
-	SDKKindKey       = attribute.Key("relay.sdk_kind")
+	// SDKKindKey reports the category of SDK that made the request. It describes the caller rather
+	// than Relay itself, so it sits beside the other LaunchDarkly attributes rather than under
+	// launchdarkly.relay.
+	SDKKindKey       = attribute.Key("launchdarkly.sdk.kind")
 	AuthResultKey    = attribute.Key("launchdarkly.relay.auth.result")
 	FlagCountKey     = attribute.Key("relay.flags.count")
 	EventsKindKey    = attribute.Key("launchdarkly.relay.events.kind")
