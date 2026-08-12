@@ -63,6 +63,29 @@ they report `not-provided` for `environment.name` and the other SDK attributes.
 in particular is per SDK *instance*, which made these metrics grow a series per client process. All
 three are still included in the usage data the Relay Proxy sends to LaunchDarkly.
 
+## Cardinality limit
+
+The OpenTelemetry SDK caps how many distinct attribute sets a single instrument can record in one
+export cycle. The default cap is 2000. Once an instrument reaches it, any attribute set it has not
+already recorded in that cycle is folded into one series carrying only `otel.metric.overflow=true`;
+attribute sets already being recorded continue normally. Nothing is logged when this happens, so an
+`otel.metric.overflow` series showing up in your backend is the signal that the cap has been reached
+and that some series are being merged.
+
+Because the request attributes above multiply together -- environments times user agents times routes
+times status codes, and so on -- a Relay Proxy serving many environments or a diverse SDK fleet can
+reach the cap. Raise it, or remove it entirely, with `metricsCardinalityLimit` /
+`OTEL_METRICS_CARDINALITY_LIMIT`:
+
+```
+OTEL_METRICS_CARDINALITY_LIMIT=20000   # raise the cap
+OTEL_METRICS_CARDINALITY_LIMIT=0       # no cap
+```
+
+The limit applies to every instrument, including the Go runtime metrics. Removing it entirely means
+memory use and the size of each export grow with however many attribute combinations your traffic
+produces, so prefer raising it to a value your backend can absorb.
+
 ## Backend-specific notes
 
 ### Prometheus

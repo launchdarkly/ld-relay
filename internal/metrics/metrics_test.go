@@ -9,12 +9,15 @@ import (
 
 	"github.com/launchdarkly/ld-relay/v9/config"
 
+	ct "github.com/launchdarkly/go-configtypes"
 	ldevents "github.com/launchdarkly/go-sdk-events/v3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
@@ -70,6 +73,71 @@ func TestNewInstrumentsCreatesEveryInstrument(t *testing.T) {
 	assert.NotNil(t, instruments.eventsFailedSend)
 	assert.NotNil(t, instruments.eventsBytesSent)
 	assert.NotNil(t, instruments.pendingEvents)
+}
+
+// The cardinality limit is only meaningful through the MeterProvider it is applied to, so these
+// tests record more distinct attribute sets than the limit allows and check what actually comes
+// back out of a reader.
+func recordDistinctAttributeSets(t *testing.T, otlpConfig config.OpenTelemetryConfig, count int) metricdata.Sum[int64] {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	opts := append([]sdkmetric.Option{sdkmetric.WithReader(reader)},
+		cardinalityLimitOptions(otlpConfig, slog.Default())...)
+	meterProvider := sdkmetric.NewMeterProvider(opts...)
+	defer func() {
+		require.NoError(t, meterProvider.Shutdown(context.Background()))
+	}()
+
+	counter, err := meterProvider.Meter("ld-relay").Int64Counter("test.counter")
+	require.NoError(t, err)
+	for i := range count {
+		counter.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.Int("index", i)))
+	}
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	require.Len(t, rm.ScopeMetrics, 1)
+	require.Len(t, rm.ScopeMetrics[0].Metrics, 1)
+
+	sum, ok := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	return sum
+}
+
+func hasOverflowDataPoint(sum metricdata.Sum[int64]) bool {
+	for _, dp := range sum.DataPoints {
+		if value, ok := dp.Attributes.Value(attribute.Key("otel.metric.overflow")); ok && value.AsBool() {
+			return true
+		}
+	}
+	return false
+}
+
+func TestConfiguredCardinalityLimitIsAppliedToTheMeterProvider(t *testing.T) {
+	otlpConfig := config.OpenTelemetryConfig{Enabled: true, MetricsCardinalityLimit: ct.NewOptInt(3)}
+
+	sum := recordDistinctAttributeSets(t, otlpConfig, 10)
+
+	// The SDK reserves one of the allotted series for the overflow data point, so a limit of 3
+	// yields two real series plus the overflow.
+	assert.Len(t, sum.DataPoints, 3)
+	assert.True(t, hasOverflowDataPoint(sum))
+}
+
+func TestCardinalityLimitOfZeroRemovesTheLimit(t *testing.T) {
+	otlpConfig := config.OpenTelemetryConfig{Enabled: true, MetricsCardinalityLimit: ct.NewOptInt(0)}
+
+	sum := recordDistinctAttributeSets(t, otlpConfig, 10)
+
+	assert.Len(t, sum.DataPoints, 10)
+	assert.False(t, hasOverflowDataPoint(sum))
+}
+
+// Leaving the setting undefined has to mean "pass no option", so that the SDK default and its own
+// OTEL_GO_X_CARDINALITY_LIMIT still decide the limit.
+func TestUnconfiguredCardinalityLimitAddsNoOption(t *testing.T) {
+	assert.Empty(t, cardinalityLimitOptions(config.OpenTelemetryConfig{Enabled: true}, slog.Default()))
 }
 
 func TestAddEnvironmentWithoutEventPublisher(t *testing.T) {

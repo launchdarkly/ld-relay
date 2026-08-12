@@ -20,7 +20,8 @@ var (
 	errMaxClientRequestBodySize        = errors.New("max client request body size must be greater than zero")
 	errAutoConfWithoutDBDisambig       = errors.New(`when using auto-configuration with database storage, database prefix (or,` +
 		` if using DynamoDB, table name) must be specified and must contain "` + AutoConfigEnvironmentIDPlaceholder + `"`)
-	errOTLPInvalidProtocol = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPInvalidProtocol          = errors.New(`OTLP protocol must be "grpc" or "http" (OTEL_EXPORTER_OTLP_PROTOCOL)`) //nolint:stylecheck
+	errOTLPNegativeCardinalityLimit = errors.New("metrics cardinality limit must not be negative; use 0 for no limit (OTEL_METRICS_CARDINALITY_LIMIT)")
 
 	errRedisURLWithHostAndPort                 = errors.New("please specify Redis URL or host/port, but not both")
 	errRedisBadHostname                        = errors.New("invalid Redis hostname")
@@ -326,6 +327,9 @@ func validateConfigMetrics(result *ct.ValidationResult, c *Config) {
 		protocol := strings.ToLower(c.OpenTelemetry.Protocol)
 		if protocol != "" && protocol != "grpc" && protocol != "http" {
 			result.AddError(nil, errOTLPInvalidProtocol)
+		}
+		if limit := c.OpenTelemetry.MetricsCardinalityLimit; limit.IsDefined() && limit.GetOrElse(0) < 0 {
+			result.AddError(nil, errOTLPNegativeCardinalityLimit)
 		}
 	}
 }
