@@ -498,16 +498,11 @@ func (s *StreamManager) dispatchEnvAction(id config.EnvironmentID, rep envfactor
 }
 
 // validateCredentialPayload checks that an environment rep carries a structurally valid credential
-// set. It is run at the stream parse boundary — before the rep's version is recorded via Upsert —
-// mirroring how an unparseable event is handled by gotMalformedEvent.
-//
-// A malformed credential payload must preserve the previous accepted set and force a
-// stream reconnect (RAC is one-way push with no NAK channel, so the reconnect is what makes the
-// backend resend a fresh put). Validating here rather than after Upsert is essential: the version is
-// not advanced, so the fresh put — which carries the same version — is not deduplicated away by the
-// MessageReceiver. Any error from BuildAcceptedSet is a *MalformedCredentialSetError.
+// set. It runs at the stream parse boundary, before the rep's version is recorded via Upsert: a
+// malformed payload must not advance the version, or the backend's fresh put — which carries the same
+// version — would be deduplicated away by the MessageReceiver.
 func (s *StreamManager) validateCredentialPayload(rep envfactory.EnvironmentRep) error {
-	_, err := envfactory.BuildAcceptedSet(rep.ToParams())
+	_, _, err := envfactory.BuildAcceptedSet(rep.ToParams())
 	return err
 }
 

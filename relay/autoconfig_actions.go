@@ -1,6 +1,10 @@
 package relay
 
 import (
+	"strings"
+
+	"github.com/launchdarkly/go-sdk-common/v3/ldlog"
+
 	"github.com/launchdarkly/ld-relay/v8/config"
 	"github.com/launchdarkly/ld-relay/v8/internal/envfactory"
 	"github.com/launchdarkly/ld-relay/v8/internal/sdkauth"
@@ -11,7 +15,19 @@ const (
 	logMsgAutoConfUpdateUnknownEnv        = "Got auto-configuration update for environment %q but did not have previous configuration - will add"
 	logMsgAutoConfDeleteUnknownEnv        = "Got auto-configuration delete message for environment %s but did not have previous configuration - ignoring"
 	logMsgAutoConfReceivedAllEnvironments = "Finished processing auto-configuration data"
+
+	logMsgViewScopedKeysRejected = "Environment %q: rejecting credentials scoped to a view: %s." +
+		" The Relay Proxy serves the entire environment payload and cannot filter it to a view," +
+		" so SDKs presenting these credentials will be denied."
 )
+
+// logViewScopedKeys reports the view-scoped credentials that BuildAcceptedSet filtered out of a
+// payload. This logs once per payload that actually reaches a handler.
+func logViewScopedKeys(loggers ldlog.Loggers, envName string, rejected []string) {
+	if len(rejected) > 0 {
+		loggers.Warnf(logMsgViewScopedKeysRejected, envName, strings.Join(rejected, ", "))
+	}
+}
 
 // relayAutoConfigActions is an implementation of the autoconfig.MessageHandler interface. The low-level
 // autoconfig.StreamManager component, which manages the configuration stream protocol, will call the
@@ -32,11 +48,12 @@ func (a *relayAutoConfigActions) AddEnvironment(params envfactory.EnvironmentPar
 		return
 	}
 
-	set, buildErr := envfactory.BuildAcceptedSet(params)
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
 		return
 	}
+	logViewScopedKeys(a.r.loggers, params.Identifiers.GetDisplayName(), rejected)
 	env.ReconcileCredentials(set)
 }
 
@@ -51,7 +68,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 	env.SetTTL(params.TTL)
 	env.SetSecureMode(params.SecureMode)
 
-	set, buildErr := envfactory.BuildAcceptedSet(params)
+	set, rejected, buildErr := envfactory.BuildAcceptedSet(params)
 	if buildErr != nil {
 		// Credential payloads are validated at the stream parse boundary (see StreamManager) before
 		// being dispatched here, so a malformed set should not reach this point. Log defensively and
@@ -59,6 +76,7 @@ func (a *relayAutoConfigActions) UpdateEnvironment(params envfactory.Environment
 		a.r.loggers.Errorf(logMsgAutoConfEnvInitError, params.Identifiers.GetDisplayName(), buildErr)
 		return
 	}
+	logViewScopedKeys(a.r.loggers, params.Identifiers.GetDisplayName(), rejected)
 	env.ReconcileCredentials(set)
 }
 
