@@ -414,7 +414,7 @@ func TestRecordEventsFailedSend(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsSendErrorsMeasureName)
+		m := findMetric(rm, eventsFailedMeasureName)
 		require.NotNil(t, m, "events send errors metric not found")
 
 		sum, ok := m.Data.(metricdata.Sum[int64])
@@ -448,7 +448,7 @@ func TestRecordEventsFailedSendWithNoResponse(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsSendErrorsMeasureName)
+		m := findMetric(rm, eventsFailedMeasureName)
 		require.NotNil(t, m, "events send errors metric not found")
 
 		sum, ok := m.Data.(metricdata.Sum[int64])
@@ -475,7 +475,7 @@ func TestRecordEventsFailedSendSkipsZeroCount(t *testing.T) {
 
 		rm, err := p.collectMetrics()
 		require.NoError(t, err)
-		m := findMetric(rm, eventsSendErrorsMeasureName)
+		m := findMetric(rm, eventsFailedMeasureName)
 		if m != nil {
 			sum, ok := m.Data.(metricdata.Sum[int64])
 			if ok {

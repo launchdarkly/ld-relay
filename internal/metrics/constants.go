@@ -12,14 +12,14 @@ import (
 
 const (
 	// Metric instrument names.
-	connMeasureName             = "http.server.active_requests"
-	requestDurationMeasureName  = "http.server.request.duration"
-	eventsReceivedMeasureName   = "launchdarkly.relay.events.received.size"
-	eventsSentMeasureName       = "launchdarkly.relay.events.sent"
-	eventsSentSizeMeasureName   = "launchdarkly.relay.events.sent.size"
-	eventsSendErrorsMeasureName = "launchdarkly.relay.events.send.errors"
-	eventsDroppedMeasureName    = "launchdarkly.relay.events.dropped"
-	eventsPendingMeasureName    = "launchdarkly.relay.events.pending"
+	connMeasureName            = "http.server.active_requests"
+	requestDurationMeasureName = "http.server.request.duration"
+	eventsReceivedMeasureName  = "launchdarkly.relay.events.received.size"
+	eventsSentMeasureName      = "launchdarkly.relay.events.sent"
+	eventsSentSizeMeasureName  = "launchdarkly.relay.events.sent.size"
+	eventsFailedMeasureName    = "launchdarkly.relay.events.failed"
+	eventsDroppedMeasureName   = "launchdarkly.relay.events.dropped"
+	eventsPendingMeasureName   = "launchdarkly.relay.events.pending"
 
 	defaultFlushInterval = time.Minute
 

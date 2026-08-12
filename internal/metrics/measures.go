@@ -90,8 +90,8 @@ func newInstruments(meter metric.Meter) (*Instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventsFailedSend, err := meter.Int64Counter(eventsSendErrorsMeasureName,
-		metric.WithDescription("Events that failed to send after all retries"),
+	eventsFailedSend, err := meter.Int64Counter(eventsFailedMeasureName,
+		metric.WithDescription("Events that could not be delivered after all retries"),
 		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, err

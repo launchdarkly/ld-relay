@@ -13,7 +13,7 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 | `launchdarkly.relay.events.received.size` | Counter | `By` | The cumulative number of event bytes received by the Relay Proxy (measured after decompression). |
 | `launchdarkly.relay.events.sent` | Counter | `{event}` | The cumulative number of events successfully sent to LaunchDarkly. |
 | `launchdarkly.relay.events.sent.size` | Counter | `By` | The cumulative bytes of event payloads successfully sent to LaunchDarkly. |
-| `launchdarkly.relay.events.send.errors` | Counter | `{event}` | The cumulative number of events that failed to send after all retries. |
+| `launchdarkly.relay.events.failed` | Counter | `{event}` | The cumulative number of events that could not be delivered after all retries. |
 | `launchdarkly.relay.events.dropped` | Counter | `{event}` | The cumulative number of events dropped due to capacity overflow. |
 | `launchdarkly.relay.events.pending` | Gauge | `{event}` | The current number of events buffered in the queue. |
 
@@ -54,11 +54,11 @@ Note that `launchdarkly.environment.name` is a *LaunchDarkly* environment, which
 with the OpenTelemetry `deployment.environment.name` attribute described under
 [Datadog](#datadog) below. The two are unrelated, and both can be set at once.
 
-The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.send.errors`,
+The event delivery metrics (`launchdarkly.relay.events.sent`, `.sent.size`, `.failed`,
 `.dropped`, `.pending`) are recorded outside any request, so they carry only
 `launchdarkly.environment.name`.
 
-Every measurement on `.send.errors` is a failure, so it always carries `error.type`. When the events
+Every measurement on `.failed` is a failure, so it always carries `error.type`. When the events
 service returned a response, `error.type` is that status code as a string and
 `http.response.status_code` carries it as a number. When the send failed before any response arrived
 -- a network error or a timeout -- `error.type` is `_OTHER` and no status code is reported.
