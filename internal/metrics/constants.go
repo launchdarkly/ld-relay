@@ -13,6 +13,7 @@ import (
 const (
 	// Metric instrument names.
 	connMeasureName            = "http.server.active_requests"
+	requestsMeasureName        = "launchdarkly.relay.requests"
 	requestDurationMeasureName = "http.server.request.duration"
 	eventsReceivedMeasureName  = "launchdarkly.relay.events.received.size"
 	eventsSentMeasureName      = "launchdarkly.relay.events.sent"

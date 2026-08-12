@@ -9,13 +9,36 @@ The Relay Proxy can export metrics via [OpenTelemetry Protocol (OTLP)](https://o
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
 | `http.server.active_requests` | UpDownCounter | `{request}` | The number of requests currently in flight, across every endpoint the Relay Proxy serves. Use the `launchdarkly.relay.endpoint.type` attribute to narrow this to a single kind of endpoint -- for example, filtering to `stream` gives the number of open SSE connections from SDKs. |
-| `http.server.request.duration` | Histogram | `s` | The duration of requests to the Relay Proxy's service endpoints, in seconds. |
+| `launchdarkly.relay.requests` | Counter | `{request}` | The cumulative number of requests the Relay Proxy has received since startup, across every endpoint it serves. Counted when the request starts, so a streaming request is counted when the connection is made rather than when it closes. |
+| `http.server.request.duration` | Histogram | `s` | The duration of requests to the Relay Proxy's service endpoints, in seconds. This is not recorded for streaming responses, whose lifetime is unbounded. |
 | `launchdarkly.relay.events.received.size` | Counter | `By` | The cumulative number of event bytes received by the Relay Proxy (measured after decompression). |
 | `launchdarkly.relay.events.sent` | Counter | `{event}` | The cumulative number of events successfully sent to LaunchDarkly. |
 | `launchdarkly.relay.events.sent.size` | Counter | `By` | The cumulative bytes of event payloads successfully sent to LaunchDarkly. |
 | `launchdarkly.relay.events.failed` | Counter | `{event}` | The cumulative number of events that could not be delivered after all retries. |
 | `launchdarkly.relay.events.dropped` | Counter | `{event}` | The cumulative number of events dropped due to capacity overflow. |
 | `launchdarkly.relay.events.pending` | Gauge | `{event}` | The current number of events buffered in the queue. |
+
+### Counting stream connections
+
+Version 8 exported two stream-specific metrics, `connections` and `newconnections`. Neither has a
+metric of its own now, because active requests and total requests are counted for every endpoint and
+the `launchdarkly.relay.endpoint.type` attribute says which kind of endpoint served the request.
+Filter that attribute to `stream` to get the same numbers:
+
+| Version 8 metric | Equivalent |
+|---|---|
+| `connections` | `http.server.active_requests` where `launchdarkly.relay.endpoint.type="stream"` |
+| `newconnections` | `launchdarkly.relay.requests` where `launchdarkly.relay.endpoint.type="stream"` |
+
+In Prometheus, the rate at which SDKs open stream connections is:
+
+```
+sum(rate(launchdarkly_relay_requests_total{launchdarkly_relay_endpoint_type="stream"}[5m]))
+```
+
+Version 8 reported these per SDK kind through a `platformCategory` tag. That attribute is no longer
+reported, so break the same query down by `http_route` instead -- the server-side, mobile, and
+client-side stream endpoints are separate routes.
 
 ## Resource attributes
 
@@ -33,8 +56,9 @@ Note that resource attributes are **not** copied onto every series. Prometheus r
 
 ## Request attributes
 
-The request metrics -- `http.server.active_requests`, `http.server.request.duration`, and
-`launchdarkly.relay.events.received.size` -- include the following:
+The request metrics -- `http.server.active_requests`, `launchdarkly.relay.requests`,
+`http.server.request.duration`, and `launchdarkly.relay.events.received.size` -- include the
+following:
 
 | Attribute | Description |
 |-----------|-------------|
@@ -47,8 +71,12 @@ The request metrics -- `http.server.active_requests`, `http.server.request.durat
 | `launchdarkly.application.version` | The application version, extracted from the `application-version` field of the `X-LaunchDarkly-Tags` header. |
 | `launchdarkly.relay.endpoint.type` | The kind of endpoint that served the request: `stream`, `poll`, `events`, `goals`, or `status`. Requests that matched no route report `not_provided`. |
 
-`http.server.request.duration` additionally carries `http.response.status_code`,
-`network.protocol.version`, and -- for a 5xx response -- `error.type`.
+`http.server.active_requests` and `launchdarkly.relay.requests` carry exactly the attributes above, so
+the two can be joined. Neither can report anything that is only known once the handler has finished,
+because both are recorded when the request starts: `http.server.active_requests` would leak a
+permanently non-zero series if its increment and decrement disagreed on the attributes.
+`http.server.request.duration` is recorded at the end of the request, so it additionally carries
+`http.response.status_code`, `network.protocol.version`, and -- for a 5xx response -- `error.type`.
 
 Note that `launchdarkly.environment.name` is a *LaunchDarkly* environment, which has nothing to do
 with the OpenTelemetry `deployment.environment.name` attribute described under
@@ -106,7 +134,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://<prometheus-host>:9090/api/v1/otlp/v1/metrics
 OTEL_EXPORTER_OTLP_PROTOCOL=http
 ```
 
-Prometheus converts OpenTelemetry metric names by replacing dots with underscores, so the metrics will appear as `http_server_active_requests`, `http_server_request_duration_seconds`, `launchdarkly_relay_events_received_size_total`, etc.
+Prometheus converts OpenTelemetry metric names by replacing dots with underscores, and appends `_total` to counters, so the metrics will appear as `http_server_active_requests`, `launchdarkly_relay_requests_total`, `http_server_request_duration_seconds`, `launchdarkly_relay_events_received_size_total`, etc.
 
 ### Datadog
 
