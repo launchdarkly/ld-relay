@@ -7,7 +7,7 @@ import (
 	"github.com/launchdarkly/ld-relay/v9/internal/util"
 
 	"github.com/gorilla/mux"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 )
 

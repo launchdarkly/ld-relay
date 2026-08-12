@@ -10,7 +10,7 @@ import (
 	"github.com/pborman/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 // relayIDAttrKey identifies the relay process. It is a resource attribute rather than a per-measurement
