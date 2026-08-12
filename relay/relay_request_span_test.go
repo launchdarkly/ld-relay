@@ -8,9 +8,9 @@ import (
 	c "github.com/launchdarkly/ld-relay/v9/config"
 	st "github.com/launchdarkly/ld-relay/v9/internal/sharedtest"
 
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -65,11 +65,15 @@ func TestRequestSpanReportsRequestHostAsServerAddress(t *testing.T) {
 func TestOtelmuxRecordsNoMetrics(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	previous := otel.GetMeterProvider()
 	otel.SetMeterProvider(provider)
 	t.Cleanup(func() {
 		_ = provider.Shutdown(context.Background())
-		// The global provider is process wide and cannot be restored, so leave a no-op behind.
-		otel.SetMeterProvider(metricnoop.NewMeterProvider())
+		// Restore the provider that was installed before, rather than leaving a hard no-op behind.
+		// otel.SetMeterProvider only rewires already-created instruments once per process, so a no-op
+		// left here can never be lit up again, and a later test asserting on global-provider metrics
+		// would silently observe nothing.
+		otel.SetMeterProvider(previous)
 	})
 
 	var config c.Config
@@ -86,10 +90,23 @@ func TestOtelmuxRecordsNoMetrics(t *testing.T) {
 		require.NoError(t, reader.Collect(context.Background(), &collected))
 
 		for _, scope := range collected.ScopeMetrics {
+			// Only otelmux's own instruments are in question. Anything else reaching this provider is
+			// a different subject, and failing on it here would report the wrong component.
+			if scope.Scope.Name != otelmux.ScopeName {
+				continue
+			}
 			for _, m := range scope.Metrics {
 				assert.Fail(t, "otelmux recorded a metric through the global meter provider",
 					"scope %q reported %q", scope.Scope.Name, m.Name)
 			}
 		}
+
+		// A canary proves the reader is wired up and would have seen a metric if one had been
+		// recorded, so the assertion above cannot pass merely because nothing was collected.
+		counter, err := provider.Meter("canary").Int64Counter("canary.requests")
+		require.NoError(t, err)
+		counter.Add(context.Background(), 1)
+		require.NoError(t, reader.Collect(context.Background(), &collected))
+		require.NotEmpty(t, collected.ScopeMetrics, "the manual reader collected nothing at all")
 	})
 }
