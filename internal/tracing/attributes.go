@@ -31,13 +31,17 @@ const (
 	// SDKKindKey reports the category of SDK that made the request. It describes the caller rather
 	// than Relay itself, so it sits beside the other LaunchDarkly attributes rather than under
 	// launchdarkly.relay.
-	SDKKindKey       = attribute.Key("launchdarkly.sdk.kind")
-	AuthResultKey    = attribute.Key("launchdarkly.relay.auth.result")
-	FlagCountKey     = attribute.Key("relay.flags.count")
-	EventsKindKey    = attribute.Key("launchdarkly.relay.events.kind")
-	StoreKeyKey      = attribute.Key("launchdarkly.relay.store.key")
-	PayloadEventsKey = attribute.Key("relay.payload.events")
-	PayloadBytesKey  = attribute.Key("relay.payload.bytes")
+	SDKKindKey    = attribute.Key("launchdarkly.sdk.kind")
+	AuthResultKey = attribute.Key("launchdarkly.relay.auth.result")
+	EventsKindKey = attribute.Key("launchdarkly.relay.events.kind")
+	StoreKeyKey   = attribute.Key("launchdarkly.relay.store.key")
+
+	// FlagCountKey, PayloadEventCountKey and PayloadSizeKey report how much a payload contained.
+	// Quantities follow one shape: a count of something ends in .count, and a size in bytes ends in
+	// .size, with the unit left out of the name.
+	FlagCountKey         = attribute.Key("launchdarkly.relay.flag.count")
+	PayloadEventCountKey = attribute.Key("launchdarkly.relay.payload.event.count")
+	PayloadSizeKey       = attribute.Key("launchdarkly.relay.payload.size")
 
 	// SingleflightSharedKey reports, on the request span of a polling request or an SSE
 	// replay, whether the payload build was shared with concurrent requests through a flight

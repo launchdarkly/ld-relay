@@ -18,11 +18,11 @@ func TestSpanAttributeKeyNames(t *testing.T) {
 	expected := map[attribute.Key]string{
 		SDKKindKey:            "launchdarkly.sdk.kind",
 		AuthResultKey:         "launchdarkly.relay.auth.result",
-		FlagCountKey:          "relay.flags.count",
 		EventsKindKey:         "launchdarkly.relay.events.kind",
 		StoreKeyKey:           "launchdarkly.relay.store.key",
-		PayloadEventsKey:      "relay.payload.events",
-		PayloadBytesKey:       "relay.payload.bytes",
+		FlagCountKey:          "launchdarkly.relay.flag.count",
+		PayloadEventCountKey:  "launchdarkly.relay.payload.event.count",
+		PayloadSizeKey:        "launchdarkly.relay.payload.size",
 		SingleflightSharedKey: "launchdarkly.relay.singleflight.shared",
 		SingleflightWaitMSKey: "relay.singleflight.wait_ms",
 	}

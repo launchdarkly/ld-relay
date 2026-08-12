@@ -343,8 +343,8 @@ func buildServerSidePollPayload(
 		return pollResult{}, err
 	}
 	span.SetAttributes(
-		tracing.PayloadEventsKey.Int(eventCount),
-		tracing.PayloadBytesKey.Int(len(data)),
+		tracing.PayloadEventCountKey.Int(eventCount),
+		tracing.PayloadSizeKey.Int(len(data)),
 	)
 	return pollResult{data: data, etag: selector.State()}, nil
 }
@@ -483,8 +483,8 @@ func pollEvalHandlerV2Shared(w http.ResponseWriter, req *http.Request, maxBodySi
 			return nil, false
 		}
 		span.SetAttributes(
-			tracing.PayloadEventsKey.Int(eventCount),
-			tracing.PayloadBytesKey.Int(len(data)),
+			tracing.PayloadEventCountKey.Int(eventCount),
+			tracing.PayloadSizeKey.Int(len(data)),
 		)
 		return data, true
 	}()
@@ -551,7 +551,7 @@ func buildAllFlagsPayload(ctx context.Context, tr trace.Tracer, env relayenv.Env
 	etag := hex.EncodeToString(hash.Sum(nil))[:15]
 	span.SetAttributes(
 		tracing.FlagCountKey.Int(flagCount),
-		tracing.PayloadBytesKey.Int(len(respData)),
+		tracing.PayloadSizeKey.Int(len(respData)),
 	)
 	return pollResult{data: respData, etag: etag}, nil
 }
@@ -765,7 +765,7 @@ func evaluateAllShared(w http.ResponseWriter, req *http.Request, sdkKind basicty
 		data := responseWriter.Bytes()
 		span.SetAttributes(
 			tracing.FlagCountKey.Int(len(evalResults)),
-			tracing.PayloadBytesKey.Int(len(data)),
+			tracing.PayloadSizeKey.Int(len(data)),
 		)
 		return data
 	}()
@@ -812,7 +812,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 				w.WriteHeader(http.StatusInternalServerError)
 				return nil, false
 			}
-			span.SetAttributes(tracing.PayloadBytesKey.Int(len(data)))
+			span.SetAttributes(tracing.PayloadSizeKey.Int(len(data)))
 			return data, true
 		}()
 		if !ok {
@@ -832,7 +832,7 @@ func pollFlagOrSegment(clientContext relayenv.EnvContext, kind ldstoretypes.Data
 // disconnected, a body that was truncated -- cannot change the status code the request span
 // reports, so this span is the only place such a failure surfaces.
 //
-// The span deliberately carries no byte count. relay.payload.bytes on the serialize span
+// The span deliberately carries no byte count. launchdarkly.relay.payload.size on the serialize span
 // reports what was built, and http.response.body.size on the request span reports what
 // actually went out; the latter is counted outside the compression middleware, which is the
 // only place the wire size is observable. A count taken here could only ever repeat the
